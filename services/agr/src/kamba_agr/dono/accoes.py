@@ -32,9 +32,11 @@ construcao e nao por uma lista de palavras. O prefixo e o do
 `tls/contexto.py`, o mesmo do carrinho e da marcacao: um segundo literal era
 uma segunda fonte para o mesmo contrato.
 
-**Hoje nenhum `id` de botao chega ao AGR** (o `estado_inicial` nasce com
-`messages: []`, decisao do KAM-186). O portao entrega-se e ensaia-se; ligar o
-botao ao turno e do KAM-211.
+**O botao chega ao turno pelo `agent_invocation.botao`** (KAM-211): o CHR
+copia o `reply.id` de uma resposta interactiva, o `estado_inicial` poe-no no
+`botao` do estado, e o no `confirm` do grafo do dono chama o `confirmar` pela
+`PortaDeConfirmacao` deste modulo. Um texto nao tem `botao`, e por isso nao
+chega aqui.
 
 ## O `tenant_id` vem do contexto, e vai nas duas barreiras
 
@@ -52,8 +54,10 @@ de uma proposta), e o telefone nem sequer passa por aqui — o contacto e um
 
 from __future__ import annotations
 
+import asyncio
 import datetime
 import re
+from collections.abc import Callable
 from typing import Any, Final
 
 from kamba_core import tenant_guard
@@ -284,3 +288,48 @@ __all__ = [
     "confirmar",
     "propor",
 ]
+
+
+class PortaDeConfirmacao:
+    """A porta `accoes_do_dono` das `Dependencias` (KAM-211, criterio «Botao»).
+
+    O no `confirm` do grafo do dono e `async`, e o `confirmar` corre com o
+    driver sincrono da casa: vai a um *executor*, pela razao da nota 3 do
+    `conversa.py`. **Uma ligacao por confirmacao**, aberta e fechada aqui, pela
+    razao do `leitor_de_contacto`: a confirmacao e rara, e uma tomada guardada
+    pedia um trinco para nada. O papel e o `kamba_app` (a ligacao de leitura do
+    processo), que e o que a `0070` concede na `owner_actions`.
+
+    O `tenant_id` e o `contact_id` sao os do **estado do turno** — da invocacao,
+    e nunca do botao: o botao so leva o `action_id`, e e o `confirmar` que exige
+    que a accao seja deste contacto e deste tenant.
+    """
+
+    __slots__ = ("_abrir", "_relogio")
+
+    def __init__(
+        self,
+        abrir_ligacao: Callable[[], Any],
+        relogio: Callable[[], datetime.datetime] | None = None,
+    ) -> None:
+        self._abrir = abrir_ligacao
+        self._relogio = relogio or (lambda: datetime.datetime.now(datetime.UTC))
+
+    def _confirmar(self, tenant_id: str, contact_id: str, botao: object) -> str:
+        # Sem forma de botao nao se abre ligacao nenhuma: o `confirmar` diria
+        # `nao_e_botao` sem tocar na base, e abrir uma tomada para isso era
+        # pagar a base por um texto.
+        if accao_do_botao(botao) is None:
+            return NAO_E_BOTAO
+        ligacao = self._abrir()
+        try:
+            return confirmar(ligacao, tenant_id, contact_id, botao, self._relogio())
+        finally:
+            try:
+                ligacao.close()
+            except Exception:  # noqa: BLE001 — a confirmacao ja aconteceu
+                pass
+
+    async def confirmar(self, tenant_id: str, contact_id: str, botao: object) -> str:
+        """O desfecho da confirmacao, um dos `DESFECHOS`."""
+        return await asyncio.to_thread(self._confirmar, tenant_id, contact_id, botao)

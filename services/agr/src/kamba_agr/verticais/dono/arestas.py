@@ -52,18 +52,21 @@ VERSAO_DO_GRAFO: Final = "1.0.0"
 FONTE_DO_ESQUELETO: Final = "02 §7.3 (esqueleto reutilizado)"
 #: As saidas do `classify` do dono: o §21 nao desenha o grafo.
 FONTE_DO_DONO: Final = "KAM-118"
+#: O botao `confirm:{action_id}` ate ao `confirmar` (KAM-211, criterio «Botao»).
+FONTE_DO_BOTAO: Final = "KAM-211"
 #: As quatro do concierge: os nos do KAM-114, pelo ADR-L005.
 FONTE_DO_CONCIERGE: Final = "KAM-114 (ADR-L005)"
 
 #: O piso do criterio 10 do KAM-118: reutilizados / total.
 REAPROVEITAMENTO_MINIMO: Final = 0.70
 
-#: Os dezasseis nos. Lista **fechada**.
+#: Os dezassete nos. Lista **fechada**. O `confirm` e do KAM-211.
 NOS: Final = (
     "ingest",
     "stt",
     "guard_in",
     "classify",
+    "confirm",
     "tools_info",
     "compose",
     "validate",
@@ -102,8 +105,12 @@ NOS_REUTILIZADOS: Final = (
 #:              quatro tools sao do KAM-119 e a ToolLayer recusa-as hoje;
 #: `info_loja`  horario, morada — a `get_store_info`, a unica ligada;
 #: `humano`     falar com uma pessoa;
+#: `confirmar`  o botao `confirm:{action_id}` de uma accao sensivel (KAM-211).
+#:              Vai ao `confirm`, que chama o `confirmar` do `dono/accoes.py`.
+#:              **So o botao a decide**, e nunca uma palavra: nao ha regra de
+#:              texto que de esta intencao;
 #: `outro`      tudo o resto, ao `safe_reply`.
-INTENCOES: Final = ("modulos", "info_loja", "humano", "outro")
+INTENCOES: Final = ("modulos", "info_loja", "humano", "confirmar", "outro")
 
 
 #: As arestas, pela ordem do esqueleto.
@@ -122,6 +129,8 @@ ARESTAS: Final = (
     Aresta(12, "classify", "tools_info", "info", "horario e morada", fonte=FONTE_DO_DONO),
     Aresta(13, "classify", "handoff_prepare", "human", "pedir humano", fonte=FONTE_DO_DONO),
     Aresta(14, "classify", "safe_reply", "other", "outro", fonte=FONTE_DO_DONO),
+    Aresta(33, "classify", "confirm", "confirm", "botao confirm:{action_id}", fonte=FONTE_DO_BOTAO),
+    Aresta(34, "confirm", "send", None, "sempre (texto estatico)", fonte=FONTE_DO_BOTAO),
     Aresta(15, "tools_info", "compose", None, "sempre", fonte=FONTE_DO_ESQUELETO),
     Aresta(16, "compose", "validate", None, "sempre", fonte=FONTE_DO_ESQUELETO),
     Aresta(17, "validate", "guard_out", "ok", "conferido", fonte=FONTE_DO_ESQUELETO),

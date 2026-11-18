@@ -96,8 +96,12 @@ CHAVES_DO_521 = (
     "degradado",
     # KAM-118. A `persona` da invocacao, pela razao do `concierge`: **nao esta
     # no bloco do §5.3**; vem do campo aditivo do `agent_invocation` e do
-    # dicionario, e e o que a `da_thread` le do *checkpoint*.
+    # dicionario. Desde o KAM-211 a `da_thread` ja nao a le do *checkpoint*: a
+    # retoma decide pelo papel de agora.
     "persona",
+    # KAM-211. O `botao` da invocacao, pela mesma razao: o `reply.id` de uma
+    # resposta interactiva, **do turno**, e o que o no `confirm` do dono le.
+    "botao",
 )
 
 

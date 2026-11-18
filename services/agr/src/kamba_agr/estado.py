@@ -121,6 +121,12 @@ def estado_inicial(invocacao: InvocacaoDoAgente) -> dict[str, Any]:
         "turn_id": invocacao.turn_id,
         "thread_id": invocacao.thread_id,
         "input_kind": tipo_de_entrada(invocacao.type),
+        # KAM-211. O `reply.id` de uma resposta interactiva, **do turno**: nasce
+        # aqui em cada turno, como o `concierge`, e por isso um botao de um turno
+        # anterior nao vale no seguinte — um texto depois de um toque nao herda o
+        # toque. Nao entra na janela `messages`: e um identificador que nos
+        # emitimos, e nao texto do cliente (a nota do `guard_in`).
+        "botao": invocacao.botao,
         "messages": [],
         "summary": None,
         "stt": None,
@@ -344,6 +350,9 @@ class ConversaState(TypedDict, total=False):
     turn_id: str
     thread_id: str
     input_kind: str
+    #: KAM-211. O `reply.id` da resposta interactiva deste turno, ou `None`.
+    #: Ver o `estado_inicial`.
+    botao: str | None
     messages: Annotated[list[Any], add_messages]
     summary: str | None
     stt: dict[str, Any] | None

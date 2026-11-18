@@ -55,7 +55,12 @@ import importlib
 from collections.abc import Awaitable, Callable, Mapping
 from typing import Any, Final
 
-from .contexto import InvocacaoDoAgente, chave_do_registo
+from .contexto import (
+    PERSONA_CLIENTE,
+    PERSONA_DONO,
+    InvocacaoDoAgente,
+    chave_do_registo,
+)
 from .turno import (
     Grafo,
     GrafoNaoRegistadoError,
@@ -212,7 +217,14 @@ class _GrafoDoTurno:
 class PortaDeGrafos:
     """As tres portas `grafos`: a do turno e as duas por `thread_id`."""
 
-    __slots__ = ("_registo", "_grafos", "_checkpointer", "_bloqueado", "_politica")
+    __slots__ = (
+        "_registo",
+        "_grafos",
+        "_checkpointer",
+        "_bloqueado",
+        "_papel",
+        "_politica",
+    )
 
     def __init__(
         self,
@@ -221,12 +233,14 @@ class PortaDeGrafos:
         grafos: Mapping[str, Grafo],
         checkpointer: Any,
         contacto_bloqueado: Callable[[InvocacaoDoAgente], Awaitable[bool]],
+        papel_do_contacto: Callable[[str, str], Awaitable[object]],
         politica: PoliticaDoTurno | None = None,
     ) -> None:
         self._registo = registo
         self._grafos = dict(grafos)
         self._checkpointer = checkpointer
         self._bloqueado = contacto_bloqueado
+        self._papel = papel_do_contacto
         self._politica = politica
 
     def _grafo(self, vertical: object) -> Grafo:
@@ -270,26 +284,42 @@ class PortaDeGrafos:
         return None
 
     async def da_thread(self, thread_id: str) -> Grafo:
-        """A porta do `Retomador` e do `Decisor`: a vertical do *checkpoint*.
+        """A porta do `Retomador` e do `Decisor`: a vertical do *checkpoint* e o
+        papel **actual** do contacto.
 
-        Sem *checkpoint*, ou com uma vertical que o registo nao tem, levanta
-        `GrafoNaoRegistadoError` — que a rota traduz em 503 **sem escrever
-        nada**, porque quem chama resolve o grafo antes do CAS.
+        Sem *checkpoint*, com um `thread_id` que nao e `tenant:contacto`, ou com
+        uma vertical que o registo nao tem, levanta `GrafoNaoRegistadoError` —
+        que a rota traduz em 503 **sem escrever nada**, porque quem chama
+        resolve o grafo antes do CAS. Uma leitura do papel que falha tambem
+        sobe, antes do CAS, pela mesma razao.
 
-        **A chave e a do turno que interrompeu, e nao so a vertical** (KAM-118):
-        um *handoff* aberto pelo Assistente do Dono tem `persona: dono` no
-        *checkpoint*, e retoma-lo pela `vertical` do canal acordava o grafo do
-        Vendedor sobre o estado do outro. Um *checkpoint* anterior ao campo nao o
-        tem, e a `chave_do_registo` da-lhe a vertical — que e o que ele era.
+        **A persona e a do papel de agora, e nao a do *checkpoint*** (KAM-211,
+        «Retoma»; achado 4 da revisao do KAM-118). O *checkpoint* guarda a
+        persona do turno que interrompeu, e depois de uma troca de telefone o
+        dono antigo e `cliente`: retomar o *handoff* dele no grafo do dono dava
+        as tools do dono a quem ja nao o e, que e uma escalada de privilegio no
+        dia em que o KAM-119 ligar tools de escrita. Por isso a persona le-se da
+        base, como o CHR a le em cada turno (`SQL_PAPEL` do `chr/consultas.ts`),
+        e a do *checkpoint* nao entra. **Lista de permitidos**: so o papel
+        exacto `dono` da o grafo do dono; `None` (contacto apagado, fundido ou
+        que a RLS nao deixa ver) e qualquer outro valor dao `cliente`.
+
+        A vertical continua a do *checkpoint*: e a do canal, e nao muda com o
+        papel. Um *checkpoint* anterior ao campo da a vertical, que e o que ele
+        era.
         """
         tupla = await self._checkpointer.aget_tuple(
             {"configurable": {"thread_id": thread_id, "checkpoint_ns": ""}}
         )
-        valores = {} if tupla is None else tupla.checkpoint.get("channel_values", {})
-        return self._grafo(
-            chave_do_registo(valores.get("persona"), valores.get("vertical"))
-        )
-
+        if tupla is None:
+            raise GrafoNaoRegistadoError("grafo_nao_registado")
+        valores = tupla.checkpoint.get("channel_values", {})
+        tenant_id, separador, contact_id = thread_id.partition(":")
+        if not separador or not tenant_id or not contact_id or ":" in contact_id:
+            raise GrafoNaoRegistadoError("grafo_nao_registado")
+        papel = await self._papel(tenant_id, contact_id)
+        persona = PERSONA_DONO if papel == PERSONA_DONO else PERSONA_CLIENTE
+        return self._grafo(chave_do_registo(persona, valores.get("vertical")))
 
 class SaidaPorLigar:
     """A `PortaDeSaida` do grafo, por ligar: **nao ha Outbound a que o AGR fale**.
