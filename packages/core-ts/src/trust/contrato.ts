@@ -139,13 +139,17 @@ export interface RepositorioDeTrust {
 }
 
 /**
- * O estado do tenant, para as duas transições desta escada que mudam o estado.
- * A base só tem um escritor, o `kamba_batch` (`0007`); `transitar` é um CAS:
- * muda só se o estado actual é um dos `de`.
+ * O estado do tenant, para as três transições desta escada que mudam o estado
+ * (`suspenso`, `encerrado` e o regresso a `ativo`). `transitar` é um CAS: muda
+ * só se o estado actual é um dos `de`. O adaptador SQL passa pela porta do
+ * KAM-092 (`platform.transition_tenant`), que escreve o `tenant_state_log`, e
+ * emite o `tenant.suspended`, o `tenant.closed` ou o `tenant.reactivated` na
+ * mesma transacção (KAM-200, critério 8). `actor` é quem decidiu: o
+ * `revisor.id` ou o `sistema:<versão da política>`.
  */
 export interface EstadoDosTenants {
   estado(tenantId: string): Promise<string | null>;
-  transitar(tenantId: string, de: readonly string[], para: string): Promise<boolean>;
+  transitar(tenantId: string, de: readonly string[], para: string, actor: string): Promise<boolean>;
 }
 
 /** O aviso ao dono de um passo ou de um recurso. Nunca leva a heurística. */

@@ -449,6 +449,10 @@ CONSTANTES = (
     ("SQL_COMPRADORES_PAGOS", "kamba_app", (_U,)),
     ("SQL_NAO_ENTREGUES", "kamba_batch", (AGORA,)),
     ("SQL_FOTOS_REPETIDAS", "kamba_batch", ()),
+    # KAM-200: a transicao pela porta e a varredura das mudancas de conta.
+    ("SQL_TRUST_DE_ONDE_VEIO", "kamba_batch", (_U,)),
+    ("SQL_TRUST_SUSPENSAO_E_DO_TRUST", "kamba_batch", (_U, "decisao_ts")),
+    ("SQL_MUDANCAS_DE_CONTA_SEM_CASO", "kamba_batch", ()),
 )
 
 
@@ -479,16 +483,65 @@ class TestConsultas(Base):
         self.cursor.execute(q.sql, q.args(self.tenant))
         self.assertEqual({str(c) for (c,) in self.cursor.fetchall()}, {dono, absorvido})
 
-    def test_o_cas_do_estado_do_tenant_so_muda_de_onde_se_pede(self) -> None:
-        self.como("kamba_batch")
-        q = ConsultaDoTypeScript("SQL_TRANSITAR_TENANT", SQL_TS)
-        self.cursor.execute(q.sql, q.args(self.tenant, ["ativo", "restrito"], "suspenso"))
-        self.assertEqual(list(self.cursor.fetchall()), [], "um tenant em onboarding nao se suspende")
-        self.cursor.execute(q.sql, q.args(self.tenant, ["onboarding"], "suspenso"))
-        self.assertEqual(len(self.cursor.fetchall()), 1)
+    def test_a_transicao_passa_pela_porta_com_registo_e_evento(self) -> None:
+        """KAM-200, criterio 8: o SQL do `EstadoDosTenantsSql`, pela ordem dele."""
+        _activar(self.cursor, self.tenant)
+        self.como("kamba_batch", self.tenant)
+        porta = ConsultaDoTypeScript("SQL_TRUST_TRANSITAR", SQL_TS)
+        self.cursor.execute(porta.sql, porta.args(self.tenant, "suspenso", "decisao_ts", "rev-1"))
+        self.assertIs(self.cursor.fetchone()[0], True)
+        veio = ConsultaDoTypeScript("SQL_TRUST_DE_ONDE_VEIO", SQL_TS)
+        self.cursor.execute(veio.sql, veio.args(self.tenant))
+        self.assertEqual(self.cursor.fetchone()[0], "ativo")
+        emitir = ConsultaDoTypeScript("SQL_TRUST_EMITIR", SQL_TS)
+        self.cursor.execute(emitir.sql, emitir.args(
+            "tenant.suspended", self.tenant, json.dumps({"motivo": "decisao_ts"})))
+        self.cursor.execute(
+            "SELECT tipo, envelope -> 'payload' ->> 'motivo' FROM platform.events_outbox "
+            "WHERE tenant_id = %s AND tipo LIKE 'tenant.%%'", (self.tenant,))
+        self.assertEqual([tuple(l) for l in self.cursor.fetchall()],
+                         [("tenant.suspended", "decisao_ts")])
+        self.cursor.execute(
+            "SELECT de, para, motivo, actor FROM platform.tenant_state_log WHERE tenant_id = %s",
+            (self.tenant,))
+        self.assertEqual([tuple(l) for l in self.cursor.fetchall()],
+                         [("ativo", "suspenso", "decisao_ts", "rev-1")])
+        do_trust = ConsultaDoTypeScript("SQL_TRUST_SUSPENSAO_E_DO_TRUST", SQL_TS)
+        self.cursor.execute(do_trust.sql, do_trust.args(self.tenant, "decisao_ts"))
+        self.assertIs(self.cursor.fetchone()[0], True)
+        # A porta repetida devolve `false` e nao regista nada.
+        self.cursor.execute(porta.sql, porta.args(self.tenant, "suspenso", "decisao_ts", "rev-1"))
+        self.assertIs(self.cursor.fetchone()[0], False)
+        # E o `kamba_app` nao tem a porta.
         self.como("kamba_app", self.tenant)
-        self.assertErroSql(PRIVILEGIO_INSUFICIENTE, self.cursor, q.sql,
-                           q.args(self.tenant, ["suspenso"], "ativo"))
+        self.assertErroSql(PRIVILEGIO_INSUFICIENTE, self.cursor, porta.sql,
+                           porta.args(self.tenant, "ativo", "decisao_ts_recurso_provido", "rev"))
+
+    def test_a_suspensao_da_regua_nao_e_de_trust(self) -> None:
+        _activar(self.cursor, self.tenant)
+        self.como("kamba_batch", self.tenant)
+        self.cursor.execute(
+            "SELECT platform.transition_tenant(%s, 'suspenso', 'regua_de_cobranca', 'regua')",
+            (self.tenant,))
+        q = ConsultaDoTypeScript("SQL_TRUST_SUSPENSAO_E_DO_TRUST", SQL_TS)
+        self.cursor.execute(q.sql, q.args(self.tenant, "decisao_ts"))
+        self.assertIs(self.cursor.fetchone()[0], False)
+        # Sem linha nenhuma (escrita por fora da porta), nao se sabe de quem e:
+        # falha fechado, e o recurso de T&S nao a levanta.
+        self.cursor.execute(q.sql, q.args(str(uuid.uuid4()), "decisao_ts"))
+        self.assertIs(self.cursor.fetchone()[0], False)
+
+    def test_a_suspensao_de_ts_vinda_de_restrito_nao_volta_a_ativo(self) -> None:
+        """Achado 1 da revisao adversarial: voltar a `ativo` apagava a restricao da Meta."""
+        _activar(self.cursor, self.tenant)
+        self.como("kamba_batch", self.tenant)
+        self.cursor.execute("SELECT platform.transition_tenant(%s, 'restrito', 'meta_quality', 'meta')",
+                            (self.tenant,))
+        self.cursor.execute("SELECT platform.transition_tenant(%s, 'suspenso', 'decisao_ts', 'rev')",
+                            (self.tenant,))
+        q = ConsultaDoTypeScript("SQL_TRUST_SUSPENSAO_E_DO_TRUST", SQL_TS)
+        self.cursor.execute(q.sql, q.args(self.tenant, "decisao_ts"))
+        self.assertIs(self.cursor.fetchone()[0], False)
 
     def test_a_independencia_e_fail_closed(self) -> None:
         pedido = str(uuid.uuid4())
@@ -503,6 +556,8 @@ class TestConsultas(Base):
     def test_os_encerramentos_por_fechar_sao_os_sem_recurso_e_com_caso_decidido(self) -> None:
         caso = _caso(self.cursor, self.tenant)
         self.cursor.execute("UPDATE platform.review_case SET estado = 'decidido' WHERE id = %s", (caso,))
+        # O tenant suspenso: um ja encerrado sai da lista (achado 4 da revisao do KAM-200).
+        self.cursor.execute("UPDATE platform.tenants SET estado = 'suspenso' WHERE id = %s", (self.tenant,))
         self.como("kamba_batch")
         self.cursor.execute(*self.sancao(origem="humana", passo="encerramento", case_id=caso,
                                          autor=str(uuid.uuid4()), chave=f"caso:{caso}",
@@ -512,6 +567,203 @@ class TestConsultas(Base):
         self.assertEqual(len([l for l in self.cursor.fetchall() if str(l[1]) == self.tenant]), 1)
         self.cursor.execute(q.sql, q.args(datetime.now(timezone.utc) - timedelta(days=1)))
         self.assertEqual([l for l in self.cursor.fetchall() if str(l[1]) == self.tenant], [])
+        # Ja encerrado, sai da lista: nao ocupa a cabeca do LIMIT para sempre.
+        self.como(None, self.tenant)
+        self.cursor.execute("UPDATE platform.tenants SET estado = 'encerrado' WHERE id = %s", (self.tenant,))
+        self.como("kamba_batch")
+        self.cursor.execute(q.sql, q.args(datetime.now(timezone.utc) + timedelta(days=1)))
+        self.assertEqual([l for l in self.cursor.fetchall() if str(l[1]) == self.tenant], [])
+
+
+def _activar(cursor, tenant: str) -> None:
+    """O tenant em `ativo` pelo caminho da base: os aceites vigentes e o `UPDATE`
+    que o *trigger* da `0040` aceita, e que escreve a `primeira_activacao_at`."""
+    cursor.execute("RESET ROLE")
+    factories.contexto(cursor, tenant)
+    factories.aceitar_contratos_vigentes(cursor, tenant)
+    cursor.execute("UPDATE platform.tenants SET estado = 'ativo' WHERE id = %s", (tenant,))
+
+
+_CONTAS = [0]
+
+
+def _conta_da_pme(cursor, tenant: str, **campos) -> str:
+    """Uma conta de pagamento de PME, como o `kamba_batch` a escreve (`0027`)."""
+    _CONTAS[0] += 1
+    valores = {
+        "beneficiary_kind": "pme",
+        "tenant_id": tenant,
+        "provider": "fake",
+        "webhook_token": f"ts{_CONTAS[0]}",
+        "estado": "nao_iniciado",
+    }
+    valores.update(campos)
+    cursor.execute(
+        f"INSERT INTO platform.payment_accounts ({', '.join(valores)}) "
+        f"VALUES ({', '.join(['%s'] * len(valores))}) RETURNING id::text",
+        tuple(valores.values()),
+    )
+    return cursor.fetchone()[0]
+
+
+class TestMudancaDeConta(Base):
+    """KAM-200, criterio 5: os *triggers* da `0067`, pelo caminho real de escrita.
+
+    O NIF escreve-o o `kamba_app` (`0001`); a conta de pagamento, o `kamba_batch`
+    (`0027`). Antes da activacao nenhum dos dois e sinal; depois, cada mudanca e
+    um `mudanca_de_conta` alto, e uma escrita que nao muda nada nao e.
+    """
+
+    def sinais(self, tenant: str | None = None) -> list[tuple]:
+        self.como(None, tenant or self.tenant)
+        self.cursor.execute(
+            "SELECT tipo, severidade FROM platform.ts_signal WHERE tenant_id = %s "
+            "AND tipo = 'mudanca_de_conta'", (tenant or self.tenant,))
+        return [tuple(l) for l in self.cursor.fetchall()]
+
+    def nif(self, valor: str) -> None:
+        self.como("kamba_app", self.tenant)
+        self.cursor.execute("UPDATE platform.tenants SET nif = %s WHERE id = %s", (valor, self.tenant))
+
+    def test_o_nif_antes_da_activacao_nao_e_sinal_e_depois_e(self) -> None:
+        self.nif("5000000001")
+        self.assertEqual(self.sinais(), [], "o onboarding escreve o NIF, e isso nao e sinal")
+        _activar(self.cursor, self.tenant)
+        self.nif("5000000002")
+        self.assertEqual(self.sinais(), [("mudanca_de_conta", "alta")])
+        self.nif("5000000002")
+        self.assertEqual(len(self.sinais()), 1, "o mesmo NIF nao muda nada")
+
+    def test_a_conta_da_pme_depois_da_activacao_e_sinal(self) -> None:
+        self.como("kamba_batch")
+        conta = _conta_da_pme(self.cursor, self.tenant)
+        self.assertEqual(self.sinais(), [], "a conta configurada no onboarding nao e sinal")
+        _activar(self.cursor, self.tenant)
+        self.como("kamba_batch")
+        self.cursor.execute(
+            "UPDATE platform.payment_accounts SET estado = 'docs_recolhidos' WHERE id = %s", (conta,))
+        self.assertEqual(self.sinais(), [], "o estado da conta nao e o destino do dinheiro")
+        self.como("kamba_batch")
+        self.cursor.execute("UPDATE platform.payment_accounts SET iec = 'iec-2' WHERE id = %s", (conta,))
+        self.assertEqual(len(self.sinais()), 1)
+        self.como("kamba_batch")
+        _conta_da_pme(self.cursor, self.tenant)
+        self.assertEqual(len(self.sinais()), 2, "uma conta nova depois da activacao e sinal")
+
+    def test_o_contexto_de_quem_escreve_volta_ao_que_era(self) -> None:
+        _activar(self.cursor, self.tenant)
+        self.como("kamba_batch")
+        self.cursor.execute("SELECT set_config('app.tenant_id', '', true)")
+        _conta_da_pme(self.cursor, self.tenant, iec="iec-1")
+        self.cursor.execute("SELECT coalesce(current_setting('app.tenant_id', true), '')")
+        self.assertEqual(self.cursor.fetchone()[0], "",
+                         "o trigger deixou o lote no contexto de um tenant")
+        self.assertEqual(len(self.sinais()), 1)
+
+    def test_a_conta_da_plataforma_nao_e_sinal_de_tenant(self) -> None:
+        self.como("kamba_batch")
+        self.cursor.execute(
+            "INSERT INTO platform.payment_accounts "
+            "(beneficiary_kind, tenant_id, provider, webhook_token, estado) "
+            "VALUES ('plataforma_receita_propria', NULL, 'fake', %s, 'nao_iniciado')",
+            (f"tsp{uuid.uuid4().hex[:6]}",))
+        self.cursor.execute("SELECT count(*) FROM platform.ts_signal WHERE tipo = 'mudanca_de_conta'")
+        self.assertEqual(self.cursor.fetchone()[0], 0)
+
+    def test_a_varredura_ve_o_sinal_sem_caso_e_deixa_de_o_ver_com_caso(self) -> None:
+        _activar(self.cursor, self.tenant)
+        self.nif("5000000003")
+        self.como("kamba_batch")
+        q = ConsultaDoTypeScript("SQL_MUDANCAS_DE_CONTA_SEM_CASO", SQL_TS)
+        self.cursor.execute(q.sql, q.args())
+        meus = [l for l in self.cursor.fetchall() if str(l[1]) == self.tenant]
+        self.assertEqual(len(meus), 1)
+        sinal = str(meus[0][0])
+        self.cursor.execute(
+            "INSERT INTO platform.review_case (tipo, tenant_id, motivo_codigo, motivo_interno, "
+            " motivo_publico, recomendacao, sla_alerta_at, sla_due_at) "
+            "VALUES ('trust', %s, %s, 'x', 'nao_foi_possivel_validar', 'rejeitar', "
+            " now() + interval '19 hours', now() + interval '24 hours')",
+            (self.tenant, f"sancao_suspensao:conta.{sinal}"))
+        self.cursor.execute(q.sql, q.args())
+        self.assertEqual([l for l in self.cursor.fetchall() if str(l[1]) == self.tenant], [],
+                         "com caso, o sinal sai da varredura")
+
+
+class TestLimitacaoDoCatalogo(Base):
+    """KAM-200, criterio 7: a `limitacao` em vigor fecha o catalogo a coisas novas.
+
+    Pela ligacao da aplicacao, que e quem escreve o catalogo (o COM e o catalogo
+    por IA). O que ja estava publicado continua a vender, e o preco muda.
+    """
+
+    def limitar(self) -> str:
+        """O aviso e a limitacao automaticos, um degrau de cada vez, como a escada."""
+        self.como("kamba_app", self.tenant)
+        self.cursor.execute(*self.sancao(chave=f"auto:aviso:{uuid.uuid4()}"))
+        self.cursor.fetchall()
+        self.cursor.execute(*self.sancao(chave=f"auto:limitacao:{uuid.uuid4()}", passo="limitacao",
+                                         motivo_publico="actividade_limitada"))
+        return self.cursor.fetchone()[0]
+
+    def oferta(self, sku: str, estado: str = "rascunho") -> None:
+        self.cursor.execute(
+            "INSERT INTO platform.offer_terms (tenant_id, sku, nome, preco_tipo, preco_minor, estado) "
+            "VALUES (%s, %s, %s, 'fixo', 100, %s)", (self.tenant, sku, f"produto {sku}", estado))
+
+    def ingestao(self) -> None:
+        self.cursor.execute(
+            "INSERT INTO platform.catalog_ingestions (tenant_id, media_ref) VALUES (%s, %s)",
+            (self.tenant, f"t/{self.tenant}/catalogo/2026/11/{uuid.uuid4()}"))
+
+    def test_sem_limitacao_o_catalogo_esta_aberto_e_um_aviso_nao_o_fecha(self) -> None:
+        self.como("kamba_app", self.tenant)
+        self.cursor.execute(*self.sancao(chave=f"auto:aviso:{uuid.uuid4()}"))
+        self.oferta("novo-1")
+        self.ingestao()
+
+    def test_com_limitacao_um_produto_novo_e_uma_ingestao_nova_sao_recusados(self) -> None:
+        self.limitar()
+        self.assertErroSql(VIOLACAO_DE_CHECK, self.cursor,
+                           "INSERT INTO platform.offer_terms (tenant_id, sku, nome, preco_tipo, preco_minor) "
+                           "VALUES (%s, 'novo-2', 'x', 'fixo', 100)", (self.tenant,))
+        self.assertErroSql(VIOLACAO_DE_CHECK, self.cursor,
+                           "INSERT INTO platform.catalog_ingestions (tenant_id, media_ref) VALUES (%s, %s)",
+                           (self.tenant, f"t/{self.tenant}/catalogo/2026/11/{uuid.uuid4()}"))
+
+    def test_com_limitacao_o_publicado_continua_e_o_rascunho_nao_se_publica(self) -> None:
+        self.como("kamba_app", self.tenant)
+        self.oferta("antigo", "publicado")
+        self.oferta("pausado", "pausado")
+        self.oferta("rascunho")
+        self.limitar()
+        self.cursor.execute("UPDATE platform.offer_terms SET preco_minor = 200 WHERE tenant_id = %s AND sku = 'antigo'",
+                            (self.tenant,))
+        self.cursor.execute("UPDATE platform.offer_terms SET estado = 'publicado' "
+                            "WHERE tenant_id = %s AND sku = 'pausado'", (self.tenant,))
+        self.assertErroSql(VIOLACAO_DE_CHECK, self.cursor,
+                           "UPDATE platform.offer_terms SET estado = 'publicado' "
+                           "WHERE tenant_id = %s AND sku = 'rascunho'", (self.tenant,))
+
+    def test_um_recurso_provido_reabre_o_catalogo(self) -> None:
+        limitacao = self.limitar()
+        self.como(None, self.tenant)
+        caso = _caso(self.cursor, self.tenant, tipo="recurso")
+        self.como("kamba_batch")
+        self.cursor.execute(*self.sancao(origem="humana", passo="limitacao", case_id=caso,
+                                         autor=str(uuid.uuid4()), chave=f"recurso:{limitacao}",
+                                         recurso_de=limitacao, recurso_estado="provido",
+                                         motivo_publico="recurso_aceite"))
+        self.como("kamba_app", self.tenant)
+        self.oferta("novo-3")
+
+    def test_a_limitacao_de_um_tenant_nao_fecha_o_catalogo_de_outro(self) -> None:
+        self.limitar()
+        outro = factories.tenant(self.cursor)
+        self.como("kamba_app", outro)
+        self.cursor.execute(
+            "INSERT INTO platform.offer_terms (tenant_id, sku, nome, preco_tipo, preco_minor) "
+            "VALUES (%s, 'novo-4', 'x', 'fixo', 100)", (outro,))
 
 
 class TestDowngrade(unittest.TestCase):

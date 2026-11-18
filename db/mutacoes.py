@@ -355,7 +355,7 @@ CAPACIDADE_SQL = "packages/core-ts/src/capacidade/sql.ts"
 #: `db/tests_lote/test_confianca_concorrencia.py`.
 REV_CONFIANCA = _revisao_por_glob("*_confianca_gradual.py")
 #: KAM-098: a revisao do off-boarding, pela razao da do Catalogo AI — o numero
-#: (`0067`) e provisorio e da-o a integracao. O ensaio que a prova e o
+#: (`0068`, sobre a `0067` do KAM-200) fixou-o a integracao. O ensaio que a prova e o
 #: `db/tests/test_offboarding.py`, e o fim-a-fim do CHR o
 #: `packages/core-ts/tests_bd/chr.bd.test.ts` (suite `tests_chr`).
 REV_OFFBOARDING = _revisao_por_glob("*_offboarding.py")

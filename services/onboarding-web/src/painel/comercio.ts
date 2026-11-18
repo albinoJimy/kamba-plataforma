@@ -20,7 +20,16 @@
  * COM, que corre o `alterarOferta` do módulo `produtos`: CAS sobre o
  * `atualizado_at`, `audit_log` e `catalog.price_changed`/`stock.adjusted` na
  * mesma transacção.
+ *
+ * ## As duas leituras do KAM-190
+ *
+ * O `get-offer` dá ao `PATCH` o preço anterior de **uma** oferta (o critério dos
+ * 50%), em vez de o procurar na lista de 200; e o `channel-view` dá ao painel o
+ * estado do canal — ver o `./canal.ts`. O `list-orders` passa a levar o
+ * intervalo de criação, que o COM aplica na consulta e prende ao cursor.
  */
+
+import type { VistaDoCanal } from "./canal.ts";
 
 /** Os três modos de preço (dicionário §3.3, `preco_tipo`). */
 export const PRECO_TIPOS = ["fixo", "a_partir_de", "sob_consulta"] as const;
@@ -95,13 +104,26 @@ export interface Actor {
   readonly traceId: string;
 }
 
+/**
+ * O filtro da lista de encomendas. O intervalo é de **instantes** UTC —
+ * `criadoDesde` inclusive, `criadoAte` exclusive —, e o COM aplica-o na consulta.
+ */
+export interface FiltroDeEncomendas {
+  readonly estado: EstadoDaEncomenda;
+  readonly cursor?: string | undefined;
+  readonly criadoDesde?: string | undefined;
+  readonly criadoAte?: string | undefined;
+}
+
 export interface Comercio {
   listarOfertas(tenantId: string, a: Actor): Promise<Resposta<{ itens: readonly Oferta[]; truncada: boolean }>>;
+  /** Uma oferta só (KAM-190). `NOT_FOUND` para a de outro tenant e para a arquivada. */
+  obterOferta(tenantId: string, a: Actor, sku: string): Promise<Resposta<Oferta>>;
   alterarOferta(tenantId: string, a: Actor, alteracao: Alteracao): Promise<Resposta<Oferta>>;
   listarEncomendas(
     tenantId: string,
     a: Actor,
-    filtro: { readonly estado: EstadoDaEncomenda; readonly cursor?: string | undefined },
+    filtro: FiltroDeEncomendas,
   ): Promise<Resposta<{ itens: readonly Encomenda[]; proximo: string | null }>>;
   obterEncomenda(tenantId: string, a: Actor, orderId: string): Promise<Resposta<Encomenda>>;
 }
@@ -111,6 +133,9 @@ export interface Comercio {
 /** Os dois cabeçalhos da API interna do COM (dicionário §3.24 e §3.39). */
 export const CABECALHO_INTERNO = "x-kamba-interno";
 export const CABECALHO_TENANT = "x-kamba-tenant";
+
+/** Quantas encomendas uma página do painel pede ao COM: o máximo do `listOrders`. */
+export const LIMITE_DA_PAGINA_DE_ENCOMENDAS = 100;
 
 /** O tecto de uma chamada ao COM, em milissegundos. ***Proposta***: 5 s. */
 export const TECTO_DO_COM_MS = 5_000;
@@ -210,6 +235,36 @@ export class ComercioPorHttp implements Comercio {
     return { tipo: "ok" as const, valor: { itens: v.itens.map(oferta), truncada: v.truncada === true } };
   }
 
+  async obterOferta(tenantId: string, a: Actor, sku: string) {
+    const r = await this.#chamar("/internal/get-offer", tenantId, a, { sku });
+    if (r.tipo !== "ok") return r as Resposta<never>;
+    return { tipo: "ok" as const, valor: oferta(r.valor as Record<string, unknown>) };
+  }
+
+  /** O estado do canal do tenant (KAM-190). Ver o `./canal.ts`. */
+  async vistaDoCanal(tenantId: string, a: Actor): Promise<Resposta<VistaDoCanal>> {
+    const r = await this.#chamar("/internal/channel-view", tenantId, a, {});
+    if (r.tipo !== "ok") return r as Resposta<never>;
+    const v = r.valor as Record<string, unknown>;
+    const estado = String(v["estado"]);
+    if (!["ativo", "a_sincronizar", "desligado", "sem_canal"].includes(estado)) {
+      return { tipo: "erro", erro: "UPSTREAM_DOWN" };
+    }
+    const texto = (x: unknown): string | null => (x === null || x === undefined ? null : String(x));
+    return {
+      tipo: "ok",
+      valor: {
+        estado: estado as VistaDoCanal["estado"],
+        restrito: v["restrito"] === true,
+        qualidade: texto(v["qualidade"]),
+        escalao: texto(v["escalao"]),
+        nivel: v["nivel"] === null || v["nivel"] === undefined ? null : Number(v["nivel"]),
+        tectoPedidoMinor: minor(v["tectoPedidoMinor"]),
+        avisos: Array.isArray(v["avisos"]) ? (v["avisos"] as unknown[]).map(String) : [],
+      },
+    };
+  }
+
   async alterarOferta(tenantId: string, a: Actor, x: Alteracao) {
     const r = await this.#chamar("/internal/update-offer", tenantId, a, {
       sku: x.sku,
@@ -222,12 +277,15 @@ export class ComercioPorHttp implements Comercio {
     return { tipo: r.tipo, valor: oferta(r.valor as Record<string, unknown>) };
   }
 
-  async listarEncomendas(tenantId: string, a: Actor, f: { estado: EstadoDaEncomenda; cursor?: string | undefined }) {
+  async listarEncomendas(tenantId: string, a: Actor, f: FiltroDeEncomendas) {
     const r = await this.#chamar("/internal/list-orders", tenantId, a, {
       estado: f.estado,
-      // O máximo do `listOrders` do KAM-044: o filtro de data é sobre esta página.
-      limite: 100,
+      // O máximo do `listOrders` do KAM-044. O intervalo vai ao COM, que o aplica
+      // na consulta e o prende ao cursor (KAM-190).
+      limite: LIMITE_DA_PAGINA_DE_ENCOMENDAS,
       ...(f.cursor === undefined ? {} : { cursor: f.cursor }),
+      ...(f.criadoDesde === undefined ? {} : { criado_desde: f.criadoDesde }),
+      ...(f.criadoAte === undefined ? {} : { criado_ate: f.criadoAte }),
     });
     if (r.tipo !== "ok") return r as Resposta<never>;
     const v = r.valor as { itens: Record<string, unknown>[]; proximo: string | null };
@@ -272,6 +330,11 @@ export class ComercioEmMemoria implements Comercio {
     return { tipo: "ok" as const, valor: { itens, truncada: false } };
   }
 
+  async obterOferta(tenantId: string, _a: Actor, sku: string): Promise<Resposta<Oferta>> {
+    const o = this.ofertas.get(tenantId)?.get(sku);
+    return o === undefined || o.estado === "arquivado" ? { tipo: "erro", erro: "NOT_FOUND" } : { tipo: "ok", valor: o };
+  }
+
   async alterarOferta(tenantId: string, a: Actor, x: Alteracao): Promise<Resposta<Oferta>> {
     const doTenant = this.ofertas.get(tenantId);
     const antes = doTenant?.get(x.sku);
@@ -288,8 +351,23 @@ export class ComercioEmMemoria implements Comercio {
     return { tipo: "ok", valor: depois };
   }
 
-  async listarEncomendas(tenantId: string, _a: Actor, f: { estado: EstadoDaEncomenda }) {
-    const itens = (this.encomendas.get(tenantId) ?? []).filter((e) => e.estado === f.estado);
+  /** Os filtros que o duplo recebeu, para as baterias. */
+  readonly filtros: FiltroDeEncomendas[] = [];
+
+  async listarEncomendas(
+    tenantId: string,
+    _a: Actor,
+    f: FiltroDeEncomendas,
+  ): Promise<Resposta<{ itens: readonly Encomenda[]; proximo: string | null }>> {
+    this.filtros.push(f);
+    // O intervalo como o COM o aplica: desde inclusive, até exclusive. Sem
+    // cursor: o duplo devolve tudo numa página.
+    const itens = (this.encomendas.get(tenantId) ?? []).filter(
+      (e) =>
+        e.estado === f.estado &&
+        (f.criadoDesde === undefined || e.criadoAt >= f.criadoDesde) &&
+        (f.criadoAte === undefined || e.criadoAt < f.criadoAte),
+    );
     return { tipo: "ok" as const, valor: { itens, proximo: null } };
   }
 

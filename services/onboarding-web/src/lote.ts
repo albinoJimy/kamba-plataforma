@@ -35,7 +35,14 @@ import { instalar } from "@kamba/core-ts/logger";
 import pg from "pg";
 
 import { SERVICE } from "./meta.ts";
-import { arrancar, lerConfiguracao, opcoesDoConjunto, registarVolta } from "./lote/processo.ts";
+import {
+  arrancar,
+  consumidorDoTrust,
+  lerConfiguracao,
+  opcoesDoConjunto,
+  registarVolta,
+  registarVoltaDoTrust,
+} from "./lote/processo.ts";
 
 const log = instalar(SERVICE);
 
@@ -80,6 +87,19 @@ async function principal(): Promise<void> {
     // A primeira volta já, e não daqui a um intervalo: as métricas sairiam a
     // zero durante um minuto inteiro depois de cada arranque.
     void processo.ciclo.correr().then((r) => registarVolta(log, r));
+    // KAM-200: as varreduras de T&S, a primeira volta também já.
+    const pararTrust = processo.cicloDoTrust.agendar(config.intervaloDoTrustMs, (r) => registarVoltaDoTrust(log, r));
+    void processo.cicloDoTrust.correr().then((r) => registarVoltaDoTrust(log, r));
+    // E o consumidor dos sete tipos de evento de T&S, como `kamba_app`. O
+    // `bullmq` carrega-se aqui, com a porta já aberta (ver o `consumidorDoTrust`).
+    const { criarTrabalhadores } = await import("@kamba/core-ts/eventos/trabalhador_bullmq");
+    const consumo = consumidorDoTrust({
+      urlDaApp: config.urlDaApp,
+      urlDaFila: config.urlDaFila,
+      metricasDoTrust: processo.metricasDoTrust,
+      log,
+      criar: criarTrabalhadores,
+    });
     arrancou = true;
     log.info({ outcome: "service_started" });
     await new Promise<void>((resolver) => {
@@ -87,6 +107,14 @@ async function principal(): Promise<void> {
     });
     log.info({ outcome: "service_stopping" });
     parar();
+    pararTrust();
+    // Os *workers* e as ligações que cada fila abriu — **com tecto**: com a fila
+    // em baixo, fechar um *worker* espera por uma ligação que não vem, e um
+    // `SIGTERM` que pendura é um contentor que o orquestrador mata à força.
+    await Promise.race([
+      consumo.fechar().catch(() => {}),
+      new Promise<void>((pronto) => setTimeout(pronto, 10_000).unref()),
+    ]);
     servidor.close();
   } finally {
     await Promise.allSettled([lote.end(), app.end()]);
@@ -98,8 +126,15 @@ async function principal(): Promise<void> {
 // `import.meta.main` (Node 24): o módulo também é importado pelos testes, e
 // então não arranca nada.
 if (import.meta.main) {
-  principal().catch((erro: unknown) => {
-    log.excepcao(erro, "arranque_falhou");
-    process.exitCode = 1;
-  });
+  principal()
+    .catch((erro: unknown) => {
+      log.excepcao(erro, "arranque_falhou");
+      process.exitCode = 1;
+    })
+    // **Sai, e não espera que o *event loop* esvazie** (KAM-200): com a fila em
+    // baixo, as tentativas de religação do `ioredis` dos *workers* que não
+    // fecharam a tempo mantinham o processo vivo depois do `service_stopped`, e
+    // um `SIGTERM` que não termina é um contentor morto à força. O código de
+    // saída é o que ficou no `exitCode`.
+    .finally(() => process.exit());
 }

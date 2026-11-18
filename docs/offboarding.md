@@ -6,7 +6,7 @@
 | Ticket | KAM-098 — Off-boarding: exportação, revogação, purga e certificado |
 | Estado | **Proposta.** As fases estão na revisão do off-boarding e medidas em `db/tests/test_offboarding.py` e em `packages/core-ts/tests_bd/offboarding.bd.test.ts`; **nenhum processo as corre em produção** e as portas não têm adaptador (§6). Todos os prazos são *proposta* |
 | Âmbito | O que acontece, e em que ordem, quando uma PME pede para sair ou quando T&S encerra um tenant suspenso; o que se apaga, o que fica e porquê; e o que fazer quando uma fase pára |
-| Fontes | `docs/tecnica/10` §15.2; `docs/tecnica/08` §8.4, §8.8 e §11; `specs/02` §3.55 e §3.76; ADR-010, ADR-014; E1, E3 §6 |
+| Fontes | `docs/tecnica/10` §15.2; `docs/tecnica/08` §8.4, §8.8 e §11; `specs/02` §3.55 e §3.77; ADR-010, ADR-014; E1, E3 §6 |
 
 | Aprovação | Nome | Data |
 |---|---|---|

@@ -72,9 +72,10 @@ revisao nao criou, e o `downgrade` apaga-la-ia.
 
 ## Numero
 
-`0067` sobre a `0066` (KAM-072), **provisorio**: o KAM-118 corre em paralelo
-com a `0068`, e quem fundir em segundo renumera na integracao. Os ensaios
-encontram esta revisao pelo nome do ficheiro (`*_offboarding.py`).
+`0068` sobre a `0067` (KAM-200, as subscricoes de Trust & Safety). Foi
+escrita como `0067` sobre a `0066` e renumerada na integracao, depois do KAM-200
+que fundiu primeiro com a `0067`. Os ensaios encontram esta revisao pelo nome do
+ficheiro (`*_offboarding.py`).
 """
 
 from __future__ import annotations
@@ -83,8 +84,8 @@ from alembic import op
 
 import rls
 
-revision = "0067"
-down_revision = "0066"
+revision = "0068"
+down_revision = "0067"
 branch_labels = None
 depends_on = None
 
@@ -152,7 +153,7 @@ def downgrade() -> None:
         DO $$
         BEGIN
           IF EXISTS (SELECT 1 FROM platform.offboarding_run) THEN
-            RAISE EXCEPTION 'downgrade da 0067 recusado: a offboarding_run tem fases escritas, e larga-la apagava o registo dos encerramentos e das purgas. Esvazie-a primeiro.';
+            RAISE EXCEPTION 'downgrade da 0068 recusado: a offboarding_run tem fases escritas, e larga-la apagava o registo dos encerramentos e das purgas. Esvazie-a primeiro.';
           END IF;
         END
         $$

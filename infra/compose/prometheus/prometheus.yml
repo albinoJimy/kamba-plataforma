@@ -4,13 +4,14 @@
 # aqui, por extenso, que **esta configuracao nao era observabilidade**. Este
 # ficheiro e a parte que faltava: os alvos, as regras e o encaminhamento.
 #
-# ## Os alvos sao dez, e nao treze
+# ## Os alvos sao onze, e nao treze
 #
 # Eram tres (`gwy`, `com`, `agr`) ate ao KAM-187, que acrescentou os quatro
 # processos do `worker-canal` **no mesmo PR** que os pos a correr no compose —
 # e e essa a condicao que a regra abaixo pede. O KAM-194 acrescentou dois pela
 # mesma condicao: a `ponte` (dois servicos, um `job`) e o `idx`. O decimo e o
-# processo de lote do onboarding (KAM-198), pela mesma condicao. O resto desta
+# processo de lote do onboarding (KAM-198), pela mesma condicao, e o decimo
+# primeiro o `onboarding-web` (KAM-190), que passou a servir `/metrics`. O resto desta
 # nota e historia do KAM-080 e continua verdade para os modulos que nenhum
 # servico importa.
 #
@@ -180,3 +181,15 @@ scrape_configs:
           - onboarding-lote
         type: A
         port: 3014
+
+  # O painel do dono no `onboarding-web` (KAM-190): `painel_pedidos_total{rota}`
+  # e `painel_erros_total{rota,motivo}`, de dominios fechados e sem tenant. Na
+  # mesma porta das paginas, porque o `proxy-tls` so lhe encaminha `/onboarding/*`
+  # e o `/metrics` fica na rede `app`. O `job` leva `_` pela gramatica das
+  # etiquetas, como o `agr_shim`.
+  - job_name: onboarding_web
+    dns_sd_configs:
+      - names:
+          - onboarding-web
+        type: A
+        port: 3003

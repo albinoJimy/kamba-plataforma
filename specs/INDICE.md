@@ -3,7 +3,7 @@
 **Produto:** KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para o mercado angolano
 **Natureza:** Produto/plataforma standalone (sem cliente institucional)
 **Documentos-fonte:** conjunto técnico [`../docs/tecnica/`](../docs/tecnica/INDICE.md) e [`../docs/exploracao/14-tese-minima-e-plano-de-validacao.md`](../docs/exploracao/14-tese-minima-e-plano-de-validacao.md)
-**Versão do conjunto:** 1.73
+**Versão do conjunto:** 1.75
 **Data de emissão:** Outubro de 2026
 **Classificação:** Documento de Referência — Interno
 **Estado:** backlog **proposto** (nenhum ticket ratificado; ver `00_KAMBA_Carta.md` §6)
@@ -12,7 +12,7 @@
 
 ## 1. Propósito
 
-Este conjunto materializa o **backlog executável** da KAMBÁ para a **Fase 0 (Fundação / esqueleto andante)** e a **Fase 1 (Piloto)**. Decompõe o trabalho em **206 tickets atómicos (KAM-001 a KAM-210)** distribuídos por **11 epics** (KAM-111 a KAM-117 foram acrescentados na consolidação, e o KAM-128 a KAM-148, e o KAM-149 depois dela; todos pertencem aos epics indicados no §3.1), cada um com critérios de aceitação SMART, Definition of Done, testes requeridos e prompt de handoff para o **Claude Code (CLI)**.
+Este conjunto materializa o **backlog executável** da KAMBÁ para a **Fase 0 (Fundação / esqueleto andante)** e a **Fase 1 (Piloto)**. Decompõe o trabalho em **210 tickets atómicos (KAM-001 a KAM-210)** distribuídos por **11 epics** (KAM-111 a KAM-117 foram acrescentados na consolidação, e o KAM-128 a KAM-148, e o KAM-149 depois dela; todos pertencem aos epics indicados no §3.1), cada um com critérios de aceitação SMART, Definition of Done, testes requeridos e prompt de handoff para o **Claude Code (CLI)**.
 
 O que **não** está aqui: a Fase 2 (Clusters) e a Fase 3 (Escala). Esses epics (geo e logística, estafetas, analytics e Score, índice federado, AdsEngine, vitrine SEO, API pública, Fluxo B) só se escrevem quando o **Gate do Piloto (KAM-110)** for verde. Está declarado em §6.
 
@@ -57,10 +57,10 @@ O backlog é a interface entre o conjunto técnico (`../docs/tecnica/`) e a exec
 | EPIC-06 Índice e Pesquisa | KAM-061 – KAM-064, KAM-193, KAM-199 | 6 | 1 |
 | EPIC-07 Segurança e Conformidade | KAM-065 – KAM-074, KAM-112, KAM-113, KAM-149, KAM-189, KAM-205 | 15 | 0–1 |
 | EPIC-08 Topologia e Operação | KAM-075 – KAM-085, KAM-187, KAM-188 | 13 | 0–1 |
-| EPIC-09 Onboarding e Governação | KAM-086 – KAM-099, KAM-116, KAM-117, KAM-190 – KAM-192, KAM-195, KAM-196, KAM-198, KAM-200, KAM-201, KAM-203, KAM-210 | 26 | 1 |
+| EPIC-09 Onboarding e Governação | KAM-086 – KAM-099, KAM-116, KAM-117, KAM-190 – KAM-192, KAM-195, KAM-196, KAM-198, KAM-200, KAM-201, KAM-203, KAM-206 – KAM-210 | 30 | 1 |
 | EPIC-10 Spikes, Validação e Gates | KAM-100 – KAM-110 | 11 | 0–1 |
 | EPIC-11 Módulos de Entrada | KAM-118 – KAM-127 | 10 | 1 |
-| **TOTAL** | **KAM-001 – KAM-210** | **206** | — |
+| **TOTAL** | **KAM-001 – KAM-210** | **210** | — |
 
 ### 3.2 Fases
 
@@ -308,6 +308,10 @@ Itens com tempo de espera externo (arrancam na **semana 1**, em paralelo ao cód
 | KAM-201 | Portas do tenant ligadas: aprovação, amostragem e cache do CHR | feature | M | P1 | 1 | KAM-092 |
 | KAM-203 | Recálculo da confiança gradual a correr: diário, em `order.delivered` e na aprovação | feature | M | P1 | 1 | KAM-096, KAM-198 |
 | KAM-210 | KAM-098 em produção: o processo que corre as fases, os adaptadores das portas e o cofre no encerramento | feature | L | P1 | 1 | KAM-098 |
+| KAM-206 | Painel light: o contacto da encomenda ao dono, mascarado e auditado, e a lista de produtos em 3G | feature | M | P2 | 1 | KAM-190 |
+| KAM-207 | Religar o número de um tenant activo cujo canal caiu, a partir do painel | feature | M | P2 | 1 | KAM-190, KAM-093 |
+| KAM-208 | Correlação entre tenants por comprador: um identificador de comprador que não dependa do tenant | feature | M | P2 | 1 | KAM-200 |
+| KAM-209 | Preço anómalo: a categoria do produto e os preços de referência por categoria | feature | M | P2 | 1 | KAM-200 |
 
 ### EPIC-10 — Spikes, Validação e Gates
 
@@ -451,4 +455,6 @@ Um defeito encontrado fora do escopo não é corrigido no meio de outro ticket: 
 | 1.70 | Novembro 2026 | **KAM-202** acrescentado ao **EPIC-04**, no PR do **KAM-094**, que o abre e não o implementa: é o credor das caixas que o KAM-094 deixa parciais — observador do teste, activação no lote, exclusão de `is_test` e restrição de BD na `offer_terms`. Total: **202** tickets. A versão é provisória: a `main` já tem uma 1.69, e a final dá-a a integração. | Equipa KAMBÁ |
 | 1.71 | Novembro 2026 | **KAM-203** acrescentado ao **EPIC-09** e **KAM-204** ao **EPIC-04**, os dois no PR do **KAM-096**, que os abre e não os implementa. O KAM-203 é o credor das caixas 2, 4 e 5 que o KAM-096 deixa parciais, e do alerta da caixa 7: o processo que corre o recálculo da confiança todos os dias, em `order.delivered` e na aprovação, e a sanção do KAM-097 a chegar à base; depende do KAM-096 e do KAM-198. O KAM-204 é o credor do critério 3: o `entrega_confirmada_por = 'cliente'` e o `entregue_at` presos, na base, ao actor e ao instante da transição; depende do KAM-044 e do KAM-096. **204** tickets. | Equipa KAMBÁ |
 | 1.72 | Novembro 2026 | **KAM-205** acrescentado ao **EPIC-07**, no PR do **KAM-072**, que o abre e não o implementa: é o credor do critério 4 do KAM-072, um defeito medido na revisão adversarial — o `kid` dos *tokens* de cliente é o rótulo posicional do `EnvSecretProvider`, e rodar a `kek_token_cliente` parte os *tokens* guardados. Pede `kid` estável por versão, compatibilidade com os criptogramas gravados com `actual`, a re-cifra dos existentes e o RB-K07 §3.7 a deixar de proibir a rotação. Depende do KAM-072 e do KAM-016, e entra no `Bloqueia` dos dois. **205** tickets. | Equipa KAMBÁ |
-| 1.73 | Novembro 2026 | **KAM-210** acrescentado ao **EPIC-09**, no PR do **KAM-098**, que o abre e não o implementa: é o credor das caixas 1, 4, 5, 6 e 8 do KAM-098 e de duas da DoD — o processo que corre as fases, um adaptador por cada porta (as provas do titular, a Meta, o LiteLLM, a Medusa, o Chatwoot, o cofre, a entrega do certificado) e o simulacro em *staging*. Depende do KAM-098, e entra no `Bloqueia` dele. O número foi dado pelo orquestrador do lote: do **206** ao **209** estão reservados para o KAM-200 e o KAM-190, e a gama do §1 só fica contígua quando eles entrarem. **206** tickets nesta árvore. | Equipa KAMBÁ |
+| 1.73 | Novembro 2026 | **KAM-206** e **KAM-207** acrescentados ao **EPIC-09**, no PR do **KAM-190**, que os abre e não os implementa: o KAM-206 é o credor do contacto da encomenda ao dono, mascarado e auditado (metade do critério 6 do KAM-099, que pede uma acção nova no `audit_log.action`), e da lista de produtos em 3G (o critério 9, medido pelo KAM-190 e não cumprido), e o KAM-207 o da religação do número de um tenant activo cujo canal caiu (o `/ligar` do KAM-093 só abre em `aguarda_es`). **Superfícies:** as duas linhas do §4, o §3.1 — o EPIC-09 com **27** e o TOTAL a `KAM-001 – KAM-207` com **207** — e o §1. **Arestas recíprocas:** o `Bloqueia` do KAM-190 ganha os dois, e o do KAM-093 o KAM-207. Total: 207 tickets em 11 epics. | Equipa KAMBÁ |
+| 1.74 | Novembro 2026 | **KAM-208** e **KAM-209** acrescentados ao **EPIC-09**, os dois no PR do **KAM-200**, que os abre e não os implementa (escritos como KAM-206 e KAM-207 e renumerados na integração, depois do KAM-190 que os tomou). O KAM-208 é o credor do critério 6 do KAM-200: a correlação entre tenants por comprador pede um pseudónimo do telefone sem tenant (o `phone_hmac` leva-o na mensagem) e a base legal do tratamento cruzado *(a confirmar por parecer)*. O KAM-209 é o credor do critério 4: o produto não tem categoria, e sem ela não há mediana por categoria. Os dois dependem só do KAM-200 e entram no `Bloqueia` dele. **209** tickets. | Equipa KAMBÁ |
+| 1.75 | Novembro 2026 | **KAM-210** acrescentado ao **EPIC-09**, no PR do **KAM-098**, que o abre e não o implementa: é o credor das caixas 1, 4, 5, 6 e 8 do KAM-098 e de duas da DoD — o processo que corre as fases, um adaptador por cada porta (as provas do titular, a Meta, o LiteLLM, a Medusa, o Chatwoot, o cofre, a entrega do certificado) e o simulacro em *staging*. Depende do KAM-098, e entra no `Bloqueia` dele. O número foi dado pelo orquestrador do lote: do **206** ao **209** estão reservados para o KAM-200 e o KAM-190, e a gama do §1 só fica contígua quando eles entrarem. **206** tickets nesta árvore. | Equipa KAMBÁ |

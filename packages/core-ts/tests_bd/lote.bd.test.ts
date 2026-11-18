@@ -713,6 +713,10 @@ describe("o processo de lote contra a base", () => {
         KAMBA_AMBIENTE: "prod",
         KAMBA_LOTE_DB_URL: url("kamba_batch", "KAMBA_SECRET_DB_BATCH_PASSWORD"),
         KAMBA_LOTE_APP_DB_URL: url("kamba_app", "KAMBA_SECRET_DB_APP_PASSWORD"),
+        // KAM-200: a fila do consumidor de T&S é obrigatória. Esta suite não
+        // levanta fila, e a porta 1 não responde: o processo tem de arrancar,
+        // servir e parar limpo com a fila em baixo, que é o que se mede aqui.
+        KAMBA_QUEUE_URL: "redis://127.0.0.1:1",
         LOTE_PORT: String(porta),
         HOST: "127.0.0.1",
       },

@@ -50,6 +50,9 @@ FICHEIROS = (
     "tests_bd/capacidade.bd.test.ts",
     "tests_bd/regua.bd.test.ts",
     "tests_bd/offboarding.bd.test.ts",
+    # KAM-200: o T&S corre no processo de lote (o consumidor, as varreduras e as
+    # decisoes da fila), e so a base prova a porta, o registo e os triggers.
+    "tests_bd/trust.bd.test.ts",
 )
 
 #: Os `describe` do ficheiro: os dezanove cenarios do processo de lote partilham as
@@ -60,6 +63,7 @@ GRUPOS = (
     "a lista de espera contra a base",
     "a régua de cobrança contra a base",
     "o off-boarding contra a base",
+    "Trust & Safety em produção contra a base",
 )
 
 #: Os testes que **tem** de ter corrido e passado, pelo nome. Sao a letra dos
@@ -113,6 +117,11 @@ TESTES_OBRIGATORIOS = (
     "cancelado em D3: o canal volta ao que era, e nenhuma fase seguinte corre",
     "os pendentes: sem encomendas, reservas nem reembolsos abertos, a fase conclui",
     "a revogação no D7: as portas da saga, os entitlements, os canais e um tenant.closed; um crash a meio retoma",
+    # KAM-200: o consumidor (1), a escada pela porta com o evento (8 e 9), e as
+    # varreduras auditadas com a mudanca de conta (2 e 5).
+    "o consumidor como kamba_app: a encomenda do próprio dono dá um auto_compra e o aviso, e a reentrega é duplicada",
+    "a escada humana suspende pela porta, com registo e evento, e o recurso provido reactiva",
+    "uma volta das varreduras deixa uma linha batch.run por varredura, e a mudança de NIF abre um caso, uma vez, no tenant dela",
 )
 
 

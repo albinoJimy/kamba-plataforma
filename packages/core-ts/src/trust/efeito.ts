@@ -34,8 +34,8 @@
 import { createHash } from "node:crypto";
 
 import type { Efeito } from "../eventos/consumo.ts";
-import type { ClienteSql } from "../eventos/publicador.ts";
 import type { SinalNovo } from "./contrato.ts";
+import type { ContadoresDoTrust } from "./metricas.ts";
 import {
   POLITICA_DE_RISCO,
   autoCompra,
@@ -46,11 +46,11 @@ import {
   queixasQueContam,
   type PedidoManual,
   type PoliticaDeRisco,
-  type TipoDeSinal,
 } from "./regras.ts";
 import { ServicoDeTrust } from "./servico.ts";
 import {
   RepositorioDeTrustSql,
+  type ClienteSql,
   SQL_COMPRADORES_PAGOS,
   SQL_CONTACTOS_DO_DONO,
   SQL_FOTOS_REPETIDAS,
@@ -60,6 +60,13 @@ import {
   SQL_QUEIXAS,
   SQL_TENANT_E_TECTO,
 } from "./sql.ts";
+
+/**
+ * O `consumer` da subscrição (KAM-200): o nome das filas `evt.trust.p<n>` e da
+ * marca em `events_consumed`. É o nome que o KAM-096 lê para a independência
+ * (`SQL_INDEPENDENCIA`), e o `registry/trust.yaml` declara-o.
+ */
+export const CONSUMIDOR_DE_TRUST = "trust";
 
 /** Os tipos que este consumidor subscreve: os sete do critério 1. */
 export const TIPOS_CONSUMIDOS = [
@@ -75,12 +82,6 @@ export const TIPOS_CONSUMIDOS = [
 /** O `motivo` do `query.handoff` que é uma reclamação (`MOTIVO_RECLAMACAO` do vendedor do AGR). */
 export const MOTIVO_DE_RECLAMACAO = "reclamacao_grave";
 
-/** Conta os sinais e as sanções gravados. Sem PII nas etiquetas: só tipo e passo. */
-export interface ContadoresDoTrust {
-  sinal(tipo: TipoDeSinal): void;
-  sancao(passo: string, origem: string): void;
-}
-
 export interface OpcoesDoTrust {
   readonly politica?: PoliticaDeRisco;
   readonly relogio?: () => Date;
@@ -88,6 +89,11 @@ export interface OpcoesDoTrust {
 }
 
 const DIA = 86_400_000;
+
+/** Os contadores, se os houver, para o `ServicoDeTrust`: é ele que conta. */
+function contar(o: OpcoesDoTrust): { readonly contadores?: ContadoresDoTrust } {
+  return o.contadores === undefined ? {} : { contadores: o.contadores };
+}
 
 /**
  * Um `uuid` determinístico para «este tenant, esta família, esta janela de N
@@ -253,13 +259,8 @@ export function efeitoDeTrust(o: OpcoesDoTrust = {}): Efeito {
   const relogio = o.relogio ?? (() => new Date());
   return async (bd, envelope) => {
     const agora = relogio();
-    const servico = new ServicoDeTrust({ repositorio: new RepositorioDeTrustSql(bd, "app"), politica, relogio: () => agora });
-    for (const s of await sinaisDoEvento(bd, envelope, agora, politica)) {
-      const r = await servico.sinalizar(s);
-      if (r.repetido) continue;
-      o.contadores?.sinal(s.tipo);
-      for (const x of r.sancoes) o.contadores?.sancao(x.passo, x.origem);
-    }
+    const servico = new ServicoDeTrust({ repositorio: new RepositorioDeTrustSql(bd, "app"), politica, relogio: () => agora, ...contar(o) });
+    for (const s of await sinaisDoEvento(bd, envelope, agora, politica)) await servico.sinalizar(s);
   };
 }
 
@@ -268,18 +269,14 @@ export async function varrerNaoEntregas(bd: ClienteSql, o: OpcoesDoTrust = {}): 
   const p = o.politica ?? POLITICA_DE_RISCO;
   const agora = (o.relogio ?? (() => new Date()))();
   const corte = new Date(agora.getTime() - p.diasSemEntrega * DIA);
-  const servico = new ServicoDeTrust({ repositorio: new RepositorioDeTrustSql(bd, "lote"), politica: p, relogio: () => agora });
+  const servico = new ServicoDeTrust({ repositorio: new RepositorioDeTrustSql(bd, "lote"), politica: p, relogio: () => agora, ...contar(o) });
   let n = 0;
   for (const l of (await bd.query(SQL_NAO_ENTREGUES, [corte])).rows) {
     const pagaEm = data(l["paga_at"]);
     if (!naoEntregue(pagaEm, null, agora, p)) continue;
     const orderId = String(l["order_id"]);
     const r = await servico.sinalizar({ tenantId: String(l["tenant_id"]), tipo: "nao_entrega", refEvento: orderId, detalhe: { order_id: orderId }, ocorridoEm: agora });
-    if (!r.repetido) {
-      n++;
-      o.contadores?.sinal("nao_entrega");
-      for (const x of r.sancoes) o.contadores?.sancao(x.passo, x.origem);
-    }
+    if (!r.repetido) n++;
   }
   return n;
 }
@@ -288,7 +285,7 @@ export async function varrerNaoEntregas(bd: ClienteSql, o: OpcoesDoTrust = {}): 
 export async function varrerFotos(bd: ClienteSql, o: OpcoesDoTrust = {}): Promise<number> {
   const p = o.politica ?? POLITICA_DE_RISCO;
   const agora = (o.relogio ?? (() => new Date()))();
-  const servico = new ServicoDeTrust({ repositorio: new RepositorioDeTrustSql(bd, "lote"), politica: p, relogio: () => agora });
+  const servico = new ServicoDeTrust({ repositorio: new RepositorioDeTrustSql(bd, "lote"), politica: p, relogio: () => agora, ...contar(o) });
   let n = 0;
   for (const l of (await bd.query(SQL_FOTOS_REPETIDAS)).rows) {
     const r = await servico.sinalizar({
@@ -298,10 +295,7 @@ export async function varrerFotos(bd: ClienteSql, o: OpcoesDoTrust = {}): Promis
       detalhe: { contagem: inteiro(l["contagem"]) },
       ocorridoEm: agora,
     });
-    if (!r.repetido) {
-      n++;
-      o.contadores?.sinal("foto_repetida");
-    }
+    if (!r.repetido) n++;
   }
   return n;
 }

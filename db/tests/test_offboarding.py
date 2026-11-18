@@ -279,7 +279,7 @@ class TestEsquema(ComOffboarding):
         try:
             resultado = alembic("downgrade", anterior)
             self.assertNotEqual(resultado.returncode, 0)
-            self.assertIn("downgrade da 0067 recusado", resultado.stderr + resultado.stdout)
+            self.assertIn("downgrade da 0068 recusado", resultado.stderr + resultado.stdout)
         finally:
             cur.execute("DELETE FROM platform.offboarding_run WHERE tenant_id = %s", (tenant,))
             cur.execute("DELETE FROM platform.tenants WHERE id = %s", (tenant,))
