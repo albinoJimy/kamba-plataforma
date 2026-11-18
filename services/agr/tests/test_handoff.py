@@ -74,11 +74,17 @@ _COM_LETRAS = str(uuid.UUID(int=0xABCDEF0123456789ABCDEF0123456789))
 #: ensaio de prazos tem de correr num relogio que exista.
 _AGORA = 1_700_000_000.0
 
-#: Quanto uma secção espera pela outra na barreira (KAM-214). **Nao e uma
+#: Quanto uma seccao espera pela outra na barreira (KAM-214). **Nao e uma
 #: janela de sobreposicao:** com o codigo certo a barreira abre assim que as
 #: duas entram, e o prazo nunca se gasta. So o paga um trinco que serializa
-#: (duas vezes, uma por secção), e e largo de proposito para que nenhuma
+#: (duas vezes, uma por seccao), e e largo de proposito para que nenhuma
 #: maquina carregada o confunda com serializacao.
+#:
+#: **E e tambem o limite do que o ensaio ve:** uma espera entre conversas
+#: diferentes MAIS CURTA do que isto passa verde (achado A1 da revisao: um
+#: trinco global de 300 ms passa). O ensaio de 10 ms apanhava-a, mas so por
+#: sorte do agendador; este recusa a serializacao inteira, sempre, e deixa
+#: de recusar uma espera curta. Sem relogio nao ha forma de ter as duas.
 PRAZO_DA_BARREIRA_S = 5.0
 
 

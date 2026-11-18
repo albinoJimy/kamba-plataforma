@@ -60,7 +60,7 @@ Concretiza ADR-002, ADR-005, ADR-007, ADR-009, ADR-010, ADR-012, ADR-013 e ADR-0
 | KAM-114 | Modo concierge: a IA rascunha e o humano aprova | feature | M | P0 | KAM-018, KAM-031, KAM-034 |
 | KAM-184 | Consumo dos eventos de pagamento na vertical Serviços: a acção, a origem do `booking_id` e o credor do `ACCOES_POR_LIGAR` | feature | M | P0 | KAM-035, KAM-047 |
 | KAM-186 | O processo do AGR liga a porta `grafos` e serve turnos | feature | L | P0 | KAM-027, KAM-031, KAM-035, KAM-178 |
-| KAM-214 | O ensaio das conversas diferentes na tranca do AGR mede uma janela de 10 ms, e avermelha o *gate* 4 ao acaso | fix | S | P1 | KAM-034 |
+| KAM-214 | O ensaio das conversas diferentes na tranca do AGR mede uma janela de 10 ms, e falha ao acaso sob carga | fix | S | P1 | KAM-034 |
 
 ---
 
@@ -5232,7 +5232,7 @@ Nao expandas escopo: corrigir falhas encontradas e ticket novo. PR com o templat
 
 ---
 
-## KAM-214 — O ensaio das conversas diferentes na tranca do AGR mede uma janela de 10 ms, e avermelha o *gate* 4 ao acaso
+## KAM-214 — O ensaio das conversas diferentes na tranca do AGR mede uma janela de 10 ms, e falha ao acaso sob carga
 
 | Campo | Valor |
 |---|---|
@@ -5275,7 +5275,7 @@ o ensaio, 300 vezes          5 falhas                                   --cpus=0
 A corrida 2 é a mais lenta e é a que falha: a máquina estava carregada com outras sessões. Uma
 terceira corrida ficou fora da medição, porque a árvore mudou de base a meio dela. **O que conta
 é o mecanismo, e não a taxa.** A taxa depende da carga, e o *runner* do CI corre esta suite
-duas vezes no `ordem-dos-ensaios`, ao lado das vinte e duas suites do `coverage-python`.
+duas vezes no `ordem-dos-ensaios` (as ordens normal e inversa), ao lado das suites do `coverage-python`.
 
 **A causa é o ensaio, e não a tranca.** O ensaio dormia 10 ms dentro da tranca e esperava ver as
 duas conversas lá dentro ao mesmo tempo:
@@ -5313,6 +5313,7 @@ serializar conversas diferentes.
 - **Onde.** Só em `../services/agr/tests/test_handoff.py`: o ensaio e a constante `PRAZO_DA_BARREIRA_S`.
 - **A barreira.** É um `asyncio.Barrier(2)`, e cada secção espera nela com `wait_for(..., PRAZO_DA_BARREIRA_S)` dentro da tranca. Com o código certo, a barreira abre assim que as duas entram e o prazo nunca se gasta. Com um trinco global, a primeira espera o prazo sozinha e sai com `False`; só então entra a segunda, que também sai com `False`. A asserção é `[True, True]`, por igualdade.
 - **O prazo é de 5 s**, e só o paga um código que serializa (duas vezes, uma por secção). É largo de propósito, para que nenhuma máquina carregada o confunda com serialização.
+- **E o prazo é também o limite do que o ensaio vê, que fica declarado.** Uma espera entre conversas diferentes mais curta do que 5 s passa verde: a revisão adversarial pôs um trinco global de 300 ms a seguir à tranca da base, e o ensaio novo deu `[True, True]` onde o antigo dava vermelho 5 em 5. O ensaio antigo apanhava-a por depender do agendador, que é o defeito deste ticket. O novo recusa sempre a serialização inteira e deixa passar uma espera curta. Sem relógio não há forma de ter as duas, e um prazo curto voltava a pôr o resultado nas mãos da carga.
 - **O que não se faz:** não se aumenta a janela do `sleep` (isso baixa a taxa e não fecha o mecanismo), não se marca o ensaio como instável, e não se mexe na `_exclusiva` da `TrancaDeConversas`.
 
 ### Testes Requeridos
@@ -5342,11 +5343,26 @@ medida em `5ef99f83`, e o `trancas.py` e o `test_handoff.py` são iguais nas dua
 | 2 | Sem relógio | satisfeito | O ensaio não tem `sleep`, e a sobreposição prova-se pela barreira. Repetido 300 vezes sem limite e 300 vezes com `--cpus=0.3`: **0 falhas** nas duas séries |
 | 3 | A mutação morde pela asserção | satisfeito | Com `tomar` mutado para `self._trinco_do_thread("global")`, o ensaio dá **3 vermelhos em 3**, com `- [False, False] + [True, True] : duas conversas serializaram`, e não fica pendurado. O ficheiro foi reposto, e o `git diff --stat -- services/agr/src` sai vazio |
 | 4 | Produção e guarda intactos | satisfeito | `git diff --stat publico/main -- services/agr/src libs/py-core/src` sai vazio |
-| 5 | Suite verde | satisfeito | RESULTADO_SUITE |
+| 5 | Suite verde | satisfeito | `python -m unittest discover -s services/agr/tests -t services/agr/tests` em contentor, no ramo: **Ran 1801 OK** em duas corridas seguidas (297 s e 214 s). Os 1801 contra os 1755 da reprodução são os ensaios que o KAM-118 trouxe com a base `9c2737d1` |
 
-**Portões, medidos nesta árvore:** RESULTADO_PORTOES
+**Portões, medidos nesta árvore,** com o Python do Windows a partir de `tools/`. *Gate* 2: a parte Python é conforme (`lint_arch all` e os dois canários, `log_policy`, `money_lint`, `env_lint`, `compose_prod` com `gerar --verificar`, `subprocessadores --check`, e o `pr-title` sobre o título do PR); o `pnpm -r run typecheck` não correu, porque nesta máquina não há `pnpm` e o diff não toca em TypeScript. *Gate* 3: `lint_refs`, `lint_handoff` e `lint_contagens` conformes, este depois de acertar a prosa do EPIC-03 para **20** tickets. *Gate* 3b: `dict_export --check`, `canon_lint check` e `canon_lint canario` conformes. *Gate* 3c: **vermelho, e de propósito.** O `lint_backlog` diz que o intervalo do TOTAL (`KAM-001 – KAM-214`) cobre a mais o 212 e o 213, que outras duas sessões reclamaram e ainda não estão na `main`. A suite do `lint_backlog`, que o `coverage-python` corre, fica vermelha pela mesma razão, e com ela o *gate* 4. É a regra de o número mais alto esperar pelo mais baixo, e fica verde quando os dois entrarem. *Gate* 7: `contract_diff check` conforme, com 84 contratos; o `ci-7-meta` é Node e não correu, porque o diff não toca no `meta-sim` nem no `gwy`. O AGR tocado é o critério 5.
 
-**A revisão adversarial**, independente e sem acesso ao raciocínio de quem escreveu: RESULTADO_REVISAO
+**A revisão adversarial**, independente e sem acesso ao raciocínio de quem escreveu, correu sobre o ramo empurrado. Mediu oito mutações do `trancas.py` numa cópia, com o ensaio antigo e o novo. Cinco achados confirmados, todos tratados neste PR:
+
+- **A1, a regressão:** uma espera curta entre conversas diferentes deixou de ser apanhada. Fica declarada nos Detalhes Técnicos e no comentário da constante.
+- **A6:** o *gate* 3c fica vermelho, e o 4 também, pela suite do `lint_backlog`, até o 212 e o 213 entrarem. O texto dizia «PRs por fundir», e nenhum dos dois tinha PR; passou a dizer quem os reclama.
+- **A7:** «vinte e duas suites» estava copiado do KAM-181 e já não bate. O número saiu.
+- **A8:** faltavam os marcadores desta secção.
+- **A9:** o título dizia «avermelha o *gate* 4», e no CI não há ocorrência nenhuma. Passa a «falha ao acaso sob carga».
+
+Mortos, com a evidência dela: as falhas ao acaso do ensaio novo (0 em 300 com `--cpus=0.2`, e a corrida mais lenta levou 0,297 s), as tarefas penduradas (0 no fim, nos casos verde e vermelho) e todas as contagens e afirmações do bloco.
+
+**Ficam abertos, e não são regressão deste PR,** porque o ensaio antigo também os deixava passar:
+
+- quatro mutações vivas: o trinco global só à volta da espera pela base, a ordem entre o trinco e a tranca trocada, e o `_largar_o_trinco` a nunca apagar ou a apagar sempre;
+- `trinco = self._exclusiva`, que pendura este ensaio e o vizinho, porque o `IsolatedAsyncioTestCase` não tem prazo.
+
+**Credor: o dono do *gate* 4.** Ficam escritos aqui e não se abrem como ticket, porque nenhum ensaio da suite foi medido contra eles.
 
 ### Handoff para Claude Code
 
