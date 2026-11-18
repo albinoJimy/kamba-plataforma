@@ -66,6 +66,8 @@ const EVENTO = "0192f1c4-7b1e-7d2a-9c3e-5a1f0b6e2d44";
 const MERCHANT = "merch-de-ensaio";
 const TOTAL = 24_500_000;
 const AGORA = new Date("2026-11-10T10:00:05.000Z");
+/** O `now()` da transacção, que a base falsa escreve como o `order_entrega_presa`. */
+const INSTANTE_DA_BASE = "2026-11-10T10:00:07.000Z";
 
 /** As vinte e uma arestas depois da `0046`, escritas à mão (não do módulo). */
 const GRAFO = [
@@ -188,15 +190,19 @@ function baseFalsa(inicial: Inicial) {
         for (const pedaco of ["AND version = $3", "AND estado = $4"]) {
           assert.ok(sql.includes(pedaco), `o SQL_TRANSITAR perdeu "${pedaco}"`);
         }
-        const [, id, version, de, para, , pagaVia, entregueAt, confirmadaPor] =
-          valores;
+        assert.ok(!sql.includes("entregue_at"), "o entregue_at e da base (KAM-204)");
+        const [, id, version, de, para, , pagaVia, confirmadaPor] = valores;
         if (id !== ORDEM || version !== e.version || de !== e.estado) return vazio;
         const aresta = GRAFO.find((g) => g.de === de && g.para === para);
         assert.ok(aresta, `${String(de)} -> ${String(para)} nao esta no grafo`);
         e.estado = String(para);
         e.version += 1;
-        if (entregueAt !== null) e.entregueAt = String(entregueAt);
-        if (confirmadaPor !== null) e.entregaConfirmadaPor = String(confirmadaPor);
+        // O `order_entrega_presa` da revisao `0071`: o instante da transaccao
+        // numa entrega nova, e no fim de uma disputa os dois da entrega que houve.
+        if (para === "entregue" && de !== "em_disputa") {
+          e.entregueAt = INSTANTE_DA_BASE;
+          if (confirmadaPor !== null) e.entregaConfirmadaPor = String(confirmadaPor);
+        }
         return {
           rows: [
             {
@@ -660,7 +666,6 @@ for (const [kind, de, para] of [
       para,
       expectedVersion: 3,
       causa: { causa: "ensaio" },
-      entregaConfirmadaPor: "cliente",
     });
     assert.deepEqual(r, { tipo: "erro", erro: "VALIDATION_ERROR" });
     assert.ok(!base.vistas.some((v) => v.sql === SQL_TRANSITAR), "nao chegou ao CAS");
@@ -714,14 +719,13 @@ test("em_disputa -> entregue não é entrega nova: não emite, não reescreve a 
     para: "entregue",
     expectedVersion: 3,
     causa: { causa: "decisao_de_disputa" },
-    // Quem decide passa o que a encomenda já tem; a coluna mantém o dela.
-    entregaConfirmadaPor: "cliente",
   });
   assert.equal(r.tipo, "ok");
   assert.deepEqual(emitidos(base.vistas), []);
   assert.equal(base.encomenda.entregueAt, "2026-11-01T12:00:00.000Z");
+  assert.equal(base.encomenda.entregaConfirmadaPor, "cliente");
   const transitado = base.vistas.find((v) => v.sql === SQL_TRANSITAR);
-  assert.equal(transitado?.valores[7], null, "o entregue_at vai nulo e o COALESCE mantem-no");
+  assert.equal(transitado?.valores[7], null, "o fim de uma disputa nao pede papel ao ctx");
 });
 
 test("entregue -> em_disputa grava o registo e não emite", async () => {

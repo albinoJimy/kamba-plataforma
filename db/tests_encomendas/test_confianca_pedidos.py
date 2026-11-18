@@ -96,24 +96,24 @@ class TestPedidosEntregues(ComEncomendas):
     def test_uma_disputa_depois_da_janela_nao_marca_o_pedido(self) -> None:
         """A disputa conta **so** dentro dos 14 dias depois da entrega.
 
-        A entrega recua-se 20 dias pelo administrador (o `entregue_at` nao tem
-        *trigger* que o prenda), e a disputa entra agora: 20 > 14, logo `False`.
-        A disputa recusada devolve a encomenda a `entregue` com um `entregue_at`
-        novo, que se recua outra vez.
+        A entrega recua-se 20 dias com o *trigger* do instante desligado (desde a
+        revisao `0071`, o `entregue_at` nao muda fora de uma entrega, KAM-204), e
+        a disputa entra agora: 20 > 14, logo `False`. A disputa recusada devolve a
+        encomenda a `entregue` **com o `entregue_at` da entrega que houve**, que e
+        o que a base garante desde a mesma revisao.
         """
         a = self.criar_tenant()
         c = self.criar_contacto(a)
         o = self.entregue(a, c, 1_200_000)
-        recuar = (
-            "UPDATE platform.orders_mirror SET entregue_at = now() - interval '20 days' "
-            "WHERE tenant_id = %s AND id = %s"
+        self.recuar_entrega(a, o, "20 days")
+        self.semente.execute(
+            "SELECT version, entregue_at FROM platform.orders_mirror WHERE id = %s", (o,)
         )
-        self.semente.execute(recuar, (a, o))
-        self.semente.execute("SELECT version FROM platform.orders_mirror WHERE id = %s", (o,))
-        versao = int(self.semente.fetchone()[0])
-        versao = self.transitar(a, o, "entregue", "em_disputa", versao, "reclamacao")
+        versao, recuada = self.semente.fetchone()
+        versao = self.transitar(a, o, "entregue", "em_disputa", int(versao), "reclamacao")
         self.transitar(a, o, "em_disputa", "entregue", versao, "disputa_recusada")
-        self.semente.execute(recuar, (a, o))
+        self.semente.execute("SELECT entregue_at FROM platform.orders_mirror WHERE id = %s", (o,))
+        self.assertEqual(self.semente.fetchone()[0], recuada)
         desde = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(days=60)
         linhas = self.ler("SQL_PEDIDOS_ENTREGUES", a, desde, str(MINIMO), 14)
         self.assertEqual([(l[0], l[6]) for l in linhas], [(o, False)])

@@ -12,7 +12,7 @@
 
 version: 1
 fonte: "specs/02_Dicionario_de_Dados_Canonico.md"
-versao_dicionario: "1.112"
+versao_dicionario: "1.113"
 entradas:
   - seccao: "3.1"
     conceito: "Contacto"
@@ -11480,6 +11480,34 @@ entradas:
     nomes_nota:
       - "id"
       - "order_state_log.actor_id"
+      - "transition"
+      - "ctx"
+      - "cliente"
+      - "dono"
+      - "estafeta"
+      - "COMMIT"
+      - "actor_kind"
+      - "order_state_log"
+      - "version"
+      - "order_entrega_exige_papel"
+      - "merged_into"
+      - "conversations.window_expires_at"
+      - "kamba_app"
+      - "paga"
+    variantes_literais: []
+  - seccao: "3.43"
+    conceito: "Instante da entrega"
+    canonico: "orders_mirror.entregue_at"
+    literais:
+      - "orders_mirror.entregue_at"
+    nomes:
+      - "orders_mirror.entregue_at"
+    nomes_nota:
+      - "order_entrega_presa"
+      - "now"
+      - "entregue"
+      - "kamba_app"
+      - "UPDATE"
     variantes_literais: []
   - seccao: "3.43"
     conceito: "Tipo de divergência"

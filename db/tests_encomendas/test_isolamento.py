@@ -39,7 +39,6 @@ UPDATE_DA_APP_EM_ENCOMENDAS = (
     "paga_at",
     "paga_via",
     "excepcao",
-    "entregue_at",
     "entrega_confirmada_por",
     "version",
     "atualizado_at",
@@ -56,6 +55,9 @@ SEM_UPDATE_DA_APP = (
     "intent_key",
     "currency",
     "criado_at",
+    # Desde a `0071` (KAM-204): o instante da entrega escreve-o o *trigger*
+    # `order_entrega_presa`, com o `now()` da transaccao, e nao a aplicacao.
+    "entregue_at",
 )
 
 
@@ -186,8 +188,11 @@ class TestOsTriggersSaoSempreActivos(ComEncomendas):
     `A` e `ENABLE ALWAYS`; `O` e a omissao.
     """
 
-    #: Os cinco, com o nome e a tabela.
+    #: Os cinco, com o nome e a tabela — e os dois da `0071` (KAM-204), que a
+    #: revisao tambem poe em `ALWAYS`.
     TRIGGERS = (
+        ("orders_mirror", "order_entrega_exige_papel"),
+        ("orders_mirror", "order_entrega_presa"),
         ("orders_mirror", "order_nasce_criada"),
         ("orders_mirror", "order_transicao_valida"),
         ("orders_mirror", "order_estado_exige_log"),
@@ -207,7 +212,7 @@ class TestOsTriggersSaoSempreActivos(ComEncomendas):
         self.assertEqual(
             linhas,
             [(tabela, nome, "A") for tabela, nome in sorted(self.TRIGGERS)],
-            "os cinco em `A`, e **so** os cinco: um *trigger* novo nestas duas "
+            "os sete em `A`, e **so** os sete: um *trigger* novo nestas duas "
             "tabelas entra por aqui, e um que perca o `ALWAYS` aparece como `O`",
         )
 
