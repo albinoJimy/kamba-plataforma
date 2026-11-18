@@ -94,6 +94,37 @@ class FilaFalsa implements FilaDoEspelho {
  */
 let proximoIdDeConta = 1000;
 
+/**
+ * Uma barreira de `n` chegadas: ninguém passa antes de chegarem todos (KAM-213).
+ *
+ * Se não chegarem todos em `limiteMs`, quem espera **falha**, com a contagem — um
+ * ensaio pendurado não diz porquê, e um que saísse verde sem a intercalação
+ * deixava de medir o que diz medir.
+ */
+function barreira(n: number, limiteMs = 10_000): () => Promise<void> {
+  let chegados = 0;
+  let abrir: () => void = () => undefined;
+  const aberta = new Promise<void>((resolver) => {
+    abrir = resolver;
+  });
+  return async () => {
+    chegados += 1;
+    if (chegados === n) abrir();
+    let relogio: ReturnType<typeof setTimeout> | undefined;
+    const esgotada = new Promise<never>((_, falhar) => {
+      relogio = setTimeout(
+        () => falhar(new Error(`a barreira esgotou o tempo: chegaram ${chegados} de ${n}`)),
+        limiteMs,
+      );
+    });
+    try {
+      await Promise.race([aberta, esgotada]);
+    } finally {
+      clearTimeout(relogio);
+    }
+  };
+}
+
 /** O provedor por porta: conta chamadas. Não há simulador de Chatwoot. */
 class ProvedorFalso {
   contasCriadas = 0;
@@ -101,9 +132,12 @@ class ProvedorFalso {
   emBaixo = false;
   /** Força o `criarConta` a devolver uma conta fixa, para a colisão da `UNIQUE`. */
   proximaConta: ContaDeAtendimento | null = null;
+  /** Onde o `criarConta` espera antes de devolver: a intercalação forçada (KAM-213). */
+  barreira: (() => Promise<void>) | null = null;
 
   readonly criarConta = async (): Promise<ContaCriada> => {
     this.contasCriadas += 1;
+    if (this.barreira !== null) await this.barreira();
     if (this.proximaConta !== null) return this.#criada(this.proximaConta);
     proximoIdDeConta += 1;
     return this.#criada({
@@ -411,9 +445,17 @@ describe("o handoff contra a base", () => {
       // Sem o `ON CONFLICT`, a segunda levanta `23505` e o `ensureAccount`
       // propaga — a passagem que dependesse dela falhava em vez de reutilizar a
       // conta que a primeira criou.
+      //
+      // **E o `Promise.all` sozinho não o garantia** (KAM-213): quando uma
+      // chamada acabava antes de a outra ler, a segunda ia pelo caminho rápido,
+      // o provedor via uma conta e não duas, e o ensaio ficava vermelho ao acaso
+      // numa árvore sem defeito nenhum. A barreira no provedor segura
+      // cada chamada **depois** da leitura e **antes** do `INSERT` até as duas lá
+      // chegarem, e a corrida deixa de depender do relógio.
       const [tenant] = await tenantNovo("handoff-conflito");
       const provedor = new ProvedorFalso();
       const outro = new ProvedorFalso();
+      provedor.barreira = outro.barreira = barreira(2);
       const [uma, segunda] = await Promise.all([
         hndDe(tenant, provedor, new FilaFalsa(), app).ensureAccount(tenant),
         hndDe(tenant, outro, new FilaFalsa(), app2).ensureAccount(tenant),

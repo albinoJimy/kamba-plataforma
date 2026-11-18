@@ -457,4 +457,21 @@ describe("a reaplicação não passa fome nem desfaz a fase", () => {
       assert.equal(m.onboardings.casos.get(o.id)!.fase, esperado, `mudou=${mudou}`);
     }
   });
+
+  it("o empate entre a fase e a decisão conta como mudança: a reaplicação não reescreve (KAM-213)", async () => {
+    // O ensaio de base de dados separa os instantes por 2 ms, e deixou de
+    // exercitar o empate: é aqui que o `>=` do `#faseMudouDesde` fica preso. O
+    // duplo da fila data a decisão pelo mesmo relógio, e sem `avancar` a fase
+    // muda **no** instante da decisão.
+    const m = montarRevisao();
+    const o = m.onboarding();
+    const r = await m.abrir(o);
+    assert.ok(r.estado !== "nao_elegivel");
+    await m.servico.decidir({ id: "rev-1", papeis: ["ts_revisor"], mfa: true, nifHmac: null, telefoneHmac: null }, r.caso.id, "pedir_info");
+    const [decisao] = await m.repositorio.decisoes(r.caso.id);
+    const actual = m.onboardings.casos.get(o.id)!;
+    m.onboardings.casos.set(o.id, { ...actual, fase: "rejeitado", faseEm: new Date(decisao!.em.getTime()) });
+    await m.servico.reaplicarEfeitos(r.caso.id);
+    assert.equal(m.onboardings.casos.get(o.id)!.fase, "rejeitado", "o empate desfez a fase");
+  });
 });
