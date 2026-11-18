@@ -10,7 +10,9 @@
 # sobre ligacoes do `kamba_app`: a marca de consumo e os sinais confirmam juntos,
 # sob a RLS do tenant do envelope. Os sete tipos sao os do criterio 1 do
 # KAM-097 (`TIPOS_CONSUMIDOS`); o `order.delivered` e o `payment.confirmed` nao
-# dao sinal, consomem-se para que a independencia do KAM-096 se leia.
+# dao sinal, consomem-se para que a independencia do KAM-096 se leia. E o
+# `order.delivered`, depois de consumido, recalcula a confianca do tenant do
+# evento (KAM-203: o `depoisDoTrust` do processo de lote), sem subscricao nova.
 #
 # O nome `trust` e o `events_consumed.consumer` que o `SQL_INDEPENDENCIA` le.
 #

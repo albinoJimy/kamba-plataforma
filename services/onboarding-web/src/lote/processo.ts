@@ -55,6 +55,15 @@
  * O aviso de uma sanção ao dono é o mesmo caso do aviso da fila, abaixo: sem
  * agregador nem telefone em claro, levanta, e o efeito fica por reaplicar.
  *
+ * ## A confiança gradual corre aqui também (KAM-203)
+ *
+ * O recálculo do nível de cada tenant (`@kamba/core-ts/confianca`, KAM-096) em
+ * quatro sítios, todos neste processo: a volta diária e a varredura das
+ * descidas (`CicloDaConfianca`, que a casca agenda), o `order.delivered` depois
+ * de o consumidor de T&S o consumir (`depoisDoTrust`), e cada aprovação que
+ * passa pela porta (`OnboardingsQueRecalculam`). O nome do consumidor que marca
+ * a independência é o da subscrição (`SUBSCRICAO_DO_TRUST`), e não um literal.
+ *
  * ## O off-boarding corre aqui (KAM-210)
  *
  * As três fases do encerramento deste lado que correm sem pedido — o canal, os
@@ -113,7 +122,14 @@ import {
   type ViaDoAviso,
 } from "@kamba/core-ts/revisao";
 import type { AprovacaoDoKyc } from "@kamba/core-ts/kyc";
-import { METRICAS, MaquinaNaBase, filasDe } from "@kamba/core-ts/eventos";
+import {
+  CicloDaConfianca,
+  MetricasDaConfianca,
+  RecalculoDaConfianca,
+  SQL_NIVEL_DO_TENANT,
+  type ResultadoDoCicloDaConfianca,
+} from "@kamba/core-ts/confianca";
+import { METRICAS, MaquinaNaBase, filasDe, type Envelope } from "@kamba/core-ts/eventos";
 // Só os tipos: o `bullmq` e o `ioredis` carregam-se na casca, **depois** de a
 // porta abrir (ver o `consumidorDoTrust`).
 import type { criarTrabalhadores, Trabalhadores } from "@kamba/core-ts/eventos/trabalhador_bullmq";
@@ -166,6 +182,15 @@ export const VARIAVEIS_DO_LOTE = {
   /** O dia em que a amostragem das aprovações automáticas começou (`AAAA-MM-DD`). */
   amostragem: "ONBOARDING_LOTE_AMOSTRAGEM_DESDE",
 } as const;
+
+/**
+ * A subscrição do consumidor de T&S, **uma vez**: o consumidor corre com ela, e
+ * o recálculo da confiança lê dela o nome que marca a independência (KAM-203,
+ * critério 5). Dois literais eram dois sítios a mudar, e um esquecido deixava
+ * o recálculo a perguntar por marcas de um consumidor que não existe — com
+ * todos os pedidos `por_avaliar`, e ninguém a subir.
+ */
+export const SUBSCRICAO_DO_TRUST = { consumer: CONSUMIDOR_DE_TRUST, exigeOrdem: true } as const;
 
 /** A porta da sonda e das métricas do processo de lote. */
 export const PORTA_POR_OMISSAO = 3014;
@@ -419,6 +444,61 @@ export function efeitosDoLote(lote: ConjuntoSql, opcoes: { readonly carenciaMs?:
   return new EfeitosPorReaplicarSql(lote, opcoes);
 }
 
+/**
+ * Os onboardings da fila, com o recálculo da confiança **depois** de cada
+ * aprovação (KAM-203, critério 3).
+ *
+ * O `aprovar` é a porta por onde passam as aprovações deste processo — a
+ * decisão humana da fila e o varrimento do ciclo, e o `k1_ok` do KYC quando um
+ * `ServicoKyc` for montado sobre o `aprovacaoDoKyc` daqui (hoje nenhum `src` o
+ * monta) —, e é a mesma transacção que emite o `tenant.approved`. **Quem
+ * aprovar por outro `OnboardingsSql`** (a consola `/equipa`, quando for ligada
+ * à base) não passa por aqui: o tenant nasce na volta diária, e até lá não
+ * cobra. Quando devolve `aprovado` a
+ * transacção já confirmou, e o recálculo dá ao tenant o nível 0 antes de
+ * qualquer cobrança: até ele correr não há nível, e sem nível o *trigger* da
+ * cobrança recusa (KAM-096) — falha fechada, e nunca um tecto por omissão.
+ *
+ * **O `aoAprovar` não lança**: a aprovação já está feita, e uma falha do
+ * recálculo não a pode fazer parecer recusada a quem a pediu. Quem o passa
+ * conta e regista a falha; a volta diária repara-a.
+ */
+export class OnboardingsQueRecalculam extends OnboardingsSql {
+  readonly #aoAprovar: (onboardingId: string) => Promise<void>;
+
+  constructor(lote: ConjuntoSql, aoAprovar: (onboardingId: string) => Promise<void>) {
+    super(lote);
+    this.#aoAprovar = aoAprovar;
+  }
+
+  override async aprovar(
+    id: string,
+    evento: Parameters<OnboardingsSql["aprovar"]>[1],
+    actor: string,
+  ): ReturnType<OnboardingsSql["aprovar"]> {
+    const r = await super.aprovar(id, evento, actor);
+    if (r.estado === "aprovado") await this.#aoAprovar(id);
+    return r;
+  }
+}
+
+/**
+ * O `depois` do consumidor de T&S (KAM-203, critério 2): o `order.delivered`,
+ * já consumido, recalcula o tenant do evento. Corre **depois** do `COMMIT` do
+ * consumo, numa ligação `kamba_batch` sua, e por isso vê a marca de consumo do
+ * `order.paid` que dá a independência — que veio antes, na mesma partição.
+ *
+ * Uma falha **lança**: o BullMQ repete, a repetição chega como `duplicado`, e o
+ * recálculo corre outra vez. A reentrega do mesmo evento recalcula outra vez e
+ * não escreve nada, porque o recálculo é idempotente.
+ */
+export function depoisDoTrust(recalculo: Pick<RecalculoDaConfianca, "recalcular">) {
+  return async (envelope: Envelope): Promise<void> => {
+    if (envelope.tipo !== "order.delivered") return;
+    await recalculo.recalcular(envelope.tenant_id, "entrega");
+  };
+}
+
 export interface OpcoesDoProcesso {
   /** O conjunto de ligações do `kamba_batch`. */
   readonly lote: ConjuntoSql;
@@ -434,6 +514,8 @@ export interface OpcoesDoProcesso {
   readonly metricasDoTrust?: MetricasDoTrust;
   /** O aviso de uma sanção. Por omissão, o que não tem via (ver a nota do módulo). */
   readonly avisoDeSancao?: AvisoDeSancao;
+  /** As métricas do recálculo da confiança. Por omissão, uma instância nova. */
+  readonly metricasDaConfianca?: MetricasDaConfianca;
   /** As métricas do off-boarding. Por omissão, uma instância nova. */
   readonly metricasDoOffboarding?: MetricasDoOffboarding;
   /** As portas do off-boarding. Por omissão, as sem adaptador (ver a nota do módulo). */
@@ -449,6 +531,11 @@ export interface ProcessoDeLote {
   /** As varreduras de T&S, para a casca agendar (KAM-200, critério 2). */
   readonly cicloDoTrust: CicloDoTrust;
   readonly metricasDoTrust: MetricasDoTrust;
+  /** O recálculo da confiança de um tenant (KAM-203), para o consumidor de T&S. */
+  readonly recalculo: RecalculoDaConfianca;
+  /** A volta diária e a varredura das descidas, para a casca agendar. */
+  readonly cicloDaConfianca: CicloDaConfianca;
+  readonly metricasDaConfianca: MetricasDaConfianca;
   /** As fases do encerramento deste lado, para a casca agendar (KAM-210, critério 1). */
   readonly cicloDoOffboarding: CicloDoOffboarding;
   readonly metricasDoOffboarding: MetricasDoOffboarding;
@@ -476,7 +563,31 @@ export interface ProcessoDeLote {
  * fingir, e o aviso levanta (ver a nota do módulo).
  */
 export function montarProcesso(o: OpcoesDoProcesso): ProcessoDeLote {
-  const onboardings = new OnboardingsSql(o.lote);
+  const metricasDaConfianca = o.metricasDaConfianca ?? new MetricasDaConfianca();
+  const recalculo = new RecalculoDaConfianca({
+    lote: o.lote,
+    app: o.app,
+    consumidorDeTrust: SUBSCRICAO_DO_TRUST.consumer,
+    metricas: metricasDaConfianca,
+    ...(o.relogio === undefined ? {} : { relogio: o.relogio }),
+  });
+  const onboardings: OnboardingsSql = new OnboardingsQueRecalculam(o.lote, async (onboardingId) => {
+    try {
+      const ob = await onboardings.porId(onboardingId);
+      if (ob === null) return;
+      // **Só faz nascer.** A aprovação repete-se — a fila reaplica a decisão de
+      // um caso já `aprovado` em cada volta enquanto o aviso ao dono não tiver
+      // via —, e um recálculo por minuto e por caso só para dizer «sem mudança»
+      // era tranca e duas ligações por nada (achado 5 da revisão adversarial).
+      // Quem já tem nível é da volta diária e da varredura das descidas.
+      if ((await o.lote.query(SQL_NIVEL_DO_TENANT, [ob.tenantId])).rows.length > 0) return;
+      await recalculo.recalcular(ob.tenantId, "aprovacao");
+    } catch {
+      // A falha do recálculo já contou (`desfecho="falhou"`); só o nome do
+      // passo vai para o registo, como no ciclo.
+      o.log.warn({ outcome: "confianca_aprovacao_falhou" });
+    }
+  });
   const metricasDoTrust = o.metricasDoTrust ?? new MetricasDoTrust();
   // O T&S propõe sanções **à** fila e a fila aplica as decisões **pelo** T&S: um
   // precisa do outro. A fila do T&S é o serviço de revisão, lido quando é
@@ -550,6 +661,9 @@ export function montarProcesso(o: OpcoesDoProcesso): ProcessoDeLote {
     trust,
     cicloDoTrust,
     metricasDoTrust,
+    recalculo,
+    cicloDaConfianca: new CicloDaConfianca({ lote: o.lote, recalculo }),
+    metricasDaConfianca,
     cicloDoOffboarding,
     metricasDoOffboarding,
     aprovacaoAutomatica,
@@ -585,6 +699,8 @@ export function consumidorDoTrust(o: {
   readonly urlDaApp: string;
   readonly urlDaFila: string;
   readonly metricasDoTrust: MetricasDoTrust;
+  /** O recálculo que o `order.delivered` corre depois do consumo (KAM-203). */
+  readonly recalculo: Pick<RecalculoDaConfianca, "recalcular">;
   readonly log: Pick<Logger, "info">;
   readonly criar: typeof criarTrabalhadores;
 }): Trabalhadores {
@@ -594,9 +710,10 @@ export function consumidorDoTrust(o: {
       await cliente.connect();
       return cliente;
     },
-    subscricao: { consumer: CONSUMIDOR_DE_TRUST, exigeOrdem: true },
-    filas: filasDe(CONSUMIDOR_DE_TRUST),
+    subscricao: SUBSCRICAO_DO_TRUST,
+    filas: filasDe(SUBSCRICAO_DO_TRUST.consumer),
     efeito: efeitoDeTrust({ contadores: o.metricasDoTrust }),
+    depois: depoisDoTrust(o.recalculo),
     maquina: new MaquinaNaBase("orders_mirror"),
     metricas: METRICAS,
     url: o.urlDaFila,
@@ -626,6 +743,16 @@ export function registarVoltaDoTrust(log: Pick<Logger, "info" | "error">, r: Res
   else log.error({ outcome: "trust_varreduras_com_falhas", error_code: r.falhas.join(",") });
 }
 
+/** A linha de registo de uma volta da confiança: o que correu e falhou, em números. */
+export function registarVoltaDaConfianca(
+  log: Pick<Logger, "info" | "error">,
+  qual: "diaria" | "descida",
+  r: ResultadoDoCicloDaConfianca,
+): void {
+  if (r.falhas === 0) log.info({ outcome: `confianca_${qual}_concluida` });
+  else log.error({ outcome: `confianca_${qual}_com_falhas`, error_code: "recalculo_falhou" });
+}
+
 /**
  * A aplicação HTTP do processo: a sonda e as métricas da fila, e mais nada.
  *
@@ -640,6 +767,7 @@ export function registarVoltaDoTrust(log: Pick<Logger, "info" | "error">, r: Res
 export function criarApp(
   metricas: MetricasDaRevisao = new MetricasDaRevisao(),
   metricasDoTrust: MetricasDoTrust = new MetricasDoTrust(),
+  metricasDaConfianca: MetricasDaConfianca = new MetricasDaConfianca(),
   metricasDoOffboarding: MetricasDoOffboarding = new MetricasDoOffboarding(),
 ): Hono {
   const app = new Hono();
@@ -647,7 +775,11 @@ export function criarApp(
   app.get("/healthz", (c) => c.json(healthz(SERVICE, VERSION)));
   app.get("/metrics", (c) =>
     c.text(
-      metricas.exposicao() + metricasDoTrust.exposicao() + metricasDoOffboarding.exposicao() + METRICAS.exposicao(),
+      metricas.exposicao() +
+        metricasDoTrust.exposicao() +
+        metricasDaConfianca.exposicao() +
+        metricasDoOffboarding.exposicao() +
+        METRICAS.exposicao(),
       200,
       {
         "content-type": "text/plain; version=0.0.4; charset=utf-8",
@@ -670,9 +802,12 @@ export function criarApp(
 export function opcoesDoConjunto(url: string, papel: "lote" | "app") {
   return {
     connectionString: url,
-    // Uma volta corre em série, e o trinco empresta uma ligação de cada vez; a
-    // da `app` só serve o screening.
-    max: papel === "lote" ? 4 : 2,
+    // Uma volta corre em série, e o trinco empresta uma ligação de cada vez. A
+    // da `app` serve o screening e a leitura dos pedidos do recálculo da
+    // confiança (KAM-203), que toma **uma de cada conjunto** por tenant: a do
+    // lote primeiro e só depois a da aplicação, pela mesma ordem em todos os
+    // chamadores, para que dois recálculos não fiquem cada um com metade.
+    max: 4,
     statement_timeout: 30_000,
     lock_timeout: 10_000,
     idle_in_transaction_session_timeout: 60_000,
@@ -711,6 +846,11 @@ export async function arrancar(o: {
   });
   return {
     processo,
-    app: criarApp(processo.ciclo.metricas, processo.metricasDoTrust, processo.metricasDoOffboarding),
+    app: criarApp(
+      processo.ciclo.metricas,
+      processo.metricasDoTrust,
+      processo.metricasDaConfianca,
+      processo.metricasDoOffboarding,
+    ),
   };
 }

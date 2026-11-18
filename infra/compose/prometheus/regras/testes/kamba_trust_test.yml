@@ -1,4 +1,5 @@
-# Testes de comportamento das regras de Trust & Safety — KAM-200.
+# Testes de comportamento das regras de Trust & Safety — KAM-200 — e da do
+# recalculo da confianca — KAM-203.
 #
 # `promtool test rules`, corrido por `make obs-promtool`. Cada teste prende um
 # caso e o seu controlo: a primeira ocorrencia de uma serie que nasce a zero
@@ -95,3 +96,29 @@ tests:
               resumo: A escada automatica de Trust & Safety deu mais de 5 passos na ultima hora.
               limite: O ritmo e proposta, sem calibracao.
               runbook_url: https://github.com/albinoJimy/kamba-plataforma/blob/main/docs/runbooks/trust-e-safety.md
+
+  - interval: 1m
+    name: "confianca: a primeira falha do recalculo dispara, as mudancas nao, e passada a janela resolve"
+    input_series:
+      - series: 'confianca_recalculos_total{job="onboarding_lote",instance="onboarding-lote:3014",origem="aprovacao",desfecho="falhou"}'
+        values: '0x10 1x30'
+      - series: 'confianca_recalculos_total{job="onboarding_lote",instance="onboarding-lote:3014",origem="diario",desfecho="mudou"}'
+        values: '0x5 7x35'
+    alert_rule_test:
+      # Aos 8 min so as mudancas subiram: nao dispara.
+      - eval_time: 8m
+        alertname: confianca_recalculo_com_falhas
+        exp_alerts: []
+      - eval_time: 12m
+        alertname: confianca_recalculo_com_falhas
+        exp_alerts:
+          - exp_labels:
+              severity: P2
+              componente: gov
+            exp_annotations:
+              resumo: O recalculo da confianca gradual falhou para pelo menos um tenant.
+              qual_tenant: A metrica e o registo nao levam tenant (OBS-I); os tenants sem nivel leem-se da platform.trust_level contra os casos aprovados, pelo lote.
+              runbook_url: https://github.com/albinoJimy/kamba-plataforma/blob/main/docs/runbooks/trust-e-safety.md
+      - eval_time: 35m
+        alertname: confianca_recalculo_com_falhas
+        exp_alerts: []

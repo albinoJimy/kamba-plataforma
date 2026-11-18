@@ -168,7 +168,7 @@ export function actorDoSistema(c: ConfiguracaoDaConfianca): string {
 /**
  * O recálculo de um tenant: diário e em `order.delivered`.
  *
- * Quem o agenda não está neste módulo (ver o bloco). Corre como `kamba_batch`,
+ * Quem o agenda é o `./lote.ts` (KAM-203). Corre como `kamba_batch`,
  * que é o único papel que escreve `trust_level`, numa transacção por tenant
  * (ver o `RepositorioDeConfianca.trancar`).
  */

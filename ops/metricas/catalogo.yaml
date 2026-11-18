@@ -454,6 +454,48 @@ metricas:
           - em_curso
           - falhou
 
+  # ------------------------------------- confianca gradual (KAM-203)
+  #
+  # Servidas pelo mesmo processo de lote, onde corre o recalculo do nivel de
+  # cada tenant: a volta diaria, a varredura das descidas, o `order.delivered`
+  # consumido e a aprovacao. Contam depois do `COMMIT` e nascem a zero em todo
+  # o dominio. Nenhuma etiqueta leva tenant (`OBS-I`): qual tenant mudou le-se
+  # do `audit_log` (`trust.tecto`). A regra esta no `kamba-trust.yml`.
+  - nome: confianca_recalculos_total
+    tipo: counter
+    fonte: packages/core-ts/src/confianca/metricas.ts
+    exposta_por:
+      - onboarding-lote
+    ajuda: Recalculos da confianca gradual de um tenant, por origem e desfecho.
+    etiquetas:
+      - nome: origem
+        dominio:
+          - diario
+          - entrega
+          - aprovacao
+          - descida
+      - nome: desfecho
+        dominio:
+          - mudou
+          - sem_mudanca
+          - falhou
+
+  - nome: confianca_mudancas_total
+    tipo: counter
+    fonte: packages/core-ts/src/confianca/metricas.ts
+    exposta_por:
+      - onboarding-lote
+    ajuda: Niveis de confianca escritos, por motivo.
+    etiquetas:
+      - nome: motivo
+        dominio:
+          - k1_completo
+          - historico_independente
+          - disputa_aceite
+          - sinal_alto
+          - sancao
+          - recalibracao
+
   # ------------------------------------------------- backup (KAM-079)
   #
   # **As quatro tem `exposta_por` vazio, e e a declaracao que importa.** A

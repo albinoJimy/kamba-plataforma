@@ -31,6 +31,7 @@
  */
 
 import { serve } from "@hono/node-server";
+import { INTERVALO_DA_CONFIANCA_POR_OMISSAO_MS } from "@kamba/core-ts/confianca";
 import { instalar } from "@kamba/core-ts/logger";
 import pg from "pg";
 
@@ -41,6 +42,7 @@ import {
   lerConfiguracao,
   opcoesDoConjunto,
   registarVolta,
+  registarVoltaDaConfianca,
   registarVoltaDoOffboarding,
   registarVoltaDoTrust,
 } from "./lote/processo.ts";
@@ -91,6 +93,25 @@ async function principal(): Promise<void> {
     // KAM-200: as varreduras de T&S, a primeira volta também já.
     const pararTrust = processo.cicloDoTrust.agendar(config.intervaloDoTrustMs, (r) => registarVoltaDoTrust(log, r));
     void processo.cicloDoTrust.correr().then((r) => registarVoltaDoTrust(log, r));
+    // KAM-203: a volta diária da confiança — a primeira já, para que um tenant
+    // aprovado durante uma paragem não espere um dia pelo nível 0 — e a
+    // varredura das descidas, ao ritmo do ciclo da fila. Uma volta que nem
+    // chegou a listar os tenants diz-se pelo nome, e a seguinte corre.
+    const falhouAConfianca = (): void =>
+      log.error({ outcome: "confianca_volta_falhou", error_code: "confianca_volta_falhou" });
+    const pararDiaria = processo.cicloDaConfianca.agendar(
+      "correr",
+      INTERVALO_DA_CONFIANCA_POR_OMISSAO_MS,
+      (r) => registarVoltaDaConfianca(log, "diaria", r),
+      falhouAConfianca,
+    );
+    void processo.cicloDaConfianca.correr().then((r) => registarVoltaDaConfianca(log, "diaria", r), falhouAConfianca);
+    const pararDescidas = processo.cicloDaConfianca.agendar(
+      "descer",
+      config.intervaloMs,
+      (r) => registarVoltaDaConfianca(log, "descida", r),
+      falhouAConfianca,
+    );
     // KAM-210: as fases do off-boarding deste lado, e as métricas das sete.
     const pararOffboarding = processo.cicloDoOffboarding.agendar(config.intervaloDoOffboardingMs, (r) =>
       registarVoltaDoOffboarding(log, r),
@@ -103,6 +124,7 @@ async function principal(): Promise<void> {
       urlDaApp: config.urlDaApp,
       urlDaFila: config.urlDaFila,
       metricasDoTrust: processo.metricasDoTrust,
+      recalculo: processo.recalculo,
       log,
       criar: criarTrabalhadores,
     });
@@ -114,6 +136,8 @@ async function principal(): Promise<void> {
     log.info({ outcome: "service_stopping" });
     parar();
     pararTrust();
+    pararDiaria();
+    pararDescidas();
     pararOffboarding();
     // Os *workers* e as ligações que cada fila abriu — **com tecto**: com a fila
     // em baixo, fechar um *worker* espera por uma ligação que não vem, e um

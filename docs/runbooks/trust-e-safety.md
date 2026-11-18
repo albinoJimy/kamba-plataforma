@@ -1,4 +1,4 @@
-# Runbook — Trust & Safety: uma suspensão decidida, e a escada automática acima do ritmo
+# Runbook — Trust & Safety: uma suspensão decidida, a escada automática acima do ritmo, e o recálculo da confiança com falhas
 
 **Esboço** (KAM-200, critério 3). **Não é procedimento ratificado** e nenhum passo foi ensaiado
 contra uma pilha com tráfego. O desenho está no [`docs/tecnica/10`](../tecnica/10_Onboarding_Governanca.md)
@@ -10,11 +10,11 @@ contra uma pilha com tráfego. O desenho está no [`docs/tecnica/10`](../tecnica
 
 | Campo | Valor |
 |---|---|
-| Cenário | Uma loja foi suspensa por decisão de T&S; ou a escada automática (`aviso`, `limitacao`) deu mais passos numa hora do que o ritmo esperado |
-| Severidade | **P3** a suspensão; **P2** a escada acima do ritmo |
+| Cenário | Uma loja foi suspensa por decisão de T&S; a escada automática (`aviso`, `limitacao`) deu mais passos numa hora do que o ritmo esperado; ou o recálculo da confiança gradual falhou para um tenant (KAM-203) |
+| Severidade | **P3** a suspensão; **P2** a escada acima do ritmo e o recálculo com falhas |
 | Quem age | **T2**, com o responsável de produto de T&S |
-| Alertas que apontam para aqui | `ts_suspensao_decidida` e `ts_escada_automatica_acima_do_ritmo`, em [`../../infra/compose/prometheus/regras/kamba-trust.yml`](../../infra/compose/prometheus/regras/kamba-trust.yml) |
-| Série | `ts_sancoes_total{passo,origem}`, servida pelo `onboarding-lote` |
+| Alertas que apontam para aqui | `ts_suspensao_decidida`, `ts_escada_automatica_acima_do_ritmo` e `confianca_recalculo_com_falhas`, em [`../../infra/compose/prometheus/regras/kamba-trust.yml`](../../infra/compose/prometheus/regras/kamba-trust.yml) |
+| Série | `ts_sancoes_total{passo,origem}` e `confianca_recalculos_total{origem,desfecho}`, servidas pelo `onboarding-lote` |
 | Estado | **Esboço.** Gatilho e leitura fixados; o ritmo de 5 passos por hora é *proposta* |
 
 ---
@@ -71,8 +71,30 @@ mais provável enquanto a política não estiver calibrada:
 **Não se desliga a escada à mão.** Mudar a política é mudar a versão dela, e isso é uma alteração
 de código revista — não uma operação.
 
+## 4. O recálculo da confiança com falhas (`confianca_recalculo_com_falhas`)
+
+O recálculo do nível de confiança de um tenant (`../../packages/core-ts/src/confianca/lote.ts`) falhou
+pelo menos uma vez nos últimos 15 minutos. A etiqueta `origem` diz de onde veio: `aprovacao` (logo depois
+de um onboarding aprovado), `entrega` (depois de um `order.delivered`, e o BullMQ repete-o sozinho),
+`descida` (a varredura de cada minuto) ou `diario` (a volta de 24 h).
+
+- **Quem ficou por fazer.** Pelo lote, os tenants com caso aprovado e sem linha em
+  `platform.trust_level` — esses não cobram até ao nível nascer, porque o *trigger* da cobrança recusa
+  sem nível (falha fechada, KAM-096). E os tenants acima do nível 0 que a varredura das descidas lista
+  (`SQL_TENANTS_A_DESCER`): esses continuam com o tecto do nível 1.
+- **Porquê.** O registo do `onboarding-lote` diz o passo (`confianca_aprovacao_falhou`,
+  `confianca_descida_com_falhas`, `confianca_diaria_com_falhas`, `confianca_volta_falhou`) e nunca o
+  tenant. A origem `entrega` não tem linha própria: a falha sobe ao BullMQ, que repete o *job*, e o
+  registo do consumidor diz o desfecho dele. As causas prováveis são as da ligação: a base em baixo, ou a tranca do tenant presa por uma
+  cobrança longa (o `lock_timeout` do processo é 10 s).
+- **O que fazer.** Nada à mão no nível: a volta seguinte — a das descidas num minuto, a diária no dia
+  seguinte — recalcula o mesmo tenant, e o recálculo é idempotente. Se a falha persistir, reiniciar o
+  `onboarding-lote` corre a volta diária no arranque. **Não se escreve `trust_level` à mão**: só o
+  `kamba_batch` a escreve, e cada escrita vai ao `audit_log`.
+
 ## Controlo de versões
 
 | Versão | Data | Alteração | Autor |
 |---|---|---|---|
 | 0.1 | Novembro 2026 | Esboço, com as duas regras do KAM-200 | Equipa KAMBÁ |
+| 0.2 | Novembro 2026 | KAM-203: o §4, a regra `confianca_recalculo_com_falhas` | Equipa KAMBÁ |

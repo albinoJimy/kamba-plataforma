@@ -116,6 +116,62 @@ export interface OpcoesDoTrabalhador {
    * provam-se noutro lado (`TestEscada`, nos dois idiomas).
    */
   readonly escada?: readonly number[];
+  /**
+   * O que corre **depois** de a transacção do consumo confirmar, com o envelope
+   * consumido — só nos desfechos `aplicado` e `duplicado` (`correrDepois`).
+   *
+   * Existe porque um efeito corre **dentro** da transacção que marca o
+   * `events_consumed`, e há trabalho que precisa de ver o que ela gravou: o
+   * recálculo da confiança (KAM-203) corre como `kamba_batch` noutra ligação e
+   * lê os sinais e as sanções que o efeito de T&S acabou de escrever.
+   *
+   * **Uma falha relança**, e isso é a retentativa: o BullMQ repete o *job*, o
+   * `processar` dá `duplicado` (a marca já está confirmada) e o `depois` corre
+   * outra vez. Por isso tem de ser idempotente. Esgotadas as tentativas, o *job*
+   * falha sem entrada na DLQ — o evento foi consumido —, e quem o passa tem de
+   * ter outra via que repare o que ficou por fazer.
+   */
+  readonly depois?: (envelope: Envelope) => Promise<void>;
+}
+
+/**
+ * O que o *job* faz com o resultado do `processar()`, já fora da transacção: é
+ * o que o BullMQ vê. Fora do *Worker* para que um ensaio a alcance sem fila
+ * (KAM-203: a chamada ao `depois` dentro do *Worker* não era medida por nada).
+ *
+ * * `adiado` relança um `Adiar`, para o BullMQ repetir com o atraso dele. **Não**
+ *   se chama `moveToDelayed`, e isso foi uma correcção: o BullMQ só aceita esse
+ *   movimento se o que se lançar a seguir for um `DelayedError` dele; com outro
+ *   erro, o *job* já não está activo e o tratamento da falha rebenta a dizer
+ *   que falta o *lock* — um evento adiado ficava preso em vez de ser retentado.
+ * * `dlq` relança um `UnrecoverableError`: a entrada já está aberta, e repetir
+ *   não ajuda — diz ao BullMQ para não gastar as tentativas que sobram.
+ * * `aplicado` e `duplicado` correm o `depois`, depois do `COMMIT`: uma falha
+ *   dele relança, e a repetição chega como `duplicado` e corre-o outra vez.
+ */
+export async function concluirJob(
+  resultado: ResultadoDoTrabalho,
+  envelope: Envelope,
+  depois?: (envelope: Envelope) => Promise<void>,
+): Promise<DesfechoDoTrabalho> {
+  if (resultado.desfecho === 'adiado') throw new Adiar(resultado.adiamento ?? ADIAMENTO_POR_OMISSAO);
+  if (resultado.desfecho === 'dlq') throw new UnrecoverableError(`dlq: ${resultado.erro ?? 'sem motivo'}`);
+  await correrDepois(depois, envelope, resultado.desfecho);
+  return resultado.desfecho;
+}
+
+/**
+ * O `depois` de um *job*, se o desfecho o pede. Um `adiado` e uma entrada na
+ * DLQ não consumiram nada, e não há o que ver depois deles.
+ */
+export async function correrDepois(
+  depois: ((envelope: Envelope) => Promise<void>) | undefined,
+  envelope: Envelope,
+  desfecho: DesfechoDoTrabalho,
+): Promise<boolean> {
+  if (depois === undefined || (desfecho !== 'aplicado' && desfecho !== 'duplicado')) return false;
+  await depois(envelope);
+  return true;
 }
 
 /**
@@ -212,7 +268,7 @@ export interface Trabalhadores {
  * reinício.
  */
 export function criarTrabalhadores(opcoes: OpcoesDoTrabalhador): Trabalhadores {
-  const { ligar, subscricao, filas, efeito, maquina, metricas, url, log, escada } = opcoes;
+  const { ligar, subscricao, filas, efeito, maquina, metricas, url, log, escada, depois } = opcoes;
   // `LIGACAO_QUE_ESPERA`, e **não** a do publicador: o BullMQ recusa um
   // `Worker` cujo cliente tenha `maxRetriesPerRequest` diferente de `null`, e
   // tem razão — um *worker* fica bloqueado à espera do próximo *job*, e uma
@@ -335,23 +391,7 @@ export function criarTrabalhadores(opcoes: OpcoesDoTrabalhador): Trabalhadores {
           tentativa,
           desfecho: resultado.desfecho,
         });
-        if (resultado.desfecho === 'adiado') {
-          // Relança para o BullMQ repetir. O atraso sai do `backoffStrategy`,
-          // que reconhece o `Adiar` e usa o atraso dele.
-          //
-          // **Não** se chama `moveToDelayed` aqui, e isso foi uma correcção: o
-          // BullMQ só aceita esse movimento se o que se lançar a seguir for um
-          // `DelayedError` dele; com outro erro, o *job* já não está activo e o
-          // tratamento da falha rebenta a dizer que falta o *lock* — um evento
-          // adiado ficava preso em vez de ser retentado.
-          throw new Adiar(resultado.adiamento ?? ADIAMENTO_POR_OMISSAO);
-        }
-        if (resultado.desfecho === 'dlq') {
-          // A entrada já está aberta; repetir não ajuda. `UnrecoverableError`
-          // diz ao BullMQ para não gastar as tentativas que sobram.
-          throw new UnrecoverableError(`dlq: ${resultado.erro ?? 'sem motivo'}`);
-        }
-        return resultado.desfecho satisfies DesfechoDoTrabalho;
+        return concluirJob(resultado, envelope, depois);
       },
       {
         connection: ligacao,
