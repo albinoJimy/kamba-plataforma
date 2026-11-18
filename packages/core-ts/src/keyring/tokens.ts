@@ -1,11 +1,12 @@
 /**
  * A rotação da KEK dos *tokens* de cliente (KAM-072, critério 4).
  *
- * O critério pede: «rodar a KEK re-cifra as DEK sem tocar nos *tokens* e a
- * leitura mantém-se». O KAM-016 entregou a cifra (`onboarding/cifra.ts`) com
- * uma decisão que muda a forma deste critério: **a DEK por tenant é derivada**
- * da KEK por HKDF e não guardada. Não há DEK embrulhada para re-cifrar — rodar a
- * KEK muda a DEK.
+ * O critério pede: «rodar a KEK re-cifra os criptogramas sem mudar os *tokens*,
+ * e a leitura mantém-se» — a letra que o fundador reescreveu a 2026-11-18. A
+ * anterior falava em re-cifrar as DEK, e o KAM-016 entregou a cifra
+ * (`onboarding/cifra.ts`) com uma decisão que a tornava impossível: **a DEK por
+ * tenant é derivada** da KEK por HKDF e não guardada. Não há DEK embrulhada
+ * para re-cifrar — rodar a KEK muda a DEK, e o que se re-cifra é o criptograma.
  *
  * O que se mantém **quando o `kid` é um identificador de versão estável** —
  * os inteiros do OpenBao KV v2, ou os `kid` deste módulo —, e é o que este
@@ -15,8 +16,7 @@
  *   do criptograma e o `decifrarToken` escolhe a versão da KEK pelo anel;
  * * **o *token* não muda**: a re-cifra abre com a versão antiga e fecha com a
  *   actual, e o texto que sai é o mesmo que entrou. O que muda é o
- *   **criptograma** — e é essa a diferença face à letra do critério, que fica
- *   declarada na secção de verificação do bloco;
+ *   **criptograma**, que é o que a letra do critério diz;
  * * **depois de a anterior ser revogada a leitura continua**, desde que a
  *   re-cifra tenha corrido sobre todos os criptogramas antes.
  *
