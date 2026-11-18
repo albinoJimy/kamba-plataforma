@@ -4,7 +4,7 @@
 |---|---|
 | Produto | KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para Angola |
 | Documento | Epic — Agent Runtime e Verticais |
-| Versão | 1.23 |
+| Versão | 1.24 |
 | Data | Outubro de 2026 |
 | Classificação | Documento de Referência — Interno |
 | Documento-fonte | `../docs/tecnica/02_Agent_Runtime_Verticais.md`, `../docs/tecnica/00_Arquitectura_Solucao.md` |
@@ -18,7 +18,7 @@ O **Agent Runtime (AGR)** é o serviço que transforma uma mensagem já resolvid
 
 O epic existe porque é onde as quatro fundações não-negociáveis do produto se tornam verificáveis por teste: mediação total pelo runtime, números só de tools, dinheiro só por evento, e verticais como configuração validadas pela **regra de dois** (Vendedor + Serviços, ADR-012). Dá corpo aos dois grafos do Piloto (tabela de arestas de `../docs/tecnica/02` §7.3 para o Vendedor; diagrama de §8.1 para os Serviços), ao padrão de dois nós para `interrupt()` idempotente (handoff), à voz com fallback a humano, ao modo determinístico sem LLM e ao dataset *golden* PT-AO como gate de deploy. Piloto = **só Fluxo A**: a persona `assistente` (Fluxo B) não é registada em produção (ADR-011).
 
-Concretiza ADR-002, ADR-005, ADR-007, ADR-009, ADR-010, ADR-012, ADR-013 e ADR-015, com adjacência a ADR-008 (chamadas a LLM/STT no estrangeiro são transferências até parecer em contrário) e ADR-018 (golden sintético, custo por tenant). São **19 tickets**: 13 na **Fase 0** (esqueleto andante: KAM-025 a KAM-032, KAM-035, KAM-038, KAM-039, KAM-184, KAM-186) e 6 na **Fase 1** (KAM-033, KAM-034, KAM-036, KAM-037, KAM-040, KAM-114). Qualidade em português de Angola, latência real dos modelos e WER dos STT são **NÃO VERIFICADOS** (`../docs/tecnica/02` §19, L1–L3): medem-se no golden e no staging, não se assumem.
+Concretiza ADR-002, ADR-005, ADR-007, ADR-009, ADR-010, ADR-012, ADR-013 e ADR-015, com adjacência a ADR-008 (chamadas a LLM/STT no estrangeiro são transferências até parecer em contrário) e ADR-018 (golden sintético, custo por tenant). São **20 tickets**: 13 na **Fase 0** (esqueleto andante: KAM-025 a KAM-032, KAM-035, KAM-038, KAM-039, KAM-184, KAM-186) e 7 na **Fase 1** (KAM-033, KAM-034, KAM-036, KAM-037, KAM-040, KAM-114, KAM-214). Qualidade em português de Angola, latência real dos modelos e WER dos STT são **NÃO VERIFICADOS** (`../docs/tecnica/02` §19, L1–L3): medem-se no golden e no staging, não se assumem.
 
 ---
 
@@ -60,6 +60,7 @@ Concretiza ADR-002, ADR-005, ADR-007, ADR-009, ADR-010, ADR-012, ADR-013 e ADR-0
 | KAM-114 | Modo concierge: a IA rascunha e o humano aprova | feature | M | P0 | KAM-018, KAM-031, KAM-034 |
 | KAM-184 | Consumo dos eventos de pagamento na vertical Serviços: a acção, a origem do `booking_id` e o credor do `ACCOES_POR_LIGAR` | feature | M | P0 | KAM-035, KAM-047 |
 | KAM-186 | O processo do AGR liga a porta `grafos` e serve turnos | feature | L | P0 | KAM-027, KAM-031, KAM-035, KAM-178 |
+| KAM-214 | O ensaio das conversas diferentes na tranca do AGR mede uma janela de 10 ms, e falha ao acaso sob carga | fix | S | P1 | KAM-034 |
 
 ---
 
@@ -2145,7 +2146,7 @@ Uma revisão, por um subagente que não viu o raciocínio do autor, sobre `f38b0
 | Prioridade | P0 |
 | Estimativa | M |
 | Dependências | KAM-019, KAM-026, KAM-031, KAM-018 |
-| Bloqueia | KAM-040, KAM-114 |
+| Bloqueia | KAM-040, KAM-114, KAM-214 |
 | Responsável sugerido | Engenheiro de Runtime/IA |
 | Documentos de referência | `../docs/tecnica/02_Agent_Runtime_Verticais.md` (§11), `../docs/tecnica/01_Canais_WhatsApp_Fluxo_Dual.md` (§11), ADR-002, ADR-009, proposta 02-C, `../docs/tecnica/evidencia/E4_Stack_Licencas.md` (§2.6) |
 
@@ -5231,6 +5232,155 @@ Nao expandas escopo: corrigir falhas encontradas e ticket novo. PR com o templat
 
 ---
 
+## KAM-214 — O ensaio das conversas diferentes na tranca do AGR mede uma janela de 10 ms, e falha ao acaso sob carga
+
+| Campo | Valor |
+|---|---|
+| Epic | EPIC-03 — Agent Runtime e Verticais |
+| Fase | 1 |
+| Tipo | fix |
+| Prioridade | P1 |
+| Estimativa | S |
+| Dependências | KAM-034 |
+| Bloqueia | — |
+| Responsável sugerido | Engenheiro de Runtime/IA, com o dono do gate 4 |
+| Documentos de referência | `../services/agr/tests/test_handoff.py`, `../services/agr/src/kamba_agr/trancas.py`, `../libs/py-core/src/kamba_core/tenant_guard/__init__.py`, bloco KAM-034, `tickets/KAM-181.md` |
+
+### Contexto
+
+**Uma sessão do lote 10 viu um vermelho na tranca do AGR, e o vermelho repetia-se na `main`.**
+Foi em `234e4739`, duas vezes em duas, no ensaio
+`test_handoff.TestATrancaExcluiDentroDoProcesso.test_conversas_diferentes_nao_esperam_uma_pela_outra`.
+Os primeiros suspeitos eram os dois ensaios da `TrancaFalsa` do `test_eventos.py`
+(`test_corre_sob_a_tranca_da_conversa` e `test_entregas_concorrentes_nao_se_sobrepoem_na_tranca`),
+e não era nenhum deles.
+
+**No CI não aparece.** Medido a 2026-11-18, com `gh run view <id> --log-failed` sobre as
+**187** corridas falhadas dos *workflows* `ci` e `mutacoes` (todas as que o `gh run list`
+devolve, desde Outubro). Nenhuma corrida do `ci` tem a vermelho este ensaio nem os dois da
+`TrancaFalsa`. As corridas do `mutacoes` que o nomeiam são da nocturna, onde um ensaio vermelho
+é um mutante morto, e não um defeito.
+
+**Em contentor reproduz, na `publico/main` em `5ef99f83`.** A imagem é `python:3.12-slim`
+com os três ficheiros de requisitos, como o `.venv` do CI, e corre o
+`unittest discover -s services/agr/tests`:
+
+```text
+suite inteira, corrida 1     Ran 1755   OK                     223 s
+suite inteira, corrida 2     Ran 1755   FAILED (failures=1)    430 s   este ensaio
+o ensaio, 300 vezes          1 falha                                    sem limite de CPU
+o ensaio, 300 vezes          5 falhas                                   --cpus=0.3
+```
+
+A corrida 2 é a mais lenta e é a que falha: a máquina estava carregada com outras sessões. Uma
+terceira corrida ficou fora da medição, porque a árvore mudou de base a meio dela. **O que conta
+é o mecanismo, e não a taxa.** A taxa depende da carga, e o *runner* do CI corre esta suite
+duas vezes no `ordem-dos-ensaios` (as ordens normal e inversa), ao lado das suites do `coverage-python`.
+
+**A causa é o ensaio, e não a tranca.** O ensaio dormia 10 ms dentro da tranca e esperava ver as
+duas conversas lá dentro ao mesmo tempo:
+
+```text
+seccao("t:um")    _executar(TRANCAR) -> to_thread -> entra -> sleep(0.01) -> sai
+seccao("t:dois")  espera a _exclusiva -> to_thread -> entra
+```
+
+A `_exclusiva` da `TrancaDeConversas` serializa as idas à base, e com razão: o `pg8000` não é
+seguro para uso concorrente na mesma ligação. Por isso a segunda conversa só entra depois de uma
+ida ao *pool* do `to_thread`. Numa máquina carregada essa ida passa dos 10 ms, a primeira já
+saiu quando a segunda entra, e o máximo de secções simultâneas fica em 1. O ensaio afirmava
+então «duas conversas serializaram» sobre um código que não serializa.
+
+**O guarda do `tenant_guard` não entra aqui.** O ensaio usa uma `LigacaoQueConta` e não passa
+pelo `tenant_guard.tx`, pelo que este defeito não é o `LigacaoEmUso` do KAM-181. O guarda fica
+como está.
+
+### Objectivo
+
+O ensaio dá o mesmo resultado sob qualquer carga, e continua a avermelhar se a tranca passar a
+serializar conversas diferentes.
+
+### Critérios de Aceitação
+
+- [x] 1. A falha reproduz-se em contentor na `publico/main`, e a causa fica nomeada com o mecanismo.
+- [x] 2. O ensaio deixa de depender do relógio. Cada secção só sai depois de ver a outra lá dentro, e a latência do `to_thread` deixa de decidir o resultado.
+- [x] 3. Um trinco que serialize conversas diferentes põe o ensaio vermelho pela asserção, sem o deixar pendurado. Prova-se por mutação.
+- [x] 4. O código de produção não muda, e o guarda do `tenant_guard` não é tocado.
+- [x] 5. A suite `services/agr/tests` fica verde em contentor.
+
+### Detalhes Técnicos
+
+- **Onde.** Só em `../services/agr/tests/test_handoff.py`: o ensaio e a constante `PRAZO_DA_BARREIRA_S`.
+- **A barreira.** É um `asyncio.Barrier(2)`, e cada secção espera nela com `wait_for(..., PRAZO_DA_BARREIRA_S)` dentro da tranca. Com o código certo, a barreira abre assim que as duas entram e o prazo nunca se gasta. Com um trinco global, a primeira espera o prazo sozinha e sai com `False`; só então entra a segunda, que também sai com `False`. A asserção é `[True, True]`, por igualdade.
+- **O prazo é de 5 s**, e só o paga um código que serializa (duas vezes, uma por secção). É largo de propósito, para que nenhuma máquina carregada o confunda com serialização.
+- **E o prazo é também o limite do que o ensaio vê, que fica declarado.** Uma espera entre conversas diferentes mais curta do que 5 s passa verde: a revisão adversarial pôs um trinco global de 300 ms a seguir à tranca da base, e o ensaio novo deu `[True, True]` onde o antigo dava vermelho 5 em 5. O ensaio antigo apanhava-a por depender do agendador, que é o defeito deste ticket. O novo recusa sempre a serialização inteira e deixa passar uma espera curta. Sem relógio não há forma de ter as duas, e um prazo curto voltava a pôr o resultado nas mãos da carga.
+- **O que não se faz:** não se aumenta a janela do `sleep` (isso baixa a taxa e não fecha o mecanismo), não se marca o ensaio como instável, e não se mexe na `_exclusiva` da `TrancaDeConversas`.
+
+### Testes Requeridos
+
+- Unidade: o ensaio corrigido, repetido em contentor com e sem limite de CPU.
+- Mutação: `_trinco_do_thread("global")` em vez de `_trinco_do_thread(thread_id)` em `tomar`. É o trinco único por processo que o ensaio existe para recusar.
+- Suite: `services/agr/tests` inteira, em contentor.
+
+### Definition of Done
+
+- [x] Critérios de Aceitação satisfeitos, com a verificação escrita neste bloco.
+- [x] Nenhuma asserção afrouxada, e nenhum ensaio novo com janela de relógio.
+- [x] Documentação actualizada (este bloco, o `INDICE.md` e as contagens); sem migração.
+
+### Verificação dos Critérios de Aceitação
+
+Ramo `feature/KAM-214-tranca-sem-relogio`, base `9c2737d1` (`publico/main`). A reprodução foi
+medida em `5ef99f83`, e o `trancas.py` e o `test_handoff.py` são iguais nas duas bases
+(`git diff --stat 5ef99f83 9c2737d1 -- <os dois>` sai vazio). A imagem do contentor é
+`python:3.12-slim`, com `tools.txt`, `migrations.txt` e `runtime.txt` instalados por
+`pip install --require-hashes --no-deps`, e o `PYTHONPATH` tem `services/agr/src`,
+`libs/py-core/src` e `tools`.
+
+| # | Critério | Estado | O que se mediu, e com que comando |
+|---|---|---|---|
+| 1 | Reprodução e causa | satisfeito | Na base, `python -m unittest discover -s services/agr/tests -t services/agr/tests` deu `Ran 1755 OK` numa corrida e `FAILED (failures=1)` na seguinte, com `AssertionError: 1 != 2 : duas conversas serializaram`. O ensaio sozinho, repetido 300 vezes com `unittest.defaultTestLoader.loadTestsFromName`, deu **1 falha** sem limite e **5 falhas** com `docker run --cpus=0.3`. Nos logs do CI: zero ocorrências em 187 corridas falhadas. A causa está no Contexto |
+| 2 | Sem relógio | satisfeito | O ensaio não tem `sleep`, e a sobreposição prova-se pela barreira. Repetido 300 vezes sem limite e 300 vezes com `--cpus=0.3`: **0 falhas** nas duas séries |
+| 3 | A mutação morde pela asserção | satisfeito | Com `tomar` mutado para `self._trinco_do_thread("global")`, o ensaio dá **3 vermelhos em 3**, com `- [False, False] + [True, True] : duas conversas serializaram`, e não fica pendurado. O ficheiro foi reposto, e o `git diff --stat -- services/agr/src` sai vazio |
+| 4 | Produção e guarda intactos | satisfeito | `git diff --stat publico/main -- services/agr/src libs/py-core/src` sai vazio |
+| 5 | Suite verde | satisfeito | `python -m unittest discover -s services/agr/tests -t services/agr/tests` em contentor, no ramo: **Ran 1801 OK** em duas corridas seguidas (297 s e 214 s). Os 1801 contra os 1755 da reprodução são os ensaios que o KAM-118 trouxe com a base `9c2737d1` |
+
+**Portões, medidos nesta árvore,** com o Python do Windows a partir de `tools/`. *Gate* 2: a parte Python é conforme (`lint_arch all` e os dois canários, `log_policy`, `money_lint`, `env_lint`, `compose_prod` com `gerar --verificar`, `subprocessadores --check`, e o `pr-title` sobre o título do PR); o `pnpm -r run typecheck` não correu, porque nesta máquina não há `pnpm` e o diff não toca em TypeScript. *Gate* 3: `lint_refs`, `lint_handoff` e `lint_contagens` conformes, este depois de acertar a prosa do EPIC-03 para **20** tickets. *Gate* 3b: `dict_export --check`, `canon_lint check` e `canon_lint canario` conformes. *Gate* 3c: conforme na árvore integrada com a `publico/main` em `7d56e48f`, com 214 linhas no §4, 214 blocos e 214 linhas de §3. Antes dessa integração ficava vermelho de propósito, porque a gama ia até ao 214 e o 212 e o 213 ainda não estavam na `main`. O `lint_bloco` mede **144** blocos emparelhados na árvore integrada, contra **143** na `main` pristina: a secção de verificação deste bloco é o 144.º, pelo que o `MINIMO_DE_BLOCOS_MEDIDOS` sobe de 71 para **72** (`144 // 2`). *Gate* 7: `contract_diff check` conforme, com 84 contratos; o `ci-7-meta` é Node e não correu, porque o diff não toca no `meta-sim` nem no `gwy`. O AGR tocado é o critério 5.
+
+**A revisão adversarial**, independente e sem acesso ao raciocínio de quem escreveu, correu sobre o ramo empurrado. Mediu oito mutações do `trancas.py` numa cópia, com o ensaio antigo e o novo. Cinco achados confirmados, todos tratados neste PR:
+
+- **A1, a regressão:** uma espera curta entre conversas diferentes deixou de ser apanhada. Fica declarada nos Detalhes Técnicos e no comentário da constante.
+- **A6:** o *gate* 3c fica vermelho, e o 4 também, pela suite do `lint_backlog`, até o 212 e o 213 entrarem. O texto dizia «PRs por fundir», e nenhum dos dois tinha PR; passou a dizer quem os reclama.
+- **A7:** «vinte e duas suites» estava copiado do KAM-181 e já não bate. O número saiu.
+- **A8:** faltavam os marcadores desta secção.
+- **A9:** o título dizia «avermelha o *gate* 4», e no CI não há ocorrência nenhuma. Passa a «falha ao acaso sob carga».
+
+Mortos, com a evidência dela: as falhas ao acaso do ensaio novo (0 em 300 com `--cpus=0.2`, e a corrida mais lenta levou 0,297 s), as tarefas penduradas (0 no fim, nos casos verde e vermelho) e todas as contagens e afirmações do bloco.
+
+**Ficam abertos, e não são regressão deste PR,** porque o ensaio antigo também os deixava passar:
+
+- quatro mutações vivas: o trinco global só à volta da espera pela base, a ordem entre o trinco e a tranca trocada, e o `_largar_o_trinco` a nunca apagar ou a apagar sempre;
+- `trinco = self._exclusiva`, que pendura este ensaio e o vizinho, porque o `IsolatedAsyncioTestCase` não tem prazo.
+
+**Credor: o dono do *gate* 4.** Ficam escritos aqui e não se abrem como ticket, porque nenhum ensaio da suite foi medido contra eles.
+
+### Handoff para Claude Code
+
+```text
+És o executor do ticket KAM-214 da KAMBÁ (um ensaio intermitente do gate 4).
+Lê specs/EPIC-03_Agent_Runtime_Verticais.md (bloco KAM-214), o ensaio
+test_conversas_diferentes_nao_esperam_uma_pela_outra em services/agr/tests/test_handoff.py
+e a TrancaDeConversas em services/agr/src/kamba_agr/trancas.py.
+Objectivo: o ensaio dá o mesmo resultado sob qualquer carga, e continua a recusar um trinco
+que serialize conversas diferentes.
+Regras: mede em contentor antes de corrigir; nenhuma asserção afrouxada; nenhuma janela de
+relógio no ensaio; o código de produção e o guarda do tenant_guard não mudam.
+Testes: o ensaio repetido com e sem limite de CPU, a mutação do trinco global, e a suite
+services/agr/tests.
+```
+
+---
+
 ## Riscos do Epic e itens NÃO VERIFICADOS
 
 | # | Risco / item | Estado | Ligação | Tratamento no epic |
@@ -5290,3 +5440,4 @@ Nao expandas escopo: corrigir falhas encontradas e ticket novo. PR com o templat
 | 1.21 | Novembro 2026 | **KAM-193**, que abre o KAM-194, e é uma correcção de **credor**, não de conteúdo: na verificação do KAM-038, a casca BullMQ → `POST /internal/event` e as linhas de `evt_subscricoes` do AGR apontavam para o KAM-005 e o KAM-006, que estão fechados. Passam ao **KAM-194**, que o KAM-193 abre como a ponte fila → consumidor Python e que serve o AGR e o IDX com a mesma casca. Nenhuma caixa deste epic muda. | Equipa KAMBÁ |
 | 1.22 | Novembro 2026 | **KAM-192**: os Detalhes Técnicos do bloco do KAM-030 passam a nomear o quinto papel do cliente, `screening` — o do classificador de categorias do GOV (KAM-088), com o alias `screening-nano`. A lista fechada vive no dicionário §3.29 (emenda 1.85) e no `CHECK` da revisão `0047`. A secção de verificação do KAM-030 não muda: «os quatro em `llm/aliases.yaml`» continua verdadeiro, e era a evidência daquela entrega. | Equipa KAMBÁ |
 | 1.23 | Novembro 2026 | KAM-118 (EPIC-11): o KAM-211, credor das ligações de produção do canal do dono, entra no `Bloqueia` do KAM-186: o botão `confirm:{action_id}` só chega ao estado do turno pelo processo do AGR que serve turnos. Nenhuma caixa deste epic muda. | Equipa KAMBÁ |
+| 1.24 | Novembro 2026 | **KAM-214** acrescentado e entregue no mesmo PR: o ensaio `test_conversas_diferentes_nao_esperam_uma_pela_outra` dormia 10 ms dentro da tranca e esperava ver as duas conversas lá dentro. Mas a segunda só entra depois de uma ida ao *pool* do `to_thread`, e numa máquina carregada essa ida passa dos 10 ms. O ensaio passa a medir com uma barreira, e o código de produção não muda. Entra no `Bloqueia` do KAM-034, que escreveu o ensaio. | Equipa KAMBÁ |
