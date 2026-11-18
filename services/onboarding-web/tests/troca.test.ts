@@ -29,7 +29,7 @@ import { FakeSmsProvider } from "@kamba/core-ts/sms";
 import { CanalEmMemoria } from "../src/painel/canal.ts";
 import { ComercioEmMemoria } from "../src/painel/comercio.ts";
 import { MetricasDoPainel } from "../src/painel/metricas.ts";
-import { pedidoDaTroca, rotasDoPainel } from "../src/painel/rotas.ts";
+import { FASE_DA_TROCA, LIMITE_POR_REDE, pedidoDaTroca, rotasDoPainel } from "../src/painel/rotas.ts";
 import { RevogacoesEmMemoria, cunharSessao, novaSessao } from "../src/painel/sessao.ts";
 
 const TENANT_A = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
@@ -47,6 +47,9 @@ const NUMERO_DE_B = "+244 999 000 422";
 
 interface Montagem {
   app: ReturnType<typeof rotasDoPainel>;
+  contadores: ContadoresEmMemoria;
+  troca: TrocaDeTelefone;
+  casos: Map<string, { tenantId: string; fase: string }>;
   sms: FakeSmsProvider;
   metricas: MetricasDoPainel;
   /** O que a `definir_dono` recebeu: `(tenant, contacto)`. */
@@ -65,6 +68,7 @@ function montar(opcoes: { readonly avisoFalha?: boolean } = {}): Montagem {
     avisos: [],
   } as unknown as Montagem;
   const relogio = (): Date => m.agora;
+  m.contadores = new ContadoresEmMemoria();
   m.sms = new FakeSmsProvider({ relogio });
   m.metricas = new MetricasDoPainel();
   const otp = new Otp({
@@ -75,6 +79,7 @@ function montar(opcoes: { readonly avisoFalha?: boolean } = {}): Montagem {
     relogio,
   });
   const troca = new TrocaDeTelefone({
+    relogio,
     otp,
     contacto: async ({ tenantId, telefone }: { tenantId: string; telefone: Telefone }) => {
       m.contactos.push({ tenantId, numero: telefone.hmac });
@@ -89,10 +94,12 @@ function montar(opcoes: { readonly avisoFalha?: boolean } = {}): Montagem {
       if (opcoes.avisoFalha === true) throw new Error("aviso_em_baixo");
     },
   });
+  m.troca = troca;
   const casos = new Map([
     [CASO_A, { tenantId: TENANT_A, fase: "activo" }],
     [CASO_B, { tenantId: TENANT_B, fase: "activo" }],
   ]);
+  m.casos = casos;
   m.app = rotasDoPainel({
     comercio: new ComercioEmMemoria(),
     canal: new CanalEmMemoria(),
@@ -101,7 +108,7 @@ function montar(opcoes: { readonly avisoFalha?: boolean } = {}): Montagem {
     casos: { porId: async (id) => casos.get(id) ?? null },
     anelDaAssinatura: [CHAVE, null],
     relogio,
-    troca: { troca, anelDoPepper: [PEPPER, null] },
+    troca: { troca, anelDoPepper: [PEPPER, null], contadores: m.contadores },
   });
   return m;
 }
@@ -225,6 +232,45 @@ describe("KAM-211 — a troca de telefone pelo painel", () => {
     const r = await post(falhado, "/painel/telefone/verificar", { codigo: ultimoCodigo(falhado) }, sessao);
     assert.equal(r.status, 500);
     assert.equal(falhado.trocas.length, 1);
+  });
+
+  it("antes de `activo` a troca recusa com 409 e nao manda codigo (achado 4)", async () => {
+    for (const fase of ["aguarda_es", "lista_espera", "aguarda_catalogo", "aguarda_teste"]) {
+      m.casos.set(CASO_A, { tenantId: TENANT_A, fase });
+      const r = await post(m, "/painel/telefone", { telefone: NUMERO_NOVO }, deA);
+      assert.equal(r.status, 409, fase);
+      assert.equal((await post(m, "/painel/telefone/verificar", { codigo: "123456" }, deA)).status, 409, fase);
+    }
+    assert.equal(m.sms.enviados.length, 0);
+    assert.deepEqual(m.trocas, []);
+    assert.equal(FASE_DA_TROCA, "activo");
+  });
+
+  it("ha limite por rede, como na reentrada: o seguinte ao limite da 429 e nao envia (achado 3)", async () => {
+    for (let n = 0; n < LIMITE_POR_REDE; n += 1) {
+      const numero = `+244 999 000 ${String(500 + n)}`;
+      assert.equal((await post(m, "/painel/telefone", { telefone: numero }, cookie(TENANT_A, CASO_A, m))).status, 200, numero);
+    }
+    const r = await post(m, "/painel/telefone", { telefone: "+244 999 000 599" }, cookie(TENANT_A, CASO_A, m));
+    assert.equal(r.status, 429);
+    assert.equal(m.sms.enviados.length, LIMITE_POR_REDE);
+  });
+
+  it("dois pedidos concorrentes da mesma sessao: so um envia (achado 8)", async () => {
+    const [um, dois] = await Promise.all([
+      post(m, "/painel/telefone", { telefone: NUMERO_NOVO }, deA),
+      post(m, "/painel/telefone", { telefone: "+244 999 000 499" }, deA),
+    ]);
+    assert.deepEqual([um.status, dois.status].sort(), [200, 429]);
+    assert.equal(m.sms.enviados.length, 1);
+  });
+
+  it("um pedido expirado sai do mapa no pedido seguinte (achado 9)", async () => {
+    await post(m, "/painel/telefone", { telefone: NUMERO_NOVO }, deA);
+    assert.equal(m.troca.pedidosGuardados, 1);
+    m.agora = new Date(m.agora.getTime() + 3_600_000);
+    await post(m, "/painel/telefone", { telefone: "+244 999 000 499" }, cookie(TENANT_A, CASO_A, m));
+    assert.equal(m.troca.pedidosGuardados, 1);
   });
 
   it("a chave do pedido e a sessao, com o prefixo da troca", () => {

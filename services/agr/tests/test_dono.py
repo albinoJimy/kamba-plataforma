@@ -1254,6 +1254,15 @@ class TestBotaoNoGrafoDoDono(unittest.TestCase):
         self.assertNotEqual(asyncio.run(no(forjado))["intent"], "confirmar")
         tocado = estado_inicial(_inv(persona="dono", type="interactive", botao=botao))
         self.assertEqual(asyncio.run(no(tocado))["intent"], "confirmar")
+        # Um `interactive` sem `botao` (um `id` fora da forma, um `nfm_reply`)
+        # com um `confirm:{uuid}` escrito num turno anterior na janela: nao e um
+        # toque (achado 2 da revisao adversarial).
+        sem_botao = estado_inicial(_inv(persona="dono", type="interactive"))
+        sem_botao["messages"] = [
+            {"role": "user", "content": botao},
+            {"role": "assistant", "content": "resposta"},
+        ]
+        self.assertNotEqual(asyncio.run(no(sem_botao))["intent"], "confirmar")
 
     def test_a_porta_nao_abre_a_base_para_um_texto(self) -> None:
         self.assertEqual(

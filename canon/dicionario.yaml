@@ -20210,6 +20210,9 @@ entradas:
     nomes_nota:
       - "confirmar"
       - "kamba_app"
+      - "kamba"
+      - "agr"
+      - "accoes"
       - "desconhecida"
       - "outro_contacto"
       - "nao_e_dono"
@@ -20247,6 +20250,8 @@ entradas:
       - "web"
       - "TrocaDeTelefone"
       - "troca"
+      - "activo"
+      - "FASE_DA_TROCA"
       - "server.ts"
     variantes_literais: []
   - seccao: "3.78"

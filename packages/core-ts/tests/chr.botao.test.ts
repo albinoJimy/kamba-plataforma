@@ -57,11 +57,11 @@ function corpoDe(mensagem: Readonly<Record<string, unknown>>): unknown {
             field: "messages",
             value: {
               messaging_product: "whatsapp",
-              metadata: { display_phone_number: "244999000000", phone_number_id: PNID },
+              metadata: { display_phone_number: "244 999 000 000", phone_number_id: PNID },
               messages: [
                 {
                   id: ALVO["wamid"],
-                  from: "244999000001",
+                  from: "244 999 000 001",
                   from_user_id: "AO.BSUID.DONO.999",
                   timestamp: "1763460000",
                   ...mensagem,

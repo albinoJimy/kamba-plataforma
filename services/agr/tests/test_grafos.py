@@ -321,6 +321,18 @@ class TestLigacaoDoArranque(unittest.TestCase):
                 self.assertEqual(da_thread.__func__, grafos_mod.PortaDeGrafos.da_thread)
                 self.assertIs(da_thread.__self__, do_turno.__self__)
 
+    def test_o_portao_do_botao_escreve_pela_ligacao_das_accoes(self) -> None:
+        """KAM-211 (achado 10 da revisao): o `confirm` do dono chega a uma
+        `PortaDeConfirmacao` que abre a ligacao **das accoes**, e nao a de
+        leitura — o `confirmar` escreve."""
+        from kamba_agr.dono.accoes import PortaDeConfirmacao
+
+        portas = self.capturado["compilar"][0][1]
+        porta = portas["accoes_do_dono"]
+        self.assertIsInstance(porta, PortaDeConfirmacao)
+        self.assertIs(porta._abrir, arranque.ligar_para_accoes)
+        self.assertIsNot(porta._abrir, arranque.ligar_para_leitura)
+
     def test_o_papel_da_retoma_le_se_pela_ligacao_de_leitura(self) -> None:
         """KAM-211, «Retoma»: o `main()` liga a porta do papel a ligacao de
         leitura (`kamba_app`), e a `da_thread` le-a com o par da *thread* e

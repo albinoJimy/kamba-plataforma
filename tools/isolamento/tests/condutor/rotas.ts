@@ -2679,6 +2679,8 @@ const TENANT_DE_A_NO_PAINEL = "0000000a-0000-4000-8000-0000000000a1";
 const TENANT_DE_B_NO_PAINEL = "0000000b-0000-4000-8000-0000000000b1";
 const CASO_DE_A_NO_PAINEL = "0000000a-0000-4000-8000-0000000000c1";
 const CASO_DE_B_NO_PAINEL = "0000000b-0000-4000-8000-0000000000c1";
+/** O caso `activo` de A: a troca de telefone (KAM-211) so abre nessa fase. */
+const CASO_ACTIVO_DE_A_NO_PAINEL = "0000000a-0000-4000-8000-0000000000c2";
 const ORDEM_DE_A_NO_PAINEL = "0000000a-0000-4000-8000-0000000000d1";
 const ORDEM_DE_B_NO_PAINEL = "0000000b-0000-4000-8000-0000000000d1";
 
@@ -2806,6 +2808,7 @@ async function grupoDoPainel(relatorio: Relatorio): Promise<void> {
       // ligacao do KAM-190 abre, e o resto do painel serve-o igual.
       [CASO_DE_A_NO_PAINEL, { tenantId: TENANT_DE_A_NO_PAINEL, fase: "aguarda_es" }],
       [CASO_DE_B_NO_PAINEL, { tenantId: TENANT_DE_B_NO_PAINEL, fase: "activo" }],
+      [CASO_ACTIVO_DE_A_NO_PAINEL, { tenantId: TENANT_DE_A_NO_PAINEL, fase: "activo" }],
     ]);
     const novaSessao = sessaoModulo["novaSessao"] as (t: string, d: string, a: Date) => Record<string, unknown>;
     const cunharSessao = sessaoModulo["cunharSessao"] as (s: unknown, c: Uint8Array) => string;
@@ -2817,7 +2820,10 @@ async function grupoDoPainel(relatorio: Relatorio): Promise<void> {
     // pedido e o tenant de cada chamada. O pedido de B acerta com o codigo de B,
     // e e esse o codigo que os ataques levam — com a sessao de A.
     const pedidoDaTroca = rotas["pedidoDaTroca"] as (s: unknown) => string;
-    const pedidoDeA = pedidoDaTroca(sessaoDeA);
+    // A sessao de A da troca e a do caso `activo` de A: a do caso em
+    // `aguarda_es` recebe 409 antes de chegar a troca.
+    const sessaoActivaDeA = novaSessao(TENANT_DE_A_NO_PAINEL, CASO_ACTIVO_DE_A_NO_PAINEL, agora);
+    const pedidoDeA = pedidoDaTroca(sessaoActivaDeA);
     const pedidoDeB = pedidoDaTroca(sessaoDeB);
     const pedidosDaTroca: { pedido: string; tenant: string }[] = [];
     const verificacoesDaTroca: { pedido: string; tenant: string }[] = [];
@@ -2838,6 +2844,7 @@ async function grupoDoPainel(relatorio: Relatorio): Promise<void> {
         },
       },
       anelDoPepper: [pepper, null],
+      contadores: { anotar: async () => 1 },
     };
 
     const app = (rotas["rotasDoPainel"] as (o: unknown) => AppHono)({
@@ -2891,13 +2898,18 @@ async function grupoDoPainel(relatorio: Relatorio): Promise<void> {
     }
 
     // ---- As listas: a sessao de A com o tenant de B no pedido.
-    const comTenantDeB = (caminho: string, vez: number): [string, Record<string, string>] => {
+    const comTenantDeB = (
+      caminho: string,
+      vez: number,
+      cookie: string = cookieDeA,
+    ): [string, Record<string, string>] => {
       const sep = caminho.includes("?") ? "&" : "?";
       const naConsulta = `${caminho}${sep}tenant_id=${TENANT_DE_B_NO_PAINEL}`;
-      if (vez === 0) return [naConsulta, { cookie: cookieDeA }];
-      if (vez === 1) return [caminho, { cookie: cookieDeA, "x-kamba-tenant": TENANT_DE_B_NO_PAINEL }];
-      return [naConsulta, { cookie: cookieDeA, "x-kamba-tenant": TENANT_DE_B_NO_PAINEL }];
+      if (vez === 0) return [naConsulta, { cookie }];
+      if (vez === 1) return [caminho, { cookie, "x-kamba-tenant": TENANT_DE_B_NO_PAINEL }];
+      return [naConsulta, { cookie, "x-kamba-tenant": TENANT_DE_B_NO_PAINEL }];
     };
+    const cookieDaTroca = `kamba_painel=${cunharSessao(sessaoActivaDeA, chave)}`;
     for (const [item, caminho] of [
       [ITENS_DO_PAINEL[2], "/painel/produtos"],
       [ITENS_DO_PAINEL[4], "/painel/encomendas?estado=aguarda_pagamento"],
@@ -3047,7 +3059,7 @@ async function grupoDoPainel(relatorio: Relatorio): Promise<void> {
     // ---- POST /painel/telefone (KAM-211): a sessao de A com o tenant de B no
     // corpo, na consulta e no cabecalho. O pedido fica no tenant e na sessao de A.
     for (let vez = 0; vez < 3; vez += 1) {
-      const [c, headers] = comTenantDeB("/painel/telefone", vez);
+      const [c, headers] = comTenantDeB("/painel/telefone", vez, cookieDaTroca);
       await empurrar(
         ITENS_DO_PAINEL[10],
         "POST",
@@ -3070,7 +3082,7 @@ async function grupoDoPainel(relatorio: Relatorio): Promise<void> {
     // ---- POST /painel/telefone/verificar (KAM-211): o codigo certo do pedido de
     // B, com o pedido e o tenant de B no corpo, com a sessao de A.
     for (let vez = 0; vez < 3; vez += 1) {
-      const [c, headers] = comTenantDeB("/painel/telefone/verificar", vez);
+      const [c, headers] = comTenantDeB("/painel/telefone/verificar", vez, cookieDaTroca);
       await empurrar(
         ITENS_DO_PAINEL[11],
         "POST",

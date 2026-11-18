@@ -27,8 +27,9 @@ que e exactamente a excepcao no core que o §21.4 recusa.
 
 ## O reaproveitamento, e porque e uma lista e nao uma frase
 
-Doze dos dezasseis nos vem do `verticais/vendedor/nos.py` sem uma linha nova:
-**75%**, acima dos 70% do criterio 10 do KAM-118. Os quatro proprios sao os que
+Doze dos dezassete nos vem do `verticais/vendedor/nos.py` sem uma linha nova:
+**70,6%**, acima dos 70% do criterio 10 do KAM-118 (eram 75% com dezasseis; o
+`confirm` do KAM-211 e o quinto proprio). Os outros quatro proprios sao os que
 escrevem **texto de persona** (o §5.4 poe «texto de persona e exemplos» na
 coluna do que e proprio) ou decidem a intencao: o `classify`, o `compose`, o
 `safe_reply` e o `ask_repeat`. A medida le-se do `NOS_REUTILIZADOS` e ha ensaio

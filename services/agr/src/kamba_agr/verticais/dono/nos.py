@@ -116,15 +116,15 @@ def intencao_por_regras(texto: str) -> str | None:
 
 
 def _botao_do_turno(estado: Mapping[str, Any]) -> str:
-    """O `id` do botao deste turno: o `botao` do estado (KAM-211), ou o texto da
-    janela de quem o escreva la (os ensaios do KAM-118). So num turno
-    `interactive`."""
+    """O `id` do botao deste turno: o `botao` do estado (KAM-211), e so num turno
+    `interactive`. **Nunca o texto da janela**: a janela acumula as mensagens de
+    turnos anteriores pelo *checkpoint*, e um `confirm:{uuid}` escrito antes
+    valia como toque num `interactive` sem `botao` — o «texto que imita um
+    botao» do criterio (achado 2 da revisao adversarial do KAM-211)."""
     if estado.get("input_kind") != "interactive":
         return ""
     botao = estado.get("botao")
-    if isinstance(botao, str):
-        return botao
-    return _texto_do_cliente(estado).strip()
+    return botao if isinstance(botao, str) else ""
 
 
 # ---------------------------------------------------------------- o classify

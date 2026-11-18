@@ -190,9 +190,22 @@ export interface OpcoesDaReentrada {
 export interface OpcoesDaTroca {
   /** A `TrocaDeTelefone` do KAM-118, com o OTP, o contacto, a porta e os avisos. */
   readonly troca: Pick<TrocaDeTelefone, "pedir" | "verificar">;
-  /** O anel do `pepper_onboarding_ident`: cunha o `Telefone` do número novo. */
+  /** O anel do `pepper_onboarding_ident`: cunha o `Telefone` do número novo e o da rede. */
   readonly anelDoPepper: readonly (Uint8Array | null)[];
+  /** Os contadores do limite por rede, como os da reentrada. */
+  readonly contadores: Pick<Contadores, "anotar">;
+  /** Quantos *proxies* de confiança há à frente. Zero por omissão. */
+  readonly proxiesDeConfianca?: number | undefined;
 }
+
+/**
+ * A fase do caso em que a troca abre: **só `activo`** (achado 4 da revisão
+ * adversarial do KAM-211). Antes disso o `tenant.provisioned` ainda não saiu, e
+ * uma troca sem dono anterior criava o primeiro dono por `troca_de_telefone` —
+ * e o provisionamento seguinte recusava com `23505`, deixando o dono a ser o
+ * número da troca e não o verificado no registo.
+ */
+export const FASE_DA_TROCA = "activo";
 
 /** A chave do pedido de troca de uma sessão. O prefixo separa-a do caso do OTP. */
 export function pedidoDaTroca(s: SessaoDoPainel): string {
@@ -284,6 +297,35 @@ async function corpoDaReentrada(c: { req: { header(n: string): string | undefine
   }
 }
 
+/**
+ * As duas recusas comuns às rotas da troca de telefone (KAM-211), por esta
+ * ordem: a **fase** do caso (só `activo`, ver `FASE_DA_TROCA`) e o **limite por
+ * rede** — o mesmo número da reentrada, noutra chave. Sem limite, uma sessão do
+ * painel mandava SMS a números diferentes até esgotar o orçamento diário do
+ * `Otp`, e com ele os códigos de todos os registos (achado 3 da revisão
+ * adversarial). Função do módulo, pela razão do `redeDoPedido`.
+ */
+async function recusaDaTroca(
+  c: { req: { header(n: string): string | undefined }; env?: unknown },
+  t: OpcoesDaTroca,
+  sessao: { readonly renovar: Record<string, string>; readonly fase: string },
+  rota: "troca" | "troca_verificar",
+  agora: Date,
+  falhou: (rota: RotaDoPainel, motivo: MotivoDeErro) => void,
+): Promise<Response | null> {
+  if (sessao.fase !== FASE_DA_TROCA) {
+    falhou(rota, "conflito");
+    return json({ erro: "fase" }, 409, sessao.renovar);
+  }
+  const pepper = t.anelDoPepper[0];
+  const rede = pepper instanceof Uint8Array ? redeDoPedido(c, t, pepper) : "sem-pepper";
+  if ((await t.contadores.anotar(`painel:${rota}:${rede}`, agora, JANELA_DO_LIMITE_MS)) > LIMITE_POR_REDE) {
+    falhou(rota, "limite");
+    return json({ erro: "limite" }, 429, sessao.renovar);
+  }
+  return null;
+}
+
 /** Monta as rotas do painel. */
 export function rotasDoPainel(opcoes: OpcoesDoPainel): Hono {
   const app = new Hono();
@@ -305,7 +347,9 @@ export function rotasDoPainel(opcoes: OpcoesDoPainel): Hono {
    * renovação só se calcula aqui, depois das duas verificações — ver o
    * `./sessao.ts`.
    */
-  async function sessaoDe(cabecalho: string | undefined): Promise<{ s: SessaoDoPainel; renovar: Record<string, string> } | null> {
+  async function sessaoDe(
+    cabecalho: string | undefined,
+  ): Promise<{ s: SessaoDoPainel; renovar: Record<string, string>; fase: string } | null> {
     const agora = relogio();
     const s = lerSessao(cookieDoPainel(cabecalho), opcoes.anelDaAssinatura, agora);
     if (s === null || (await opcoes.revogacoes.revogada(s))) return null;
@@ -319,8 +363,8 @@ export function rotasDoPainel(opcoes: OpcoesDoPainel): Hono {
     if (!(FASES_COM_PAINEL as readonly string[]).includes(caso.fase)) return null;
     const nova = renovacao(s, agora);
     const chave = opcoes.anelDaAssinatura[0];
-    if (nova === null || !(chave instanceof Uint8Array)) return { s, renovar: {} };
-    return { s, renovar: { "set-cookie": cabecalhoDaSessao(cunharSessao(nova, chave)) } };
+    if (nova === null || !(chave instanceof Uint8Array)) return { s, renovar: {}, fase: caso.fase };
+    return { s, renovar: { "set-cookie": cabecalhoDaSessao(cunharSessao(nova, chave)) }, fase: caso.fase };
   }
 
   const actor = (s: SessaoDoPainel) => ({ id: s.dono, traceId: randomUUID() });
@@ -707,6 +751,8 @@ export function rotasDoPainel(opcoes: OpcoesDoPainel): Hono {
       falhou("troca", "sem_sessao");
       return json({ erro: "sessao" }, 401);
     }
+    const recusa = await recusaDaTroca(c, t, sessao, "troca", relogio(), falhou);
+    if (recusa !== null) return recusa;
     const corpo = await corpoDaReentrada(c);
     if (corpo === null) {
       falhou("troca", "invalido");
@@ -743,6 +789,8 @@ export function rotasDoPainel(opcoes: OpcoesDoPainel): Hono {
       falhou("troca_verificar", "sem_sessao");
       return json({ erro: "sessao" }, 401);
     }
+    const recusa = await recusaDaTroca(c, t, sessao, "troca_verificar", relogio(), falhou);
+    if (recusa !== null) return recusa;
     const corpo = await corpoDaReentrada(c);
     const codigo = corpo?.["codigo"];
     if (typeof codigo !== "string") {

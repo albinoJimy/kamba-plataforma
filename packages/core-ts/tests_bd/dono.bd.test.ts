@@ -21,9 +21,11 @@ import { after, before, describe, it } from "node:test";
 
 import type pg from "pg";
 
+import { SQL_PAPEL } from "../src/chr/consultas.ts";
 import {
   contactoDoNumero,
   definirDonoNaBase,
+  personaDe,
   TrocaDeTelefone,
   trocaNaBase,
   type DestinoDoAviso,
@@ -31,12 +33,13 @@ import {
 import type { Identidade } from "../src/identity/index.ts";
 import { ContadoresEmMemoria, Otp, OtpEmMemoria, OtpPorSmsLocal, Telefone } from "../src/inscricao/index.ts";
 import { FakeSmsProvider } from "../src/sms/index.ts";
+import { comTenant } from "../src/tenant_guard/index.ts";
 import { ChavesDeTeste, criarTenant, ligar } from "./apoio.ts";
 
 /** Números fictícios, com 999. */
-const NUMERO_ANTIGO = "+244999000501";
-const NUMERO_NOVO = "+244999000502";
-const NUMERO_DE_B = "+244999000503";
+const NUMERO_ANTIGO = "+244 999 000 501";
+const NUMERO_NOVO = "+244 999 000 502";
+const NUMERO_DE_B = "+244 999 000 503";
 
 const PEPPER = Buffer.alloc(32, 0x5a);
 const PEPPER_DO_DESTINO = Buffer.alloc(32, 0x71);
@@ -64,6 +67,19 @@ async function papeis(tenant: string): Promise<Map<string, { papel: string; mudo
     [tenant],
   );
   return new Map(rows.map((r) => [r.contact_id, { papel: r.papel, mudou: r.mudou }]));
+}
+
+/**
+ * A persona com que o CHR trata uma mensagem deste contacto: a leitura do
+ * `SQL_PAPEL` do CHR, como `kamba_app` no contexto do tenant, e o `personaDe`.
+ * É o caminho que decide a persona de uma mensagem, e não uma leitura do
+ * administrador.
+ */
+async function personaPeloChr(tenant: string, contacto: string): Promise<string> {
+  return comTenant(app, tenant, async (bd) => {
+    const r = (await bd.query(SQL_PAPEL, [tenant, contacto])) as { rows: { papel?: unknown }[] };
+    return personaDe(r.rows[0]?.papel);
+  });
 }
 
 async function donoDoTenant(tenant: string): Promise<string | null> {
@@ -126,6 +142,9 @@ describe("KAM-211 — a troca de telefone pelo caminho real", () => {
     let antes = await papeis(tenant);
     assert.deepEqual(antes.get(novo), { papel: "cliente", mudou: false });
     assert.deepEqual(antes.get(dono), { papel: "dono", mudou: false });
+    // E pelo caminho do CHR: a mensagem do número novo é de um `cliente`.
+    assert.equal(await personaPeloChr(tenant, novo), "cliente");
+    assert.equal(await personaPeloChr(tenant, dono), "dono");
 
     const errado = codigo() === "000000" ? "111111" : "000000";
     assert.equal((await troca.verificar(pedido, tenant, errado)).trocado, false);
@@ -139,6 +158,8 @@ describe("KAM-211 — a troca de telefone pelo caminho real", () => {
     assert.deepEqual(depois.get(novo), { papel: "dono", mudou: true });
     assert.deepEqual(depois.get(dono), { papel: "cliente", mudou: true });
     assert.equal(await donoDoTenant(tenant), novo);
+    assert.equal(await personaPeloChr(tenant, novo), "dono");
+    assert.equal(await personaPeloChr(tenant, dono), "cliente");
     assert.deepEqual(
       avisos.map((a) => [a.tenantId, a.destino]),
       [
