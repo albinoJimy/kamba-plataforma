@@ -194,9 +194,15 @@ export interface SecretProvider {
   /**
    * Identificadores das versões vivas, da mais recente para a mais antiga.
    *
-   * O conteúdo de cada identificador é do provedor (um inteiro no OpenBao KV v2,
-   * um rótulo no Env); a **ordem** é parte do contrato, e `versions()[0]` tem de
-   * corresponder ao valor que `get()` devolve.
+   * O conteúdo de cada identificador é do provedor (um inteiro no OpenBao KV v2;
+   * no Env e no Doppler, o `kid` que o valor traz em `<kid>:<base64>`, e só num
+   * valor sem `kid` o rótulo posicional — ver `kid.ts`, KAM-205); a **ordem** é
+   * parte do contrato, e `versions()[0]` tem de corresponder ao valor que
+   * `get()` devolve.
+   *
+   * Um identificador estável acompanha o valor quando ele passa de actual a
+   * anterior. Um rótulo posicional não, e quem guarda o identificador ao lado
+   * de um dado tem de o recusar (`rotuloPosicional`).
    */
   versions(ref: SecretRef): Promise<readonly string[]>;
 

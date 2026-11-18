@@ -24,6 +24,7 @@ from .port import (
     SecretRefInvalidaError,
     validar_ref,
 )
+from .kid import ROTULOS_POSICIONAIS, kids_das_versoes
 
 #: Prefixo de todas as variaveis que este provedor le.
 PREFIXO = "KAMBA_SECRET_"
@@ -31,8 +32,9 @@ PREFIXO = "KAMBA_SECRET_"
 #: Sufixo da variavel que guarda a versao anterior de um segredo.
 SUFIXO_ANTERIOR = "_ANTERIOR"
 
-#: Rotulos de versao que este provedor sabe produzir, do mais recente ao mais antigo.
-VERSOES = ("actual", "anterior")
+#: Rotulos posicionais que este provedor da a um valor **sem** `kid`, do mais
+#: recente ao mais antigo. Um valor `<kid>:<base64>` da o seu `kid` (KAM-205).
+VERSOES = ROTULOS_POSICIONAIS
 
 _NAO_ALFANUMERICO = re.compile(r"[^A-Za-z0-9]")
 
@@ -93,12 +95,9 @@ class EnvSecretProvider:
         return actual, self._ler(base + SUFIXO_ANTERIOR)
 
     def versions(self, ref: SecretRef) -> tuple[str, ...]:
-        base = nome_da_variavel(ref)
-        if self._ler(base) is None:
-            raise SecretAusenteError(validar_ref(ref), self.nome)
-        if self._ler(base + SUFIXO_ANTERIOR) is None:
-            return ("actual",)
-        return VERSOES
+        """O `kid` de cada versao, lido do valor (KAM-205, ver `kid.py`)."""
+        actual, anterior = self.get_ring(ref)
+        return kids_das_versoes(validar_ref(ref), actual, anterior)
 
     def _ler(self, nome: str) -> str | None:
         """Le uma variavel, tratando o vazio como ausencia.
