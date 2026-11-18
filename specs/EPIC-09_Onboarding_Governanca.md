@@ -75,7 +75,7 @@ Fora deste epic (Clusters): estafetas, revendedores, rede de agentes de activaç
 | KAM-207 | Religar o número de um tenant activo cujo canal caiu, a partir do painel | feature | M | P2 | KAM-190, KAM-093 |
 | KAM-208 | Correlação entre tenants por comprador: um identificador de comprador que não dependa do tenant | feature | M | P2 | KAM-200 |
 | KAM-209 | Preço anómalo: a categoria do produto e os preços de referência por categoria | feature | M | P2 | KAM-200 |
-| KAM-215 | Alerta da escrita recusada em `platform.trust_level`: ver o `42501` que a base já dá | feature | S | P2 | KAM-203 |
+| KAM-218 | Alerta da escrita recusada em `platform.trust_level`: ver o `42501` que a base já dá | feature | S | P2 | KAM-203 |
 
 ---
 
@@ -1643,7 +1643,7 @@ aceite, o sinal alto e a própria sanção só chegam à barreira quando o recá
 **Fechado pelo KAM-203** (ver a verificação dele): o recálculo corre no processo de lote todos os dias, depois
 de cada `order.delivered` consumido e de cada aprovação pela porta, e uma varredura a cada volta do processo
 desce quem tem uma sanção, um sinal alto ou uma disputa aceite posteriores ao nível — a sanção chega à base
-sem esperar pelo dia seguinte. O alerta do adversarial (f) passa ao **KAM-215**.
+sem esperar pelo dia seguinte. O alerta do adversarial (f) passa ao **KAM-218**.
 
 | Critério | Estado | Evidência |
 |---|---|---|
@@ -1653,14 +1653,14 @@ sem esperar pelo dia seguinte. O alerta do adversarial (f) passa ao **KAM-215**.
 | 4. Subida ao nível 1 com ≥ 5 pedidos elegíveis em 30 dias de ≥ 3 compradores distintos; recálculo diário e em `order.delivered` | **marcada** | **Medido:** `contar` e `cumpreSubida` (5 de 3 sobe, 5 de 2 não, a rajada um por comprador e dia de Luanda) e o ciclo `0 → 1` sobre o repositório em memória. **Fechada pelo KAM-203**: a volta diária sobe um tenant com cinco pedidos elegíveis de cinco compradores, semeados pelo grafo e com a marca do `trust`, contra a base (`a volta diária dá o nível 0, sobe com cinco pedidos elegíveis…`), e o `order.delivered` consumido recalcula (`o order.delivered repetido recalcula duas vezes e escreve uma`). O que estava antes: o recálculo diário e em `order.delivered` não existia |
 | 5. Descida automática ao 0 por disputa aceite, sinal alto ou sanção; uma descida não se reverte sem nova elegibilidade completa | **marcada** | **Medido:** o `decidirNivel` desce por cada uma das três (`o sinal alto e a sancao descem do 1…`, o ciclo com a disputa), e os pedidos só contam depois do marco — o início do nível ou o último facto negativo (`uma descida nao se reverte sem nova elegibilidade completa`); os dois factos lêem-se pelo `SQL_FACTOS_NEGATIVOS`, o sinal pelo `criado_at`. A sanção já baixa o tecto na guarda antes do recálculo. **Fechada pelo KAM-203**: a varredura das descidas desce pela disputa aceite e pela sanção contra a base, e a volta seguinte não sobe com os pedidos anteriores ao facto negativo (`a volta diária…`, `uma limitacao da escada automática desce o tenant na varredura seguinte…`). O que estava antes: «automática» pedia o processo |
 | 6. `assertWithinTrustCeiling` chamado pelo `ManualProvider.createCharge` e exposto a futuros `PaymentProvider`; efectivo = `min(tecto_pedido_minor, manual_max_minor)`; acima recusa com mensagem fixa sem números | **marcada** | A guarda é `GuardaDeConfianca` (a porta `GuardaDoTecto`, obrigatória no `ManualProvider`), chamada depois do `manual_max_minor` (`o ManualProvider chama a guarda: efectivo = min(...)`); `tectoEfectivoManual` mede o mínimo; a `MENSAGEM_ACIMA_DO_TECTO` não tem dígitos (`a mensagem e fixa e nao tem numeros`). Exposta pela porta `GuardaDoTecto`: os adaptadores do ProxyPay ainda não a chamam, e para eles a barreira é o *trigger* da cobrança, que vale para qualquer facilitador (`test_o_tecto_e_do_pedido_e_nao_da_cobranca`) |
-| 7. O tenant não altera o próprio tecto por nenhuma API (403); toda a alteração grava `audit_log` com motivo e actor | **parcial** | **Medido:** o `kamba_app` não tem `INSERT`, `UPDATE` nem `DELETE` em `trust_level` e não lê o motivo — `42501` (`test_a_aplicacao_nao_escreve_nem_le_o_motivo`, adversarial (f)); nenhuma rota escreve o tecto, pelo que não há 403 a medir. Cada alteração escreve `trust.tecto` com o actor (`system` ou `staff`) e o *hash* do nível, tecto, motivo e versão; a repetição não escreve (`test_o_nascimento_e_cada_mudanca_pelo_lote_vao_ao_registo_e_a_repeticao_nao`). **Duas faltas**: o **alerta** do adversarial (f) — não há tentativa que o produza, porque a base recusa antes; credor: **KAM-215**, para onde o KAM-203 o passou, medido que hoje nada vê a recusa —, e o nascimento pelo superutilizador, que a revisão não audita, pela razão escrita nela |
+| 7. O tenant não altera o próprio tecto por nenhuma API (403); toda a alteração grava `audit_log` com motivo e actor | **parcial** | **Medido:** o `kamba_app` não tem `INSERT`, `UPDATE` nem `DELETE` em `trust_level` e não lê o motivo — `42501` (`test_a_aplicacao_nao_escreve_nem_le_o_motivo`, adversarial (f)); nenhuma rota escreve o tecto, pelo que não há 403 a medir. Cada alteração escreve `trust.tecto` com o actor (`system` ou `staff`) e o *hash* do nível, tecto, motivo e versão; a repetição não escreve (`test_o_nascimento_e_cada_mudanca_pelo_lote_vao_ao_registo_e_a_repeticao_nao`). **Duas faltas**: o **alerta** do adversarial (f) — não há tentativa que o produza, porque a base recusa antes; credor: **KAM-218**, para onde o KAM-203 o passou, medido que hoje nada vê a recusa —, e o nascimento pelo superutilizador, que a revisão não audita, pela razão escrita nela |
 | 8. Tabela de limites com `origem = proposta` e `calibrado_em`; relatório do Piloto compara o previsto com o observado | **parcial** | **Medido:** cada valor da configuração guarda `origem` e `calibradoEm`, e a `tabelaDeLimites` devolve as oito linhas, todas `proposta` (`a tabela de limites diz a origem e o calibrado_em de cada valor`). **O relatório não existe**: precisa de dados do Piloto. Credor: **Responsável de Produto** |
 
 ### Verificação da Definition of Done
 
 | Item | Estado | Evidência |
 |---|---|---|
-| 1. Critérios satisfeitos; suite adversarial (a)–(g) verde | **parcial** | Verdes: (a) auto-compra, (b) comprador único, (c) rajada, (d) disputa na janela, (e) sinal ausente, (g) 50 000,01 Kz no nível 0 (na guarda e na base). (f) recusado pela base, **sem o alerta** (credor: **KAM-215**, pelo KAM-203). Quatro critérios parciais depois do KAM-203, cada um com a parte que falta |
+| 1. Critérios satisfeitos; suite adversarial (a)–(g) verde | **parcial** | Verdes: (a) auto-compra, (b) comprador único, (c) rajada, (d) disputa na janela, (e) sinal ausente, (g) 50 000,01 Kz no nível 0 (na guarda e na base). (f) recusado pela base, **sem o alerta** (credor: **KAM-218**, pelo KAM-203). Quatro critérios parciais depois do KAM-203, cada um com a parte que falta |
 | 2. Idempotência do recálculo e da subida (ADR-013) | **marcada** | `idempotente: reexecutar o recalculo nao escreve outra vez` (uma escrita em três corridas) e, na base, o `SQL_DEFINIR_NIVEL` que não reescreve uma linha igual nem escreve no `audit_log` |
 | 3. Nenhum caminho marca `paga` nem altera o ledger; plataforma sem fundos; `payout` intacto | **marcada** | O módulo não escreve em `payment_*` nem em `orders_mirror`; o *trigger* da cobrança só recusa. O `tecto_pedido_minor` está no `EM_UNIDADE_MENOR` do `test_catalogo` com a razão pela qual não é saldo |
 | 4. Alterações auditadas e imutáveis; RLS `FORCE` e teste cruzado (ADR-015); dois revisores (dinheiro) | **parcial** | Auditadas pelo *trigger* (com a excepção do superutilizador, escrita na revisão); RLS ligada e forçada; o teste cruzado pela aplicação (`test_a_aplicacao_le_so_o_tecto_do_seu_tenant`, `test_o_tecto_de_b_nao_vale_para_a`) e sobre o repositório. **Dois revisores: devolvida**, pela decisão do fundador de uma revisão adversarial por ticket |
@@ -3265,7 +3265,7 @@ Testes: integração, isolamento e o anel de tenants.
 | Prioridade | P1 |
 | Estimativa | M |
 | Dependências | KAM-096, KAM-198 |
-| Bloqueia | KAM-215 |
+| Bloqueia | KAM-218 |
 | Responsável sugerido | Engenheiro de Plataforma (GOV), com o Engenheiro de Pagamentos |
 | Documentos de referência | `EPIC-09_Onboarding_Governanca.md` (blocos KAM-096, KAM-097 e KAM-198), `02_Dicionario_de_Dados_Canonico.md` (§3.75), `../docs/tecnica/10_Onboarding_Governanca.md` (§4.1, §9) |
 
@@ -3365,13 +3365,13 @@ numa transacção `kamba_app` sob o mesmo tenant. **Sem esquema novo**: nenhuma 
 | 4. Uma sanção `limitacao` ou acima desce o nível na base na mesma transacção, ou logo a seguir | **marcada** | A varredura das descidas (ver a leitura 2), a cada volta do processo. Contra a base: `uma limitacao da escada automática desce o tenant na varredura seguinte, sem esperar pelo dia` — quatro queixas pela escada do T&S, a sanção em vigor, o nível ainda 1, e a varredura desce-o com o motivo `sancao` |
 | 5. O nome do consumidor de T&S lido da configuração do processo | **marcada** | `SUBSCRICAO_DO_TRUST`, a subscrição com que o consumidor corre, é de onde o `RecalculoDaConfianca` lê o `consumidorDeTrust` (`o recálculo lê a independência com o consumidor da subscrição do processo…`; `a subscricao e a do processo, e nao uma copia`). Um nome inválido recusa no arranque (`um nome de consumidor inválido recusa no arranque…`) |
 | 6. Métricas sem `tenant_id` | **marcada** | `confianca_recalculos_total{origem,desfecho}` e `confianca_mudancas_total{motivo}` (`../packages/core-ts/src/confianca/metricas.ts`), a zero em todo o domínio e sem tenant (`as métricas do recálculo`), contadas depois do `COMMIT` (uma mudança desfeita não conta), e servidas no `/metrics` do processo da mesma instância (`arrancar serve as métricas da confiança do processo…`) |
-| 7. A escrita recusada ao `kamba_app` (`42501`) dispara um alerta | **não satisfeito** | **A recusa está e o alerta não.** Medido: a recusa por privilégio acontece antes de qualquer *trigger*, pelo que nada na base vê a tentativa; o compose não tem exportador do PostgreSQL nem recolha de registos; e nenhum código tenta a escrita. Credor: **KAM-215**, aberto neste PR (número provisório do lote) |
+| 7. A escrita recusada ao `kamba_app` (`42501`) dispara um alerta | **não satisfeito** | **A recusa está e o alerta não.** Medido: a recusa por privilégio acontece antes de qualquer *trigger*, pelo que nada na base vê a tentativa; o compose não tem exportador do PostgreSQL nem recolha de registos; e nenhum código tenta a escrita. Credor: **KAM-218**, aberto neste PR (número provisório do lote) |
 
 ### Verificação da Definition of Done
 
 | Item | Estado | Evidência |
 |---|---|---|
-| 1. Critérios satisfeitos; caixas 2, 4, 5 e 7 do KAM-096 revistas | **parcial** | Seis de sete; as caixas 2, 4 e 5 do KAM-096 ficam marcadas com esta evidência, e a 7 continua parcial com o alerta no **KAM-215** |
+| 1. Critérios satisfeitos; caixas 2, 4, 5 e 7 do KAM-096 revistas | **parcial** | Seis de sete; as caixas 2, 4 e 5 do KAM-096 ficam marcadas com esta evidência, e a 7 continua parcial com o alerta no **KAM-218** |
 | 2. Métricas e alertas nascem com o processo; sem segredos | **marcada** | As duas séries nascem a zero no arranque; a regra `confianca_recalculo_com_falhas` (`../infra/compose/prometheus/regras/kamba-trust.yml`, com o caso e o controlo no `kamba_trust_test.yml`) aponta para o `../docs/runbooks/trust-e-safety.md` §4. Sem segredos: as credenciais continuam as do processo |
 
 ---
@@ -3786,7 +3786,7 @@ Testes: integração com duplos, contrato por adaptador, e o simulacro em stagin
 
 ---
 
-## KAM-215 — Alerta da escrita recusada em `platform.trust_level`: ver o `42501` que a base já dá
+## KAM-218 — Alerta da escrita recusada em `platform.trust_level`: ver o `42501` que a base já dá
 
 | Campo | Valor |
 |---|---|
@@ -3842,8 +3842,8 @@ sem tenant nas etiquetas.
 ### Handoff para Claude Code
 
 ```text
-És o executor do ticket KAM-215 da KAMBÁ (alerta da escrita recusada em trust_level).
-Lê specs/EPIC-09_Onboarding_Governanca.md (blocos KAM-096, KAM-203 e KAM-215), specs/EPIC-08_Topologia_Operacao.md
+És o executor do ticket KAM-218 da KAMBÁ (alerta da escrita recusada em trust_level).
+Lê specs/EPIC-09_Onboarding_Governanca.md (blocos KAM-096, KAM-203 e KAM-218), specs/EPIC-08_Topologia_Operacao.md
 (bloco KAM-080), docs/observabilidade.md e infra/compose/prometheus/regras/.
 Objectivo: ver a recusa 42501 em platform.trust_level e alertar sobre ela.
 Regras: sem tenant nas etiquetas; a licença de uma peça nova é do fundador; esquema novo pede a vaga de migração.
@@ -3923,4 +3923,4 @@ Testes: o adversarial (f) com o alerta, e o controlo.
 | 1.29 | Novembro 2026 | KAM-195: entram a decisão do fundador sobre a finalidade (opção A, 2026-11-18), o desenho da ligação e as duas secções de verificação do bloco do classificador de screening pelo cliente do AGR — **dois** critérios satisfeitos (a rota `POST /internal/screening`, com o *gate* de destino, o registo e o custo; e a finalidade `classificacao_de_catalogo`, pela revisão `0069`) e **três** linhas de DoD, todas satisfeitas. A linha da DoD 2 do KAM-088 deixa de dizer que o classificador chama o proxy directamente | Equipa KAMBÁ |
 | 1.30 | Novembro 2026 | KAM-118 (EPIC-11): o KAM-211, credor das ligações de produção do canal do dono (o painel, a troca de telefone, o provisionamento e o botão), entra no `Bloqueia` do KAM-086, do KAM-092 e do KAM-099, de que depende. Nenhuma caixa deste epic muda. | Equipa KAMBÁ |
 | 1.31 | Novembro 2026 | **Aresta recíproca, sem alteração de conteúdo: o `Bloqueia` do KAM-198 ganha o KAM-213** (EPIC-01), que torna determinístico o ensaio «reaplicar um pedir_info não desfaz a fase que mudou depois da decisão» e o «a lista de efeitos por reaplicar sobrevive a um reinício» do `lote.bd.test.ts`: cada passo espera que o relógio da base passe o anterior, e o ensaio deixa de depender do desempate ao milissegundo do `#faseMudouDesde`. | Equipa KAMBÁ |
-| 1.32 | Novembro 2026 | **KAM-203 entregue**: o recálculo da confiança corre no processo de lote — todos os dias, depois de cada `order.delivered` consumido pelo `trust`, depois de cada aprovação pela porta, e numa varredura das descidas a cada volta do processo, que leva a sanção à base sem esperar pelo dia seguinte. Secção de verificação no bloco: seis caixas marcadas e a do alerta (critério 7) vazia, com a razão medida. As caixas 2, 4 e 5 do KAM-096 fecham com essa evidência; a 7 e o item 1 da DoD dele mudam de credor. **KAM-215** acrescentado, credor do alerta da escrita recusada em `trust_level`: depende do KAM-203 e entra no `Bloqueia` dele. **O número é provisório**, pela regra do lote 11 (credores novos a partir do KAM-215), e acerta-se na integração com os outros quatro PRs. | Equipa KAMBÁ |
+| 1.32 | Novembro 2026 | **KAM-203 entregue**: o recálculo da confiança corre no processo de lote — todos os dias, depois de cada `order.delivered` consumido pelo `trust`, depois de cada aprovação pela porta, e numa varredura das descidas a cada volta do processo, que leva a sanção à base sem esperar pelo dia seguinte. Secção de verificação no bloco: seis caixas marcadas e a do alerta (critério 7) vazia, com a razão medida. As caixas 2, 4 e 5 do KAM-096 fecham com essa evidência; a 7 e o item 1 da DoD dele mudam de credor. **KAM-218** acrescentado, credor do alerta da escrita recusada em `trust_level`: depende do KAM-203 e entra no `Bloqueia` dele. **O número é provisório**, pela regra do lote 11 (credores novos a partir do KAM-218, dada pela coordenação), e acerta-se na integração com os outros quatro PRs. | Equipa KAMBÁ |
