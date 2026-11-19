@@ -51,7 +51,16 @@ RAIZ = Path(__file__).resolve().parents[3]
 #: O `search_catalog` passou a ligada com o KAM-061: o `__main__` liga-o
 #: **sempre** ao indice (`tls/idx.py`), e o X-02 ataca-o pela camada real, com o
 #: executor real e a base do *gate*.
-TOOLS_LIGADAS = ("tool:get_store_info", "tool:search_catalog")
+#: O `request_quote` e o `submit_quote` (KAM-220) ligam-se **sempre** tambem: o
+#: `__main__` passa-lhes os executores de `tls/orcamento_tools.py`, que escrevem
+#: na nossa base. Atacam-se pela camada real, e o `_ligadas` acrescenta-lhes a
+#: sonda dirigida — a referencia e o `sku` do pedido de B, com o contexto de A.
+TOOLS_LIGADAS = (
+    "tool:get_store_info",
+    "tool:search_catalog",
+    "tool:request_quote",
+    "tool:submit_quote",
+)
 
 TOOLS_DECLARADAS = (
     "tool:get_price_stock",
@@ -191,11 +200,12 @@ def _varrer_resultado(ctx, rotulo: str, resultado) -> list[str]:  # noqa: ANN001
 
 
 def _executores():  # noqa: ANN202
-    """Os executores que o `__main__` liga **sempre**: hoje, o do indice."""
+    """Os executores que o `__main__` liga **sempre**: o do indice e os do orcamento."""
     _no_caminho()
+    from kamba_agr.tls import orcamento_tools  # noqa: PLC0415
     from kamba_agr.tls.idx import executores_do_idx  # noqa: PLC0415
 
-    return executores_do_idx()
+    return {**executores_do_idx(), **orcamento_tools.executores()}
 
 
 def _camada(ctx, abrir_ligacao):  # noqa: ANN001, ANN202
@@ -377,6 +387,67 @@ def _ligadas(ctx) -> list[str]:  # noqa: ANN001
             + ". O ataque com os argumentos de B acima nao prova isolamento "
             "nenhum se a pesquisa nao devolve nada a ninguem."
         )
+    achados.extend(_orcamento_de_b(ctx, camada, contexto))
+    return achados
+
+
+def _orcamento_de_b(ctx, camada, contexto) -> list[str]:  # noqa: ANN001
+    """KAM-220: o pedido de orcamento de B, nomeado pelo contexto de A.
+
+    O ataque generico enche os campos de texto com o canario e falha nos
+    passos 3 e 4 (a referencia tem forma propria, e o pedido exige o botao).
+    Este vai mais longe: le o `quote_id` do pedido semeado de B **com o
+    contexto de B**, e da a A a referencia `ORC-…` verdadeira dele e um botao
+    valido para o `sku` de B. A resposta tem de ser uma recusa, e sem nada de B.
+    """
+    _no_caminho()
+    from kamba_core import tenant_guard  # noqa: PLC0415
+
+    from kamba_agr.orcamento import regras  # noqa: PLC0415
+    from kamba_agr.tls.contexto import Confirmation  # noqa: PLC0415
+
+    import asyncio  # noqa: PLC0415
+
+    canario = ctx.b.canarios.get(("platform", "quote_requests"))
+    if not canario:
+        return ["X-02/tls/ligada: a semente de B nao tem pedido de orcamento; a sonda do KAM-220 nao mede nada."]
+    ligacao = ctx.abrir_ligacao()
+    try:
+        with tenant_guard.tx(ligacao, ctx.b.id) as cursor:
+            cursor.execute(
+                "SELECT quote_id::text FROM platform.quote_requests WHERE tenant_id = %s AND sku = %s",
+                (ctx.b.id, canario),
+            )
+            linha = cursor.fetchone()
+    finally:
+        try:
+            ligacao.close()
+        except Exception:  # noqa: BLE001
+            pass
+    if linha is None:
+        return ["X-02/tls/ligada: o pedido de orcamento de B nao se le com o contexto de B; a sonda nao mede nada."]
+    referencia = regras.referencia_interna(linha[0])
+    achados: list[str] = []
+    resposta = _invocar(
+        camada, contexto, "submit_quote", {"referencia": referencia, "valor": "120 mil"}, ["submit_quote"]
+    )
+    pedido = asyncio.run(
+        camada.invoke(
+            contexto,
+            "request_quote",
+            {"oferta": "orc-x02", "sku": canario},
+            allowed=["request_quote"],
+            confirmation=Confirmation(botao="confirm:orc-x02", contact_id=contexto.contact_id, turn_id=contexto.turn_id),
+            idempotency_key=f"{contexto.turn_id}:0",
+        )
+    )
+    for rotulo, resultado in (("tool:submit_quote/referencia-de-b", resposta), ("tool:request_quote/sku-de-b", pedido)):
+        achados.extend(_varrer_resultado(ctx, rotulo, resultado))
+        if resultado.ok:
+            achados.append(
+                f"{rotulo}: com o contexto de A, a operacao sobre o pedido ou o catalogo de B "
+                "devolveu `ok=True`."
+            )
     return achados
 
 

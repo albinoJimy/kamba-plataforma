@@ -1811,8 +1811,9 @@ def quote_request(deps: Dependencias):
 
     async def no(estado: dict[str, Any]) -> dict[str, Any]:
         oferecido = dict(estado.get("orcamento_oferecido") or {})
+        tocado = _botao_do_turno(estado)
         confirmacao = Confirmation(
-            botao=_botao_do_turno(estado),
+            botao=tocado,
             contact_id=estado["contact_id"],
             turn_id=estado["turn_id"],
         )

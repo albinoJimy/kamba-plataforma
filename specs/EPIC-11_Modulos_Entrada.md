@@ -1823,7 +1823,7 @@ Os ensaios: `services/agr/tests/test_orcamento_grafos.py` (gate 4) e `db/tests_a
 | Caixa | Estado | Evidência nomeada |
 |---|---|---|
 | 1 | **parcial — caixa vazia** | Três critérios de cinco. As caixas 1, 2, 3, 6, 9 e 10 do KAM-123 estão revistas; o 1, o 6 e o 10 passam a marcados |
-| 2 | marcado | O tenant e o contacto vêm só do `ToolContext`, e nenhum modelo de argumentos os tem. O dono de B não vê o último pedido de A (`test_o_ultimo_pedido_de_a_nao_se_le_no_contexto_de_b`). Os números só vêm de tools: o valor é o *fact* `quote_price`, e as frases não têm dígitos (`test_as_frases_do_orcamento_estao_no_dominio_e_sem_digitos`, `test_os_textos_novos_do_dono_nao_levam_digitos`) |
+| 2 | marcado | O tenant e o contacto vêm só do `ToolContext`, e nenhum modelo de argumentos os tem. O dono de B não vê o último pedido de A (`test_o_ultimo_pedido_de_a_nao_se_le_no_contexto_de_b`). No gate 6, a X-02 ataca as duas tools pela camada real, e com o contexto de A dá-lhes a referência `ORC-…` e o `sku` verdadeiros do pedido semeado de B: as duas recusam, sem nada de B (`X-02/tls/ligada`). Os números só vêm de tools: o valor é o *fact* `quote_price`, e as frases não têm dígitos (`test_as_frases_do_orcamento_estao_no_dominio_e_sem_digitos`, `test_os_textos_novos_do_dono_nao_levam_digitos`) |
 
 ### Verificação da revisão adversarial
 
