@@ -14,6 +14,13 @@ avisado de que a proposta nao seguiu (credor do Outbound no bloco).
 
 Uma ligacao por envio, aberta e fechada aqui, pela razao da
 `PortaDeConfirmacao`: e raro, e uma tomada guardada pedia um trinco para nada.
+
+**A libertacao da janela tambem passa aqui** (KAM-221): o `libertar` e o
+`ao_cliente_escrever` do `ExecutorDeTurnos`, e corre em cada mensagem de um
+cliente. Uma ligacao por mensagem, como o `leitor_de_contacto` do
+`conversa.py` faz para a leitura do contacto. O envio real e o evento de
+resposta do KAM-224: quando ele fundir, a `saida` daqui deixa de ser o
+`OutboundPorLigar`.
 """
 
 from __future__ import annotations
@@ -23,12 +30,13 @@ import datetime
 from collections.abc import Callable
 from typing import Any
 
+from ..contexto import PERSONA_CLIENTE
 from ..eventos.notificacao import OutboundPorLigar
 from ..tls import orcamento as repositorio
 
 
 class PortaDeOrcamento:
-    """`enviar(tenant_id, contact_id, action_id) -> Envio`, assincrono."""
+    """`enviar(tenant_id, contact_id, action_id) -> Envio` e `libertar(invocacao)`, assincronos."""
 
     __slots__ = ("_abrir", "_saida", "_relogio")
 
@@ -56,3 +64,26 @@ class PortaDeOrcamento:
 
     async def enviar(self, tenant_id: str, contact_id: str, action_id: str) -> repositorio.Envio:
         return await asyncio.to_thread(self._enviar, tenant_id, contact_id, action_id)
+
+    def _libertar(self, tenant_id: str, contact_id: str) -> list[repositorio.Envio]:
+        ligacao = self._abrir()
+        try:
+            return repositorio.libertar_da_janela(
+                ligacao, tenant_id, contact_id, self._saida, self._relogio()
+            )
+        finally:
+            try:
+                ligacao.close()
+            except Exception:  # noqa: BLE001 — a libertacao ja aconteceu ou ja falhou
+                pass
+
+    async def libertar(self, invocacao: Any) -> list[repositorio.Envio]:
+        """O `ao_cliente_escrever` do `ExecutorDeTurnos` (KAM-221, criterio 2).
+
+        Uma mensagem de um **cliente** abre-lhe a janela: as propostas dele em
+        `aguarda_janela` saem agora. Uma mensagem do dono (outra persona) nao
+        abre a janela de cliente nenhum, e nao se vai a base por ela.
+        """
+        if getattr(invocacao, "persona", None) != PERSONA_CLIENTE:
+            return []
+        return await asyncio.to_thread(self._libertar, invocacao.tenant_id, invocacao.contact_id)

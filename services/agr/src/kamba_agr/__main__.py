@@ -828,6 +828,9 @@ def main() -> int:
         # pendente. Esta ligado **agora** — nao depende do AgentRegistry, porque
         # o gatilho esta no `Palavra.do_humano` e nao no grafo.
         substituir_rascunhos=substituidor_de_rascunhos.substituir,
+        # KAM-221, criterio 2: a mensagem de um cliente liberta as propostas
+        # dele em `aguarda_janela`, pela mesma porta do envio.
+        ao_cliente_escrever=portas_do_grafo["orcamentos"].libertar,
     )
     aplicacao = create_app(
         rotas_internas=[

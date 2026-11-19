@@ -414,5 +414,322 @@ class TestPortaDeOrcamento(unittest.TestCase):
         self.assertIsInstance(PortaDeOrcamento(lambda: None)._saida, OutboundPorLigar)
 
 
+# ---------------------------------------------------------------- KAM-221
+
+
+class TestMensagemSemResposta(unittest.TestCase):
+    """A mensagem neutra das 24 h: sem numero, e com uma oferta de humano que funciona."""
+
+    def test_sem_digitos_e_passa_o_validador_sem_facts(self) -> None:
+        texto = regras.texto_sem_resposta(QID)
+        self.assertIsNone(re.search(r"\d", texto))
+        self.assertIn(regras.referencia_interna(QID), texto)
+        self.assertTrue(validar(texto, (), Policy(), ()).ok)
+
+    def test_a_palavra_sugerida_e_um_pedido_de_humano(self) -> None:
+        """A primeira regra do `classify` do Vendedor que casa a palavra e a do humano.
+
+        Liga as duas pontas: uma palavra que o Vendedor lesse como outra coisa
+        era uma oferta de humano que nao leva a humano nenhum.
+        """
+        from kamba_agr.validador.normalizacao import sem_acento
+        from kamba_agr.verticais.vendedor import nos as nos_do_vendedor
+
+        resposta = sem_acento(regras.PALAVRA_DE_HUMANO.lower())
+        casadas = [nome for nome, padrao in nos_do_vendedor._INTENCAO_COMPILADA if padrao.search(resposta)]
+        self.assertEqual(casadas[:1], ["humano"])
+        self.assertIn(f"«{regras.PALAVRA_DE_HUMANO}»", regras.texto_sem_resposta(QID))
+
+    def test_os_dois_templates_estao_no_mapa_do_modulo(self) -> None:
+        """O criterio 4: o custo entra na rubrica `mensagem` do `orcamento`."""
+        import sys
+
+        sys.path.insert(0, str(RAIZ / "tools"))
+        import kamba_yaml
+
+        documento = kamba_yaml.load((RAIZ / "config" / "templates_por_modulo.yaml").read_text(encoding="utf-8"))
+        mapa = {e["template"]: e["modulo"] for e in documento["templates"]}
+        self.assertEqual(mapa.get(rep.TEMPLATE_ORCAMENTO_PRONTO), rep.MODULO)
+        self.assertEqual(mapa.get(rep.TEMPLATE_ORCAMENTO_EM_ESPERA), rep.MODULO)
+
+
+class _TrancaQueConta:
+    def __init__(self) -> None:
+        self.dentro = False
+
+    def tomar(self, _thread_id: str):
+        tranca = self
+
+        class _Contexto:
+            async def __aenter__(self_):
+                tranca.dentro = True
+
+            async def __aexit__(self_, *_a):
+                tranca.dentro = False
+
+        return _Contexto()
+
+
+class TestLibertacaoNoTurno(unittest.IsolatedAsyncioTestCase):
+    """O criterio 2 do KAM-221 no `ExecutorDeTurnos`: quem chama o `libertar`, e quando."""
+
+    def _executor(self, ao_cliente_escrever, palavra=None, ordem=None):
+        from kamba_agr.turno import ExecutorDeTurnos
+
+        trancas = _TrancaQueConta()
+        ordem = ordem if ordem is not None else []
+
+        class Palavra:
+            do_humano = False
+
+        class Grafo:
+            async def ainvoke(self, _estado, _config):
+                ordem.append("grafo")
+
+        async def ler(_invocacao):
+            return Palavra() if palavra is None else palavra
+
+        async def reencaminhar(_invocacoes):
+            ordem.append("hnd")
+
+        return ExecutorDeTurnos(
+            trancas=trancas,
+            ler_palavra=ler,
+            grafos=lambda _i: Grafo(),
+            reencaminhar=reencaminhar,
+            ao_cliente_escrever=ao_cliente_escrever,
+        ), trancas, ordem
+
+    def _invocacao(self):
+        from apoio import invocacao_crua
+        from kamba_agr.contexto import ler_invocacao
+
+        return ler_invocacao(invocacao_crua())
+
+    async def test_a_mensagem_liberta_dentro_da_tranca_e_antes_do_grafo(self) -> None:
+        chamadas: list[Any] = []
+        ordem: list[str] = []
+
+        async def libertar(invocacao):
+            chamadas.append((invocacao.tenant_id, invocacao.contact_id, trancas.dentro))
+            ordem.append("libertar")
+
+        executor, trancas, _ = self._executor(libertar, ordem=ordem)
+        invocacao = self._invocacao()
+        desfecho = await executor.correr(invocacao)
+        self.assertEqual(desfecho.desfecho, "executado")
+        self.assertEqual(chamadas, [(invocacao.tenant_id, invocacao.contact_id, True)])
+        self.assertEqual(ordem, ["libertar", "grafo"])
+
+    async def test_uma_libertacao_que_falha_nao_perde_o_turno(self) -> None:
+        async def libertar(_invocacao):
+            raise RuntimeError("base em baixo")
+
+        executor, _t, ordem = self._executor(libertar)
+        desfecho = await executor.correr(self._invocacao())
+        self.assertEqual(desfecho.desfecho, "executado")
+        self.assertEqual(ordem, ["grafo"])
+
+    async def test_com_um_humano_a_falar_tambem_liberta(self) -> None:
+        chamadas: list[Any] = []
+
+        async def libertar(invocacao):
+            chamadas.append(invocacao)
+
+        class Palavra:
+            do_humano = True
+
+        executor, _t, ordem = self._executor(libertar, palavra=Palavra())
+        desfecho = await executor.correr(self._invocacao())
+        self.assertEqual(desfecho.desfecho, "entregue_ao_hnd")
+        self.assertEqual(len(chamadas), 1)
+        self.assertEqual(ordem, ["hnd"])
+
+    async def test_sem_conversa_nao_vai_a_base(self) -> None:
+        from kamba_agr.turno import ExecutorDeTurnos
+
+        chamadas: list[Any] = []
+
+        async def libertar(invocacao):
+            chamadas.append(invocacao)
+
+        async def sem_palavra(_invocacao):
+            return None
+
+        async def reencaminhar(_invocacoes):
+            return None
+
+        executor = ExecutorDeTurnos(
+            trancas=_TrancaQueConta(),
+            ler_palavra=sem_palavra,
+            grafos=lambda _i: None,
+            reencaminhar=reencaminhar,
+            ao_cliente_escrever=libertar,
+        )
+        desfecho = await executor.correr(self._invocacao())
+        self.assertEqual(desfecho.desfecho, "sem_conversa")
+        self.assertEqual(chamadas, [])
+
+
+class TestPortaDeLibertacao(unittest.TestCase):
+    def test_o_dono_nao_abre_ligacao_e_o_cliente_abre_e_fecha_uma(self) -> None:
+        import types
+
+        from kamba_agr.contexto import PERSONA_CLIENTE, PERSONA_DONO
+        from kamba_agr.orcamento.porta import PortaDeOrcamento
+
+        abertas: list[bool] = []
+        fechadas: list[bool] = []
+        chamadas: list[tuple] = []
+
+        class Ligacao:
+            def __init__(self) -> None:
+                abertas.append(True)
+
+            def close(self) -> None:
+                fechadas.append(True)
+
+        original = rep.libertar_da_janela
+        try:
+            rep.libertar_da_janela = lambda *a: chamadas.append(a) or [rep.Envio(rep.ENVIADO, QID)]  # type: ignore[assignment]
+            saida = SaidaFixa("livre")
+            porta = PortaDeOrcamento(Ligacao, saida=saida, relogio=lambda: AGORA)
+            dono = types.SimpleNamespace(tenant_id="t", contact_id="d", persona=PERSONA_DONO)
+            self.assertEqual(asyncio.run(porta.libertar(dono)), [])
+            self.assertEqual(abertas, [])
+            cliente = types.SimpleNamespace(tenant_id="t", contact_id="c", persona=PERSONA_CLIENTE)
+            self.assertEqual(asyncio.run(porta.libertar(cliente)), [rep.Envio(rep.ENVIADO, QID)])
+        finally:
+            rep.libertar_da_janela = original  # type: ignore[assignment]
+        self.assertEqual((abertas, fechadas), ([True], [True]))
+        self.assertEqual(chamadas[0][1:5], ("t", "c", saida, AGORA))
+
+
+class TestLibertacaoNoArranque(unittest.TestCase):
+    """O `main()` real liga o `ao_cliente_escrever` a porta `orcamentos` do grafo.
+
+    Sem esta linha no `__main__`, todas as funcoes do criterio 2 estavam certas
+    e nenhuma proposta saia da janela — o defeito do KAM-186, noutra porta.
+    """
+
+    def test_o_executor_recebe_o_libertar_da_mesma_porta_do_envio(self) -> None:
+        import test_grafos
+
+        from kamba_agr.orcamento.porta import PortaDeOrcamento
+
+        arranque = test_grafos.TestLigacaoDoArranque("test_o_arranque_passa")
+        arranque.setUp()
+        self.addCleanup(arranque.doCleanups)
+        self.assertEqual(arranque.codigo, 0)
+        portas = arranque.capturado["compilar"][0][1]
+        executor = arranque.capturado["ExecutorDeTurnos"][1]
+        libertar = executor.get("ao_cliente_escrever")
+        self.assertIsNotNone(libertar)
+        self.assertIsInstance(portas["orcamentos"], PortaDeOrcamento)
+        self.assertIs(libertar.__self__, portas["orcamentos"])
+        self.assertIs(libertar.__func__, PortaDeOrcamento.libertar)
+
+
+class _LigacaoDeLote:
+    """Uma ligacao DB-API minima para o `tx_batch`: devolve os *tenants* pedidos."""
+
+    autocommit = False
+
+    def __init__(self, tenants: list[str], registo: list[str]) -> None:
+        self._tenants = tenants
+        self._registo = registo
+
+    def cursor(self):
+        ligacao = self
+
+        class _Cursor:
+            def execute(self, sql, _parametros=()):
+                ligacao._registo.append(sql)
+
+            def fetchall(self):
+                return [(t,) for t in ligacao._tenants]
+
+            def close(self):
+                return None
+
+        return _Cursor()
+
+    def commit(self) -> None:
+        return None
+
+    def rollback(self) -> None:
+        return None
+
+    def close(self) -> None:
+        self._registo.append("close")
+
+
+class TestVarreduraSemBase(unittest.TestCase):
+    """A orquestracao dos dois *jobs*: a listagem, um *tenant* que falha e as ligacoes."""
+
+    def _varredura(self, tenants: list[str]):
+        from kamba_agr.orcamento.varredura import VarreduraDeOrcamentos
+
+        self.lote: list[str] = []
+        self.app: list[str] = []
+        return VarreduraDeOrcamentos(
+            abrir_lote=lambda: _LigacaoDeLote(tenants, self.lote),
+            abrir_app=lambda: _LigacaoDeLote([], self.app),
+            saida=SaidaFixa("livre"),
+            relogio=lambda: AGORA,
+        )
+
+    def test_um_tenant_que_falha_nao_para_os_outros(self) -> None:
+        from kamba_agr.orcamento import varredura
+
+        chamados: list[str] = []
+
+        def avisar(_ligacao, tenant_id, _porta, agora):
+            chamados.append(tenant_id)
+            self.assertEqual(agora, AGORA)
+            if tenant_id == "a":
+                raise RuntimeError("base em baixo")
+            return {"livre": 2, "template": 1, "sem_template": 0, "falhou": 0}
+
+        original = rep.avisar_sem_resposta
+        try:
+            rep.avisar_sem_resposta = avisar  # type: ignore[assignment]
+            contagem = self._varredura(["a", "b"]).sem_resposta()
+        finally:
+            rep.avisar_sem_resposta = original  # type: ignore[assignment]
+        self.assertEqual(chamados, ["a", "b"])
+        self.assertEqual(contagem, {"falhou": 1, "livre": 2, "template": 1, "sem_template": 0})
+        self.assertEqual(self.lote, [varredura.SQL_TENANTS_ACTIVOS, "close"])
+        self.assertEqual(self.app, ["close"])
+
+    def test_a_expiracao_lista_pela_sua_pergunta_e_soma(self) -> None:
+        from kamba_agr.orcamento import varredura
+
+        original = rep.expirar_vencidos
+        try:
+            rep.expirar_vencidos = lambda _l, tenant_id, _a: {"a": 2, "b": 3}[tenant_id]  # type: ignore[assignment]
+            contagem = self._varredura(["a", "b"]).expirar()
+        finally:
+            rep.expirar_vencidos = original  # type: ignore[assignment]
+        self.assertEqual(contagem, {"falhou": 0, "expirados": 5})
+        self.assertEqual(self.lote, [varredura.SQL_TENANTS_POR_EXPIRAR, "close"])
+
+    def test_os_nomes_dos_jobs_sao_os_que_o_tx_batch_aceita(self) -> None:
+        from kamba_core import tenant_guard
+
+        from kamba_agr.orcamento import varredura
+
+        # A pergunta e a do proprio `tx_batch`, que e quem os recusa.
+        for job in (varredura.JOB_SEM_RESPOSTA, varredura.JOB_EXPIRAR):
+            with self.subTest(job=job):
+                self.assertIsNotNone(tenant_guard._NOME_DE_JOB.match(job))
+
+    def test_por_omissao_o_outbound_esta_por_ligar(self) -> None:
+        from kamba_agr.eventos.notificacao import OutboundPorLigar
+        from kamba_agr.orcamento.varredura import VarreduraDeOrcamentos
+
+        self.assertIsInstance(VarreduraDeOrcamentos(lambda: None, lambda: None)._saida, OutboundPorLigar)
+
+
 if __name__ == "__main__":
     unittest.main()

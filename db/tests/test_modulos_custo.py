@@ -73,14 +73,18 @@ class TestPrecos(unittest.TestCase):
 
 
 class TestMapaDeTemplates(unittest.TestCase):
-    def test_o_ficheiro_real_esta_vazio(self) -> None:
+    def test_o_ficheiro_real_so_tem_os_dois_do_orcamento(self) -> None:
+        """KAM-221: os dois *templates* do orcamento expresso, e nenhum outro."""
         import sys
 
         sys.path.insert(0, str(RAIZ / "tools"))
         import kamba_yaml
 
         documento = kamba_yaml.load((RAIZ / "config" / "templates_por_modulo.yaml").read_text(encoding="utf-8"))
-        self.assertEqual(h12.mapa_de_templates(documento), ([], []))
+        self.assertEqual(
+            h12.mapa_de_templates(documento),
+            (["orcamento_pronto", "orcamento_em_espera"], ["orcamento", "orcamento"]),
+        )
 
     def test_a_forma_e_as_recusas(self) -> None:
         self.assertEqual(

@@ -623,6 +623,7 @@ AG_VAL_VER = "services/agr/src/kamba_agr/validador/veredicto.py"
 #: KAM-123: o Orcamento expresso.
 AG_ORC_REGRAS = "services/agr/src/kamba_agr/orcamento/regras.py"
 AG_TLS_ORC = "services/agr/src/kamba_agr/tls/orcamento.py"
+AG_ORC_PORTA = "services/agr/src/kamba_agr/orcamento/porta.py"
 AG_DONO_NOS = "services/agr/src/kamba_agr/verticais/dono/nos.py"
 #: O grafo do Vendedor (KAM-031). Tambem na `agr_unit`: o grafo corre com
 #: *fakes* por contrato e com a ToolLayer a serio, e nada do que estas mutacoes
@@ -5008,6 +5009,54 @@ MUTACOES = [
      '            raise OrcamentoRecusadoError(FORA_DO_CATALOGO)',
      '            pass',
      "tests_agr"),
+    # ---- KAM-221 (o envio do Orcamento expresso). As quatro primeiras sao do
+    # SQL na ToolLayer e morrem no `db/tests_agr/test_quote_requests.py`; as tres
+    # ultimas sao da ligacao, e morrem no `services/agr/tests/test_orcamento.py`.
+    #
+    # O Outbound volta para dentro da transaccao: outra sessao ja nao tranca a
+    # linha com `NOWAIT` (`test_no_instante_do_envio_a_linha_nao_esta_trancada`).
+    ('orc: o outbound volta a correr dentro da transaccao', AG_TLS_ORC,
+     '        preparado = _preparar(quote_id, linha, agora)\n'
+     '    desfecho = _notificar(porta, tenant_id, preparado, f"orcamento:{quote_id}:{preparado.marca}")',
+     '        preparado = _preparar(quote_id, linha, agora)\n'
+     '        desfecho = _notificar(porta, tenant_id, preparado, f"orcamento:{quote_id}:{preparado.marca}")',
+     "tests_agr"),
+    # O registo grava sobre uma resposta corrigida a meio do envio:
+    # `test_uma_resposta_corrigida_durante_o_envio_nao_fica_enviada`.
+    ('orc: o registo grava sobre outra resposta', AG_TLS_ORC,
+     'mesma = linha is not None and _marca(linha[7]) == preparado.marca',
+     'mesma = linha is not None',
+     "tests_agr"),
+    # O registo deixa de reler o estado, e um cancelado a meio fica enviado:
+    # `test_cancelado_durante_o_envio_nao_fica_enviado`.
+    ('orc: o registo deixa de reler o estado', AG_TLS_ORC,
+     'if estado in (regras.RESPONDIDO, regras.AGUARDA_JANELA) and mesma:',
+     'if mesma:',
+     "tests_agr"),
+    # A mensagem das 24 h ganha uma chave por volta, e sai em cada uma:
+    # `test_a_volta_seguinte_repete_a_mesma_chave`.
+    ('orc: a mensagem das 24 h muda de chave em cada volta', AG_TLS_ORC,
+     'chave=f"orcamento:{qid}:sem_resposta",',
+     'chave=f"orcamento:{qid}:sem_resposta:{agora.isoformat()}",',
+     "tests_agr"),
+    # O `__main__` deixa de ligar a libertacao ao turno:
+    # `test_o_executor_recebe_o_libertar_da_mesma_porta_do_envio`.
+    ('orc: o __main__ deixa de libertar a janela', AG_MAIN,
+     '        ao_cliente_escrever=portas_do_grafo["orcamentos"].libertar,\n',
+     '',
+     AGR_UNIT),
+    # O turno deixa de chamar a libertacao:
+    # `test_a_mensagem_liberta_dentro_da_tranca_e_antes_do_grafo`.
+    ('orc: o turno deixa de libertar a janela', AG_TURNO,
+     '                    await self._cliente_escreveu(primeira)\n',
+     '                    pass\n',
+     AGR_UNIT),
+    # Uma mensagem do dono abre uma ligacao e liberta:
+    # `test_o_dono_nao_abre_ligacao_e_o_cliente_abre_e_fecha_uma`.
+    ('orc: a porta liberta pela mensagem do dono', AG_ORC_PORTA,
+     'if getattr(invocacao, "persona", None) != PERSONA_CLIENTE:',
+     'if False:',
+     AGR_UNIT),
     # A separacao por `kind` e a mitigacao que o §9.2 nomeia para a coincidencia
     # de valores: com o `stock` aqui, o stock de um produto sustenta o preco de
     # outro.

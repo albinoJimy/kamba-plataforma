@@ -219,9 +219,10 @@ async def _enviar_orcamento(deps: Dependencias, estado: Mapping[str, Any], botao
     try:
         envio = await porta.enviar(estado["tenant_id"], estado["contact_id"], action_id)
     except Exception:  # noqa: BLE001 — o turno do dono nao rebenta por isto
-        # A base ou o Outbound falharam a meio. Nada mudou no pedido (o envio
-        # corre numa transaccao), e o mesmo botao tenta outra vez; a frase nao
-        # diz que a proposta saiu, e serve a qualquer tipo de accao.
+        # A base ou o Outbound falharam a meio. O pedido so muda depois de o
+        # Outbound responder (KAM-221: o registo e outra transaccao), e o mesmo
+        # botao tenta outra vez com a mesma chave; a frase nao diz que a
+        # proposta saiu, e serve a qualquer tipo de accao.
         return FALHA_DO_ENVIO
     if envio.desfecho == orcamento_repo.NAO_E_ORCAMENTO:
         return None

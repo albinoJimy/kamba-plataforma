@@ -12,7 +12,7 @@
 
 version: 1
 fonte: "specs/02_Dicionario_de_Dados_Canonico.md"
-versao_dicionario: "1.117"
+versao_dicionario: "1.118"
 entradas:
   - seccao: "3.1"
     conceito: "Contacto"
@@ -20516,6 +20516,54 @@ entradas:
       - "orcamento_pronto"
     nomes_nota:
       - "utility"
+      - "orcamento"
+      - "mensagem"
+    variantes_literais: []
+  - seccao: "3.79"
+    conceito: "Template da mensagem neutra das 24 h"
+    canonico: "orcamento_em_espera"
+    literais:
+      - "orcamento_em_espera"
+    nomes:
+      - "orcamento_em_espera"
+    nomes_nota:
+      - "ORC"
+      - "orcamento"
+    variantes_literais: []
+  - seccao: "3.79"
+    conceito: "Espera do dono antes da mensagem neutra"
+    canonico: "vinte e quatro horas desde o pedido, com um horizonte de mais vinte e quatro"
+    literais: []
+    nomes: []
+    nomes_nota:
+      - "pedido"
+      - "orcamento"
+      - "quote_id"
+      - "sem_resposta"
+    variantes_literais: []
+  - seccao: "3.79"
+    conceito: "Trabalho de lote da mensagem das 24 h"
+    canonico: "agr_orcamento_sem_resposta"
+    literais:
+      - "agr_orcamento_sem_resposta"
+    nomes:
+      - "agr_orcamento_sem_resposta"
+    nomes_nota:
+      - "tx_batch"
+      - "kamba_batch"
+      - "quote_requests"
+      - "kamba_app"
+      - "agr_handoff_prazos"
+    variantes_literais: []
+  - seccao: "3.79"
+    conceito: "Trabalho de lote da expiração"
+    canonico: "agr_orcamento_expirar"
+    literais:
+      - "agr_orcamento_expirar"
+    nomes:
+      - "agr_orcamento_expirar"
+    nomes_nota:
+      - "expirado"
     variantes_literais: []
   - seccao: "3.79"
     conceito: "Desfecho de um envio"
@@ -20538,6 +20586,8 @@ entradas:
       - "enviar"
       - "confirm"
       - "ja_confirmada"
+      - "desactualizado"
+      - "ja_enviado"
     variantes_literais: []
   - seccao: "3.79"
     conceito: "Tool do pedido de orçamento"

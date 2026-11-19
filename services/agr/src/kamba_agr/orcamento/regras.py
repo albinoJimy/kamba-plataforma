@@ -113,6 +113,14 @@ VALIDADE_POR_OMISSAO: Final = datetime.timedelta(days=7)
 #: da oferta de humano (criterio 9, *proposta*).
 ESPERA_DO_DONO: Final = datetime.timedelta(hours=24)
 
+#: Durante quanto tempo, passada a `ESPERA_DO_DONO`, a varredura ainda procura
+#: um pedido para a mensagem neutra (KAM-221, *proposta*). A «uma mensagem» e a
+#: chave do Outbound (`orcamento:{quote_id}:sem_resposta`), e nao uma coluna: o
+#: horizonte so existe para que um pedido que o dono nunca responde nao seja
+#: relido em todas as voltas para sempre. Uma varredura parada mais do que isto
+#: perde a mensagem desse pedido; o pedido continua visivel ao dono.
+HORIZONTE_DO_AVISO: Final = datetime.timedelta(hours=24)
+
 
 def hoje_em_luanda(agora: datetime.datetime) -> datetime.date:
     """O dia civil de `Africa/Luanda` de um instante UTC (convencao do conjunto)."""
@@ -399,6 +407,30 @@ def modelo_da_proposta(
     return "\n".join(linhas)
 
 
+def texto_sem_resposta(quote_id: str) -> str:
+    """A mensagem neutra ao cliente quando o dono nao respondeu (KAM-221).
+
+    **Sem numero nenhum**, nem o prazo: «vinte e quatro horas» numa mensagem
+    era um numero sem *fact*, e o que o cliente precisa de saber e que o pedido
+    nao se perdeu e que pode falar com uma pessoa. A referencia e so letras.
+    Nao promete valor nem prazo, porque nenhum dos dois e da plataforma.
+
+    A palavra que se sugere e a `PALAVRA_DE_HUMANO`, e nao «pessoa»: e uma que
+    o `classify` do Vendedor le como pedido de humano sozinha (o ensaio
+    `test_a_palavra_sugerida_e_um_pedido_de_humano` liga as duas).
+    """
+    return "\n".join(
+        (
+            f"O seu pedido de orçamento {referencia_interna(quote_id)} ainda está à espera da loja.",
+            f"Se preferir, responda «{PALAVRA_DE_HUMANO}» e alguém da loja fala consigo.",
+        )
+    )
+
+
+#: A resposta que a mensagem neutra sugere para a oferta de humano.
+PALAVRA_DE_HUMANO: Final = "atendente"
+
+
 def preencher(modelo: str, facts: tuple[Any, ...]) -> str:
     """O *renderer* por referencia da proposta: cada `{{…}}` pelo seu *fact*.
 
@@ -447,6 +479,7 @@ __all__ = [
     "ENVIADO",
     "ESPERA_DO_DONO",
     "ESTADOS",
+    "HORIZONTE_DO_AVISO",
     "EXPIRADO",
     "FINAIS",
     "JANELA_DE_REPETICAO",
@@ -469,5 +502,6 @@ __all__ = [
     "pode_passar",
     "preencher",
     "referencia_interna",
+    "texto_sem_resposta",
     "validade_por_omissao",
 ]

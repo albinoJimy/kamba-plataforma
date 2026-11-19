@@ -22,8 +22,11 @@ from __future__ import annotations
 
 import datetime
 import json
+import re
 import threading
+import types
 
+import ligacao as ligacao_bd
 from tests import factories
 from tests.base import PRIVILEGIO_INSUFICIENTE, VIOLACAO_DE_CHECK, sqlstate
 from tests_agr.base import ComAgr
@@ -539,3 +542,400 @@ class TestIsolamento(ComOrcamento):
         outro_cliente = factories.contacto(self.semente, self.tenant)
         factories.contexto(self.semente, None)
         self.assertIsNone(rep.ultimo_do_cliente(self.app, self.tenant, outro_cliente))
+
+
+# ---------------------------------------------------------------- KAM-221
+
+
+class SaidaQueDeduplica(Saida):
+    """O Outbound como ele e: a mesma chave da **uma** mensagem.
+
+    O `Saida` do KAM-015 guarda a chave na `outbound_messages` e devolve o
+    resultado da primeira a uma repeticao, sem chamada HTTP. Este duplo faz o
+    mesmo, e conta as mensagens que **sairiam** — que e a medida do «uma
+    mensagem» quando duas chamadas concorrentes chegam as duas ao Outbound.
+    """
+
+    def __init__(self, desfecho: str = "livre") -> None:
+        super().__init__(desfecho)
+        self.mensagens: dict[str, object] = {}
+
+    def notificar(self, *, tenant_id, notificacao, chave):
+        desfecho = super().notificar(tenant_id=tenant_id, notificacao=notificacao, chave=chave)
+        with self._trinco:
+            self.mensagens.setdefault(chave, notificacao)
+        return desfecho
+
+
+class SaidaQueEspreita(Saida):
+    """Corre `durante(chave)` no instante do envio, e depois devolve o desfecho."""
+
+    def __init__(self, desfecho: str, durante) -> None:
+        super().__init__(desfecho)
+        self._durante = durante
+
+    def notificar(self, *, tenant_id, notificacao, chave):
+        self._durante(chave)
+        return super().notificar(tenant_id=tenant_id, notificacao=notificacao, chave=chave)
+
+
+def _contagem_do_lote(job: str) -> int:
+    from kamba_core import tenant_guard
+
+    return tenant_guard.CONTADORES.ler().get(f"{tenant_guard.METRICA_BATCH}:{job}", 0)
+
+
+class TestEnvioForaDaTransaccao(ComOrcamento):
+    """Credor do achado 2 da revisao do KAM-123: o Outbound fora da transaccao."""
+
+    def _confirmado(self) -> tuple[str, rep.Resposta]:
+        pedido = self._pedir()
+        resposta = self._responder(pedido.quote_id)
+        accoes.confirmar(self.app, self.tenant, self.dono, f"confirm:{resposta.action_id}", _agora())
+        return pedido.quote_id, resposta
+
+    def _outra(self):
+        """Outra sessao `kamba_app`, que desiste de uma tranca ao fim de 2 s.
+
+        Sem o `lock_timeout`, um envio que voltasse a chamar o Outbound dentro
+        da transaccao pendurava o ensaio em vez de o pôr vermelho: a outra
+        sessao esperava pela tranca de quem a esta a chamar.
+        """
+        outra = self.ligar("app")
+        outra.cursor().execute("SET lock_timeout = '2s'")
+        outra.commit()
+        return outra
+
+    def _trancar_sem_esperar(self, quote_id: str) -> None:
+        """Outra sessao tranca a linha com `NOWAIT`: levanta se alguem a tiver."""
+        from kamba_core import tenant_guard
+
+        outra = self.ligar("app")
+        with tenant_guard.tx(outra, self.tenant) as cursor:
+            cursor.execute(
+                "SELECT 1 FROM platform.quote_requests WHERE tenant_id = %s AND quote_id = %s "
+                "FOR UPDATE NOWAIT",
+                (self.tenant, quote_id),
+            )
+            self.assertIsNotNone(cursor.fetchone())
+
+    def test_no_instante_do_envio_a_linha_nao_esta_trancada(self) -> None:
+        """Com o Outbound dentro da transaccao, o `NOWAIT` dava `55P03`."""
+        quote_id, resposta = self._confirmado()
+        saida = SaidaQueEspreita("livre", lambda _chave: self._trancar_sem_esperar(quote_id))
+        envio = rep.enviar(self.app, self.tenant, self.dono, resposta.action_id, saida, _agora())
+        self.assertEqual(envio.desfecho, rep.ENVIADO)
+        self.assertEqual(self._linhas()[0][1], "enviado")
+        self.assertEqual(len(self._eventos(rep.EVENTO_ENVIADO)), 1)
+
+    def test_na_libertacao_tambem_nao(self) -> None:
+        quote_id, resposta = self._confirmado()
+        rep.enviar(self.app, self.tenant, self.dono, resposta.action_id, Saida("template"), _agora())
+        saida = SaidaQueEspreita("livre", lambda _chave: self._trancar_sem_esperar(quote_id))
+        envios = rep.libertar_da_janela(self.app, self.tenant, self.cliente, saida, _agora())
+        self.assertEqual(envios, [rep.Envio(rep.ENVIADO, quote_id)])
+
+    def test_cancelado_durante_o_envio_nao_fica_enviado(self) -> None:
+        """A fase 3 le a linha outra vez: um cancelamento a meio ganha ao registo."""
+        quote_id, resposta = self._confirmado()
+        outra = self._outra()
+        saida = SaidaQueEspreita(
+            "livre", lambda _chave: rep.cancelar(outra, self.tenant, self.dono, quote_id)
+        )
+        envio = rep.enviar(self.app, self.tenant, self.dono, resposta.action_id, saida, _agora())
+        self.assertEqual(envio.desfecho, rep.DESACTUALIZADO)
+        self.assertEqual(self._linhas()[0][1], "cancelado")
+        self.assertEqual(self._eventos(rep.EVENTO_ENVIADO), [])
+
+    def test_uma_resposta_corrigida_durante_o_envio_nao_fica_enviada(self) -> None:
+        """O dono corrige o valor enquanto a proposta velha sai: a nova fica por enviar."""
+        quote_id, resposta = self._confirmado()
+        outra = self._outra()
+        saida = SaidaQueEspreita(
+            "livre",
+            lambda _chave: rep.responder(outra, self.tenant, self.dono, quote_id,
+                                         regras.ler_valor_do_dono("130 mil"), None, None, _agora()),
+        )
+        envio = rep.enviar(self.app, self.tenant, self.dono, resposta.action_id, saida, _agora())
+        self.assertEqual(envio.desfecho, rep.DESACTUALIZADO)
+        self.assertEqual(self._linhas()[0][1:], ("respondido", 13_000_000))
+        self.assertEqual(self._eventos(rep.EVENTO_ENVIADO), [])
+
+    def test_dois_envios_concorrentes_dao_uma_mensagem_e_um_evento(self) -> None:
+        """O no `confirm` chama o envio tambem num `ja_confirmada`: dois toques
+        concorrentes chegam os dois ao envio. A chave faz **uma** mensagem, e a
+        fase 3 faz **um** `quote.sent`."""
+        quote_id, resposta = self._confirmado()
+        saida = SaidaQueDeduplica("livre")
+        ligacoes = [self.ligar("app"), self.ligar("app")]
+        barreira = threading.Barrier(2)
+        erros: list[BaseException] = []
+        desfechos: list[str] = []
+
+        def enviar(ligacao) -> None:
+            try:
+                barreira.wait()
+                envio = rep.enviar(ligacao, self.tenant, self.dono, resposta.action_id, saida, _agora())
+                desfechos.append(envio.desfecho)
+            except BaseException as erro:  # noqa: BLE001 — o fio nao propaga
+                erros.append(erro)
+
+        fios = [threading.Thread(target=enviar, args=(c,)) for c in ligacoes]
+        for f in fios:
+            f.start()
+        for f in fios:
+            f.join(30)
+        self.assertEqual(erros, [])
+        self.assertEqual(len(desfechos), 2)
+        self.assertIn(rep.ENVIADO, desfechos)
+        self.assertEqual(len(saida.mensagens), 1)
+        self.assertEqual({c for _t, _n, c in saida.chamadas}, set(saida.mensagens))
+        self.assertEqual(self._linhas()[0][1], "enviado")
+        self.assertEqual(len(self._eventos(rep.EVENTO_ENVIADO)), 1)
+        self.assertEqual(self._eventos(rep.EVENTO_ENVIADO)[0]["payload"]["quote_id"], quote_id)
+
+    def test_a_reentrega_do_template_nao_sai_outra_vez(self) -> None:
+        _quote_id, resposta = self._confirmado()
+        saida = Saida("template")
+        self.assertEqual(
+            rep.enviar(self.app, self.tenant, self.dono, resposta.action_id, saida, _agora()).desfecho,
+            rep.AGUARDA_JANELA,
+        )
+        self.assertEqual(
+            rep.enviar(self.app, self.tenant, self.dono, resposta.action_id, saida, _agora()).desfecho,
+            rep.JA_ENVIADO,
+        )
+        self.assertEqual(len(saida.chamadas), 1)
+        self.assertEqual(self._linhas()[0][1], "aguarda_janela")
+
+
+class TestJanela(ComOrcamento):
+    """O criterio 2 do KAM-221, contra a base: o valor sai uma vez."""
+
+    def _a_espera(self) -> str:
+        pedido = self._pedir()
+        resposta = self._responder(pedido.quote_id)
+        self._tocar(resposta.action_id, Saida("template"))
+        return pedido.quote_id
+
+    def test_o_cliente_responde_duas_vezes_e_o_valor_sai_uma(self) -> None:
+        quote_id = self._a_espera()
+        saida = SaidaQueDeduplica("livre")
+        primeira = rep.libertar_da_janela(self.app, self.tenant, self.cliente, saida, _agora())
+        segunda = rep.libertar_da_janela(self.app, self.tenant, self.cliente, saida, _agora())
+        self.assertEqual(primeira, [rep.Envio(rep.ENVIADO, quote_id)])
+        self.assertEqual(segunda, [])
+        self.assertEqual(len(saida.chamadas), 1)
+        self.assertEqual(len(self._eventos(rep.EVENTO_ENVIADO)), 1)
+
+    def test_duas_mensagens_concorrentes_do_cliente_dao_um_valor(self) -> None:
+        quote_id = self._a_espera()
+        saida = SaidaQueDeduplica("livre")
+        ligacoes = [self.ligar("app"), self.ligar("app")]
+        barreira = threading.Barrier(2)
+        erros: list[BaseException] = []
+
+        def libertar(ligacao) -> None:
+            try:
+                barreira.wait()
+                rep.libertar_da_janela(ligacao, self.tenant, self.cliente, saida, _agora())
+            except BaseException as erro:  # noqa: BLE001 — o fio nao propaga
+                erros.append(erro)
+
+        fios = [threading.Thread(target=libertar, args=(c,)) for c in ligacoes]
+        for f in fios:
+            f.start()
+        for f in fios:
+            f.join(30)
+        self.assertEqual(erros, [])
+        self.assertEqual(len(saida.mensagens), 1)
+        self.assertEqual(len(self._eventos(rep.EVENTO_ENVIADO)), 1)
+        self.assertEqual(self._eventos(rep.EVENTO_ENVIADO)[0]["payload"]["quote_id"], quote_id)
+
+    def test_cancelado_durante_a_espera_nao_sai(self) -> None:
+        quote_id = self._a_espera()
+        self.assertTrue(rep.cancelar(self.app, self.tenant, self.dono, quote_id))
+        saida = Saida("livre")
+        self.assertEqual(rep.libertar_da_janela(self.app, self.tenant, self.cliente, saida, _agora()), [])
+        self.assertEqual(saida.chamadas, [])
+        self.assertEqual(self._eventos(rep.EVENTO_ENVIADO), [])
+
+    def test_outro_cliente_nao_liberta(self) -> None:
+        self._a_espera()
+        outro = factories.contacto(self.semente, self.tenant)
+        factories.contexto(self.semente, None)
+        saida = Saida("livre")
+        self.assertEqual(rep.libertar_da_janela(self.app, self.tenant, outro, saida, _agora()), [])
+        self.assertEqual(saida.chamadas, [])
+
+    def test_a_porta_do_processo_liberta_so_pela_mensagem_de_um_cliente(self) -> None:
+        """O `libertar` da `PortaDeOrcamento`, que e o que o `ExecutorDeTurnos` chama."""
+        import asyncio
+
+        from kamba_agr.contexto import PERSONA_CLIENTE, PERSONA_DONO
+        from kamba_agr.orcamento.porta import PortaDeOrcamento
+
+        quote_id = self._a_espera()
+        saida = Saida("livre")
+        # Uma ligacao que a porta abre **e fecha**: a do `self.ligar` fechava-se
+        # outra vez no `tearDown`.
+        porta = PortaDeOrcamento(lambda: ligacao_bd.ligar("app"), saida=saida)
+        invocacao = types.SimpleNamespace(tenant_id=self.tenant, contact_id=self.cliente, persona=PERSONA_DONO)
+        self.assertEqual(asyncio.run(porta.libertar(invocacao)), [])
+        self.assertEqual(saida.chamadas, [])
+        invocacao.persona = PERSONA_CLIENTE
+        self.assertEqual(asyncio.run(porta.libertar(invocacao)), [rep.Envio(rep.ENVIADO, quote_id)])
+        self.assertEqual(self._linhas()[0][1], "enviado")
+
+
+class TestSemRespostaDoDono(ComOrcamento):
+    """O criterio 3 do KAM-221: a mensagem neutra das 24 h, com relogio fixo."""
+
+    def _com_idade(self, quote_id: str, horas: float) -> None:
+        self.semente.execute(
+            "UPDATE platform.quote_requests SET criado_at = now() - %s::interval WHERE quote_id = %s",
+            (f"{horas} hours", quote_id),
+        )
+
+    def test_vinte_e_quatro_horas_dao_uma_mensagem_neutra_sem_numero(self) -> None:
+        pedido = self._pedir()
+        saida = Saida("template")
+        self._com_idade(pedido.quote_id, 23)
+        self.assertEqual(rep.avisar_sem_resposta(self.app, self.tenant, saida, _agora())["template"], 0)
+        self._com_idade(pedido.quote_id, 25)
+        contagem = rep.avisar_sem_resposta(self.app, self.tenant, saida, _agora())
+        self.assertEqual(contagem, {"livre": 0, "template": 1, "sem_template": 0, "falhou": 0})
+        tenant, notificacao, chave = saida.chamadas[0]
+        self.assertEqual(tenant, self.tenant)
+        self.assertEqual(chave, f"orcamento:{pedido.quote_id}:sem_resposta")
+        self.assertEqual(notificacao.template, rep.TEMPLATE_ORCAMENTO_EM_ESPERA)
+        self.assertEqual(notificacao.contact_id, self.cliente)
+        self.assertEqual(notificacao.conversation_id, self.conversa.conversation_id)
+        self.assertIsNone(re.search(r"\d", notificacao.texto))
+        self.assertIn(regras.PALAVRA_DE_HUMANO, notificacao.texto)
+        # O pedido nao muda e nada se emite: o dono ainda responde.
+        self.assertEqual(self._linhas()[0][1], "pedido")
+        self.assertEqual(self._eventos(rep.EVENTO_ENVIADO), [])
+
+    def test_a_volta_seguinte_repete_a_mesma_chave(self) -> None:
+        """A «uma mensagem» e a chave do Outbound, e nao uma coluna."""
+        pedido = self._pedir()
+        self._com_idade(pedido.quote_id, 25)
+        saida = SaidaQueDeduplica("livre")
+        rep.avisar_sem_resposta(self.app, self.tenant, saida, _agora())
+        rep.avisar_sem_resposta(self.app, self.tenant, saida, _agora())
+        self.assertEqual(len(saida.chamadas), 2)
+        self.assertEqual(list(saida.mensagens), [f"orcamento:{pedido.quote_id}:sem_resposta"])
+
+    def test_respondido_cancelado_ou_fora_do_horizonte_nao_recebem_nada(self) -> None:
+        respondido = self._pedir()
+        self._responder(respondido.quote_id)
+        self._com_idade(respondido.quote_id, 25)
+        cancelado = rep.pedir(self.app, self.tenant, self.cliente, self.conversa.conversation_id,
+                              "SKU-301", None, _agora())
+        # Envelhece-se antes de cancelar: um cancelado e final, e o gatilho
+        # recusa mudar-lhe a linha.
+        self._com_idade(cancelado.quote_id, 25)
+        rep.cancelar(self.app, self.tenant, self.dono, cancelado.quote_id)
+        saida = Saida("livre")
+        self.assertEqual(rep.avisar_sem_resposta(self.app, self.tenant, saida, _agora())["livre"], 0)
+        velho = self._pedir()
+        self._com_idade(velho.quote_id, 49)
+        self.assertEqual(rep.avisar_sem_resposta(self.app, self.tenant, saida, _agora())["livre"], 0)
+        self.assertEqual(saida.chamadas, [])
+
+    def test_uma_porta_que_levanta_conta_e_nao_para_as_outras(self) -> None:
+        primeiro = self._pedir()
+        segundo = rep.pedir(self.app, self.tenant, self.cliente, self.conversa.conversation_id,
+                            "SKU-301", None, _agora())
+        self._com_idade(primeiro.quote_id, 26)
+        self._com_idade(segundo.quote_id, 25)
+
+        class Rebenta(Saida):
+            def notificar(self, *, tenant_id, notificacao, chave):
+                if chave.startswith(f"orcamento:{primeiro.quote_id}"):
+                    raise RuntimeError("outbound em baixo")
+                return super().notificar(tenant_id=tenant_id, notificacao=notificacao, chave=chave)
+
+        saida = Rebenta("livre")
+        contagem = rep.avisar_sem_resposta(self.app, self.tenant, saida, _agora())
+        self.assertEqual((contagem["falhou"], contagem["livre"]), (1, 1))
+
+    def test_o_tenant_b_nao_avisa_os_clientes_de_a(self) -> None:
+        pedido = self._pedir()
+        self._com_idade(pedido.quote_id, 25)
+        outra = self.criar_conversa()
+        factories.contexto(self.semente, None)
+        saida = Saida("livre")
+        rep.avisar_sem_resposta(self.app, outra.tenant_id, saida, _agora())
+        self.assertEqual(saida.chamadas, [])
+
+
+class TestVarredura(ComOrcamento):
+    """Os dois *jobs* nomeados, com a listagem como `kamba_batch`.
+
+    **O tenant do ensaio fica em `onboarding`**, e de proposito: activa-lo exige
+    o aceite dos quatro documentos (revisao `0040`), que escreve linhas
+    *append-only* no `contract_acceptance` e no `tenant_state_log` que poluem as
+    descidas da suite. A orquestracao por *tenant* mede-se pelo *job* da
+    expiracao, que corre em todos menos os encerrados; o das 24 h mede-se a
+    **nao** avisar um *tenant* que nao esta activo, e o corpo dele por *tenant*
+    esta no `TestSemRespostaDoDono`.
+    """
+
+    def _varredura(self, saida, agora=None):
+        from kamba_agr.orcamento.varredura import VarreduraDeOrcamentos
+
+        # Ligacoes que a varredura abre **e fecha**: as do `self.ligar`
+        # fechavam-se outra vez no `tearDown`.
+        return VarreduraDeOrcamentos(
+            abrir_lote=lambda: ligacao_bd.ligar("batch"),
+            abrir_app=lambda: ligacao_bd.ligar("app"),
+            saida=saida,
+            relogio=lambda: agora or _agora(),
+        )
+
+    def test_o_job_das_vinte_e_quatro_horas_so_avisa_tenants_activos(self) -> None:
+        from kamba_agr.orcamento.varredura import JOB_SEM_RESPOSTA
+
+        pedido = self._pedir()
+        self.semente.execute(
+            "UPDATE platform.quote_requests SET criado_at = now() - interval '25 hours' WHERE quote_id = %s",
+            (pedido.quote_id,),
+        )
+        antes = _contagem_do_lote(JOB_SEM_RESPOSTA)
+        saida = Saida("livre")
+        varredura = self._varredura(saida)
+        self.assertNotIn(self.tenant, varredura.tenants(JOB_SEM_RESPOSTA, varredura_sql("SQL_TENANTS_ACTIVOS")))
+        contagem = varredura.sem_resposta()
+        self.assertEqual(contagem["falhou"], 0)
+        self.assertEqual([c for t, _n, c in saida.chamadas if t == self.tenant], [])
+        # A listagem correu como `kamba_batch`, pelo `tx_batch` com o nome do *job*.
+        self.assertEqual(_contagem_do_lote(JOB_SEM_RESPOSTA), antes + 2)
+
+    def test_o_job_da_expiracao_fecha_as_vencidas_sem_ninguem_tocar(self) -> None:
+        from kamba_agr.orcamento.varredura import JOB_EXPIRAR
+
+        pedido = self._pedir()
+        resposta = self._responder(pedido.quote_id)
+        self._tocar(resposta.action_id, Saida("template"))
+        aberto = rep.pedir(self.app, self.tenant, self.cliente, self.conversa.conversation_id,
+                           "SKU-301", None, _agora())
+        antes = _contagem_do_lote(JOB_EXPIRAR)
+        depois = _agora() + datetime.timedelta(days=9)
+        varredura = self._varredura(Saida(), depois)
+        self.assertIn(self.tenant, varredura.tenants(JOB_EXPIRAR, varredura_sql("SQL_TENANTS_POR_EXPIRAR")))
+        contagem = varredura.expirar()
+        self.assertEqual(contagem["falhou"], 0)
+        self.assertGreaterEqual(contagem["expirados"], 1)
+        self.assertEqual(_contagem_do_lote(JOB_EXPIRAR), antes + 2)
+        estados = {q: e for q, e, _v in self._linhas()}
+        self.assertEqual(estados[pedido.quote_id], "expirado")
+        # Um `pedido` sem resposta nao expira: continua visivel ao dono.
+        self.assertEqual(estados[aberto.quote_id], "pedido")
+
+
+def varredura_sql(nome: str) -> str:
+    from kamba_agr.orcamento import varredura
+
+    return getattr(varredura, nome)
