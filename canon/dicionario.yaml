@@ -12,7 +12,7 @@
 
 version: 1
 fonte: "specs/02_Dicionario_de_Dados_Canonico.md"
-versao_dicionario: "1.115"
+versao_dicionario: "1.116"
 entradas:
   - seccao: "3.1"
     conceito: "Contacto"
@@ -1917,7 +1917,7 @@ entradas:
     variantes_literais: []
   - seccao: "3.7"
     conceito: "Pedidos de orçamento"
-    canonico: "quote_requests; fact quote_price (§3.79, emenda 1.115)"
+    canonico: "quote_requests; fact quote_price (§3.79, emenda 1.116)"
     literais:
       - "quote_requests"
       - "quote_price"
@@ -4653,6 +4653,28 @@ entradas:
     nomes: []
     nomes_nota:
       - "tenant_id"
+    variantes_literais: []
+  - seccao: "3.21"
+    conceito: "Religação de um canal que caiu"
+    canonico: "a mesma POST /internal/channels, quando o número já é do próprio tenant num canal em «tenant_channels.estado» = desligado, com o tenant ativo ou restrito e sem encerramento em curso na «offboarding_run»"
+    literais:
+      - "desligado"
+      - "ativo"
+      - "restrito"
+    nomes:
+      - "desligado"
+      - "ativo"
+      - "restrito"
+    nomes_nota:
+      - "desligado"
+      - "canal"
+      - "SQL_CRIAR_CANAL"
+      - "iniciado"
+      - "falhado"
+      - "ativo"
+      - "TransicaoInvalidaError"
+      - "restrito"
+      - "kamba_batch"
     variantes_literais: []
   - seccao: "3.22"
     conceito: "Quando a coexistência de um canal sincronizou"
@@ -14803,6 +14825,8 @@ entradas:
       - "confirmacao"
       - "indisponivel"
       - "limite"
+      - "religar"
+      - "activo"
     variantes_literais: []
   - seccao: "3.56"
     conceito: "O estado do canal no painel"
@@ -14946,6 +14970,11 @@ entradas:
       - "destino"
       - "ligar"
       - "sessao"
+      - "activo"
+      - "desligado"
+      - "restrito"
+      - "suspenso"
+      - "encerrado"
     variantes_literais: []
   - seccao: "3.76"
     conceito: "As métricas do painel, servidas"

@@ -16,7 +16,9 @@
  *                                   cunhada sem passar pela do registo
  *     GET   /painel/ligar           a reconexão (KAM-190): manda o código ao
  *                                   telefone registado e pede-o; o código certo
- *                                   abre o `/ligar` do KAM-093
+ *                                   abre o `/ligar` do KAM-093 — ao caso em
+ *                                   `aguarda_es` e, desde o KAM-207, ao caso
+ *                                   `activo` cujo canal caiu
  *     POST  /painel/telefone        a troca de telefone do dono (KAM-211): o
  *                                   número novo, e o código vai a ele
  *     POST  /painel/telefone/verificar
@@ -55,6 +57,20 @@
  * ao telefone, e isso vive fora da resposta. O limite por rede (`LIMITE_POR_REDE`)
  * é o que torna a sonda de telefones cara; os limites por destino e o orçamento
  * diário são os do `Otp`.
+ *
+ * ## A religação de um caso activo (KAM-207)
+ *
+ * A ponte do KAM-190 servia só o caso em `aguarda_es`. Um caso `activo` passa
+ * por ela quando o COM diz que o canal está `desligado` **e não restrito** — o
+ * `suspenso` e o `encerrado` chegam como `desligado` com `restrito`, e não
+ * reabrem: são decisões nossas, que o dono não desfaz ligando o número outra
+ * vez. A pergunta faz-se **duas vezes**, no `GET /painel/ligar` (antes de mandar
+ * o SMS) e no `POST /painel/verificar` (antes de cunhar a sessão do registo),
+ * porque entre as duas cabem dez minutos e uma suspensão. Só depois da segunda
+ * o guia passa a `desligado` (`PassoGuiado.religar`), e é isso que abre o
+ * `/ligar` a um caso activo. **O caso não muda de fase**, e o tenant é o do
+ * caso. Sem a porta `religar` (o guia não está montado), o caso activo tem o
+ * 409 de antes.
  *
  * ## O tenant é o da sessão, e não há outro sítio de onde ele venha
  *
@@ -98,6 +114,7 @@ import {
   type Otp,
 } from "@kamba/core-ts/inscricao";
 import type { TrocaDeTelefone } from "@kamba/core-ts/dono";
+import { FASE_DA_RELIGACAO, GuiaRecusadoError } from "@kamba/core-ts/guia";
 import type { Logger } from "@kamba/core-ts/logger";
 
 import { enderecoDoPedido } from "../rotas.ts";
@@ -181,6 +198,22 @@ export interface OpcoesDaReentrada {
   readonly contadores: Pick<Contadores, "anotar">;
   /** Quantos *proxies* de confiança há à frente. Zero por omissão (ver `../rotas.ts`). */
   readonly proxiesDeConfianca?: number | undefined;
+  /**
+   * Reabre o passo do ES a um caso `activo` cujo canal caiu
+   * (`PassoGuiado.religar`, KAM-207). Sem ela, o caso activo tem o 409.
+   */
+  readonly religar?: ((id: string) => Promise<unknown>) | undefined;
+}
+
+/**
+ * O canal do tenant caiu, e pode voltar? **KAM-207.** `true` só para `desligado`
+ * **sem** `restrito`; `null` quando o COM não respondeu — e «não se sabe» não é
+ * «caiu», pela razão do `./canal.ts`. Função do módulo, pela razão do
+ * `redeDoPedido`.
+ */
+async function canalReligavel(canal: LeitorDoCanal, tenantId: string, casoId: string): Promise<boolean | null> {
+  const vista = await canal.ler(tenantId, { id: casoId, traceId: randomUUID() });
+  return vista === null ? null : vista.estado === "desligado" && !vista.restrito;
 }
 
 /**
@@ -595,17 +628,23 @@ export function rotasDoPainel(opcoes: OpcoesDoPainel): Hono {
   // ------------------------------------------- a reconexão e a reentrada (KAM-190)
 
   app.get("/painel/ligar", async (c) => {
-    metricas.pedido("ligar");
     const n = nonce();
     const sessao = await sessaoDe(c.req.header("cookie"));
     const r = opcoes.reentrada;
     const chave = opcoes.anelDaAssinatura[0];
     if (sessao === null) {
+      metricas.pedido("ligar");
       falhou("ligar", "sem_sessao");
       return html(paginaSemSessao(n), 401, n);
     }
+    // **A religação conta à parte** (KAM-207): `religar` é a ponte pedida por
+    // um caso activo, `ligar` a de um caso que ainda não ligou o número. As
+    // duas somam os pedidos desta rota; a de sem sessão conta em `ligar`,
+    // porque sem sessão não há caso.
+    const rota: RotaDoPainel = sessao.fase === FASE_DA_RELIGACAO ? "religar" : "ligar";
+    metricas.pedido(rota);
     if (r === undefined || !(chave instanceof Uint8Array)) {
-      falhou("ligar", "indisponivel");
+      falhou(rota, "indisponivel");
       return html(paginaNaoEncontrada(n), 503, n, sessao.renovar);
     }
     // **A sessão do painel não cunha a do registo.** A primeira versão desta
@@ -616,17 +655,27 @@ export function rotasDoPainel(opcoes: OpcoesDoPainel): Hono {
     // a sessão do painel diz **de que caso** é, e o OTP ao telefone registado
     // prova a posse, como na entrada.
     //
-    // **E só para um caso no passo do ES** (`aguarda_es`), que é o único em que
-    // o `/ligar` do KAM-093 abre (`fase_errada` em qualquer outro): mandar um
-    // SMS para uma página que recusa era gastar o código do dono.
+    // **E só para um caso no passo do ES** (`aguarda_es`), ou activo com o canal
+    // caído e não restrito (KAM-207): são os dois em que o `/ligar` do KAM-093
+    // vai abrir. Mandar um SMS para uma página que recusa era gastar o código do
+    // dono.
     const caso = await opcoes.casos.porId(sessao.s.dono);
-    if (caso === null || caso.fase !== "aguarda_es") {
-      falhou("ligar", "conflito");
+    let abre = caso !== null && caso.fase === "aguarda_es";
+    if (caso !== null && caso.fase === FASE_DA_RELIGACAO && r.religar !== undefined) {
+      const religavel = await canalReligavel(opcoes.canal, sessao.s.tenantId, sessao.s.dono);
+      if (religavel === null) {
+        falhou(rota, "indisponivel");
+        return html(paginaNaoEncontrada(n), 503, n, sessao.renovar);
+      }
+      abre = religavel;
+    }
+    if (!abre) {
+      falhou(rota, "conflito");
       return html(paginaDaLigacaoFechada(n), 409, n, sessao.renovar);
     }
     const telefone = await r.telefoneDoCaso(sessao.s.dono);
     if (telefone === null) {
-      falhou("ligar", "indisponivel");
+      falhou(rota, "indisponivel");
       return html(paginaNaoEncontrada(n), 503, n, sessao.renovar);
     }
     void r.otp
@@ -635,7 +684,7 @@ export function rotasDoPainel(opcoes: OpcoesDoPainel): Hono {
         if (!e.enviado) log?.info({ outcome: "painel_codigo_nao_enviado", error_code: e.recusa });
       })
       .catch((erro: unknown) => log?.excepcao(erro, "painel_codigo_falhou"));
-    log?.info({ outcome: "painel_ligar" });
+    log?.info({ outcome: rota === "religar" ? "painel_religar" : "painel_ligar" });
     return html(paginaDoCodigoDaLigacao(n, cunharBilhete(sessao.s.dono, chave, relogio())), 200, n, sessao.renovar);
   });
 
@@ -715,17 +764,44 @@ export function rotasDoPainel(opcoes: OpcoesDoPainel): Hono {
     const casoId = lerBilhete(corpo["referencia"], opcoes.anelDaAssinatura, relogio());
     const veredicto = casoId === null ? null : await r.otp.verificar(casoId, corpo["codigo"]);
     const caso = casoId === null || veredicto !== "acertou" ? null : await opcoes.casos.porId(casoId);
+    // A religação de um caso activo (KAM-207) pergunta **outra vez** ao COM, e
+    // só aqui: entre o `GET /painel/ligar` e este pedido cabem dez minutos e
+    // uma suspensão. Um COM que não responde é 503 — quem chegou aqui acertou
+    // no código, e o 503 não lhe diz nada que ele não saiba.
+    let religa = false;
+    if (ligar && casoId !== null && caso !== null && caso.fase === FASE_DA_RELIGACAO && r.religar !== undefined) {
+      const religavel = await canalReligavel(opcoes.canal, caso.tenantId.toLowerCase(), casoId);
+      if (religavel === null) {
+        falhou("verificar", "indisponivel");
+        return json({ erro: "indisponivel" }, 503);
+      }
+      religa = religavel;
+    }
     // Uma falha, uma resposta: bilhete que não serve, código errado, expirado,
     // sem desafio, tentativas a mais, ou caso que já não tem painel (ou, para a
-    // ligação, que já não está no passo do ES). Ver a nota do módulo.
+    // ligação, que já não está no passo do ES nem é um activo com o canal
+    // caído). Ver a nota do módulo.
     if (
       casoId === null ||
       caso === null ||
       !(FASES_COM_PAINEL as readonly string[]).includes(caso.fase) ||
-      (ligar && caso.fase !== "aguarda_es")
+      (ligar && caso.fase !== "aguarda_es" && !religa)
     ) {
       falhou("verificar", "sem_sessao");
       return json({ erro: "codigo" }, 401);
+    }
+    if (religa && r.religar !== undefined) {
+      // O guia passa a `desligado` **antes** de se cunhar a sessão do registo:
+      // é ele que abre o `/ligar` a um caso activo. Um guia que não volta (sem
+      // guia, ou num estado de onde a matriz não leva ao `desligado`) é a mesma
+      // falha das outras.
+      try {
+        await r.religar(casoId);
+      } catch (erro) {
+        if (!(erro instanceof GuiaRecusadoError)) throw erro;
+        falhou("verificar", "sem_sessao");
+        return json({ erro: "codigo" }, 401);
+      }
     }
     const s = novaSessao(caso.tenantId, casoId, relogio());
     log?.info({ outcome: "painel_sessao_aberta" });

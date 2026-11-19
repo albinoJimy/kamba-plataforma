@@ -13,10 +13,11 @@ import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import { gzipSync } from "node:zlib";
 
+import { GuiaRecusadoError } from "@kamba/core-ts/guia";
 import { cunharReferencia, lerReferencia, NOME_DO_COOKIE, ReferenciaInvalidaError, Telefone } from "@kamba/core-ts/inscricao";
 
 import { createApp } from "../src/app.ts";
-import { CanalEmMemoria, CanalPeloCom, SEM_CANAL } from "../src/painel/canal.ts";
+import { CanalEmMemoria, CanalPeloCom, SEM_CANAL, type VistaDoCanal } from "../src/painel/canal.ts";
 import {
   ComercioEmMemoria,
   ComercioPorHttp,
@@ -1152,4 +1153,155 @@ test("KAM-190: um canal suspenso nao convida a religar, e um activo limitado di-
   const limitado = await (await m.app.fetch(get("/painel/canal", cookieDe(sessaoA())))).text();
   assert.match(limitado, /envio limitado/);
   assert.doesNotMatch(limitado, /href="\/painel\/ligar"/);
+});
+
+// ------------------------------------------- KAM-207: a religação de um activo
+
+/** O canal de A caiu, e a reentrada leva a porta do guia, que conta quem religou. */
+function religacao(vista: Partial<VistaDoCanal> = { estado: "desligado", restrito: false }) {
+  const re = reentrada();
+  const religados: string[] = [];
+  const m = montar({
+    reentrada: {
+      ...re.opcoes,
+      religar: async (id: string) => {
+        religados.push(id);
+        return "desligado";
+      },
+    },
+  });
+  m.canal.vistas.set(TENANT_A, { ...SEM_CANAL, ...vista });
+  return { re, m, religados };
+}
+
+/** O bilhete da pagina do codigo da ligacao. */
+async function bilheteDa(r: Response): Promise<string> {
+  return /data-bilhete="([^"]+)"/.exec(await r.text())?.[1] ?? "";
+}
+
+test("KAM-207: um caso activo com o canal desligado pede o codigo e, com o certo, reabre o /ligar sem mudar de fase", async () => {
+  const { re, m, religados } = religacao();
+  const r = await m.app.fetch(get("/painel/ligar", cookieDe(sessaoA())));
+  // **O 409 do KAM-190 deixa de valer a este caso** (criterio 4).
+  assert.equal(r.status, 200);
+  const bilhete = await bilheteDa(r);
+  assert.equal(lerBilhete(bilhete, [CHAVE, null], m.agora), CASO_A);
+  await new Promise((resolver) => setImmediate(resolver));
+  assert.deepEqual(re.enviados, [CASO_A]);
+  assert.deepEqual(religados, [], "religou antes do codigo");
+  // A metrica conta a religacao a parte (DoD).
+  assert.equal(m.metricas.valor("religar"), 1);
+  assert.equal(m.metricas.valor("ligar"), 0);
+
+  const certo = await m.app.fetch(post("/painel/verificar", { referencia: bilhete, codigo: "123456", destino: "ligar" }));
+  assert.equal(certo.status, 200);
+  assert.deepEqual(await certo.json(), { ok: true, seguinte: "/ligar" });
+  assert.deepEqual(religados, [CASO_A]);
+  const registo = certo.headers.getSetCookie().find((c) => c.startsWith(`${NOME_DO_COOKIE}=`)) ?? "";
+  assert.equal(lerReferencia("sessao", registo.slice(NOME_DO_COOKIE.length + 1).split(";")[0] ?? "", [CHAVE, null], () => m.agora), CASO_A);
+  // **O caso nao recua de fase** (criterio 3): o painel nao lhe toca.
+  assert.equal(m.casos.get(CASO_A)?.fase, "activo");
+  assert.equal(m.casos.get(CASO_A)?.tenantId, TENANT_A);
+});
+
+test("KAM-207 adversarial: suspenso e encerrado nao reabrem, nem o canal de pe — sem SMS e sem sessao do registo", async () => {
+  for (const vista of [
+    { estado: "desligado", restrito: true },
+    { estado: "ativo", restrito: false },
+    { estado: "a_sincronizar", restrito: false },
+    { estado: "sem_canal", restrito: false },
+  ] as const) {
+    const { re, m, religados } = religacao(vista);
+    const r = await m.app.fetch(get("/painel/ligar", cookieDe(sessaoA())));
+    assert.equal(r.status, 409, JSON.stringify(vista));
+    assert.doesNotMatch(await r.text(), /data-bilhete/);
+    const v = await m.app.fetch(post("/painel/verificar", { referencia: cunharBilhete(CASO_A, CHAVE, m.agora), codigo: "123456", destino: "ligar" }));
+    assert.equal(v.status, 401, JSON.stringify(vista));
+    assert.equal(v.headers.getSetCookie().length, 0);
+    await new Promise((resolver) => setImmediate(resolver));
+    assert.deepEqual(re.enviados, []);
+    assert.deepEqual(religados, []);
+    assert.equal(m.metricas.valor("religar", "conflito"), 1);
+  }
+});
+
+test("KAM-207 adversarial: uma suspensao entre o codigo e a verificacao fecha a religacao", async () => {
+  const { m, religados } = religacao();
+  const bilhete = await bilheteDa(await m.app.fetch(get("/painel/ligar", cookieDe(sessaoA()))));
+  m.canal.vistas.set(TENANT_A, { ...SEM_CANAL, estado: "desligado", restrito: true });
+  const v = await m.app.fetch(post("/painel/verificar", { referencia: bilhete, codigo: "123456", destino: "ligar" }));
+  assert.equal(v.status, 401);
+  assert.equal(v.headers.getSetCookie().length, 0);
+  assert.deepEqual(religados, []);
+});
+
+test("KAM-207: o COM em baixo e 503 nas duas pontas, e nao se manda SMS nem se religa", async () => {
+  const re = reentrada();
+  const religados: string[] = [];
+  const m = montar({
+    canal: { ler: async () => null },
+    reentrada: { ...re.opcoes, religar: async (id: string) => religados.push(id) },
+  });
+  assert.equal((await m.app.fetch(get("/painel/ligar", cookieDe(sessaoA())))).status, 503);
+  const v = await m.app.fetch(post("/painel/verificar", { referencia: cunharBilhete(CASO_A, CHAVE, m.agora), codigo: "123456", destino: "ligar" }));
+  assert.equal(v.status, 503);
+  assert.equal(v.headers.getSetCookie().length, 0);
+  await new Promise((resolver) => setImmediate(resolver));
+  assert.deepEqual(re.enviados, []);
+  assert.deepEqual(religados, []);
+});
+
+test("KAM-207: um guia que recusa religar e o mesmo 401, sem sessao nenhuma", async () => {
+  const re = reentrada();
+  const m = montar({
+    reentrada: {
+      ...re.opcoes,
+      religar: async () => {
+        throw new GuiaRecusadoError("estado_errado");
+      },
+    },
+  });
+  m.canal.vistas.set(TENANT_A, { ...SEM_CANAL, estado: "desligado" });
+  const v = await m.app.fetch(post("/painel/verificar", { referencia: cunharBilhete(CASO_A, CHAVE, m.agora), codigo: "123456", destino: "ligar" }));
+  assert.equal(v.status, 401);
+  assert.deepEqual(await v.json(), { erro: "codigo" });
+  assert.equal(v.headers.getSetCookie().length, 0);
+});
+
+test("KAM-207 isolamento: a sessao de A pergunta pelo canal de A e religa o caso de A, e o canal caido de B nao lhe abre nada", async () => {
+  const re = reentrada();
+  const religados: string[] = [];
+  const perguntados: string[] = [];
+  const canal = new CanalEmMemoria();
+  const m = montar({
+    canal: {
+      ler: async (tenantId) => {
+        perguntados.push(tenantId);
+        return canal.ler(tenantId);
+      },
+    },
+    reentrada: { ...re.opcoes, religar: async (id: string) => religados.push(id) },
+  });
+  m.casos.set(CASO_B, { tenantId: TENANT_B, fase: "activo" });
+  canal.vistas.set(TENANT_A, { ...SEM_CANAL, estado: "ativo" });
+  canal.vistas.set(TENANT_B, { ...SEM_CANAL, estado: "desligado" });
+  assert.equal((await m.app.fetch(get("/painel/ligar", cookieDe(sessaoA())))).status, 409);
+  // Um bilhete forjado para o caso de B com a chave certa nao passa sem o codigo de B.
+  const v = await m.app.fetch(post("/painel/verificar", { referencia: cunharBilhete(CASO_B, CHAVE, m.agora), codigo: "123456", destino: "ligar" }));
+  assert.equal(v.status, 401);
+  assert.deepEqual(perguntados, [TENANT_A]);
+  assert.deepEqual(religados, []);
+  // Com o canal de A caido, quem religa e A, e so A.
+  canal.vistas.set(TENANT_A, { ...SEM_CANAL, estado: "desligado" });
+  const bilhete = await bilheteDa(await m.app.fetch(get("/painel/ligar", cookieDe(sessaoA()))));
+  const certo = await m.app.fetch(post("/painel/verificar", { referencia: bilhete, codigo: "123456", destino: "ligar" }));
+  assert.equal(certo.status, 200);
+  assert.deepEqual(religados, [CASO_A]);
+  assert.ok(perguntados.every((t) => t === TENANT_A), perguntados.join(","));
+});
+
+test("KAM-207: o /metrics serve a etiqueta religar", async () => {
+  const m = new MetricasDoPainel();
+  assert.match(m.exposicao(), /painel_pedidos_total\{rota="religar"\} 0/);
+  assert.match(m.exposicao(), /painel_erros_total\{rota="religar",motivo="conflito"\} 0/);
 });
