@@ -20,11 +20,18 @@ import { describe, it } from "node:test";
 
 import { SQL_PAYMENT_SEM_ORDEM } from "@kamba/core-ts/eventos";
 
+import { randomBytes } from "node:crypto";
+
+import { KeyProviderDeAmbienteError } from "@kamba/core-ts/identity";
+import { ArranqueAbortadoError } from "@kamba/core-ts/secrets";
+
 import {
   ArranqueRecusadoError,
   SaidaSemPortasError,
+  ambienteDoOutbound,
   efeitoDoConsumidor,
   exigirOrdemNosPagamentos,
+  portasDoOutbound,
   type PortasDoOutbound,
 } from "../src/consumidor.ts";
 
@@ -110,14 +117,14 @@ describe("o efeito do consumidor, pelo nome (KAM-224)", () => {
   });
 
   it("basta faltar uma das duas para recusar", () => {
-    const meta = { enviar: async () => ({ ok: true as const, wamid: "w" }) };
+    const meta = async () => ({ enviar: async () => ({ ok: true as const, wamid: "w" }) });
     assert.throws(() => efeitoDoConsumidor("outbound", { ...semPortas, meta }), SaidaSemPortasError);
   });
 
   it("com as duas, o outbound tem efeito, e um evento de outro canal não toca na base", async () => {
     const efeito = efeitoDoConsumidor("outbound", {
       ...semPortas,
-      meta: { enviar: async () => ({ ok: true as const, wamid: "w" }) },
+      meta: async () => ({ enviar: async () => ({ ok: true as const, wamid: "w" }) }),
       destinatario: async () => ({ bsuid: "AO.ENSAIOENSAIOENSAIO0001", telefone: null }),
     });
     const tenant = "3f1c2a9e-0d4b-4e55-9a7c-1b2c3d4e5f60";
@@ -142,5 +149,49 @@ describe("o efeito do consumidor, pelo nome (KAM-224)", () => {
     const bd = new BdFalsa();
     await efeito(bd as never, {} as never);
     assert.deepEqual(bd.instrucoes, []);
+  });
+});
+
+describe("as portas de produção do outbound, e o arranque em prod (KAM-227, critério 3)", () => {
+  /** Uma chave versionada de ensaio, na forma do cofre: `<kid>:<base64 de 32 octetos>`. */
+  const chave = (kid: string): string => `${kid}:${randomBytes(32).toString("base64")}`;
+  const completo = (ambiente: string): Record<string, string> => ({
+    KAMBA_ENV: ambiente,
+    KAMBA_SECRET_KEK_TOKEN_CLIENTE: chave("t1"),
+    KAMBA_SECRET_KEK_CONTACT_DEK: chave("k1"),
+  });
+  const ligacoes = {
+    tomarIdentidade: async () => {
+      throw new Error("o arranque nao abre ligacoes de identidade");
+    },
+    devolverIdentidade: () => {},
+  };
+
+  it("em staging, com o cofre completo, monta as duas portas sem abrir ligação nenhuma", async () => {
+    const portas = await portasDoOutbound({ env: completo("staging"), ...ligacoes });
+    assert.equal(typeof portas.meta, "function");
+    assert.equal(typeof portas.destinatario, "function");
+  });
+
+  it("**em prod não arranca**: a identidade recusa as chaves de ambiente (KAM-008, critério 9)", async () => {
+    // A medição do critério 3. Com o cofre completo, o que recusa é o
+    // `Identidade.arrancar`, e é a contradição 2 do `docs/identidade.md` §8.
+    await assert.rejects(portasDoOutbound({ env: completo("prod"), ...ligacoes }), KeyProviderDeAmbienteError);
+  });
+
+  it("sem a kek_token_cliente o arranque aborta, e nomeia o segredo", async () => {
+    const env = completo("prod");
+    delete env["KAMBA_SECRET_KEK_TOKEN_CLIENTE"];
+    await assert.rejects(portasDoOutbound({ env, ...ligacoes }), (erro: unknown) => {
+      assert.ok(erro instanceof ArranqueAbortadoError);
+      assert.match(erro.message, /kek_token_cliente/);
+      return true;
+    });
+  });
+
+  it("o ambiente não tem omissão: ausente ou desconhecido recusa", () => {
+    assert.throws(() => ambienteDoOutbound({}), /KAMBA_ENV/);
+    assert.throws(() => ambienteDoOutbound({ KAMBA_ENV: "producao" }), /KAMBA_ENV/);
+    assert.equal(ambienteDoOutbound({ KAMBA_ENV: "prod" }), "prod");
   });
 });

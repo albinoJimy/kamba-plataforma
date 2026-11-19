@@ -22,24 +22,26 @@
  * processo, e não um por envio: um `Saida` novo a cada mensagem com um `Limites`
  * novo esquecia o débito que o anterior tinha gasto.
  *
- * ## O que não está aqui
+ * ## O cliente da Meta é do canal, e lê-se antes do `Saida`
  *
- * O **cliente da Meta** e o **destinatário** entram por parâmetro. Em produção,
- * nenhum dos dois tem fonte neste repositório: o *token* de cada canal é um
- * `tenant_channels.token_ref` sem leitor, e o `ObterDestinatario` (o BSUID ou o
- * telefone de um contacto) não tem implementação fora dos ensaios. Quem monta o
- * processo recusa arrancar sem eles (`services/worker-canal/src/consumidor.ts`);
- * o credor é o **KAM-227**.
+ * O `meta` não é um cliente: é o `ClienteDoCanal` (`./credencial.ts`, KAM-227),
+ * que lê o *token* do canal **do pedido** na ligação do envio, sob a RLS do
+ * tenant dele. Lê-se **antes** de montar o `Saida`: um canal sem *token* levanta
+ * `CanalSemCredencialError` sem a linha da `outbound_messages` ter nascido, e a
+ * chave do envio fica por gastar. O **destinatário** entra por parâmetro, e o
+ * de produção é o `destinatarioPelaIdentidade` (`./destinatario.ts`), numa
+ * ligação `kamba_identity`.
  */
 
 import type { Logger } from "../logger/index.ts";
 import { criarGuarda } from "../modos/guarda.ts";
 import type { MetricasDosModos } from "../modos/metricas.ts";
 import { Saida } from "../outbound/adapter.ts";
-import type { ClienteDaMeta, ClienteSql, ObterDestinatario, Pedido, Resultado } from "../outbound/contrato.ts";
+import type { ClienteSql, ObterDestinatario, Pedido, Resultado } from "../outbound/contrato.ts";
 import { Limites } from "../outbound/limites.ts";
 import { MetricasDaSaida } from "../outbound/metricas.ts";
 import { comTenant } from "../tenant_guard/index.ts";
+import type { ClienteDoCanal } from "./credencial.ts";
 import type { EnviarResposta } from "./efeito.ts";
 
 /** A ligação de um envio: o `ClienteSql` do Outbound. */
@@ -61,7 +63,8 @@ export interface OpcoesDoEnvio {
   readonly tomar: () => Promise<LigacaoDoEnvio>;
   /** Devolve-a. Com `erro`, a ligação falhou e não deve voltar a servir. */
   readonly devolver: (ligacao: LigacaoDoEnvio, erro?: unknown) => Promise<void> | void;
-  readonly meta: ClienteDaMeta;
+  /** O cliente da Graph do canal do pedido (`clienteDaGraphPorCanal`, em produção). */
+  readonly meta: ClienteDoCanal;
   readonly destinatario: ObterDestinatario;
   readonly limites?: Limites;
   readonly metricas?: MetricasDaSaida;
@@ -77,6 +80,8 @@ export function envioPeloSaida(o: OpcoesDoEnvio): EnviarResposta {
     const ligacao = await o.tomar();
     let falha: unknown;
     try {
+      // Antes do `Saida`: sem *token*, a linha do Outbound não nasce.
+      const meta = await o.meta(ligacao, pedido);
       const guarda = criarGuarda({
         comTenant: (tenantId, trabalho) => comTenant(ligacao, tenantId, () => trabalho(ligacao)),
         ...(o.metricasDosModos === undefined ? {} : { metricas: o.metricasDosModos }),
@@ -84,7 +89,7 @@ export function envioPeloSaida(o: OpcoesDoEnvio): EnviarResposta {
       });
       const saida = new Saida({
         bd: comTenantPorInstrucao(ligacao, pedido.tenantId),
-        meta: o.meta,
+        meta,
         destinatario: o.destinatario,
         guarda,
         freeTier: null,

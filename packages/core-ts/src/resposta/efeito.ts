@@ -21,10 +21,43 @@
  * falha de rede depois de esgotadas as repetições do próprio `Saida`
  * (`SEND_FAILED`), o *token bucket* sem vaga (`RATE_LIMITED`), ou um processo
  * que morra entre a linha e a rede, deixam a resposta **por enviar**: repetir o
- * evento não a enviaria. O efeito di-lo em vez de o esconder — `falhou` com o
- * motivo, ou `repetida_sem_envio` —, deixa a linha sem `entregue_at`, e consome
- * o evento. Reenviar uma resposta nesses casos pede uma chave derivada ou um
- * reprocessamento da linha do Outbound, e é do **KAM-227**.
+ * evento não a enviaria com a chave do turno.
+ *
+ * ## O reenvio, uma vez, por uma chave derivada (KAM-227, critério 5)
+ *
+ * Uma resposta que a chave do turno deixou por enviar reenvia-se **uma vez**, com
+ * a chave `chaveDoReenvio(chave)` — a do turno com o sufixo `:reenvio`. Duas
+ * entradas, e as duas acabam no mesmo sítio:
+ *
+ * - **o `Saida` devolve uma falha** (`SEND_FAILED`, `RATE_LIMITED`): o efeito
+ *   levanta `ReenvioAdiadoError`, a transacção do consumo desfaz-se, e a escada
+ *   do KAM-006 repete o evento **mais tarde** — reenviar no mesmo instante a um
+ *   *token bucket* sem vaga, ou a uma Meta que acabou de recusar, era gastar a
+ *   única segunda vez;
+ * - **o `Saida` diz `repetido` e a linha da chave não saiu** (`queued`,
+ *   `failed`, ou sem linha): é a repetição de cima, ou um processo que morreu
+ *   entre a linha e a rede. O efeito envia pela chave derivada.
+ *
+ * O envio pela chave derivada é **o último**: uma falha dele é `falhou`, e uma
+ * chave derivada repetida que não saiu é `repetida_sem_envio`, os dois sem
+ * `entregue_at` e com o evento consumido. **O que não muda:** uma linha que
+ * saiu (`sent`, `delivered`, `read`) com a chave do turno nunca se reenvia — o
+ * reenvio só nasce de uma linha que, pelo próprio `Saida`, não saiu.
+ *
+ * **O limite, e fica dito.** Um processo que morra depois do `200` da Meta e
+ * antes de o `Saida` marcar a linha `sent` deixa-a `queued` com a mensagem já
+ * entregue, e a reentrega envia pela chave derivada: o cliente recebe a resposta
+ * duas vezes. A janela é uma instrução (`SQL_MARCAR_ENVIADA`), e o `statuses`
+ * da Meta não a fecha, porque o `wamid` não chegou à linha. É o preço de o
+ * reenvio existir; sem ele, a mesma morte deixava a resposta perdida em
+ * silêncio em todos os outros casos de `queued`.
+ *
+ * ## Um canal sem credencial é desfecho, e não erro
+ *
+ * `CanalSemCredencialError` (`./credencial.ts`) chega **antes** de a linha do
+ * Outbound nascer: o efeito consome o evento com `sem_credencial` e o motivo, e
+ * a resposta fica sem `entregue_at`. Nenhuma tentativa faz aparecer um segredo
+ * que o cofre não tem.
  *
  * ## O `Saida` corre noutra ligação, e porquê
  *
@@ -40,6 +73,7 @@ import type { Efeito } from "../eventos/consumo.ts";
 import type { Envelope } from "../eventos/envelope.ts";
 import type { ClienteSql } from "../eventos/publicador.ts";
 import type { Corpo, Pedido, Resultado } from "../outbound/contrato.ts";
+import { CanalSemCredencialError } from "./credencial.ts";
 import {
   CONSUMIDOR_DO_OUTBOUND,
   CONSUMIDOR_DO_PAINEL,
@@ -64,10 +98,12 @@ export type EnviarResposta = (pedido: Pedido) => Promise<Resultado>;
 /** O que aconteceu a uma resposta, para a métrica e o registo de quem monta. */
 export const DESFECHOS_DA_RESPOSTA = [
   "enviada",
+  "reenviada",
   "repetida",
   "repetida_sem_envio",
   "recusada",
   "falhou",
+  "sem_credencial",
   "entregue_ao_painel",
   "ja_entregue",
   "de_outro_canal",
@@ -82,6 +118,29 @@ export const MOTIVOS_DE_FALHA = ["SEND_FAILED", "RATE_LIMITED"] as const;
 
 /** Os estados da `outbound_messages` em que a mensagem saiu para a Meta. */
 export const ESTADOS_QUE_SAIRAM = ["sent", "delivered", "read"] as const;
+
+/** O sufixo da chave do único reenvio. Ver a nota do módulo. */
+export const SUFIXO_DO_REENVIO = ":reenvio";
+
+/** A chave do reenvio de uma resposta: a do turno, com o sufixo. */
+export function chaveDoReenvio(chave: string): string {
+  return `${chave}${SUFIXO_DO_REENVIO}`;
+}
+
+/**
+ * A primeira tentativa falhou na rede ou no débito, e a resposta reenvia-se uma
+ * vez na próxima tentativa do consumo. **Não leva o texto nem a chave**: só o
+ * motivo do Outbound.
+ */
+export class ReenvioAdiadoError extends Error {
+  override readonly name = "ReenvioAdiadoError";
+  readonly motivo: string;
+
+  constructor(motivo: string) {
+    super(`a resposta nao saiu (${motivo}) e reenvia-se uma vez na proxima tentativa`);
+    this.motivo = motivo;
+  }
+}
 
 export interface OpcoesDoEfeito {
   /** Chamado uma vez por evento aplicado, com o desfecho. Sem tenant nem texto. */
@@ -149,6 +208,37 @@ export function pedidoDaResposta(tenantId: string, r: RespostaParaEnviar): Pedid
   };
 }
 
+/** Se a linha da `outbound_messages` de uma chave saiu, e o estado dela. */
+async function estadoDoEnvio(
+  bd: ClienteSql,
+  tenantId: string,
+  chave: string,
+): Promise<{ readonly saiu: boolean; readonly estado: string }> {
+  const { rows } = await bd.query(SQL_ESTADO_DO_ENVIO, [tenantId, chave]);
+  const estado = rows[0]?.["state"];
+  return {
+    saiu: (ESTADOS_QUE_SAIRAM as readonly unknown[]).includes(estado),
+    estado: typeof estado === "string" ? estado : "sem_linha",
+  };
+}
+
+/** O resultado de um envio, ou a falta de credencial do canal. */
+async function tentar(
+  enviar: EnviarResposta,
+  pedido: Pedido,
+): Promise<Resultado | CanalSemCredencialError> {
+  try {
+    return await enviar(pedido);
+  } catch (erro) {
+    if (erro instanceof CanalSemCredencialError) return erro;
+    throw erro;
+  }
+}
+
+function eFalha(motivo: string): boolean {
+  return (MOTIVOS_DE_FALHA as readonly string[]).includes(motivo);
+}
+
 /**
  * O efeito do consumidor `outbound`: a resposta de canal `whatsapp` sai pelo
  * `Saida` do KAM-015.
@@ -156,11 +246,11 @@ export function pedidoDaResposta(tenantId: string, r: RespostaParaEnviar): Pedid
  * **Uma recusa do Outbound é desfecho, e não erro.** Janela fechada, conversa
  * em modo humano (o `PreSendGuard` do KAM-018), *template* por aprovar: são
  * decisões, já registadas pelo próprio `Saida`, e nenhuma das seis tentativas as
- * muda. Uma falha de rede ou de débito também não se resolve a repetir, pela
- * semântica de cima, e sai como `falhou`. Nos dois casos o evento consome-se e
- * a linha fica sem `entregue_at`. **Só uma excepção do `enviar`** — a base em
- * baixo antes de a linha do Outbound existir — recua pela escada, e essa sim
- * envia na repetição.
+ * muda. Um canal sem credencial também (`sem_credencial`). **Uma falha de rede
+ * ou de débito** levanta `ReenvioAdiadoError`, e a próxima tentativa reenvia
+ * pela chave derivada — ver a nota do módulo. **Uma excepção do `enviar`** — a
+ * base em baixo — recua pela escada, e a repetição trata a linha que tiver
+ * ficado.
  */
 export function efeitoDoOutbound(enviar: EnviarResposta, opcoes: OpcoesDoEfeito = {}): Efeito {
   return async (bd: ClienteSql, envelope: Envelope) => {
@@ -169,29 +259,60 @@ export function efeitoDoOutbound(enviar: EnviarResposta, opcoes: OpcoesDoEfeito 
       opcoes.aoTratar?.("de_outro_canal");
       return;
     }
-    const resposta = await respostaParaEnviar(bd, envelope.tenant_id, payload);
+    const tenantId = envelope.tenant_id;
+    const resposta = await respostaParaEnviar(bd, tenantId, payload);
     if (resposta.entregueEm !== null) {
       opcoes.aoTratar?.("ja_entregue");
       return;
     }
-    const resultado = await enviar(pedidoDaResposta(envelope.tenant_id, resposta));
-    if (!resultado.ok) {
-      const falha = (MOTIVOS_DE_FALHA as readonly string[]).includes(resultado.motivo);
-      opcoes.aoTratar?.(falha ? "falhou" : "recusada", resultado.motivo);
+    const pedido = pedidoDaResposta(tenantId, resposta);
+    const resultado = await tentar(enviar, pedido);
+    if (resultado instanceof CanalSemCredencialError) {
+      opcoes.aoTratar?.("sem_credencial", resultado.motivo);
       return;
     }
-    if (resultado.repetido) {
-      // A chave já tinha linha: só conta como entregue se a linha saiu.
-      const { rows } = await bd.query(SQL_ESTADO_DO_ENVIO, [envelope.tenant_id, resposta.chave]);
-      const estado = rows[0]?.["state"];
-      if (!(ESTADOS_QUE_SAIRAM as readonly unknown[]).includes(estado)) {
-        opcoes.aoTratar?.("repetida_sem_envio", typeof estado === "string" ? estado : "sem_linha");
-        return;
-      }
+    if (!resultado.ok) {
+      if (eFalha(resultado.motivo)) throw new ReenvioAdiadoError(resultado.motivo);
+      opcoes.aoTratar?.("recusada", resultado.motivo);
+      return;
     }
-    await bd.query(SQL_MARCAR_ENTREGUE, [envelope.tenant_id, resposta.replyId]);
+    if (resultado.repetido && !(await estadoDoEnvio(bd, tenantId, pedido.idempotencyKey)).saiu) {
+      // A chave do turno já tinha linha, e a linha não saiu: o único reenvio.
+      const reenvio = { ...pedido, idempotencyKey: chaveDoReenvio(pedido.idempotencyKey) };
+      await reenviar(bd, enviar, reenvio, resposta.replyId, opcoes);
+      return;
+    }
+    await bd.query(SQL_MARCAR_ENTREGUE, [tenantId, resposta.replyId]);
     opcoes.aoTratar?.(resultado.repetido ? "repetida" : "enviada");
   };
+}
+
+/** O envio pela chave derivada. É o último: nada aqui volta a adiar. */
+async function reenviar(
+  bd: ClienteSql,
+  enviar: EnviarResposta,
+  pedido: Pedido,
+  replyId: string,
+  opcoes: OpcoesDoEfeito,
+): Promise<void> {
+  const resultado = await tentar(enviar, pedido);
+  if (resultado instanceof CanalSemCredencialError) {
+    opcoes.aoTratar?.("sem_credencial", resultado.motivo);
+    return;
+  }
+  if (!resultado.ok) {
+    opcoes.aoTratar?.(eFalha(resultado.motivo) ? "falhou" : "recusada", resultado.motivo);
+    return;
+  }
+  if (resultado.repetido) {
+    const envio = await estadoDoEnvio(bd, pedido.tenantId, pedido.idempotencyKey);
+    if (!envio.saiu) {
+      opcoes.aoTratar?.("repetida_sem_envio", envio.estado);
+      return;
+    }
+  }
+  await bd.query(SQL_MARCAR_ENTREGUE, [pedido.tenantId, replyId]);
+  opcoes.aoTratar?.(resultado.repetido ? "repetida" : "reenviada");
 }
 
 /**

@@ -24,11 +24,16 @@
  * - **canal desconhecido vai à DLQ**, e não sai pelo WhatsApp;
  * - **turno → evento → painel**: o consumidor do painel marca a linha, e o do
  *   WhatsApp ignora-a;
- * - **a guarda do KAM-018 suprime** a resposta de uma conversa em modo humano.
+ * - **a guarda do KAM-018 suprime** a resposta de uma conversa em modo humano;
+ * - **as portas de produção do KAM-227**: o *token* do canal lido pelo
+ *   `token_ref` sob a RLS, o destinatário pelo `lerEndpoints` numa ligação
+ *   `kamba_identity`, e o *token* de A na linha de B que não abre;
+ * - **o reenvio pela chave derivada**: uma linha `queued` da chave do turno, e
+ *   uma falha da Meta na primeira tentativa, dão um envio, e um só.
  */
 
 import assert from "node:assert/strict";
-import { randomUUID } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { after, before, describe, it } from "node:test";
 
@@ -38,16 +43,32 @@ import { GraphFalso, Gerador as GeradorDeFixtures } from "@kamba/meta-sim";
 
 import type { Envelope } from "../src/eventos/index.ts";
 import { processar } from "../src/eventos/trabalho.ts";
+import type { Identidade } from "../src/identity/index.ts";
+import { cifrarToken } from "../src/onboarding/cifra.ts";
 import type { ClienteDaMeta, Destinatario } from "../src/outbound/index.ts";
 import {
   CONSUMIDOR_DO_OUTBOUND,
   CONSUMIDOR_DO_PAINEL,
+  CanalSemCredencialError,
+  ReenvioAdiadoError,
+  clienteDaGraphPorCanal,
+  destinatarioPelaIdentidade,
   efeitoDoOutbound,
   efeitoDoPainel,
   envioPeloSaida,
   type DesfechoDaResposta,
 } from "../src/resposta/index.ts";
-import { BASE_DESCARTAVEL, apagarTenant, criarCanal, criarTenant, ligar, poolDe } from "./apoio.ts";
+import { EnvSecretProvider, nomeDaVariavel } from "../src/secrets/index.ts";
+import {
+  BASE_DESCARTAVEL,
+  ChavesDeTeste,
+  apagarTenant,
+  bsuidDeEnsaio,
+  criarCanal,
+  criarTenant,
+  ligar,
+  poolDe,
+} from "./apoio.ts";
 
 /** Uma constante de SQL do `saida.py`, com os `%s` em `$n`. */
 function sqlDoAgr(nome: string): string {
@@ -70,7 +91,17 @@ describe("a resposta do AGR contra a base", () => {
   let consumo: pg.Client;
   let produtor: pg.Client;
   let envios: pg.Pool;
+  let identidades: pg.Pool;
+  let identidade: Identidade;
   let graph: GraphFalso;
+  const chaves = new ChavesDeTeste("k227");
+  /** O ambiente do cofre dos ensaios de produção: a KEK e os criptogramas. */
+  const cofreEnv: Record<string, string> = {
+    KAMBA_SECRET_KEK_TOKEN_CLIENTE: `t1:${randomBytes(32).toString("base64")}`,
+  };
+  const KEK = cofreEnv["KAMBA_SECRET_KEK_TOKEN_CLIENTE"]!.slice(3);
+  /** Falhar a próxima chamada à Meta com um código que o `Saida` não repete. */
+  let falharProxima = false;
   const tenants: string[] = [];
 
   interface Conversa {
@@ -144,6 +175,10 @@ describe("a resposta do AGR contra a base", () => {
 
   const meta: ClienteDaMeta = {
     enviar: async (phoneNumberId, para, corpo) => {
+      if (falharProxima) {
+        falharProxima = false;
+        return { ok: false, codigo: 131000, estadoHttp: 500, esperar: null };
+      }
       const resposta = graph.responder({
         metodo: "POST",
         caminho: `/v23.0/${phoneNumberId}/messages`,
@@ -165,7 +200,7 @@ describe("a resposta do AGR contra a base", () => {
       envioPeloSaida({
         tomar: async () => envios.connect(),
         devolver: (l, erro) => (l as pg.PoolClient).release(erro instanceof Error ? erro : undefined),
-        meta,
+        meta: async () => meta,
         // O destinatário entra por porta: só `kamba_identity` lê os endpoints.
         destinatario: async (): Promise<Destinatario> => ({ bsuid: "AO.ENSAIOENSAIOENSAIO0224", telefone: null }),
       }),
@@ -209,6 +244,16 @@ describe("a resposta do AGR contra a base", () => {
     consumo = await ligar("app");
     produtor = await ligar("app");
     envios = poolDe("app", 2);
+    identidades = poolDe("identity", 2);
+    identidade = await chaves.identidade();
+    // A chave de pesquisa do HMAC tem de estar registada para o `resolveContact`
+    // dos ensaios de produção. Idempotente; outra suite pode já a ter registado.
+    const id = await identidades.connect();
+    try {
+      await identidade.iniciarRotacao(id, "k227").catch(() => {});
+    } finally {
+      id.release();
+    }
     const nome = await admin.query<{ base: string }>("SELECT current_database() AS base");
     assert.equal(nome.rows[0]?.base, BASE_DESCARTAVEL, "esta suite so corre contra a base descartavel do gate 8");
     graph = new GraphFalso(new GeradorDeFixtures("resposta-bd"));
@@ -222,6 +267,7 @@ describe("a resposta do AGR contra a base", () => {
       await apagarTenant(admin, tenant);
     }
     await envios.end();
+    await identidades.end();
     await Promise.allSettled([consumo.end(), produtor.end()]);
     await admin.end();
   });
@@ -272,8 +318,8 @@ describe("a resposta do AGR contra a base", () => {
     });
   });
 
-  describe("no máximo uma vez: a semântica do Saida (KAM-015)", () => {
-    it("uma linha do Outbound que ficou queued para a chave não conta como entregue", async () => {
+  describe("no máximo uma vez, e o reenvio uma vez (KAM-015, KAM-227)", () => {
+    it("uma linha do Outbound que ficou queued para a chave do turno reenvia uma vez, pela chave derivada", async () => {
       // O processo morreu entre a linha do Outbound e a rede: a linha existe,
       // `queued`, e o `Saida` responde `repetido` sem chamar a Meta.
       const c = await conversaNova("resposta-queued");
@@ -294,9 +340,193 @@ describe("a resposta do AGR contra a base", () => {
       const antes = graph.envios;
       desfechos.length = 0;
       assert.equal((await consumir(CONSUMIDOR_DO_OUTBOUND, envelope!)).desfecho, "aplicado");
-      assert.equal(graph.envios - antes, 0);
-      assert.deepEqual(desfechos, ["repetida_sem_envio"]);
+      assert.equal(graph.envios - antes, 1, "um envio, e só pela chave derivada");
+      assert.deepEqual(desfechos, ["reenviada"]);
+      assert.deepEqual(await enviadas(c.tenant), ["wamid.q:0", "wamid.q:0:reenvio"]);
+      assert.equal(await entregue(reply!), true);
+      // Um segundo evento sobre a mesma resposta pára no entregue_at: não há terceira.
+      assert.equal((await consumir(CONSUMIDOR_DO_OUTBOUND, { ...envelope!, id: randomUUID() })).desfecho, "aplicado");
+      assert.equal(graph.envios - antes, 1);
+    });
+
+    it("uma falha da Meta na primeira tentativa adia, e a segunda reenvia: um envio que saiu, e um só", async () => {
+      const c = await conversaNova("resposta-falha");
+      const reply = await turno(c, "wamid.f:0");
+      const [envelope] = await envelopes(c.tenant);
+      const antes = graph.envios;
+      desfechos.length = 0;
+      falharProxima = true;
+      await assert.rejects(consumir(CONSUMIDOR_DO_OUTBOUND, envelope!, 1), ReenvioAdiadoError);
       assert.equal(await entregue(reply!), false);
+      assert.equal((await consumir(CONSUMIDOR_DO_OUTBOUND, envelope!, 2)).desfecho, "aplicado");
+      for (let i = 0; i < 3; i += 1) {
+        assert.equal((await consumir(CONSUMIDOR_DO_OUTBOUND, envelope!, 1)).desfecho, "duplicado");
+      }
+      assert.equal(graph.envios - antes, 1, "a primeira falhou na Meta; a derivada saiu");
+      assert.deepEqual(desfechos, ["reenviada"]);
+      assert.deepEqual(await enviadas(c.tenant), ["wamid.f:0", "wamid.f:0:reenvio"]);
+      assert.equal(await entregue(reply!), true);
+    });
+  });
+
+  describe("as portas de produção (KAM-227)", () => {
+    /** O `fetch` do cliente da Graph, ligado ao servidor falso, que guarda o cabeçalho. */
+    const autorizacoes: string[] = [];
+    const buscar = (async (url: string, init: RequestInit) => {
+      const cabecalhos = init.headers as Record<string, string>;
+      autorizacoes.push(cabecalhos["authorization"] ?? "");
+      const corpo = JSON.parse(String(init.body)) as Record<string, unknown>;
+      const r = graph.responder({
+        metodo: "POST",
+        caminho: new URL(url).pathname,
+        consulta: {},
+        corpo: { ...corpo, to: corpo["to"] ?? corpo["recipient"] ?? "" },
+        cabecalhos: {},
+      });
+      return new Response(JSON.stringify(r.corpo), { status: r.estado });
+    }) as unknown as typeof fetch;
+
+    /** Guarda o criptograma do *token* de um canal no cofre e aponta o `token_ref` para ele. */
+    async function tokenDoCanal(tenant: string, canal: string, token: string): Promise<string> {
+      const ref = `meta_client_token/${randomBytes(16).toString("hex")}`;
+      cofreEnv[nomeDaVariavel(ref)] = cifrarToken(KEK, "t1", tenant, token);
+      await admin.query("UPDATE platform.tenant_channels SET token_ref = $3 WHERE tenant_id = $1 AND id = $2", [
+        tenant,
+        canal,
+        ref,
+      ]);
+      return ref;
+    }
+
+    async function canalDe(c: { conversa: string }): Promise<string> {
+      return (
+        await admin.query<{ channel_id: string }>(
+          "SELECT channel_id::text AS channel_id FROM platform.conversations WHERE id = $1",
+          [c.conversa],
+        )
+      ).rows[0]!.channel_id;
+    }
+
+    function producao() {
+      return efeitoDoOutbound(
+        envioPeloSaida({
+          tomar: async () => envios.connect(),
+          devolver: (l, erro) => (l as pg.PoolClient).release(erro instanceof Error ? erro : undefined),
+          meta: clienteDaGraphPorCanal({
+            cofre: new EnvSecretProvider({ ambiente: "dev", env: cofreEnv }),
+            buscar,
+            base: "http://graph.ensaio",
+          }),
+          destinatario: destinatarioPelaIdentidade({
+            identidade,
+            tomar: async () => identidades.connect(),
+            devolver: (l, erro) => (l as pg.PoolClient).release(erro instanceof Error ? erro : undefined),
+          }),
+        }),
+        { aoTratar: (d, m) => desfechos.push(m === undefined ? d : (`${d}:${m}` as DesfechoDaResposta)) },
+      );
+    }
+
+    /** Uma conversa cujo contacto nasceu pela identidade, com um BSUID de ensaio. */
+    async function conversaComBsuid(rotulo: string): Promise<{ tenant: string; contacto: string; conversa: string }> {
+      const c = await conversaNova(rotulo);
+      const ligacao = await identidades.connect();
+      try {
+        const { contactId } = await identidade.resolveContact(ligacao, { tenantId: c.tenant, bsuid: bsuidDeEnsaio("P227") });
+        await admin.query("UPDATE platform.conversations SET contact_id = $2 WHERE id = $1", [c.conversa, contactId]);
+        return { ...c, contacto: contactId };
+      } finally {
+        ligacao.release();
+      }
+    }
+
+    it("o token do canal pelo token_ref e o BSUID pela identidade: um envio, com o token certo", async () => {
+      const c = await conversaComBsuid("resposta-producao");
+      await tokenDoCanal(c.tenant, await canalDe(c), "token-de-ensaio-kam227-a");
+      const reply = await turno(c, "wamid.prod:0");
+      const [envelope] = await envelopes(c.tenant);
+      const antes = graph.envios;
+      desfechos.length = 0;
+      autorizacoes.length = 0;
+      const r = await processar({ bd: consumo, consumer: CONSUMIDOR_DO_OUTBOUND, envelope: envelope!, exigeOrdem: false, tentativa: 1 }, producao());
+      assert.equal(r.desfecho, "aplicado");
+      assert.deepEqual(desfechos, ["enviada"]);
+      assert.equal(graph.envios - antes, 1);
+      assert.deepEqual(autorizacoes, ["Bearer token-de-ensaio-kam227-a"]);
+      assert.equal(await entregue(reply!), true);
+    });
+
+    it("**isolamento:** o token_ref de A na linha de B não abre sob B, e nada sai", async () => {
+      const a = await conversaComBsuid("resposta-token-a");
+      const b = await conversaComBsuid("resposta-token-b");
+      const refDeA = await tokenDoCanal(a.tenant, await canalDe(a), "token-de-ensaio-kam227-de-a");
+      await admin.query("UPDATE platform.tenant_channels SET token_ref = $3 WHERE tenant_id = $1 AND id = $2", [
+        b.tenant,
+        await canalDe(b),
+        refDeA,
+      ]);
+      const reply = await turno(b, "wamid.iso2:0");
+      const [envelope] = await envelopes(b.tenant);
+      const antes = graph.envios;
+      desfechos.length = 0;
+      const r = await processar({ bd: consumo, consumer: CONSUMIDOR_DO_OUTBOUND, envelope: envelope!, exigeOrdem: false, tentativa: 1 }, producao());
+      assert.equal(r.desfecho, "aplicado");
+      assert.deepEqual(desfechos, ["sem_credencial:nao_abre"]);
+      assert.equal(graph.envios - antes, 0);
+      assert.deepEqual(await enviadas(b.tenant), [], "sem credencial, a linha do Outbound nem nasce");
+      assert.equal(await entregue(reply!), false);
+    });
+
+    it("**token em falta** no cofre: sem_credencial, sem linha do Outbound, e a chave fica por gastar", async () => {
+      const c = await conversaComBsuid("resposta-sem-token");
+      await admin.query("UPDATE platform.tenant_channels SET token_ref = $3 WHERE tenant_id = $1 AND id = $2", [
+        c.tenant,
+        await canalDe(c),
+        `meta_client_token/${randomBytes(16).toString("hex")}`,
+      ]);
+      const reply = await turno(c, "wamid.semtoken:0");
+      const [envelope] = await envelopes(c.tenant);
+      desfechos.length = 0;
+      await processar({ bd: consumo, consumer: CONSUMIDOR_DO_OUTBOUND, envelope: envelope!, exigeOrdem: false, tentativa: 1 }, producao());
+      assert.deepEqual(desfechos, ["sem_credencial:sem_segredo"]);
+      assert.deepEqual(await enviadas(c.tenant), []);
+      assert.equal(await entregue(reply!), false);
+    });
+
+    it("**destinatário sem BSUID nem telefone**: NO_RECIPIENT, e nada sai", async () => {
+      // O contacto da `conversaNova` nasce sem endpoints: é o caso de um
+      // contacto cujo telefone ficou só em HMAC (`chr/chr.ts`).
+      const c = await conversaNova("resposta-sem-destino");
+      await tokenDoCanal(c.tenant, await canalDe(c), "token-de-ensaio-kam227-c");
+      const reply = await turno(c, "wamid.semdest:0");
+      const [envelope] = await envelopes(c.tenant);
+      const antes = graph.envios;
+      desfechos.length = 0;
+      await processar({ bd: consumo, consumer: CONSUMIDOR_DO_OUTBOUND, envelope: envelope!, exigeOrdem: false, tentativa: 1 }, producao());
+      assert.deepEqual(desfechos, ["recusada:NO_RECIPIENT"]);
+      assert.equal(graph.envios - antes, 0);
+      assert.equal(await entregue(reply!), false);
+    });
+
+    it("a credencial lê-se como kamba_app sob a RLS: o canal de outro tenant não se vê", async () => {
+      const a = await conversaComBsuid("resposta-rls-a");
+      const b = await conversaComBsuid("resposta-rls-b");
+      const canalDeA = await canalDe(a);
+      await tokenDoCanal(a.tenant, canalDeA, "token-de-ensaio-kam227-rls");
+      const numero = (
+        await admin.query<{ n: string }>("SELECT phone_number_id AS n FROM platform.tenant_channels WHERE id = $1", [canalDeA])
+      ).rows[0]!.n;
+      const ligacao = await envios.connect();
+      try {
+        const ler = clienteDaGraphPorCanal({ cofre: new EnvSecretProvider({ ambiente: "dev", env: cofreEnv }) });
+        await ler(ligacao, { tenantId: a.tenant, channelId: canalDeA, phoneNumberId: numero });
+        await assert.rejects(
+          ler(ligacao, { tenantId: b.tenant, channelId: canalDeA, phoneNumberId: numero }),
+          (erro: unknown) => erro instanceof CanalSemCredencialError && erro.motivo === "sem_canal",
+        );
+      } finally {
+        ligacao.release();
+      }
     });
   });
 

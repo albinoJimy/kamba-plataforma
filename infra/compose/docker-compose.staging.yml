@@ -330,12 +330,20 @@ services:
         KAMBA_COMMIT_SHA: ${KAMBA_COMMIT_SHA:?o deploy passa o SHA da release}
     command: ["node", "services/worker-canal/src/consumidor.ts"]
     environment:
-      <<: *node-env
+      # KAM-227: o `outbound`, que fala com a Graph pelo `proxy-saida`. As
+      # notas sao as do compose de producao.
+      <<: [*node-env, *saida]
       CONSUMIDOR_PORT: "3012"
       KAMBA_QUEUE_URL: redis://queue:6379
-      KAMBA_CONSUMER: ${KAMBA_CONSUMER:?o deploy nomeia a subscricao do consumidor}
+      KAMBA_CONSUMER: outbound
+      KAMBA_ENV: staging
       KAMBA_CONSUMIDOR_DB_URL: ${KAMBA_CONSUMIDOR_DB_URL:?o deploy passa a cadeia de ligacao do kamba_app}
       KAMBA_CONSUMIDOR_OPS_DB_URL: ${KAMBA_CONSUMIDOR_OPS_DB_URL:?o deploy passa a cadeia de ligacao do kamba_batch}
+      KAMBA_CONSUMIDOR_IDENTITY_DB_URL: ${KAMBA_CONSUMIDOR_IDENTITY_DB_URL:?o deploy passa a cadeia de ligacao do kamba_identity}
+      KAMBA_SECRET_KEK_TOKEN_CLIENTE: ${KAMBA_SECRET_KEK_TOKEN_CLIENTE:?o cofre entrega a KEK dos tokens de cliente}
+      KAMBA_SECRET_KEK_TOKEN_CLIENTE_ANTERIOR: ${KAMBA_SECRET_KEK_TOKEN_CLIENTE_ANTERIOR:-}
+      KAMBA_SECRET_KEK_CONTACT_DEK: ${KAMBA_SECRET_KEK_CONTACT_DEK:?o cofre entrega a KEK das DEK de contacto}
+      KAMBA_SECRET_KEK_CONTACT_DEK_ANTERIOR: ${KAMBA_SECRET_KEK_CONTACT_DEK_ANTERIOR:-}
     networks:
       - app
       - data

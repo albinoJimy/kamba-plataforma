@@ -123,7 +123,9 @@ PROCESSOS: dict[str, tuple[str, str, int, tuple[str, ...], int | None]] = {
     "services/worker-canal/src/consumidor.ts": (
         "consumidor", "CONSUMIDOR_PORT", 3012,
         ("KAMBA_QUEUE_URL", "KAMBA_CONSUMER", "KAMBA_CONSUMIDOR_DB_URL",
-         "KAMBA_CONSUMIDOR_OPS_DB_URL"),
+         "KAMBA_CONSUMIDOR_OPS_DB_URL",
+         # KAM-227: o `outbound` exige a terceira ligacao, a da identidade.
+         "KAMBA_CONSUMIDOR_IDENTITY_DB_URL"),
         1,
     ),
     # Os quatro do `exigir(...)` do `ponte.ts`, mais o `KAMBA_ENV`: o processo

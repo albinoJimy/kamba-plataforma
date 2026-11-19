@@ -20,6 +20,8 @@ import type { Envelope } from "../src/eventos/envelope.ts";
 import type { Pedido, Resultado } from "../src/outbound/contrato.ts";
 import {
   CANAIS_DA_RESPOSTA,
+  CanalSemCredencialError,
+  ReenvioAdiadoError,
   RespostaInexistenteError,
   RespostaInvalidaError,
   SQL_ESTADO_DO_ENVIO,
@@ -28,6 +30,7 @@ import {
   SQL_RESPOSTA_DO_WHATSAPP,
   TIPO_DA_RESPOSTA,
   botoesDaLinha,
+  chaveDoReenvio,
   efeitoDoOutbound,
   efeitoDoPainel,
   envioPeloSaida,
@@ -160,6 +163,23 @@ function outbound(resultado: Resultado = { ok: true, id: "m1", wamid: "w1", kind
     },
   };
 }
+
+/** O Outbound que devolve, por ordem, os resultados dados; o último repete-se. */
+function outboundEmSequencia(...resultados: (Resultado | Error)[]) {
+  const pedidos: Pedido[] = [];
+  return {
+    pedidos,
+    enviar: async (pedido: Pedido): Promise<Resultado> => {
+      pedidos.push(pedido);
+      const r = resultados[Math.min(pedidos.length, resultados.length) - 1]!;
+      if (r instanceof Error) throw r;
+      return r;
+    },
+  };
+}
+
+const ENVIADO: Resultado = { ok: true, id: "m1", wamid: "w1", kind: "service", repetido: false };
+const REPETIDO: Resultado = { ok: true, id: "m1", wamid: null, kind: "service", repetido: true };
 
 describe("lerResposta", () => {
   const base = { reply_id: randomUUID(), conversation_id: CONVERSA, contact_id: CONTACTO };
@@ -310,29 +330,122 @@ describe("efeitoDoOutbound", () => {
     assert.notEqual(linha.entregue_at, null);
   });
 
-  it("uma chave repetida cuja linha ficou queued ou failed não marca entregue", async () => {
+  it("uma chave repetida cuja linha ficou queued, failed ou sem linha reenvia uma vez, pela chave derivada (KAM-227)", async () => {
     for (const estado of ["queued", "failed", undefined]) {
       const bd = new BaseFalsa();
       const linha = bd.nova();
       if (estado !== undefined) bd.envios.set(`${TENANT}|${linha.chave}`, estado);
-      const saida = outbound({ ok: true, id: "m1", wamid: null, kind: "service", repetido: true });
+      const saida = outboundEmSequencia(REPETIDO, ENVIADO);
+      const desfechos: DesfechoDaResposta[] = [];
+      await efeitoDoOutbound(saida.enviar, { aoTratar: (d) => desfechos.push(d) })(bd, envelope(payload(linha)));
+      assert.deepEqual(
+        saida.pedidos.map((p) => p.idempotencyKey),
+        [linha.chave, chaveDoReenvio(linha.chave)],
+      );
+      assert.equal(chaveDoReenvio(linha.chave), `${linha.chave}:reenvio`);
+      assert.deepEqual(desfechos, ["reenviada"]);
+      assert.notEqual(linha.entregue_at, null);
+      // O reenvio é o mesmo pedido, só com outra chave.
+      assert.deepEqual({ ...saida.pedidos[1], idempotencyKey: linha.chave }, saida.pedidos[0]);
+    }
+  });
+
+  it("uma chave que saiu nunca se reenvia: a linha sent, delivered ou read conta como repetida", async () => {
+    for (const estado of ["sent", "delivered", "read"]) {
+      const bd = new BaseFalsa();
+      const linha = bd.nova();
+      bd.envios.set(`${TENANT}|${linha.chave}`, estado);
+      const saida = outboundEmSequencia(REPETIDO, ENVIADO);
+      const desfechos: DesfechoDaResposta[] = [];
+      await efeitoDoOutbound(saida.enviar, { aoTratar: (d) => desfechos.push(d) })(bd, envelope(payload(linha)));
+      assert.equal(saida.pedidos.length, 1);
+      assert.deepEqual(desfechos, ["repetida"]);
+    }
+  });
+
+  it("o reenvio é o último: falha, recusa ou repetida sem envio acabam ali, sem marcar", async () => {
+    const casos: [Resultado, string, string | null][] = [
+      [{ ok: false, motivo: "SEND_FAILED", codigo: 131000 }, "falhou:SEND_FAILED", null],
+      [{ ok: false, motivo: "WINDOW_CLOSED", codigo: null }, "recusada:WINDOW_CLOSED", null],
+      [REPETIDO, "repetida_sem_envio:queued", "queued"],
+      [REPETIDO, "repetida_sem_envio:sem_linha", null],
+    ];
+    for (const [segundo, esperado, estadoDaDerivada] of casos) {
+      const bd = new BaseFalsa();
+      const linha = bd.nova();
+      bd.envios.set(`${TENANT}|${linha.chave}`, "failed");
+      if (estadoDaDerivada !== null) bd.envios.set(`${TENANT}|${chaveDoReenvio(linha.chave)}`, estadoDaDerivada);
+      const saida = outboundEmSequencia(REPETIDO, segundo);
       const desfechos: string[] = [];
       await efeitoDoOutbound(saida.enviar, { aoTratar: (d, m) => desfechos.push(`${d}:${m}`) })(bd, envelope(payload(linha)));
-      assert.deepEqual(desfechos, [`repetida_sem_envio:${estado ?? "sem_linha"}`]);
+      assert.deepEqual(desfechos, [esperado]);
+      assert.equal(saida.pedidos.length, 2, "nunca uma terceira vez");
       assert.equal(linha.entregue_at, null);
     }
   });
 
-  it("uma falha de rede ou de débito é falhou, e não recusada; não marca entregue", async () => {
+  it("uma chave derivada que já saiu conta como repetida, e marca", async () => {
+    const bd = new BaseFalsa();
+    const linha = bd.nova();
+    bd.envios.set(`${TENANT}|${linha.chave}`, "failed");
+    bd.envios.set(`${TENANT}|${chaveDoReenvio(linha.chave)}`, "sent");
+    const saida = outboundEmSequencia(REPETIDO, REPETIDO);
+    const desfechos: DesfechoDaResposta[] = [];
+    await efeitoDoOutbound(saida.enviar, { aoTratar: (d) => desfechos.push(d) })(bd, envelope(payload(linha)));
+    assert.deepEqual(desfechos, ["repetida"]);
+    assert.notEqual(linha.entregue_at, null);
+  });
+
+  it("uma falha de rede ou de débito adia: levanta, para a escada repetir, e não marca", async () => {
     for (const motivo of ["SEND_FAILED", "RATE_LIMITED"] as const) {
       const bd = new BaseFalsa();
       const linha = bd.nova();
       const saida = outbound({ ok: false, motivo, codigo: null });
       const desfechos: string[] = [];
-      await efeitoDoOutbound(saida.enviar, { aoTratar: (d, m) => desfechos.push(`${d}:${m}`) })(bd, envelope(payload(linha)));
-      assert.deepEqual(desfechos, [`falhou:${motivo}`]);
+      await assert.rejects(
+        efeitoDoOutbound(saida.enviar, { aoTratar: (d, m) => desfechos.push(`${d}:${m}`) })(bd, envelope(payload(linha))),
+        (erro: unknown) => {
+          assert.ok(erro instanceof ReenvioAdiadoError);
+          assert.equal(erro.motivo, motivo);
+          // Sem chave nem texto na mensagem: só o motivo.
+          assert.doesNotMatch(erro.message, /wamid|stock/);
+          return true;
+        },
+      );
+      assert.deepEqual(desfechos, []);
+      assert.equal(saida.pedidos.length, 1);
       assert.equal(linha.entregue_at, null);
     }
+  });
+
+  it("a falha na primeira tentativa reenvia na segunda: a linha failed da chave do turno passa à derivada", async () => {
+    // As duas tentativas do consumo, como a escada do KAM-006 as faz: a
+    // primeira levanta, e a segunda vê a chave do turno `failed` no `Saida`.
+    const bd = new BaseFalsa();
+    const linha = bd.nova();
+    const saida = outboundEmSequencia({ ok: false, motivo: "SEND_FAILED", codigo: 131000 }, REPETIDO, ENVIADO);
+    const desfechos: DesfechoDaResposta[] = [];
+    const efeito = efeitoDoOutbound(saida.enviar, { aoTratar: (d) => desfechos.push(d) });
+    await assert.rejects(efeito(bd, envelope(payload(linha))), ReenvioAdiadoError);
+    bd.envios.set(`${TENANT}|${linha.chave}`, "failed");
+    await efeito(bd, envelope(payload(linha)));
+    assert.deepEqual(
+      saida.pedidos.map((p) => p.idempotencyKey),
+      [linha.chave, linha.chave, chaveDoReenvio(linha.chave)],
+    );
+    assert.deepEqual(desfechos, ["reenviada"]);
+    assert.notEqual(linha.entregue_at, null);
+  });
+
+  it("um canal sem credencial é desfecho com o motivo: não lança, não reenvia, não marca", async () => {
+    const bd = new BaseFalsa();
+    const linha = bd.nova();
+    const saida = outboundEmSequencia(new CanalSemCredencialError("sem_segredo"));
+    const desfechos: string[] = [];
+    await efeitoDoOutbound(saida.enviar, { aoTratar: (d, m) => desfechos.push(`${d}:${m}`) })(bd, envelope(payload(linha)));
+    assert.deepEqual(desfechos, ["sem_credencial:sem_segredo"]);
+    assert.equal(saida.pedidos.length, 1);
+    assert.equal(linha.entregue_at, null);
   });
 
   it("o reply_id de outra conversa do mesmo tenant não se lê", async () => {
@@ -459,12 +572,12 @@ describe("envioPeloSaida", () => {
       devolver: (_l, erro) => {
         devolvidas.push(erro ?? "limpa");
       },
-      meta: {
+      meta: async () => ({
         enviar: async () => {
           chamadas += 1;
           return { ok: true, wamid: "w1" };
         },
-      },
+      }),
       destinatario: async () => ({ bsuid: "AO.ENSAIOENSAIOENSAIO0001", telefone: null }),
     });
     return { enviar, devolvidas, chamadas: () => chamadas };
@@ -502,6 +615,29 @@ describe("envioPeloSaida", () => {
     await montar(ligacao).enviar(pedido);
     assert.ok(vistos.length > 0);
     assert.deepEqual(new Set(vistos), new Set([TENANT]));
+  });
+
+  it("o cliente do canal lê-se com a ligação e o canal do pedido, antes do Saida", async () => {
+    const ligacao = new LigacaoFalsa();
+    const vistos: unknown[] = [];
+    const devolvidas: unknown[] = [];
+    const enviar = envioPeloSaida({
+      tomar: async () => ligacao,
+      devolver: (_l, erro) => {
+        devolvidas.push(erro ?? "limpa");
+      },
+      meta: async (l, canal) => {
+        vistos.push(l, canal.tenantId, canal.channelId, canal.phoneNumberId, ligacao.instrucoes.length);
+        throw new CanalSemCredencialError("nao_abre");
+      },
+      destinatario: async () => ({ bsuid: null, telefone: null }),
+    });
+    await assert.rejects(enviar(pedido), CanalSemCredencialError);
+    assert.deepEqual(vistos, [ligacao, TENANT, CANAL, pedido.phoneNumberId, 0]);
+    // Sem credencial, o Saida não chega a perguntar nada: a linha não nasce.
+    assert.deepEqual(ligacao.instrucoes, []);
+    assert.equal(devolvidas.length, 1);
+    assert.ok(devolvidas[0] instanceof CanalSemCredencialError);
   });
 
   it("uma ligação que falha volta com o erro, e o erro sobe", async () => {

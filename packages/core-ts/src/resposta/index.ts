@@ -9,6 +9,9 @@ export {
   DESFECHOS_DA_RESPOSTA,
   ESTADOS_QUE_SAIRAM,
   MOTIVOS_DE_FALHA,
+  ReenvioAdiadoError,
+  SUFIXO_DO_REENVIO,
+  chaveDoReenvio,
   efeitoDoOutbound,
   efeitoDoPainel,
   pedidoDaResposta,
@@ -23,3 +26,21 @@ export {
   type LigacaoDoEnvio,
   type OpcoesDoEnvio,
 } from "./envio.ts";
+export {
+  CanalSemCredencialError,
+  MOTIVOS_SEM_CREDENCIAL,
+  SQL_TOKEN_REF_DO_CANAL,
+  clienteDaGraphPorCanal,
+  type CanalDoEnvio,
+  type ClienteDoCanal,
+  type CofreDeLeitura,
+  type MotivoSemCredencial,
+  type OpcoesDaCredencial,
+} from "./credencial.ts";
+export {
+  SEM_DESTINATARIO,
+  destinatarioPelaIdentidade,
+  escolherDestinatario,
+  type LeitorDeEndpoints,
+  type OpcoesDoDestinatario,
+} from "./destinatario.ts";
