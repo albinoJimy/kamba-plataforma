@@ -7,6 +7,7 @@
  * montarProcesso      a fila sobre os adaptadores SQL, o ciclo, as duas portas do KAM-092,
  *                     e o T&S ligado à fila com as suas varreduras (KAM-200)
  * consumidorDoTrust   o consumidor dos sete tipos de evento de T&S, como `kamba_app`
+ * consumidorDoPainel  o consumidor da resposta do AGR de canal `painel` (KAM-224)
  * cicloDoOffboarding  as fases do encerramento deste lado, agendadas (KAM-210)
  * criarApp            `/healthz` e `/metrics`, e mais nada
  * arrancar            os papéis verificados, o processo montado e a app das métricas dele
@@ -133,6 +134,7 @@ import { METRICAS, MaquinaNaBase, filasDe, type Envelope } from "@kamba/core-ts/
 // Só os tipos: o `bullmq` e o `ioredis` carregam-se na casca, **depois** de a
 // porta abrir (ver o `consumidorDoTrust`).
 import type { criarTrabalhadores, Trabalhadores } from "@kamba/core-ts/eventos/trabalhador_bullmq";
+import { CONSUMIDOR_DO_PAINEL, efeitoDoPainel } from "@kamba/core-ts/resposta";
 import { EscritorSql, LeitorSql, type EscritorDeDecisoes } from "@kamba/core-ts/screening";
 import { isAmbiente } from "@kamba/core-ts/secrets";
 import { METRICAS_DA_GUARDA, comTenant } from "@kamba/core-ts/tenant_guard";
@@ -191,6 +193,12 @@ export const VARIAVEIS_DO_LOTE = {
  * todos os pedidos `por_avaliar`, e ninguém a subir.
  */
 export const SUBSCRICAO_DO_TRUST = { consumer: CONSUMIDOR_DE_TRUST, exigeOrdem: true } as const;
+
+/**
+ * A subscrição do consumidor da resposta do AGR no painel (KAM-224). Sem ordem:
+ * o `agent.replied` não transita estado nenhum, e cada resposta é uma linha.
+ */
+export const SUBSCRICAO_DO_PAINEL = { consumer: CONSUMIDOR_DO_PAINEL, exigeOrdem: false } as const;
 
 /** A porta da sonda e das métricas do processo de lote. */
 export const PORTA_POR_OMISSAO = 3014;
@@ -719,6 +727,36 @@ export function consumidorDoTrust(o: {
     url: o.urlDaFila,
     // Só o desfecho: o `event_id` e a fila não estão na *allowlist* do registo.
     log: (dados) => o.log.info({ outcome: `trust_${String(dados["desfecho"])}` }),
+  });
+}
+
+/**
+ * O consumidor da resposta do AGR de canal `painel` (KAM-224), como `kamba_app`.
+ *
+ * A decisão 1 do fundador de 2026-11-19 (bloco do KAM-217) põe a resposta a
+ * voltar ao painel pelo canal `painel`. O efeito marca a linha da
+ * `agent_replies` como entregue, uma vez, sob a RLS do tenant do envelope; a
+ * rota que a mostra ao dono é a `OwnerPort` do **KAM-223**. Corre aqui, e não no
+ * `server.ts`, porque o servidor recusa `prod` e este processo não.
+ */
+export function consumidorDoPainel(o: {
+  readonly urlDaApp: string;
+  readonly urlDaFila: string;
+  readonly log: Pick<Logger, "info">;
+  readonly criar: typeof criarTrabalhadores;
+}): Trabalhadores {
+  return o.criar({
+    ligar: async () => {
+      const cliente = new pg.Client({ connectionString: o.urlDaApp, application_name: "onboarding-lote:painel" });
+      await cliente.connect();
+      return cliente;
+    },
+    subscricao: SUBSCRICAO_DO_PAINEL,
+    filas: filasDe(SUBSCRICAO_DO_PAINEL.consumer),
+    efeito: efeitoDoPainel({ aoTratar: (desfecho) => o.log.info({ outcome: `painel_${desfecho}` }) }),
+    metricas: METRICAS,
+    url: o.urlDaFila,
+    log: (dados) => o.log.info({ outcome: `painel_consumo_${String(dados["desfecho"])}` }),
   });
 }
 

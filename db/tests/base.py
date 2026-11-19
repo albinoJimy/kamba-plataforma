@@ -713,6 +713,17 @@ TABELAS_CANAL_DO_DONO = ("owner_actions",)
 #: de transicoes. O `kamba_app` insere e actualiza por coluna; ninguem apaga.
 TABELAS_ORCAMENTO = ("quote_requests",)
 
+#: O que a revisao da resposta do AGR (KAM-224) acrescenta.
+#:
+#: **Pelo nome e nao pelo numero**, pela razao do `TABELAS_CATALOGO_AI`: o
+#: numero (`0073`, sobre a `0072` do KAM-123) e provisorio.
+#:
+#: Uma tabela de tenant, a `agent_replies`: a resposta de um turno do AGR, com
+#: RLS `FORCE` pela `tenant_iso`, FK para `tenants` e compostas para a
+#: `contacts` e a `conversations`, e unica por `(tenant_id, chave)`. O
+#: `kamba_app` insere e muda so o `entregue_at`; ninguem apaga.
+TABELAS_RESPOSTA_DO_AGR = ("agent_replies",)
+
 TABELAS = tuple(
     sorted(
         TABELAS_0001 + TABELAS_0003 + TABELAS_0004 + TABELAS_0005
@@ -730,6 +741,7 @@ TABELAS = tuple(
         + TABELAS_CATALOGO_MINIMO + TABELAS_CONFIANCA + TABELAS_OFFBOARDING
         + TABELAS_CANAL_DO_DONO
         + TABELAS_ORCAMENTO
+        + TABELAS_RESPOSTA_DO_AGR
     )
 )
 
@@ -741,7 +753,15 @@ TABELAS = tuple(
 #: poe a sua aqui e faz **esta** derivar da dela. Chama-se pela tabela e nao
 #: pelo numero, pela razao escrita no `TABELAS_CATALOGO_AI`. A anterior e a
 #: da finalidade do screening (KAM-195), que nao cria tabela nenhuma.
-TABELAS_ANTES_DO_ORCAMENTO = tuple(sorted(set(TABELAS) - set(TABELAS_ORCAMENTO)))
+#: O que existe em `platform` antes da revisao da resposta do AGR (KAM-224),
+#: que e o topo da cadeia desde ela.
+TABELAS_ANTES_DA_RESPOSTA_DO_AGR = tuple(sorted(set(TABELAS) - set(TABELAS_RESPOSTA_DO_AGR)))
+
+#: O que existe antes do Orcamento expresso (KAM-123). Deriva do de cima desde
+#: o KAM-224.
+TABELAS_ANTES_DO_ORCAMENTO = tuple(
+    sorted(set(TABELAS_ANTES_DA_RESPOSTA_DO_AGR) - set(TABELAS_ORCAMENTO))
+)
 
 #: (Desde o KAM-123 a cadeia comeca no `TABELAS_ANTES_DO_ORCAMENTO`, acima: a
 #: revisao do Orcamento expresso e o topo, e a `0071` do KAM-204, entre as

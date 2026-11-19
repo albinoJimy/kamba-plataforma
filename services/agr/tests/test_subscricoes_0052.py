@@ -239,5 +239,83 @@ class TestRevisaoDeTrustContraORegisto(unittest.TestCase):
         self.assertFalse(outras & {(c, t) for c, t, *_ in linhas_de_trust()})
 
 
+#: A revisao da resposta do AGR (KAM-224) e as suas duas declaracoes.
+SUFIXO_DA_RESPOSTA = "_resposta_do_agr.py"
+
+
+def linhas_da_resposta() -> list[tuple[str, str, str, str, str]]:
+    [ficheiro] = sorted((RAIZ / "db" / "migrations" / "versions").glob(f"*{SUFIXO_DA_RESPOSTA}"))
+    arvore = ast.parse(ficheiro.read_text(encoding="utf-8"))
+    for no in arvore.body:
+        if isinstance(no, ast.Assign) and [getattr(a, "id", None) for a in no.targets] == ["LINHAS"]:
+            return [tuple(linha) for linha in ast.literal_eval(no.value)]
+    raise AssertionError(f"{ficheiro.name} nao tem a constante LINHAS")
+
+
+class TestRevisaoDaRespostaContraORegisto(unittest.TestCase):
+    """A mesma confrontacao para os dois consumidores da resposta do AGR (KAM-224):
+    `registry/outbound.yaml` e `registry/painel.yaml`."""
+
+    def test_as_linhas_sao_as_das_duas_declaracoes(self) -> None:
+        declaradas = set()
+        for nome in ("outbound", "painel"):
+            declaracao = load_file(RAIZ / "registry" / f"{nome}.yaml")
+            declaradas |= {
+                (declaracao["consumidor"], s["tipo"], int(s["versao"]), subscricoes.e_de_pagamento(s["tipo"]))
+                for s in declaracao["subscriptions"]
+            }
+        da_revisao = {
+            (consumer, tipo, int(versao), _bool(ordem))
+            for consumer, tipo, versao, _finalidade, ordem in linhas_da_resposta()
+        }
+        self.assertEqual(da_revisao, declaradas)
+
+    def test_os_nomes_e_o_tipo_sao_os_do_efeito_e_do_produtor(self) -> None:
+        """Os `consumer` sao as constantes do `contrato.ts`, e o tipo o do `saida.py`."""
+        from kamba_agr import saida
+
+        fonte = (RAIZ / "packages" / "core-ts" / "src" / "resposta" / "contrato.ts").read_text(encoding="utf-8")
+        self.assertIn('export const CONSUMIDOR_DO_OUTBOUND = "outbound";', fonte)
+        self.assertIn('export const CONSUMIDOR_DO_PAINEL = "painel";', fonte)
+        self.assertIn(f'export const TIPO_DA_RESPOSTA = "{saida.TIPO}";', fonte)
+        self.assertEqual({c for c, *_ in linhas_da_resposta()}, {"outbound", "painel"})
+        self.assertEqual({t for _c, t, *_ in linhas_da_resposta()}, {saida.TIPO})
+
+    def test_a_finalidade_e_a_do_produtor_e_esta_no_contrato(self) -> None:
+        from kamba_agr import saida
+
+        exemplo = json.loads(
+            (RAIZ / "contratos" / "eventos" / saida.TIPO / "exemplo.json").read_text(encoding="utf-8")
+        )
+        for _consumer, _tipo, _versao, finalidade, _ordem in linhas_da_resposta():
+            with self.subTest(consumer=_consumer):
+                self.assertEqual(finalidade, saida.FINALIDADE)
+                self.assertIn(finalidade, exemplo["finalidades"])
+        self.assertIn(f"'{{{saida.FINALIDADE}}}'", saida.SQL_EMITIR)
+
+    def test_os_canais_sao_os_mesmos_nas_tres_superficies(self) -> None:
+        from kamba_agr import saida
+
+        revisao = next((RAIZ / "db" / "migrations" / "versions").glob(f"*{SUFIXO_DA_RESPOSTA}"))
+        arvore = ast.parse(revisao.read_text(encoding="utf-8"))
+        canais = next(
+            ast.literal_eval(no.value)
+            for no in arvore.body
+            if isinstance(no, ast.Assign) and [getattr(a, "id", None) for a in no.targets] == ["CANAIS"]
+        )
+        fonte = (RAIZ / "packages" / "core-ts" / "src" / "resposta" / "contrato.ts").read_text(encoding="utf-8")
+        self.assertEqual(tuple(canais), saida.CANAIS)
+        self.assertIn('export const CANAIS_DA_RESPOSTA = ["whatsapp", "painel"] as const;', fonte)
+        self.assertEqual(saida.CANAIS, ("whatsapp", "painel"))
+
+    def test_nenhuma_chave_repete_uma_de_outra_revisao(self) -> None:
+        outras = (
+            {(c, t) for c, t, *_ in linhas_da_revisao()}
+            | {(c, t) for c, t, *_ in linhas_do_chr()}
+            | {(c, t) for c, t, *_ in linhas_de_trust()}
+        )
+        self.assertFalse(outras & {(c, t) for c, t, *_ in linhas_da_resposta()})
+
+
 if __name__ == "__main__":
     unittest.main()

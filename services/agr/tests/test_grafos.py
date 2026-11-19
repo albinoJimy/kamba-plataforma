@@ -408,18 +408,18 @@ class TestLigacaoDoArranque(unittest.TestCase):
         porta = self._porta_do_turno().__self__
         self.assertIs(porta._checkpointer, self.saver)
 
-    def test_a_saida_por_ligar_avisa_no_registo_e_levanta(self) -> None:
-        import io
+    def test_a_saida_do_processo_e_o_evento_pela_ligacao_da_saida(self) -> None:
+        """KAM-224: a porta `saida` do processo e a `SaidaPorEvento`, que abre a
+        ligacao **da saida** (`kamba-agr:saida`) e nao a de leitura nem a das
+        accoes. Com a `SaidaPorLigar` no lugar, isto fica vermelho."""
+        from kamba_agr.saida import SaidaPorEvento
 
         portas = self.capturado["compilar"][0][1]
-        registo = io.StringIO()
-        with mock.patch("sys.stdout", registo), self.assertRaises(SaidaPorLigarError):
-            portas["saida"].enfileirar({}, "ola", chave="t:0")
-        linhas = [json.loads(l) for l in registo.getvalue().splitlines() if l.startswith("{")]
-        self.assertIn(
-            ("saida", "saida_por_ligar"),
-            [(l.get("outcome"), l.get("error_code")) for l in linhas],
-        )
+        porta = portas["saida"]
+        self.assertIsInstance(porta, SaidaPorEvento)
+        self.assertNotIsInstance(porta, grafos_mod.SaidaPorLigar)
+        self.assertIs(porta._abrir, arranque.ligar_para_saida)
+        self.assertIsNot(porta._abrir, arranque.ligar_para_accoes)
 
     def test_o_detector_de_degradacao_le_a_admissao_do_processo(self) -> None:
         """Sem a admissao, os dois sinais de carga do KAM-037 nunca disparam."""
@@ -436,7 +436,7 @@ class TestLigacaoDoArranque(unittest.TestCase):
             l["error_code"] for l in linhas if l.get("outcome") == "grafo_porta_por_ligar"
         )
         self.assertEqual(
-            por_ligar, ["classificador", "classificador_de_guarda", "modos", "saida", "stt"]
+            por_ligar, ["classificador", "classificador_de_guarda", "modos", "stt"]
         )
 
 

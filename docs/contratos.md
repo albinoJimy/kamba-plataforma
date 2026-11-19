@@ -4,7 +4,7 @@
 |---|---|
 | Documento | `docs/contratos.md` |
 | Ticket | KAM-007 — Catálogo de eventos: schemas versionados e teste de compatibilidade |
-| Estado | 44 tipos em `contratos/eventos/`, com `v1` e `v2` cada (88 contratos; o `screening.violation_detected` é do KAM-191, o `billing.cycle_paid` do KAM-059 e os dois `quote.*` do KAM-123); gate 7 **activo** (`make ci-7`); tipos TS e modelos Python gerados; emendas 1.11, 1.83 e 1.96 do dicionário. As caixas marcadas e as vazias estão nomeadas na secção de verificação do bloco |
+| Estado | 45 tipos em `contratos/eventos/`, com `v1` e `v2` cada (90 contratos; o `screening.violation_detected` é do KAM-191, o `billing.cycle_paid` do KAM-059, os dois `quote.*` do KAM-123 e o `agent.replied` do KAM-224); gate 7 **activo** (`make ci-7`); tipos TS e modelos Python gerados; emendas 1.11, 1.83 e 1.96 do dicionário. As caixas marcadas e as vazias estão nomeadas na secção de verificação do bloco |
 | Âmbito | O **contrato** de um evento: o que um produtor pode emitir e o que um consumidor pode esperar, e o que impede isso de mudar sem versão. Não o laço de publicação (`docs/eventos.md`) nem o de consumo (`docs/consumo.md`) |
 | Fontes | `docs/tecnica/06` §4, §5, §6.6, §7.1, §7.3; `docs/tecnica/01` §6.3, §7.2; `specs/02` §3.5 (emenda 1.11); ADR-009, ADR-010, ADR-013 |
 
@@ -166,6 +166,19 @@ Outbound a deu como enviada em mensagem livre — com a janela fechada sai o
 *template* sem número, o estado fica `aguarda_janela`, e o evento sai quando o
 valor sai. A exposição dos UUID à guarda de telefone é a do parágrafo de cima:
 dois por evento, e a recusa reverte o pedido ou o envio.
+
+### O `agent.replied`, e porque não leva o texto
+
+É a resposta de um turno do AGR (KAM-224, decisão 2 do fundador de
+2026-11-19). Agrega por `conversation`, com o `conversation_id`, para que as
+respostas de uma conversa caiam na mesma partição; classe P0. O *payload* leva
+`reply_id`, `thread_id`, `conversation_id`, `contact_id` e `canal`
+(`whatsapp` ou `painel`). **O texto e os botões ficam na
+`platform.agent_replies`**, e o consumidor lê-os pelo `reply_id`: o lint de
+PII recusa um campo `texto`, e uma resposta a um cliente pode levar o nome
+dele. É emitido pelo AGR (`kamba_agr/saida.py`) na transacção que escreve a
+linha, e a linha é única por `(tenant_id, chave)`: um turno repetido não
+insere e não emite.
 
 ## 4. O que impede um contrato de partir
 
@@ -343,3 +356,4 @@ leu o nome da função.
 | 1.3 | Novembro 2026 | KAM-191: entra o `screening.violation_detected`, com `v1` e `v2` — a razão das duas está no §3. O cabeçalho deixa de dizer «38 contratos v1», que desde o KAM-159 já não era verdade (eram 76, com a `v2`), e passa a 41 tipos e 82 contratos (com os dois do KAM-050); o §4.1 deixa de fixar o número em prosa, e o §6 deixa de contar os tipos sem campos especificados. | Equipa KAMBÁ |
 | 1.4 | Novembro 2026 | KAM-059: entra o `billing.cycle_paid`, com `v1` e `v2`, emitido pela projecção do *ledger*; 42 tipos e 84 contratos. Fica escrita a exposição dos UUID à guarda de telefone do `evt_emitir`, comum aos tipos com identificadores em hexadecimal. | Equipa KAMBÁ |
 | 1.5 | Novembro 2026 | KAM-123: entram o `quote.requested` e o `quote.sent`, com `v1` e `v2`, emitidos pelo AGR na transacção da `quote_requests`; 44 tipos e 88 contratos. O §3 diz o que cada *payload* leva e quando o `quote.sent` sai | Equipa KAMBÁ |
+| 1.6 | Novembro 2026 | KAM-224: entra o `agent.replied`, com `v1` e `v2`, emitido pelo AGR na transacção da `agent_replies`; 45 tipos e 90 contratos. O §3 diz o que o *payload* leva e porque o texto fica na tabela | Equipa KAMBÁ |
