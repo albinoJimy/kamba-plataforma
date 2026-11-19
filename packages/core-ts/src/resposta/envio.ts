@@ -2,10 +2,21 @@
  * O envio de uma resposta pelo `Saida` do KAM-015, numa ligação própria (KAM-224).
  *
  * É a porta `EnviarResposta` do `efeitoDoOutbound`, ligada. Por envio: toma uma
- * ligação, põe-lhe o `app.tenant_id` **de sessão** (o `Saida` corre as instruções
- * em *autocommit*, fora de transacção, e a `outbound_messages` tem RLS `FORCE`),
- * monta o `Saida` com o `PreSendGuard` do KAM-018 sobre a **mesma** ligação, envia,
- * limpa o contexto e devolve a ligação.
+ * ligação, monta o `Saida` e o `PreSendGuard` do KAM-018 sobre ela, envia, e
+ * devolve-a.
+ *
+ * ## Cada instrução do `Saida` é a sua transacção, com o tenant **local**
+ *
+ * O `Saida` corre as instruções em *autocommit*, uma a uma — é isso que grava a
+ * linha da `outbound_messages` **antes** da rede e o torna idempotente —, e a
+ * tabela tem RLS `FORCE`. Por isso o `ClienteSql` que ele recebe embrulha **cada**
+ * instrução no `comTenant` do `tenant_guard` (`BEGIN`, `SET LOCAL app.tenant_id`,
+ * a instrução, `COMMIT`): o efeito é o mesmo do *autocommit*, e o contexto
+ * **nunca** sobrevive à instrução. A primeira versão punha o tenant **de sessão**
+ * (`set_config(..., false)`) e limpava-o antes de devolver a ligação; o lint do
+ * `SET LOCAL` do *gate* 6 recusou-a, e com razão: um contexto de sessão que
+ * escapasse à limpeza ia com a ligação para o conjunto, e o envio seguinte — de
+ * outro tenant — herdava-o.
  *
  * O `Limites` (o *token bucket* por número) e as métricas são **um** por
  * processo, e não um por envio: um `Saida` novo a cada mensagem com um `Limites`
@@ -34,11 +45,16 @@ import type { EnviarResposta } from "./efeito.ts";
 /** A ligação de um envio: o `ClienteSql` do Outbound. */
 export type LigacaoDoEnvio = ClienteSql;
 
-/** O contexto de sessão do `Saida`. `false`: vale até se limpar, não só numa transacção. */
-export const SQL_CONTEXTO_DE_SESSAO = "SELECT set_config('app.tenant_id', $1, false)";
-
-/** Limpa o contexto antes de a ligação voltar: a seguinte pode ser de outro tenant. */
-export const SQL_LIMPAR_CONTEXTO = "SELECT set_config('app.tenant_id', '', false)";
+/**
+ * O `ClienteSql` do `Saida` de um tenant: cada instrução numa transacção sua,
+ * com o `app.tenant_id` local. Ver a nota do módulo.
+ */
+export function comTenantPorInstrucao(ligacao: LigacaoDoEnvio, tenantId: string): ClienteSql {
+  return {
+    query: <T = Record<string, unknown>>(texto: string, valores?: readonly unknown[]) =>
+      comTenant(ligacao, tenantId, () => ligacao.query<T>(texto, valores)),
+  };
+}
 
 export interface OpcoesDoEnvio {
   /** Toma uma ligação `kamba_app` exclusiva para este envio. */
@@ -61,14 +77,13 @@ export function envioPeloSaida(o: OpcoesDoEnvio): EnviarResposta {
     const ligacao = await o.tomar();
     let falha: unknown;
     try {
-      await ligacao.query(SQL_CONTEXTO_DE_SESSAO, [pedido.tenantId]);
       const guarda = criarGuarda({
         comTenant: (tenantId, trabalho) => comTenant(ligacao, tenantId, () => trabalho(ligacao)),
         ...(o.metricasDosModos === undefined ? {} : { metricas: o.metricasDosModos }),
         ...(o.log === undefined ? {} : { log: o.log }),
       });
       const saida = new Saida({
-        bd: ligacao,
+        bd: comTenantPorInstrucao(ligacao, pedido.tenantId),
         meta: o.meta,
         destinatario: o.destinatario,
         guarda,
@@ -83,13 +98,6 @@ export function envioPeloSaida(o: OpcoesDoEnvio): EnviarResposta {
       falha = erro;
       throw erro;
     } finally {
-      if (falha === undefined) {
-        try {
-          await ligacao.query(SQL_LIMPAR_CONTEXTO);
-        } catch (erro) {
-          falha = erro;
-        }
-      }
       await o.devolver(ligacao, falha);
     }
   };

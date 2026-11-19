@@ -22,9 +22,7 @@ import {
   CANAIS_DA_RESPOSTA,
   RespostaInexistenteError,
   RespostaInvalidaError,
-  SQL_CONTEXTO_DE_SESSAO,
   SQL_ESTADO_DO_ENVIO,
-  SQL_LIMPAR_CONTEXTO,
   SQL_MARCAR_ENTREGUE,
   SQL_RESPOSTA_DO_PAINEL,
   SQL_RESPOSTA_DO_WHATSAPP,
@@ -427,13 +425,16 @@ describe("efeitoDoPainel", () => {
 });
 
 describe("envioPeloSaida", () => {
-  /** Uma ligação que responde ao que o `Saida` pergunta com «sem janela». */
+  /**
+   * Uma ligação que responde ao que o `Saida` pergunta com «sem janela», e guarda
+   * as instruções e a transacção em que cada uma correu.
+   */
   class LigacaoFalsa {
     readonly instrucoes: string[] = [];
-    falharNo: string | null = null;
+    falharNo: RegExp | null = null;
     async query<T = Record<string, unknown>>(sql: string): Promise<{ readonly rows: readonly T[] }> {
       this.instrucoes.push(sql);
-      if (this.falharNo !== null && sql === this.falharNo) throw new Error("ligacao caiu");
+      if (this.falharNo !== null && this.falharNo.test(sql)) throw new Error("ligacao caiu");
       return { rows: [] as T[] };
     }
   }
@@ -469,33 +470,46 @@ describe("envioPeloSaida", () => {
     return { enviar, devolvidas, chamadas: () => chamadas };
   }
 
-  it("põe o tenant de sessão antes do Saida e limpa-o antes de devolver a ligação", async () => {
+  it("cada instrução do Saida corre numa transacção sua, com o tenant local, e nunca de sessão", async () => {
     const ligacao = new LigacaoFalsa();
     const { enviar, devolvidas, chamadas } = montar(ligacao);
     const resultado = await enviar(pedido);
     // Sem janela na base falsa: o Saida recusa antes da rede.
     assert.deepEqual(resultado, { ok: false, motivo: "WINDOW_CLOSED", codigo: null });
     assert.equal(chamadas(), 0);
-    assert.equal(ligacao.instrucoes[0], SQL_CONTEXTO_DE_SESSAO);
-    assert.equal(ligacao.instrucoes.at(-1), SQL_LIMPAR_CONTEXTO);
     assert.deepEqual(devolvidas, ["limpa"]);
+    const doSaida = ligacao.instrucoes.filter(
+      (s) => !/^(BEGIN|COMMIT|ROLLBACK)$/i.test(s.trim()) && !/set_config\('app\.tenant_id'/.test(s),
+    );
+    assert.ok(doSaida.length > 0, "o Saida perguntou pela janela");
+    for (const sql of doSaida) {
+      const i = ligacao.instrucoes.indexOf(sql);
+      assert.match(ligacao.instrucoes[i - 1] ?? "", /set_config\('app\.tenant_id', \$1, true\)/);
+      assert.match(ligacao.instrucoes[i - 2] ?? "", /^BEGIN$/i);
+      assert.match(ligacao.instrucoes[i + 1] ?? "", /^COMMIT$/i);
+    }
+    assert.equal(ligacao.instrucoes.some((s) => /, false\)/.test(s)), false);
+  });
+
+  it("o tenant de cada instrução é o do pedido", async () => {
+    const vistos: unknown[] = [];
+    const ligacao = new LigacaoFalsa();
+    const original = ligacao.query.bind(ligacao);
+    ligacao.query = (async (sql: string, valores?: readonly unknown[]) => {
+      if (/set_config/.test(sql)) vistos.push(valores?.[0]);
+      return original(sql);
+    }) as LigacaoFalsa["query"];
+    await montar(ligacao).enviar(pedido);
+    assert.ok(vistos.length > 0);
+    assert.deepEqual(new Set(vistos), new Set([TENANT]));
   });
 
   it("uma ligação que falha volta com o erro, e o erro sobe", async () => {
     const ligacao = new LigacaoFalsa();
-    ligacao.falharNo = SQL_CONTEXTO_DE_SESSAO;
+    ligacao.falharNo = /^BEGIN$/i;
     const { enviar, devolvidas } = montar(ligacao);
     await assert.rejects(enviar(pedido), /ligacao caiu/);
     assert.equal(devolvidas.length, 1);
-    assert.ok(devolvidas[0] instanceof Error);
-    assert.equal(ligacao.instrucoes.includes(SQL_LIMPAR_CONTEXTO), false);
-  });
-
-  it("se a limpeza falha, a ligação volta marcada", async () => {
-    const ligacao = new LigacaoFalsa();
-    ligacao.falharNo = SQL_LIMPAR_CONTEXTO;
-    const { enviar, devolvidas } = montar(ligacao);
-    await enviar(pedido);
     assert.ok(devolvidas[0] instanceof Error);
   });
 });

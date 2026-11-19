@@ -18,8 +18,7 @@ export {
   type OpcoesDoEfeito,
 } from "./efeito.ts";
 export {
-  SQL_CONTEXTO_DE_SESSAO,
-  SQL_LIMPAR_CONTEXTO,
+  comTenantPorInstrucao,
   envioPeloSaida,
   type LigacaoDoEnvio,
   type OpcoesDoEnvio,

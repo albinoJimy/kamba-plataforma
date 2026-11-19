@@ -5057,12 +5057,12 @@ MUTACOES = [
      '  }\n',
      '',
      SAIDA),
-    # A ligacao volta ao conjunto com o tenant de sessao do envio anterior:
-    # «põe o tenant de sessão antes do Saida e limpa-o antes de devolver a
-    # ligação».
-    ('resposta: a ligacao volta com o tenant colado', RESPOSTA_ENVIO,
-     '          await ligacao.query(SQL_LIMPAR_CONTEXTO);\n',
-     '',
+    # O Saida corre sem o tenant, e a RLS `FORCE` da `outbound_messages` nao lhe
+    # deixa ver a janela: «cada instrução do Saida corre numa transacção sua,
+    # com o tenant local, e nunca de sessão».
+    ('resposta: o Saida corre sem o tenant', RESPOSTA_ENVIO,
+     '        bd: comTenantPorInstrucao(ligacao, pedido.tenantId),\n',
+     '        bd: ligacao,\n',
      SAIDA),
     # A separacao por `kind` e a mitigacao que o §9.2 nomeia para a coincidencia
     # de valores: com o `stock` aqui, o stock de um produto sustenta o preco de
