@@ -25,6 +25,8 @@
  */
 
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { test } from "node:test";
 
 import {
@@ -333,4 +335,37 @@ test("KAM-119: um ctx sem tenant levanta antes de abrir ligacao", async () => {
   const operar = operacoesDoCom({ comTenant: b.comTenant, anel: ANEL }).publicarProduto;
   await assert.rejects(operar({ ...CTX, tenantId: "nao-e-uuid" }, { sku: SKU, confirmacao: CONFIRMACAO }));
   assert.equal(b.transaccoes, 0);
+});
+
+test("KAM-119, criterio 5: os cem primeiros casos canonicos de categoria bloqueada dao zero publicacoes", async () => {
+  // O corpus do KAM-088 (`policy/categorias/casos/canonico.jsonl`), escrito por
+  // quem nao leu o motor. O nome publicado e o texto do caso; a categoria e a
+  // do tenant («moda», uma permitida), e o `screen` corre a politica real.
+  const linhas = readFileSync(
+    join(import.meta.dirname, "..", "..", "..", "policy", "categorias", "casos", "canonico.jsonl"),
+    "utf-8",
+  )
+    .split("\n")
+    .filter((l) => l.trim().length > 0)
+    .map((l) => JSON.parse(l) as { id: string; textos: string[] });
+  assert.ok(linhas.length >= 100);
+  let publicadas = 0;
+  for (const caso of linhas.slice(0, 100)) {
+    const nome = caso.textos.join(". ");
+    const b = base({ categoria: "moda", naTransaccao: (_n, oferta) => { oferta.nome = nome; } });
+    const com = operacoesDoCom({ comTenant: b.comTenant, anel: ANEL, classificador: classificador("permitida") });
+    const decidido = await com.screen(CTX, {
+      sujeitoTipo: SUJEITO_DO_PRODUTO,
+      sujeitoRef: SKU,
+      categoriaDeclarada: null,
+      textos: [nome],
+    });
+    assert.equal(decidido.tipo, "ok", caso.id);
+    assert.equal(decidido.tipo === "ok" && decidido.valor.publicavel, false, caso.id);
+    const publicada = await publicar(b);
+    // A recusa e a mesma para todos, sem o motivo nem a regra no corpo.
+    assert.deepEqual(publicada, { tipo: "erro", erro: "VALIDATION_ERROR" }, caso.id);
+    publicadas += b.escritas.length;
+  }
+  assert.equal(publicadas, 0);
 });

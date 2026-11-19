@@ -8,7 +8,7 @@ valor so: «45 ou 50 mil», «a partir de 45 mil», uma conta, uma moeda
 estrangeira, «1.5». A unica forma que este modulo acrescenta e o «k» de milhar
 («45k», «1,5k»), que aquele recusa por nao ser de orcamento e que o criterio 3
 do bloco nomeia. **O valor lido nao se grava**: volta ao dono como eco
-(«45 000 Kz?») com dois botoes, e so o toque em `preco:{ingestao}:{centimos}`
+(«45.000 Kz?») com dois botoes, e so o toque em `preco:{ingestao}:{centimos}`
 leva o valor a ingestao. Um texto nao tem por onde gravar um preco.
 
 O valor que o botao leva passa a ingestao pelo `interpretar` do KAM-049, que le
@@ -192,8 +192,14 @@ def texto_canonico(centimos: int) -> str:
 
 
 def eco_do_preco(centimos: int) -> str:
-    """«45 000 Kz?» — o valor como o dono o vai ver, no formato do `precoDisplay`."""
-    return f"{kz_display(centimos)}?"
+    """«45.000 Kz?» — o valor que o *parser* leu, na forma da letra do criterio 3.
+
+    **O ponto de milhares e o da letra**, e nao o espaco do `precoDisplay`
+    (`kz_display`) que o resumo usa: o criterio escreve o eco por extenso. Os
+    dois leem-se pelo mesmo *parser*. So valores inteiros em Kz chegam aqui (o
+    `ler_valor_do_dono` recusa centimos).
+    """
+    return f"{centimos // 100:,}".replace(",", ".") + " Kz?"
 
 
 # ----------------------------------------------------------------- os botoes

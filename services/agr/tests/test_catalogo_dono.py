@@ -57,7 +57,6 @@ from kamba_agr.tls.camada import ToolLayer  # noqa: E402
 from kamba_agr.tls.catalogo import catalogo_do_piloto  # noqa: E402
 from kamba_agr.tls.contexto import Confirmation, ToolContext  # noqa: E402
 from kamba_agr.tls.especificacoes import Catalogo, EspecificacaoDeTool  # noqa: E402
-from kamba_agr.validador.normalizacao import kz_display  # noqa: E402
 from kamba_agr.verticais.dono import build_graph as grafo_do_dono  # noqa: E402
 from kamba_agr.verticais.dono import catalogo as conversa  # noqa: E402
 from kamba_agr.verticais.dono import nos as nos_do_dono  # noqa: E402
@@ -300,7 +299,7 @@ class TestRegras(unittest.TestCase):
                 self.assertEqual(lido, esperado)
                 # O que o botao leva a ingestao le-se de volta ao valor do eco.
                 regras.texto_canonico(lido)
-                self.assertEqual(regras.eco_do_preco(lido), f"{kz_display(esperado)}?")
+                self.assertEqual(regras.eco_do_preco(lido), f"{esperado // 100:,} Kz?".replace(",", "."))
 
     def test_o_botao_le_se_por_forma_exacta(self) -> None:
         i = str(uuid.uuid4())
@@ -407,6 +406,17 @@ class TestAsQuatroTools(unittest.TestCase):
         for n, ingestao in enumerate(ingestoes):
             self.assertEqual(self.m.repo.ler(A, ingestao).campos["preco"].valor, str((n + 1) * 100_000))  # type: ignore[union-attr]
 
+    def test_uma_resposta_por_voz_fica_com_a_fonte_da_voz(self) -> None:
+        # Criterio 4: o dono responde por texto ou por voz (a transcricao do STT).
+        r = self.m.invocar("create_product_draft", {"media_id": "m1"})
+        _ate_ao_preco(self.m, r.data["ingestao"])
+        self.m.invocar("create_product_draft", {"ingestao": r.data["ingestao"], "preco_confirmado": 1_200_000})
+        voz = self.m.invocar("create_product_draft", {"ingestao": r.data["ingestao"], "respostas": {"stock_modo": "garantido"}, "voz": True})
+        self.assertTrue(voz.ok)
+        campo = self.m.repo.ler(A, r.data["ingestao"]).campos["stock_modo"]  # type: ignore[union-attr]
+        self.assertEqual((campo.valor, campo.fonte), ("garantido", "dono_voz"))
+        self.assertEqual(self.m.repo.ler(A, r.data["ingestao"]).campos["preco_tipo"].fonte, "dono_texto")  # type: ignore[union-attr]
+
     def test_outro_tenant_nao_le_nem_publica(self) -> None:
         r = self.m.invocar("create_product_draft", {"media_id": "m1"})
         rascunho = _ate_ao_rascunho(self.m, r.data["ingestao"])
@@ -479,7 +489,7 @@ class TestOGrafoDoDono(unittest.TestCase):
         final, texto, botoes = self.m.turno("45k")
         self.assertEqual(final["intent"], "catalogo")
         self.assertIn(conversa.MSG_ECO_DO_PRECO, texto)
-        self.assertIn("45 000 Kz?", texto)
+        self.assertIn("45.000 Kz?", texto)
         self.assertEqual(botoes, (regras.botao_do_preco(ingestao, 4_500_000), regras.botao_de_corrigir_preco(ingestao)))
         self.assertNotIn("preco", self.m.repo.ler(A, ingestao).campos)  # type: ignore[union-attr]
         # Um texto com a forma do botao nao e um toque.
