@@ -17,8 +17,8 @@ por aqui fazia a re-analise saltar o produto publicado. Abre-o o KAM-119. Por
 isso o `conferir_condicoes` nao pode receber, por engano, uma porta que grave
 `produto` com o `quote_id`.
 
-Ate a revisao que poe o sujeito das condicoes no `CHECK` da `screening_decision`
-entrar (a `0074`), o COM recusa-o com 400, e o adaptador levanta. E fechado.
+O sujeito das condicoes esta no `CHECK` da `screening_decision` desde a revisao
+`0074`.
 
 ## A categoria declarada, quando nao ha
 

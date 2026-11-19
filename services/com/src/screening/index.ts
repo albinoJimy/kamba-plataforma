@@ -39,15 +39,14 @@
  *   adversarial). O Catálogo AI (KAM-119) abre-o quando a re-análise comparar o
  *   conteúdo, ou quando a rota ligar a decisão ao conteúdo publicado.
  *
- * O sujeito das condições entra no `SUJEITOS` com a revisão `0074` (decisão do
- * fundador de 2026-11-19, bloco do KAM-222). Até lá a lista é vazia, e a
- * operação recusa tudo com `VALIDATION_ERROR`. É fechado.
+ * O sujeito das condições entrou no `SUJEITOS` e no `CHECK` com a revisão
+ * `0074` (decisão do fundador de 2026-11-19, bloco do KAM-222).
  *
  * ## *Fail-closed*
  *
  * Qualquer falha (base, escritor) devolve `UPSTREAM_DOWN`, e o chamador recusa.
- * Isto inclui o caso de o sujeito ainda não estar no `CHECK` da
- * `screening_decision`. Uma decisão que não ficou gravada não existe (KAM-088),
+ * Isto inclui um `CHECK` da `screening_decision` que recuse a linha. Uma
+ * decisão que não ficou gravada não existe (KAM-088),
  * e por isso não se devolve. O classificador em baixo **não** é falha daqui: o
  * `screen` trata-o como `condicional`, e essa resposta sai com 200.
  */
@@ -71,13 +70,12 @@ import {
   type ResultadoFinal,
 } from "../port/index.ts";
 
-/** O sujeito das condições de um orçamento. Entra no `CHECK` com a revisão `0074`. */
+/** O sujeito das condições de um orçamento. Está no `CHECK` desde a revisão `0074`. */
 export const SUJEITO_DAS_CONDICOES = "condicoes";
 
 /**
- * Os sujeitos que a rota aceita: o das condições, **se** estiver no `SUJEITOS`
- * do `tipos.ts` (que o ensaio da base compara com o `CHECK`). Antes da revisão
- * `0074` a lista é vazia. Ver a nota do módulo.
+ * Os sujeitos que a rota aceita: o das condições, lido do `SUJEITOS` do
+ * `tipos.ts` (que o ensaio da base compara com o `CHECK`). Ver a nota do módulo.
  */
 export const SUJEITOS_DA_ROTA: readonly SujeitoTipo[] = SUJEITOS.filter(
   (sujeito) => (sujeito as string) === SUJEITO_DAS_CONDICOES,
@@ -106,11 +104,6 @@ export interface DependenciasDoScreenDoCom {
   readonly politica: PoliticaCompilada;
   /** `null` quando o AGR não está configurado: o `screen` lê-o como indisponível. */
   readonly classificador: ClassificadorDeCategorias | null;
-  /**
-   * Os sujeitos aceites. Por omissão o `SUJEITOS_DA_ROTA`. Só um ensaio passa
-   * outra lista, para medir o `screen` real antes da revisão `0074`.
-   */
-  readonly sujeitos?: readonly SujeitoTipo[];
 }
 
 export type OperacaoDeScreen = (
@@ -122,7 +115,7 @@ export function operacaoDeScreen(deps: DependenciasDoScreenDoCom): OperacaoDeScr
   return async (ctx, pedido) => {
     // Antes de qualquer ligação, como em todo o COM (ISO-09).
     const { tenantId } = exigirCtx(ctx);
-    const aceites = deps.sujeitos ?? SUJEITOS_DA_ROTA;
+    const aceites = SUJEITOS_DA_ROTA;
     if (!(aceites as readonly string[]).includes(pedido.sujeitoTipo)) return erro("VALIDATION_ERROR");
     const sujeitoTipo = pedido.sujeitoTipo as SujeitoTipo;
     try {

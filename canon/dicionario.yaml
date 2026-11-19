@@ -15432,21 +15432,25 @@ entradas:
     variantes_literais: []
   - seccao: "3.58"
     conceito: "Sujeito de uma decisão"
-    canonico: "screening_decision.sujeito_tipo ∈ {categoria, produto}"
+    canonico: "screening_decision.sujeito_tipo ∈ {categoria, produto, condicoes}"
     literais:
       - "screening_decision.sujeito_tipo"
       - "categoria"
       - "produto"
+      - "condicoes"
     nomes:
       - "screening_decision.sujeito_tipo"
       - "categoria"
       - "produto"
+      - "condicoes"
     nomes_nota:
+      - "condicoes"
       - "sujeito_ref"
       - "categoria"
       - "produto"
       - "sku"
       - "offer_terms"
+      - "quote_id"
     variantes_literais: []
   - seccao: "3.58"
     conceito: "Decisão gravada"
@@ -23741,6 +23745,7 @@ dominios:
     valores:
       - "categoria"
       - "produto"
+      - "condicoes"
     seccao: "3.58"
     conceito: "Sujeito de uma decisão"
     so_no_registo: false

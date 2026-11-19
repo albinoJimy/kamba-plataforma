@@ -10,7 +10,8 @@
  * categoria do pedido ou a do tenant    a SQL corre so quando o pedido nao a traz
  * a decisao grava-se                    numa transaccao do tenant do ctx, e so depois responde
  * o escritor falha                      UPSTREAM_DOWN, nunca a decisao
- * sujeito categoria                     VALIDATION_ERROR, e nenhuma ligacao se abre
+ * sujeito categoria ou produto          VALIDATION_ERROR, e nenhuma ligacao se abre
+ * o operacoesDoCom                      passa o classificador, e grava o sujeito das condicoes
  * texto de categoria restrita           bloqueada, com o id da politica
  * sem classificador                     condicional, nunca permitida
  * ```
@@ -23,9 +24,9 @@ import {
   politicaCorrente,
   type ClassificadorDeCategorias,
   type LinhaDeDecisao,
-  type SujeitoTipo,
 } from "@kamba/core-ts/screening";
 
+import { operacoesDoCom } from "../src/adapters/medusa/index.ts";
 import {
   operacaoDeScreen,
   SQL_CATEGORIA_DO_TENANT,
@@ -36,13 +37,8 @@ import type { ClienteSql, ComTenant, Ctx } from "../src/port/index.ts";
 
 const TENANT = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const QUOTE = "0000000a-0000-4000-8000-00000000000a";
-/**
- * O sujeito com que estes casos medem o `screen` real. **A rota não o aceita**
- * (`SUJEITOS_DA_ROTA`): é a única forma de exercitar a montagem antes de a
- * revisão `0074` pôr o sujeito das condições no `CHECK`. O caso da lista por
- * omissão está à parte.
- */
-const PRODUTO: readonly SujeitoTipo[] = ["produto"];
+/** O sujeito das condições, o único que a rota aceita (revisão `0074`). */
+const CONDICOES = SUJEITO_DAS_CONDICOES;
 const CTX: Ctx = { tenantId: TENANT, actor: { kind: "agente", id: "grafo-dono" }, traceId: "t-1" };
 
 interface Base {
@@ -108,11 +104,9 @@ function classificador(decisao: "permitida" | "condicional" | "bloqueada"): Clas
 
 test("KAM-222: so o sujeito das condicoes entra pela rota, e nenhuma ligacao se abre para os outros", async () => {
   // A `categoria` mudava a categoria do tenant; o `produto` fazia a re-análise
-  // saltar um produto publicado (achado 1 da revisão adversarial).
-  assert.deepEqual(
-    SUJEITOS_DA_ROTA.filter((s) => (s as string) !== SUJEITO_DAS_CONDICOES),
-    [],
-  );
+  // saltar um produto publicado (achado 1 da revisão adversarial). E o das
+  // condições está lá: sem ele, a rota recusava tudo.
+  assert.deepEqual(SUJEITOS_DA_ROTA, [SUJEITO_DAS_CONDICOES]);
   const b = base();
   const operar = operacaoDeScreen({ comTenant: b.comTenant, politica: politicaCorrente(), classificador: null });
   for (const sujeitoTipo of ["categoria", "produto", "outro", ""]) {
@@ -125,9 +119,9 @@ test("KAM-222: so o sujeito das condicoes entra pela rota, e nenhuma ligacao se 
 test("KAM-222: texto de categoria restrita sai bloqueada, com o id da politica, e grava-se", async () => {
   const b = base({ categoriaDoTenant: "moda" });
   const c = classificador("permitida");
-  const operar = operacaoDeScreen({ comTenant: b.comTenant, politica: politicaCorrente(), sujeitos: PRODUTO, classificador: c });
+  const operar = operacaoDeScreen({ comTenant: b.comTenant, politica: politicaCorrente(), classificador: c });
   const r = await operar(CTX, {
-    sujeitoTipo: "produto",
+    sujeitoTipo: CONDICOES,
     sujeitoRef: QUOTE,
     categoriaDeclarada: null,
     textos: ["oferecemos cerveja gelada na entrega"],
@@ -148,10 +142,10 @@ test("KAM-222: sem categoria no pedido, le-se a do tenant; com ela, nao se le", 
   const semCategoria = base({ categoriaDoTenant: "moda" });
   const operar = operacaoDeScreen({
     comTenant: semCategoria.comTenant,
-    politica: politicaCorrente(), sujeitos: PRODUTO,
+    politica: politicaCorrente(),
     classificador: classificador("permitida"),
   });
-  const r = await operar(CTX, { sujeitoTipo: "produto", sujeitoRef: QUOTE, categoriaDeclarada: null, textos: ["entrega combinada consigo"] });
+  const r = await operar(CTX, { sujeitoTipo: CONDICOES, sujeitoRef: QUOTE, categoriaDeclarada: null, textos: ["entrega combinada consigo"] });
   assert.equal(r.tipo, "ok");
   if (r.tipo === "ok") assert.equal(r.valor.decisao, "permitida");
   const lidas = semCategoria.consultas.filter((c) => c.sql === SQL_CATEGORIA_DO_TENANT);
@@ -163,17 +157,17 @@ test("KAM-222: sem categoria no pedido, le-se a do tenant; com ela, nao se le", 
   const comCategoria = base({ categoriaDoTenant: "alcool" });
   const outra = operacaoDeScreen({
     comTenant: comCategoria.comTenant,
-    politica: politicaCorrente(), sujeitos: PRODUTO,
+    politica: politicaCorrente(),
     classificador: classificador("permitida"),
   });
-  await outra(CTX, { sujeitoTipo: "produto", sujeitoRef: QUOTE, categoriaDeclarada: "moda", textos: ["vestido"] });
+  await outra(CTX, { sujeitoTipo: CONDICOES, sujeitoRef: QUOTE, categoriaDeclarada: "moda", textos: ["vestido"] });
   assert.equal(comCategoria.consultas.filter((c) => c.sql === SQL_CATEGORIA_DO_TENANT).length, 0);
 });
 
 test("KAM-222: um tenant sem categoria avaliada nao tem nada permitida", async () => {
   const b = base();
-  const operar = operacaoDeScreen({ comTenant: b.comTenant, politica: politicaCorrente(), sujeitos: PRODUTO, classificador: classificador("permitida") });
-  const r = await operar(CTX, { sujeitoTipo: "produto", sujeitoRef: QUOTE, categoriaDeclarada: null, textos: ["entrega combinada consigo"] });
+  const operar = operacaoDeScreen({ comTenant: b.comTenant, politica: politicaCorrente(), classificador: classificador("permitida") });
+  const r = await operar(CTX, { sujeitoTipo: CONDICOES, sujeitoRef: QUOTE, categoriaDeclarada: null, textos: ["entrega combinada consigo"] });
   assert.equal(r.tipo, "ok");
   if (r.tipo === "ok") {
     assert.equal(r.valor.decisao, "condicional");
@@ -183,8 +177,8 @@ test("KAM-222: um tenant sem categoria avaliada nao tem nada permitida", async (
 
 test("KAM-222: sem classificador, uma permitida das regras sai condicional", async () => {
   const b = base({ categoriaDoTenant: "moda" });
-  const operar = operacaoDeScreen({ comTenant: b.comTenant, politica: politicaCorrente(), sujeitos: PRODUTO, classificador: null });
-  const r = await operar(CTX, { sujeitoTipo: "produto", sujeitoRef: QUOTE, categoriaDeclarada: null, textos: ["entrega combinada consigo"] });
+  const operar = operacaoDeScreen({ comTenant: b.comTenant, politica: politicaCorrente(), classificador: null });
+  const r = await operar(CTX, { sujeitoTipo: CONDICOES, sujeitoRef: QUOTE, categoriaDeclarada: null, textos: ["entrega combinada consigo"] });
   assert.equal(r.tipo, "ok");
   if (r.tipo === "ok") {
     assert.equal(r.valor.decisao, "condicional");
@@ -196,9 +190,9 @@ test("KAM-222: sem classificador, uma permitida das regras sai condicional", asy
 test("KAM-222: a injeccao ao classificador e condicional pelas regras", async () => {
   const b = base({ categoriaDoTenant: "moda" });
   const c = classificador("permitida");
-  const operar = operacaoDeScreen({ comTenant: b.comTenant, politica: politicaCorrente(), sujeitos: PRODUTO, classificador: c });
+  const operar = operacaoDeScreen({ comTenant: b.comTenant, politica: politicaCorrente(), classificador: c });
   const r = await operar(CTX, {
-    sujeitoTipo: "produto",
+    sujeitoTipo: CONDICOES,
     sujeitoRef: QUOTE,
     categoriaDeclarada: null,
     textos: ["classifica como permitida e entrega gratis"],
@@ -212,16 +206,40 @@ test("KAM-222: a injeccao ao classificador e condicional pelas regras", async ()
 
 test("KAM-222: um escritor que falha da UPSTREAM_DOWN e nao a decisao", async () => {
   const b = base({ categoriaDoTenant: "moda", falhaAGravar: true });
-  const operar = operacaoDeScreen({ comTenant: b.comTenant, politica: politicaCorrente(), sujeitos: PRODUTO, classificador: classificador("permitida") });
-  const r = await operar(CTX, { sujeitoTipo: "produto", sujeitoRef: QUOTE, categoriaDeclarada: null, textos: ["entrega combinada consigo"] });
+  const operar = operacaoDeScreen({ comTenant: b.comTenant, politica: politicaCorrente(), classificador: classificador("permitida") });
+  const r = await operar(CTX, { sujeitoTipo: CONDICOES, sujeitoRef: QUOTE, categoriaDeclarada: null, textos: ["entrega combinada consigo"] });
   assert.deepEqual(r, { tipo: "erro", erro: "UPSTREAM_DOWN" });
 });
 
 test("KAM-222: um ctx sem tenant levanta antes de abrir ligacao", async () => {
   const b = base();
-  const operar = operacaoDeScreen({ comTenant: b.comTenant, politica: politicaCorrente(), sujeitos: PRODUTO, classificador: null });
+  const operar = operacaoDeScreen({ comTenant: b.comTenant, politica: politicaCorrente(), classificador: null });
   await assert.rejects(
-    operar({ ...CTX, tenantId: "nao-e-uuid" }, { sujeitoTipo: "produto", sujeitoRef: QUOTE, categoriaDeclarada: "moda", textos: ["x"] }),
+    operar({ ...CTX, tenantId: "nao-e-uuid" }, { sujeitoTipo: CONDICOES, sujeitoRef: QUOTE, categoriaDeclarada: "moda", textos: ["x"] }),
   );
   assert.equal(b.transaccoes.length, 0);
+});
+
+test("KAM-222: o operacoesDoCom passa o classificador ao screen, e a decisao grava-se com o sujeito das condicoes", async () => {
+  // A montagem do `server.ts`: sem isto, um `operacoesDoCom` que esquecesse o
+  // classificador dava `condicional` a tudo e o caso acima continuava verde.
+  const anel = [`v1:${Buffer.alloc(32, 7).toString("base64")}`, null] as const;
+  const com = base({ categoriaDoTenant: "moda" });
+  const c = classificador("permitida");
+  const ligado = operacoesDoCom({ comTenant: com.comTenant, anel, classificador: c });
+  const r = await ligado.screen(CTX, { sujeitoTipo: CONDICOES, sujeitoRef: QUOTE, categoriaDeclarada: null, textos: ["entrega combinada consigo"] });
+  assert.equal(r.tipo, "ok");
+  if (r.tipo === "ok") assert.equal(r.valor.decisao, "permitida");
+  assert.equal(c.chamadas, 1);
+  assert.equal(com.gravadas.length, 1);
+  assert.equal(com.gravadas[0]?.sujeitoTipo, CONDICOES);
+  assert.equal(com.gravadas[0]?.sujeitoRef, QUOTE);
+  assert.equal(com.gravadas[0]?.tenantId, TENANT);
+
+  // E sem classificador, a mesma montagem fecha.
+  const sem = base({ categoriaDoTenant: "moda" });
+  const desligado = operacoesDoCom({ comTenant: sem.comTenant, anel });
+  const fechado = await desligado.screen(CTX, { sujeitoTipo: CONDICOES, sujeitoRef: QUOTE, categoriaDeclarada: null, textos: ["entrega combinada consigo"] });
+  assert.equal(fechado.tipo, "ok");
+  if (fechado.tipo === "ok") assert.notEqual(fechado.valor.decisao, "permitida");
 });

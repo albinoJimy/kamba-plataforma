@@ -15,7 +15,7 @@ export const ORIGENS = ["regra", "llm", "humano"] as const;
 export type Origem = (typeof ORIGENS)[number];
 
 /** O que se avalia — o `CHECK` de `screening_decision.sujeito_tipo`. */
-export const SUJEITOS = ["categoria", "produto"] as const;
+export const SUJEITOS = ["categoria", "produto", "condicoes"] as const;
 export type SujeitoTipo = (typeof SUJEITOS)[number];
 
 export const ESTADOS_DE_EVIDENCIA = ["CONFIRMADO", "INDÍCIO", "NÃO VERIFICADO"] as const;
