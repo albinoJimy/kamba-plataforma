@@ -147,15 +147,22 @@ class TestPedido(ComOrcamento):
         barreira = threading.Barrier(2)
         ids: list[str] = []
 
+        erros: list[BaseException] = []
+
         def pedir(ligacao) -> None:
-            barreira.wait()
-            ids.append(self._pedir(ligacao).quote_id)
+            try:
+                barreira.wait()
+                ids.append(self._pedir(ligacao).quote_id)
+            except BaseException as erro:  # noqa: BLE001 — o fio nao propaga
+                erros.append(erro)
 
         fios = [threading.Thread(target=pedir, args=(c,)) for c in ligacoes]
         for f in fios:
             f.start()
         for f in fios:
             f.join(30)
+        self.assertEqual(erros, [])
+        self.assertEqual(len(ids), 2)
         self.assertEqual(len(set(ids)), 1)
         self.assertEqual(len(self._linhas()), 1)
         self.assertEqual(len(self._eventos(rep.EVENTO_PEDIDO)), 1)
@@ -262,6 +269,92 @@ class TestResposta(ComOrcamento):
             self.assertEqual(notificacao.texto.count(" Kz"), 1)
 
 
+class TestCorreccoesDaRevisao(ComOrcamento):
+    def test_duas_respostas_no_mesmo_instante_dao_dois_botoes(self) -> None:
+        """Achado 10: a marca e estritamente crescente, mesmo com o mesmo `agora`."""
+        pedido = self._pedir()
+        agora = _agora()
+        a = self._responder(pedido.quote_id, "100 mil", agora=agora)
+        b = self._responder(pedido.quote_id, "120 mil", agora=agora)
+        self.assertNotEqual(a.action_id, b.action_id)
+        saida = Saida("livre")
+        self.assertEqual(self._tocar(a.action_id, saida).desfecho, rep.DESACTUALIZADO)
+        self.assertEqual(self._tocar(b.action_id, saida).desfecho, rep.ENVIADO)
+
+    def test_uma_proposta_invalida_nao_deixa_resposta_nem_botao(self) -> None:
+        """Achado 11: o validador corre antes da escrita."""
+        self._oferta(self.tenant, "Kz")
+        factories.contexto(self.semente, None)
+        pedido = rep.pedir(self.app, self.tenant, self.cliente, self.conversa.conversation_id,
+                           "Kz", None, _agora())
+        with self.assertRaises(rep.PropostaInvalidaError):
+            self._responder(pedido.quote_id)
+        self.assertEqual(self._linhas()[0][1:], ("pedido", None))
+        self.semente.execute("SELECT count(*) FROM platform.owner_actions WHERE tenant_id = %s", (self.tenant,))
+        self.assertEqual(self.semente.fetchone()[0], 0)
+
+    def test_quantidade_fora_do_dominio_fica_por_dizer(self) -> None:
+        """Achado 12: «200 000 unidades» nao rebenta o pedido."""
+        pedido = self._pedir(quantidade=200_000)
+        self.semente.execute("SELECT quantidade FROM platform.quote_requests WHERE quote_id = %s",
+                             (pedido.quote_id,))
+        self.assertIsNone(self.semente.fetchone()[0])
+
+    def test_os_pendentes_mais_novos_aparecem_primeiro(self) -> None:
+        """Achado 4: com mais abertos do que o limite, os novos nao se escondem."""
+        primeiro = self._pedir()
+        ultimo = rep.pedir(self.app, self.tenant, self.cliente, self.conversa.conversation_id,
+                           "SKU-301", None, _agora())
+        self.assertEqual([p.quote_id for p in rep.pendentes(self.app, self.tenant, limite=1)],
+                         [ultimo.quote_id])
+        self.assertNotEqual(primeiro.quote_id, ultimo.quote_id)
+
+    def test_a_referencia_encontra_um_e_so_um(self) -> None:
+        """Achado 8: a referencia e o prefixo, contra todos os abertos."""
+        pedido = self._pedir()
+        ref = regras.referencia_interna(pedido.quote_id)
+        self.assertEqual(rep.por_referencia(self.app, self.tenant, ref), pedido.quote_id)
+        self.assertEqual(rep.por_referencia(self.app, self.tenant, ref.lower()), pedido.quote_id)
+        self.assertIsNone(rep.por_referencia(self.app, self.tenant, "ORC-AAAAAAAA"))
+        outra = self.criar_conversa()
+        self.assertIsNone(rep.por_referencia(self.app, outra.tenant_id, ref))
+
+    def test_uma_proposta_vencida_nao_sai_pela_janela(self) -> None:
+        """Achado 5: o cliente responde depois da validade."""
+        pedido = self._pedir()
+        resposta = self._responder(pedido.quote_id)
+        self.assertEqual(self._tocar(resposta.action_id, Saida("template")).desfecho, rep.AGUARDA_JANELA)
+        depois = _agora() + datetime.timedelta(days=9)
+        aberta = Saida("livre")
+        self.assertEqual(rep.libertar_da_janela(self.app, self.tenant, self.cliente, aberta, depois), [])
+        self.assertEqual(aberta.chamadas, [])
+        self.assertEqual(self._linhas()[0][1], "expirado")
+
+    def test_um_toque_depois_da_validade_nao_envia(self) -> None:
+        pedido = self._pedir()
+        resposta = self._responder(pedido.quote_id)
+        accoes.confirmar(self.app, self.tenant, self.dono, f"confirm:{resposta.action_id}", _agora())
+        depois = _agora() + datetime.timedelta(days=9)
+        saida = Saida("livre")
+        envio = rep.enviar(self.app, self.tenant, self.dono, resposta.action_id, saida, depois)
+        self.assertEqual(envio.desfecho, rep.DESACTUALIZADO)
+        self.assertEqual(saida.chamadas, [])
+        self.assertEqual(self._linhas()[0][1], "expirado")
+
+    def test_um_desfecho_fora_do_contrato_nao_muda_nada(self) -> None:
+        pedido = self._pedir()
+        resposta = self._responder(pedido.quote_id)
+        with self.assertRaises(ValueError):
+            self._tocar(resposta.action_id, Saida("talvez"))
+        self.assertEqual(self._linhas()[0][1], "respondido")
+        self.assertEqual(self._eventos(rep.EVENTO_ENVIADO), [])
+        # E o mesmo botao repete o envio.
+        self.assertEqual(
+            rep.enviar(self.app, self.tenant, self.dono, resposta.action_id, Saida("livre"), _agora()).desfecho,
+            rep.ENVIADO,
+        )
+
+
 class TestEnvio(ComOrcamento):
     def _respondido(self, valor: str = "120 mil") -> tuple[str, rep.Resposta]:
         pedido = self._pedir()
@@ -304,15 +397,23 @@ class TestEnvio(ComOrcamento):
         ligacoes = [self.ligar("app"), self.ligar("app")]
         barreira = threading.Barrier(2)
 
+        erros: list[BaseException] = []
+        desfechos: list[object] = []
+
         def tocar(ligacao) -> None:
-            barreira.wait()
-            self._tocar(resposta.action_id, saida, ligacao)
+            try:
+                barreira.wait()
+                desfechos.append(self._tocar(resposta.action_id, saida, ligacao))
+            except BaseException as erro:  # noqa: BLE001 — o fio nao propaga
+                erros.append(erro)
 
         fios = [threading.Thread(target=tocar, args=(c,)) for c in ligacoes]
         for f in fios:
             f.start()
         for f in fios:
             f.join(30)
+        self.assertEqual(erros, [])
+        self.assertEqual(len(desfechos), 2)
         self.assertEqual(len(saida.chamadas), 1)
         self.assertEqual(len(self._eventos(rep.EVENTO_ENVIADO)), 1)
 
@@ -345,6 +446,9 @@ class TestEnvio(ComOrcamento):
         self.assertEqual(self._tocar(resposta.action_id, saida).desfecho, rep.NAO_ENVIADO)
         self.assertEqual(self._linhas()[0][1], "respondido")
         self.assertEqual(self._eventos(rep.EVENTO_ENVIADO), [])
+        # O botao ja esta gasto (`ja_confirmada`), e o envio repete-se com ele.
+        envio = rep.enviar(self.app, self.tenant, self.dono, resposta.action_id, Saida("livre"), _agora())
+        self.assertEqual(envio.desfecho, rep.ENVIADO)
 
     def test_outro_tipo_de_accao_nao_e_orcamento(self) -> None:
         action_id = accoes.propor(self.app, self.tenant, self.dono, "aprovar_conteudo", "c-1", _agora())
@@ -374,15 +478,22 @@ class TestFecho(ComOrcamento):
         self.assertFalse(rep.cancelar(self.app, self.tenant, self.dono, pedido.quote_id))
         self.assertEqual(rep.pendentes(self.app, self.tenant), [])
 
-    def test_o_gatilho_recusa_mudar_um_enviado_e_saltar_estados(self) -> None:
-        pedido = self._pedir()
+    def _transicao_recusada_pelo_gatilho(self, quote_id: str, sql: str) -> None:
         with self.assertRaises(Exception) as caso:
-            self.semente.execute(
-                "UPDATE platform.quote_requests SET estado = 'enviado', enviado_at = now() "
-                "WHERE quote_id = %s", (pedido.quote_id,)
-            )
+            self.semente.execute(sql, (quote_id,))
         self.assertEqual(sqlstate(caso.exception), VIOLACAO_DE_CHECK)
+        self.assertIn("quote_requests", str(caso.exception))
+
+    def test_o_gatilho_recusa_mudar_um_enviado_e_saltar_estados(self) -> None:
+        """Transicoes que **so** o gatilho recusa: todos os `CHECK` as aceitavam
+        (achado 6 da revisao — `pedido -> enviado` caia no `respondido_ck`)."""
+        pedido = self._pedir()
         resposta = self._responder(pedido.quote_id)
+        # `respondido -> pedido`: a linha tem resposta, e os CHECK aceitam-na.
+        self._transicao_recusada_pelo_gatilho(
+            pedido.quote_id,
+            "UPDATE platform.quote_requests SET estado = 'pedido' WHERE quote_id = %s",
+        )
         self._tocar(resposta.action_id, Saida("livre"))
         with self.assertRaises(Exception) as caso:
             self.semente.execute(

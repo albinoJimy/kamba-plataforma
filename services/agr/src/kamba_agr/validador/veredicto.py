@@ -75,13 +75,10 @@ VEREDICTOS: Final = (
 )
 
 #: Os `kind` de *fact* que sustentam um valor monetario (`MONEY_KINDS` do §9.1).
-#: O `quote_price` (KAM-123) e o valor que o dono fixou num orcamento, e
-#: **so sustenta com o `sku` dele na linha**, como o `price` — e e o unico que
-#: sustenta um valor numa linha `sob_consulta` (ver `_dinheiro`).
+#: O `quote_price` (KAM-123) e o valor que o dono fixou num orcamento, e **so**
+#: sustenta numa linha `sob_consulta` que fala de um produto so, o dele (ver
+#: `_dinheiro`). Numa linha de preco publicado nao sustenta nada.
 MONEY_KINDS: Final = ("price", "total", "quote_price")
-
-#: Os `kind` de dinheiro que pertencem a um produto e exigem o `sku` na linha.
-_KINDS_DE_PRODUTO: Final = ("price", "quote_price")
 
 
 class VeredictoDesconhecidoError(ValueError):
@@ -214,8 +211,12 @@ def _dinheiro(
         # preco de um `sob_consulta` nao existe no catalogo; existe na resposta
         # do dono a um pedido, e e so essa que se cita. Um `price` ou um
         # `total` com o mesmo valor continuam a recusar.
+        # **E so numa linha de um produto so** (achado da revisao
+        # adversarial): com dois `sku` na linha, um `quote_price` de um deles
+        # sustentava «SKU-100 e SKU-300: 120 000 Kz» com o SKU-300 de preco
+        # publicado, ou «… 120 000 Kz cada» para dois `sob_consulta`.
         if sob_consulta:
-            if not any(
+            if len(set(linha.skus)) != 1 or not any(
                 f.kind == "quote_price"
                 and f.sku in sob_consulta
                 and f.sku in linha.skus
@@ -245,9 +246,7 @@ def _dinheiro(
             # errado com preco certo» do ADR-007 — e na carga mais comum da loja
             # acontecia sempre, nao por acidente.
             continue
-        ligados = [
-            f for f in casam if f.kind in _KINDS_DE_PRODUTO and f.sku and f.sku in linha.skus
-        ]
+        ligados = [f for f in casam if f.kind == "price" and f.sku and f.sku in linha.skus]
         if not ligados:
             erros.append(
                 Erro(

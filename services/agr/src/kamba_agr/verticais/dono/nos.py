@@ -190,11 +190,14 @@ def confirm(deps: Dependencias):
             return _resposta_estatica(MSG_CONFIRMACAO_INDISPONIVEL)
         botao = _botao_do_turno(estado)
         desfecho = await porta.confirmar(estado["tenant_id"], estado["contact_id"], botao)
-        if desfecho == accoes.CONFIRMADA:
-            # **A accao executa aqui, e so com `confirmada`** (KAM-123): o
-            # `ja_confirmada` de um segundo toque nao chega a esta linha, e e
-            # isso que faz o duplo toque dar uma proposta. Uma accao que nao e
-            # `enviar_proposta` volta `nao_e_orcamento` e fica a frase de antes.
+        if desfecho in (accoes.CONFIRMADA, accoes.JA_CONFIRMADA):
+            # **A accao executa aqui** (KAM-123), e tambem num `ja_confirmada`:
+            # o botao gasta-se na confirmacao, e um envio que falhou a seguir
+            # (Outbound em baixo, `sem_template`) tem de poder repetir-se com o
+            # mesmo botao — achado da revisao adversarial. O envio e que e
+            # idempotente: tranca o pedido, so anda de `respondido`, e o
+            # Outbound tem a chave `orcamento:{quote_id}:{marca}`. O duplo
+            # toque continua a dar **uma** proposta, e o segundo le `ja_enviado`.
             envio = await _enviar_orcamento(deps, estado, botao)
             if envio is not None:
                 return _resposta_estatica(FRASE_DO_ENVIO.get(envio, MSG_CONFIRMADA))
@@ -213,7 +216,13 @@ async def _enviar_orcamento(deps: Dependencias, estado: Mapping[str, Any], botao
     porta = deps.orcamentos
     if action_id is None or porta is None:
         return None
-    envio = await porta.enviar(estado["tenant_id"], estado["contact_id"], action_id)
+    try:
+        envio = await porta.enviar(estado["tenant_id"], estado["contact_id"], action_id)
+    except Exception:  # noqa: BLE001 — o turno do dono nao rebenta por isto
+        # A base ou o Outbound falharam a meio. Nada mudou no pedido (o envio
+        # corre numa transaccao), e o mesmo botao tenta outra vez; a frase nao
+        # diz que a proposta saiu, e serve a qualquer tipo de accao.
+        return FALHA_DO_ENVIO
     if envio.desfecho == orcamento_repo.NAO_E_ORCAMENTO:
         return None
     return envio.desfecho
@@ -344,7 +353,16 @@ MSG_PROPOSTA_JA_ENVIADA: Final = "Esta proposta ja tinha sido enviada."
 MSG_PROPOSTA_DESACTUALIZADA: Final = (
     "Este botao era de um valor anterior. Use o botao da ultima resposta."
 )
+MSG_CONFIRMACAO_SEM_CONCLUSAO: Final = (
+    "Confirmacao registada, mas nao consegui concluir o pedido agora. Toque outra "
+    "vez no mesmo botao daqui a pouco."
+)
+
+#: O desfecho do no quando a porta levanta. Nao e da lista do `enviar`: e do no.
+FALHA_DO_ENVIO: Final = "falha_do_envio"
+
 FRASE_DO_ENVIO: Final = {
+    FALHA_DO_ENVIO: MSG_CONFIRMACAO_SEM_CONCLUSAO,
     orcamento_repo.ENVIADO: MSG_PROPOSTA_ENVIADA,
     orcamento_repo.AGUARDA_JANELA: MSG_PROPOSTA_A_ESPERA,
     orcamento_repo.NAO_ENVIADO: MSG_PROPOSTA_NAO_ENVIADA,

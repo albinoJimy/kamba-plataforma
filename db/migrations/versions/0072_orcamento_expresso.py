@@ -98,8 +98,9 @@ TRANSICOES = (
 
 #: Os tres acima **por extenso**, e nao derivados: o *gate* 3b le o SQL das
 #: revisoes sem as executar, e uma expressao nao se le. O ensaio
-#: `services/agr/tests/test_orcamento.py` confronta os tuplos com o `regras.py`,
-#: e o `db/tests/test_orcamento_schema.py` os literais com os tuplos.
+#: `services/agr/tests/test_orcamento.py` confronta os tuplos com o `regras.py`
+#: (`test_as_transicoes_sao_as_da_revisao`) e os literais com eles
+#: (`test_os_literais_sql_da_revisao_sao_os_tuplos`).
 ESTADOS_SQL = "'pedido', 'respondido', 'enviado', 'aguarda_janela', 'expirado', 'cancelado'"
 ABERTOS_SQL = "'pedido', 'respondido', 'aguarda_janela'"
 TRANSICOES_SQL = """
@@ -203,7 +204,11 @@ def upgrade() -> None:
             RAISE EXCEPTION 'quote_requests % e final: a linha nao muda', OLD.estado
               USING ERRCODE = '23514';
           END IF;
-          IF NOT ({TRANSICOES_SQL}) THEN
+          -- So uma mudanca de estado e transicao: um `UPDATE` que deixa o estado
+          -- como esta (o `SET estado = estado` do X-03) nao e salto nenhum, e o
+          -- bloco de baixo continua a impedir que a resposta mude sem passar a
+          -- `respondido`.
+          IF NEW.estado IS DISTINCT FROM OLD.estado AND NOT ({TRANSICOES_SQL}) THEN
             RAISE EXCEPTION 'transicao de quote_requests recusada: % -> %',
               OLD.estado, NEW.estado USING ERRCODE = '23514';
           END IF;

@@ -113,6 +113,9 @@ VALIDADE_NO_PASSADO: Final = "validade_no_passado"
 SEM_ORCAMENTOS: Final = "sem_orcamentos"
 FORA_DO_CATALOGO: Final = "fora_do_catalogo"
 
+#: O tecto do `quote_requests_quantidade_ck`.
+QUANTIDADE_MAXIMA: Final = 100_000
+
 _UUID: Final = re.compile(r"\A[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\Z")
 _REF: Final = re.compile(
     r"\A([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/(\d{1,20})\Z"
@@ -160,7 +163,15 @@ SQL_EMITIR: Final = (
 SQL_PENDENTES: Final = (
     "SELECT quote_id, sku, quantidade, estado, criado_at FROM platform.quote_requests "
     "WHERE tenant_id = %s AND estado IN ('pedido', 'respondido', 'aguarda_janela') "
-    "ORDER BY criado_at LIMIT %s"
+    "ORDER BY criado_at DESC LIMIT %s"
+)
+
+#: Os abertos cujo `quote_id` comeca pelo prefixo hexadecimal de uma referencia.
+#: Sem `LIMIT` a cortar: a resposta e «um», «nenhum» ou «mais de um».
+SQL_POR_PREFIXO: Final = (
+    "SELECT quote_id FROM platform.quote_requests "
+    "WHERE tenant_id = %s AND estado IN ('pedido', 'respondido', 'aguarda_janela') "
+    "AND quote_id::text LIKE %s LIMIT 2"
 )
 
 SQL_TRANCAR_PEDIDO: Final = (
@@ -171,7 +182,9 @@ SQL_TRANCAR_PEDIDO: Final = (
 
 SQL_RESPONDER: Final = (
     "UPDATE platform.quote_requests SET estado = 'respondido', valor_minor = %s, "
-    "validade_ate = %s, condicoes = %s, respondido_at = %s "
+    "validade_ate = %s, condicoes = %s, "
+    "respondido_at = GREATEST(%s::timestamptz, "
+    "COALESCE(respondido_at, '-infinity'::timestamptz) + interval '1 microsecond') "
     "WHERE tenant_id = %s AND quote_id = %s AND estado IN ('pedido', 'respondido') "
     "RETURNING respondido_at"
 )
@@ -189,7 +202,7 @@ SQL_MARCAR_JANELA: Final = (
 SQL_A_ESPERA_DA_JANELA: Final = (
     "SELECT quote_id FROM platform.quote_requests "
     "WHERE tenant_id = %s AND contact_id = %s AND estado = 'aguarda_janela' "
-    "ORDER BY criado_at"
+    "AND validade_ate >= %s ORDER BY criado_at"
 )
 
 #: Uma resposta cuja validade passou expira. Um `pedido` sem resposta **nao**
@@ -330,8 +343,13 @@ def pedir(
     if not isinstance(sku, str) or not sku.strip():
         raise OrcamentoRecusadoError(DESCONHECIDO)
     if quantidade is not None and (
-        not isinstance(quantidade, int) or isinstance(quantidade, bool) or quantidade < 1
+        not isinstance(quantidade, int)
+        or isinstance(quantidade, bool)
+        or not 1 <= quantidade <= QUANTIDADE_MAXIMA
     ):
+        # A quantidade e informacao para o dono e nada se calcula dela: fora do
+        # dominio do `quote_requests_quantidade_ck`, fica por dizer em vez de
+        # rebentar o pedido.
         quantidade = None
     with tenant_guard.tx(ligacao, tenant_id) as cursor:
         cursor.execute(SQL_OFERTA_SOB_CONSULTA, (tenant_id, sku))
@@ -385,13 +403,17 @@ def pendentes(ligacao: Any, tenant_id: str, limite: int = 20) -> list[Pendente]:
 def por_referencia(ligacao: Any, tenant_id: str, referencia: str) -> str | None:
     """O `quote_id` de um `ORC-…` aberto deste tenant, ou `None`.
 
-    A referencia sao trinta e dois bits do `quote_id`: casa-se contra os abertos
-    deste tenant, e mais de um e `None` — o dono escolhe pela lista.
+    A referencia sao trinta e dois bits do `quote_id`: casa-se o prefixo contra
+    **todos** os abertos deste tenant, e mais de um e `None` — o dono escolhe pela
+    lista, em vez de a resposta ir para o pedido de outro cliente.
     """
-    for pendente in pendentes(ligacao, tenant_id, limite=500):
-        if pendente.referencia == referencia.strip().upper():
-            return pendente.quote_id
-    return None
+    prefixo = regras.prefixo_da_referencia(referencia)
+    if prefixo is None:
+        return None
+    with tenant_guard.tx(ligacao, tenant_id) as cursor:
+        cursor.execute(SQL_POR_PREFIXO, (tenant_id, prefixo + "%"))
+        linhas = cursor.fetchall()
+    return _texto(linhas[0][0]) if len(linhas) == 1 else None
 
 
 # --------------------------------------------------------------- responder
@@ -433,6 +455,10 @@ def responder(
         if linha[0] not in (regras.PEDIDO, regras.RESPONDIDO):
             raise OrcamentoRecusadoError(FECHADO)
         sku = linha[3]
+        # **A proposta valida-se antes de se escrever a resposta**: um `sku` que
+        # o validador recuse deixava a linha `respondido` com um botao que o
+        # dono nunca viu. Levanta aqui, e o `ROLLBACK` leva tudo.
+        previsao = texto_da_proposta(quote_id, sku, valor_minor, validade, limpas, agora)
         cursor.execute(
             SQL_RESPONDER, (valor_minor, validade, limpas, agora, tenant_id, quote_id)
         )
@@ -440,7 +466,6 @@ def responder(
     action_id = accoes.propor(
         ligacao, tenant_id, contact_id, TIPO_DA_ACCAO, ref_da_resposta(quote_id, respondido_at), agora
     )
-    previsao = texto_da_proposta(quote_id, sku, valor_minor, validade, limpas, agora)
     return Resposta(
         quote_id=quote_id,
         valor_minor=valor_minor,
@@ -542,8 +567,13 @@ def _entregar(
     if desfecho == "template":
         cursor.execute(SQL_MARCAR_JANELA, (tenant_id, quote_id))
         return AGUARDA_JANELA
-    # `sem_template` (ou qualquer outro): nada saiu, e o pedido fica como estava.
-    return NAO_ENVIADO
+    if desfecho == "sem_template":
+        # Nada saiu, e o pedido fica `respondido`: o mesmo botao tenta outra vez
+        # (o no `confirm` volta a chamar o envio num `ja_confirmada`).
+        return NAO_ENVIADO
+    # Um desfecho fora do contrato da porta nao se le como «nao saiu»: pode ter
+    # saido. Levanta, e o `ROLLBACK` deixa o pedido como estava.
+    raise ValueError("desfecho_desconhecido")
 
 
 def enviar(
@@ -576,6 +606,11 @@ def enviar(
             return Envio(JA_ENVIADO, quote_id)
         if linha[0] != regras.RESPONDIDO or _marca(linha[7]) != marca:
             return Envio(DESACTUALIZADO, quote_id)
+        if linha[5] < regras.hoje_em_luanda(agora):
+            # A validade passou entre a resposta e o toque: nao se envia uma
+            # proposta vencida, e o pedido fecha-se pelo que e.
+            cursor.execute(SQL_EXPIRAR, (tenant_id, regras.hoje_em_luanda(agora)))
+            return Envio(DESACTUALIZADO, quote_id)
         return Envio(_entregar(cursor, tenant_id, quote_id, linha, porta, agora), quote_id)
 
 
@@ -590,7 +625,11 @@ def libertar_da_janela(
     """
     envios: list[Envio] = []
     with tenant_guard.tx(ligacao, tenant_id) as cursor:
-        cursor.execute(SQL_A_ESPERA_DA_JANELA, (tenant_id, contact_id))
+        # As vencidas fecham-se primeiro, e nao saem: um «valido ate» no
+        # passado e uma proposta que o cliente ja nao pode aceitar.
+        hoje = regras.hoje_em_luanda(agora)
+        cursor.execute(SQL_EXPIRAR, (tenant_id, hoje))
+        cursor.execute(SQL_A_ESPERA_DA_JANELA, (tenant_id, contact_id, hoje))
         ids = [_texto(q) for (q,) in cursor.fetchall()]
         for quote_id in ids:
             cursor.execute(SQL_TRANCAR_PEDIDO, (tenant_id, quote_id))

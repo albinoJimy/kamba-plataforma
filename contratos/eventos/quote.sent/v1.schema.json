@@ -152,7 +152,9 @@
         },
         "currency": {
           "type": "string",
-          "const": "AOA"
+          "enum": [
+            "AOA"
+          ]
         },
         "validade_ate": {
           "type": "string",

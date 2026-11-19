@@ -45,6 +45,7 @@ from typing import Any, Final
 from ..guardas.regras import veredicto_por_regras
 from ..validador.normalizacao import (
     CENTIMOS_POR_KZ,
+    sem_acento,
     MoedaEstrangeiraError,
     NaoEDinheiroError,
     kz_display,
@@ -162,6 +163,28 @@ _VIRGULA_DE_MILHARES: Final = re.compile(r"^\d{1,3},\d{3}$")
 _SINAIS_DE_CONTA: Final = re.compile(r"[%+*/=x×]|\ba\b|\bcada\b|\bpor\b", re.IGNORECASE)
 
 
+#: As formas de um numero que se aceitam **sem** multiplicador: so digitos
+#: («120000»), ou grupos de tres com **um** separador de milhares, espaco ou
+#: ponto, e centimos opcionais depois da virgula («120 000», «120.000,00»).
+_SEM_MULTIPLICADOR: Final = re.compile(r"\d+|\d{1,3}(?:( |\.)\d{3})(?:\1\d{3})*(?:,\d{2})?|\d+,\d{2}")
+
+#: Com multiplicador: um numero pequeno, com uma casa decimal opcional
+#: («120 mil», «1,5 milhoes»). «120.000 mil» e um factor de mil a mais.
+_COM_MULTIPLICADOR: Final = re.compile(r"\d{1,3}(?:,\d{1,3})?")
+
+
+def _bem_formado(grupo: str, tem_multiplicador: bool) -> bool:
+    """Se o grupo de digitos tem uma das formas que nao deixam duvida.
+
+    «120 50», «1 2 3», «12.000.00» e «1 200.000» recusam: o `para_centimos` le-os
+    (milhares por espaco, ultimo separador decimal), mas nenhum e a forma de um
+    preco escrito por quem o quis escrever, e o eco nao chega para apanhar um
+    zero a menos.
+    """
+    forma = _COM_MULTIPLICADOR if tem_multiplicador else _SEM_MULTIPLICADOR
+    return forma.fullmatch(grupo.replace("\u00a0", " ")) is not None
+
+
 class ValorRecusadoError(ValueError):
     """O texto do dono nao da um valor. O `codigo` e um dos `RECUSAS_DO_VALOR`.
 
@@ -189,6 +212,8 @@ def ler_valor_do_dono(texto: object) -> int:
     if len(grupos) > 1:
         raise ValorRecusadoError(VALOR_COM_VARIOS_NUMEROS)
     tem_multiplicador = bool(re.search(r"\b(mil|milh[oõ]es|milh[aã]o)\b", limpo, re.IGNORECASE))
+    if grupos and not _bem_formado(grupos[0], tem_multiplicador):
+        raise ValorRecusadoError(VALOR_AMBIGUO)
     if grupos and not tem_multiplicador and _VIRGULA_DE_MILHARES.match(grupos[0]):
         raise ValorRecusadoError(VALOR_AMBIGUO)
     if grupos and not tem_multiplicador and re.fullmatch(r"\d+\.\d{1,2}", grupos[0]):
@@ -229,14 +254,39 @@ RECUSAS_DAS_CONDICOES: Final = (CONDICOES_LONGAS, CONDICOES_COM_NUMEROS, CONDICO
 _VEREDICTOS_QUE_RECUSAM: Final = ("injection", "abuse", "card_data", "sensitive")
 
 
+#: As palavras de numero que podem ser artigo: «uma entrega», «um sinal». So
+#: estas passam; «tres dias», «dez por cento» e «meia duzia» recusam.
+_ARTIGOS: Final = frozenset({"um", "uma"})
+
+#: O que exprime uma quantidade ou uma percentagem sem ser palavra de numero.
+_QUANTIFICADORES: Final = re.compile(r"\b(por ?cento|percent\w*|duzia|dezena|centena|meia|metade|dobro|triplo)\b")
+
+
+def _tem_numero_por_extenso(texto: str) -> bool:
+    """Uma palavra de numero (menos o artigo) ou um quantificador.
+
+    **O extractor do validador nao chega**: le «dez mil kwanzas» por ter moeda,
+    mas nao «tres dias» nem «dez por cento de sinal», e a proposta com isso
+    passava a camada 2 (achado da revisao adversarial). Recusa-se pela lista de
+    palavras do proprio `normalizacao.py`, que e a lista do parser.
+    """
+    from ..validador.normalizacao import PALAVRAS_DE_NUMERO
+
+    normal = sem_acento(texto.lower())
+    palavras = set(re.findall(r"[a-z]+", normal))
+    if (palavras & PALAVRAS_DE_NUMERO) - _ARTIGOS - {"e"}:
+        return True
+    return _QUANTIFICADORES.search(normal) is not None
+
+
 def conferir_condicoes(texto: object) -> str | None:
     """As condicoes limpas, `None` se nao houver, ou levanta `ValueError(codigo)`.
 
-    **Sem numeros, nem por extenso**, e a razao e a do *renderer*: as condicoes
-    vao ao cliente dentro da proposta, e um numero escrito pelo dono ali era um
-    numero que nenhum *fact* sustenta — o validador recusava a proposta inteira.
-    Recusa-se aqui, onde o dono ainda pode reescrever («entrega em tres dias»
-    passa a «entrega combinada consigo»).
+    **Sem numeros, nem por extenso**: as condicoes vao ao cliente dentro da
+    proposta, e um numero escrito pelo dono ali era um numero que nenhum *fact*
+    sustenta. Recusa-se aqui, onde o dono ainda pode reescrever («entrega em tres
+    dias» passa a «entrega combinada consigo»), e **nao** se confia no validador:
+    o extractor dele nao le percentagens nem quantidades por extenso.
 
     A guarda e a de entrada do KAM-033 (`veredicto_por_regras`), as mesmas
     regras de injeccao que um cliente encontra: um texto do dono e dado nao
@@ -253,7 +303,11 @@ def conferir_condicoes(texto: object) -> str | None:
         raise ValueError(CONDICOES_LONGAS)
     from ..validador.extraccao import extrair
 
-    if re.search(r"\d", limpo) or any(linha.numeros for linha in extrair(limpo)):
+    if (
+        re.search(r"\d", limpo)
+        or any(linha.numeros for linha in extrair(limpo))
+        or _tem_numero_por_extenso(limpo)
+    ):
         raise ValueError(CONDICOES_COM_NUMEROS)
     if veredicto_por_regras(limpo) in _VEREDICTOS_QUE_RECUSAM:
         raise ValueError(CONDICOES_RECUSADAS)
@@ -284,6 +338,16 @@ def referencia_interna(quote_id: object) -> str:
     return "ORC-" + "".join(
         _LETRAS_DA_REFERENCIA[int(c, 16)] for c in uuid.UUID(str(quote_id)).hex[:8]
     )
+
+
+def prefixo_da_referencia(referencia: object) -> str | None:
+    """Os oito hexadecimais de onde uma referencia `ORC-…` veio, ou `None`."""
+    if not isinstance(referencia, str):
+        return None
+    casado = re.fullmatch(r"ORC-([A-HJ-NP-R]{8})", referencia.strip().upper())
+    if casado is None:
+        return None
+    return "".join(f"{_LETRAS_DA_REFERENCIA.index(c):x}" for c in casado.group(1))
 
 
 # ------------------------------------------------------------- a proposta
@@ -327,7 +391,7 @@ def modelo_da_proposta(
     linhas = [
         ROTULO,
         f"Referencia: {referencia_interna(qid)}",
-        f"Produto {sku}: {{{{quote_price:{qid}}}}}",
+        f"Valor final ({sku}): {{{{quote_price:{qid}}}}}",
         f"Valido ate {{{{validade:{qid}}}}}",
     ]
     if condicoes:
