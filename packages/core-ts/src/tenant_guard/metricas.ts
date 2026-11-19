@@ -11,8 +11,9 @@
  * privilégio acontece **antes** de qualquer *trigger*: nenhum objecto da base vê
  * a tentativa nem a pode contar, e o compose não tem quem recolha o registo do
  * PostgreSQL (o KAM-203 mediu-o). Quem a vê é quem recebeu o erro. O
- * `comTenant` e o `comBatch` são o sítio por onde passa toda a transacção da
- * aplicação em TypeScript, e o `catch` deles vê o `42501` antes de o devolver.
+ * `comTenant` e o `comBatch` são os *helpers* de transacção da aplicação em
+ * TypeScript, e o `catch` deles vê o `42501` antes de o devolver. **Não são o
+ * único caminho**: há transacções abertas à mão (ver o limite, abaixo).
  *
  * **O predicado:** `code === "42501"` **e** a mensagem a nomear `trust_level`
  * (`permission denied for table trust_level`). A mensagem traduz-se com o
@@ -27,8 +28,11 @@
  *
  * **O limite, dito.** Conta só o que passa por uma transacção destes dois
  * *helpers*, num processo TypeScript que a sirva: uma consulta solta num *pool*,
- * um `catch` dentro do trabalho que engula o erro, um processo Python ou uma
- * ligação directa com a credencial do `kamba_app` não chegam aqui. Ver essas
+ * uma transacção aberta à mão com `BEGIN` (o `consumir` de `../eventos/consumo.ts`,
+ * o `comContexto` de `../eventos/accoes.ts`, a DLQ, o publicador, o adaptador da
+ * `../capacidade/sql.ts`), um `catch` dentro do trabalho que engula o erro, um
+ * processo Python ou uma ligação directa com a credencial do `kamba_app` não
+ * chegam aqui. Ver essas
  * pede o registo do PostgreSQL recolhido — peça nova, com licença por decidir —
  * ou esquema novo: é o credor que o bloco do KAM-219 nomeia. E não distingue o
  * papel: um `42501` do `kamba_batch` sobre o tecto (mudar a moeda, apagar)

@@ -141,8 +141,8 @@ TESTES_OBRIGATORIOS = (
     # KAM-219: o adversarial (f) do KAM-096 com os dois lados — a recusa da base
     # e o contador que a regra `confianca_tecto_escrita_recusada` le — e o
     # controlo dos Testes Requeridos, a escrita do `kamba_batch`.
-    "o kamba_app no lugar do lote leva 42501, nao escreve o tecto, e a recusa conta uma vez",
-    "o kamba_app a mudar o tecto do proprio tenant, com o contexto dele, leva 42501 e conta",
+    "o recalculo com o kamba_app no lugar do lote e recusado na leitura do motivo, e a recusa conta uma vez",
+    "o kamba_app a escrever o tecto do proprio tenant, com o contexto dele, leva 42501 e cada tentativa conta",
     "o controlo: o mesmo recalculo como kamba_batch escreve o tecto e nao conta",
 )
 

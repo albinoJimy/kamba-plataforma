@@ -179,3 +179,28 @@ tests:
       - eval_time: 75m
         alertname: confianca_tecto_escrita_recusada
         exp_alerts: []
+
+  # O achado da revisao adversarial: uma recusa **antes** do primeiro *scrape*
+  # (o lote corre a volta diaria no arranque) faz a primeira amostra valer 1, e o
+  # `increase` sozinho nunca a via. O segundo ramo da regra apanha-a, e resolve
+  # quando o `job` ja tem serie 10 min atras.
+  - interval: 1m
+    name: "tecto: um processo que nasce ja com uma recusa dispara, e resolve"
+    input_series:
+      - series: 'tenant_guard_tecto_recusado_total{job="onboarding_lote",instance="onboarding-lote:3014"}'
+        values: '_x5 1x40'
+    alert_rule_test:
+      - eval_time: 7m
+        alertname: confianca_tecto_escrita_recusada
+        exp_alerts:
+          - exp_labels:
+              severity: P2
+              componente: gov
+              job: onboarding_lote
+            exp_annotations:
+              resumo: A base recusou (42501) a uma transaccao da aplicacao uma operacao sobre platform.trust_level.
+              qual_tenant: Nao se le desta serie (OBS-I); o job diz o processo, e o runbook diz onde procurar.
+              runbook_url: https://github.com/albinoJimy/kamba-plataforma/blob/main/docs/runbooks/trust-e-safety.md
+      - eval_time: 25m
+        alertname: confianca_tecto_escrita_recusada
+        exp_alerts: []

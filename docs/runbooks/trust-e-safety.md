@@ -97,7 +97,7 @@ de um onboarding aprovado), `entrega` (depois de um `order.delivered`, e o BullM
 Uma transacção do `comTenant` ou do `comBatch` (`../../packages/core-ts/src/tenant_guard/`) recebeu da base
 um `42501` que nomeia `trust_level`. Só o `kamba_batch` escreve o tecto (KAM-096), e nenhum código da
 aplicação o tenta escrever com outro papel: ou alguém está a tentar mudar um tecto por um caminho que não
-devia existir (uma injecção, um defeito novo), ou um processo tem a credencial errada no lugar da do lote.
+devia existir (uma injecção, um defeito novo), ou o próprio lote perdeu um privilégio sobre o tecto.
 **A base já recusou**: o tecto não mudou. O alerta existe para que se saiba quem tentou.
 
 - **Qual processo.** A etiqueta `job` diz qual: `onboarding_lote`, `com` ou `entrada`.
@@ -112,7 +112,7 @@ devia existir (uma injecção, um defeito novo), ou um processo tem a credencial
   o registo do processo e do proxy, e seguir o [`RB-K10`](RB-K10-incidente-de-seguranca.md) se o
   pedido vier de fora.
 - **O que esta regra não vê.** Uma ligação directa à base com a credencial do `kamba_app`, um processo
-  Python ou uma consulta fora dos *helpers* não chegam ao contador. Ver essas pede o registo do PostgreSQL
+  Python, uma transacção aberta à mão (o `consumir` dos eventos, o `comContexto` das acções, a DLQ, o publicador, a lista de espera) ou uma consulta solta num *pool* não chegam ao contador. Ver essas pede o registo do PostgreSQL
   recolhido, que o compose não tem; o credor está no bloco do KAM-219.
 
 ## Controlo de versões

@@ -501,7 +501,8 @@ metricas:
   # tenant (`OBS-I`); nasce a zero, e cada processo que usa os *helpers* serve a
   # sua. A regra `confianca_tecto_escrita_recusada` esta no `kamba-trust.yml`.
   # So ve o que passa por esses *helpers* num processo TypeScript: uma ligacao
-  # directa nao chega aqui (o bloco do KAM-219 diz o credor).
+  # directa, um processo Python ou uma transaccao aberta a mao (o `consumir` dos
+  # eventos, entre outras) nao chegam aqui (o bloco do KAM-219 diz o credor).
   - nome: tenant_guard_tecto_recusado_total
     tipo: counter
     fonte: packages/core-ts/src/tenant_guard/metricas.ts
