@@ -61,6 +61,7 @@ import {
   type Ambiente,
 } from "@kamba/core-ts/secrets";
 import { comTenant } from "@kamba/core-ts/tenant_guard";
+import { classificadorPeloAgr, type ClassificadorDeCategorias } from "@kamba/core-ts/screening";
 
 import { createApp } from "./app.ts";
 import { DEFAULT_PORT, SERVICE } from "./meta.ts";
@@ -71,6 +72,20 @@ import type { ClienteSql, ComTenant } from "./port/index.ts";
 
 /** A variável com a cadeia de ligação. Lida na primeira ligação, não aqui. */
 export const VARIAVEL_DA_BASE = "KAMBA_COM_DB_URL";
+
+/**
+ * A base do AGR, para o classificador do `screen` (KAM-222).
+ *
+ * **Opcional.** Sem ela o classificador fica `null`, e o `screen` lê-o como
+ * indisponível: uma `permitida` das regras com confiança baixa sai
+ * `condicional`, e o chamador recusa. É fechado. Com ela, a credencial
+ * `agr_screening_token` passa a obrigatória no arranque, pela regra do
+ * `com_internal_token` no `onboarding-web`: só a pede quem a usa.
+ */
+export const VARIAVEL_DO_AGR = "KAMBA_AGR_URL";
+
+/** O `id` da credencial da rota do classificador (`ops/secrets-inventory.yaml`). */
+export const SEGREDO_DO_CLASSIFICADOR = "agr_screening_token";
 
 /** A variável que diz o ambiente. O domínio é o `AMBIENTES` do `secrets`. */
 export const VARIAVEL_DO_AMBIENTE = "KAMBA_ENV";
@@ -116,13 +131,19 @@ const log = instalar(SERVICE);
 
 const ambiente = ambienteDoProcesso();
 
+const urlDoAgr = process.env[VARIAVEL_DO_AGR]?.trim().replace(/\/+$/, "") || null;
+
 let anel: readonly [string, string | null];
 let credencial: string;
+let classificador: ClassificadorDeCategorias | null = null;
 try {
   const segredos = await Secrets.arrancar({
     servico: SERVICE,
     provider: new EnvSecretProvider({ ambiente }),
-    obrigatorios: [REF_SEGREDO_DE_INTENTS, SEGREDO_DA_API],
+    obrigatorios:
+      urlDoAgr === null
+        ? [REF_SEGREDO_DE_INTENTS, SEGREDO_DA_API]
+        : [REF_SEGREDO_DE_INTENTS, SEGREDO_DA_API, SEGREDO_DO_CLASSIFICADOR],
     // O aviso do cofre não leva valores, por construção — ver o `arranque.ts`.
     aviso: () => log.warn({ outcome: "cofre_indisponivel_no_arranque" }),
   });
@@ -148,6 +169,14 @@ try {
   // de diagnosticar.
   for (const valor of anel) {
     if (valor !== null) lerSegredo(valor);
+  }
+  if (urlDoAgr !== null) {
+    classificador = classificadorPeloAgr({
+      url: urlDoAgr,
+      // Lida a cada chamada: roda no cofre sem reinício.
+      credencial: () => segredos.get(SEGREDO_DO_CLASSIFICADOR), // kamba:secrets-inventory dinamico a constante SEGREDO_DO_CLASSIFICADOR deste ficheiro e o dono do nome em codigo
+      fetch: globalThis.fetch,
+    });
   }
 } catch (erro) {
   log.excepcao(erro, "cofre_indisponivel");
@@ -184,6 +213,7 @@ const operacoes = operacoesDoCom({
   comTenant: transaccaoDeTenant,
   anel,
   bandeiras: bandeirasDoAmbiente(),
+  classificador,
 });
 
 const hostname = process.env.HOST?.trim() || "127.0.0.1";

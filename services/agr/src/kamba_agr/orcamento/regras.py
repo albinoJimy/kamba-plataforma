@@ -5,7 +5,7 @@
 | `ESTADOS` e `TRANSICOES` | os seis estados de `quote_requests.estado` e por onde se anda |
 | `ler_valor_do_dono` | o valor **digitado pelo dono** -> centimos, ou recusa por ambiguidade |
 | `validade_por_omissao` | a data de validade quando o dono nao a da (sete dias, *proposta*) |
-| `conferir_condicoes` | o texto livre do dono: tamanho, guarda de entrada e **sem numeros** |
+| `conferir_condicoes` | o texto livre do dono: tamanho, **sem numeros**, guarda de entrada e o `screen` do KAM-088 |
 | `referencia_interna` | a referencia `ORC-…`, derivada do `quote_id` e sem numeracao fiscal |
 | `modelo_da_proposta`, `preencher` | o texto que vai ao cliente, com os numeros por referencia e preenchidos **so** pelos *facts* |
 
@@ -41,6 +41,13 @@ import datetime
 import re
 import uuid
 from typing import Any, Final
+
+from kamba_core.catalogo.screening import DECISOES as DECISOES_DO_SCREEN
+from kamba_core.catalogo.screening import (
+    PERMITIDA,
+    SCREENING_INDISPONIVEL,
+    PortaDeScreening,
+)
 
 from ..guardas.regras import veredicto_por_regras
 from ..validador.normalizacao import (
@@ -248,6 +255,21 @@ CONDICOES_COM_NUMEROS: Final = "condicoes_com_numeros"
 CONDICOES_RECUSADAS: Final = "condicoes_recusadas"
 RECUSAS_DAS_CONDICOES: Final = (CONDICOES_LONGAS, CONDICOES_COM_NUMEROS, CONDICOES_RECUSADAS)
 
+
+class CondicoesRecusadasError(ValueError):
+    """As condicoes recusadas pelo `screen`, com a regra que as recusou.
+
+    O `str` e o codigo (`condicoes_recusadas`), como em toda a recusa das
+    condicoes, para que quem trata o `ValueError` nao tenha de saber deste caso.
+    A `regra` e o `id` da politica que decidiu (`alcool`, `armas`, ...), uma
+    regra sintetica do motor (`nao_listada`, `classificador_indisponivel`) ou
+    `screening_indisponivel` quando a porta nao respondeu. **Nunca leva o texto.**
+    """
+
+    def __init__(self, regra: str) -> None:
+        super().__init__(CONDICOES_RECUSADAS)
+        self.regra = regra
+
 #: Os veredictos da guarda de entrada que as condicoes nao podem ter. O `ok`, o
 #: `out_of_domain` e o `None` passam: «entrega ao domicilio» nao e assunto da
 #: loja para as regras do cliente, e nao precisa de ser.
@@ -279,7 +301,9 @@ def _tem_numero_por_extenso(texto: str) -> bool:
     return _QUANTIFICADORES.search(normal) is not None
 
 
-def conferir_condicoes(texto: object) -> str | None:
+def conferir_condicoes(
+    texto: object, *, screening: PortaDeScreening, tenant_id: str, quote_id: str
+) -> str | None:
     """As condicoes limpas, `None` se nao houver, ou levanta `ValueError(codigo)`.
 
     **Sem numeros, nem por extenso**: as condicoes vao ao cliente dentro da
@@ -290,7 +314,14 @@ def conferir_condicoes(texto: object) -> str | None:
 
     A guarda e a de entrada do KAM-033 (`veredicto_por_regras`), as mesmas
     regras de injeccao que um cliente encontra: um texto do dono e dado nao
-    fiavel quando chega a outra pessoa.
+    fiavel quando chega a outra pessoa. Fica como defesa em profundidade.
+
+    **Depois, o `screen` do KAM-088** (KAM-222), pela `screening` com o
+    `quote_id` como sujeito. So `permitida` deixa as condicoes seguir: a
+    `condicional` e a `bloqueada` recusam, e uma porta que levanta tambem. As
+    recusas levantam `CondicoesRecusadasError` com a regra. O `screen` corre
+    **por ultimo** por duas razoes: as recusas locais nao custam uma chamada ao
+    COM nem ao classificador, e um texto com numeros nunca sai do AGR.
     """
     if texto is None:
         return None
@@ -311,7 +342,32 @@ def conferir_condicoes(texto: object) -> str | None:
         raise ValueError(CONDICOES_COM_NUMEROS)
     if veredicto_por_regras(limpo) in _VEREDICTOS_QUE_RECUSAM:
         raise ValueError(CONDICOES_RECUSADAS)
+    try:
+        resultado = screening.screen(tenant_id, quote_id, None, (limpo,))
+    except Exception:  # noqa: BLE001 — uma porta que falha recusa
+        raise CondicoesRecusadasError(SCREENING_INDISPONIVEL) from None
+    if getattr(resultado, "decisao", None) != PERMITIDA:
+        raise CondicoesRecusadasError(_regra_da_recusa(resultado))
     return limpo
+
+
+def _regra_da_recusa(resultado: object) -> str:
+    """A regra que recusou: a **ultima** da lista do `screen`.
+
+    Nao e o `categoria_restrita` do Catalogo AI, e a diferenca importa. Numa
+    `permitida` das regras que o classificador desceu, a lista do `screen` e a
+    categoria permitida e depois a regra sintetica (`moda`,
+    `classificador_indisponivel`), e o primeiro da lista com forma de categoria
+    seria `moda`, que e a categoria que **passou**. A regra sintetica entra
+    sempre no fim, e uma lista so de regras restritivas vem ordenada: a ultima e
+    sempre uma razao da recusa.
+    """
+    if getattr(resultado, "decisao", None) not in DECISOES_DO_SCREEN:
+        return SCREENING_INDISPONIVEL
+    regras = getattr(resultado, "regras", ())
+    if regras and isinstance(regras[-1], str) and regras[-1]:
+        return regras[-1]
+    return str(getattr(resultado, "decisao"))
 
 
 # ------------------------------------------------------------ a referencia
@@ -460,6 +516,7 @@ __all__ = [
     "VALIDADE_POR_OMISSAO",
     "ValorRecusadoError",
     "conferir_condicoes",
+    "CondicoesRecusadasError",
     "data_display",
     "eco_do_valor",
     "hoje_em_luanda",

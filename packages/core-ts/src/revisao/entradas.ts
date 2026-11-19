@@ -250,6 +250,11 @@ function hex(bytes: Uint8Array): string {
  * produto. A `bloqueada` não abre caso — rejeita com motivo (§4.1, passo 4) e o
  * dono tem o recurso.
  *
+ * **As `condicoes` de um orçamento não abrem caso** (KAM-222): não há revisão
+ * humana das condições, por decisão do fundador de 2026-11-19 (opção A) — uma
+ * condição que não sai `permitida` recusa, e o dono envia o orçamento sem ela.
+ * Um caso `catalogo` com o `quote_id` como `sku` era uma revisão de nada.
+ *
  * **Grava primeiro e abre depois**: um caso aberto sem a decisão gravada era
  * uma revisão de nada. E se a abertura falhar, a `condicional` gravada continua
  * a impedir a publicação (`assertPublishable` dá `por_rever`), que é a falha
@@ -260,6 +265,7 @@ export function escritorComFila(escritor: EscritorDeDecisoes, servico: ServicoDe
     async gravar(linha: LinhaDeDecisao) {
       await escritor.gravar(linha);
       if (linha.decisao !== "condicional" || linha.origem === "humano") return;
+      if (linha.sujeitoTipo === "condicoes") return;
       const chave: ChaveDeScreening = {
         sujeitoTipo: linha.sujeitoTipo,
         sujeitoRef: linha.sujeitoRef,

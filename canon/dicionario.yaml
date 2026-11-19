@@ -12,7 +12,7 @@
 
 version: 1
 fonte: "specs/02_Dicionario_de_Dados_Canonico.md"
-versao_dicionario: "1.119"
+versao_dicionario: "1.120"
 entradas:
   - seccao: "3.1"
     conceito: "Contacto"
@@ -10120,11 +10120,21 @@ entradas:
       - "money"
     variantes_literais: []
   - seccao: "3.39"
-    conceito: "As nove rotas da API interna do COM"
-    canonico: "POST /internal/offer-view, /internal/propose-cart, /internal/create-order, /internal/get-order, /internal/list-orders, /internal/transition, /internal/request-owner-confirmation, /internal/list-offers, /internal/update-offer"
-    literais: []
-    nomes: []
+    conceito: "As rotas da API interna do COM"
+    canonico: "Doze, as do ROTAS de ../services/com/src/api/interna.ts: POST /internal/offer-view, /internal/propose-cart, /internal/create-order, /internal/get-order, /internal/list-orders, /internal/transition, /internal/request-owner-confirmation, /internal/list-offers, /internal/update-offer, /internal/get-offer, /internal/channel-view, /internal/screen"
+    literais:
+      - "ROTAS"
+    nomes:
+      - "ROTAS"
     nomes_nota:
+      - "list"
+      - "offers"
+      - "update"
+      - "offer"
+      - "get"
+      - "channel"
+      - "view"
+      - "screen"
       - "propose"
       - "cart"
       - "create"
@@ -15422,21 +15432,25 @@ entradas:
     variantes_literais: []
   - seccao: "3.58"
     conceito: "Sujeito de uma decisão"
-    canonico: "screening_decision.sujeito_tipo ∈ {categoria, produto}"
+    canonico: "screening_decision.sujeito_tipo ∈ {categoria, produto, condicoes}"
     literais:
       - "screening_decision.sujeito_tipo"
       - "categoria"
       - "produto"
+      - "condicoes"
     nomes:
       - "screening_decision.sujeito_tipo"
       - "categoria"
       - "produto"
+      - "condicoes"
     nomes_nota:
+      - "condicoes"
       - "sujeito_ref"
       - "categoria"
       - "produto"
       - "sku"
       - "offer_terms"
+      - "quote_id"
     variantes_literais: []
   - seccao: "3.58"
     conceito: "Decisão gravada"
@@ -15609,6 +15623,82 @@ entradas:
       - "litellm_virtual_key"
       - "tenant.approved"
       - "dat.llm_call_log"
+    variantes_literais: []
+  - seccao: "3.58"
+    conceito: "Rota do screen no COM"
+    canonico: "POST /internal/screen, a 12.ª rota da API interna do COM (../services/com/src/api/interna.ts), servida pela operação screen das OperacoesDoCom (../services/com/src/screening/index.ts)"
+    literais:
+      - "screen"
+      - "OperacoesDoCom"
+    nomes:
+      - "screen"
+      - "OperacoesDoCom"
+    nomes_nota:
+      - "screen"
+      - "politicaCorrente"
+      - "classificadorPeloAgr"
+      - "EscritorSql"
+      - "sujeito_tipo"
+      - "sujeito_ref"
+      - "categoria_declarada"
+      - "null"
+      - "categoria"
+      - "textos"
+      - "decisao"
+      - "regras"
+      - "versao_politica"
+      - "confianca"
+      - "SUJEITOS_DA_ROTA"
+      - "SUJEITOS"
+      - "tipos.ts"
+      - "CHECK"
+      - "VALIDATION_ERROR"
+      - "produto"
+      - "sku"
+      - "UPSTREAM_DOWN"
+      - "condicional"
+      - "KAMBA_AGR_URL"
+      - "agr_screening_token"
+    variantes_literais: []
+  - seccao: "3.58"
+    conceito: "Ponte Python do screen"
+    canonico: "ScreeningPeloCom (../services/agr/src/kamba_agr/tls/screening.py), um PortaDeScreening sobre o ClienteDoCom, com o sujeito fixado na construção; erro ScreeningIndisponivelError"
+    literais:
+      - "ScreeningPeloCom"
+      - "PortaDeScreening"
+      - "ClienteDoCom"
+      - "ScreeningIndisponivelError"
+    nomes:
+      - "screen"
+      - "ScreeningPeloCom"
+      - "PortaDeScreening"
+      - "ClienteDoCom"
+      - "ScreeningIndisponivelError"
+    nomes_nota:
+      - "produto"
+      - "PortaDeScreening"
+      - "categoria_declarada"
+      - "None"
+    variantes_literais: []
+  - seccao: "3.58"
+    conceito: "Recusa das condições pelo screen"
+    canonico: "CondicoesRecusadasError, com o código condicoes_recusadas e o atributo regra"
+    literais:
+      - "CondicoesRecusadasError"
+      - "condicoes_recusadas"
+      - "regra"
+    nomes:
+      - "screen"
+      - "CondicoesRecusadasError"
+      - "condicoes_recusadas"
+      - "regra"
+    nomes_nota:
+      - "permitida"
+      - "regra"
+      - "screen"
+      - "id"
+      - "classificador_indisponivel"
+      - "screening_indisponivel"
     variantes_literais: []
   - seccao: "3.59"
     conceito: "Documento do índice"
@@ -23655,6 +23745,7 @@ dominios:
     valores:
       - "categoria"
       - "produto"
+      - "condicoes"
     seccao: "3.58"
     conceito: "Sujeito de uma decisão"
     so_no_registo: false

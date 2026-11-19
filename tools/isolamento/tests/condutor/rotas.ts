@@ -1300,8 +1300,9 @@ async function lerPorContacto(
 
 // ------------------------------------------------------ a API interna do COM
 //
-// As onze superficies da API interna do COM: as nove rotas `POST /internal/*`
-// (sete do KAM-178 e as duas do painel do dono, KAM-099), o `GET /metrics` e o
+// As catorze superficies da API interna do COM: as doze rotas `POST /internal/*`
+// (sete do KAM-178, as duas do painel do dono do KAM-099, as duas leituras do
+// KAM-190 e o `screen` do KAM-222), o `GET /metrics` e o
 // `ALL /internal/*` da app construida **sem** a API montada.
 //
 // ## A propriedade que este grupo mede, e a que ele **nao** mede
@@ -1345,8 +1346,9 @@ async function lerPorContacto(
 // `nota`.
 
 /**
- * As onze rotas, pela ordem de `services/com/src/api/interna.ts`: as sete do
- * KAM-178, as duas do painel do KAM-099 e as duas leituras do KAM-190.
+ * As doze rotas, pela ordem de `services/com/src/api/interna.ts`: as sete do
+ * KAM-178, as duas do painel do KAM-099, as duas leituras do KAM-190 e o
+ * `screen` do KAM-222.
  */
 const ROTAS_DO_COM = [
   "/internal/offer-view",
@@ -1360,9 +1362,10 @@ const ROTAS_DO_COM = [
   "/internal/update-offer",
   "/internal/get-offer",
   "/internal/channel-view",
+  "/internal/screen",
 ] as const;
 
-/** O `item` enumerado de uma das onze. Copiado do caso, nao derivado dele. */
+/** O `item` enumerado de uma das doze. Copiado do caso, nao derivado dele. */
 function itemDoCom(rota: string): string {
   return `rota:com:api/interna:apiInterna:POST:${rota}`;
 }
@@ -1584,6 +1587,14 @@ function operacoesDeEnsaioDoCom(
         valorDeA({ estado: "ativo", restrito: false, nivel: 1, tectoPedidoMinor: 5_000_000n, avisos: [canarioDeA] }),
       );
     },
+    // KAM-222: o `screen`. O canario de A vai numa regra, que a resposta leva.
+    async screen(ctx: unknown) {
+      return servir(
+        "screen",
+        ctx,
+        valorDeA({ decisao: "permitida", regras: [canarioDeA], versao_politica: "2026.11.0", confianca: 0.95 }),
+      );
+    },
     async alterarOferta(ctx: unknown) {
       return servir(
         "alterarOferta",
@@ -1701,6 +1712,9 @@ async function grupoDaApiInternaDoCom(relatorio: Relatorio): Promise<void> {
     if (rota === "/internal/update-offer") {
       return { sku: SKU_DE_A, preco_tipo: "fixo", preco_minor: "1000000", versao: VERSAO_DE_A };
     }
+    if (rota === "/internal/screen") {
+      return { sujeito_tipo: "condicoes", sujeito_ref: ORDER_DE_A, textos: ["entrega de A"] };
+    }
     if (rota === "/internal/propose-cart") return rascunho;
     if (rota === "/internal/create-order") {
       return { ...rascunho, total_esperado_minor: "2500000", cart_id: CARRINHO_DE_A };
@@ -1743,6 +1757,9 @@ async function grupoDaApiInternaDoCom(relatorio: Relatorio): Promise<void> {
     if (rota === "/internal/list-offers" || rota === "/internal/channel-view") return {};
     if (rota === "/internal/update-offer") {
       return { sku: canario, preco_tipo: "fixo", preco_minor: "1", versao: VERSAO_DE_A, stock: 1 };
+    }
+    if (rota === "/internal/screen") {
+      return { sujeito_tipo: "condicoes", sujeito_ref: canario, categoria_declarada: canario, textos: [canario] };
     }
     if (rota === "/internal/propose-cart") return rascunho;
     if (rota === "/internal/create-order") {

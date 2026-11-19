@@ -623,6 +623,29 @@ dominios_historicos:
       da foto_de_produtos; esta entrada cobre a segunda. O passo de descida
       recusa-se se houver destinos com essa finalidade. Renumerar a revisao
       e mudar tambem o caminho desta entrada.
+  - revisao: "db/migrations/versions/0044_screening_de_categorias.py"
+    tabela: "screening_decision"
+    coluna: "sujeito_tipo"
+    ticket: "KAM-222"
+    data: "2026-11-19"
+    razao: >-
+      A revisao sujeito_das_condicoes (KAM-222, decisao do fundador a
+      2026-11-19, opcao A) acrescenta condicoes, o sujeito das condicoes de um
+      orcamento, por DROP CONSTRAINT mais ADD CONSTRAINT com o mesmo nome, e o
+      dicionario §3.58 passa a declarar tres (emenda 1.120). A declaracao da
+      0044 fica a dizer dois, e e o que a base tinha naquela revisao.
+  - revisao: "db/migrations/versions/0074_sujeito_das_condicoes.py"
+    tabela: "screening_decision"
+    coluna: "sujeito_tipo"
+    ticket: "KAM-222"
+    data: "2026-11-19"
+    razao: >-
+      A revisao declara o dominio duas vezes: o upgrade escreve os tres, que e
+      o que o dicionario declara, e o downgrade repoe os dois da 0044. A
+      segunda e a que esta entrada cobre. O passo de descida apaga as decisoes
+      condicoes antes de repor o dominio, pela regra da 0044 (descer uma
+      revisao do screening e coisa de base de ensaio). Renumerar a revisao e
+      mudar tambem o caminho desta entrada.
 
 # ------------------------------------------------ unicidades que o §3 proibe
 #
