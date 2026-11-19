@@ -151,7 +151,7 @@ Testes: unit, integração, isolamento e adversarial (promoção, SIM swap, repl
 - **O `INSERT` do `kamba_identity` em `contacts` passa a ser por coluna**, sem `papel` nem `papel_mudou_at`. O `INSERT` de tabela da `0003` concedia as colunas novas sem ninguém o escrever, e um contacto podia nascer `dono` por fora da porta. O `SQL_CRIAR_CONTACTO` já nomeia as colunas e não muda. Na subida, um tenant com `owner_contact_id` escrito e esse contacto activo ganha `papel='dono'`.
 - **A persona vai na invocação, e não no `ChannelContext`.** O contexto é do canal e vive 60 s em *cache* para todos os remetentes desse número; a persona é de quem escreve. O CHR lê o papel na transacção que abre a conversa, sobre o contacto já resolvido no tenant do canal, e escreve-o no campo **aditivo e opcional** `agent_invocation.persona` (a v1 admite campos novos aditivos; o AGR lê `cliente` quando falta). O `vertical` não muda: a persona não é uma vertical (dicionário §3.2), e a chave do `AgentRegistry` passa a ser `dono` quando a persona o diz — também na retoma de uma *thread*, pela persona do *checkpoint*. Paga as dívidas 47 e 98.
 - **O Assistente do Dono atende qualquer dono, e cada tool fecha-se pelo seu módulo** (decisão do fundador de 2026-11-18, «Servir todos os donos»). O `registry/dono.yaml` não declara módulo: herda o da vertical por onde o dono escreve, e um tenant suspenso, ou sem esse módulo, continua recusado ao dono como ao cliente. A especificação de uma tool ganha o `modulo` que o passo 2 da ToolLayer lê em vez do `ctx.vertical`, e as quatro do catálogo levam `catalogo`. O grafo reaproveita **12 dos 16 nós (75%)** do Vendedor, os mesmos objectos. As tools do dono são o `get_store_info` e as quatro do catálogo do `docs/tecnica/02` §21.3, **declaradas** com credor KAM-119: estão no catálogo da ToolLayer, e por isso um cliente que as peça recebe `TOOL_NOT_ALLOWED` **com** linha de `tool_audit`; o grafo não chama nenhuma delas.
-- **O `owner_channel_wa` não é coluna.** Calcula-se com a comparação do KAM-093 (`numeroCoincide`), no espaço de chave da inscrição — o `contacts.phone_hmac` está noutro espaço e não é comparável. Um número da loja ausente ou ilegível dá painel (falha fechada).
+- **O `owner_channel_wa` não é coluna.** Calcula-se com a comparação do KAM-093 (`numeroCoincide`), no espaço de chave da inscrição — o `contacts.phone_hmac` está noutro espaço e não é comparável. Um número da loja ausente ou ilegível dá painel (falha fechada). **Emendado no KAM-216, por decisão do fundador de 2026-11-19** (tabela abaixo): o `owner_channel_wa` passa a coluna, `tenants.owner_channel_wa`. O número da loja não se guarda, e o booleano calcula-se a cada troca de telefone, comparando o telefone do dono **actual** com o número da loja.
 - **Os limiares são constantes nomeadas** (*proposta*): 15 min de validade do botão, 24 h de bloqueio depois da troca, 60 mensagens/hora do dono (`AGR_RITMO_DO_DONO_POR_HORA`). Os tectos de *push* da letra anterior do critério 8 caíram com ele: no Piloto não há *push* ao dono.
 - **Revisão `0070`**, sobre a `0069` do KAM-195: escrita como `0068` sobre a `0066`, e renumerada na integração, por ser a última do lote a fundir. Emenda **1.112** e **§3.78** do dicionário, e versão **1.9** deste epic.
 
@@ -160,6 +160,7 @@ Testes: unit, integração, isolamento e adversarial (promoção, SIM swap, repl
 | Data | Autor | Pergunta | Decisão |
 |---|---|---|---|
 | 2026-11-18 | Fundador | O critério 8 pedia *push* por *template* ao dono fora da janela, com opt-in de marketing. O Outbound recusa a categoria `marketing` no Piloto (`CATEGORIAS_DO_PILOTO`), e o `docs/tecnica/01` §11.4 (regra 2) diz que a notificação ao dono nunca usa o número da loja | **«Manter as regras».** O critério 8 reescreve-se para o Piloto: dentro da janela, *service message*; fora dela, nada — nem *push* pelo número da loja nem *template* de `marketing`. A política fica entregue como função pura, por ligar |
+| 2026-11-19 | Fundador | Pelo bloco do KAM-216: como se guarda o número da loja (HMAC, cifrado, ou só o resultado), e se o canal se compara com o telefone do caso ou com o do dono actual | **Opção C, comparada com o telefone actual.** Guarda-se só o booleano, calculado pelo `onboarding-web` e recalculado a cada troca de telefone; emenda o «não é coluna» das decisões do executor. A decisão e a reescrita dos critérios estão no bloco do KAM-216 |
 | 2026-11-18 | Fundador | O Assistente do Dono exige o módulo `catalogo` (como estava, *proposta*) ou serve todo o dono? Com o `catalogo`, o dono de um tenant sem esse módulo, que o Vendedor atende hoje como cliente, passava a receber `servico_indisponivel` | **«Servir todos os donos».** O Assistente do Dono atende qualquer dono; cada tool fica fechada pelo entitlement do seu módulo, no passo 2 da ToolLayer |
 
 ### Verificação dos Critérios de Aceitação
@@ -1426,14 +1427,21 @@ O painel mostra se o dono tem o canal WhatsApp ou só o painel, a partir de um n
 
 ### Critérios de Aceitação
 
-- [ ] O número da loja persiste-se numa coluna nova, entrada pelo dicionário, escrita por quem já o lê (o passo do Embedded Signup ou os *webhooks*), na forma que a decisão de desenho fixar (HMAC no espaço da inscrição ou cifrado).
-- [ ] O `GET /painel/canal` mostra o `owner_channel_wa` pela `canalDoDono`, comparado com o `phone_hmac` do caso; um número ausente ou ilegível dá painel.
+- [ ] O canal do dono persiste-se numa coluna nova, `tenants.owner_channel_wa`, entrada pelo dicionário: **só o booleano, e não o número da loja** (decisão do fundador de 2026-11-19, opção C). Calcula-o o `onboarding-web` a cada troca de telefone, e escreve-o a `platform.definir_dono` na transacção que move o papel.
+- [ ] O `GET /painel/canal` mostra o `owner_channel_wa` pela `canalDoDono`, comparado com o telefone **actual** do dono — o número que a última troca provou —, e não com o `phone_hmac` do caso (decisão do fundador de 2026-11-19); um valor ausente ou ilegível dá painel.
 - [ ] Os dois cenários (telefone igual e diferente) ensaiados contra a base, e o isolamento cruzado no *gate* 6.
 
 ### Detalhes Técnicos
 
 - **Esquema:** leva uma revisão (a coluna). Vaga de migração a pedir à coordenação.
 - O anel do `pepper_onboarding_ident` só o `onboarding-web` o tem; quem compara tem de estar desse lado, ou a forma persistida tem de o dispensar.
+
+### Decisões do fundador
+
+| Data | Autor | Pergunta | Decisão |
+|---|---|---|---|
+| 2026-11-19 | Fundador (Armando Albino) | O critério 1 deixava a forma do número da loja «à decisão de desenho (HMAC no espaço da inscrição ou cifrado)». Opções: **A**, HMAC com `kid` (sem ele, uma rotação do *pepper* fazia dois HMAC do mesmo número divergirem e o canal abrir pelo lado errado); **B**, cifrado, com a mesma KEK que o KAM-215 ainda não tem; **C**, guardar só o resultado da comparação | **Opção C.** O número da loja não se guarda. Guarda-se só o booleano, calculado pelo `onboarding-web` e recalculado a cada troca de telefone. Emenda o «não é coluna» das decisões do executor do KAM-118 |
+| 2026-11-19 | Fundador (Armando Albino) | O critério 2 comparava com o `phone_hmac` do caso. O KAM-093 obriga o número do Embedded Signup a coincidir com o telefone do caso (`guia/guia.ts`, `numero_divergente`), e por isso essa comparação dava «painel» em todos os tenants: era uma constante | **Comparar com o telefone actual do dono**, depois de qualquer troca, e não com o do caso. O critério 2 reescreve-se nesse sentido. A letra anterior dos critérios 1 e 2 fica nesta tabela, na coluna da pergunta |
 
 ### Testes Requeridos
 
@@ -1455,6 +1463,14 @@ Objectivo: persistir o número da loja e mostrar o owner_channel_wa no GET /pain
 Regras: o nome da coluna entra pelo dicionário; tenant_id só da sessão; número ausente dá painel.
 Testes: integração contra a base com os dois cenários, isolamento.
 ```
+
+### Decisões do executor
+
+- **A coluna vive em `platform.tenants`, ao lado do `owner_contact_id`, e escreve-a a `platform.definir_dono`.** A porta ganha um terceiro argumento, `p_owner_channel_wa`, nulo por omissão, e escreve a coluna na transacção que move o papel. O dono e o canal dele têm assim um escritor só e não divergem, pela mesma razão por que o `owner_contact_id` e o `papel` não divergem. O provisionamento não manda nada: o dono dele é o telefone do caso, que é o número da loja, e o nulo dá painel. A reentrega idempotente (o contacto já é o dono) não toca na coluna, e assim uma reentrega do `tenant.provisioned` não apaga o valor que a troca calculou. O `kamba_identity` não ganha escrita nenhuma na `tenants`; ganha só a leitura das duas colunas de que o painel precisa.
+- **O HMAC do número da loja é o `phone_hmac` do caso, e não uma aproximação.** O KAM-093 obriga o `display_phone_number` do Embedded Signup a coincidir com o telefone do caso, e prende o guia em `numero_divergente` se não coincidir, também na religação do KAM-207. Num tenant com o canal ligado, os dois são o mesmo número. A comparação usa os `hmacs` do `Telefone` do número novo, um por chave do anel, contra o do caso, em tempo constante. Não precisa de `revelar()`, e uma rotação do *pepper* entre o registo e a troca não faz o mesmo número parecer outro. Um caso sem HMAC legível dá painel.
+- **O escritor é a troca, e não o Embedded Signup nem os *webhooks*.** A letra anterior do critério 1 nomeava esses dois. Com a decisão do fundador (comparar com o telefone actual do dono), nenhum deles tem o telefone do dono de agora em claro, e o número que eles leem coincide sempre com o do caso. O valor só muda quando muda o dono, e o único sítio onde isso acontece com o número em claro é a verificação da troca.
+- **O painel lê a coluna pela ligação do `kamba_identity` da troca, e não pelo COM.** A `VistaDoCanal` do COM fica sem dado nenhum do dono, e o `repo.noTenant` do COM exige `tenant_id = $1`, que a `tenants` não tem: a política dela é pela coluna `id`. Sem a troca montada, o `onboarding-web` não tem ligação à base nem ninguém que escreva a coluna, e mostra o painel. **O WhatsApp só abre com o valor verdadeiro exacto e o canal `ativo`** (`canalNoPainel`). Com o canal por ligar, a sincronizar ou desligado, a mensagem do dono não tem por onde chegar. Uma leitura que falha dá painel e fica no registo, sem esconder o estado do canal, que já se leu.
+- **A página diz o canal e não mostra número nenhum** (`data-canal-do-dono`).
 
 ---
 

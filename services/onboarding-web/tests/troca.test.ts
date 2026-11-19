@@ -22,11 +22,11 @@ import {
   Otp,
   OtpEmMemoria,
   OtpPorSmsLocal,
-  type Telefone,
+  Telefone,
 } from "@kamba/core-ts/inscricao";
 import { FakeSmsProvider } from "@kamba/core-ts/sms";
 
-import { CanalEmMemoria } from "../src/painel/canal.ts";
+import { CanalEmMemoria, SEM_CANAL } from "../src/painel/canal.ts";
 import { ComercioEmMemoria } from "../src/painel/comercio.ts";
 import { MetricasDoPainel } from "../src/painel/metricas.ts";
 import { FASE_DA_TROCA, LIMITE_POR_REDE, pedidoDaTroca, rotasDoPainel } from "../src/painel/rotas.ts";
@@ -44,12 +44,24 @@ const INICIO = new Date("2026-11-18T09:00:00.000Z");
 /** Números fictícios, com 999. */
 const NUMERO_NOVO = "+244 999 000 411";
 const NUMERO_DE_B = "+244 999 000 422";
+/** Os números das lojas, que são os telefones dos casos (KAM-093). */
+const LOJA_A = "+244 999 000 401";
+const LOJA_B = "+244 999 000 402";
 
 interface Montagem {
   app: ReturnType<typeof rotasDoPainel>;
   contadores: ContadoresEmMemoria;
   troca: TrocaDeTelefone;
-  casos: Map<string, { tenantId: string; fase: string }>;
+  casos: Map<string, { tenantId: string; fase: string; telefoneHmac?: string }>;
+  canal: CanalEmMemoria;
+  /** O canal do dono que a porta recebeu, troca a troca (KAM-216). */
+  canais: boolean[];
+  /** A coluna `tenants.owner_channel_wa`, por tenant, como a porta a deixa. */
+  guardados: Map<string, boolean>;
+  /** Os tenants que o `GET /painel/canal` pediu ao leitor da coluna. */
+  lidos: string[];
+  /** Se o leitor da coluna lança. */
+  leitorFalha: boolean;
   sms: FakeSmsProvider;
   metricas: MetricasDoPainel;
   /** O que a `definir_dono` recebeu: `(tenant, contacto)`. */
@@ -66,6 +78,10 @@ function montar(opcoes: { readonly avisoFalha?: boolean } = {}): Montagem {
     trocas: [],
     contactos: [],
     avisos: [],
+    canais: [],
+    guardados: new Map(),
+    lidos: [],
+    leitorFalha: false,
   } as unknown as Montagem;
   const relogio = (): Date => m.agora;
   m.contadores = new ContadoresEmMemoria();
@@ -85,8 +101,10 @@ function montar(opcoes: { readonly avisoFalha?: boolean } = {}): Montagem {
       m.contactos.push({ tenantId, numero: telefone.hmac });
       return { contactId: `contacto-novo-de-${tenantId.slice(0, 8)}` };
     },
-    trocar: async ({ tenantId, contactId }) => {
+    trocar: async ({ tenantId, contactId, ownerChannelWa }) => {
       m.trocas.push({ tenantId, contactId });
+      m.canais.push(ownerChannelWa);
+      m.guardados.set(tenantId, ownerChannelWa);
       return { anterior: `dono-antigo-de-${tenantId.slice(0, 8)}` };
     },
     avisar: async ({ tenantId, destino }) => {
@@ -95,20 +113,30 @@ function montar(opcoes: { readonly avisoFalha?: boolean } = {}): Montagem {
     },
   });
   m.troca = troca;
-  const casos = new Map([
-    [CASO_A, { tenantId: TENANT_A, fase: "activo" }],
-    [CASO_B, { tenantId: TENANT_B, fase: "activo" }],
+  const casos = new Map<string, { tenantId: string; fase: string; telefoneHmac?: string }>([
+    [CASO_A, { tenantId: TENANT_A, fase: "activo", telefoneHmac: new Telefone(LOJA_A, PEPPER).hmac }],
+    [CASO_B, { tenantId: TENANT_B, fase: "activo", telefoneHmac: new Telefone(LOJA_B, PEPPER).hmac }],
   ]);
   m.casos = casos;
+  m.canal = new CanalEmMemoria();
   m.app = rotasDoPainel({
     comercio: new ComercioEmMemoria(),
-    canal: new CanalEmMemoria(),
+    canal: m.canal,
     revogacoes: new RevogacoesEmMemoria(),
     metricas: m.metricas,
     casos: { porId: async (id) => casos.get(id) ?? null },
     anelDaAssinatura: [CHAVE, null],
     relogio,
-    troca: { troca, anelDoPepper: [PEPPER, null], contadores: m.contadores },
+    troca: {
+      troca,
+      anelDoPepper: [PEPPER, null],
+      contadores: m.contadores,
+      canalDoDono: async (tenantId) => {
+        m.lidos.push(tenantId);
+        if (m.leitorFalha) throw new Error("base_em_baixo");
+        return m.guardados.get(tenantId) ?? null;
+      },
+    },
   });
   return m;
 }
@@ -335,5 +363,93 @@ describe("KAM-211 — a troca isola o tenant e a sessao", () => {
     const forjada = `kamba_painel=${cunharSessao(novaSessao(TENANT_B, CASO_B, INICIO), new Uint8Array(32).fill(9))}`;
     assert.equal((await post(m, "/painel/telefone", { telefone: NUMERO_NOVO }, forjada)).status, 401);
     assert.equal(m.sms.enviados.length, 0);
+  });
+});
+
+describe("KAM-216 — o canal do dono: a troca guarda-o e o painel mostra-o", () => {
+  let m: Montagem;
+  let deA: string;
+
+  beforeEach(() => {
+    m = montar();
+    deA = cookie(TENANT_A, CASO_A, m);
+    for (const tenant of [TENANT_A, TENANT_B]) m.canal.vistas.set(tenant, { ...SEM_CANAL, estado: "ativo" });
+  });
+
+  async function trocarPara(numero: string, sessao = deA): Promise<void> {
+    // Um quarto de hora entre trocas: o `Otp` tem intervalo entre envios.
+    m.agora = new Date(m.agora.getTime() + 15 * 60_000);
+    assert.equal((await post(m, "/painel/telefone", { telefone: numero }, sessao)).status, 200);
+    assert.equal((await post(m, "/painel/telefone/verificar", { codigo: ultimoCodigo(m) }, sessao)).status, 200);
+  }
+
+  async function canalNaPagina(sessao = deA): Promise<string | undefined> {
+    const r = await m.app.request("/painel/canal", { headers: { cookie: sessao } });
+    assert.equal(r.status, 200);
+    return /data-canal-do-dono="([a-z]+)"/.exec(await r.text())?.[1];
+  }
+
+  it("antes de qualquer troca, o dono e o telefone do caso, que e o da loja: painel", async () => {
+    assert.equal(await canalNaPagina(), "painel");
+    assert.deepEqual(m.lidos, [TENANT_A]);
+  });
+
+  it("telefone diferente: a troca guarda WhatsApp, e o painel mostra-o", async () => {
+    await trocarPara(NUMERO_NOVO);
+    assert.deepEqual(m.canais, [true]);
+    assert.equal(await canalNaPagina(), "whatsapp");
+  });
+
+  it("telefone igual ao da loja (o dono volta ao numero do registo): painel", async () => {
+    await trocarPara(NUMERO_NOVO);
+    await trocarPara(LOJA_A.replace("+244 ", ""));
+    assert.deepEqual(m.canais, [true, false]);
+    assert.equal(await canalNaPagina(), "painel");
+  });
+
+  it("o numero da loja de outro tenant nao conta: o HMAC e o do caso da sessao", async () => {
+    // O dono de A troca para o numero da loja de B: e diferente do da loja de A.
+    await trocarPara(LOJA_B);
+    assert.deepEqual(m.canais, [true]);
+  });
+
+  it("isolamento: o canal de B nao aparece na sessao de A, nem com o tenant de B no pedido", async () => {
+    m.guardados.set(TENANT_B, true);
+    const r = await m.app.request(`/painel/canal?tenant_id=${TENANT_B}`, {
+      headers: { cookie: deA, "x-kamba-tenant": TENANT_B, "x-tenant-id": TENANT_B },
+    });
+    assert.equal(r.status, 200);
+    assert.match(await r.text(), /data-canal-do-dono="painel"/);
+    assert.deepEqual(m.lidos, [TENANT_A]);
+  });
+
+  it("um caso sem HMAC de telefone guarda painel", async () => {
+    m.casos.set(CASO_A, { tenantId: TENANT_A, fase: "activo" });
+    await trocarPara(NUMERO_NOVO);
+    assert.deepEqual(m.canais, [false]);
+  });
+
+  it("uma leitura da coluna que falha da painel, e o estado do canal continua a sair", async () => {
+    m.guardados.set(TENANT_A, true);
+    m.leitorFalha = true;
+    const r = await m.app.request("/painel/canal", { headers: { cookie: deA } });
+    assert.equal(r.status, 200);
+    const corpo = await r.text();
+    assert.match(corpo, /data-canal-do-dono="painel"/);
+    assert.match(corpo, /Activo/);
+  });
+
+  it("com o canal da loja por ligar ou desligado, o WhatsApp guardado nao abre", async () => {
+    m.guardados.set(TENANT_A, true);
+    for (const estado of ["sem_canal", "desligado", "a_sincronizar"] as const) {
+      m.canal.vistas.set(TENANT_A, { ...SEM_CANAL, estado });
+      assert.equal(await canalNaPagina(), "painel", estado);
+    }
+  });
+
+  it("a pagina diz o canal e nao mostra numero nenhum", async () => {
+    await trocarPara(NUMERO_NOVO);
+    const corpo = await (await m.app.request("/painel/canal", { headers: { cookie: deA } })).text();
+    assert.doesNotMatch(corpo, /999\s*000\s*4\d\d/);
   });
 });

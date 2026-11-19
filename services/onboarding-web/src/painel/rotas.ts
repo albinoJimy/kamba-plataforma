@@ -9,7 +9,8 @@
  *                                   stock recusa-se — ver `./validacao.ts`
  *     GET   /painel/encomendas      só leitura, por estado e data (critério 6)
  *     GET   /painel/encomendas/:id  uma encomenda
- *     GET   /painel/canal           o estado do canal (critério 7)
+ *     GET   /painel/canal           o estado do canal (critério 7) e o canal do
+ *                                   dono, o `owner_channel_wa` (KAM-216)
  *     POST  /painel/codigo          a reentrada (KAM-190): o telefone, e o código
  *                                   vai por SMS ao telefone registado
  *     POST  /painel/verificar       o código: acertou, e a sessão do painel é
@@ -113,7 +114,7 @@ import {
   type Contadores,
   type Otp,
 } from "@kamba/core-ts/inscricao";
-import type { TrocaDeTelefone } from "@kamba/core-ts/dono";
+import { canalNoPainel, type TrocaDeTelefone } from "@kamba/core-ts/dono";
 import { FASE_DA_RELIGACAO, GuiaRecusadoError } from "@kamba/core-ts/guia";
 import type { Logger } from "@kamba/core-ts/logger";
 
@@ -229,6 +230,12 @@ export interface OpcoesDaTroca {
   readonly contadores: Pick<Contadores, "anotar">;
   /** Quantos *proxies* de confiança há à frente. Zero por omissão. */
   readonly proxiesDeConfianca?: number | undefined;
+  /**
+   * O `tenants.owner_channel_wa` que a troca guardou (`canalDoDonoPeloPool`,
+   * KAM-216). Vive aqui porque é a mesma ligação do `kamba_identity`: sem a troca
+   * montada, ninguém escreve a coluna, e o `GET /painel/canal` mostra o painel.
+   */
+  readonly canalDoDono?: ((tenantId: string) => Promise<boolean | null>) | undefined;
 }
 
 /**
@@ -250,8 +257,16 @@ export interface OpcoesDoPainel {
   readonly comercio: Comercio;
   readonly canal: LeitorDoCanal;
   readonly revogacoes: Revogacoes;
-  /** Os casos do KAM-086: só para ler o tenant e a fase na entrada. */
-  readonly casos: { porId(id: string): Promise<{ readonly tenantId: string; readonly fase: string } | null> };
+  /**
+   * Os casos do KAM-086: o tenant e a fase na entrada, e o `telefoneHmac`, que é
+   * o HMAC do número da loja para a troca de telefone (`canalDoDono`, KAM-216).
+   * Sem ele, a troca guarda o painel.
+   */
+  readonly casos: {
+    porId(
+      id: string,
+    ): Promise<{ readonly tenantId: string; readonly fase: string; readonly telefoneHmac?: string } | null>;
+  };
   /** O anel da `segredo_onboarding_assinatura`: lê a `sessao` do KAM-086 e assina a do painel. */
   readonly anelDaAssinatura: readonly (Uint8Array | null)[];
   readonly idempotencia?: Idempotencia | undefined;
@@ -382,7 +397,12 @@ export function rotasDoPainel(opcoes: OpcoesDoPainel): Hono {
    */
   async function sessaoDe(
     cabecalho: string | undefined,
-  ): Promise<{ s: SessaoDoPainel; renovar: Record<string, string>; fase: string } | null> {
+  ): Promise<{
+    s: SessaoDoPainel;
+    renovar: Record<string, string>;
+    fase: string;
+    telefoneHmac: string | null;
+  } | null> {
     const agora = relogio();
     const s = lerSessao(cookieDoPainel(cabecalho), opcoes.anelDaAssinatura, agora);
     if (s === null || (await opcoes.revogacoes.revogada(s))) return null;
@@ -396,8 +416,14 @@ export function rotasDoPainel(opcoes: OpcoesDoPainel): Hono {
     if (!(FASES_COM_PAINEL as readonly string[]).includes(caso.fase)) return null;
     const nova = renovacao(s, agora);
     const chave = opcoes.anelDaAssinatura[0];
-    if (nova === null || !(chave instanceof Uint8Array)) return { s, renovar: {}, fase: caso.fase };
-    return { s, renovar: { "set-cookie": cabecalhoDaSessao(cunharSessao(nova, chave)) }, fase: caso.fase };
+    const telefoneHmac = caso.telefoneHmac ?? null;
+    if (nova === null || !(chave instanceof Uint8Array)) return { s, renovar: {}, fase: caso.fase, telefoneHmac };
+    return {
+      s,
+      renovar: { "set-cookie": cabecalhoDaSessao(cunharSessao(nova, chave)) },
+      fase: caso.fase,
+      telefoneHmac,
+    };
   }
 
   const actor = (s: SessaoDoPainel) => ({ id: s.dono, traceId: randomUUID() });
@@ -622,7 +648,19 @@ export function rotasDoPainel(opcoes: OpcoesDoPainel): Hono {
       falhou("canal", "indisponivel");
       return html(paginaNaoEncontrada(n), 503, n, sessao.renovar);
     }
-    return html(paginaDoCanal(n, vista), 200, n, sessao.renovar);
+    // O canal do dono (KAM-216): o que a troca guardou, pelo tenant da sessão.
+    // Uma leitura que falha dá painel e fica no registo; não esconde o estado do
+    // canal, que já se leu.
+    let guardado: boolean | null = null;
+    const lerDono = opcoes.troca?.canalDoDono;
+    if (lerDono !== undefined) {
+      try {
+        guardado = await lerDono(sessao.s.tenantId);
+      } catch (erro) {
+        log?.excepcao(erro, "painel_canal_do_dono_ilegivel");
+      }
+    }
+    return html(paginaDoCanal(n, vista, canalNoPainel(guardado, vista.estado)), 200, n, sessao.renovar);
   });
 
   // ------------------------------------------- a reconexão e a reentrada (KAM-190)
@@ -844,7 +882,8 @@ export function rotasDoPainel(opcoes: OpcoesDoPainel): Hono {
     }
     // O tenant e o da sessao, e so ele: um `tenant_id` no corpo, na consulta ou
     // num cabecalho nao e lido (a nota do modulo).
-    const envio = await t.troca.pedir(pedidoDaTroca(sessao.s), sessao.s.tenantId, telefone);
+    // O HMAC do número da loja é o do caso da sessão, e não um campo do pedido.
+    const envio = await t.troca.pedir(pedidoDaTroca(sessao.s), sessao.s.tenantId, telefone, sessao.telefoneHmac);
     if (!envio.enviado) {
       falhou("troca", "limite");
       return json({ erro: "limite" }, 429, sessao.renovar);

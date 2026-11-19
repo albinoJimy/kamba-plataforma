@@ -2660,6 +2660,11 @@ async function grupoDoGuia(relatorio: Relatorio): Promise<void> {
 //   troca=nenhuma           (KAM-211) o codigo certo do pedido de B, com a sessao
 //                           de A, nao trocou o dono: a verificacao chegou a troca
 //                           so com o pedido e o tenant de A
+//   dono=a                  (KAM-216) os tres ataques ao /painel/canal, com o
+//                           tenant de B na consulta e no cabecalho, leram o canal
+//                           do dono so de A, e a pagina mostra o painel de A — o
+//                           de B esta guardado como WhatsApp, e o canal de A esta
+//                           activo, pelo que uma leitura de B mostrava o WhatsApp
 
 const ITENS_DO_PAINEL = [
   "rota:onboarding-web:painel/rotas:actor:GET:/painel/entrar",
@@ -2853,6 +2858,7 @@ async function grupoDoPainel(relatorio: Relatorio): Promise<void> {
     const pedidosDaTroca: { pedido: string; tenant: string }[] = [];
     const verificacoesDaTroca: { pedido: string; tenant: string }[] = [];
     let trocasFeitas = 0;
+    const canaisDoDonoLidos: string[] = [];
     const troca = {
       troca: {
         async pedir(pedido: string, tenant: string) {
@@ -2870,6 +2876,12 @@ async function grupoDoPainel(relatorio: Relatorio): Promise<void> {
       },
       anelDoPepper: [pepper, null],
       contadores: { anotar: async () => 1 },
+      // KAM-216: o canal do dono guardado. O de A e o painel e o de B e o
+      // WhatsApp; o leitor regista de que tenant lhe perguntam.
+      canalDoDono: async (tenant: string) => {
+        canaisDoDonoLidos.push(tenant);
+        return tenant === TENANT_DE_B_NO_PAINEL;
+      },
     };
 
     const app = (rotas["rotasDoPainel"] as (o: unknown) => AppHono)({
@@ -2942,7 +2954,17 @@ async function grupoDoPainel(relatorio: Relatorio): Promise<void> {
     ] as const) {
       for (let vez = 0; vez < 3; vez += 1) {
         const [c, headers] = comTenantDeB(caminho, vez);
-        await empurrar(item, "GET", c, { headers }, sonda);
+        canaisDoDonoLidos.length = 0;
+        // KAM-216: no canal, a marca do dono vai ao lado da sonda.
+        const marcas =
+          caminho === "/painel/canal"
+            ? (corpo: string): string => {
+                const so = canaisDoDonoLidos.length > 0 && canaisDoDonoLidos.every((t) => t === TENANT_DE_A_NO_PAINEL);
+                const painel = corpo.includes('data-canal-do-dono="painel"');
+                return `${sonda(corpo)} dono=${so && painel ? "a" : "alheio"}`;
+              }
+            : sonda;
+        await empurrar(item, "GET", c, { headers }, marcas);
       }
     }
 
