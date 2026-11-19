@@ -381,9 +381,13 @@ REGRAS_OBRIGATORIAS = ("estado_contra_caixa",)
 #: em `d6c427fa` (o #225 do KAM-207 ja fundido, com **150 medidos** na `main`):
 #: **151 medidos**, e `151 // 2` sao 75. Fica em 75, e o 152.o sobe-o para 76.
 #:
-#: **O 152.o e o do KAM-219**, medido na arvore integrada com a `publico/main`
+#: **O 152.o e o do KAM-217**, medido na arvore integrada com a `publico/main`
 #: em `1fb4694b` (o #227 do KAM-123 ja fundido, com **151 medidos** na `main`):
 #: **152 medidos**, e `152 // 2` sao 76. Sobe para 76, que serve ate aos 153.
+#:
+#: **O 153.o e o do KAM-219**, medido na arvore integrada com a `publico/main`
+#: em `f933984f` (o #224 do KAM-217 ja fundido, com **152 medidos** na `main`):
+#: **153 medidos**, e `153 // 2` sao 76. Fica em 76, e o 154.o sobe-o para 77.
 MINIMO_DE_BLOCOS_MEDIDOS = 76
 
 #: Quantos blocos existem, no minimo. O mesmo argumento, para a camada de baixo:

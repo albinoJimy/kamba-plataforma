@@ -613,6 +613,21 @@ services:
     environment:
       <<: *service-env
       PORT: "3003"
+      # KAM-217: a troca de telefone do dono, como `kamba_identity` (o papel que
+      # executa a `platform.definir_dono` e le o cofre de contacto). So se usa
+      # com o painel montado (`ONBOARDING_COM_INTERNO_URL`); as chaves do
+      # contacto sao as do CHR, e o `KAMBA_ENV` e o que o `Identidade.arrancar`
+      # confronta com elas.
+      KAMBA_ENV: dev
+      ONBOARDING_IDENTITY_DB_URL: postgresql://kamba_identity:${KAMBA_SECRET_DB_IDENTITY_PASSWORD:-}@postgres:5432/${KAMBA_DB_NAME:-kamba_platform}
+      KAMBA_SECRET_PEPPER_CONTACT_HMAC: ${KAMBA_SECRET_PEPPER_CONTACT_HMAC:-}
+      KAMBA_SECRET_KEK_CONTACT_DEK: ${KAMBA_SECRET_KEK_CONTACT_DEK:-}
+    networks:
+      - app
+      - data
+    depends_on:
+      postgres:
+        condition: service_healthy
     healthcheck:
       # O Node 24 tem `fetch` nativo: a sonda nao precisa de curl na imagem.
       test:

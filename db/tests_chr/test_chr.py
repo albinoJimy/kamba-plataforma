@@ -73,6 +73,8 @@ GRUPOS = (
     "KAM-058 e KAM-098 — a suspensão e o encerramento esquecem o tenant na cache do CHR",
     # KAM-211, criterio «Troca de telefone»: `tests_bd/dono.bd.test.ts`.
     "KAM-211 — a troca de telefone pelo caminho real",
+    # KAM-217: a troca montada como o `onboarding-web` a monta, sobre o pool.
+    "KAM-217 — a troca montada pelo processo, sobre o pool",
 )
 
 #: Testes que **tem** de ter corrido e passado, pelo nome. Lista curta, com os
@@ -106,6 +108,8 @@ TESTES_OBRIGATORIOS = (
     # KAM-211: a troca pelo caminho real, e a porta fechada ao `kamba_app`.
     "até o código acertar o número novo é cliente e o antigo é dono; depois, o contrário",
     "com o papel da aplicação, a porta não executa",
+    # KAM-217: duas trocas concorrentes de dois tenants, cada uma no seu.
+    "cinco pares de trocas concorrentes em dois tenants acabam cada uma no seu tenant",
 )
 
 #: Os ficheiros do modulo. A cobertura mede-se em **cada um**.

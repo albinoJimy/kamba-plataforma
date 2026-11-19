@@ -58,8 +58,8 @@ function exigir(nome: string): string {
   return valor;
 }
 
-/** Abre uma ligação com o papel pedido. Recusa qualquer base que não seja a descartável. */
-export async function ligar(papel: Papel): Promise<pg.Client> {
+/** A configuração de uma ligação com o papel pedido. Recusa qualquer base que não seja a descartável. */
+function configuracao(papel: Papel): pg.ClientConfig {
   const base = exigir("KAMBA_DB_NAME");
   if (base !== BASE_DESCARTAVEL) {
     throw new Error(
@@ -67,16 +67,26 @@ export async function ligar(papel: Papel): Promise<pg.Client> {
         "e só correm contra a base descartável do gate",
     );
   }
-  const cliente = new pg.Client({
+  return {
     host: process.env.KAMBA_DB_HOST ?? "127.0.0.1",
     port: Number(process.env.KAMBA_DB_PORT ?? "5432"),
     database: base,
     user: papel === "admin" ? exigir("POSTGRES_USER") : UTILIZADOR[papel],
     password: exigir(VARIAVEL_DA_SENHA[papel]),
     application_name: `kamba-identidade-teste:${papel}`,
-  });
+  };
+}
+
+/** Abre uma ligação com o papel pedido. Recusa qualquer base que não seja a descartável. */
+export async function ligar(papel: Papel): Promise<pg.Client> {
+  const cliente = new pg.Client(configuracao(papel));
   await cliente.connect();
   return cliente;
+}
+
+/** Um *pool* com o papel pedido, como o de um processo que atende pedidos concorrentes. */
+export function poolDe(papel: Papel, maximo: number): pg.Pool {
+  return new pg.Pool({ ...configuracao(papel), max: maximo });
 }
 
 /**
