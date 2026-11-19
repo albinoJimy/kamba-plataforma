@@ -278,6 +278,10 @@ export async function apagarTenant(admin: pg.Client, tenant: string): Promise<vo
   // KAM-224: a resposta do AGR, com as FK compostas para a conversa e o
   // contacto, pela mesma razao das duas da saida.
   await admin.query("DELETE FROM platform.agent_replies WHERE tenant_id = $1", [tenant]);
+  // KAM-223: a mensagem que entra no AGR (FK para a conversa e o contacto) e a
+  // troca de telefone do dono (FK para o contacto), pela mesma razao.
+  await admin.query("DELETE FROM platform.agent_messages WHERE tenant_id = $1", [tenant]);
+  await admin.query("DELETE FROM platform.owner_phone_changes WHERE tenant_id = $1", [tenant]);
   await admin.query("DELETE FROM platform.message_templates WHERE tenant_id = $1", [tenant]);
   // KAM-014: antes dos contactos e dos canais, que ela referencia.
   await admin.query("DELETE FROM platform.conversations WHERE tenant_id = $1", [tenant]);

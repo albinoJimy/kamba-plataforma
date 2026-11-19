@@ -163,15 +163,43 @@ def _agora() -> datetime.datetime:
     return datetime.datetime.now(datetime.UTC)
 
 
-def canal_por_omissao(_estado: Mapping[str, Any]) -> str:
-    """O canal de uma resposta: hoje, sempre o WhatsApp.
+#: O canal da mensagem que o turno em curso leu (KAM-223), ou `None`.
+#:
+#: Posto pelo `ExecutorDeTurnos` com o `canal` da **ultima** mensagem que leu
+#: da `platform.agent_messages` no lote, e reposto no fim do turno, como o
+#: `INICIO_DO_TURNO`. Os nos herdam-no, e o `canal_do_turno` le-o. Um turno sem
+#: mensagem lida (o do WhatsApp de hoje, que nao traz `message_id`) deixa-o a
+#: `None`, e a resposta sai pelo WhatsApp.
+CANAL_DO_TURNO: contextvars.ContextVar[str | None] = contextvars.ContextVar(
+    "kamba_agr_canal_do_turno", default=None
+)
 
-    **O painel nao tem entrada no AGR ainda.** A fonte persistida da mensagem do
-    dono e a `OwnerPort` sao do KAM-223, e e ele que passa a esta porta um
-    `canal_de` que reconheca o turno do painel. Ate la, nenhum turno chega pelo
-    painel, e escrever aqui uma regra para ele era decidir pelo KAM-223.
+
+def canal_por_omissao(_estado: Mapping[str, Any]) -> str:
+    """O canal de uma resposta quando ninguem sabe outro: o WhatsApp.
+
+    Ja nao e o `canal_de` do processo: desde o KAM-223 o `main()` passa o
+    `canal_do_turno`, que reconhece o turno do painel. Fica como omissao da
+    `SaidaPorEvento` para quem a monta sem executor (os ensaios dos grafos), e
+    e o que o `canal_do_turno` devolve fora de um turno.
     """
     return CANAL_WHATSAPP
+
+
+def canal_do_turno(estado: Mapping[str, Any]) -> str:
+    """O canal da resposta deste turno: o da mensagem que o turno leu (KAM-223).
+
+    Le o `CANAL_DO_TURNO`, que o executor pos. **Fora de um turno, ou num turno
+    sem mensagem lida, e o WhatsApp** — a retoma do *handoff* e a decisao do
+    concierge nao passam pelo executor, e sao respostas a um cliente. Um valor
+    fora dos `CANAIS` tambem cai no WhatsApp: nao pode, porque a coluna da
+    `agent_messages` tem o mesmo `CHECK`, e se acontecer a `emitir_resposta`
+    nao recebe um canal que a tabela recusava.
+    """
+    canal = CANAL_DO_TURNO.get()
+    if canal in CANAIS:
+        return canal
+    return canal_por_omissao(estado)
 
 
 def emitir_resposta(
@@ -301,6 +329,7 @@ __all__ = [
     "AGREGADO",
     "CANAIS",
     "CANAL_PAINEL",
+    "CANAL_DO_TURNO",
     "CANAL_WHATSAPP",
     "FINALIDADE",
     "INICIO_DO_TURNO",
@@ -309,6 +338,7 @@ __all__ = [
     "TIPO",
     "VERSAO",
     "TITULOS",
+    "canal_do_turno",
     "canal_por_omissao",
     "emitir_resposta",
     "titulo_do_botao",

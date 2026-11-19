@@ -19,21 +19,44 @@
  *                                   abre o `/ligar` do KAM-093 — ao caso em
  *                                   `aguarda_es` e, desde o KAM-207, ao caso
  *                                   `activo` cujo canal caiu
- *     POST  /painel/telefone        a troca de telefone do dono (KAM-211): o
- *                                   número novo, e o código vai a ele
+ *     GET   /painel/telefone        a troca viva do tenant, se há (KAM-223)
+ *     POST  /painel/telefone        a troca de telefone do dono (KAM-211): um
+ *                                   número e qual é (`numero`: `novo`, por
+ *                                   omissão, ou `antigo`), e o código vai a ele
  *     POST  /painel/telefone/verificar
- *                                   o código: acertou, e o papel de dono passa ao
- *                                   número novo pela `platform.definir_dono`
+ *                                   o número outra vez e o código: o do novo põe
+ *                                   a troca pendente 72 h, o do antigo fá-la já
+ *     POST  /painel/telefone/concluir
+ *                                   passadas as 72 h, a troca faz-se sem o antigo
+ *     POST  /painel/telefone/cancelar
+ *                                   a troca viva do tenant cancela-se
+ *     GET   /painel/conversa        a conversa do dono com o Assistente (KAM-223),
+ *                                   depois de uma entrada (`?depois={id}`)
+ *     POST  /painel/conversa        uma mensagem do dono ao Assistente
  *
- * ## A troca de telefone (KAM-211)
+ * ## A troca de telefone (KAM-211, com a regra C do KAM-223)
  *
- * As duas rotas ligam o OTP do KAM-086 à `TrocaDeTelefone` do KAM-118. **Até o
- * código acertar nada muda**: o número novo é `cliente` como qualquer
- * desconhecido, e o antigo continua dono. A chave do pedido é a **sessão** —
- * `troca:{sid}` —, e não um campo do pedido: um dono não verifica o pedido de
- * outra sessão, e o tenant é o da sessão como em todas as rotas. O código
- * errado, expirado, sem pedido ou com tentativas a mais dá **401
- * {"erro":"codigo"}**, uma resposta só, pela razão do `/painel/verificar`.
+ * As rotas ligam o OTP do KAM-086 à `TrocaDeTelefone` do KAM-118. **O papel só
+ * muda depois de uma de duas provas**: o OTP do número antigo, ou 72 h
+ * (*proposta*) com a troca pendente, avisada ao número antigo e ao e-mail, que
+ * qualquer sessão do tenant cancela (decisão 3 do fundador de 2026-11-19, opção
+ * C). Até lá o número novo é `cliente` como qualquer desconhecido, e o antigo
+ * continua dono. A chave do pedido é a **sessão** — `troca:{sid}` —, e não um
+ * campo do pedido: um dono não verifica o número novo pedido por outra sessão,
+ * e o tenant é o da sessão como em todas as rotas. O código errado, expirado,
+ * sem pedido, com tentativas a mais, de outro número ou de um número que não é o
+ * do dono dá **401 {"erro":"codigo"}**, uma resposta só, pela razão do
+ * `/painel/verificar`. **O estado vive na base** (`owner_phone_changes`, revisão
+ * `0077`): um reinício a meio não perde a troca nem o código.
+ *
+ * ## A conversa do dono (KAM-223)
+ *
+ * O texto grava-se na fonte persistida e o AGR lê-o pelo identificador; a
+ * resposta volta pelo evento `agent.replied` do canal `painel` (decisões 1 e 2
+ * do fundador). A conversa é a do dono no WhatsApp — o mesmo `thread_id` —, e
+ * nenhuma rota recebe o identificador dela: é a do tenant da sessão. O cursor
+ * da leitura é o `id` de uma entrada, e um `id` que não é desta conversa dá
+ * **404**.
  *
  * ## A reentrada não depende da sessão de 24 h do registo (KAM-190)
  *
@@ -113,7 +136,7 @@ import {
   type Contadores,
   type Otp,
 } from "@kamba/core-ts/inscricao";
-import type { TrocaDeTelefone } from "@kamba/core-ts/dono";
+import type { ConversaDoDono, NumeroDaTroca, TrocaDeTelefone } from "@kamba/core-ts/dono";
 import { FASE_DA_RELIGACAO, GuiaRecusadoError } from "@kamba/core-ts/guia";
 import type { Logger } from "@kamba/core-ts/logger";
 
@@ -221,8 +244,8 @@ async function canalReligavel(canal: LeitorDoCanal, tenantId: string, casoId: st
  * respondem 503 — como a reentrada sem as suas.
  */
 export interface OpcoesDaTroca {
-  /** A `TrocaDeTelefone` do KAM-118, com o OTP, o contacto, a porta e os avisos. */
-  readonly troca: Pick<TrocaDeTelefone, "pedir" | "verificar">;
+  /** A `TrocaDeTelefone` do KAM-118, com o OTP, o contacto, a porta, os avisos e o estado na base. */
+  readonly troca: Pick<TrocaDeTelefone, "pedir" | "verificar" | "estado" | "concluir" | "cancelar">;
   /** O anel do `pepper_onboarding_ident`: cunha o `Telefone` do número novo e o da rede. */
   readonly anelDoPepper: readonly (Uint8Array | null)[];
   /** Os contadores do limite por rede, como os da reentrada. */
@@ -245,6 +268,27 @@ export function pedidoDaTroca(s: SessaoDoPainel): string {
   return `troca:${s.sid}`;
 }
 
+/**
+ * O que a conversa do dono precisa (KAM-223): a `ConversaDoDono`, com a ligação
+ * `kamba_app` e a credencial do AGR. Sem ela, as duas rotas respondem 503.
+ */
+export interface OpcoesDaConversa {
+  readonly conversa: Pick<ConversaDoDono, "enviar" | "ler">;
+}
+
+/**
+ * O tecto do corpo de uma mensagem do dono, em octetos: 4096 caracteres de
+ * texto, a quatro octetos no pior caso do UTF-8, e o JSON à volta.
+ */
+export const CORPO_MAXIMO_DA_CONVERSA = 4 * 4096 + 1024;
+
+/** O `numero` de um pedido da troca: `novo` por omissão, `antigo`, ou `null` se é outra coisa. */
+function numeroDaTroca(corpo: Corpo): NumeroDaTroca | null {
+  const bruto = corpo["numero"];
+  if (bruto === undefined) return "novo";
+  return bruto === "novo" || bruto === "antigo" ? bruto : null;
+}
+
 /** O que as rotas do painel precisam. */
 export interface OpcoesDoPainel {
   readonly comercio: Comercio;
@@ -258,6 +302,7 @@ export interface OpcoesDoPainel {
   readonly metricas?: MetricasDoPainel | undefined;
   readonly reentrada?: OpcoesDaReentrada | undefined;
   readonly troca?: OpcoesDaTroca | undefined;
+  readonly conversa?: OpcoesDaConversa | undefined;
   /** O preço máximo em Kz (critério 5). */
   readonly precoMaximoKz?: bigint | undefined;
   readonly relogio?: (() => Date) | undefined;
@@ -317,11 +362,14 @@ function redeDoPedido(
   return prefixo === null ? "sem-rede" : hmacDe(pepper, DOMINIOS.rede, prefixo).toString("hex");
 }
 
-/** O corpo JSON de um `POST` da reentrada, ou `null`. O tecto é o do `PATCH`. */
-async function corpoDaReentrada(c: { req: { header(n: string): string | undefined; text(): Promise<string> } }): Promise<Corpo | null> {
+/** O corpo JSON de um `POST` da reentrada, ou `null`. O tecto é o do `PATCH`, salvo outro. */
+async function corpoDaReentrada(
+  c: { req: { header(n: string): string | undefined; text(): Promise<string> } },
+  maximo: number = CORPO_MAXIMO_DO_PAINEL,
+): Promise<Corpo | null> {
   if (!(c.req.header("content-type") ?? "").toLowerCase().startsWith("application/json")) return null;
   const texto = await c.req.text();
-  if (Buffer.byteLength(texto, "utf8") > CORPO_MAXIMO_DO_PAINEL) return null;
+  if (Buffer.byteLength(texto, "utf8") > maximo) return null;
   try {
     const lido: unknown = JSON.parse(texto);
     return typeof lido === "object" && lido !== null && !Array.isArray(lido) ? (lido as Corpo) : null;
@@ -342,7 +390,7 @@ async function recusaDaTroca(
   c: { req: { header(n: string): string | undefined }; env?: unknown },
   t: OpcoesDaTroca,
   sessao: { readonly renovar: Record<string, string>; readonly fase: string },
-  rota: "troca" | "troca_verificar",
+  rota: "troca" | "troca_verificar" | "troca_concluir" | "troca_cancelar",
   agora: Date,
   falhou: (rota: RotaDoPainel, motivo: MotivoDeErro) => void,
 ): Promise<Response | null> {
@@ -830,7 +878,8 @@ export function rotasDoPainel(opcoes: OpcoesDoPainel): Hono {
     const recusa = await recusaDaTroca(c, t, sessao, "troca", relogio(), falhou);
     if (recusa !== null) return recusa;
     const corpo = await corpoDaReentrada(c);
-    if (corpo === null) {
+    const numero = corpo === null ? null : numeroDaTroca(corpo);
+    if (corpo === null || numero === null) {
       falhou("troca", "invalido");
       return json({ erro: "corpo" }, 400, sessao.renovar);
     }
@@ -844,13 +893,47 @@ export function rotasDoPainel(opcoes: OpcoesDoPainel): Hono {
     }
     // O tenant e o da sessao, e so ele: um `tenant_id` no corpo, na consulta ou
     // num cabecalho nao e lido (a nota do modulo).
-    const envio = await t.troca.pedir(pedidoDaTroca(sessao.s), sessao.s.tenantId, telefone);
+    const envio = await t.troca.pedir(pedidoDaTroca(sessao.s), sessao.s.tenantId, telefone, numero);
     if (!envio.enviado) {
+      if (envio.recusa === "ocupado" || envio.recusa === "sem_troca") {
+        // Ja ha uma troca viva (`novo`), ou nao ha nenhuma pendente (`antigo`).
+        falhou("troca", "conflito");
+        return json({ erro: envio.recusa }, 409, sessao.renovar);
+      }
+      if (envio.recusa === "numero") {
+        falhou("troca", "invalido");
+        return json({ erro: "campo", campo: "telefone" }, 400, sessao.renovar);
+      }
       falhou("troca", "limite");
       return json({ erro: "limite" }, 429, sessao.renovar);
     }
-    log?.info({ outcome: "painel_troca_pedida" });
+    log?.info({ outcome: numero === "novo" ? "painel_troca_pedida" : "painel_troca_antigo_pedido" });
     return json({ ok: true }, 200, sessao.renovar);
+  });
+
+  app.get("/painel/telefone", async (c) => {
+    metricas.pedido("troca_estado");
+    const t = opcoes.troca;
+    if (t === undefined) {
+      falhou("troca_estado", "indisponivel");
+      return json({ erro: "indisponivel" }, 503);
+    }
+    const sessao = await sessaoDe(c.req.header("cookie"));
+    if (sessao === null) {
+      falhou("troca_estado", "sem_sessao");
+      return json({ erro: "sessao" }, 401);
+    }
+    if (sessao.fase !== FASE_DA_TROCA) {
+      falhou("troca_estado", "conflito");
+      return json({ erro: "fase" }, 409, sessao.renovar);
+    }
+    // Sem numero nenhum: so o estado e o prazo da troca viva do tenant.
+    const vista = await t.troca.estado(sessao.s.tenantId);
+    return json(
+      { troca: vista === null ? null : { estado: vista.estado, prazo: vista.prazo.toISOString() } },
+      200,
+      sessao.renovar,
+    );
   });
 
   app.post("/painel/telefone/verificar", async (c) => {
@@ -869,20 +952,164 @@ export function rotasDoPainel(opcoes: OpcoesDoPainel): Hono {
     if (recusa !== null) return recusa;
     const corpo = await corpoDaReentrada(c);
     const codigo = corpo?.["codigo"];
-    if (typeof codigo !== "string") {
+    const numero = corpo === null ? null : numeroDaTroca(corpo);
+    if (corpo === null || typeof codigo !== "string" || numero === null) {
       falhou("troca_verificar", "invalido");
       return json({ erro: "corpo" }, 400, sessao.renovar);
     }
-    // **O papel so se move aqui, e so com o codigo certo.** Um aviso que falhe
-    // depois da troca sobe (a `TrocaDeTelefone` nao a desfaz): o papel ja mudou
-    // na base, e a resposta 500 nao o esconde.
-    const desfecho = await t.troca.verificar(pedidoDaTroca(sessao.s), sessao.s.tenantId, codigo);
-    if (!desfecho.trocado) {
+    // O numero vem outra vez com o codigo: a base so guarda o HMAC dele.
+    let telefone: Telefone;
+    try {
+      telefone = new Telefone(corpo["telefone"], t.anelDoPepper);
+    } catch (erro) {
+      if (!(erro instanceof IdentificadorInvalidoError)) throw erro;
+      falhou("troca_verificar", "invalido");
+      return json({ erro: "campo", campo: "telefone" }, 400, sessao.renovar);
+    }
+    // **O papel so se move com o codigo do numero antigo, ou pelo `concluir`
+    // depois das 72 h.** O do novo so abre a espera. Um aviso que falhe depois
+    // sobe (a `TrocaDeTelefone` nao desfaz o estado), e a resposta 500 nao o
+    // esconde.
+    const desfecho = await t.troca.verificar(pedidoDaTroca(sessao.s), sessao.s.tenantId, telefone, codigo, numero);
+    if (desfecho.estado === "recusada") {
       falhou("troca_verificar", "invalido");
       return json({ erro: "codigo" }, 401, sessao.renovar);
     }
+    if (desfecho.estado === "pendente") {
+      log?.info({ outcome: "painel_troca_pendente" });
+      return json({ estado: "pendente", prazo: desfecho.prazo.toISOString() }, 200, sessao.renovar);
+    }
     log?.info({ outcome: "painel_troca_feita" });
+    return json({ estado: "feita" }, 200, sessao.renovar);
+  });
+
+  app.post("/painel/telefone/concluir", async (c) => {
+    metricas.pedido("troca_concluir");
+    const t = opcoes.troca;
+    if (t === undefined) {
+      falhou("troca_concluir", "indisponivel");
+      return json({ erro: "indisponivel" }, 503);
+    }
+    const sessao = await sessaoDe(c.req.header("cookie"));
+    if (sessao === null) {
+      falhou("troca_concluir", "sem_sessao");
+      return json({ erro: "sessao" }, 401);
+    }
+    const recusa = await recusaDaTroca(c, t, sessao, "troca_concluir", relogio(), falhou);
+    if (recusa !== null) return recusa;
+    const desfecho = await t.troca.concluir(sessao.s.tenantId);
+    if (desfecho.estado !== "feita") {
+      // `cedo`: as 72 h nao passaram. Os outros: nao ha troca pendente.
+      falhou("troca_concluir", "conflito");
+      const erro = desfecho.estado === "recusada" && desfecho.veredicto === "cedo" ? "cedo" : "sem_troca";
+      return json({ erro }, 409, sessao.renovar);
+    }
+    log?.info({ outcome: "painel_troca_feita" });
+    return json({ estado: "feita" }, 200, sessao.renovar);
+  });
+
+  app.post("/painel/telefone/cancelar", async (c) => {
+    metricas.pedido("troca_cancelar");
+    const t = opcoes.troca;
+    if (t === undefined) {
+      falhou("troca_cancelar", "indisponivel");
+      return json({ erro: "indisponivel" }, 503);
+    }
+    const sessao = await sessaoDe(c.req.header("cookie"));
+    if (sessao === null) {
+      falhou("troca_cancelar", "sem_sessao");
+      return json({ erro: "sessao" }, 401);
+    }
+    const recusa = await recusaDaTroca(c, t, sessao, "troca_cancelar", relogio(), falhou);
+    if (recusa !== null) return recusa;
+    // **Qualquer sessao do tenant cancela**, e e o que a espera da: o dono
+    // legitimo, na sessao dele, ve a troca que um *cookie* roubado abriu.
+    if (!(await t.troca.cancelar(sessao.s.tenantId))) {
+      falhou("troca_cancelar", "conflito");
+      return json({ erro: "sem_troca" }, 409, sessao.renovar);
+    }
+    log?.info({ outcome: "painel_troca_cancelada" });
     return json({ ok: true }, 200, sessao.renovar);
+  });
+
+  // ------------------------------------------------- a conversa do dono (KAM-223)
+
+  app.get("/painel/conversa", async (c) => {
+    metricas.pedido("conversa");
+    const v = opcoes.conversa;
+    if (v === undefined) {
+      falhou("conversa", "indisponivel");
+      return json({ erro: "indisponivel" }, 503);
+    }
+    const sessao = await sessaoDe(c.req.header("cookie"));
+    if (sessao === null) {
+      falhou("conversa", "sem_sessao");
+      return json({ erro: "sessao" }, 401);
+    }
+    // O cursor e um `id` desta conversa; a conversa e a do tenant da sessao.
+    const depois = c.req.query("depois") ?? null;
+    const lidas = await v.conversa.ler(sessao.s.tenantId, depois);
+    if (lidas === "nao_encontrado") {
+      falhou("conversa", "nao_encontrado");
+      return json({ erro: "nao_encontrado" }, 404, sessao.renovar);
+    }
+    if (typeof lidas === "string") {
+      falhou("conversa", "conflito");
+      return json({ erro: lidas }, 409, sessao.renovar);
+    }
+    return json(
+      {
+        entradas: lidas.map((e) => ({
+          id: e.id,
+          autor: e.autor,
+          texto: e.texto,
+          botoes: e.botoes,
+          em: e.em.toISOString(),
+        })),
+      },
+      200,
+      sessao.renovar,
+    );
+  });
+
+  app.post("/painel/conversa", async (c) => {
+    metricas.pedido("conversa_enviar");
+    const v = opcoes.conversa;
+    if (v === undefined) {
+      falhou("conversa_enviar", "indisponivel");
+      return json({ erro: "indisponivel" }, 503);
+    }
+    const sessao = await sessaoDe(c.req.header("cookie"));
+    if (sessao === null) {
+      falhou("conversa_enviar", "sem_sessao");
+      return json({ erro: "sessao" }, 401);
+    }
+    // **So JSON**, pela razao do `PATCH`: um `<form>` de outra origem nao manda
+    // `application/json` sem *preflight*.
+    const corpo = await corpoDaReentrada(c, CORPO_MAXIMO_DA_CONVERSA);
+    if (corpo === null) {
+      falhou("conversa_enviar", "invalido");
+      return json({ erro: "corpo" }, 400, sessao.renovar);
+    }
+    // So o `texto` se le. Um `botao`, um `tenant_id` ou um `thread_id` no corpo
+    // nao chegam a lado nenhum: o que imita um botao e texto.
+    const enviado = await v.conversa.enviar(sessao.s.tenantId, corpo["texto"]);
+    if (!enviado.enviado) {
+      if (enviado.motivo === "texto") {
+        falhou("conversa_enviar", "invalido");
+        return json({ erro: "campo", campo: "texto" }, 400, sessao.renovar);
+      }
+      if (enviado.motivo === "agr") {
+        // A mensagem ficou gravada e o turno nao correu: o dono ve-a sem
+        // resposta e pode repetir.
+        falhou("conversa_enviar", "indisponivel");
+        return json({ erro: "agr", mensagem: enviado.messageId ?? null }, 502, sessao.renovar);
+      }
+      falhou("conversa_enviar", "conflito");
+      return json({ erro: enviado.motivo }, 409, sessao.renovar);
+    }
+    log?.info({ outcome: "painel_conversa_enviada" });
+    return json({ ok: true, mensagem: enviado.messageId }, 200, sessao.renovar);
   });
 
   return app;

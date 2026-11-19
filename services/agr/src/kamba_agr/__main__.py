@@ -58,7 +58,7 @@ from kamba_core.secrets import AMBIENTES, EnvSecretProvider, Secrets
 
 from . import egresso, eventos as evt, registo
 from .admissao import Admissao, Tectos
-from .api_interna import SEGREDO_DA_API, rotas
+from .api_interna import SEGREDO_DA_API, SEGREDO_DO_PAINEL, rotas
 from .app import create_app
 from .checkpointer import CheckpointerDoAgr
 from .conversa import leitor, leitor_de_contacto, leitor_de_papel
@@ -81,7 +81,8 @@ from .handoff.servico import ServicoDeHandoff
 from .concierge.substituicao import Substituidor
 from .handoff.retoma import Retomador
 from .orcamento.porta import PortaDeOrcamento
-from .saida import SaidaPorEvento
+from .mensagens import LeitorDeMensagens
+from .saida import SaidaPorEvento, canal_do_turno
 from .metricas import METRICAS
 from .ligacao import (
     ligar_para_accoes,
@@ -92,6 +93,7 @@ from .ligacao import (
     ligar_para_handoff,
     ligar_para_leitura,
     ligar_para_llm,
+    ligar_para_mensagens,
     ligar_para_tools,
     ligar_para_tranca,
 )
@@ -705,6 +707,9 @@ def main() -> int:
         # fundador de 2026-11-19, bloco do KAM-217).
         "saida": SaidaPorEvento(
             ligar_para_saida,
+            # KAM-223: o canal da resposta e o da mensagem que o turno leu
+            # (`painel` ou `whatsapp`), que o executor poe no `CANAL_DO_TURNO`.
+            canal_de=canal_do_turno,
             aviso=lambda motivo: log.info(outcome="saida", error_code=motivo),
         ),
         "hnd": ServicoDeHandoff(metricas=METRICAS),
@@ -837,6 +842,9 @@ def main() -> int:
         # pendente. Esta ligado **agora** — nao depende do AgentRegistry, porque
         # o gatilho esta no `Palavra.do_humano` e nao no grafo.
         substituir_rascunhos=substituidor_de_rascunhos.substituir,
+        # KAM-223: o texto do turno, lido pelo `message_id` da
+        # `platform.agent_messages`, com uma ligacao `kamba_app` por leitura.
+        ler_mensagem=LeitorDeMensagens(ligar_para_mensagens).ler,
     )
     aplicacao = create_app(
         rotas_internas=[
@@ -866,6 +874,11 @@ def main() -> int:
                 # marcava o rascunho como tratado, nenhuma mensagem saia e nem um
                 # `expirado` ficava registado.
                 decidir=decisor_de_rascunhos.decidir,
+                # KAM-223. A credencial propria do `onboarding-web`, so para o
+                # `/internal/turn` e so para o turno do dono com `message_id`.
+                # Nao e obrigatoria no arranque: lida a cada pedido, e sem ela no
+                # cofre o painel leva 401 — fecha, nunca abre.
+                credencial_do_painel=lambda: segredos.get(SEGREDO_DO_PAINEL),  # kamba:secrets-inventory dinamico a constante SEGREDO_DO_PAINEL do api_interna.py e o dono do nome em codigo
             ),
             # A quinta rota (KAM-195), com credencial propria: ver a nota do
             # `llm/screening.py`. Sem a credencial no cofre, responde 401.

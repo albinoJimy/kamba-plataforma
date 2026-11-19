@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://contracts.kamba.ao/agent_invocation.v1.json",
   "title": "Invocacao do Agent Runtime",
-  "description": "O job que o CHR entrega ao AGR por cada turno de conversa (KAM-014, criterio 6; consumido em KAM-025). Nove campos obrigatorios e dois opcionais (`persona`, aditivo do KAM-118, e `botao`, aditivo do KAM-211), e nenhum mais: `additionalProperties` e `false` porque o que este contrato garante e tanto o que esta la como o que NAO esta la — sem telefone, sem BSUID e sem display_name (ADR-010). O contacto entra por `contact_id`, que e um uuid aleatorio. O caminho deste ficheiro NAO e o do criterio, que escreve `packages/contracts/agent_invocation.schema.json`: os esquemas deste pacote vivem em `schemas/` com a versao no nome (specs/01 §5), e um ficheiro `*.schema.json` bate numa sentinela do gate 3b que o exige dentro de `contratos/eventos/` — e isto nao e um contrato de evento. A caixa desse criterio fica por marcar, com esta razao.",
+  "description": "O job que o CHR entrega ao AGR por cada turno de conversa (KAM-014, criterio 6; consumido em KAM-025). Nove campos obrigatorios e tres opcionais (`persona`, aditivo do KAM-118, `botao`, aditivo do KAM-211, e `message_id`, aditivo do KAM-223), e nenhum mais: `additionalProperties` e `false` porque o que este contrato garante e tanto o que esta la como o que NAO esta la — sem telefone, sem BSUID e sem display_name (ADR-010). O contacto entra por `contact_id`, que e um uuid aleatorio. O caminho deste ficheiro NAO e o do criterio, que escreve `packages/contracts/agent_invocation.schema.json`: os esquemas deste pacote vivem em `schemas/` com a versao no nome (specs/01 §5), e um ficheiro `*.schema.json` bate numa sentinela do gate 3b que o exige dentro de `contratos/eventos/` — e isto nao e um contrato de evento. A caixa desse criterio fica por marcar, com esta razao.",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -88,6 +88,12 @@
       "minLength": 1,
       "maxLength": 256,
       "pattern": "^[A-Za-z0-9_.:-]{1,256}$"
+    },
+    "message_id": {
+      "description": "O identificador da mensagem de texto na fonte persistida (`platform.agent_messages`, KAM-223) — e nunca o corpo: a decisao do KAM-186 mantem-se, e o texto nao viaja neste contrato. O AGR le a linha por este identificador, com o tenant, o contacto e a conversa desta invocacao, e passa o texto pelo `guardas.mensagem_do_cliente` antes da janela; uma linha que nao se encontre com os quatro nao entra no grafo. Decisao 1 do fundador de 2026-11-19 (opcao A, bloco do KAM-217). Campo ADITIVO da v1 e por isso opcional: sem ele, a janela nasce vazia como ate aqui.",
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
     }
   },
   "dependentSchemas": {

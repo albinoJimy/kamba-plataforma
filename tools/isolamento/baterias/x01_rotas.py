@@ -883,9 +883,24 @@ registar_caso(
 #     telefone (KAM-211)      a sessao de A com o tenant de B no corpo, na
 #                             consulta e no cabecalho: 200, e o pedido de troca
 #                             fica so no tenant e na sessao de A
-#     telefone/verificar      a sessao de A com o codigo certo do pedido de B, o
-#       (KAM-211)             tenant de B e o pedido de B no corpo: 401 uniforme,
-#                             e a troca de B nao acontece
+#     telefone/verificar      a sessao de A com o numero e o codigo certos do
+#       (KAM-211)             pedido de B, o tenant de B e o pedido de B no corpo:
+#                             401 uniforme, e a troca de B nao acontece
+#     GET telefone (KAM-223)  a sessao de A com o tenant de B na consulta e no
+#                             cabecalho: 200 com o prazo da troca de A, e so a de
+#                             A foi perguntada
+#     telefone/concluir e     a sessao de A com o tenant de B no corpo, na
+#       telefone/cancelar     consulta e no cabecalho: so a troca de A e tocada, e
+#       (KAM-223)             a troca pendente de B continua pendente
+#     GET conversa (KAM-223)  a sessao de A com o cursor `?depois=` de uma entrada
+#                             da conversa de B, com e sem o tenant de B: **404**
+#                             uniforme, e uma leitura de A, fora das entradas, da
+#                             200 com os dados de A. E o «404» do criterio 4 do
+#                             KAM-223: o recurso de B nomeia-se pelo `id` dele
+#     POST conversa (KAM-223) a sessao de A com o tenant e o thread de B no pedido e
+#                             um texto que imita um botao: 200, e a mensagem e a
+#                             invocacao do AGR ficam no tenant e no thread de A,
+#                             com a persona `dono` e sem botao
 #
 # **O 200 das listas entra por item e nao no global**, pela razao do `/metrics`
 # do COM: a afirmacao delas e «o tenant e o da sessao», e essa mede-se a ver os
@@ -906,6 +921,12 @@ ROTAS_DO_PAINEL = (
     # KAM-211: a troca de telefone do dono.
     "rota:onboarding-web:painel/rotas:actor:POST:/painel/telefone",
     "rota:onboarding-web:painel/rotas:actor:POST:/painel/telefone/verificar",
+    # KAM-223: a troca com prova de posse e a conversa do dono.
+    "rota:onboarding-web:painel/rotas:actor:GET:/painel/telefone",
+    "rota:onboarding-web:painel/rotas:actor:POST:/painel/telefone/concluir",
+    "rota:onboarding-web:painel/rotas:actor:POST:/painel/telefone/cancelar",
+    "rota:onboarding-web:painel/rotas:actor:GET:/painel/conversa",
+    "rota:onboarding-web:painel/rotas:actor:POST:/painel/conversa",
 )
 
 #: Os estados de cada rota, quando nao sao os do `RECUSAS_ACEITAVEIS`. As listas
@@ -929,6 +950,14 @@ ACEITAVEIS_DO_PAINEL: dict[str, tuple[int, ...]] = {
     # verificacao responde **so** 401 a um codigo que nao e o do pedido dela.
     "rota:onboarding-web:painel/rotas:actor:POST:/painel/telefone": (200,),
     "rota:onboarding-web:painel/rotas:actor:POST:/painel/telefone/verificar": (401,),
+    # KAM-223. O estado e o cancelamento respondem 200 a sessao de A (com a troca
+    # de A); a conclusao 409 (a de A ainda nao venceu); a leitura da conversa
+    # com o cursor de B **so** 404, e o envio 200 em A.
+    "rota:onboarding-web:painel/rotas:actor:GET:/painel/telefone": (200,),
+    "rota:onboarding-web:painel/rotas:actor:POST:/painel/telefone/concluir": (409,),
+    "rota:onboarding-web:painel/rotas:actor:POST:/painel/telefone/cancelar": (200,),
+    "rota:onboarding-web:painel/rotas:actor:GET:/painel/conversa": (404,),
+    "rota:onboarding-web:painel/rotas:actor:POST:/painel/conversa": (200,),
 }
 
 #: Ataques por rota do painel.
@@ -962,8 +991,11 @@ def _afirmacoes_do_painel(item: str, entradas: list[dict]) -> list[str]:
             "/painel/entrar",
             "/painel/codigo",
             "/painel/verificar",
-            "/painel/telefone",
+            "POST:/painel/telefone",
             "/painel/telefone/verificar",
+            "/painel/telefone/concluir",
+            "/painel/telefone/cancelar",
+            "POST:/painel/conversa",
         )
     ):
         achados.extend(
@@ -1059,6 +1091,37 @@ def _afirmacoes_do_painel(item: str, entradas: list[dict]) -> list[str]:
                 "verificou o pedido de outro dono.",
             )
         )
+    for sufixo, marca, porque in (
+        (
+            "GET:/painel/telefone",
+            "estado",
+            "O `GET /painel/telefone` perguntou pela troca de outro tenant que nao "
+            "o da sessao de A: o pedido escolheu o tenant.",
+        ),
+        (
+            "POST:/painel/telefone/concluir",
+            "concluir",
+            "O `/painel/telefone/concluir` tentou a troca de outro tenant, ou a "
+            "troca pendente de B deixou de estar pendente: a sessao de A mudou o "
+            "dono de B.",
+        ),
+        (
+            "POST:/painel/telefone/cancelar",
+            "cancelar",
+            "O `/painel/telefone/cancelar` cancelou a troca de outro tenant, ou a "
+            "troca pendente de B deixou de estar pendente: a sessao de A desfez a "
+            "troca de B.",
+        ),
+        (
+            "POST:/painel/conversa",
+            "conversa",
+            "A mensagem do `POST /painel/conversa` gravou-se ou invocou o AGR noutro "
+            "tenant ou thread que nao o de A, sem a persona `dono`, ou com um "
+            "botao: o pedido escolheu o tenant, ou um texto passou por botao.",
+        ),
+    ):
+        if item.endswith(sufixo):
+            achados.extend(_exigir_marca(item, entradas, marca, "a", porque))
     if item.endswith("POST:/painel/verificar"):
         achados.extend(
             _exigir_marca(

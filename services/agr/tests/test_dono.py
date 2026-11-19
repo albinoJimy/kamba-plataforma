@@ -1070,10 +1070,11 @@ class TestBotaoNaInvocacao(unittest.TestCase):
     def test_o_tecto_do_botao_e_o_da_cloud_api(self) -> None:
         self.assertEqual(_inv(type="interactive", botao="a" * 256).botao, "a" * 256)
 
-    def test_o_campo_e_o_unico_opcional_alem_da_persona(self) -> None:
+    def test_os_opcionais_sao_a_persona_o_botao_e_o_message_id(self) -> None:
+        # KAM-223 acrescentou o `message_id`, aditivo como os outros dois.
         from kamba_agr.contexto import CAMPOS_OPCIONAIS
 
-        self.assertEqual(CAMPOS_OPCIONAIS, ("persona", "botao"))
+        self.assertEqual(CAMPOS_OPCIONAIS, ("persona", "botao", "message_id"))
         self.assertNotIn("botao", CAMPOS)
 
 

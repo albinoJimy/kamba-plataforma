@@ -196,6 +196,7 @@ class TestLigacaoDoArranque(unittest.TestCase):
                 "Decisor",
                 "compilar",
                 "_fechar_as_tomadas",
+                "rotas",
             )
         }
 
@@ -420,6 +421,44 @@ class TestLigacaoDoArranque(unittest.TestCase):
         self.assertNotIsInstance(porta, grafos_mod.SaidaPorLigar)
         self.assertIs(porta._abrir, arranque.ligar_para_saida)
         self.assertIsNot(porta._abrir, arranque.ligar_para_accoes)
+
+    def test_o_canal_da_resposta_e_o_do_turno(self) -> None:
+        """KAM-223: a `SaidaPorEvento` do processo le o canal do `CANAL_DO_TURNO`.
+        Com o `canal_por_omissao` no lugar, o turno do painel respondia pelo
+        WhatsApp."""
+        from kamba_agr.saida import canal_do_turno
+
+        portas = self.capturado["compilar"][0][1]
+        self.assertIs(portas["saida"]._canal_de, canal_do_turno)
+
+    def test_o_executor_le_a_mensagem_pela_ligacao_das_mensagens(self) -> None:
+        """KAM-223: sem a porta, um turno com `message_id` levanta; com a ligacao
+        errada, le com outro `application_name` (ou outro papel)."""
+        from kamba_agr.mensagens import LeitorDeMensagens
+
+        ler = self.capturado["ExecutorDeTurnos"][1]["ler_mensagem"]
+        self.assertIsInstance(ler.__self__, LeitorDeMensagens)
+        self.assertIs(ler.__self__._abrir, arranque.ligar_para_mensagens)
+
+    def test_a_credencial_do_painel_e_a_propria_e_nao_a_do_shim(self) -> None:
+        """KAM-223: a `credencial_do_painel` le o `agr_painel_token`, lido do
+        cofre a cada pedido. Ligada ao `agr_internal_token`, devolvia a
+        credencial do *shim*; sem a referencia no cofre, levanta (e a rota
+        fecha com 401)."""
+        argumentos = self.capturado["rotas"][1]
+        cofre = {
+            "KAMBA_SECRET_AGR_INTERNAL_TOKEN": "credencial do shim nas baterias",
+            "KAMBA_SECRET_AGR_PAINEL_TOKEN": "credencial do painel nas baterias",
+        }
+        with mock.patch.dict(os.environ, cofre):
+            self.assertEqual(
+                argumentos["credencial_do_painel"](), "credencial do painel nas baterias"
+            )
+            self.assertEqual(argumentos["credencial"](), "credencial do shim nas baterias")
+        with mock.patch.dict(os.environ, {}):
+            os.environ.pop("KAMBA_SECRET_AGR_PAINEL_TOKEN", None)
+            with self.assertRaises(Exception):
+                argumentos["credencial_do_painel"]()
 
     def test_o_detector_de_degradacao_le_a_admissao_do_processo(self) -> None:
         """Sem a admissao, os dois sinais de carga do KAM-037 nunca disparam."""
