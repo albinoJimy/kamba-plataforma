@@ -464,13 +464,15 @@ class TestToolsNoArranque(unittest.TestCase):
     def test_com_o_com_ligam_se_seis_de_quinze(self) -> None:
         # Quatro do COM, a `get_store_info` e, desde o KAM-061, o
         # `search_catalog` do IDX. O catalogo tem quinze desde o KAM-118: as
-        # quatro do dono entram declaradas (credor KAM-119).
-        self.assertEqual(self._linha(KAMBA_COM_URL="http://com.interno:3000"), "ligadas_6_de_17")
+        # quatro do dono entram declaradas (credor KAM-119). Desde o KAM-220, as
+        # duas do orcamento ligam-se sempre, como a `get_store_info`: oito.
+        self.assertEqual(self._linha(KAMBA_COM_URL="http://com.interno:3000"), "ligadas_8_de_17")
 
     def test_sem_o_com_a_da_plataforma_e_a_do_indice(self) -> None:
         # O `search_catalog` liga-se sem `KAMBA_COM_URL`: o indice vive na base
-        # da plataforma, e nao depende do COM (KAM-061).
-        self.assertEqual(self._linha(), "ligadas_2_de_17")
+        # da plataforma, e nao depende do COM (KAM-061). E as duas do orcamento
+        # escrevem na mesma base (KAM-220).
+        self.assertEqual(self._linha(), "ligadas_4_de_17")
 
 
 class TestPesquisaSemExecutor(unittest.TestCase):
@@ -487,7 +489,9 @@ class TestPesquisaSemExecutor(unittest.TestCase):
         # E as cinco do Vendedor que falam com o COM ficam `declaradas` sem
         # `KAMBA_COM_URL`: so a da plataforma responde.
         vendedor = _agentes({"vendedor"}).verticais["vendedor"]
-        declaradas = set(vendedor.tools) - {"get_store_info"}
+        # O `request_quote` (KAM-220) fala com a base da plataforma, e nao com o
+        # COM: fica fora desta conta, e declarado num catalogo sem executores.
+        declaradas = set(vendedor.tools) - {"get_store_info", "request_quote"}
         self.assertEqual(len(declaradas), 5)
         self.assertFalse(declaradas & set(catalogo.ligadas()))
         tools = ToolLayer(catalogo, abrir_ligacao=_Ligacao(outro=LOJA).nova_vaga)

@@ -389,9 +389,15 @@ REGRAS_OBRIGATORIAS = ("estado_contra_caixa",)
 #: em `f933984f` (o #224 do KAM-217 ja fundido, com **152 medidos** na `main`):
 #: **153 medidos**, e `153 // 2` sao 76. Fica em 76, e o 154.o sobe-o para 77.
 #:
-#: **O 154.o e o do KAM-224**, medido sobre a `publico/main` em `57446ec0` (o
-#: #223 do KAM-219 ja fundido, com **153 medidos** na `main`): **154 medidos**,
-#: e `154 // 2` sao 77. Sobe para 77, que serve ate aos 155.
+#: **O 154.o e o do KAM-220**, medido no ramo sobre a `publico/main` em `57446ec0`
+#: (com **153 medidos** na `main`): o bloco do KAM-220 ganha a verificacao, e o
+#: do KAM-226 nasce sem ela. **154 medidos**, e `154 // 2` sao 77. Sobe para 77,
+#: que serve ate aos 155. Ha quatro PRs ao lado no lote 13, e quem fundir em
+#: segundo remede na arvore integrada.
+#:
+#: **O 155.o e o do KAM-224**, medido na arvore integrada com a `publico/main`
+#: em `3d5f4857` (o #229 do KAM-220 ja fundido, com **154 medidos** na `main`):
+#: **155 medidos**, e `155 // 2` sao 77. Fica em 77, e o 156.o sobe-o para 78.
 MINIMO_DE_BLOCOS_MEDIDOS = 77
 
 #: Quantos blocos existem, no minimo. O mesmo argumento, para a camada de baixo:

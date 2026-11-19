@@ -28,6 +28,8 @@ CHAVE_DA_INTENCAO: Final = {
     "info_loja": "info",
     "humano": "human",
     "confirmar": "confirm",
+    "orcamento": "orcamento",
+    "responder_orcamento": "resposta",
 }
 
 

@@ -24,7 +24,7 @@
  * evento não a enviaria. O efeito di-lo em vez de o esconder — `falhou` com o
  * motivo, ou `repetida_sem_envio` —, deixa a linha sem `entregue_at`, e consome
  * o evento. Reenviar uma resposta nesses casos pede uma chave derivada ou um
- * reprocessamento da linha do Outbound, e é do **KAM-226**.
+ * reprocessamento da linha do Outbound, e é do **KAM-227**.
  *
  * ## O `Saida` corre noutra ligação, e porquê
  *

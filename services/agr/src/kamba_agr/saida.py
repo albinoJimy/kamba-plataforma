@@ -272,7 +272,7 @@ class SaidaPorEvento:
         # porque a `PortaDeSaida` do grafo e sincrona e os nos chamam-na sem
         # `await`; com a base lenta, o processo para. Passar a porta a `async`
         # (com `asyncio.to_thread`, como a `PortaDeConfirmacao`) muda os tres
-        # nos e os duplos; revê-se no KAM-226, antes de o `outbound` arrancar.
+        # nos e os duplos; revê-se no KAM-227, antes de o `outbound` arrancar.
         inicio = INICIO_DO_TURNO.get() or self._relogio()
         ligacao = self._abrir()
         try:

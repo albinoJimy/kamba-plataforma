@@ -29,7 +29,7 @@
  * `tenant_channels.token_ref` sem leitor, e o `ObterDestinatario` (o BSUID ou o
  * telefone de um contacto) não tem implementação fora dos ensaios. Quem monta o
  * processo recusa arrancar sem eles (`services/worker-canal/src/consumidor.ts`);
- * o credor é o **KAM-226**.
+ * o credor é o **KAM-227**.
  */
 
 import type { Logger } from "../logger/index.ts";

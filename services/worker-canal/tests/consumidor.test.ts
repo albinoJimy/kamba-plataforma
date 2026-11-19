@@ -103,7 +103,7 @@ describe("o efeito do consumidor, pelo nome (KAM-224)", () => {
       (erro: unknown) => {
         assert.ok(erro instanceof SaidaSemPortasError);
         assert.deepEqual(erro.emFalta, ["o cliente da Meta", "o destinatario"]);
-        assert.match(erro.message, /KAM-226/);
+        assert.match(erro.message, /KAM-227/);
         return true;
       },
     );

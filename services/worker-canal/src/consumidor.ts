@@ -31,7 +31,7 @@
  *   da Meta e o destinatário**, que não têm fonte de produção neste repositório
  *   (o `tenant_channels.token_ref` sem leitor, e nenhum `ObterDestinatario`):
  *   sai com `SaidaSemPortasError` antes de levantar *workers*. O credor é o
- *   **KAM-226**. Os eventos ficam nas filas `evt.outbound.p<n>` à espera.
+ *   **KAM-227**. Os eventos ficam nas filas `evt.outbound.p<n>` à espera.
  * - qualquer outro — o esqueleto, que regista e mais nada.
  */
 
@@ -125,7 +125,7 @@ export class ArranqueRecusadoError extends Error {
  *
  * Arrancar sem eles era consumir as respostas e recusá-las todas — ou pior,
  * enviá-las sem destinatário. Sai antes de levantar *workers*, e os eventos
- * esperam nas filas (KAM-224; credor das duas portas: KAM-226).
+ * esperam nas filas (KAM-224; credor das duas portas: KAM-227).
  */
 export class SaidaSemPortasError extends Error {
   readonly emFalta: readonly string[];
@@ -133,7 +133,7 @@ export class SaidaSemPortasError extends Error {
   constructor(emFalta: readonly string[]) {
     super(
       `o consumidor ${CONSUMIDOR_DO_OUTBOUND} precisa de ${emFalta.join(' e ')}: ` +
-        'sem eles nenhuma resposta do AGR sai pelo WhatsApp (credor KAM-226)',
+        'sem eles nenhuma resposta do AGR sai pelo WhatsApp (credor KAM-227)',
     );
     this.name = 'SaidaSemPortasError';
     this.emFalta = emFalta;
@@ -218,7 +218,7 @@ async function principal(): Promise<void> {
 
   // O `Saida` corre numa ligação própria, e não na do consumo: ver a nota do
   // `efeito.ts` de `@kamba/core-ts/resposta`. Um conjunto pequeno, tomado por
-  // envio. **As duas portas da Meta não têm fonte** (KAM-226): o `outbound`
+  // envio. **As duas portas da Meta não têm fonte** (KAM-227): o `outbound`
   // sai aqui com `SaidaSemPortasError`, antes de levantar *workers*.
   const envios = new pg.Pool({ connectionString: urlDaBase, max: 4 });
   envios.on('error', () => log.warn({ outcome: 'ligacao_do_envio_caiu' }));

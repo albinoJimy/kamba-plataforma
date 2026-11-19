@@ -105,6 +105,7 @@ from .llm import registo as llm_registo
 from .llm import screening as llm_screening
 from .llm.cliente import ClienteDeLlm, PROXY_POR_OMISSAO, REF_CHAVE_VIRTUAL, VARIAVEL_DO_PROXY
 from .tls.catalogo import catalogo_do_piloto
+from .tls import orcamento_tools
 from .tls.embeddings import consulta_vectorial
 from .tls.idx import LIMIAR_DO_RRF, LigacaoVectorial, executores_do_idx
 from .tls.com import (
@@ -399,6 +400,9 @@ def main() -> int:
         {
             **_executores_do_comercio(log, credencial_do_com),
             **executores_do_idx(ligacao_vectorial),
+            # KAM-220. As duas do Orcamento expresso escrevem na nossa base, como
+            # a `get_store_info` le dela: ligam-se sempre.
+            **orcamento_tools.executores(),
         }
     )
     # **A validacao (3) corre a serio desde o KAM-186**: o `construir_grafo`
