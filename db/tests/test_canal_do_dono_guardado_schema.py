@@ -7,9 +7,10 @@ telefone. O que so uma base prova, e por isso este ficheiro existe:
 1. **A coluna escreve-a so a porta**, na transaccao que move o papel: a troca
    com o terceiro argumento escreve-o; o provisionamento, que chama com dois,
    deixa-o nulo; a reentrega idempotente nao o apaga.
-2. **Ninguem a escreve por fora**: nenhum papel tem `UPDATE (owner_channel_wa)`,
-   e o `kamba_identity` le so as duas colunas de que o painel precisa, e so do
-   seu tenant.
+2. **Nenhum papel de aplicacao a escreve**: o `kamba_app` e o `kamba_identity`
+   recebem `42501`; so o `kamba_batch` (o lote) mantem o `UPDATE` de tabela da
+   `0001`. O `kamba_identity` continua sem ler a `tenants` (KAM-008): quem le a
+   coluna e o COM, como `kamba_app` (`test_canal_do_painel.py`).
 3. **O `downgrade`** repoe a porta de dois argumentos da `0070` e larga a
    coluna, e o regresso a `head`.
 
@@ -115,14 +116,16 @@ class TestEscritaPelaPorta(ComCanal):
 
 
 class TestNinguemEscrevePorFora(ComCanal):
-    def test_nenhum_papel_tem_update_na_coluna(self) -> None:
+    def test_so_o_lote_tem_update_na_coluna(self) -> None:
+        """Nenhum papel de aplicacao a escreve; o `kamba_batch` mantem o `UPDATE`
+        de tabela da `0001`, o mesmo com que o lote escreve o `owner_contact_id`."""
         self.cur.execute(
             "SELECT array_agg(r.rolname::text ORDER BY r.rolname) FROM pg_roles r "
             "WHERE r.rolname LIKE %s AND r.rolname <> 'kamba_migrator' "
             "AND has_column_privilege(r.oid, 'platform.tenants', 'owner_channel_wa', 'UPDATE')",
             ("kamba\\_%",),
         )
-        self.assertIsNone(self.cur.fetchone()[0])
+        self.assertEqual(self.cur.fetchone()[0], ["kamba_batch"])
 
     def test_a_identidade_e_a_aplicacao_recebem_42501_no_update(self) -> None:
         tenant, _ = self.com_dono()
@@ -138,24 +141,12 @@ class TestNinguemEscrevePorFora(ComCanal):
                 _papel(self.cur, None)
         self.assertIsNone(self.canal(tenant))
 
-    def test_a_identidade_le_so_as_duas_colunas(self) -> None:
+    def test_a_identidade_continua_sem_ler_a_tenants(self) -> None:
+        """A invariante do KAM-008: quem le o canal do dono e o COM, como `kamba_app`."""
         self.cur.execute(
-            "SELECT array_agg(c.column_name::text ORDER BY c.column_name) "
-            "FROM information_schema.columns c WHERE c.table_schema = 'platform' "
-            "AND c.table_name = 'tenants' "
-            "AND has_column_privilege('kamba_identity', 'platform.tenants', c.column_name, 'SELECT')"
+            "SELECT has_column_privilege('kamba_identity', 'platform.tenants', 'owner_channel_wa', 'SELECT')"
         )
-        self.assertEqual(self.cur.fetchone()[0], ["id", "owner_channel_wa"])
-
-    def test_a_identidade_le_so_o_seu_tenant(self) -> None:
-        a, _ = self.com_dono()
-        b, _ = self.com_dono()
-        novo = factories.contacto(self.cur, b)
-        self.trocar(b, novo, True)
-        _papel(self.cur, "kamba_identity", a)
-        self.cur.execute("SELECT id::text, owner_channel_wa FROM platform.tenants")
-        self.assertEqual(self.cur.fetchall(), [(a, None)])
-        _papel(self.cur, None)
+        self.assertIs(self.cur.fetchone()[0], False)
 
 
 class TestDowngradeDoCanalGuardado(unittest.TestCase):
@@ -176,7 +167,7 @@ class TestDowngradeDoCanalGuardado(unittest.TestCase):
         if not em_head():
             alembic_ok("upgrade", "head")
 
-    def _objectos(self) -> tuple[int, list[str], bool]:
+    def _objectos(self) -> tuple[int, list[str]]:
         conexao = ligacao.ligar("admin")
         try:
             c = conexao.cursor()
@@ -190,15 +181,13 @@ class TestDowngradeDoCanalGuardado(unittest.TestCase):
                 "WHERE p.proname = 'definir_dono'"
             )
             assinaturas = [r[0] for r in c.fetchall()]
-            c.execute("SELECT has_column_privilege('kamba_identity', 'platform.tenants', 'id', 'SELECT')")
-            le_o_id = bool(c.fetchone()[0])
-            return colunas, assinaturas, le_o_id
+            return colunas, assinaturas
         finally:
             conexao.close()
 
     def test_desce_e_volta(self) -> None:
-        tres = (1, ["p_contact_id uuid, p_origem text, p_owner_channel_wa boolean"], True)
-        dois = (0, ["p_contact_id uuid, p_origem text"], False)
+        tres = (1, ["p_contact_id uuid, p_origem text, p_owner_channel_wa boolean"])
+        dois = (0, ["p_contact_id uuid, p_origem text"])
         self.assertEqual(self._objectos(), tres)
         alembic_ok("downgrade", _anterior())
         self.assertEqual(self._objectos(), dois)

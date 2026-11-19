@@ -46,13 +46,6 @@ export const ORIGEM_DA_TROCA = "troca_de_telefone";
  */
 export const SQL_DEFINIR_DONO = "SELECT platform.definir_dono($1::uuid, $2, $3::boolean) AS anterior";
 
-/**
- * O canal do dono que a troca guardou. Uma linha, a do tenant do contexto: a RLS
- * da `tenants` é pela coluna `id` (`0002`), e o `$1` é o mesmo tenant que o
- * `comTenant` pôs no `app.tenant_id`.
- */
-export const SQL_CANAL_DO_DONO = "SELECT owner_channel_wa FROM platform.tenants WHERE id = $1::uuid";
-
 /** O resolver devolveu uma fusão onde não pode haver nenhuma. */
 export class FusaoNaTrocaError extends Error {
   override readonly name = "FusaoNaTrocaError";
@@ -102,23 +95,6 @@ export function definirDonoNaBase(identidade: ClienteSql): DefinirDono {
   return async ({ tenantId, contactId }) => {
     await definir(identidade, tenantId, contactId, ORIGEM_DO_PROVISIONAMENTO, null);
   };
-}
-
-/**
- * O que a troca guardou em `tenants.owner_channel_wa` (KAM-216): `true`,
- * `false`, ou `null` se ninguém trocou de telefone ou o tenant não se lê. Não
- * decide nada: quem decide é o `canalNoPainel`, que só abre o WhatsApp com o
- * `true` exacto.
- */
-export function canalDoDonoNaBase(identidade: ClienteSql): (tenantId: string) => Promise<boolean | null> {
-  return (tenantId) =>
-    comTenant(identidade, tenantId, async (bd) => {
-      const resposta = (await bd.query(SQL_CANAL_DO_DONO, [tenantId])) as {
-        readonly rows?: readonly { readonly owner_channel_wa?: unknown }[];
-      };
-      const valor = resposta.rows?.[0]?.owner_channel_wa;
-      return typeof valor === "boolean" ? valor : null;
-    });
 }
 
 /**
@@ -184,15 +160,6 @@ export function trocaPeloPool(portas: {
     trocar: (pedido) => numaLigacao(pool, (ligacao) => trocaNaBase(ligacao)(pedido)),
     ...(portas.relogio === undefined ? {} : { relogio: portas.relogio }),
   });
-}
-
-/**
- * O `canalDoDonoNaBase` de um processo que atende pedidos concorrentes: uma
- * ligação do *pool* por leitura, pela razão do `numaLigacao`. É o que o
- * `GET /painel/canal` do `onboarding-web` lê (KAM-216).
- */
-export function canalDoDonoPeloPool(pool: PoolDeIdentidade): (tenantId: string) => Promise<boolean | null> {
-  return (tenantId) => numaLigacao(pool, (ligacao) => canalDoDonoNaBase(ligacao)(tenantId));
 }
 
 /** O `ContactoDoNumero`: o `resolveContact` do KAM-008, só com o telefone. */

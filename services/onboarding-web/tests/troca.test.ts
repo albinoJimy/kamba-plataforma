@@ -56,12 +56,12 @@ interface Montagem {
   canal: CanalEmMemoria;
   /** O canal do dono que a porta recebeu, troca a troca (KAM-216). */
   canais: boolean[];
-  /** A coluna `tenants.owner_channel_wa`, por tenant, como a porta a deixa. */
-  guardados: Map<string, boolean>;
-  /** Os tenants que o `GET /painel/canal` pediu ao leitor da coluna. */
+  /** Os tenants que o `GET /painel/canal` pediu ao COM. */
   lidos: string[];
-  /** Se o leitor da coluna lança. */
-  leitorFalha: boolean;
+  /** Se o guia confirmou o número da loja, por caso (KAM-216). Omissão: sim. */
+  naoConfirmados: Set<string>;
+  /** Os casos que a troca perguntou ao guia. */
+  perguntadosAoGuia: string[];
   sms: FakeSmsProvider;
   metricas: MetricasDoPainel;
   /** O que a `definir_dono` recebeu: `(tenant, contacto)`. */
@@ -79,9 +79,9 @@ function montar(opcoes: { readonly avisoFalha?: boolean } = {}): Montagem {
     contactos: [],
     avisos: [],
     canais: [],
-    guardados: new Map(),
     lidos: [],
-    leitorFalha: false,
+    naoConfirmados: new Set(),
+    perguntadosAoGuia: [],
   } as unknown as Montagem;
   const relogio = (): Date => m.agora;
   m.contadores = new ContadoresEmMemoria();
@@ -104,7 +104,9 @@ function montar(opcoes: { readonly avisoFalha?: boolean } = {}): Montagem {
     trocar: async ({ tenantId, contactId, ownerChannelWa }) => {
       m.trocas.push({ tenantId, contactId });
       m.canais.push(ownerChannelWa);
-      m.guardados.set(tenantId, ownerChannelWa);
+      // A porta escreve o `tenants.owner_channel_wa`, e o COM devolve-o na vista.
+      const vista = (await m.canal.ler(tenantId)) ?? SEM_CANAL;
+      m.canal.vistas.set(tenantId, { ...vista, ownerChannelWa });
       return { anterior: `dono-antigo-de-${tenantId.slice(0, 8)}` };
     },
     avisar: async ({ tenantId, destino }) => {
@@ -119,9 +121,15 @@ function montar(opcoes: { readonly avisoFalha?: boolean } = {}): Montagem {
   ]);
   m.casos = casos;
   m.canal = new CanalEmMemoria();
+  const canalEspiao = {
+    ler: async (tenantId: string) => {
+      m.lidos.push(tenantId);
+      return m.canal.ler(tenantId);
+    },
+  };
   m.app = rotasDoPainel({
     comercio: new ComercioEmMemoria(),
-    canal: m.canal,
+    canal: canalEspiao,
     revogacoes: new RevogacoesEmMemoria(),
     metricas: m.metricas,
     casos: { porId: async (id) => casos.get(id) ?? null },
@@ -131,10 +139,9 @@ function montar(opcoes: { readonly avisoFalha?: boolean } = {}): Montagem {
       troca,
       anelDoPepper: [PEPPER, null],
       contadores: m.contadores,
-      canalDoDono: async (tenantId) => {
-        m.lidos.push(tenantId);
-        if (m.leitorFalha) throw new Error("base_em_baixo");
-        return m.guardados.get(tenantId) ?? null;
+      numeroDaLojaConfirmado: async (casoId) => {
+        m.perguntadosAoGuia.push(casoId);
+        return !m.naoConfirmados.has(casoId);
       },
     },
   });
@@ -414,7 +421,7 @@ describe("KAM-216 — o canal do dono: a troca guarda-o e o painel mostra-o", ()
   });
 
   it("isolamento: o canal de B nao aparece na sessao de A, nem com o tenant de B no pedido", async () => {
-    m.guardados.set(TENANT_B, true);
+    m.canal.vistas.set(TENANT_B, { ...SEM_CANAL, estado: "ativo", ownerChannelWa: true });
     const r = await m.app.request(`/painel/canal?tenant_id=${TENANT_B}`, {
       headers: { cookie: deA, "x-kamba-tenant": TENANT_B, "x-tenant-id": TENANT_B },
     });
@@ -423,15 +430,49 @@ describe("KAM-216 — o canal do dono: a troca guarda-o e o painel mostra-o", ()
     assert.deepEqual(m.lidos, [TENANT_A]);
   });
 
+  it("sem o guia a confirmar o numero da loja, a troca guarda painel, e o guia pergunta-se pelo caso da sessao", async () => {
+    m.naoConfirmados.add(CASO_A);
+    await trocarPara(NUMERO_NOVO);
+    assert.deepEqual(m.canais, [false]);
+    assert.deepEqual(m.perguntadosAoGuia, [CASO_A]);
+    assert.equal(await canalNaPagina(), "painel");
+  });
+
+  it("sem a porta do guia montada, a troca guarda painel", async () => {
+    const semGuia = rotasDoPainel({
+      comercio: new ComercioEmMemoria(),
+      canal: m.canal,
+      revogacoes: new RevogacoesEmMemoria(),
+      casos: { porId: async (id) => m.casos.get(id) ?? null },
+      anelDaAssinatura: [CHAVE, null],
+      relogio: () => m.agora,
+      troca: { troca: m.troca, anelDoPepper: [PEPPER, null], contadores: m.contadores },
+    });
+    m.agora = new Date(m.agora.getTime() + 15 * 60_000);
+    const sessao = cookie(TENANT_A, CASO_A, m);
+    const pedir = await semGuia.request("/painel/telefone", {
+      method: "POST",
+      headers: { "content-type": "application/json", cookie: sessao },
+      body: JSON.stringify({ telefone: NUMERO_NOVO }),
+    });
+    assert.equal(pedir.status, 200);
+    const verificar = await semGuia.request("/painel/telefone/verificar", {
+      method: "POST",
+      headers: { "content-type": "application/json", cookie: sessao },
+      body: JSON.stringify({ codigo: ultimoCodigo(m) }),
+    });
+    assert.equal(verificar.status, 200);
+    assert.deepEqual(m.canais, [false]);
+  });
+
   it("um caso sem HMAC de telefone guarda painel", async () => {
     m.casos.set(CASO_A, { tenantId: TENANT_A, fase: "activo" });
     await trocarPara(NUMERO_NOVO);
     assert.deepEqual(m.canais, [false]);
   });
 
-  it("uma leitura da coluna que falha da painel, e o estado do canal continua a sair", async () => {
-    m.guardados.set(TENANT_A, true);
-    m.leitorFalha = true;
+  it("um valor guardado ausente da painel, e o estado do canal continua a sair", async () => {
+    m.canal.vistas.set(TENANT_A, { ...SEM_CANAL, estado: "ativo", ownerChannelWa: null });
     const r = await m.app.request("/painel/canal", { headers: { cookie: deA } });
     assert.equal(r.status, 200);
     const corpo = await r.text();
@@ -440,9 +481,8 @@ describe("KAM-216 — o canal do dono: a troca guarda-o e o painel mostra-o", ()
   });
 
   it("com o canal da loja por ligar ou desligado, o WhatsApp guardado nao abre", async () => {
-    m.guardados.set(TENANT_A, true);
     for (const estado of ["sem_canal", "desligado", "a_sincronizar"] as const) {
-      m.canal.vistas.set(TENANT_A, { ...SEM_CANAL, estado });
+      m.canal.vistas.set(TENANT_A, { ...SEM_CANAL, estado, ownerChannelWa: true });
       assert.equal(await canalNaPagina(), "painel", estado);
     }
   });

@@ -23,8 +23,6 @@ import type pg from "pg";
 
 import { SQL_PAPEL } from "../src/chr/consultas.ts";
 import {
-  canalDoDonoNaBase,
-  canalDoDonoPeloPool,
   canalNoPainel,
   contactoDoNumero,
   definirDonoNaBase,
@@ -360,9 +358,9 @@ describe("KAM-217 — a troca montada pelo processo, sobre o pool", () => {
 /**
  * O canal do dono guardado (KAM-216, decisão do fundador de 2026-11-19): a troca
  * escreve o `tenants.owner_channel_wa` pela `definir_dono`, na transacção que
- * move o papel, e o painel lê-o como `kamba_identity`. Os dois cenários do
- * critério 3 — telefone igual e diferente do número da loja — e o número ausente,
- * pelo caminho real.
+ * move o papel. Os dois cenários do critério 3 — telefone igual e diferente do
+ * número da loja — e o número ausente, pelo caminho real. A leitura do painel é a
+ * do COM, como `kamba_app`, e mede-se em `db/tests/test_canal_do_painel.py`.
  */
 describe("KAM-216 — o canal do dono guardado, contra a base", () => {
   async function guardado(tenant: string): Promise<boolean | null> {
@@ -383,18 +381,14 @@ describe("KAM-216 — o canal do dono guardado, contra a base", () => {
   it("número ausente: o provisionamento deixa a coluna nula, e o painel mostra o painel", async () => {
     const { tenant } = await tenantComDono("canal-nulo", NUMERO_ANTIGO);
     assert.equal(await guardado(tenant), null);
-    const lido = await canalDoDonoNaBase(identidadeBd)(tenant);
-    assert.equal(lido, null);
-    assert.equal(canalNoPainel(lido, "ativo").canal, "painel");
+    assert.equal(canalNoPainel(await guardado(tenant), "ativo").canal, "painel");
   });
 
   it("telefone diferente do número da loja: a troca guarda o WhatsApp, e o painel lê-o", async () => {
     const { tenant } = await tenantComDono("canal-diferente", NUMERO_ANTIGO);
     await trocar(tenant, NUMERO_NOVO, LOJA_ANTIGA);
     assert.equal(await guardado(tenant), true);
-    const lido = await canalDoDonoNaBase(identidadeBd)(tenant);
-    assert.equal(lido, true);
-    assert.equal(canalNoPainel(lido, "ativo").canal, "whatsapp");
+    assert.equal(canalNoPainel(await guardado(tenant), "ativo").canal, "whatsapp");
   });
 
   it("telefone igual ao número da loja: o dono que volta ao número do registo tem o painel", async () => {
@@ -402,7 +396,7 @@ describe("KAM-216 — o canal do dono guardado, contra a base", () => {
     await trocar(tenant, NUMERO_NOVO, LOJA_ANTIGA);
     await trocar(tenant, NUMERO_ANTIGO, LOJA_ANTIGA);
     assert.equal(await guardado(tenant), false);
-    assert.equal(canalNoPainel(await canalDoDonoNaBase(identidadeBd)(tenant), "ativo").canal, "painel");
+    assert.equal(canalNoPainel(await guardado(tenant), "ativo").canal, "painel");
   });
 
   it("uma reentrega do provisionamento depois da troca não apaga o canal", async () => {
@@ -415,19 +409,12 @@ describe("KAM-216 — o canal do dono guardado, contra a base", () => {
     assert.equal(await guardado(tenant), true);
   });
 
-  it("isolamento: o canal de B não se lê do contexto de A, nem por id", async () => {
+  it("isolamento: a troca de B não escreve o canal de A", async () => {
     const a = await tenantComDono("canal-iso-a", NUMERO_ANTIGO);
     const b = await tenantComDono("canal-iso-b", NUMERO_DE_B);
     await trocar(b.tenant, NUMERO_NOVO, LOJA_DE_B);
-    assert.equal(await canalDoDonoNaBase(identidadeBd)(a.tenant), null);
-    const cruzado = await comTenant(identidadeBd, a.tenant, async (bd) => {
-      const r = (await bd.query("SELECT owner_channel_wa FROM platform.tenants WHERE id = $1::uuid", [b.tenant])) as {
-        rows: unknown[];
-      };
-      return r.rows.length;
-    });
-    assert.equal(cruzado, 0);
-    assert.equal(await canalDoDonoNaBase(identidadeBd)(b.tenant), true);
+    assert.equal(await guardado(a.tenant), null);
+    assert.equal(await guardado(b.tenant), true);
   });
 
   it("ninguém escreve a coluna por fora da porta: o kamba_identity e o kamba_app recebem 42501", async () => {
@@ -441,18 +428,5 @@ describe("KAM-216 — o canal do dono guardado, contra a base", () => {
       );
     }
     assert.equal(await guardado(tenant), null);
-  });
-
-  it("a leitura pelo pool, como o processo a monta, devolve a ligação", async () => {
-    const pool = poolDe("identity", 2);
-    try {
-      const { tenant } = await tenantComDono("canal-pool", NUMERO_ANTIGO);
-      await trocar(tenant, NUMERO_NOVO, LOJA_ANTIGA);
-      const ler = canalDoDonoPeloPool(pool);
-      const lidos = await Promise.all([ler(tenant), ler(tenant), ler(tenant)]);
-      assert.deepEqual(lidos, [true, true, true]);
-    } finally {
-      await pool.end();
-    }
   });
 });

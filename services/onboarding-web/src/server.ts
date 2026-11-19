@@ -40,7 +40,7 @@
 import { serve } from "@hono/node-server";
 import pg from "pg";
 import { port } from "@kamba/core-ts";
-import { canalDoDonoPeloPool, trocaPeloPool, type DestinoDoAviso } from "@kamba/core-ts/dono";
+import { trocaPeloPool, type DestinoDoAviso } from "@kamba/core-ts/dono";
 import { EnvKeyProvider, Identidade } from "@kamba/core-ts/identity";
 import { AvisosDaListaEmMemoria, ListaDeEspera, ListaEmMemoria, MetricasDaLista } from "@kamba/core-ts/capacidade";
 import {
@@ -237,6 +237,12 @@ const actividade = new Actividade({ repositorio: casos, contadores });
  * CONFIRMADA** de que a Graph diga se o WABA tem cartão antes do primeiro envio
  * (credor: KAM-023 / ext:KAM-102).
  */
+/**
+ * O estado do guia, partilhado com a troca de telefone (KAM-216): o
+ * `numeroConfirmado` é o que diz que o número da loja é o telefone do caso.
+ */
+const repositorioDoGuia = new GuiaEmMemoria();
+
 function montarGuia(): OpcoesDoGuia | undefined {
   const valores = Object.fromEntries(
     Object.entries(VARIAVEIS_DO_GUIA).map(([chave, nome]) => [chave, (process.env[nome] ?? "").trim()]),
@@ -258,7 +264,7 @@ function montarGuia(): OpcoesDoGuia | undefined {
   });
   const guia = new PassoGuiado({
     casos,
-    repositorio: new GuiaEmMemoria(),
+    repositorio: repositorioDoGuia,
     capacidade: lista,
     ligador: new LigadorPorHttp(valores.gwy),
     gates: new GatesEmMemoria(),
@@ -324,14 +330,11 @@ const AVISO_POR_ENTREGAR: Record<DestinoDoAviso, string> = {
  * `EnvKeyProvider`, como no CHR,
  * e o `Identidade.arrancar` recusa-as se o `KAMBA_ENV` não for este ambiente.
  *
- * A mesma ligação lê o `tenants.owner_channel_wa` que a troca escreve
- * (`canalDoDonoPeloPool`, KAM-216), para o `GET /painel/canal`.
- *
  * **O que fica em memória, e tem credor** (KAM-223): o desafio do OTP e os
  * pedidos de troca em curso. Um reinício obriga o dono a pedir outro código, que
  * é o lado seguro; persisti-los é uma tabela nova.
  */
-async function montarTroca(): Promise<OpcoesDaTroca | undefined> {
+async function montarTroca(guiaMontado: boolean): Promise<OpcoesDaTroca | undefined> {
   if (URL_DA_IDENTIDADE === "") {
     log.info({ outcome: "painel_troca_desligada" });
     return undefined;
@@ -367,7 +370,11 @@ async function montarTroca(): Promise<OpcoesDaTroca | undefined> {
     anelDoPepper: [pepper, pepperAnterior],
     contadores,
     proxiesDeConfianca: proxiesDeConfianca(),
-    canalDoDono: canalDoDonoPeloPool(pool),
+    // Sem o guia montado, nenhum número da loja foi confirmado: a troca guarda o
+    // painel (KAM-216).
+    numeroDaLojaConfirmado: guiaMontado
+      ? async (casoId) => (await repositorioDoGuia.ler(casoId))?.numeroConfirmado === true
+      : undefined,
   };
 }
 
@@ -381,8 +388,8 @@ async function montarTroca(): Promise<OpcoesDaTroca | undefined> {
  *
  * O estado do canal vem do COM (`CanalPeloCom`, KAM-190), pela mesma credencial:
  * a única ligação deste processo à base é a do `kamba_identity`, e só a troca de
- * telefone a usa (`montarTroca`, KAM-217) — para a troca e para ler o canal do
- * dono que ela guarda (KAM-216). A reentrada por código usa o
+ * telefone a usa (`montarTroca`, KAM-217). O canal do dono que a troca guarda
+ * (KAM-216) volta pelo mesmo `channel-view`, na linha do canal. A reentrada por código usa o
  * mesmo `Otp`, os mesmos casos e os mesmos contadores do registo — um telefone
  * esgotado no registo está esgotado aqui.
  *
@@ -412,7 +419,7 @@ async function montarPainel(guia: PassoGuiado | undefined): Promise<OpcoesDoPain
       proxiesDeConfianca: proxiesDeConfianca(),
       religar: guia === undefined ? undefined : (id) => guia.religar(id),
     },
-    troca: await montarTroca(),
+    troca: await montarTroca(guia !== undefined),
   };
 }
 

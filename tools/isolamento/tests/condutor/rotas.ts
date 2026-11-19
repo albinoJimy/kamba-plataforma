@@ -2678,10 +2678,11 @@ async function grupoDoGuia(relatorio: Relatorio): Promise<void> {
 //                           de A, nao trocou o dono: a verificacao chegou a troca
 //                           so com o pedido e o tenant de A
 //   dono=a                  (KAM-216) os tres ataques ao /painel/canal, com o
-//                           tenant de B na consulta e no cabecalho, leram o canal
-//                           do dono so de A, e a pagina mostra o painel de A — o
-//                           de B esta guardado como WhatsApp, e o canal de A esta
-//                           activo, pelo que uma leitura de B mostrava o WhatsApp
+//                           tenant de B na consulta e no cabecalho, so
+//                           perguntaram ao COM pelo canal de A, e a pagina mostra
+//                           o canal do dono de A: o WhatsApp, guardado em A com o
+//                           canal activo. O de B e o painel, com o canal
+//                           desligado, pelo que uma leitura de B mostrava o painel
 
 const ITENS_DO_PAINEL = [
   "rota:onboarding-web:painel/rotas:actor:GET:/painel/entrar",
@@ -2795,8 +2796,9 @@ async function grupoDoPainel(relatorio: Relatorio): Promise<void> {
 
     const canal = new (canalModulo["CanalEmMemoria"] as new () => { vistas: Map<string, unknown> })();
     const vazia = { restrito: false, escalao: null, nivel: 1, tectoPedidoMinor: 5_000_000n };
-    canal.vistas.set(TENANT_DE_A_NO_PAINEL, { ...vazia, estado: "ativo", qualidade: MARCADOR_DE_A, avisos: [] });
-    canal.vistas.set(TENANT_DE_B_NO_PAINEL, { ...vazia, estado: "desligado", qualidade: canario, avisos: [canario] });
+    // KAM-216: o canal do dono guardado, WhatsApp em A e painel em B.
+    canal.vistas.set(TENANT_DE_A_NO_PAINEL, { ...vazia, estado: "ativo", qualidade: MARCADOR_DE_A, avisos: [], ownerChannelWa: true });
+    canal.vistas.set(TENANT_DE_B_NO_PAINEL, { ...vazia, estado: "desligado", qualidade: canario, avisos: [canario], ownerChannelWa: false });
 
     // A reentrada (KAM-190): um OTP de duplo que regista quem verificou, e os
     // casos por HMAC de telefone. O de B acerta com o codigo de B — e nenhum
@@ -2875,7 +2877,6 @@ async function grupoDoPainel(relatorio: Relatorio): Promise<void> {
     const pedidosDaTroca: { pedido: string; tenant: string }[] = [];
     const verificacoesDaTroca: { pedido: string; tenant: string }[] = [];
     let trocasFeitas = 0;
-    const canaisDoDonoLidos: string[] = [];
     const troca = {
       troca: {
         async pedir(pedido: string, tenant: string) {
@@ -2893,12 +2894,6 @@ async function grupoDoPainel(relatorio: Relatorio): Promise<void> {
       },
       anelDoPepper: [pepper, null],
       contadores: { anotar: async () => 1 },
-      // KAM-216: o canal do dono guardado. O de A e o painel e o de B e o
-      // WhatsApp; o leitor regista de que tenant lhe perguntam.
-      canalDoDono: async (tenant: string) => {
-        canaisDoDonoLidos.push(tenant);
-        return tenant === TENANT_DE_B_NO_PAINEL;
-      },
     };
 
     const app = (rotas["rotasDoPainel"] as (o: unknown) => AppHono)({
@@ -2971,14 +2966,14 @@ async function grupoDoPainel(relatorio: Relatorio): Promise<void> {
     ] as const) {
       for (let vez = 0; vez < 3; vez += 1) {
         const [c, headers] = comTenantDeB(caminho, vez);
-        canaisDoDonoLidos.length = 0;
+        perguntados.length = 0;
         // KAM-216: no canal, a marca do dono vai ao lado da sonda.
         const marcas =
           caminho === "/painel/canal"
             ? (corpo: string): string => {
-                const so = canaisDoDonoLidos.length > 0 && canaisDoDonoLidos.every((t) => t === TENANT_DE_A_NO_PAINEL);
-                const painel = corpo.includes('data-canal-do-dono="painel"');
-                return `${sonda(corpo)} dono=${so && painel ? "a" : "alheio"}`;
+                const so = perguntados.length > 0 && perguntados.every((t) => t === TENANT_DE_A_NO_PAINEL);
+                const deA = corpo.includes('data-canal-do-dono="whatsapp"');
+                return `${sonda(corpo)} dono=${so && deA ? "a" : "alheio"}`;
               }
             : sonda;
         await empurrar(item, "GET", c, { headers }, marcas);

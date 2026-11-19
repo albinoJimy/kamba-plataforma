@@ -113,7 +113,7 @@ TESTES_OBRIGATORIOS = (
     # KAM-216: os dois cenarios do criterio 3, e o isolamento.
     "telefone diferente do número da loja: a troca guarda o WhatsApp, e o painel lê-o",
     "telefone igual ao número da loja: o dono que volta ao número do registo tem o painel",
-    "isolamento: o canal de B não se lê do contexto de A, nem por id",
+    "isolamento: a troca de B não escreve o canal de A",
     # KAM-217: duas trocas concorrentes de dois tenants, cada uma no seu.
     "cinco pares de trocas concorrentes em dois tenants acabam cada uma no seu tenant",
 )

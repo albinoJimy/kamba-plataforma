@@ -22,13 +22,23 @@ o do caso. Emenda o «nao e coluna» das decisoes do executor do KAM-118.
 |---|---|
 | `platform.tenants.owner_channel_wa` | `true` se o dono fala pelo WhatsApp da loja, `false` se o telefone dele e o numero da loja; nulo se ninguem o calculou |
 | `platform.definir_dono(p_contact_id, p_origem, p_owner_channel_wa)` | a mesma porta da `0070`, com o terceiro argumento, nulo por omissao |
-| `SELECT (id, owner_channel_wa)` na `tenants` ao `kamba_identity` | a leitura do `GET /painel/canal`, pela ligacao da troca |
+
+**Sem concessao nova.** Quem le a coluna e o COM, como `kamba_app`, pelo
+`SELECT` de tabela que a `0001` ja lhe da (o `channel-view` do painel). O
+`kamba_identity` continua sem ler a `tenants`, que e uma invariante do KAM-008
+com ensaio (`test_kamba_identity_nao_le_tenants_canais_nem_entitlements`).
 
 ## Um escritor so, e e a porta
 
 A coluna muda **quando o dono muda**, na transaccao em que a `definir_dono`
 move o papel e escreve o `owner_contact_id`: o dono e o canal dele tem um
-escritor so, e nao divergem. Ninguem tem `UPDATE (owner_channel_wa)`. A
+escritor de producao so, e nao divergem. **Nenhum papel de aplicacao a
+escreve**: o `kamba_app` nao tem `UPDATE` nela (o seu `UPDATE` na `tenants` e
+por coluna, desde a `0001`), e o `kamba_identity` nao toca na `tenants`. O
+`kamba_batch` mantem o `UPDATE` de tabela da `0001`, o mesmo com que o lote
+escreve o `owner_contact_id`, e o `kamba_app` mantem o `INSERT` de tabela: sao
+privilegios que a `0001` deu a tabela inteira, e retira-los por coluna era
+reescrever as concessoes de dois papeis por causa de uma coluna. A
 reentrega idempotente (o contacto ja e o dono) devolve sem tocar em nada, como
 na `0070`: uma reentrega do `tenant.provisioned`, que manda nulo, nao apaga o
 valor que a troca calculou.
@@ -40,7 +50,7 @@ o mesmo nome eram duas portas, e uma chamada de dois argumentos ficava ambigua.
 
 ## O `downgrade`
 
-Larga a concessao de leitura, repoe a porta de dois argumentos da `0070` (o
+Repoe a porta de dois argumentos da `0070` (o
 mesmo corpo, o mesmo comentario, as mesmas concessoes) e larga a coluna. **Sem
 recusa**: o booleano recalcula-se na troca seguinte, e sem ele o painel mostra
 o painel, que funciona sempre.
@@ -65,8 +75,15 @@ ASSINATURA_DA_0070 = "platform.definir_dono(uuid, text)"
 #: O papel que corre o modulo de identidade, o unico com `EXECUTE`.
 PAPEL_DA_IDENTIDADE = "kamba_identity"
 
-#: O que o `kamba_identity` le da `tenants`: a chave da politica e a coluna nova.
-SELECT_DA_IDENTIDADE = ("id", "owner_channel_wa")
+#: As duas formas da porta: os parametros e a escrita da `tenants`. Literais, para
+#: o `canon_lint` as ler sem correr a revisao.
+PARAMETROS = "p_contact_id uuid, p_origem text, p_owner_channel_wa boolean DEFAULT NULL"
+ESCRITA = (
+    "UPDATE platform.tenants SET owner_contact_id = p_contact_id, "
+    "owner_channel_wa = p_owner_channel_wa WHERE id = v_tenant;"
+)
+PARAMETROS_DA_0070 = "p_contact_id uuid, p_origem text"
+ESCRITA_DA_0070 = "UPDATE platform.tenants SET owner_contact_id = p_contact_id WHERE id = v_tenant;"
 
 COMENTARIO_DA_0070 = (
     "'A unica porta que muda contacts.papel (KAM-118). Tenant so do app.tenant_id. "
@@ -96,20 +113,14 @@ def upgrade() -> None:
         "platform.definir_dono, quando o dono muda. Nulo e false dao painel.'"
     )
     op.execute(f"DROP FUNCTION {ASSINATURA_DA_0070}")
-    _porta(com_canal=True)
+    _porta(PARAMETROS, ESCRITA)
     op.execute(f"COMMENT ON FUNCTION {ASSINATURA} IS {COMENTARIO}")
     _executar(ASSINATURA)
-    op.execute(
-        f"GRANT SELECT ({', '.join(SELECT_DA_IDENTIDADE)}) ON {TENANTS} TO {PAPEL_DA_IDENTIDADE}"
-    )
 
 
 def downgrade() -> None:
-    op.execute(
-        f"REVOKE SELECT ({', '.join(SELECT_DA_IDENTIDADE)}) ON {TENANTS} FROM {PAPEL_DA_IDENTIDADE}"
-    )
     op.execute(f"DROP FUNCTION {ASSINATURA}")
-    _porta(com_canal=False)
+    _porta(PARAMETROS_DA_0070, ESCRITA_DA_0070)
     op.execute(f"COMMENT ON FUNCTION {ASSINATURA_DA_0070} IS {COMENTARIO_DA_0070}")
     _executar(ASSINATURA_DA_0070)
     op.execute(f"ALTER TABLE {TENANTS} DROP COLUMN owner_channel_wa")
@@ -121,7 +132,7 @@ def _executar(assinatura: str) -> None:
     op.execute(f"GRANT EXECUTE ON FUNCTION {assinatura} TO {PAPEL_DA_IDENTIDADE}")
 
 
-def _porta(*, com_canal: bool) -> None:
+def _porta(parametros: str, escrita: str) -> None:
     """A porta da `0070`, com ou sem o terceiro argumento.
 
     Um corpo so para as duas formas, e a diferenca sao duas linhas: a assinatura
@@ -129,15 +140,6 @@ def _porta(*, com_canal: bool) -> None:
     copias desviar-se da outra (a licao do KAM-175). O `downgrade` repoe assim o
     corpo da `0070` letra a letra, tirando o que esta revisao acrescentou.
     """
-    if com_canal:
-        parametros = "p_contact_id uuid, p_origem text, p_owner_channel_wa boolean DEFAULT NULL"
-        escrita = (
-            f"UPDATE {TENANTS} SET owner_contact_id = p_contact_id, "
-            "owner_channel_wa = p_owner_channel_wa WHERE id = v_tenant;"
-        )
-    else:
-        parametros = "p_contact_id uuid, p_origem text"
-        escrita = f"UPDATE {TENANTS} SET owner_contact_id = p_contact_id WHERE id = v_tenant;"
     op.execute(
         f"""
         CREATE FUNCTION platform.definir_dono({parametros})

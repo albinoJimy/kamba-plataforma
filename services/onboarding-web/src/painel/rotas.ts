@@ -231,11 +231,15 @@ export interface OpcoesDaTroca {
   /** Quantos *proxies* de confiança há à frente. Zero por omissão. */
   readonly proxiesDeConfianca?: number | undefined;
   /**
-   * O `tenants.owner_channel_wa` que a troca guardou (`canalDoDonoPeloPool`,
-   * KAM-216). Vive aqui porque é a mesma ligação do `kamba_identity`: sem a troca
-   * montada, ninguém escreve a coluna, e o `GET /painel/canal` mostra o painel.
+   * O guia confirmou que o número da loja é o telefone do caso? (KAM-216.)
+   *
+   * O `canalDoDono` usa o `phone_hmac` do caso como HMAC do número da loja, e
+   * isso só vale depois de o `confirmarNumero` do KAM-093 o ter comparado com o
+   * `display_phone_number` (o `numeroConfirmado` do guia). Sem a confirmação, ou
+   * sem esta porta, a troca guarda o painel: comparar com um número da loja que
+   * ninguém confirmou podia mandar o dono para o WhatsApp do próprio telefone.
    */
-  readonly canalDoDono?: ((tenantId: string) => Promise<boolean | null>) | undefined;
+  readonly numeroDaLojaConfirmado?: ((casoId: string) => Promise<boolean>) | undefined;
 }
 
 /**
@@ -648,19 +652,9 @@ export function rotasDoPainel(opcoes: OpcoesDoPainel): Hono {
       falhou("canal", "indisponivel");
       return html(paginaNaoEncontrada(n), 503, n, sessao.renovar);
     }
-    // O canal do dono (KAM-216): o que a troca guardou, pelo tenant da sessão.
-    // Uma leitura que falha dá painel e fica no registo; não esconde o estado do
-    // canal, que já se leu.
-    let guardado: boolean | null = null;
-    const lerDono = opcoes.troca?.canalDoDono;
-    if (lerDono !== undefined) {
-      try {
-        guardado = await lerDono(sessao.s.tenantId);
-      } catch (erro) {
-        log?.excepcao(erro, "painel_canal_do_dono_ilegivel");
-      }
-    }
-    return html(paginaDoCanal(n, vista, canalNoPainel(guardado, vista.estado)), 200, n, sessao.renovar);
+    // O canal do dono (KAM-216): o que a troca guardou, que o COM lê na mesma
+    // linha do canal e com o mesmo tenant da sessão.
+    return html(paginaDoCanal(n, vista, canalNoPainel(vista.ownerChannelWa, vista.estado)), 200, n, sessao.renovar);
   });
 
   // ------------------------------------------- a reconexão e a reentrada (KAM-190)
@@ -882,8 +876,12 @@ export function rotasDoPainel(opcoes: OpcoesDoPainel): Hono {
     }
     // O tenant e o da sessao, e so ele: um `tenant_id` no corpo, na consulta ou
     // num cabecalho nao e lido (a nota do modulo).
-    // O HMAC do número da loja é o do caso da sessão, e não um campo do pedido.
-    const envio = await t.troca.pedir(pedidoDaTroca(sessao.s), sessao.s.tenantId, telefone, sessao.telefoneHmac);
+    // O HMAC do número da loja é o do caso da sessão, e não um campo do pedido —
+    // e só depois de o guia o ter confirmado (KAM-216). Sem isso, `null`: painel.
+    const confirmado =
+      t.numeroDaLojaConfirmado !== undefined && (await t.numeroDaLojaConfirmado(sessao.s.dono));
+    const hmacDaLoja = confirmado ? sessao.telefoneHmac : null;
+    const envio = await t.troca.pedir(pedidoDaTroca(sessao.s), sessao.s.tenantId, telefone, hmacDaLoja);
     if (!envio.enviado) {
       falhou("troca", "limite");
       return json({ erro: "limite" }, 429, sessao.renovar);

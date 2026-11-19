@@ -54,12 +54,20 @@ const HMAC_EM_HEX = /^[0-9a-f]{64}$/;
  *
  * Decisão do fundador (opção C): guarda-se só o booleano, e não o número.
  * Calcula-se aqui, com o telefone do dono **em memória**. Em vez do número da
- * loja usa-se o `phone_hmac` do caso de onboarding, e isto não é uma
- * aproximação: o KAM-093 obriga o `display_phone_number` do Embedded Signup a
- * coincidir com o telefone do caso, e prende o guia em `numero_divergente` se
- * não coincidir (`guia/guia.ts`, também na religação do KAM-207). Num tenant
- * com o canal ligado, **o número da loja é o telefone do caso**, e o HMAC dele
- * está no mesmo espaço de chave que o `Telefone` da inscrição.
+ * loja usa-se o `phone_hmac` do caso de onboarding. **Só vale depois de o guia o
+ * confirmar**: o `confirmarNumero` do KAM-093 compara o `display_phone_number`
+ * do Embedded Signup com o telefone do caso e marca o `numeroConfirmado`, ou
+ * prende o guia em `numero_divergente` (`guia/guia.ts`, também na religação do
+ * KAM-207). Quem chama tem de o verificar antes e mandar `null` sem ele — o
+ * `onboarding-web` fá-lo pela porta `numeroDaLojaConfirmado`. Hoje nenhum
+ * consumidor chama o `aplicarWebhook` em produção (credor KAM-087), e por isso a
+ * troca guarda o painel até lá.
+ *
+ * **Um limite, e fica dito:** se o caso foi cunhado com uma chave que já saiu do
+ * anel (duas rotações do *pepper* entre o registo e a troca), nenhum HMAC
+ * coincide e o resultado é WhatsApp. Hoje não se alcança — os casos vivem em
+ * memória e o anel é fixo durante a vida do processo —, e passa a alcançar-se
+ * quando os casos forem persistidos (KAM-087).
  *
  * ## Compara-se com o telefone de agora, e não com o do caso
  *
@@ -72,8 +80,8 @@ const HMAC_EM_HEX = /^[0-9a-f]{64}$/;
  * ## Sem `revelar()`, e aguenta uma rotação
  *
  * O `Telefone` traz os HMAC com **todas** as chaves do anel (`hmacs`), feitos na
- * cunhagem. Basta um deles coincidir com o do caso, e uma rotação do *pepper*
- * entre o registo e a troca não faz o mesmo número parecer outro. A comparação
+ * cunhagem. Basta um deles coincidir com o do caso, e **uma** rotação do
+ * *pepper* entre o registo e a troca não faz o mesmo número parecer outro. A comparação
  * é em tempo constante e percorre o anel inteiro, pela razão do
  * `hmacCorresponde`.
  *
