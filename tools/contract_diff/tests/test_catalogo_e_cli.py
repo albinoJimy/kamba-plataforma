@@ -18,7 +18,7 @@ from contract_diff import catalogo, cli, exemplos, gerar, pii, subscricoes
 
 RAIZ = Path(__file__).resolve().parents[3]
 
-#: Os quarenta e quatro **tipos** do dicionario §3.5: os trinta e oito da emenda
+#: Os quarenta e cinco **tipos** do dicionario §3.5: os trinta e oito da emenda
 #: 1.11, os dois do KAM-050 (1.83), o `screening.violation_detected` da 1.84
 #: (KAM-191), o `billing.cycle_paid` do KAM-059, os dois `quote.*` do KAM-123 e o
 #: `agent.replied` do KAM-224.

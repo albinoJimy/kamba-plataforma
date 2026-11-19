@@ -7,6 +7,8 @@ export * from "./sql.ts";
 export {
   CONSUMIDORES_DA_RESPOSTA,
   DESFECHOS_DA_RESPOSTA,
+  ESTADOS_QUE_SAIRAM,
+  MOTIVOS_DE_FALHA,
   efeitoDoOutbound,
   efeitoDoPainel,
   pedidoDaResposta,

@@ -238,7 +238,9 @@ async function principal(): Promise<void> {
       await cliente.connect();
       return cliente;
     },
-    subscricao: { consumer, exigeOrdem: true },
+    // O `outbound` corre com a ordem da sua subscricao (`false`, revisao
+    // `*_resposta_do_agr.py`); o esqueleto mantem a exigida.
+    subscricao: { consumer, exigeOrdem: consumer !== CONSUMIDOR_DO_OUTBOUND },
     filas: filasDe(consumer),
     // Pelo nome do consumidor: ver a docstring.
     efeito,

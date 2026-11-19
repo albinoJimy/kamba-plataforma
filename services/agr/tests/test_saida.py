@@ -333,21 +333,28 @@ class TestOTurnoPoeOInicio(unittest.TestCase):
             return None
 
         async def correr() -> Any:
+            from kamba_agr.admissao import Pendente
+
             executor = ExecutorDeTurnos(
                 trancas=TrancaFalsa(),
                 ler_palavra=palavra,
                 grafos=lambda _inv: Grafo(),
                 reencaminhar=reencaminhar,
             )
-            desfecho = await executor.correr(ler_invocacao(invocacao_crua()))
-            return desfecho, INICIO_DO_TURNO.get()
+            invocacao = ler_invocacao(invocacao_crua())
+            # **O `_correr_lote` directamente, na tarefa deste ensaio**, e nao
+            # pelo `correr`: o dreno corre noutra tarefa, que copia o contexto,
+            # e la fora o `get()` dava `None` mesmo sem o `reset` do `finally`.
+            pendente = Pendente(invocacao=invocacao, chegou_em=0.0)
+            await executor._correr_lote(invocacao.thread_id, [pendente])
+            return await pendente.espera, INICIO_DO_TURNO.get()
 
         desfecho, depois = asyncio.run(correr())
         self.assertEqual(desfecho.desfecho, "executado")
         self.assertEqual(len(vistos), 2)
         self.assertIsInstance(vistos[0], datetime.datetime)
         self.assertIs(vistos[0], vistos[1])
-        self.assertIsNone(depois)
+        self.assertIsNone(depois, "o finally do _correr_lote repoe o ContextVar")
 
 
 if __name__ == "__main__":

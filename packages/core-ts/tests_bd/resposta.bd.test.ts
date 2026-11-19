@@ -36,7 +36,8 @@ import type pg from "pg";
 
 import { GraphFalso, Gerador as GeradorDeFixtures } from "@kamba/meta-sim";
 
-import { processar, type Envelope } from "../src/eventos/index.ts";
+import type { Envelope } from "../src/eventos/index.ts";
+import { processar } from "../src/eventos/trabalho.ts";
 import type { ClienteDaMeta, Destinatario } from "../src/outbound/index.ts";
 import {
   CONSUMIDOR_DO_OUTBOUND,
@@ -181,7 +182,7 @@ describe("a resposta do AGR contra a base", () => {
 
   async function enviadas(tenant: string): Promise<string[]> {
     const { rows } = await admin.query<{ chave: string }>(
-      "SELECT idempotency_key AS chave FROM platform.outbound_messages WHERE tenant_id = $1 AND state <> 'suppressed' ORDER BY 1",
+      "SELECT idempotency_key AS chave FROM platform.outbound_messages WHERE tenant_id = $1 AND state <> 'suppressed_by_human' ORDER BY 1",
       [tenant],
     );
     return rows.map((r) => r.chave);
@@ -258,7 +259,7 @@ describe("a resposta do AGR contra a base", () => {
       assert.equal(graph.envios - antes, 1);
     });
 
-    it("um segundo evento sobre a mesma resposta pára na linha e na chave do Saida", async () => {
+    it("um segundo evento sobre uma resposta já entregue pára no entregue_at e não chama o Saida", async () => {
       const c = await conversaNova("resposta-segundo");
       await turno(c, "wamid.seg:0");
       const [envelope] = await envelopes(c.tenant);
@@ -268,6 +269,34 @@ describe("a resposta do AGR contra a base", () => {
       const outro = { ...envelope!, id: randomUUID() };
       assert.equal((await consumir(CONSUMIDOR_DO_OUTBOUND, outro)).desfecho, "aplicado");
       assert.equal(graph.envios - antes, 0);
+    });
+  });
+
+  describe("no máximo uma vez: a semântica do Saida (KAM-015)", () => {
+    it("uma linha do Outbound que ficou queued para a chave não conta como entregue", async () => {
+      // O processo morreu entre a linha do Outbound e a rede: a linha existe,
+      // `queued`, e o `Saida` responde `repetido` sem chamar a Meta.
+      const c = await conversaNova("resposta-queued");
+      const reply = await turno(c, "wamid.q:0");
+      const canal = (
+        await admin.query<{ channel_id: string }>(
+          "SELECT channel_id::text AS channel_id FROM platform.conversations WHERE id = $1",
+          [c.conversa],
+        )
+      ).rows[0]!.channel_id;
+      await admin.query(
+        "INSERT INTO platform.outbound_messages " +
+          "(tenant_id, channel_id, contact_id, conversation_id, idempotency_key, kind, state) " +
+          "VALUES ($1, $2, $3, $4, 'wamid.q:0', 'service', 'queued')",
+        [c.tenant, canal, c.contacto, c.conversa],
+      );
+      const [envelope] = await envelopes(c.tenant);
+      const antes = graph.envios;
+      desfechos.length = 0;
+      assert.equal((await consumir(CONSUMIDOR_DO_OUTBOUND, envelope!)).desfecho, "aplicado");
+      assert.equal(graph.envios - antes, 0);
+      assert.deepEqual(desfechos, ["repetida_sem_envio"]);
+      assert.equal(await entregue(reply!), false);
     });
   });
 

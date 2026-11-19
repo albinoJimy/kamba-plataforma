@@ -38,3 +38,14 @@ export const SQL_RESPOSTA_DO_PAINEL = `
 export const SQL_MARCAR_ENTREGUE = `
   UPDATE platform.agent_replies SET entregue_at = now()
    WHERE tenant_id = $1 AND reply_id = $2 AND entregue_at IS NULL`;
+
+/**
+ * O estado da linha do Outbound de uma chave, quando o `Saida` diz `repetido`.
+ *
+ * O `Saida` responde `ok` a uma chave que já passou **sem olhar ao estado** da
+ * linha: uma linha `queued` (o processo morreu entre a linha e a rede) ou
+ * `failed` também é «repetida». Só uma linha que saiu conta como entregue.
+ */
+export const SQL_ESTADO_DO_ENVIO = `
+  SELECT state FROM platform.outbound_messages
+   WHERE tenant_id = $1 AND idempotency_key = $2`;

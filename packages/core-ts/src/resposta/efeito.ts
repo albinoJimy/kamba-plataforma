@@ -14,6 +14,18 @@
  * WhatsApp, na chave do `Saida` (`outbound_messages`, `ON CONFLICT DO NOTHING`):
  * a chave do envio **é** a `agent_replies.chave` do turno.
  *
+ * ## «No máximo uma vez», e é a semântica do `Saida`
+ *
+ * A chave do envio é a do turno, e o `Saida` do KAM-015 nunca chama a Meta duas
+ * vezes com a mesma chave — nem quando a primeira chamada falhou. Por isso uma
+ * falha de rede depois de esgotadas as repetições do próprio `Saida`
+ * (`SEND_FAILED`), o *token bucket* sem vaga (`RATE_LIMITED`), ou um processo
+ * que morra entre a linha e a rede, deixam a resposta **por enviar**: repetir o
+ * evento não a enviaria. O efeito di-lo em vez de o esconder — `falhou` com o
+ * motivo, ou `repetida_sem_envio` —, deixa a linha sem `entregue_at`, e consome
+ * o evento. Reenviar uma resposta nesses casos pede uma chave derivada ou um
+ * reprocessamento da linha do Outbound, e é do **KAM-226**.
+ *
  * ## O `Saida` corre noutra ligação, e porquê
  *
  * O `Saida` do KAM-015 grava a linha **antes** da rede, em *autocommit*, e é isso
@@ -39,7 +51,12 @@ import {
   type PayloadDaResposta,
   type RespostaParaEnviar,
 } from "./contrato.ts";
-import { SQL_MARCAR_ENTREGUE, SQL_RESPOSTA_DO_PAINEL, SQL_RESPOSTA_DO_WHATSAPP } from "./sql.ts";
+import {
+  SQL_ESTADO_DO_ENVIO,
+  SQL_MARCAR_ENTREGUE,
+  SQL_RESPOSTA_DO_PAINEL,
+  SQL_RESPOSTA_DO_WHATSAPP,
+} from "./sql.ts";
 
 /** O envio de um pedido ao Outbound. Em produção, `envioPeloSaida`. */
 export type EnviarResposta = (pedido: Pedido) => Promise<Resultado>;
@@ -48,12 +65,23 @@ export type EnviarResposta = (pedido: Pedido) => Promise<Resultado>;
 export const DESFECHOS_DA_RESPOSTA = [
   "enviada",
   "repetida",
+  "repetida_sem_envio",
   "recusada",
+  "falhou",
   "entregue_ao_painel",
   "ja_entregue",
   "de_outro_canal",
 ] as const;
 export type DesfechoDaResposta = (typeof DESFECHOS_DA_RESPOSTA)[number];
+
+/**
+ * Os motivos do Outbound que não são uma decisão, e sim uma falha: a rede ou o
+ * débito. Os outros (janela, *template*, guarda, estados) são decisões.
+ */
+export const MOTIVOS_DE_FALHA = ["SEND_FAILED", "RATE_LIMITED"] as const;
+
+/** Os estados da `outbound_messages` em que a mensagem saiu para a Meta. */
+export const ESTADOS_QUE_SAIRAM = ["sent", "delivered", "read"] as const;
 
 export interface OpcoesDoEfeito {
   /** Chamado uma vez por evento aplicado, com o desfecho. Sem tenant nem texto. */
@@ -128,8 +156,11 @@ export function pedidoDaResposta(tenantId: string, r: RespostaParaEnviar): Pedid
  * **Uma recusa do Outbound é desfecho, e não erro.** Janela fechada, conversa
  * em modo humano (o `PreSendGuard` do KAM-018), *template* por aprovar: são
  * decisões, já registadas pelo próprio `Saida`, e nenhuma das seis tentativas as
- * muda. O evento consome-se, e a linha fica sem `entregue_at`. Um erro do
- * `enviar` (a base ou a rede em baixo) recua pela escada.
+ * muda. Uma falha de rede ou de débito também não se resolve a repetir, pela
+ * semântica de cima, e sai como `falhou`. Nos dois casos o evento consome-se e
+ * a linha fica sem `entregue_at`. **Só uma excepção do `enviar`** — a base em
+ * baixo antes de a linha do Outbound existir — recua pela escada, e essa sim
+ * envia na repetição.
  */
 export function efeitoDoOutbound(enviar: EnviarResposta, opcoes: OpcoesDoEfeito = {}): Efeito {
   return async (bd: ClienteSql, envelope: Envelope) => {
@@ -145,8 +176,18 @@ export function efeitoDoOutbound(enviar: EnviarResposta, opcoes: OpcoesDoEfeito 
     }
     const resultado = await enviar(pedidoDaResposta(envelope.tenant_id, resposta));
     if (!resultado.ok) {
-      opcoes.aoTratar?.("recusada", resultado.motivo);
+      const falha = (MOTIVOS_DE_FALHA as readonly string[]).includes(resultado.motivo);
+      opcoes.aoTratar?.(falha ? "falhou" : "recusada", resultado.motivo);
       return;
+    }
+    if (resultado.repetido) {
+      // A chave já tinha linha: só conta como entregue se a linha saiu.
+      const { rows } = await bd.query(SQL_ESTADO_DO_ENVIO, [envelope.tenant_id, resposta.chave]);
+      const estado = rows[0]?.["state"];
+      if (!(ESTADOS_QUE_SAIRAM as readonly unknown[]).includes(estado)) {
+        opcoes.aoTratar?.("repetida_sem_envio", typeof estado === "string" ? estado : "sem_linha");
+        return;
+      }
     }
     await bd.query(SQL_MARCAR_ENTREGUE, [envelope.tenant_id, resposta.replyId]);
     opcoes.aoTratar?.(resultado.repetido ? "repetida" : "enviada");

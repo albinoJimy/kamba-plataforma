@@ -11,7 +11,7 @@ diz:
 | o evento nao leva o texto, e e P0 com a finalidade `atendimento` | o envelope que a `evt_emitir` constroi |
 | a mesma chave noutro tenant e outra resposta, e A nao ve a de B | a RLS `FORCE` |
 | o `kamba_app` nao muda o texto nem apaga | os privilegios por coluna |
-| um texto com um telefone nao emite nem grava | a guarda de PII da `evt_emitir`, na mesma transaccao |
+| uma falha da `evt_emitir` desfaz a linha | a transaccao: a linha e o evento nascem juntos ou nao nascem |
 
 As instrucoes sao as de `kamba_agr.saida`, chamadas pela funcao do modulo — nao
 uma copia do SQL.
@@ -90,8 +90,19 @@ class TestUmTurnoUmaResposta(ComSaida):
         eventos = self._eventos()
         self.assertEqual(len(eventos), 1)
         envelope = eventos[0]
-        self.assertEqual(envelope["payload"]["reply_id"], reply_id)
-        self.assertEqual(envelope["payload"]["canal"], "whatsapp")
+        # O *payload* inteiro, que e o que o `lerResposta` do TypeScript le: o
+        # `thread_id` tem de ser `{tenant}:{contacto}` do envelope.
+        self.assertEqual(
+            envelope["payload"],
+            {
+                "reply_id": reply_id,
+                "thread_id": f"{self.tenant}:{self.conversa.contact_id}",
+                "conversation_id": self.conversa.conversation_id,
+                "contact_id": self.conversa.contact_id,
+                "canal": "whatsapp",
+            },
+        )
+        self.assertEqual(envelope["tenant_id"], self.tenant)
         self.assertEqual(envelope["agregado"]["tipo"], "conversation")
         self.assertEqual(envelope["agregado"]["id"], self.conversa.conversation_id)
         self.assertEqual((envelope["classe_pii"], envelope["finalidades"]), ("P0", ["atendimento"]))
@@ -130,6 +141,18 @@ class TestUmTurnoUmaResposta(ComSaida):
         self.assertEqual(sorted(r is None for r in resultados), [False, True])
         self.assertEqual(len(self._linhas()), 1)
         self.assertEqual(len(self._eventos()), 1)
+
+    def test_uma_falha_da_evt_emitir_desfaz_a_linha(self) -> None:
+        # A guarda de PII da `evt_emitir` recusa um telefone no *payload*: um
+        # `thread_id` forjado com a forma de um telefone (fictício, 999) faz a funcao levantar
+        # `check_violation` **depois** do `INSERT`, e a linha nao pode ficar.
+        estado = self.estado()
+        estado["thread_id"] = "+999000000001"
+        with self.assertRaises(Exception) as erro:
+            saida.emitir_resposta(self.app, estado, "ola", chave="k:pii")
+        self.assertEqual(sqlstate(erro.exception), VIOLACAO_DE_CHECK)
+        self.assertEqual(self._linhas(), [])
+        self.assertEqual(self._eventos(), [])
 
     def test_um_numero_no_texto_nao_chega_ao_evento(self) -> None:
         # O texto nao vai no evento, pelo que a guarda de PII da `evt_emitir`

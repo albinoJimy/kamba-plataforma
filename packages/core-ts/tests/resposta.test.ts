@@ -23,6 +23,7 @@ import {
   RespostaInexistenteError,
   RespostaInvalidaError,
   SQL_CONTEXTO_DE_SESSAO,
+  SQL_ESTADO_DO_ENVIO,
   SQL_LIMPAR_CONTEXTO,
   SQL_MARCAR_ENTREGUE,
   SQL_RESPOSTA_DO_PAINEL,
@@ -58,6 +59,8 @@ interface Linha {
 class BaseFalsa {
   readonly linhas: Linha[] = [];
   readonly instrucoes: string[] = [];
+  /** O estado da linha do Outbound por chave, para o `repetido`. */
+  readonly envios = new Map<string, string>();
 
   nova(sobrepor: Partial<Linha> = {}): Linha {
     const linha: Linha = {
@@ -79,8 +82,16 @@ class BaseFalsa {
   async query(sql: string, p: readonly unknown[] = []): Promise<{ rows: Record<string, unknown>[]; rowCount: number }> {
     this.instrucoes.push(sql);
     const [tenant, replyId, conversa] = p as string[];
+    // Cada predicado so vale se estiver no texto da instrucao: sem o
+    // `r.conversation_id = $3`, o `reply_id` de outra conversa casava.
+    const daConversa = /conversation_id = \$3/.test(sql);
     const casa = (l: Linha) =>
-      l.tenant === tenant && l.reply_id === replyId && (conversa === undefined || l.conversa === conversa);
+      l.tenant === tenant && l.reply_id === replyId && (!daConversa || l.conversa === conversa);
+    if (sql === SQL_ESTADO_DO_ENVIO) {
+      const estado = this.envios.get(`${tenant}|${String(replyId)}`);
+      const rows = estado === undefined ? [] : [{ state: estado }];
+      return { rows, rowCount: rows.length };
+    }
     if (sql === SQL_RESPOSTA_DO_WHATSAPP || sql === SQL_RESPOSTA_DO_PAINEL) {
       const canal = sql.includes("r.canal = 'whatsapp'") ? "whatsapp" : sql.includes("r.canal = 'painel'") ? "painel" : null;
       const rows = this.linhas
@@ -290,14 +301,51 @@ describe("efeitoDoOutbound", () => {
     assert.deepEqual(desfechos, ["recusada:WINDOW_CLOSED"]);
   });
 
-  it("um envio repetido pelo Outbound conta como repetido e marca", async () => {
+  it("uma chave repetida cuja linha do Outbound saiu conta como repetida e marca", async () => {
     const bd = new BaseFalsa();
     const linha = bd.nova();
+    bd.envios.set(`${TENANT}|${linha.chave}`, "delivered");
     const saida = outbound({ ok: true, id: "m1", wamid: "w1", kind: "service", repetido: true });
     const desfechos: DesfechoDaResposta[] = [];
     await efeitoDoOutbound(saida.enviar, { aoTratar: (d) => desfechos.push(d) })(bd, envelope(payload(linha)));
     assert.deepEqual(desfechos, ["repetida"]);
     assert.notEqual(linha.entregue_at, null);
+  });
+
+  it("uma chave repetida cuja linha ficou queued ou failed não marca entregue", async () => {
+    for (const estado of ["queued", "failed", undefined]) {
+      const bd = new BaseFalsa();
+      const linha = bd.nova();
+      if (estado !== undefined) bd.envios.set(`${TENANT}|${linha.chave}`, estado);
+      const saida = outbound({ ok: true, id: "m1", wamid: null, kind: "service", repetido: true });
+      const desfechos: string[] = [];
+      await efeitoDoOutbound(saida.enviar, { aoTratar: (d, m) => desfechos.push(`${d}:${m}`) })(bd, envelope(payload(linha)));
+      assert.deepEqual(desfechos, [`repetida_sem_envio:${estado ?? "sem_linha"}`]);
+      assert.equal(linha.entregue_at, null);
+    }
+  });
+
+  it("uma falha de rede ou de débito é falhou, e não recusada; não marca entregue", async () => {
+    for (const motivo of ["SEND_FAILED", "RATE_LIMITED"] as const) {
+      const bd = new BaseFalsa();
+      const linha = bd.nova();
+      const saida = outbound({ ok: false, motivo, codigo: null });
+      const desfechos: string[] = [];
+      await efeitoDoOutbound(saida.enviar, { aoTratar: (d, m) => desfechos.push(`${d}:${m}`) })(bd, envelope(payload(linha)));
+      assert.deepEqual(desfechos, [`falhou:${motivo}`]);
+      assert.equal(linha.entregue_at, null);
+    }
+  });
+
+  it("o reply_id de outra conversa do mesmo tenant não se lê", async () => {
+    const bd = new BaseFalsa();
+    const linha = bd.nova({ conversa: randomUUID() });
+    const saida = outbound();
+    await assert.rejects(
+      efeitoDoOutbound(saida.enviar)(bd, envelope(payload(linha, { conversation_id: CONVERSA }))),
+      RespostaInexistenteError,
+    );
+    assert.equal(saida.pedidos.length, 0);
   });
 
   it("um erro do envio sobe, para a escada do consumo repetir", async () => {
@@ -349,6 +397,16 @@ describe("efeitoDoPainel", () => {
     const linha = bd.nova();
     await efeitoDoPainel()(bd, envelope(payload(linha)));
     assert.deepEqual(bd.instrucoes, []);
+    assert.equal(linha.entregue_at, null);
+  });
+
+  it("o reply_id de outra conversa do mesmo tenant não se marca", async () => {
+    const bd = new BaseFalsa();
+    const linha = bd.nova({ canal: "painel", conversa: randomUUID() });
+    await assert.rejects(
+      efeitoDoPainel()(bd, envelope(payload(linha, { conversation_id: CONVERSA }))),
+      RespostaInexistenteError,
+    );
     assert.equal(linha.entregue_at, null);
   });
 

@@ -120,7 +120,11 @@ def titulo_do_botao(identificador: str) -> str:
 
     Enviar o `id` cru no ecra do cliente era o defeito que o `textos.py` deixou
     com credor, e escolher um titulo generico escondia um botao novo sem rotulo.
-    Levantando, o turno nao acaba, e o ensaio do grafo que o emite fica vermelho.
+    Levantando, o turno nao acaba e repete-se ate falhar: **um botao novo sem
+    titulo deixa a conversa sem resposta**. Os ensaios dos grafos usam um duplo
+    de saida que nao resolve titulos, pelo que quem o apanha e a lista do
+    `test_os_botoes_que_os_grafos_emitem_tem_titulo`: um botao novo entra la e
+    aqui no mesmo PR.
     """
     if identificador.startswith(PREFIXO_DE_CONFIRMACAO) and len(identificador) > len(
         PREFIXO_DE_CONFIRMACAO
@@ -264,6 +268,11 @@ class SaidaPorEvento:
         chave: str,
         botoes: Sequence[str] = (),
     ) -> None:
+        # shortcut: a ligacao, as duas instrucoes e o COMMIT correm na event loop,
+        # porque a `PortaDeSaida` do grafo e sincrona e os nos chamam-na sem
+        # `await`; com a base lenta, o processo para. Passar a porta a `async`
+        # (com `asyncio.to_thread`, como a `PortaDeConfirmacao`) muda os tres
+        # nos e os duplos; revê-se no KAM-226, antes de o `outbound` arrancar.
         inicio = INICIO_DO_TURNO.get() or self._relogio()
         ligacao = self._abrir()
         try:
