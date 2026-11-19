@@ -6,7 +6,7 @@ sao canon desde a emenda **1.35** do dicionario (§3.26), que os transcreve do
 §6.2 e escreve, por cada um, «as especificacoes sao do KAM-028 e do KAM-031; o
 que entra aqui e o **nome**».
 
-## Uma esta `ligada`, catorze estao `declaradas`
+## Uma esta `ligada`, dezasseis estao `declaradas`
 
 | Tool | Vertical | `klass` | Estado | Credor |
 |---|---|---|---|---|
@@ -25,6 +25,8 @@ que entra aqui e o **nome**».
 | `ask_missing_fields` | Dono | `read` | declarada | KAM-119 |
 | `publish_product` | Dono | **`write`** | declarada | KAM-119 |
 | `get_catalog_status` | Dono | `read` | declarada | KAM-119 |
+| `request_quote` | Vendedor | **`write`** | declarada | KAM-220 |
+| `submit_quote` | Dono | **`write`** | declarada | KAM-220 |
 
 ## As quatro do dono entram declaradas, e e o que o KAM-118 pode fazer
 
@@ -159,8 +161,40 @@ _AS_QUATRO_DO_DONO: Final = (
     ),
 )
 
+#: O credor das duas tools do modulo `orcamento` do §21.3: o ticket que as liga
+#: ao grafo (KAM-123 escreve o dominio e o envio pelo botao; ver o bloco).
+CREDOR_DO_ORCAMENTO: Final = "KAM-220"
+
+#: O modulo que as fecha no passo 2: um tenant sem `orcamento` nao pede nem
+#: responde orcamentos.
+MODULO_DO_ORCAMENTO: Final = "orcamento"
+
+#: As duas do Orcamento expresso, `declaradas` (KAM-123). **A terceira do
+#: §21.3, o `send_quote`, nao e tool**, e a ausencia e o desenho: o §6.2 manda
+#: que nenhuma tool envie («o unico caminho para o cliente e o no `send` ->
+#: Outbound»), e o envio de uma proposta e o botao `confirm:{action_id}` do
+#: portao do KAM-118, que o no `confirm` do dono executa fora do modelo
+#: (`orcamento/porta.py`). Uma `send_quote` que o modelo pudesse chamar era
+#: uma tool de envio, e o `test_nao_existe_tool_de_envio_de_mensagem` recusa-a.
+_AS_DUAS_DO_ORCAMENTO: Final = (
+    EspecificacaoDeTool(
+        nome="request_quote",
+        klass="write",
+        backend="plataforma",
+        credor=CREDOR_DO_ORCAMENTO,
+        modulo=MODULO_DO_ORCAMENTO,
+    ),
+    EspecificacaoDeTool(
+        nome="submit_quote",
+        klass="write",
+        backend="plataforma",
+        credor=CREDOR_DO_ORCAMENTO,
+        modulo=MODULO_DO_ORCAMENTO,
+    ),
+)
+
 #: As onze do §6.2, pela ordem em que esse documento as escreve, e as quatro do
-#: §21.3 no fim. **As cinco do
+#: §21.3 no fim, e as duas do orcamento (KAM-123) depois delas. **As cinco do
 #: Vendedor `declaradas`**, que e o estado sem os executores do KAM-178 — e e o
 #: que a bateria do registo compara contra o `registry/*.yaml`.
 ESPECIFICACOES_DO_PILOTO: Final = (
@@ -179,6 +213,7 @@ ESPECIFICACOES_DO_PILOTO: Final = (
     ),
     *_AS_SEIS_QUE_NAO_SAO_DO_VENDEDOR,
     *_AS_QUATRO_DO_DONO,
+    *_AS_DUAS_DO_ORCAMENTO,
 )
 
 
@@ -235,7 +270,12 @@ def especificacoes_do_piloto(
     # Servicos. **Reconstroi-se em vez de se filtrar o `ESPECIFICACOES_DO_PILOTO`**
     # porque uma entrada `ligada` e uma `declarada` sao objectos diferentes, e
     # filtrar uma tupla fixa dava duas listas a manter em sincronia.
-    return (*do_vendedor, *_AS_SEIS_QUE_NAO_SAO_DO_VENDEDOR, *_AS_QUATRO_DO_DONO)
+    return (
+        *do_vendedor,
+        *_AS_SEIS_QUE_NAO_SAO_DO_VENDEDOR,
+        *_AS_QUATRO_DO_DONO,
+        *_AS_DUAS_DO_ORCAMENTO,
+    )
 
 
 def catalogo_do_piloto(

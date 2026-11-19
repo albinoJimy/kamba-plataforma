@@ -788,7 +788,9 @@ class TestCatalogo(_Base):
 
     def test_tem_as_onze_tools_do_piloto_e_as_quatro_do_dono(self) -> None:
         # KAM-118: as quatro do modulo `catalogo` do `docs/tecnica/02` §21.3.
-        self.assertEqual(len(self.catalogo.nomes()), 15)
+        # KAM-123: as duas do `orcamento` que sao tools (o `send_quote` e o
+        # botao, e nao tool: ver `tls/catalogo.py`).
+        self.assertEqual(len(self.catalogo.nomes()), 17)
         self.assertEqual(
             self.catalogo.nomes(),
             frozenset(
@@ -799,6 +801,7 @@ class TestCatalogo(_Base):
                     "cancel_booking", "reschedule_booking",
                     "create_product_draft", "ask_missing_fields",
                     "publish_product", "get_catalog_status",
+                    "request_quote", "submit_quote",
                 }
             ),
         )
@@ -806,7 +809,11 @@ class TestCatalogo(_Base):
     def test_uma_esta_ligada_e_catorze_estao_declaradas_com_credor(self) -> None:
         self.assertEqual(self.catalogo.ligadas(), ("get_store_info",))
         declaradas = self.catalogo.declaradas()
-        self.assertEqual(len(declaradas), 14)
+        self.assertEqual(len(declaradas), 16)
+        self.assertEqual(
+            {nome for nome, credor in declaradas.items() if credor == "KAM-220"},
+            {"request_quote", "submit_quote"},
+        )
         self.assertEqual(
             {nome for nome, credor in declaradas.items() if credor == "KAM-119"},
             {"create_product_draft", "ask_missing_fields", "publish_product", "get_catalog_status"},
@@ -852,6 +859,8 @@ class TestCatalogo(_Base):
                 "book_slot", "cancel_booking", "reschedule_booking",
                 # KAM-118, §21.3: a publicacao e escrita com confirmacao.
                 "create_product_draft", "publish_product",
+                # KAM-123, §21.3: o pedido e a resposta de orcamento.
+                "request_quote", "submit_quote",
             },
         )
         # As restantes nove sao `read`: as sete do §6.2 e as duas do §21.3.
@@ -1575,9 +1584,10 @@ class TestImportacaoIsolada(unittest.TestCase):
             _valores_derivados,
         )
 
-        # Quinze desde o KAM-118 (as quatro do dono), e o numero segue o
-        # catalogo sem ninguem tocar no `metricas.py`.
-        self.assertEqual(len(_valores_derivados(METRICA_TOOL_INVOCACOES)), 15)
+        # Dezassete desde o KAM-123 (as duas do orcamento; quinze desde o
+        # KAM-118), e o numero segue o catalogo sem ninguem tocar no
+        # `metricas.py`.
+        self.assertEqual(len(_valores_derivados(METRICA_TOOL_INVOCACOES)), 17)
         # Onze desde o KAM-029, e derivados: confronta-se com `CODIGOS` e nao
         # com um numero, que e o que «continuam derivadas» quer dizer.
         self.assertEqual(
@@ -1950,7 +1960,9 @@ class TestFactParaOKam032(_Base):
 
     def test_os_kinds_que_faltam_ao_kam032_estao_registados(self) -> None:
         """Nao se acrescentam por antecipacao, mas a divida fica escrita."""
-        self.assertEqual(erros.KINDS, ("price", "stock", "total", "datetime"))
+        # O `quote_price` entrou com a tool que o produz (KAM-123, §3.7 do
+        # dicionario), que e a regra; os tres do KAM-032 continuam por entrar.
+        self.assertEqual(erros.KINDS, ("price", "stock", "total", "datetime", "quote_price"))
         dividas = (_RAIZ / "docs/dividas-documentais.md").read_text(encoding="utf-8")
         for kind in ("`name`", "`qty`", "`discount`"):
             self.assertIn(kind, dividas)

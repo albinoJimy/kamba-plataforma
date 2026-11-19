@@ -2819,6 +2819,27 @@ INVENTARIO["owner_actions"] = {
     "confirmada_at": ("timestamp with time zone", SIM, None, "nao"),
 }
 
+#: Os pedidos de orcamento (KAM-123, revisao do Orcamento expresso). O cliente
+#: e a conversa sao referencias opacas (ADR-010); o `valor_minor` e o que o
+#: dono digitou, e as `condicoes` sao texto do dono **sem numeros**, passado
+#: pela guarda de entrada — o unico texto livre da tabela, e nunca do cliente.
+INVENTARIO["quote_requests"] = {
+    "quote_id": ("uuid", NAO, "gen_random_uuid()", "nao — fact_id do quote_price e raiz da referencia ORC"),
+    "tenant_id": ("uuid", NAO, None, "nao"),
+    "contact_id": ("uuid", NAO, None, "referencia opaca a contacts (KAM-008, ADR-010)"),
+    "conversation_id": ("uuid", NAO, None, "referencia opaca a conversations (ADR-010)"),
+    "sku": ("text", NAO, None, "nao — identificador de produto"),
+    "quantidade": ("integer", SIM, None, "nao"),
+    "estado": ("text", NAO, "'pedido'::text", "nao — lista fechada de seis"),
+    "valor_minor": ("bigint", SIM, None, "nao — valor digitado pelo dono"),
+    "currency": ("text", NAO, "'AOA'::text", "nao"),
+    "validade_ate": ("date", SIM, None, "nao"),
+    "condicoes": ("text", SIM, None, "texto do dono, sem numeros e pela guarda de entrada; nunca do cliente"),
+    "criado_at": ("timestamp with time zone", NAO, "now()", "nao"),
+    "respondido_at": ("timestamp with time zone", SIM, None, "nao"),
+    "enviado_at": ("timestamp with time zone", SIM, None, "nao"),
+}
+
 #: As fases do encerramento de um tenant (KAM-098, revisao do off-boarding).
 #: **Nenhum dado pessoal**: uma fase, um estado, um prazo e um resultado que
 #: leva contagens, resumos `sha256` e instantes — as provas do pedido nao se
@@ -3755,6 +3776,12 @@ class TestInventario(ComBase):
                         # confirmacao.
                         "owner_actions_tenant_fk",
                         "owner_actions_contact_fk",
+                        # KAM-123 (revisao do Orcamento expresso): o pedido
+                        # aponta o tenant e, pelos pares, o contacto e a
+                        # conversa, sem cascata.
+                        "quote_requests_tenant_fk",
+                        "quote_requests_contact_fk",
+                        "quote_requests_conversation_fk",
                         "refund_cases_tenant_fk",
                         "refund_cases_charge_fk",
                         "fraud_signals_tenant_fk",
@@ -4093,6 +4120,10 @@ class TestInventario(ComBase):
             # segunda cotacao.
             "offer_terms_tenant_estado_idx": False,
             "price_quotes_vivas_idx": False,
+            # KAM-123: os pedidos de orcamento **abertos**, parcial e nao
+            # unico: e a lista do dono, e depois de enviado, expirado ou
+            # cancelado o pedido sai do indice.
+            "quote_requests_abertos_idx": False,
             # KAM-053: os **quatro** parciais da revisao `0029`, e tres deles
             # sao unicos — o que faz desta a revisao que acrescenta mais regras
             # de negocio por indice parcial.
@@ -4623,6 +4654,22 @@ class TestInventario(ComBase):
                     "owner_actions_ref_ck",
                     "owner_actions_tipo_ck",
                     "owner_actions_uq",
+                    # ---------- KAM-123 (revisao do Orcamento expresso)
+                    #
+                    # **Dez.** A chave; os dominios do `sku`, da `quantidade`,
+                    # do `estado`, do `valor_minor`, da `currency` e das
+                    # `condicoes`; e as tres coerencias da resposta, do
+                    # `respondido` e do `enviado`.
+                    "quote_requests_condicoes_ck",
+                    "quote_requests_currency_ck",
+                    "quote_requests_enviado_ck",
+                    "quote_requests_estado_ck",
+                    "quote_requests_pkey",
+                    "quote_requests_quantidade_ck",
+                    "quote_requests_respondido_ck",
+                    "quote_requests_resposta_ck",
+                    "quote_requests_sku_ck",
+                    "quote_requests_valor_ck",
                     "purge_log_classe_ck",
                     "purge_log_linhas_ck",
                     "purge_log_modo_ck",

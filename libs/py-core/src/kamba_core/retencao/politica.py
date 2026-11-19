@@ -462,6 +462,11 @@ POLITICA: Final[tuple[Classe, ...]] = (
             # 15 min de vida (*proposta*), mas a linha fecha-se pelo `estado` e
             # nao se apaga: e a prova de que a confirmacao foi pedida e por quem.
             _t("platform.owner_actions", pendencia=_RELACAO),
+            # KAM-123 (revisao do Orcamento expresso). Os pedidos de
+            # orcamento: conversa comercial do tenant com o cliente, sem
+            # numeracao fiscal (nao e factura). Vivem com a relacao e saem no
+            # encerramento.
+            _t("platform.quote_requests", pendencia=_RELACAO),
             _t("platform.handoff_accounts", pendencia=_RELACAO),
             _t("platform.channel_onboarding", pendencia=_RELACAO),
             _t("platform.channel_coexistence", pendencia=_RELACAO),
