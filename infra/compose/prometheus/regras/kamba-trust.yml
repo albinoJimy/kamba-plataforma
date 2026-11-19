@@ -1,5 +1,6 @@
-# Regras de alerta de Trust & Safety — KAM-200, criterio 3; e a do recalculo
-# da confianca gradual, que corre no mesmo processo — KAM-203.
+# Regras de alerta de Trust & Safety — KAM-200, criterio 3; a do recalculo
+# da confianca gradual, que corre no mesmo processo — KAM-203; e a da recusa
+# da base sobre o tecto — KAM-219.
 #
 # Validado por `make obs-promtool`: `promtool check rules` (sintaxe) e
 # `promtool test rules` (comportamento, em `testes/kamba_trust_test.yml`).
@@ -77,4 +78,36 @@ groups:
         annotations:
           resumo: O recalculo da confianca gradual falhou para pelo menos um tenant.
           qual_tenant: A metrica e o registo nao levam tenant (OBS-I); os tenants sem nivel leem-se da platform.trust_level contra os casos aprovados, pelo lote.
+          runbook_url: https://github.com/albinoJimy/kamba-plataforma/blob/main/docs/runbooks/trust-e-safety.md
+
+      # KAM-219: a base recusou (42501) uma escrita ou a leitura do motivo em
+      # `platform.trust_level` a uma transaccao da aplicacao. So o `kamba_batch`
+      # escreve o tecto (KAM-096), e nenhum codigo da aplicacao o tenta: uma
+      # recusa e codigo a tentar mudar um tecto por um caminho que nao devia
+      # existir (uma injeccao, um defeito novo), ou um defeito de privilegio do
+      # proprio lote sobre o tecto. As duas pedem quem olhe ja. P2 e a janela de
+      # 10 min sao *proposta*.
+      #
+      # **Dispara na primeira, e por dois ramos.** O `increase` ve o 0 -> 1 de
+      # uma serie que nasce a zero; mas uma recusa **antes** do primeiro *scrape*
+      # (o lote corre a volta diaria logo no arranque) faz a primeira amostra
+      # ja valer 1, e o `increase` nao a ve. O segundo ramo apanha esse caso: a
+      # serie acima de zero num `job` que nao tinha serie 10 min antes (um
+      # processo que acabou de nascer). **O que fica de fora:** um reinicio em
+      # menos de 5 min (o *lookback*) de um processo que ja tinha recusas, que
+      # volta a recusar antes do primeiro *scrape* — 1 -> 1 nao e subida.
+      #
+      # **So ve o que passa pelo `comTenant`/`comBatch`** de um processo
+      # TypeScript que a sirva (`packages/core-ts/src/tenant_guard/metricas.ts`);
+      # uma ligacao directa, um processo Python ou uma transaccao aberta a mao
+      # nao chegam aqui, e o bloco do KAM-219 diz o credor.
+      - alert: confianca_tecto_escrita_recusada
+        expr: 'sum by (job) (increase(tenant_guard_tecto_recusado_total[10m])) > 0 or (sum by (job) (tenant_guard_tecto_recusado_total) > 0 unless sum by (job) (tenant_guard_tecto_recusado_total offset 10m))'
+        for: 0m
+        labels:
+          severity: P2
+          componente: gov
+        annotations:
+          resumo: A base recusou (42501) a uma transaccao da aplicacao uma operacao sobre platform.trust_level.
+          qual_tenant: Nao se le desta serie (OBS-I); o job diz o processo, e o runbook diz onde procurar.
           runbook_url: https://github.com/albinoJimy/kamba-plataforma/blob/main/docs/runbooks/trust-e-safety.md

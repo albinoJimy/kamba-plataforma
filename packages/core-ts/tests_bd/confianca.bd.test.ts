@@ -22,6 +22,12 @@
  * 4. **O `order.delivered` repetido** recalcula duas vezes e escreve uma.
  * 5. **Isolamento**: o recálculo de A nunca escreve o nível de B — nem o faz
  *    nascer, nem o desce.
+ * 6. **O adversarial (f) do KAM-096 mede os dois lados** (KAM-219): o
+ *    `kamba_app` a escrever o tecto do próprio tenant (o `UPDATE` e a escrita
+ *    verdadeira do lote) leva `42501` e cada tentativa sobe no contador que a
+ *    regra `confianca_tecto_escrita_recusada` lê; o recálculo com o papel errado
+ *    no escritor é recusado na leitura do `motivo` e conta uma vez, e não duas;
+ *    e o controlo, o mesmo recálculo como `kamba_batch`, escreve e não conta.
  *
  * As encomendas semeiam-se **pelo caminho legítimo** (CAS e registo, numa
  * transacção que confirma, com o recibo de consumo do `order.paid` pelo
@@ -42,8 +48,11 @@ import pg from "pg";
 
 import { BASE_DESCARTAVEL, aceitarVigentes, activarTenant, criarCanal, criarTenant, ligar } from "./apoio.ts";
 import type { ConjuntoSql } from "../src/revisao/index.ts";
-import { SQL_TENANTS_A_DESCER } from "../src/confianca/index.ts";
+import { SQL_DEFINIR_NIVEL, SQL_TENANTS_A_DESCER } from "../src/confianca/index.ts";
 import { RepositorioDeTrustSql } from "../src/trust/index.ts";
+// Pelo nome do pacote, e não por `../src`: é a instância que o `processo.ts` usa
+// (pelo `@kamba/core-ts/confianca`), e a do `../src` seria outra, sempre a zero.
+import { METRICAS_DA_GUARDA, comTenant } from "@kamba/core-ts/tenant_guard";
 import {
   depoisDoTrust,
   efeitosDoLote,
@@ -490,5 +499,78 @@ describe("a confiança gradual a correr contra a base", () => {
     assert.equal(await linhasDoTecto(b), 1, "só o nascimento de B pelo ensaio");
     assert.equal(await nivel(c), null, "o recalculo de A fez nascer C");
     assert.equal(await linhasDoTecto(c), 0);
+  });
+});
+
+describe("adversarial (f) do KAM-096, os dois lados: a recusa da base e o alerta (KAM-219)", () => {
+  /** O processo com o `kamba_app` no lugar do `kamba_batch`: a credencial errada no escritor do tecto. */
+  function processoComAAplicacaoNoLote() {
+    return montarProcesso({
+      lote: app as unknown as ConjuntoSql,
+      app: app as unknown as ConjuntoSql,
+      efeitos: efeitosDoLote(app as unknown as ConjuntoSql, { carenciaMs: 0 }),
+      log: semRegisto,
+    });
+  }
+
+  // O papel errado no escritor é um estado que o `arrancar` recusa (verifica os
+  // papéis); aqui monta-se à mão para medir o caminho aninhado do recálculo. A
+  // base recusa-o logo na leitura da linha (`SQL_NIVEL_DO_TENANT` lê o `motivo`,
+  // que o `kamba_app` não lê): é uma leitura recusada, e não a escrita — essa é
+  // o caso seguinte.
+  it("o recalculo com o kamba_app no lugar do lote e recusado na leitura do motivo, e a recusa conta uma vez", async () => {
+    const tenant = await tenantComK1("tecto-recusado");
+    const antes = METRICAS_DA_GUARDA.recusas();
+    await assert.rejects(
+      processoComAAplicacaoNoLote().recalculo.recalcular(tenant, "entrega"),
+      (e: { code?: string; message?: string }) => e.code === "42501" && /\btrust_level\b/.test(e.message ?? ""),
+    );
+    assert.equal(await nivel(tenant), null, "a base deixou o kamba_app escrever o tecto");
+    assert.equal(await linhasDoTecto(tenant), 0);
+    // Uma, e não duas: o erro atravessa o `comTenant` e o `comBatch` do recálculo.
+    assert.equal(METRICAS_DA_GUARDA.recusas(), antes + 1);
+    assert.match(METRICAS_DA_GUARDA.exposicao(), new RegExp(`^tenant_guard_tecto_recusado_total ${antes + 1}$`, "m"));
+  });
+
+  it("o kamba_app a escrever o tecto do proprio tenant, com o contexto dele, leva 42501 e cada tentativa conta", async () => {
+    const tenant = await tenantComK1("tecto-proprio");
+    await processo().recalculo.recalcular(tenant, "aprovacao");
+    assert.deepEqual(await nivel(tenant), { nivel: 0, motivo: "k1_completo" });
+    const antes = METRICAS_DA_GUARDA.recusas();
+    const c = await app.connect();
+    try {
+      await assert.rejects(
+        comTenant(c, tenant, (t) =>
+          t.query("UPDATE platform.trust_level SET tecto_pedido_minor = 999999999 WHERE tenant_id = $1", [tenant]),
+        ),
+        (e: { code?: string }) => e.code === "42501",
+      );
+    } finally {
+      c.release();
+    }
+    // A escrita verdadeira do lote (`SQL_DEFINIR_NIVEL`, o INSERT ... ON CONFLICT
+    // DO UPDATE), pela aplicação: a mesma recusa, e conta outra vez.
+    const d = await app.connect();
+    try {
+      await assert.rejects(
+        comTenant(d, tenant, (t) =>
+          t.query(SQL_DEFINIR_NIVEL, [tenant, 1, "999999999", "historico_independente", "sistema:ensaio", "1.0.0"]),
+        ),
+        (e: { code?: string; message?: string }) => e.code === "42501" && /\btrust_level\b/.test(e.message ?? ""),
+      );
+    } finally {
+      d.release();
+    }
+    assert.equal(METRICAS_DA_GUARDA.recusas(), antes + 2);
+    assert.deepEqual(await nivel(tenant), { nivel: 0, motivo: "k1_completo" }, "o tecto mudou");
+  });
+
+  it("o controlo: o mesmo recalculo como kamba_batch escreve o tecto e nao conta", async () => {
+    const tenant = await tenantComK1("tecto-controlo");
+    const antes = METRICAS_DA_GUARDA.recusas();
+    await processo().recalculo.recalcular(tenant, "entrega");
+    assert.deepEqual(await nivel(tenant), { nivel: 0, motivo: "k1_completo" });
+    assert.equal(await linhasDoTecto(tenant), 1);
+    assert.equal(METRICAS_DA_GUARDA.recusas(), antes);
   });
 });

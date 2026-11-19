@@ -61,6 +61,7 @@
 import { timingSafeEqual } from "node:crypto";
 import { Hono } from "hono";
 import type { Logger } from "@kamba/core-ts/logger";
+import { METRICAS_DA_GUARDA } from "@kamba/core-ts/tenant_guard";
 
 import {
   CtxEmFaltaError,
@@ -608,7 +609,8 @@ export function rotaDasMetricas(): Hono {
   api.get(
     "/metrics",
     () =>
-      new Response(exposicao(), {
+      // KAM-219: e a recusa da base sobre o tecto, que o `comTenant` do COM ve.
+      new Response(exposicao() + METRICAS_DA_GUARDA.exposicao(), {
         status: 200,
         headers: { "content-type": TIPO_DE_CONTEUDO },
       }),

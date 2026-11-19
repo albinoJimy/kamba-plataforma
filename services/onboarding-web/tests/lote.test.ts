@@ -43,6 +43,7 @@ import {
   SQL_TRANCAR,
   type OrigemDoRecalculo,
 } from "@kamba/core-ts/confianca";
+import { METRICAS_DA_GUARDA, comTenant } from "@kamba/core-ts/tenant_guard";
 
 import {
   AvisoDeSancaoSemVia,
@@ -809,4 +810,16 @@ test("registarVoltaDaConfianca diz se houve falhas, em números e nunca com tena
     ["info", { outcome: "confianca_diaria_concluida" }],
     ["error", { outcome: "confianca_descida_com_falhas", error_code: "recalculo_falhou" }],
   ]);
+});
+
+test("KAM-219: o /metrics do lote serve a recusa da base sobre o tecto, com o valor do processo", async () => {
+  // Pelo caminho real: um `comTenant` cuja base recusa o tecto.
+  const cliente = { async query() { return { rows: [] }; } };
+  const erro = Object.assign(new Error("permission denied for table trust_level"), { code: "42501" });
+  await assert.rejects(comTenant(cliente, "0b6f1d2e-3c4a-4b5c-8d6e-7f8091a2b3c4", async () => { throw erro; }));
+  const n = METRICAS_DA_GUARDA.recusas();
+  assert.ok(n >= 1);
+  const corpo = await (await criarApp().request("/metrics")).text();
+  assert.match(corpo, /^# TYPE tenant_guard_tecto_recusado_total counter$/m);
+  assert.match(corpo, new RegExp(`^tenant_guard_tecto_recusado_total ${n}$`, "m"));
 });

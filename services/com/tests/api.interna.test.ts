@@ -41,6 +41,7 @@ import {
   type DependenciasDaApi,
 } from "../src/api/interna.ts";
 import { TIPO_DE_CONTEUDO } from "../src/metricas.ts";
+import { METRICAS_DA_GUARDA, comTenant } from "@kamba/core-ts/tenant_guard";
 import type { OperacoesDoCom } from "../src/adapters/medusa/index.ts";
 import type { AlteracaoDeOferta } from "../src/produtos/index.ts";
 import {
@@ -789,4 +790,21 @@ test("KAM-190: o list-orders passa o intervalo do corpo ao filtro, e um valor qu
     // O `null` e «sem esta ponta», que e o contrato (`string | null`).
     { estado: "paga" },
   ]);
+});
+
+/** KAM-219: faz subir o contador da guarda pelo caminho real — um `comTenant` cuja base recusa o tecto. */
+async function recusaNoTecto(): Promise<number> {
+  const cliente = { async query() { return { rows: [] }; } };
+  const erro = Object.assign(new Error("permission denied for table trust_level"), { code: "42501" });
+  await assert.rejects(comTenant(cliente, "0b6f1d2e-3c4a-4b5c-8d6e-7f8091a2b3c4", async () => { throw erro; }));
+  return METRICAS_DA_GUARDA.recusas();
+}
+
+test("KAM-219: o /metrics do COM serve a recusa da base sobre o tecto, com o valor do processo", async () => {
+  const n = await recusaNoTecto();
+  assert.ok(n >= 1);
+  const { aplicacao } = app();
+  const corpo = await (await aplicacao.fetch(new Request("http://127.0.0.1/metrics", { method: "GET" }))).text();
+  assert.match(corpo, /^# TYPE tenant_guard_tecto_recusado_total counter$/m);
+  assert.match(corpo, new RegExp(`^tenant_guard_tecto_recusado_total ${n}$`, "m"));
 });

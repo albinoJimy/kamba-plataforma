@@ -70,6 +70,7 @@ GRUPOS = (
     "o off-boarding contra a base",
     "Trust & Safety em produção contra a base",
     "a confiança gradual a correr contra a base",
+    "adversarial (f) do KAM-096, os dois lados: a recusa da base e o alerta (KAM-219)",
 )
 
 #: Os testes que **tem** de ter corrido e passado, pelo nome. Sao a letra dos
@@ -137,6 +138,12 @@ TESTES_OBRIGATORIOS = (
     "um k1_ok aprova pela porta e o tenant fica no nível 0, como kamba_batch",
     "o order.delivered repetido recalcula duas vezes e escreve uma",
     "o recálculo de A nunca escreve o nível de B: nem o faz nascer, nem o desce",
+    # KAM-219: o adversarial (f) do KAM-096 com os dois lados — a recusa da base
+    # e o contador que a regra `confianca_tecto_escrita_recusada` le — e o
+    # controlo dos Testes Requeridos, a escrita do `kamba_batch`.
+    "o recalculo com o kamba_app no lugar do lote e recusado na leitura do motivo, e a recusa conta uma vez",
+    "o kamba_app a escrever o tecto do proprio tenant, com o contexto dele, leva 42501 e cada tentativa conta",
+    "o controlo: o mesmo recalculo como kamba_batch escreve o tecto e nao conta",
 )
 
 

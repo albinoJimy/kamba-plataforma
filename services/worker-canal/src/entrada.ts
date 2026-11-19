@@ -86,7 +86,7 @@ import { criarTrabalhadores } from "@kamba/core-ts/eventos/trabalhador_bullmq";
 import { EnvKeyProvider, Identidade } from "@kamba/core-ts/identity";
 import { type Logger, instalar } from "@kamba/core-ts/logger";
 import { type Ambiente, isAmbiente } from "@kamba/core-ts/secrets";
-import { comTenant } from "@kamba/core-ts/tenant_guard";
+import { METRICAS_DA_GUARDA, comTenant } from "@kamba/core-ts/tenant_guard";
 import { Hono } from "hono";
 import { Client } from "pg";
 
@@ -253,7 +253,8 @@ export function criarApp(registo?: Logger): Hono {
   // aparece, `inbound_*` contra `chr_*`. Um registo central para os juntar e o
   // KAM-080.
   app.get("/metrics", (c) =>
-    c.text(`${METRICAS_DO_WORKER.exposicao()}${METRICAS_DO_CHR.exposicao()}`, 200, {
+    // KAM-219: e a recusa da base sobre o tecto, que o `comTenant` deste processo ve.
+    c.text(`${METRICAS_DO_WORKER.exposicao()}${METRICAS_DO_CHR.exposicao()}${METRICAS_DA_GUARDA.exposicao()}`, 200, {
       "content-type": "text/plain; version=0.0.4; charset=utf-8",
     }),
   );

@@ -4,7 +4,7 @@
 |---|---|
 | Produto | KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para Angola |
 | Documento | Epic — Onboarding e Governação |
-| Versão | 1.35 |
+| Versão | 1.36 |
 | Data | Outubro de 2026 |
 | Classificação | Documento de Referência — Interno |
 | Documento-fonte | `../docs/tecnica/10_Onboarding_Governanca.md`, `../docs/tecnica/00_Arquitectura_Solucao.md` (ADR-019) |
@@ -77,6 +77,7 @@ Fora deste epic (Clusters): estafetas, revendedores, rede de agentes de activaç
 | KAM-208 | Correlação entre tenants por comprador: um identificador de comprador que não dependa do tenant | feature | M | P2 | KAM-200 |
 | KAM-209 | Preço anómalo: a categoria do produto e os preços de referência por categoria | feature | M | P2 | KAM-200 |
 | KAM-219 | Alerta da escrita recusada em `platform.trust_level`: ver o `42501` que a base já dá | feature | S | P2 | KAM-203 |
+| KAM-225 | A recusa em `platform.trust_level` fora do `tenant_guard`: o registo do PostgreSQL recolhido | feature | M | P2 | KAM-219 |
 
 ---
 
@@ -1644,7 +1645,8 @@ aceite, o sinal alto e a própria sanção só chegam à barreira quando o recá
 **Fechado pelo KAM-203** (ver a verificação dele): o recálculo corre no processo de lote todos os dias, depois
 de cada `order.delivered` consumido e de cada aprovação pela porta, e uma varredura a cada volta do processo
 desce quem tem uma sanção, um sinal alto ou uma disputa aceite posteriores ao nível — a sanção chega à base
-sem esperar pelo dia seguinte. O alerta do adversarial (f) passa ao **KAM-219**.
+sem esperar pelo dia seguinte. O alerta do adversarial (f) passa ao **KAM-219**, que o dá pelo lado da aplicação
+(ver a verificação dele); o que a aplicação não vê passa ao **KAM-225**.
 
 | Critério | Estado | Evidência |
 |---|---|---|
@@ -1654,14 +1656,14 @@ sem esperar pelo dia seguinte. O alerta do adversarial (f) passa ao **KAM-219**.
 | 4. Subida ao nível 1 com ≥ 5 pedidos elegíveis em 30 dias de ≥ 3 compradores distintos; recálculo diário e em `order.delivered` | **marcada** | **Medido:** `contar` e `cumpreSubida` (5 de 3 sobe, 5 de 2 não, a rajada um por comprador e dia de Luanda) e o ciclo `0 → 1` sobre o repositório em memória. **Fechada pelo KAM-203**: a volta diária sobe um tenant com cinco pedidos elegíveis de cinco compradores, semeados pelo grafo e com a marca do `trust`, contra a base (`a volta diária dá o nível 0, sobe com cinco pedidos elegíveis…`), e o `order.delivered` consumido recalcula (`o order.delivered repetido recalcula duas vezes e escreve uma`). O que estava antes: o recálculo diário e em `order.delivered` não existia |
 | 5. Descida automática ao 0 por disputa aceite, sinal alto ou sanção; uma descida não se reverte sem nova elegibilidade completa | **marcada** | **Medido:** o `decidirNivel` desce por cada uma das três (`o sinal alto e a sancao descem do 1…`, o ciclo com a disputa), e os pedidos só contam depois do marco — o início do nível ou o último facto negativo (`uma descida nao se reverte sem nova elegibilidade completa`); os dois factos lêem-se pelo `SQL_FACTOS_NEGATIVOS`, o sinal pelo `criado_at`. A sanção já baixa o tecto na guarda antes do recálculo. **Fechada pelo KAM-203**: a varredura das descidas desce pela disputa aceite, pela sanção e pelo sinal alto contra a base, e a volta seguinte não sobe com os pedidos anteriores ao facto negativo (`a volta diária…`, `uma limitacao da escada automática desce o tenant na varredura seguinte…`, `a varredura desce por sinal alto…`). O limite de um facto gravado em corrida com uma subida está escrito na verificação do KAM-203. O que estava antes: «automática» pedia o processo |
 | 6. `assertWithinTrustCeiling` chamado pelo `ManualProvider.createCharge` e exposto a futuros `PaymentProvider`; efectivo = `min(tecto_pedido_minor, manual_max_minor)`; acima recusa com mensagem fixa sem números | **marcada** | A guarda é `GuardaDeConfianca` (a porta `GuardaDoTecto`, obrigatória no `ManualProvider`), chamada depois do `manual_max_minor` (`o ManualProvider chama a guarda: efectivo = min(...)`); `tectoEfectivoManual` mede o mínimo; a `MENSAGEM_ACIMA_DO_TECTO` não tem dígitos (`a mensagem e fixa e nao tem numeros`). Exposta pela porta `GuardaDoTecto`: os adaptadores do ProxyPay ainda não a chamam, e para eles a barreira é o *trigger* da cobrança, que vale para qualquer facilitador (`test_o_tecto_e_do_pedido_e_nao_da_cobranca`) |
-| 7. O tenant não altera o próprio tecto por nenhuma API (403); toda a alteração grava `audit_log` com motivo e actor | **parcial** | **Medido:** o `kamba_app` não tem `INSERT`, `UPDATE` nem `DELETE` em `trust_level` e não lê o motivo — `42501` (`test_a_aplicacao_nao_escreve_nem_le_o_motivo`, adversarial (f)); nenhuma rota escreve o tecto, pelo que não há 403 a medir. Cada alteração escreve `trust.tecto` com o actor (`system` ou `staff`) e o *hash* do nível, tecto, motivo e versão; a repetição não escreve (`test_o_nascimento_e_cada_mudanca_pelo_lote_vao_ao_registo_e_a_repeticao_nao`). **Duas faltas**: o **alerta** do adversarial (f) — não há tentativa que o produza, porque a base recusa antes; credor: **KAM-219**, para onde o KAM-203 o passou, medido que hoje nada vê a recusa —, e o nascimento pelo superutilizador, que a revisão não audita, pela razão escrita nela |
+| 7. O tenant não altera o próprio tecto por nenhuma API (403); toda a alteração grava `audit_log` com motivo e actor | **parcial** | **Medido:** o `kamba_app` não tem `INSERT`, `UPDATE` nem `DELETE` em `trust_level` e não lê o motivo — `42501` (`test_a_aplicacao_nao_escreve_nem_le_o_motivo`, adversarial (f)); nenhuma rota escreve o tecto, pelo que não há 403 a medir. Cada alteração escreve `trust.tecto` com o actor (`system` ou `staff`) e o *hash* do nível, tecto, motivo e versão; a repetição não escreve (`test_o_nascimento_e_cada_mudanca_pelo_lote_vao_ao_registo_e_a_repeticao_nao`). **O alerta** do adversarial (f) existe desde o **KAM-219**, para o que passa pelo `tenant_guard`: a recusa conta em `tenant_guard_tecto_recusado_total` e a regra `confianca_tecto_escrita_recusada` dispara na primeira (`o kamba_app a escrever o tecto do proprio tenant, com o contexto dele, leva 42501 e cada tentativa conta`). **Duas faltas**: a recusa fora do `tenant_guard` — uma ligação directa, um processo Python — não se vê (credor: **KAM-225**), e o nascimento pelo superutilizador, que a revisão não audita, pela razão escrita nela |
 | 8. Tabela de limites com `origem = proposta` e `calibrado_em`; relatório do Piloto compara o previsto com o observado | **parcial** | **Medido:** cada valor da configuração guarda `origem` e `calibradoEm`, e a `tabelaDeLimites` devolve as oito linhas, todas `proposta` (`a tabela de limites diz a origem e o calibrado_em de cada valor`). **O relatório não existe**: precisa de dados do Piloto. Credor: **Responsável de Produto** |
 
 ### Verificação da Definition of Done
 
 | Item | Estado | Evidência |
 |---|---|---|
-| 1. Critérios satisfeitos; suite adversarial (a)–(g) verde | **parcial** | Verdes: (a) auto-compra, (b) comprador único, (c) rajada, (d) disputa na janela, (e) sinal ausente, (g) 50 000,01 Kz no nível 0 (na guarda e na base). (f) recusado pela base, **sem o alerta** (credor: **KAM-219**, pelo KAM-203). Quatro critérios parciais depois do KAM-203, cada um com a parte que falta |
+| 1. Critérios satisfeitos; suite adversarial (a)–(g) verde | **parcial** | Verdes: (a) auto-compra, (b) comprador único, (c) rajada, (d) disputa na janela, (e) sinal ausente, (g) 50 000,01 Kz no nível 0 (na guarda e na base). (f) recusado pela base, e com o alerta para o que passa pelo `tenant_guard` (**KAM-219**); fora dele, sem alerta (credor: **KAM-225**). Quatro critérios parciais depois do KAM-203, cada um com a parte que falta |
 | 2. Idempotência do recálculo e da subida (ADR-013) | **marcada** | `idempotente: reexecutar o recalculo nao escreve outra vez` (uma escrita em três corridas) e, na base, o `SQL_DEFINIR_NIVEL` que não reescreve uma linha igual nem escreve no `audit_log` |
 | 3. Nenhum caminho marca `paga` nem altera o ledger; plataforma sem fundos; `payout` intacto | **marcada** | O módulo não escreve em `payment_*` nem em `orders_mirror`; o *trigger* da cobrança só recusa. O `tecto_pedido_minor` está no `EM_UNIDADE_MENOR` do `test_catalogo` com a razão pela qual não é saldo |
 | 4. Alterações auditadas e imutáveis; RLS `FORCE` e teste cruzado (ADR-015); dois revisores (dinheiro) | **parcial** | Auditadas pelo *trigger* (com a excepção do superutilizador, escrita na revisão); RLS ligada e forçada; o teste cruzado pela aplicação (`test_a_aplicacao_le_so_o_tecto_do_seu_tenant`, `test_o_tecto_de_b_nao_vale_para_a`) e sobre o repositório. **Dois revisores: devolvida**, pela decisão do fundador de uma revisão adversarial por ticket |
@@ -3383,14 +3385,14 @@ como `shortcut:` no `SQL_TENANTS_A_DESCER`, com o gatilho de revisão.
 | 4. Uma sanção `limitacao` ou acima desce o nível na base na mesma transacção, ou logo a seguir | **marcada** | A varredura das descidas (ver a leitura 4), a cada volta do processo. Contra a base: `uma limitacao da escada automática desce o tenant na varredura seguinte, sem esperar pelo dia` — quatro queixas pela escada do T&S, a sanção em vigor, o nível ainda 1, e a varredura desce-o com o motivo `sancao`; e o predicado cláusula a cláusula, `a varredura desce por sinal alto, e nem um aviso só nem uma limitacao com recurso provido fazem candidato` |
 | 5. O nome do consumidor de T&S lido da configuração do processo | **marcada** | `SUBSCRICAO_DO_TRUST`, a subscrição com que o consumidor corre, é de onde o `RecalculoDaConfianca` lê o `consumidorDeTrust` (`o recálculo lê a independência com o consumidor da subscrição do processo…`, e o ensaio do consumidor de T&S prende a subscrição à mesma constante). Um nome inválido recusa no arranque (`um nome de consumidor inválido recusa no arranque…`) |
 | 6. Métricas sem `tenant_id` | **marcada** | `confianca_recalculos_total{origem,desfecho}` e `confianca_mudancas_total{motivo}` (`../packages/core-ts/src/confianca/metricas.ts`), a zero em todo o domínio e só com as três etiquetas (`as métricas do recálculo`), contadas depois do `COMMIT` (uma mudança desfeita não conta), e servidas no `/metrics` do processo da mesma instância (`arrancar serve as métricas da confiança do processo…`) |
-| 7. A escrita recusada ao `kamba_app` (`42501`) dispara um alerta | **não satisfeito** | **A recusa está e o alerta não.** Medido: a recusa por privilégio acontece antes de qualquer *trigger*, pelo que nada na base vê a tentativa; o compose não tem exportador do PostgreSQL nem recolha de registos; e nenhum código tenta a escrita. Credor: **KAM-219**, aberto neste PR (número provisório do lote) |
+| 7. A escrita recusada ao `kamba_app` (`42501`) dispara um alerta | **parcial** (revisto pelo KAM-219) | **A recusa está, e o alerta para o que passa pelo `tenant_guard`.** O KAM-203 mediu que nada na base vê a tentativa e que o compose não recolhe o registo do PostgreSQL; o **KAM-219** conta-a do lado de quem recebe o erro — o `catch` do `comTenant` e do `comBatch` —, e a regra `confianca_tecto_escrita_recusada` dispara na primeira (ver a verificação do KAM-219). **Falta** a escrita do `kamba_app` por uma ligação directa, que não passa por esses *helpers*: credor **KAM-225** |
 
 ### Verificação da Definition of Done
 
 | Item | Estado | Evidência |
 |---|---|---|
-| 1. Critérios satisfeitos; caixas 2, 4, 5 e 7 do KAM-096 revistas | **parcial** | Seis de sete; as caixas 2, 4 e 5 do KAM-096 ficam marcadas com esta evidência, e a 7 continua parcial com o alerta no **KAM-219** |
-| 2. Métricas e alertas nascem com o processo; sem segredos | **parcial** | As duas séries nascem a zero no arranque, e a regra `confianca_recalculo_com_falhas` (`../infra/compose/prometheus/regras/kamba-trust.yml`, com o caso e o controlo no `kamba_trust_test.yml`) aponta para o `../docs/runbooks/trust-e-safety.md` §4. **Falta o alerta da escrita recusada** dos Testes Requeridos (o adversarial), que é o critério 7: **KAM-219**. Sem segredos: as credenciais continuam as do processo |
+| 1. Critérios satisfeitos; caixas 2, 4, 5 e 7 do KAM-096 revistas | **parcial** | Seis de sete; as caixas 2, 4 e 5 do KAM-096 ficam marcadas com esta evidência, e a 7 continua parcial: o alerta veio com o **KAM-219** para o que passa pelo `tenant_guard`, e o resto está no **KAM-225** |
+| 2. Métricas e alertas nascem com o processo; sem segredos | **parcial** | As duas séries nascem a zero no arranque, e a regra `confianca_recalculo_com_falhas` (`../infra/compose/prometheus/regras/kamba-trust.yml`, com o caso e o controlo no `kamba_trust_test.yml`) aponta para o `../docs/runbooks/trust-e-safety.md` §4. O alerta da escrita recusada dos Testes Requeridos (o adversarial), que é o critério 7, veio com o **KAM-219** — a regra `confianca_tecto_escrita_recusada`, no mesmo ficheiro, com o runbook no §5 — para o que passa pelo `tenant_guard`; o resto é o **KAM-225**. Sem segredos: as credenciais continuam as do processo |
 
 ---
 
@@ -3982,7 +3984,7 @@ Testes: contrato por adaptador, integração com o processo, e o simulacro em st
 | Prioridade | P2 |
 | Estimativa | S |
 | Dependências | KAM-203 |
-| Bloqueia | — |
+| Bloqueia | KAM-225 |
 | Responsável sugerido | Engenheiro de Plataforma (GOV), com a observabilidade (KAM-080) |
 | Documentos de referência | `EPIC-09_Onboarding_Governanca.md` (blocos KAM-096 e KAM-203), `EPIC-08_Topologia_Operacao.md` (bloco KAM-080), `../docs/observabilidade.md` |
 
@@ -4008,8 +4010,8 @@ sem tenant nas etiquetas.
 ### Critérios de Aceitação
 
 - [ ] A recusa `42501` sobre `platform.trust_level`, por um papel que não é o `kamba_batch`, fica visível numa série ou num registo recolhido, sem `tenant_id` nas etiquetas (`OBS-I`).
-- [ ] Uma regra de alerta com runbook dispara na primeira tentativa, e o `promtool test rules` prende o caso e o controlo.
-- [ ] O adversarial (f) do KAM-096 passa a medir os dois lados: a recusa da base e o alerta.
+- [x] Uma regra de alerta com runbook dispara na primeira tentativa, e o `promtool test rules` prende o caso e o controlo.
+- [x] O adversarial (f) do KAM-096 passa a medir os dois lados: a recusa da base e o alerta.
 
 ### Detalhes Técnicos
 
@@ -4023,7 +4025,7 @@ sem tenant nas etiquetas.
 ### Definition of Done
 
 - [ ] Critérios de Aceitação satisfeitos; a caixa 7 do KAM-096 e a do KAM-203 revistas com a evidência.
-- [ ] Sem segredos; sem tenant nas etiquetas.
+- [x] Sem segredos; sem tenant nas etiquetas.
 
 ### Handoff para Claude Code
 
@@ -4034,6 +4036,112 @@ Lê specs/EPIC-09_Onboarding_Governanca.md (blocos KAM-096, KAM-203 e KAM-219), 
 Objectivo: ver a recusa 42501 em platform.trust_level e alertar sobre ela.
 Regras: sem tenant nas etiquetas; a licença de uma peça nova é do fundador; esquema novo pede a vaga de migração.
 Testes: o adversarial (f) com o alerta, e o controlo.
+```
+
+### Verificação dos Critérios de Aceitação
+
+**O caminho escolhido, e porquê.** Dos três que o Contexto nomeia, dois estavam fechados a este ticket: o
+registo do PostgreSQL recolhido pede uma peça que o compose não tem, com licença por decidir pelo fundador, e
+o esquema novo pede a vaga de migração, que no lote 12 é de outro ticket. Ficou um quarto, que não precisa de
+nenhum dos dois: **quem vê a recusa é quem recebeu o erro**. Os *helpers* de transacção da aplicação em
+TypeScript são o `comTenant` e o `comBatch` (`../packages/core-ts/src/tenant_guard/index.ts`), e o `catch` do
+`emTransaccao` vê o `42501` antes de o devolver. Conta-o o
+`../packages/core-ts/src/tenant_guard/metricas.ts`, num contador **sem etiquetas**,
+`tenant_guard_tecto_recusado_total`, com o predicado `code === "42501"` **e** a mensagem a nomear
+`trust_level` — o nome da tabela não se traduz com o `lc_messages`, a frase sim —, uma vez por erro (o
+recálculo da confiança corre um `comTenant` dentro de um `comBatch`, e o mesmo erro atravessa os dois). O
+contador é do processo, e servem-no os três que usam os *helpers* com uma rota `/metrics`: o
+`onboarding-lote` (3014), o `com` (3002) e o `worker-canal-entrada` (3013). **O limite** é o do critério 1,
+que fica parcial: uma ligação directa com a credencial do `kamba_app`, um processo Python, uma transacção aberta à mão (o `consumir` dos eventos, o `comContexto` das acções, a DLQ, o publicador, a lista de espera) ou uma
+consulta solta num *pool* não chegam ao contador — e esse resto é o **KAM-225**. E não distingue o papel: um `42501` do
+`kamba_batch` sobre o tecto conta também, o que é um superconjunto do que o critério pede e um defeito que
+também pede quem olhe.
+
+| Critério | Estado | Evidência |
+|---|---|---|
+| 1. A recusa `42501` sobre `platform.trust_level`, por um papel que não é o `kamba_batch`, visível numa série ou num registo recolhido, sem `tenant_id` nas etiquetas (`OBS-I`) | **parcial** | **Visível numa série, para o que passa pelo `tenant_guard`:** `tenant_guard_tecto_recusado_total`, sem etiquetas, a zero desde o arranque (`nasce a zero, conta uma vez por erro, e serve o valor`), servida pelas três rotas (`KAM-219: o /metrics do lote serve a recusa…`, `…do COM…`, `o /metrics da entrada serve-a…`, cada um a fazer subir o contador por um `comTenant` cuja base recusa, e a ler o valor do corpo). O predicado corta dos dois lados (`o predicado: 42501 e a tabela trust_level, e nada mais`; `o controlo: sucesso, outro erro, ou 42501 sobre outra tabela, nao contam`). Contra a base, o `kamba_app` no lugar do lote e o `kamba_app` a mudar o tecto do próprio tenant contam (ver o critério 3). **Falta** a recusa fora dos *helpers* — ligação directa, processo Python, consulta solta —, que só o registo do PostgreSQL vê: **KAM-225** |
+| 2. Uma regra de alerta com runbook dispara na primeira tentativa, e o `promtool test rules` prende o caso e o controlo | **marcada** | `confianca_tecto_escrita_recusada` (`../infra/compose/prometheus/regras/kamba-trust.yml`): `sum by (job) (increase(tenant_guard_tecto_recusado_total[10m])) > 0`, P2, com o `runbook_url` para o `../docs/runbooks/trust-e-safety.md` §5. A regra tem **dois ramos**: o `increase` vê o 0 → 1, e o segundo apanha a recusa **anterior ao primeiro *scrape*** (a série já acima de zero num `job` sem série 10 min antes) — achado da revisão adversarial, porque o lote corre a volta diária no arranque. Quatro casos no `kamba_trust_test.yml`: a primeira recusa dispara e resolve passada a janela; um processo que nasce já com uma recusa dispara, e resolve (falha com o segundo ramo apagado, medido); o controlo, três processos a zero, não dispara; e um reinício do processo (o contador volta a zero) não dispara. **Fica de fora**, escrito na regra: um reinício em menos de 5 min de um processo que já tinha recusas e volta a recusar antes do primeiro *scrape*. `promtool check rules` e `promtool test rules` verdes sobre os cinco ficheiros, pela linha do `make obs-promtool` |
+| 3. O adversarial (f) do KAM-096 passa a medir os dois lados: a recusa da base e o alerta | **marcada** | O caso (f) contra um PostgreSQL real, em `../packages/core-ts/tests_bd/confianca.bd.test.ts`: `o kamba_app a escrever o tecto do proprio tenant, com o contexto dele, leva 42501 e cada tentativa conta` (o `UPDATE` do tecto e a escrita verdadeira do lote, o `SQL_DEFINIR_NIVEL`, pelo `comTenant` do `kamba_app`: `42501` sobre `trust_level`, o tecto igual, e o contador **+1** por tentativa); e o controlo dos Testes Requeridos, `o controlo: o mesmo recalculo como kamba_batch escreve o tecto e nao conta`. O caminho aninhado mede-se em `o recalculo com o kamba_app no lugar do lote e recusado na leitura do motivo, e a recusa conta uma vez` — **uma leitura recusada, e não a escrita** (o `SQL_NIVEL_DO_TENANT` lê o `motivo`, que o `kamba_app` não lê), num estado que o `arrancar` do processo recusa e que o ensaio monta à mão: prova que o erro conta uma vez ao atravessar o `comTenant` e o `comBatch`. O lado do alerta liga-se à série **pelo nome**: estes casos fazem subir o contador, e o `promtool` prende a regra sobre uma série sintética com esse nome — não há ensaio que corra a regra contra o processo. O `test_a_aplicacao_nao_escreve_nem_le_o_motivo` do KAM-096 continua a medir a recusa da base em Python, onde nada a conta |
+
+### Verificação da Definition of Done
+
+| Item | Estado | Evidência |
+|---|---|---|
+| 1. Critérios satisfeitos; a caixa 7 do KAM-096 e a do KAM-203 revistas com a evidência | **parcial** | Dois de três; o critério 1 fica parcial, com o resto no **KAM-225**. A caixa 7 do KAM-096 e a 7 do KAM-203 revistas com esta evidência, as duas ainda **parciais** pela mesma razão, e o item 1 da DoD de cada um também |
+| 2. Sem segredos; sem tenant nas etiquetas | **marcada** | A série não tem etiquetas, e a exposição não tem chavetas (`nasce a zero…`); a entrada no `../ops/metricas/catalogo.yaml` tem `etiquetas: []`, e o `obs_lint` corre sobre ela. Nenhuma credencial nova: o contador lê o erro, e não a ligação |
+
+**Propagação.** O módulo novo parte o inventário fechado do `obs_lint`
+(`../tools/obs_lint/tests/test_contar_metricas.py`), e os números saem do `contar_metricas`: **33
+módulos, 161 nomes, 163 declaradas**, levados ao `../docs/observabilidade.md` (§1, §2.1) e à nota do bloco
+do KAM-080 no `EPIC-08_Topologia_Operacao.md`. A ponta onde isto foi medido: o ramo do KAM-219 sobre a
+`publico/main` em `f0a31b54`, com o KAM-123, o KAM-207 e o KAM-217 a correr ao lado; quem fundir em segundo
+remede.
+
+---
+
+## KAM-225 — A recusa em `platform.trust_level` fora do `tenant_guard`: o registo do PostgreSQL recolhido
+
+| Campo | Valor |
+|---|---|
+| Epic | EPIC-09 — Onboarding e Governação |
+| Fase | 1 |
+| Tipo | feature |
+| Prioridade | P2 |
+| Estimativa | M |
+| Dependências | KAM-219 |
+| Bloqueia | — |
+| Responsável sugerido | Engenheiro de Plataforma (GOV), com a observabilidade (KAM-080) |
+| Documentos de referência | `EPIC-09_Onboarding_Governanca.md` (blocos KAM-096, KAM-203 e KAM-219), `EPIC-08_Topologia_Operacao.md` (bloco KAM-080), `../docs/observabilidade.md` §6 |
+
+### Contexto
+
+O KAM-219 viu a recusa `42501` sobre `platform.trust_level` do lado de quem recebe o erro: o `catch` do
+`comTenant` e do `comBatch` conta-a em `tenant_guard_tecto_recusado_total`, e a regra
+`confianca_tecto_escrita_recusada` dispara na primeira. É o critério 1 dele que fica parcial, porque três
+caminhos não passam por ali: uma **ligação directa** à base com a credencial do `kamba_app`, um **processo
+Python** (o `kamba_core.tenant_guard` não conta), e o código TypeScript que **não usa os *helpers*** — uma
+consulta solta num *pool* ou uma transacção aberta à mão (o `consumir` dos eventos, o `comContexto` das acções, a DLQ, o publicador, a lista de espera), que o KAM-219 mediu na revisão adversarial. Ver
+esses pede o que o KAM-203 já tinha nomeado e o KAM-219 não podia fazer: o registo do PostgreSQL, com o
+SQLSTATE e o utilizador, **recolhido** por uma peça que o compose não tem (o `loki` está `pendente` no
+`../infra/compose/conjunto-reduzido.yaml`, com a licença AGPL-3.0 que o `../ci/licenses.yaml` nega), ou esquema
+novo. A licença de uma peça nova é do fundador, e o esquema novo leva a vaga de migração do lote em que
+entrar. Nasce no PR do KAM-219.
+
+### Objectivo
+
+Uma recusa `42501` sobre `platform.trust_level` por um papel que não é o `kamba_batch`, venha por onde vier,
+fica visível e dispara um alerta, sem tenant nas etiquetas.
+
+### Critérios de Aceitação
+
+- [ ] Uma tentativa por ligação directa com a credencial do `kamba_app`, fora do `tenant_guard`, fica visível numa série ou num registo recolhido, sem `tenant_id` nas etiquetas (`OBS-I`).
+- [ ] O alerta dispara sobre ela na primeira tentativa, e o `promtool test rules` prende o caso e o controlo.
+- [ ] Se o caminho pedir uma peça nova, a licença dela está decidida pelo fundador e registada no `../ci/licenses.yaml` antes de entrar no compose.
+
+### Detalhes Técnicos
+
+- **Componentes:** GOV, e a pilha de observabilidade do KAM-080.
+- **O registo do servidor tem o texto das consultas recusadas**, e com ele valores literais: a peça que o recolher não o pode levar para uma série nem para um destino fora da rede `ops` sem passar pela política de registo.
+
+### Testes Requeridos
+
+- Adversarial: uma ligação directa como `kamba_app` tenta mudar o tecto ⇒ `42501` e o alerta dispara; o controlo, a escrita do `kamba_batch`, não dispara.
+
+### Definition of Done
+
+- [ ] Critérios de Aceitação satisfeitos; a caixa 1 do KAM-219, a 7 do KAM-096 e a 7 do KAM-203 revistas com a evidência.
+- [ ] Sem segredos; sem tenant nas etiquetas.
+
+### Handoff para Claude Code
+
+```text
+És o executor do ticket KAM-225 da KAMBÁ (a recusa em trust_level fora do tenant_guard).
+Lê specs/EPIC-09_Onboarding_Governanca.md (blocos KAM-096, KAM-203, KAM-219 e KAM-225),
+specs/EPIC-08_Topologia_Operacao.md (bloco KAM-080), docs/observabilidade.md §6 e
+packages/core-ts/src/tenant_guard/metricas.ts.
+Objectivo: ver a recusa 42501 em platform.trust_level que não passa pelo tenant_guard, e alertar sobre ela.
+Regras: sem tenant nas etiquetas; a licença de uma peça nova é do fundador; esquema novo pede a vaga de migração.
+Testes: a ligação directa com o alerta, e o controlo.
 ```
 
 ---
@@ -4113,3 +4221,4 @@ Testes: o adversarial (f) com o alerta, e o controlo.
 | 1.33 | Novembro 2026 | KAM-210 (o off-boarding em produção): entra a secção de verificação — **nenhum dos sete critérios e nenhuma das duas caixas da DoD**, com o que se mediu em cada um; o processo de lote corre as fases deste lado e mede as sete, com o alerta da fase parada, e o STO entra na exportação e na purga. Abre o **KAM-218**, credor do processo dos dados, das portas de fora e do simulacro, e o `Bloqueia` do KAM-210 passa a dizê-lo. O número do credor foi dado pela coordenação do lote, contíguo ao KAM-217. Escrita como 1.32 e renumerada na integração, depois do KAM-204 que a tomou. | Equipa KAMBÁ |
 | 1.34 | Novembro 2026 | **KAM-203 entregue**: o recálculo da confiança corre no processo de lote — todos os dias, depois de cada `order.delivered` consumido pelo `trust`, depois de cada aprovação pela porta, e numa varredura das descidas a cada volta do processo, que leva a sanção à base sem esperar pelo dia seguinte. Secção de verificação no bloco: seis caixas marcadas e a do alerta (critério 7) vazia, com a razão medida. As caixas 2, 4 e 5 do KAM-096 fecham com essa evidência; a 7 e o item 1 da DoD dele mudam de credor. **KAM-219** acrescentado, credor do alerta da escrita recusada em `trust_level`: depende do KAM-203 e entra no `Bloqueia` dele. **O número é provisório**, dado pela coordenação do lote 11, e foi **KAM-218** até à integração com o #219, que fundiu primeiro com esse número. | Equipa KAMBÁ |
 | 1.35 | Novembro 2026 | **KAM-207 entregue**: religar o número de um tenant activo cujo canal caiu, a partir do painel. As cinco caixas e as duas da DoD marcadas, com a secção de verificação no bloco. A ponte `GET /painel/ligar` abre ao caso `activo` com o canal `desligado` e não restrito, o guia reabre o passo do ES pelo `desligado` sem mudar a fase do caso, e o GWY religa o número sem criar canal. A verificação do KAM-099 (critério 7) e a do KAM-190 (critério 2 e DoD) dizem-no. Dicionário emenda 1.115. **Sem revisão de base de dados.** O número desta linha é provisório e acerta-se na integração do lote 12. | Equipa KAMBÁ |
+| 1.36 | Novembro 2026 | **KAM-219 entregue**: a recusa `42501` da base sobre `platform.trust_level` passa a ver-se do lado de quem recebe o erro — o `catch` do `comTenant` e do `comBatch` conta-a em `tenant_guard_tecto_recusado_total` (módulo novo `../packages/core-ts/src/tenant_guard/metricas.ts`, servido pelo `onboarding-lote`, pelo `com` e pelo `worker-canal-entrada`) —, e a regra `confianca_tecto_escrita_recusada` dispara na primeira, com o runbook no `trust-e-safety.md` §5. Secção de verificação no bloco: os critérios 2 e 3 marcados e o 1 **parcial**, porque uma ligação directa, um processo Python, uma transacção aberta à mão (o `consumir` dos eventos, entre outras) ou uma consulta solta num *pool* não chegam ao contador. A revisão adversarial mudou três coisas: a regra ganhou o ramo da recusa anterior ao primeiro *scrape*, o caso do recálculo com o papel errado passou a dizer que mede uma leitura recusada (a escrita mede-se no caso do `comTenant`, com o `SQL_DEFINIR_NIVEL`), e a afirmação de que toda a transacção passa pelos *helpers* saiu. A caixa 7 do KAM-096 e a do KAM-203 revistas com a evidência, as duas ainda parciais, e o item 1 da DoD de cada um. **KAM-225** acrescentado, credor desse resto: depende do KAM-219 e entra no `Bloqueia` dele. O número é o que a coordenação do lote 12 lhe deu na fila de fusão: os cinco abaixo dele são dos credores do KAM-123 e do KAM-217, já fundidos, e a gama é contígua. | Equipa KAMBÁ |
