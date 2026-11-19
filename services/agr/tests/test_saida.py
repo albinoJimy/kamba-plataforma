@@ -16,6 +16,7 @@ from __future__ import annotations
 import asyncio
 import datetime
 import json
+import re
 import unittest
 import uuid
 from typing import Any
@@ -250,6 +251,33 @@ class TestTitulosDosBotoes(unittest.TestCase):
         ):
             with self.subTest(botao=identificador):
                 self.assertTrue(saida.titulo_do_botao(identificador))
+
+    def test_os_botoes_do_catalogo_tem_titulo_e_os_prefixos_sao_os_das_regras(self) -> None:
+        # KAM-119: os quatro botoes da conversa do catalogo do dono.
+        from kamba_agr.catalogo import regras
+
+        ingestao = "11111111-2222-3333-4444-555555555555"
+        for identificador in (
+            regras.botao_do_preco(ingestao, 4_500_000),
+            regras.botao_de_corrigir_preco(ingestao),
+            regras.botao_do_mesmo_produto(ingestao),
+            regras.botao_de_outro_produto(ingestao),
+        ):
+            with self.subTest(botao=identificador):
+                self.assertTrue(saida.titulo_do_botao(identificador))
+                self.assertIsNone(re.search(r"\d", saida.titulo_do_botao(identificador)))
+        self.assertEqual(
+            set(saida.TITULOS_POR_PREFIXO),
+            {
+                regras.PREFIXO_DO_PRECO,
+                regras.PREFIXO_DE_CORRIGIR_PRECO,
+                regras.PREFIXO_DO_MESMO_PRODUTO,
+                regras.PREFIXO_DE_OUTRO_PRODUTO,
+            },
+        )
+        # O prefixo sozinho nao e botao.
+        with self.assertRaises(saida.RespostaInvalidaError):
+            saida.titulo_do_botao(regras.PREFIXO_DO_PRECO)
 
 
 class TestSaidaPorEvento(unittest.TestCase):

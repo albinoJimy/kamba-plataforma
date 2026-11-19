@@ -697,3 +697,32 @@ describe("impressao do motor", () => {
     assert.equal(IMPRESSOES[VERSAO_DO_MOTOR], impressao, `motor ${VERSAO_DO_MOTOR}: ${impressao}`);
   });
 });
+
+/**
+ * Os vectores do `conteudoSha256` (KAM-119). **Fixados aqui e no
+ * `db/tests/test_screening_schema.py`**, que os grava na base e mede que o
+ * `SQL_POR_REANALISAR` calcula o mesmo resumo em SQL: o motor em JavaScript e a
+ * consulta em PostgreSQL concordam por um terceiro, e não um pelo outro.
+ * Escolhidos pelo que o `JSON.stringify` e o `to_json` podiam escrever de
+ * maneira diferente: aspas e barra, os cinco escapes curtos, os outros de
+ * controlo em `\u00xx` e o DEL cru, acentos, astrais, U+2028/U+2029, `<` e `/`,
+ * e a categoria vazia de um tenant sem decisão de categoria.
+ */
+const VECTORES_DO_CONTEUDO: readonly (readonly [string, string, string])[] = [
+  ["", 'aspas "duplas" e \\ barra', "d8a5a8eba51cee92339949d93e4fb50e81bd7f3df171eeb8d12235b59db717d0"],
+  ["moda", "linha\nnova\ttab\rret\bback\fform", "8beb049b9060e19be5ba4ded949edb60ad5d1b0864ea8594128106410b547baa"],
+  ["moda", "controlo \u0001 \u001f \u007f fim", "e8e12562e1e21be269ba0573b6d0afc7e4f2579757425f60ba10f7be993b67dc"],
+  ["electr\u00f3nica", "A\u00e7\u00facar 1 kg \u2014 p\u00e3o", "9d57a13426830fe6b79a3462bf655db52a58cd84f2a4f0541284fb4464b31f5a"],
+  ["moda", "emoji \u{1F457}\u{1F1E6}\u{1F1F4}", "ff7cfce5772746ddbceb0b8594266dba6e8e637c9c4f567eb0decf1de4a09fab"],
+  ["moda", "separador \u2028 e \u2029", "7e56873203e9a64d935751e554e7a0ae995b69ea9c5867262e7c4a599e95ecdc"],
+  ["moda", "</script><b>&amp;</b> / \\u0041", "db5ba7de56672efc8405bb35167e754c26ac94629cb5f8dae4fa3b06c4dad616"],
+];
+
+describe("conteudoSha256 (KAM-119)", () => {
+  it("da os vectores fixados, que a base reproduz no SQL_POR_REANALISAR", () => {
+    for (const [categoria, nome, esperado] of VECTORES_DO_CONTEUDO) {
+      const resumo = Buffer.from(conteudoSha256({ categoria_declarada: categoria, textos: [nome] })).toString("hex");
+      assert.equal(resumo, esperado, JSON.stringify([categoria, nome]));
+    }
+  });
+});

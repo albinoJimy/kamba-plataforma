@@ -1961,8 +1961,9 @@ class TestFactParaOKam032(_Base):
     def test_os_kinds_que_faltam_ao_kam032_estao_registados(self) -> None:
         """Nao se acrescentam por antecipacao, mas a divida fica escrita."""
         # O `quote_price` entrou com a tool que o produz (KAM-123, §3.7 do
-        # dicionario), que e a regra; os tres do KAM-032 continuam por entrar.
-        self.assertEqual(erros.KINDS, ("price", "stock", "total", "datetime", "quote_price"))
+        # dicionario), que e a regra, e o `count` com o `get_catalog_status`
+        # (KAM-119); os tres do KAM-032 continuam por entrar.
+        self.assertEqual(erros.KINDS, ("price", "stock", "total", "datetime", "quote_price", "count"))
         dividas = (_RAIZ / "docs/dividas-documentais.md").read_text(encoding="utf-8")
         for kind in ("`name`", "`qty`", "`discount`"):
             self.assertIn(kind, dividas)

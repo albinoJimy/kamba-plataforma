@@ -15,6 +15,7 @@ import unittest
 from pathlib import Path
 
 from kamba_agr.tls.com import CABECALHO_INTERNO, CABECALHO_TENANT, ClienteDoCom, RespostaDoCom
+from kamba_core.catalogo.screening import REGRA_REVISAO_PENDENTE, categoria_restrita
 from kamba_agr.tls.screening import (
     ROTA,
     SUJEITOS,
@@ -76,13 +77,47 @@ class TestOPedido(unittest.TestCase):
         self.assertRegex(corpo["trace_id"], r"^[0-9a-f]{32}$")
         self.assertEqual(timeout, 20.0)
 
-    def test_so_o_sujeito_das_condicoes_se_monta(self) -> None:
-        # O `produto` fazia a re-analise saltar um produto publicado, e a
-        # `categoria` mudava a do tenant (nota do `screening/index.ts` do COM).
-        for sujeito in ("categoria", "produto", "outro"):
+    def test_so_as_condicoes_e_o_produto_se_montam(self) -> None:
+        # A `categoria` mudava a do tenant (nota do `screening/index.ts` do COM).
+        # O `produto` abriu com o KAM-119, quando a re-analise passou a comparar
+        # o `conteudo_sha256`.
+        for sujeito in ("categoria", "outro", ""):
             with self.subTest(sujeito=sujeito):
                 with self.assertRaises(ValueError):
                     adaptador(RespostaDoCom(200, {}), sujeito)
+        for sujeito in ("condicoes", "produto"):
+            with self.subTest(sujeito=sujeito):
+                adaptador(RespostaDoCom(200, {}), sujeito)
+
+
+class TestOProduto(unittest.TestCase):
+    """KAM-119: no `produto`, o `publicavel` do COM decide se a `permitida` vale."""
+
+    def test_uma_permitida_publicavel_passa(self) -> None:
+        porta, transporte = adaptador(
+            RespostaDoCom(200, {"tipo": "ok", "valor": {**VALOR_OK, "publicavel": True}}), "produto"
+        )
+        resultado = porta.screen(TENANT, "cat-0123", None, ["Camisa polo"])
+        self.assertEqual(resultado.decisao, "permitida")
+        self.assertEqual(transporte.chamadas[0][2]["sujeito_tipo"], "produto")
+
+    def test_uma_permitida_nao_publicavel_chega_condicional_com_a_revisao_pendente(self) -> None:
+        porta, _ = adaptador(RespostaDoCom(200, {"tipo": "ok", "valor": {**VALOR_OK, "publicavel": False}}), "produto")
+        resultado = porta.screen(TENANT, "cat-0123", None, ["Camisa polo"])
+        self.assertEqual((resultado.decisao, resultado.regras[-1]), ("condicional", REGRA_REVISAO_PENDENTE))
+        # E a razao que a ingestao guarda, e nao a categoria que passou.
+        self.assertEqual(categoria_restrita(resultado), REGRA_REVISAO_PENDENTE)
+
+    def test_sem_o_publicavel_o_produto_fecha(self) -> None:
+        for valor in ({**VALOR_OK}, {**VALOR_OK, "publicavel": "sim"}, {**VALOR_OK, "publicavel": 1}):
+            with self.subTest(valor=valor):
+                porta, _ = adaptador(RespostaDoCom(200, {"tipo": "ok", "valor": valor}), "produto")
+                with self.assertRaises(ScreeningIndisponivelError):
+                    porta.screen(TENANT, "cat-0123", None, ["Camisa polo"])
+
+    def test_as_condicoes_nao_pedem_o_publicavel(self) -> None:
+        porta, _ = adaptador(RespostaDoCom(200, {"tipo": "ok", "valor": VALOR_OK}), "condicoes")
+        self.assertEqual(porta.screen(TENANT, QUOTE, None, [TEXTO]).decisao, "permitida")
 
 
 class TestFalhaFechada(unittest.TestCase):
@@ -131,9 +166,12 @@ class TestOContratoComOTypeScript(unittest.TestCase):
             self.assertIn(f'corpo["{campo}"]', funcao.group(0), campo)
 
     def test_o_sujeito_do_adaptador_e_o_do_com(self) -> None:
-        self.assertEqual(SUJEITOS, ("condicoes",))
+        # KAM-119: o `produto` abriu com a re-analise a comparar o conteudo.
+        self.assertEqual(SUJEITOS, ("condicoes", "produto"))
         indice = (RAIZ / "services/com/src/screening/index.ts").read_text(encoding="utf-8")
         self.assertIn('export const SUJEITO_DAS_CONDICOES = "condicoes";', indice)
+        self.assertIn('export const SUJEITO_DO_PRODUTO = "produto";', indice)
+        self.assertIsNotNone(re.search(r"SUJEITOS_DA_ROTA[^;]*SUJEITO_DO_PRODUTO", indice, re.S))
 
 
 if __name__ == "__main__":

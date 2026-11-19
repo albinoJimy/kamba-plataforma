@@ -6,7 +6,7 @@ sao canon desde a emenda **1.35** do dicionario (§3.26), que os transcreve do
 §6.2 e escreve, por cada um, «as especificacoes sao do KAM-028 e do KAM-031; o
 que entra aqui e o **nome**».
 
-## Uma esta `ligada`, dezasseis estao `declaradas`
+## Uma esta `ligada` de origem; as do orcamento e do catalogo ligam-se com executor
 
 | Tool | Vertical | `klass` | Estado | Credor |
 |---|---|---|---|---|
@@ -21,10 +21,10 @@ que entra aqui e o **nome**».
 | `book_slot` | Servicos | **`write`** | declarada | KAM-035 |
 | `cancel_booking` | Servicos | `write` | declarada | KAM-035 |
 | `reschedule_booking` | Servicos | `write` | declarada | KAM-035 |
-| `create_product_draft` | Dono | **`write`** | declarada | KAM-119 |
-| `ask_missing_fields` | Dono | `read` | declarada | KAM-119 |
-| `publish_product` | Dono | **`write`** | declarada | KAM-119 |
-| `get_catalog_status` | Dono | `read` | declarada | KAM-119 |
+| `create_product_draft` | Dono | **`write`** | ligada com executor (KAM-119) | — |
+| `ask_missing_fields` | Dono | `read` | ligada com executor (KAM-119) | — |
+| `publish_product` | Dono | **`write`** | ligada com executor (KAM-119) | — |
+| `get_catalog_status` | Dono | `read` | ligada com executor (KAM-119) | — |
 | `request_quote` | Vendedor | **`write`** | ligada com executor (KAM-220) | — |
 | `submit_quote` | Dono | **`write`** | ligada com executor (KAM-220) | — |
 
@@ -73,6 +73,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Final
 
+from . import catalogo_tools
 from . import get_store_info
 from . import orcamento_tools
 from . import vendedor
@@ -267,6 +268,50 @@ def _do_orcamento(ligaveis: Mapping[str, Executor]) -> tuple[EspecificacaoDeTool
     )
 
 
+#: A razao da dispensa do passo 4 do `create_product_draft` (KAM-119). Fica na
+#: especificacao pela razao da do `submit_quote`.
+RAZAO_DA_DISPENSA_DO_RASCUNHO: Final = (
+    "so grava o rascunho na catalog_ingestions e o do Registo, que nasce inactivo; "
+    "o preco entra pelo botao do eco e publicar exige o botao confirm:{action_id}"
+)
+
+#: As quatro do catalogo, pelo nome.
+_NOMES_DO_CATALOGO: Final = tuple(e.nome for e in _AS_QUATRO_DO_DONO)
+
+
+def _do_catalogo(ligaveis: Mapping[str, Executor]) -> tuple[EspecificacaoDeTool, ...]:
+    """As quatro do catalogo: **ligadas** com os executores, declaradas sem eles (KAM-119).
+
+    * `create_product_draft` tem a dispensa do passo 4, com a razao escrita;
+    * `publish_product` cita o `action_id` da `owner_actions` no botao
+      `confirm:{action_id}` (opcao A do fundador, como no KAM-123).
+
+    Ligam-se as quatro juntas, ou nenhuma: um catalogo meio ligado punha o grafo
+    do dono a criar rascunhos que nada podia publicar.
+    """
+    presentes = [nome for nome in _NOMES_DO_CATALOGO if nome in ligaveis]
+    if not presentes:
+        return _AS_QUATRO_DO_DONO
+    if len(presentes) != len(_NOMES_DO_CATALOGO):
+        raise ValueError("as quatro tools do catalogo ligam-se juntas, ou nenhuma")
+    especiais: dict[str, dict[str, object]] = {
+        "create_product_draft": {"confirmacao_dispensada": RAZAO_DA_DISPENSA_DO_RASCUNHO},
+        "publish_product": {"campo_de_confirmacao": "action_id"},
+    }
+    return tuple(
+        EspecificacaoDeTool(
+            nome=declarada.nome,
+            klass=declarada.klass,
+            backend=declarada.backend,
+            modelo=catalogo_tools.MODELOS[declarada.nome],
+            executor=ligaveis[declarada.nome],
+            modulo=MODULO_DO_DONO,
+            **especiais.get(declarada.nome, {}),  # type: ignore[arg-type]
+        )
+        for declarada in _AS_QUATRO_DO_DONO
+    )
+
+
 def especificacoes_do_piloto(
     executores: Mapping[str, Executor] | None = None,
 ) -> tuple[EspecificacaoDeTool, ...]:
@@ -323,7 +368,7 @@ def especificacoes_do_piloto(
     return (
         *do_vendedor,
         *_AS_SEIS_QUE_NAO_SAO_DO_VENDEDOR,
-        *_AS_QUATRO_DO_DONO,
+        *_do_catalogo(ligaveis),
         *_do_orcamento(ligaveis),
     )
 

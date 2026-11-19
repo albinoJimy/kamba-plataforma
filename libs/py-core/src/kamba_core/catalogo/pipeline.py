@@ -75,7 +75,7 @@ from .extraccao import (
 from .imagem import Descodificador, ImagemIlegivel, analisar
 from .normalizacao import ler_preco, normalizar
 from .repositorio import Ingestao, LojaLimitada, Repositorio, novo_id
-from .screening import PortaDeScreening, ResultadoDoScreen, categoria_restrita
+from .screening import DECISOES, PortaDeScreening, ResultadoDoScreen, categoria_restrita
 
 #: A classe da chave no STO (`t/{tenant}/{classe}/…`).
 CLASSE_STO: Final = "catalogo"
@@ -175,6 +175,24 @@ class PortaDoRegisto(Protocol):
 
 class ConfirmacaoRecusada(ValueError):
     """A confirmacao nao vale: estado, texto ou campos por confirmar."""
+
+
+#: Os dois motivos de uma publicacao que o screening recusou (KAM-119).
+MOTIVO_CATEGORIA: Final = "categoria"
+MOTIVO_SCREENING_INDISPONIVEL: Final = "screening_indisponivel"
+
+
+class PublicacaoRecusada(ConfirmacaoRecusada):
+    """O screening da publicacao nao deu `permitida` (KAM-119).
+
+    `motivo` e `categoria` quando a decisao foi restritiva — a ingestao passou a
+    `bloqueada_categoria` — ou `screening_indisponivel` quando a porta nao
+    respondeu, e entao nada mudou e a mesma confirmacao pode repetir-se.
+    """
+
+    def __init__(self, motivo: str) -> None:
+        super().__init__(f"publicacao recusada pelo screening: {motivo}")
+        self.motivo = motivo
 
 
 class IngestaoInexistente(LookupError):
@@ -505,6 +523,7 @@ class ServicoDeIngestao:
             raise ConfirmacaoRecusada("ha campos em falta: o rascunho nao esta completo")
         if linha.categoria_restrita is not None or not linha.sku:
             raise ConfirmacaoRecusada("categoria restrita ou sem sku")
+        linha = self._screening_da_publicacao(linha, produto)
         # Confirma-se o que o resumo mostrou, que e **todos** os campos do
         # produto. A sugestao de preco nao e um campo do produto: nao se confirma.
         confirmados = {
@@ -669,6 +688,38 @@ class ServicoDeIngestao:
         return resultado
 
     # ------------------------------------------------------------ apoio
+
+    def _screening_da_publicacao(self, linha: Ingestao, produto: Mapping[str, Campo]) -> Ingestao:
+        """O `screen` do KAM-088 sobre **o que vai ser publicado** (KAM-119).
+
+        O da etapa 6 decide sobre a ingestao (`sujeito_ref` = o `id` dela, os
+        cinco campos do `CAMPOS_DO_SCREENING`), e e conselho: diz cedo ao dono
+        que a categoria nao passa. **O que decide a publicacao e este.** O
+        sujeito e o `sku` que o Registo publica, a categoria e a do tenant
+        (`None`), e os textos sao so o `nome` — a mesma entrada que a
+        re-analise do KAM-088 le de um produto publicado (`SQL_POR_REANALISAR`),
+        e a mesma que o `assertPublishable` do COM confere antes de publicar.
+        Assim o `conteudo_sha256` da decisao gravada e o do conteudo publicado,
+        e nao outro.
+
+        Uma decisao restritiva leva a ingestao a `bloqueada_categoria`, com a
+        regra; uma porta que falha recusa **sem** mudar nada, e a mesma
+        confirmacao tenta outra vez.
+        """
+        nome = self._texto(produto, "nome")
+        if not nome or not linha.sku:
+            raise ConfirmacaoRecusada("sem nome ou sem sku")
+        try:
+            resultado: ResultadoDoScreen | None = self.screening.screen(linha.tenant_id, linha.sku, None, (nome,))
+        except Exception:  # noqa: BLE001 — falha fechada, sem mudar o estado
+            raise PublicacaoRecusada(MOTIVO_SCREENING_INDISPONIVEL) from None
+        if resultado is None or resultado.decisao not in DECISOES:
+            raise PublicacaoRecusada(MOTIVO_SCREENING_INDISPONIVEL)
+        restrita = categoria_restrita(resultado)
+        if restrita is None:
+            return linha
+        self._mudar(linha, replace(linha, estado=estados.BLOQUEADA_CATEGORIA, categoria_restrita=restrita))
+        raise PublicacaoRecusada(MOTIVO_CATEGORIA)
 
     def _mudar(self, lido: Ingestao, nova: Ingestao, **resultado: object) -> Resultado:
         gravada = self.repositorio.gravar(lido, nova)

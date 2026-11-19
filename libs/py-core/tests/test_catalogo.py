@@ -54,6 +54,7 @@ from kamba_core.catalogo.normalizacao import ler_preco, normalizar_marca, normal
 from kamba_core.catalogo.pipeline import (
     SUGESTAO,
     ConfirmacaoRecusada,
+    PublicacaoRecusada,
     IngestaoInexistente,
     interpretar,
     resumo,
@@ -519,6 +520,27 @@ class TestScreening(unittest.TestCase):
         self.assertEqual(screening.categoria_restrita(r("aprovada", (), "1", 1.0)), screening.SCREENING_INDISPONIVEL)
         self.assertEqual(screening.categoria_restrita(None), screening.SCREENING_INDISPONIVEL)
 
+    def test_a_permitida_que_o_classificador_desceu_nao_devolve_a_categoria_que_passou(self) -> None:
+        # KAM-119, credor do achado do KAM-222: a lista e `moda` e depois a regra
+        # sintetica; a razao e a sintetica, e nao `moda`.
+        r = screening.ResultadoDoScreen
+        for sintetica in screening.REGRAS_DO_CLASSIFICADOR:
+            with self.subTest(sintetica=sintetica):
+                self.assertEqual(
+                    screening.categoria_restrita(r("condicional", ("moda", sintetica), "1", 0.0)), sintetica
+                )
+        self.assertEqual(
+            screening.categoria_restrita(r("bloqueada", ("electronica", "moda", "classificador"), "1", 0.95)),
+            "classificador",
+        )
+        # Uma lista so de regras restritivas continua a dar uma delas.
+        self.assertEqual(screening.categoria_restrita(r("bloqueada", ("alcool", "tabaco"), "1", 1.0)), "alcool")
+
+    def test_as_regras_sinteticas_sao_as_do_motor(self) -> None:
+        motor = (RAIZ / "packages/core-ts/src/screening/motor.ts").read_text(encoding="utf-8")
+        lidas = tuple(re.findall(r'export const REGRA_CLASSIFICADOR\w* = "([a-z_]+)"', motor))
+        self.assertEqual(sorted(lidas), sorted(screening.REGRAS_DO_CLASSIFICADOR))
+
     def test_a_porta_por_ligar_levanta(self) -> None:
         with self.assertRaises(RuntimeError):
             screening.ScreeningPorLigar().screen(A, "x", "", ())
@@ -647,6 +669,53 @@ class TestPipeline(unittest.TestCase):
         self.assertEqual(final.estado, estados.PUBLICADA)
         self.assertEqual(ind.publicados_sem_correccao, Decimal(0))
         self.assertGreater(ind.campos_ia_visao_corrigidos or 0, 0)
+
+    def test_a_publicacao_passa_pelo_screening_com_o_sku_a_categoria_do_tenant_e_o_nome(self) -> None:
+        # KAM-119: a decisao que conta e sobre o que vai ser publicado — a
+        # mesma entrada que a re-analise do KAM-088 le de um produto publicado.
+        m = montar()
+        r = _ate_ao_rascunho(m, m.servico.receber(A, "m1").ingestao.id)
+        antes = len(m.screening.pedidos)
+        m.servico.confirmar(A, r.ingestao.id, confirmacao(r.versao_texto or ""))
+        self.assertEqual(m.screening.pedidos[antes:], [(A, r.ingestao.sku, "", ("Camisa polo",))])
+
+    def test_a_publicacao_bloqueada_pelo_screening_nao_publica_e_bloqueia_a_ingestao(self) -> None:
+        m = montar()
+        r = _ate_ao_rascunho(m, m.servico.receber(A, "m1").ingestao.id)
+        m.screening.decisao_forcada = screening.ResultadoDoScreen("bloqueada", ("alcool",), "1.0.0+m.2", 1.0)
+        with self.assertRaises(PublicacaoRecusada) as recusa:
+            m.servico.confirmar(A, r.ingestao.id, confirmacao(r.versao_texto or ""))
+        self.assertEqual(recusa.exception.motivo, "categoria")
+        self.assertEqual(m.registo.publicados, [])
+        lida = m.repo.ler(A, r.ingestao.id)
+        assert lida is not None
+        self.assertEqual((lida.estado, lida.categoria_restrita), (estados.BLOQUEADA_CATEGORIA, "alcool"))
+
+    def test_a_condicional_do_classificador_na_publicacao_tambem_bloqueia(self) -> None:
+        m = montar()
+        r = _ate_ao_rascunho(m, m.servico.receber(A, "m1").ingestao.id)
+        m.screening.decisao_forcada = screening.ResultadoDoScreen(
+            "condicional", ("moda", "classificador_indisponivel"), "1.0.0+m.2", 0.0
+        )
+        with self.assertRaises(PublicacaoRecusada):
+            m.servico.confirmar(A, r.ingestao.id, confirmacao(r.versao_texto or ""))
+        lida = m.repo.ler(A, r.ingestao.id)
+        assert lida is not None
+        self.assertEqual(lida.categoria_restrita, "classificador_indisponivel")
+        self.assertEqual(m.registo.publicados, [])
+
+    def test_o_screening_da_publicacao_em_baixo_recusa_sem_mudar_nada_e_repete_se(self) -> None:
+        m = montar()
+        r = _ate_ao_rascunho(m, m.servico.receber(A, "m1").ingestao.id)
+        m.screening.falhar = True
+        with self.assertRaises(PublicacaoRecusada) as recusa:
+            m.servico.confirmar(A, r.ingestao.id, confirmacao(r.versao_texto or ""))
+        self.assertEqual(recusa.exception.motivo, "screening_indisponivel")
+        self.assertEqual(m.repo.ler(A, r.ingestao.id).estado, estados.RASCUNHO)  # type: ignore[union-attr]
+        self.assertEqual(m.registo.publicados, [])
+        m.screening.falhar = False
+        final = m.servico.confirmar(A, r.ingestao.id, confirmacao(r.versao_texto or ""))
+        self.assertEqual(final.estado, estados.PUBLICADA)
 
     def test_confirmar_fora_do_rascunho(self) -> None:
         m = montar()

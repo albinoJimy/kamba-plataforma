@@ -105,6 +105,7 @@ from .llm import registo as llm_registo
 from .llm import screening as llm_screening
 from .llm.cliente import ClienteDeLlm, PROXY_POR_OMISSAO, REF_CHAVE_VIRTUAL, VARIAVEL_DO_PROXY
 from .tls.catalogo import catalogo_do_piloto
+from .tls import catalogo_tools
 from .tls import orcamento_tools
 from .tls.embeddings import consulta_vectorial
 from .tls.idx import LIMIAR_DO_RRF, LigacaoVectorial, executores_do_idx
@@ -180,6 +181,35 @@ def _executores_do_comercio(
         log.warn(outcome="com_sem_endereco")
         return {}
     return executores_do_com(ClienteDoCom(base=base, credencial=credencial))
+
+
+def _executores_do_catalogo(credencial: CredencialDoCom) -> dict[str, Any]:
+    """As quatro tools do catalogo do dono (KAM-119). **Ligam-se sempre.**
+
+    Escrevem na nossa base (`catalog_ingestions`), como as do orcamento. O
+    screening do KAM-088 e o Registo sao do COM: com `KAMBA_COM_URL`, pela
+    ponte (`ScreeningPeloCom` com o sujeito `produto`, `RegistoPeloCom`); sem
+    ele, pelas portas por ligar, que levantam — uma ingestao fica
+    `bloqueada_categoria` com `screening_indisponivel` e nada se publica. A
+    entrada da foto (fonte, descodificador, visao) fica por ligar nas duas, com
+    o credor escrito em `catalogo/montagem.py`.
+    """
+    from kamba_core.catalogo.screening import ScreeningPorLigar
+
+    from .catalogo.montagem import PortasDoCatalogo
+    from .tls.registo_com import RegistoPeloCom, RegistoPorLigar
+    from .tls.screening import SUJEITO_DO_PRODUTO, ScreeningPeloCom
+
+    base = os.environ.get(VARIAVEL_DO_COM, "").strip()
+    if not base:
+        portas = PortasDoCatalogo(screening=ScreeningPorLigar(), registo=RegistoPorLigar())
+    else:
+        cliente = ClienteDoCom(base=base, credencial=credencial)
+        portas = PortasDoCatalogo(
+            screening=ScreeningPeloCom(cliente=cliente, sujeito_tipo=SUJEITO_DO_PRODUTO, vertical="dono"),
+            registo=RegistoPeloCom(cliente=cliente),
+        )
+    return catalogo_tools.executores(portas)
 
 #: Codigo de saida de uma guarda do ADR-002 violada. Distinto do `2` do KAM-001
 #: (configuracao invalida), para que os dois se distingam num painel.
@@ -403,6 +433,8 @@ def main() -> int:
             # KAM-220. As duas do Orcamento expresso escrevem na nossa base, como
             # a `get_store_info` le dela: ligam-se sempre.
             **orcamento_tools.executores(),
+            # KAM-119. As quatro do catalogo do dono: ver o `_executores_do_catalogo`.
+            **_executores_do_catalogo(credencial_do_com),
         }
     )
     # **A validacao (3) corre a serio desde o KAM-186**: o `construir_grafo`

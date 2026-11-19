@@ -16,8 +16,8 @@ as respostas a identificadores de B sao indistinguiveis entre si.
                                  `tenant_id`, e que o oraculo morderia se levasse
 ```
 
-As doze `POST /internal/*` do COM (sete do KAM-178, duas do KAM-099, duas do
-KAM-190, uma do KAM-222) entram na primeira metade, e o
+As catorze `POST /internal/*` do COM (sete do KAM-178, duas do KAM-099, duas do
+KAM-190, uma do KAM-222, duas do KAM-119) entram na primeira metade, e o
 `ALL /internal/*` da app sem API montada entra nela tambem: ele recebe os mesmos
 corpos, e o que se afirma e que os recusa de forma indistinguivel. O
 `GET /metrics` do COM entra na segunda.
@@ -553,9 +553,10 @@ registar_caso(
 # sao exigidas aqui: uma afirmacao nao medida nao e um verde.
 
 
-#: As doze rotas `POST /internal/*`, pela ordem da constante `ROTAS` do COM: as
-#: sete do KAM-178, as duas do painel do dono (KAM-099), as duas leituras do
-#: KAM-190 — uma oferta so, e o estado do canal — e o `screen` do KAM-222 no fim.
+#: As catorze rotas `POST /internal/*`, pela ordem da constante `ROTAS` do COM:
+#: as sete do KAM-178, as duas do painel do dono (KAM-099), as duas leituras do
+#: KAM-190 — uma oferta so, e o estado do canal —, o `screen` do KAM-222 e as
+#: duas do Catalogo AI do KAM-119 (o rascunho e a publicacao) no fim.
 ROTAS_POST_DA_API_INTERNA_DO_COM = (
     "rota:com:api/interna:apiInterna:POST:/internal/offer-view",
     "rota:com:api/interna:apiInterna:POST:/internal/propose-cart",
@@ -569,6 +570,8 @@ ROTAS_POST_DA_API_INTERNA_DO_COM = (
     "rota:com:api/interna:apiInterna:POST:/internal/get-offer",
     "rota:com:api/interna:apiInterna:POST:/internal/channel-view",
     "rota:com:api/interna:apiInterna:POST:/internal/screen",
+    "rota:com:api/interna:apiInterna:POST:/internal/upsert-product-draft",
+    "rota:com:api/interna:apiInterna:POST:/internal/publish-product",
 )
 
 #: O `GET /metrics` do COM. Sem credencial e sem identificadores (§3.39).
@@ -577,7 +580,7 @@ ITEM_DAS_METRICAS_DO_COM = "rota:com:api/interna:rotaDasMetricas:GET:/metrics"
 #: O `ALL /internal/*` da app construida **sem** a API montada.
 ITEM_SEM_API_DO_COM = "rota:com:app:createApp:ALL:/internal/*"
 
-#: As catorze, que e o que o caso cobre. Literais pela razao do topo do modulo: um
+#: As dezasseis, que e o que o caso cobre. Literais pela razao do topo do modulo: um
 #: filtro fazia uma rota nova nascer coberta.
 ROTAS_DA_API_INTERNA_DO_COM = (
     *ROTAS_POST_DA_API_INTERNA_DO_COM,

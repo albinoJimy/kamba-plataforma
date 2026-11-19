@@ -60,6 +60,9 @@ from ..validador.normalizacao import (
 )
 from ..validador.render import LUANDA, em_luanda
 
+#: O unico sujeito que o `conferir_condicoes` aceita na porta (`tls/screening.py`).
+SUJEITO_DAS_CONDICOES: Final = "condicoes"
+
 # ------------------------------------------------------------------ estados
 
 PEDIDO: Final = "pedido"
@@ -342,6 +345,11 @@ def conferir_condicoes(
         raise ValueError(CONDICOES_COM_NUMEROS)
     if veredicto_por_regras(limpo) in _VEREDICTOS_QUE_RECUSAM:
         raise ValueError(CONDICOES_RECUSADAS)
+    if getattr(screening, "sujeito_tipo", SUJEITO_DAS_CONDICOES) != SUJEITO_DAS_CONDICOES:
+        # KAM-119: o adaptador do COM passou a servir tambem o `produto`. Uma
+        # porta de produto aqui gravava uma decisao `produto` com o `quote_id`:
+        # e um defeito de montagem, e fecha como uma porta em baixo.
+        raise CondicoesRecusadasError(SCREENING_INDISPONIVEL)
     try:
         resultado = screening.screen(tenant_id, quote_id, None, (limpo,))
     except Exception:  # noqa: BLE001 — uma porta que falha recusa

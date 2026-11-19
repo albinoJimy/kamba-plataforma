@@ -1300,9 +1300,10 @@ async function lerPorContacto(
 
 // ------------------------------------------------------ a API interna do COM
 //
-// As catorze superficies da API interna do COM: as doze rotas `POST /internal/*`
-// (sete do KAM-178, as duas do painel do dono do KAM-099, as duas leituras do
-// KAM-190 e o `screen` do KAM-222), o `GET /metrics` e o
+// As dezasseis superficies da API interna do COM: as catorze rotas
+// `POST /internal/*` (sete do KAM-178, as duas do painel do dono do KAM-099, as
+// duas leituras do KAM-190, o `screen` do KAM-222 e as duas do Catalogo AI do
+// KAM-119), o `GET /metrics` e o
 // `ALL /internal/*` da app construida **sem** a API montada.
 //
 // ## A propriedade que este grupo mede, e a que ele **nao** mede
@@ -1346,9 +1347,10 @@ async function lerPorContacto(
 // `nota`.
 
 /**
- * As doze rotas, pela ordem de `services/com/src/api/interna.ts`: as sete do
- * KAM-178, as duas do painel do KAM-099, as duas leituras do KAM-190 e o
- * `screen` do KAM-222.
+ * As catorze rotas, pela ordem de `services/com/src/api/interna.ts`: as sete do
+ * KAM-178, as duas do painel do KAM-099, as duas leituras do KAM-190, o
+ * `screen` do KAM-222 e as duas do Catalogo AI do KAM-119 (o rascunho e a
+ * publicacao).
  */
 const ROTAS_DO_COM = [
   "/internal/offer-view",
@@ -1363,9 +1365,11 @@ const ROTAS_DO_COM = [
   "/internal/get-offer",
   "/internal/channel-view",
   "/internal/screen",
+  "/internal/upsert-product-draft",
+  "/internal/publish-product",
 ] as const;
 
-/** O `item` enumerado de uma das doze. Copiado do caso, nao derivado dele. */
+/** O `item` enumerado de uma das catorze. Copiado do caso, nao derivado dele. */
 function itemDoCom(rota: string): string {
   return `rota:com:api/interna:apiInterna:POST:${rota}`;
 }
@@ -1532,6 +1536,12 @@ function operacoesDeEnsaioDoCom(
     async requestOwnerConfirmation(ctx: unknown) {
       return servir("requestOwnerConfirmation", ctx, valorDeA({ estado: "pedida" }));
     },
+    // KAM-119: o rascunho de produto. A rota reescreve a resposta (`sku`,
+    // `registo_id`) e deixa cair o resto, e por isso o canario de A vai no
+    // `registoId`, que e o campo que ela leva.
+    async upsertProductDraft(ctx: unknown) {
+      return servir("upsertProductDraft", ctx, valorDeA({ sku: SKU_DE_A, registoId: canarioDeA }));
+    },
   };
 
   const operacoes: Record<string, unknown> = {
@@ -1586,6 +1596,11 @@ function operacoesDeEnsaioDoCom(
         ctx,
         valorDeA({ estado: "ativo", restrito: false, nivel: 1, tectoPedidoMinor: 5_000_000n, avisos: [canarioDeA] }),
       );
+    },
+    // KAM-119: a publicacao conferida. A real devolve `void`; a rota passa o
+    // valor tal como vem, e o canario de A vai nas `linhas` do `valorDeA`.
+    async publicarProduto(ctx: unknown) {
+      return servir("publicarProduto", ctx, valorDeA({ estado: "publicado" }));
     },
     // KAM-222: o `screen`. O canario de A vai numa regra, que a resposta leva.
     async screen(ctx: unknown) {
@@ -1715,6 +1730,12 @@ async function grupoDaApiInternaDoCom(relatorio: Relatorio): Promise<void> {
     if (rota === "/internal/screen") {
       return { sujeito_tipo: "condicoes", sujeito_ref: ORDER_DE_A, textos: ["entrega de A"] };
     }
+    if (rota === "/internal/upsert-product-draft") {
+      return { sku: SKU_DE_A, nome: "arroz de A", preco_tipo: "fixo", preco_minor: "1000000" };
+    }
+    if (rota === "/internal/publish-product") {
+      return { sku: SKU_DE_A, confirmacao: { actor_id: "mensagem-de-a", em: "2026-11-05T10:00:00.000Z" } };
+    }
     if (rota === "/internal/propose-cart") return rascunho;
     if (rota === "/internal/create-order") {
       return { ...rascunho, total_esperado_minor: "2500000", cart_id: CARRINHO_DE_A };
@@ -1760,6 +1781,12 @@ async function grupoDaApiInternaDoCom(relatorio: Relatorio): Promise<void> {
     }
     if (rota === "/internal/screen") {
       return { sujeito_tipo: "condicoes", sujeito_ref: canario, categoria_declarada: canario, textos: [canario] };
+    }
+    if (rota === "/internal/upsert-product-draft") {
+      return { sku: canario, nome: canario, preco_tipo: "fixo", preco_minor: "1" };
+    }
+    if (rota === "/internal/publish-product") {
+      return { sku: canario, confirmacao: { actor_id: canario, em: "2026-11-05T10:00:00.000Z" } };
     }
     if (rota === "/internal/propose-cart") return rascunho;
     if (rota === "/internal/create-order") {
