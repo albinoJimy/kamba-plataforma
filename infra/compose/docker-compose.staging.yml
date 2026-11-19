@@ -609,8 +609,21 @@ services:
     environment:
       <<: [*node-env, *saida]
       PORT: "3003"
+      # KAM-217: a troca de telefone do dono, como `kamba_identity`. **Opcional**:
+      # o processo so a monta com o painel (`ONBOARDING_COM_INTERNO_URL`) e com
+      # esta cadeia, e sem ela as duas rotas da troca respondem 503. O compose
+      # de producao nao a tem: o `server.ts` recusa `prod` (falta o adaptador SQL
+      # do `onboarding_case`), e ligar um processo publico a rede `data` antes de
+      # ele correr la era abrir topologia por nada.
+      KAMBA_ENV: staging
+      ONBOARDING_IDENTITY_DB_URL: ${ONBOARDING_IDENTITY_DB_URL:-}
+      KAMBA_SECRET_PEPPER_CONTACT_HMAC: ${KAMBA_SECRET_PEPPER_CONTACT_HMAC:-}
+      KAMBA_SECRET_PEPPER_CONTACT_HMAC_ANTERIOR: ${KAMBA_SECRET_PEPPER_CONTACT_HMAC_ANTERIOR:-}
+      KAMBA_SECRET_KEK_CONTACT_DEK: ${KAMBA_SECRET_KEK_CONTACT_DEK:-}
+      KAMBA_SECRET_KEK_CONTACT_DEK_ANTERIOR: ${KAMBA_SECRET_KEK_CONTACT_DEK_ANTERIOR:-}
     networks:
       - app
+      - data
     mem_limit: 768m
     cpus: 0.5
     healthcheck:

@@ -24,7 +24,13 @@ import type { ClienteDeIdentidade, Identidade } from "../identity/contactos.ts";
 import type { Telefone } from "../inscricao/identificadores.ts";
 import { comTenant, type ClienteSql } from "../tenant_guard/index.ts";
 import { ORIGEM_DO_PROVISIONAMENTO, type DefinirDono } from "./provisionamento.ts";
-import type { ContactoDoNumero, TrocaNaBase } from "./troca.ts";
+import {
+  TrocaDeTelefone,
+  type AvisoDaTroca,
+  type ContactoDoNumero,
+  type OtpDaTroca,
+  type TrocaNaBase,
+} from "./troca.ts";
 
 /** A origem com que a troca chama a porta. O `CHECK` da `definir_dono`. */
 export const ORIGEM_DA_TROCA = "troca_de_telefone";
@@ -83,6 +89,71 @@ export function definirDonoNaBase(identidade: ClienteSql): DefinirDono {
   return async ({ tenantId, contactId }) => {
     await definir(identidade, tenantId, contactId, ORIGEM_DO_PROVISIONAMENTO);
   };
+}
+
+/**
+ * Uma ligação de um *pool* do `kamba_identity`, pela forma do `pg.PoolClient`.
+ * O `release(true)` destrói-a em vez de a devolver. Serve também de
+ * `ClienteSql`: o `query` dela devolve um `ResultadoSql`, que é um `unknown`.
+ */
+export interface LigacaoDoPool extends ClienteDeIdentidade {
+  release(destruir?: boolean | Error): void;
+}
+
+/** O *pool* do `kamba_identity`, pela forma do `pg.Pool`. */
+export interface PoolDeIdentidade {
+  connect(): Promise<LigacaoDoPool>;
+}
+
+/**
+ * Corre `trabalho` numa ligação **só sua**, tirada do *pool* e devolvida no fim.
+ *
+ * É a razão de este módulo ter uma montagem de processo (KAM-217). Um servidor
+ * HTTP atende pedidos concorrentes, e o `comTenant` é uma transacção
+ * (`BEGIN`, `app.tenant_id`, a instrução, `COMMIT`). Sobre **uma** ligação
+ * partilhada, o `tenant_guard` recusa a segunda transacção enquanto a primeira
+ * corre (`LigacaoEmUsoError`): não cruza tenants, mas o dono que chega em
+ * segundo recebe um erro. Uma ligação por operação deixa as duas trocas correr
+ * ao mesmo tempo, cada uma no seu tenant. Uma ligação que falhou é destruída, e
+ * não devolvida, para nenhuma transacção a meio passar ao pedido seguinte.
+ */
+export async function numaLigacao<T>(
+  pool: PoolDeIdentidade,
+  trabalho: (ligacao: LigacaoDoPool) => Promise<T>,
+): Promise<T> {
+  const ligacao = await pool.connect();
+  let destruir = false;
+  try {
+    return await trabalho(ligacao);
+  } catch (erro) {
+    destruir = true;
+    throw erro;
+  } finally {
+    ligacao.release(destruir);
+  }
+}
+
+/**
+ * A `TrocaDeTelefone` de um processo que atende pedidos concorrentes (KAM-217):
+ * o contacto e a porta com uma ligação do *pool* do `kamba_identity` por
+ * operação. É a montagem que o `server.ts` do `onboarding-web` usa, e a que o
+ * ensaio contra a base corre.
+ */
+export function trocaPeloPool(portas: {
+  readonly pool: PoolDeIdentidade;
+  readonly identidade: Pick<Identidade, "resolveContact">;
+  readonly otp: OtpDaTroca;
+  readonly avisar: AvisoDaTroca;
+  readonly relogio?: () => Date;
+}): TrocaDeTelefone {
+  const { pool, identidade } = portas;
+  return new TrocaDeTelefone({
+    otp: portas.otp,
+    avisar: portas.avisar,
+    contacto: (pedido) => numaLigacao(pool, (ligacao) => contactoDoNumero(identidade, ligacao)(pedido)),
+    trocar: (pedido) => numaLigacao(pool, (ligacao) => trocaNaBase(ligacao)(pedido)),
+    ...(portas.relogio === undefined ? {} : { relogio: portas.relogio }),
+  });
 }
 
 /** O `ContactoDoNumero`: o `resolveContact` do KAM-008, só com o telefone. */
