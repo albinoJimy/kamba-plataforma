@@ -1764,6 +1764,29 @@ Quatro critérios, **um marcado**. Medido no ramo `feature/KAM-224-saida-do-agr`
 | 1 | não satisfeito — caixa vazia | O critério 2 marcado, os outros três parciais. O achado da `PortaDeSaida` do KAM-186 está revisto no bloco dele (EPIC-03), e a decisão 2 cumprida pela opção A, com a leitura do texto devolvida |
 | 2 | marcado | O evento leva identificadores e o canal, e o texto não sai da `agent_replies` (`test_um_numero_no_texto_nao_chega_ao_evento`); os registos dos consumidores levam só o desfecho (`resposta_<desfecho>`, `painel_<desfecho>`); os ensaios usam números fictícios e um BSUID de ensaio |
 
+
+### Verificação da revisão adversarial
+
+Uma revisão independente recebeu o diff e os requisitos, e não o raciocínio do ramo. Leu o código e correu três linters. **Dois achados bloqueavam**, os dois sobre o que o consumidor do WhatsApp fazia com o «no máximo uma vez» do `Saida`, e estão fechados. Cada achado foi verificado contra a árvore antes de gerar trabalho.
+
+| # | Achado | Veredicto | O que se fez |
+|---|---|---|---|
+| 1 | Uma falha de rede ou de débito do `Saida` (`SEND_FAILED`, `RATE_LIMITED`) era tratada como recusa, e a prosa dizia que a rede em baixo recuava pela escada | CONFIRMADO, bloqueante | Desfecho `falhou` com o motivo, a prosa corrigida, e a semântica escrita com credor no KAM-226 (`resposta.test.ts`, «uma falha de rede ou de débito é falhou, e não recusada») |
+| 2 | Uma chave repetida marcava entregue uma resposta cuja linha do Outbound ficou `queued` ou `failed` | CONFIRMADO, bloqueante | Só marca com a linha `sent`, `delivered` ou `read`; senão `repetida_sem_envio` (`resposta.test.ts` e «uma linha do Outbound que ficou queued para a chave não conta como entregue», contra a base) |
+| 3 | O `enfileirar` faz a ida à base na *event loop* | CONFIRMADO | `shortcut:` no `saida.py`, credor KAM-226 |
+| 4 | A *docstring* do `titulo_do_botao` prometia um ensaio de grafo que não existe | CONFIRMADO | Corrigida: quem apanha um botão sem título é a lista do `test_os_botoes_que_os_grafos_emitem_tem_titulo` |
+| 5 | Os turnos acabam sem ninguém que entregue a resposta | PLAUSÍVEL | Dito nas decisões do executor: os eventos esperam nas filas até ao KAM-226; não há produção |
+| 6 | A asserção do `ContextVar` depois do turno era vácua | CONFIRMADO | O ensaio chama o `_correr_lote` na própria tarefa |
+| 7 | O duplo da base decidia a conversa pelo argumento | CONFIRMADO | O duplo lê o `conversation_id = $3` no texto, e entram dois casos com o `reply_id` de outra conversa |
+| 8 | A evidência do critério 3 sobrestimava o caso do segundo evento | CONFIRMADO | Reescrita, com o que não está medido dito |
+| 9 | O *payload* que o AGR emite não era afirmado | PLAUSÍVEL | O ensaio Python contra a base afirma o *payload* inteiro e o tenant do envelope |
+| 10 | Um UUID pode casar a guarda de telefone da `evt_emitir` | PLAUSÍVEL | Dito nas decisões: é o risco de todos os eventos, não se trata aqui |
+| 11 | Uma *docstring* de ensaio e uma contagem em comentário contradiziam o código | CONFIRMADO | Corrigidas; entra o ensaio de que uma falha da `evt_emitir` desfaz a linha |
+| 12 | O `worker-canal` corria o `outbound` com ordem e a subscrição diz sem | CONFIRMADO | O `outbound` corre sem ordem |
+| 13 | O ramo do KAM-222 reclama também a emenda 1.118 | Informativo | Quem fundir em segundo renumera |
+
+**Mortos, com a evidência:** a fuga do `app.tenant_id` na ligação do conjunto (limpa-se no sucesso, e no erro a ligação é destruída); o `FOR UPDATE OF r` como `kamba_app` (chega o `UPDATE (entregue_at)`); a idempotência do produtor sob concorrência e a morte entre o `COMMIT` e o *checkpoint*; o tenant tirado do *payload*; o `ContextVar` a não chegar aos nós; telefone em eventos ou registos; as crases do §3.80.
+
 ---
 
 ## KAM-220 — Orçamento expresso nos grafos: o pedido do cliente, a resposta do dono, o «aceito» e os pendentes
