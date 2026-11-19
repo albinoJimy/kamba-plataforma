@@ -630,6 +630,7 @@ AG_TURNO = "services/agr/src/kamba_agr/turno.py"
 RESPOSTA_EFEITO = "packages/core-ts/src/resposta/efeito.ts"
 RESPOSTA_ENVIO = "packages/core-ts/src/resposta/envio.ts"
 RESPOSTA_CONTRATO = "packages/core-ts/src/resposta/contrato.ts"
+RESPOSTA_CREDENCIAL = "packages/core-ts/src/resposta/credencial.ts"
 #: O grafo do Vendedor (KAM-031). Tambem na `agr_unit`: o grafo corre com
 #: *fakes* por contrato e com a ToolLayer a serio, e nada do que estas mutacoes
 #: alteram toca a base.
@@ -5049,6 +5050,19 @@ MUTACOES = [
      '    const resposta = await respostaParaEnviar',
      '    const resposta = await respostaParaEnviar',
      SAIDA),
+    # KAM-227: o reenvio repete a chave do turno, e o `Saida` nunca o envia:
+    # «uma chave repetida cuja linha ficou queued, failed ou sem linha reenvia
+    # uma vez, pela chave derivada (KAM-227)».
+    ('resposta: o reenvio usa a chave do turno', RESPOSTA_EFEITO,
+     '      const reenvio = { ...pedido, idempotencyKey: chaveDoReenvio(pedido.idempotencyKey) };',
+     '      const reenvio = pedido;',
+     SAIDA),
+    # KAM-227: o token e o do primeiro canal do tenant, e nao o do pedido:
+    # «um canal que não é o do pedido não serve: sem_canal».
+    ('resposta: a credencial ignora o canal do pedido', RESPOSTA_CREDENCIAL,
+     '   WHERE tenant_id = $1 AND id = $2 AND phone_number_id = $3`;',
+     '   WHERE tenant_id = $1 AND $2::text IS NOT NULL AND $3::text IS NOT NULL`;',
+     SAIDA),
     # Um canal desconhecido cai no WhatsApp:
     # «recusa um canal desconhecido, e não o trata como WhatsApp».
     ('resposta: o canal desconhecido passa', RESPOSTA_CONTRATO,
@@ -5466,6 +5480,14 @@ MUTACOES = [
     ('grafos: a saida por ligar deixa de levantar', AG_GRAFOS,
      '        raise SaidaPorLigarError("saida_por_ligar")',
      '        return None',
+     AGR_UNIT),
+    # KAM-227: o envio volta a correr na *event loop* e pára os outros turnos:
+    # `test_uma_base_lenta_nao_para_os_outros_turnos`.
+    ('saida: o enfileirar volta a correr na event loop', AG_SAIDA,
+     '        reply_id = await asyncio.to_thread(\n'
+     '            self._gravar, estado, texto, chave, tuple(botoes), canal, inicio\n'
+     '        )',
+     '        reply_id = self._gravar(estado, texto, chave, tuple(botoes), canal, inicio)',
      AGR_UNIT),
     ('grafos: o resolve volta a correr na event loop', AG_GRAFOS,
      '        resolucao = await asyncio.to_thread(self._registo.resolve, invocacao)',

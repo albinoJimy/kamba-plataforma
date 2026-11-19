@@ -28,9 +28,17 @@
  * que lê o *token* do canal **do pedido** na ligação do envio, sob a RLS do
  * tenant dele. Lê-se **antes** de montar o `Saida`: um canal sem *token* levanta
  * `CanalSemCredencialError` sem a linha da `outbound_messages` ter nascido, e a
- * chave do envio fica por gastar. O **destinatário** entra por parâmetro, e o
- * de produção é o `destinatarioPelaIdentidade` (`./destinatario.ts`), numa
- * ligação `kamba_identity`.
+ * chave do envio fica por gastar. Uma credencial em falta é do canal, e não da
+ * ligação: a ligação volta **limpa** ao conjunto.
+ *
+ * ## O destinatário também se lê antes
+ *
+ * O de produção é o `destinatarioPelaIdentidade` (`./destinatario.ts`), noutra
+ * ligação (`kamba_identity`). O `Saida` pergunta-o **depois** de gravar a linha,
+ * e uma identidade em baixo nesse ponto deixava a linha `queued` e gastava o
+ * único reenvio numa falha transitória. Lido antes, uma falha dele sobe sem
+ * linha nenhuma, e a escada do KAM-006 repete o envio por inteiro; o `Saida`
+ * recebe o que se leu.
  */
 
 import type { Logger } from "../logger/index.ts";
@@ -41,7 +49,7 @@ import type { ClienteSql, ObterDestinatario, Pedido, Resultado } from "../outbou
 import { Limites } from "../outbound/limites.ts";
 import { MetricasDaSaida } from "../outbound/metricas.ts";
 import { comTenant } from "../tenant_guard/index.ts";
-import type { ClienteDoCanal } from "./credencial.ts";
+import { CanalSemCredencialError, type ClienteDoCanal } from "./credencial.ts";
 import type { EnviarResposta } from "./efeito.ts";
 
 /** A ligação de um envio: o `ClienteSql` do Outbound. */
@@ -80,8 +88,9 @@ export function envioPeloSaida(o: OpcoesDoEnvio): EnviarResposta {
     const ligacao = await o.tomar();
     let falha: unknown;
     try {
-      // Antes do `Saida`: sem *token*, a linha do Outbound não nasce.
+      // Antes do `Saida`: sem *token* ou sem identidade, a linha do Outbound não nasce.
       const meta = await o.meta(ligacao, pedido);
+      const para = await o.destinatario(pedido.tenantId, pedido.contactId);
       const guarda = criarGuarda({
         comTenant: (tenantId, trabalho) => comTenant(ligacao, tenantId, () => trabalho(ligacao)),
         ...(o.metricasDosModos === undefined ? {} : { metricas: o.metricasDosModos }),
@@ -90,7 +99,7 @@ export function envioPeloSaida(o: OpcoesDoEnvio): EnviarResposta {
       const saida = new Saida({
         bd: comTenantPorInstrucao(ligacao, pedido.tenantId),
         meta,
-        destinatario: o.destinatario,
+        destinatario: async () => para,
         guarda,
         freeTier: null,
         limites,
@@ -100,7 +109,9 @@ export function envioPeloSaida(o: OpcoesDoEnvio): EnviarResposta {
       });
       return await saida.enviar(pedido);
     } catch (erro) {
-      falha = erro;
+      // Um canal sem credencial não estraga a ligação: só os outros erros a
+      // fazem sair do conjunto.
+      if (!(erro instanceof CanalSemCredencialError)) falha = erro;
       throw erro;
     } finally {
       await o.devolver(ligacao, falha);

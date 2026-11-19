@@ -244,7 +244,9 @@ export async function portasDoOutbound(a: ArranqueDoOutbound): Promise<PortasDeP
   const cofre = await Secrets.arrancar({
     servico: 'worker-canal-consumidor',
     provider,
-    obrigatorios: [REF_DA_KEK],
+    // Obrigatória onde o inventário a declara obrigatória (`staging`, `prod`).
+    // Em `dev` o processo arranca sem ela, e cada envio sobe o erro do cofre.
+    obrigatorios: ambiente === 'dev' ? [] : [REF_DA_KEK],
   });
   const identidade = await Identidade.arrancar({
     chaves: new EnvKeyProvider({ ambiente, env: a.env }),

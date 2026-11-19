@@ -334,6 +334,10 @@ services:
       # notas sao as do compose de producao.
       <<: [*node-env, *saida]
       CONSUMIDOR_PORT: "3012"
+      # O `fetch` do Node 24 **ignora** o `HTTPS_PROXY` sem esta variavel (medido
+      # no KAM-227, `node:24.21.0`: sem ela o pedido vai directo e expira; com
+      # ela, vai ao proxy). Sem ela o `*saida` nao fazia nada.
+      NODE_USE_ENV_PROXY: "1"
       KAMBA_QUEUE_URL: redis://queue:6379
       KAMBA_CONSUMER: outbound
       KAMBA_ENV: staging

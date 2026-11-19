@@ -12,8 +12,13 @@
  *
  * É a ordem do critério 9 e do DoD «Privacidade» do KAM-015, a mesma do
  * `corpoDaMeta` do `outbound/cliente.ts`: com BSUID, o telefone nem se escolhe.
- * Sem BSUID, vale um telefone guardado **e ainda dentro do prazo** (`expira_at`):
- * um telefone fora do prazo é um dado que já não se devia ter, e não se usa.
+ * Sem BSUID, vale um telefone guardado **para contactar o cliente sobre o pedido
+ * dele** (`finalidade = 'contacto_pedido'`) **e ainda dentro do prazo**
+ * (`expira_at`). Um telefone guardado para o pagamento expresso ou para a
+ * entrega não se usa para responder: a finalidade é a razão por que se guardou,
+ * e responder no WhatsApp é a do `contacto_pedido`, se de alguma for — leitura
+ * deste ticket, *(a confirmar por parecer)*. Um telefone fora do prazo é um dado
+ * que já não se devia ter, e também não se usa.
  *
  * **O que isto não muda:** o CHR resolve o contacto com o telefone do *webhook*
  * mas **sem** `guardarTelefone` (`chr/chr.ts`), pelo que do telefone de uma
@@ -45,8 +50,12 @@ import {
   DekDestruidaError,
   type ClienteDeIdentidade,
   type EndpointsDoContacto,
+  type Finalidade,
 } from "../identity/index.ts";
 import type { Destinatario, ObterDestinatario } from "../outbound/contrato.ts";
+
+/** A finalidade do telefone com que se responde. Ver a nota do módulo. */
+export const FINALIDADE_DA_RESPOSTA: Finalidade = "contacto_pedido";
 
 /** Sem endereço: o `Saida` recusa com `NO_RECIPIENT`. */
 export const SEM_DESTINATARIO: Destinatario = Object.freeze({ bsuid: null, telefone: null });
@@ -79,7 +88,9 @@ export interface OpcoesDoDestinatario {
 export function escolherDestinatario(endpoints: EndpointsDoContacto, agora: Date): Destinatario {
   const bsuid = endpoints.bsuids[0];
   if (bsuid !== undefined) return { bsuid, telefone: null };
-  const vivo = endpoints.telefones.find((t) => t.expiraAt.getTime() > agora.getTime());
+  const vivo = endpoints.telefones.find(
+    (t) => t.finalidade === FINALIDADE_DA_RESPOSTA && t.expiraAt.getTime() > agora.getTime(),
+  );
   return vivo === undefined ? SEM_DESTINATARIO : { bsuid: null, telefone: vivo.telefone };
 }
 

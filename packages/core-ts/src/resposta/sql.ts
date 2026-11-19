@@ -45,7 +45,11 @@ export const SQL_MARCAR_ENTREGUE = `
  * O `Saida` responde `ok` a uma chave que já passou **sem olhar ao estado** da
  * linha: uma linha `queued` (o processo morreu entre a linha e a rede) ou
  * `failed` também é «repetida». Só uma linha que saiu conta como entregue.
+ *
+ * O `wamid` e o `error_code` são do KAM-227: uma linha com `wamid` foi aceite
+ * pela Meta e nunca se reenvia, e um `failed` com código ambíguo pode ter saído
+ * (`decidirEnvio`, no `efeito.ts`).
  */
 export const SQL_ESTADO_DO_ENVIO = `
-  SELECT state FROM platform.outbound_messages
+  SELECT state, wamid, error_code FROM platform.outbound_messages
    WHERE tenant_id = $1 AND idempotency_key = $2`;

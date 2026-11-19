@@ -191,10 +191,13 @@ describe("o destinatário de produção (critério 2)", () => {
   const AGORA = new Date("2026-11-19T12:00:00Z");
   const depois = new Date("2027-11-19T12:00:00Z");
   const antes = new Date("2026-11-18T12:00:00Z");
-  const endpoints = (bsuids: string[], telefones: { telefone: string; expiraAt: Date }[]): EndpointsDoContacto => ({
+  const endpoints = (
+    bsuids: string[],
+    telefones: { telefone: string; expiraAt: Date; finalidade?: "pagamento_express" | "entrega" | "contacto_pedido" }[],
+  ): EndpointsDoContacto => ({
     contactId: CONTACTO,
     bsuids,
-    telefones: telefones.map((t) => ({ ...t, finalidade: "contacto_pedido" as const })),
+    telefones: telefones.map((t) => ({ finalidade: "contacto_pedido" as const, ...t })),
   });
 
   it("o BSUID quando existe, e então o telefone nem se escolhe", () => {
@@ -216,6 +219,15 @@ describe("o destinatário de produção (critério 2)", () => {
       { bsuid: null, telefone: "999100000227" },
     );
     assert.deepEqual(escolherDestinatario(endpoints([], [{ telefone: "999100000001", expiraAt: antes }]), AGORA), SEM_DESTINATARIO);
+  });
+
+  it("um telefone guardado para outra finalidade não serve para responder", () => {
+    for (const finalidade of ["pagamento_express", "entrega"] as const) {
+      assert.deepEqual(
+        escolherDestinatario(endpoints([], [{ telefone: "999100000227", expiraAt: depois, finalidade }]), AGORA),
+        SEM_DESTINATARIO,
+      );
+    }
   });
 
   it("**sem BSUID nem telefone** não há destinatário, e o Saida recusa NO_RECIPIENT", () => {

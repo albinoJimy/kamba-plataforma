@@ -50,7 +50,7 @@ import {
   CONSUMIDOR_DO_OUTBOUND,
   CONSUMIDOR_DO_PAINEL,
   CanalSemCredencialError,
-  ReenvioAdiadoError,
+  ESPERA_DO_REENVIO_S,
   clienteDaGraphPorCanal,
   destinatarioPelaIdentidade,
   efeitoDoOutbound,
@@ -356,7 +356,10 @@ describe("a resposta do AGR contra a base", () => {
       const antes = graph.envios;
       desfechos.length = 0;
       falharProxima = true;
-      await assert.rejects(consumir(CONSUMIDOR_DO_OUTBOUND, envelope!, 1), ReenvioAdiadoError);
+      // O `Adiar` de 60 s: a fila devolveria o evento um minuto depois.
+      const adiado = await consumir(CONSUMIDOR_DO_OUTBOUND, envelope!, 1);
+      assert.equal(adiado.desfecho, "adiado");
+      assert.equal(adiado.adiamento, ESPERA_DO_REENVIO_S);
       assert.equal(await entregue(reply!), false);
       assert.equal((await consumir(CONSUMIDOR_DO_OUTBOUND, envelope!, 2)).desfecho, "aplicado");
       for (let i = 0; i < 3; i += 1) {

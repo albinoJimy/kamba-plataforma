@@ -189,6 +189,13 @@ describe("as portas de produção do outbound, e o arranque em prod (KAM-227, cr
     });
   });
 
+  it("em dev a kek_token_cliente não é obrigatória, como no inventário", async () => {
+    const env = completo("dev");
+    delete env["KAMBA_SECRET_KEK_TOKEN_CLIENTE"];
+    const portas = await portasDoOutbound({ env, ...ligacoes });
+    assert.equal(typeof portas.meta, "function");
+  });
+
   it("o ambiente não tem omissão: ausente ou desconhecido recusa", () => {
     assert.throws(() => ambienteDoOutbound({}), /KAMBA_ENV/);
     assert.throws(() => ambienteDoOutbound({ KAMBA_ENV: "producao" }), /KAMBA_ENV/);

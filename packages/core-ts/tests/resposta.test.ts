@@ -16,6 +16,7 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { describe, it } from "node:test";
 
+import { Adiar } from "../src/eventos/consumo.ts";
 import type { Envelope } from "../src/eventos/envelope.ts";
 import type { Pedido, Resultado } from "../src/outbound/contrato.ts";
 import {
@@ -29,8 +30,10 @@ import {
   SQL_RESPOSTA_DO_PAINEL,
   SQL_RESPOSTA_DO_WHATSAPP,
   TIPO_DA_RESPOSTA,
+  ESPERA_DO_REENVIO_S,
   botoesDaLinha,
   chaveDoReenvio,
+  decidirEnvio,
   efeitoDoOutbound,
   efeitoDoPainel,
   envioPeloSaida,
@@ -60,8 +63,8 @@ interface Linha {
 class BaseFalsa {
   readonly linhas: Linha[] = [];
   readonly instrucoes: string[] = [];
-  /** O estado da linha do Outbound por chave, para o `repetido`. */
-  readonly envios = new Map<string, string>();
+  /** A linha do Outbound por chave, para o `repetido`: o estado, ou a linha inteira. */
+  readonly envios = new Map<string, string | Record<string, unknown>>();
 
   nova(sobrepor: Partial<Linha> = {}): Linha {
     const linha: Linha = {
@@ -90,7 +93,13 @@ class BaseFalsa {
       l.tenant === tenant && l.reply_id === replyId && (!daConversa || l.conversa === conversa);
     if (sql === SQL_ESTADO_DO_ENVIO) {
       const estado = this.envios.get(`${tenant}|${String(replyId)}`);
-      const rows = estado === undefined ? [] : [{ state: estado }];
+      // O duplo só devolve o `wamid` e o `error_code` se o SQL os pedir.
+      const pede = /\bwamid\b/.test(sql) && /\berror_code\b/.test(sql);
+      const linha = typeof estado === "string" ? { state: estado } : estado;
+      const rows =
+        linha === undefined
+          ? []
+          : [pede ? linha : { state: linha["state"] }];
       return { rows, rowCount: rows.length };
     }
     if (sql === SQL_RESPOSTA_DO_WHATSAPP || sql === SQL_RESPOSTA_DO_PAINEL) {
@@ -396,17 +405,21 @@ describe("efeitoDoOutbound", () => {
     assert.notEqual(linha.entregue_at, null);
   });
 
-  it("uma falha de rede ou de débito adia: levanta, para a escada repetir, e não marca", async () => {
-    for (const motivo of ["SEND_FAILED", "RATE_LIMITED"] as const) {
+  it("uma falha que não saiu adia 60 s: o débito nosso, ou uma recusa da Meta com código", async () => {
+    for (const [motivo, codigo] of [["SEND_FAILED", 131026], ["SEND_FAILED", 130429], ["RATE_LIMITED", null]] as const) {
       const bd = new BaseFalsa();
       const linha = bd.nova();
-      const saida = outbound({ ok: false, motivo, codigo: null });
+      const saida = outbound({ ok: false, motivo, codigo });
       const desfechos: string[] = [];
       await assert.rejects(
         efeitoDoOutbound(saida.enviar, { aoTratar: (d, m) => desfechos.push(`${d}:${m}`) })(bd, envelope(payload(linha))),
         (erro: unknown) => {
           assert.ok(erro instanceof ReenvioAdiadoError);
           assert.equal(erro.motivo, motivo);
+          // Um `Adiar` do KAM-006, com a espera do minuto do *token bucket*.
+          assert.ok(erro instanceof Adiar);
+          assert.equal(erro.segundos, ESPERA_DO_REENVIO_S);
+          assert.equal(ESPERA_DO_REENVIO_S, 60);
           // Sem chave nem texto na mensagem: só o motivo.
           assert.doesNotMatch(erro.message, /wamid|stock/);
           return true;
@@ -416,6 +429,56 @@ describe("efeitoDoOutbound", () => {
       assert.equal(saida.pedidos.length, 1);
       assert.equal(linha.entregue_at, null);
     }
+  });
+
+  it("**uma falha ambígua não se reenvia**: timeout, rede, 200 sem wamid ou erro interno da Meta são falhou", async () => {
+    for (const codigo of [-1, 1, 2]) {
+      const bd = new BaseFalsa();
+      const linha = bd.nova();
+      const saida = outboundEmSequencia({ ok: false, motivo: "SEND_FAILED", codigo }, ENVIADO);
+      const desfechos: string[] = [];
+      await efeitoDoOutbound(saida.enviar, { aoTratar: (d, m) => desfechos.push(`${d}:${m}`) })(bd, envelope(payload(linha)));
+      assert.deepEqual(desfechos, ["falhou:SEND_FAILED"]);
+      assert.equal(saida.pedidos.length, 1);
+      assert.equal(linha.entregue_at, null);
+    }
+  });
+
+  it("**uma linha com wamid nunca se reenvia**, nem failed: a Meta aceitou-a; nem um failed ambíguo", async () => {
+    const casos: [Record<string, unknown>, string][] = [
+      [{ state: "failed", wamid: "wamid.ACEITE", error_code: 131026 }, "repetida_sem_envio:failed"],
+      [{ state: "queued", wamid: "wamid.ACEITE", error_code: null }, "repetida_sem_envio:queued"],
+      [{ state: "failed", wamid: null, error_code: -1 }, "repetida_sem_envio:failed_ambiguo"],
+      [{ state: "failed", wamid: null, error_code: 2 }, "repetida_sem_envio:failed_ambiguo"],
+    ];
+    for (const [linhaDoOutbound, esperado] of casos) {
+      const bd = new BaseFalsa();
+      const linha = bd.nova();
+      bd.envios.set(`${TENANT}|${linha.chave}`, linhaDoOutbound);
+      const saida = outboundEmSequencia(REPETIDO, ENVIADO);
+      const desfechos: string[] = [];
+      await efeitoDoOutbound(saida.enviar, { aoTratar: (d, m) => desfechos.push(`${d}:${m}`) })(bd, envelope(payload(linha)));
+      assert.deepEqual(desfechos, [esperado]);
+      assert.equal(saida.pedidos.length, 1, "sem reenvio");
+      assert.equal(linha.entregue_at, null);
+    }
+  });
+
+  it("decidirEnvio: o wamid manda sobre o estado, e um código ambíguo não deixa reenviar", () => {
+    assert.deepEqual(decidirEnvio(undefined), { saiu: false, podeReenviar: true, estado: "sem_linha" });
+    assert.deepEqual(decidirEnvio({ state: "queued", wamid: null }), { saiu: false, podeReenviar: true, estado: "queued" });
+    assert.deepEqual(decidirEnvio({ state: "failed", wamid: null, error_code: 131026 }), {
+      saiu: false,
+      podeReenviar: true,
+      estado: "failed",
+    });
+    assert.deepEqual(decidirEnvio({ state: "failed", wamid: null, error_code: null }).podeReenviar, true);
+    assert.deepEqual(decidirEnvio({ state: "failed", wamid: null, error_code: -1 }).podeReenviar, false);
+    assert.deepEqual(decidirEnvio({ state: "failed", wamid: "w", error_code: 131026 }).podeReenviar, false);
+    for (const estado of ["sent", "delivered", "read"]) {
+      assert.deepEqual(decidirEnvio({ state: estado, wamid: "w" }), { saiu: true, podeReenviar: false, estado });
+    }
+    assert.equal(decidirEnvio({ state: "suppressed_by_human", wamid: null }).podeReenviar, false);
   });
 
   it("a falha na primeira tentativa reenvia na segunda: a linha failed da chave do turno passa à derivada", async () => {
@@ -636,8 +699,27 @@ describe("envioPeloSaida", () => {
     assert.deepEqual(vistos, [ligacao, TENANT, CANAL, pedido.phoneNumberId, 0]);
     // Sem credencial, o Saida não chega a perguntar nada: a linha não nasce.
     assert.deepEqual(ligacao.instrucoes, []);
+    // E a ligação volta limpa: a credencial em falta é do canal, não dela.
+    assert.deepEqual(devolvidas, ["limpa"]);
+  });
+
+  it("o destinatário lê-se antes do Saida: a identidade em baixo sobe sem linha do Outbound", async () => {
+    const ligacao = new LigacaoFalsa();
+    const devolvidas: unknown[] = [];
+    const enviar = envioPeloSaida({
+      tomar: async () => ligacao,
+      devolver: (_l, erro) => {
+        devolvidas.push(erro ?? "limpa");
+      },
+      meta: async () => ({ enviar: async () => ({ ok: true, wamid: "w1" }) }),
+      destinatario: async () => {
+        throw new Error("identidade em baixo");
+      },
+    });
+    await assert.rejects(enviar(pedido), /identidade em baixo/);
+    assert.deepEqual(ligacao.instrucoes, [], "o Saida não gravou linha nenhuma");
     assert.equal(devolvidas.length, 1);
-    assert.ok(devolvidas[0] instanceof CanalSemCredencialError);
+    assert.ok(devolvidas[0] instanceof Error);
   });
 
   it("uma ligação que falha volta com o erro, e o erro sobe", async () => {

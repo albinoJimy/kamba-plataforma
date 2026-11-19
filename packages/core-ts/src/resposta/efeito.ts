@@ -26,31 +26,40 @@
  * ## O reenvio, uma vez, por uma chave derivada (KAM-227, critério 5)
  *
  * Uma resposta que a chave do turno deixou por enviar reenvia-se **uma vez**, com
- * a chave `chaveDoReenvio(chave)` — a do turno com o sufixo `:reenvio`. Duas
- * entradas, e as duas acabam no mesmo sítio:
+ * a chave `chaveDoReenvio(chave)` — a do turno com o sufixo `:reenvio` —, e
+ * **só quando se sabe que a mensagem não saiu**. Duas entradas:
  *
- * - **o `Saida` devolve uma falha** (`SEND_FAILED`, `RATE_LIMITED`): o efeito
- *   levanta `ReenvioAdiadoError`, a transacção do consumo desfaz-se, e a escada
- *   do KAM-006 repete o evento **mais tarde** — reenviar no mesmo instante a um
- *   *token bucket* sem vaga, ou a uma Meta que acabou de recusar, era gastar a
- *   única segunda vez;
- * - **o `Saida` diz `repetido` e a linha da chave não saiu** (`queued`,
- *   `failed`, ou sem linha): é a repetição de cima, ou um processo que morreu
- *   entre a linha e a rede. O efeito envia pela chave derivada.
+ * - **o `Saida` devolve uma falha que não saiu**: o *token bucket* sem vaga
+ *   (`RATE_LIMITED`, sem chamada HTTP) ou uma recusa da Meta com código
+ *   (`SEND_FAILED` com um `error.code` que não é ambíguo). O efeito levanta
+ *   `ReenvioAdiadoError`, que é um `Adiar` do KAM-006 de **60 s** (*proposta*):
+ *   a transacção do consumo desfaz-se e a fila devolve o evento um minuto
+ *   depois, que é a janela mais longa do *token bucket* (o tecto por minuto do
+ *   par). Reenviar ao primeiro degrau da escada, um segundo depois, gastava a
+ *   única segunda vez no mesmo tecto;
+ * - **o `Saida` diz `repetido` e a linha da chave não saiu e pode reenviar-se**
+ *   (`podeReenviar`): sem linha, `queued` sem `wamid`, ou `failed` sem `wamid` e
+ *   com um código que não é ambíguo. O efeito envia pela chave derivada.
+ *
+ * **Uma falha ambígua não se reenvia**, e é `falhou`: o `CODIGO_SEM_CODIGO` do
+ * cliente da Graph (*timeout*, rede, um `200` sem `wamid`) e os erros internos da
+ * Meta (`1`, `2`), que o `Saida` já repetiu — em qualquer dos três a Meta pode
+ * ter aceitado a mensagem. **Uma linha com `wamid` nunca se reenvia**, esteja no
+ * estado que estiver: o `wamid` é a prova de que a Meta a aceitou, e um
+ * `statuses` posterior pode passá-la de `sent` a `failed` (a entrega falhou), o
+ * que não a faz «não ter saído».
  *
  * O envio pela chave derivada é **o último**: uma falha dele é `falhou`, e uma
  * chave derivada repetida que não saiu é `repetida_sem_envio`, os dois sem
- * `entregue_at` e com o evento consumido. **O que não muda:** uma linha que
- * saiu (`sent`, `delivered`, `read`) com a chave do turno nunca se reenvia — o
- * reenvio só nasce de uma linha que, pelo próprio `Saida`, não saiu.
+ * `entregue_at` e com o evento consumido.
  *
  * **O limite, e fica dito.** Um processo que morra depois do `200` da Meta e
- * antes de o `Saida` marcar a linha `sent` deixa-a `queued` com a mensagem já
- * entregue, e a reentrega envia pela chave derivada: o cliente recebe a resposta
- * duas vezes. A janela é uma instrução (`SQL_MARCAR_ENVIADA`), e o `statuses`
- * da Meta não a fecha, porque o `wamid` não chegou à linha. É o preço de o
- * reenvio existir; sem ele, a mesma morte deixava a resposta perdida em
- * silêncio em todos os outros casos de `queued`.
+ * antes de o `Saida` marcar a linha `sent` deixa-a `queued` **sem** `wamid` com
+ * a mensagem já entregue, e a reentrega envia pela chave derivada: o cliente
+ * recebe a resposta duas vezes. A janela é uma instrução (`SQL_MARCAR_ENVIADA`),
+ * e o `statuses` da Meta não a fecha, porque o `wamid` não chegou à linha. O
+ * critério manda reenviar o `queued`, e é o preço de o reenvio existir: sem ele,
+ * a mesma morte deixava a resposta perdida em silêncio.
  *
  * ## Um canal sem credencial é desfecho, e não erro
  *
@@ -69,9 +78,10 @@
  * ligação própria (`envioPeloSaida`).
  */
 
-import type { Efeito } from "../eventos/consumo.ts";
+import { Adiar, type Efeito } from "../eventos/consumo.ts";
 import type { Envelope } from "../eventos/envelope.ts";
 import type { ClienteSql } from "../eventos/publicador.ts";
+import { CODIGO_SEM_CODIGO } from "../outbound/cliente.ts";
 import type { Corpo, Pedido, Resultado } from "../outbound/contrato.ts";
 import { CanalSemCredencialError } from "./credencial.ts";
 import {
@@ -119,6 +129,17 @@ export const MOTIVOS_DE_FALHA = ["SEND_FAILED", "RATE_LIMITED"] as const;
 /** Os estados da `outbound_messages` em que a mensagem saiu para a Meta. */
 export const ESTADOS_QUE_SAIRAM = ["sent", "delivered", "read"] as const;
 
+/**
+ * Os códigos de uma falha **ambígua**: a Meta pode ter aceitado a mensagem.
+ * `CODIGO_SEM_CODIGO` é o do cliente da Graph sem resposta legível (*timeout*,
+ * rede, `200` sem `wamid`); `1` e `2` são os erros internos que o `Saida` já
+ * repete (`CODIGOS_QUE_SE_REPETEM`, sem o `130429`, que é uma recusa de débito).
+ */
+export const CODIGOS_AMBIGUOS: readonly number[] = [CODIGO_SEM_CODIGO, 1, 2];
+
+/** A espera do reenvio, em segundos: a janela por minuto do *token bucket*. *Proposta*. */
+export const ESPERA_DO_REENVIO_S = 60;
+
 /** O sufixo da chave do único reenvio. Ver a nota do módulo. */
 export const SUFIXO_DO_REENVIO = ":reenvio";
 
@@ -128,16 +149,17 @@ export function chaveDoReenvio(chave: string): string {
 }
 
 /**
- * A primeira tentativa falhou na rede ou no débito, e a resposta reenvia-se uma
- * vez na próxima tentativa do consumo. **Não leva o texto nem a chave**: só o
- * motivo do Outbound.
+ * A primeira tentativa não saiu, e sabe-se que não saiu: a resposta reenvia-se
+ * uma vez, `ESPERA_DO_REENVIO_S` depois. É um `Adiar` do KAM-006, e não um erro:
+ * a fila devolve o evento com o atraso dele, e, esgotadas as tentativas, a DLQ
+ * diz `adiado_sem_resolver` com o motivo. **Não leva o texto nem a chave**.
  */
-export class ReenvioAdiadoError extends Error {
-  override readonly name = "ReenvioAdiadoError";
+export class ReenvioAdiadoError extends Adiar {
   readonly motivo: string;
 
   constructor(motivo: string) {
-    super(`a resposta nao saiu (${motivo}) e reenvia-se uma vez na proxima tentativa`);
+    super(ESPERA_DO_REENVIO_S, `a resposta nao saiu (${motivo}) e reenvia-se uma vez`);
+    this.name = "ReenvioAdiadoError";
     this.motivo = motivo;
   }
 }
@@ -208,18 +230,40 @@ export function pedidoDaResposta(tenantId: string, r: RespostaParaEnviar): Pedid
   };
 }
 
-/** Se a linha da `outbound_messages` de uma chave saiu, e o estado dela. */
-async function estadoDoEnvio(
-  bd: ClienteSql,
-  tenantId: string,
-  chave: string,
-): Promise<{ readonly saiu: boolean; readonly estado: string }> {
+/** Um código de falha ambíguo: a Meta pode ter aceitado. Ver `CODIGOS_AMBIGUOS`. */
+export function eAmbiguo(codigo: number | null | undefined): boolean {
+  return codigo !== null && codigo !== undefined && CODIGOS_AMBIGUOS.includes(codigo);
+}
+
+/** O que a linha da `outbound_messages` de uma chave diz do envio. */
+export interface EstadoDoEnvio {
+  /** Saiu e está entregue à Meta: `sent`, `delivered` ou `read`. Marca-se. */
+  readonly saiu: boolean;
+  /** Sabe-se que não saiu, e um reenvio não pode duplicar nada. */
+  readonly podeReenviar: boolean;
+  /** O estado, para o motivo do desfecho. */
+  readonly estado: string;
+}
+
+/**
+ * A decisão sobre uma linha da `outbound_messages`. Exportada para se ensaiar
+ * pela tabela. Ver a nota do módulo: o `wamid` manda sobre o estado.
+ */
+export function decidirEnvio(linha: Record<string, unknown> | undefined): EstadoDoEnvio {
+  if (linha === undefined) return { saiu: false, podeReenviar: true, estado: "sem_linha" };
+  const estado = typeof linha["state"] === "string" ? linha["state"] : "desconhecido";
+  const saiu = (ESTADOS_QUE_SAIRAM as readonly unknown[]).includes(estado);
+  const comWamid = linha["wamid"] !== null && linha["wamid"] !== undefined;
+  const codigo = linha["error_code"];
+  const ambiguo = eAmbiguo(typeof codigo === "number" ? codigo : codigo === null || codigo === undefined ? null : Number(codigo));
+  const podeReenviar =
+    !saiu && !comWamid && (estado === "queued" || (estado === "failed" && !ambiguo));
+  return { saiu, podeReenviar, estado: ambiguo && estado === "failed" ? "failed_ambiguo" : estado };
+}
+
+async function estadoDoEnvio(bd: ClienteSql, tenantId: string, chave: string): Promise<EstadoDoEnvio> {
   const { rows } = await bd.query(SQL_ESTADO_DO_ENVIO, [tenantId, chave]);
-  const estado = rows[0]?.["state"];
-  return {
-    saiu: (ESTADOS_QUE_SAIRAM as readonly unknown[]).includes(estado),
-    estado: typeof estado === "string" ? estado : "sem_linha",
-  };
+  return decidirEnvio(rows[0]);
 }
 
 /** O resultado de um envio, ou a falta de credencial do canal. */
@@ -239,6 +283,11 @@ function eFalha(motivo: string): boolean {
   return (MOTIVOS_DE_FALHA as readonly string[]).includes(motivo);
 }
 
+/** Uma falha do `Saida` de que se sabe que não saiu: débito nosso, ou recusa com código. */
+function naoSaiu(resultado: { readonly motivo: string; readonly codigo: number | null }): boolean {
+  return eFalha(resultado.motivo) && !eAmbiguo(resultado.codigo);
+}
+
 /**
  * O efeito do consumidor `outbound`: a resposta de canal `whatsapp` sai pelo
  * `Saida` do KAM-015.
@@ -246,11 +295,11 @@ function eFalha(motivo: string): boolean {
  * **Uma recusa do Outbound é desfecho, e não erro.** Janela fechada, conversa
  * em modo humano (o `PreSendGuard` do KAM-018), *template* por aprovar: são
  * decisões, já registadas pelo próprio `Saida`, e nenhuma das seis tentativas as
- * muda. Um canal sem credencial também (`sem_credencial`). **Uma falha de rede
- * ou de débito** levanta `ReenvioAdiadoError`, e a próxima tentativa reenvia
- * pela chave derivada — ver a nota do módulo. **Uma excepção do `enviar`** — a
- * base em baixo — recua pela escada, e a repetição trata a linha que tiver
- * ficado.
+ * muda. Um canal sem credencial também (`sem_credencial`). **Uma falha que não
+ * saiu** adia (`ReenvioAdiadoError`), e a próxima tentativa reenvia pela chave
+ * derivada; **uma falha ambígua** é `falhou` e não se reenvia — ver a nota do
+ * módulo. **Uma excepção do `enviar`** — a base em baixo — recua pela escada, e
+ * a repetição trata a linha que tiver ficado.
  */
 export function efeitoDoOutbound(enviar: EnviarResposta, opcoes: OpcoesDoEfeito = {}): Efeito {
   return async (bd: ClienteSql, envelope: Envelope) => {
@@ -259,8 +308,8 @@ export function efeitoDoOutbound(enviar: EnviarResposta, opcoes: OpcoesDoEfeito 
       opcoes.aoTratar?.("de_outro_canal");
       return;
     }
+    const resposta = await respostaParaEnviar(bd, envelope.tenant_id, payload);
     const tenantId = envelope.tenant_id;
-    const resposta = await respostaParaEnviar(bd, tenantId, payload);
     if (resposta.entregueEm !== null) {
       opcoes.aoTratar?.("ja_entregue");
       return;
@@ -272,15 +321,22 @@ export function efeitoDoOutbound(enviar: EnviarResposta, opcoes: OpcoesDoEfeito 
       return;
     }
     if (!resultado.ok) {
-      if (eFalha(resultado.motivo)) throw new ReenvioAdiadoError(resultado.motivo);
-      opcoes.aoTratar?.("recusada", resultado.motivo);
+      if (naoSaiu(resultado)) throw new ReenvioAdiadoError(resultado.motivo);
+      opcoes.aoTratar?.(eFalha(resultado.motivo) ? "falhou" : "recusada", resultado.motivo);
       return;
     }
-    if (resultado.repetido && !(await estadoDoEnvio(bd, tenantId, pedido.idempotencyKey)).saiu) {
-      // A chave do turno já tinha linha, e a linha não saiu: o único reenvio.
-      const reenvio = { ...pedido, idempotencyKey: chaveDoReenvio(pedido.idempotencyKey) };
-      await reenviar(bd, enviar, reenvio, resposta.replyId, opcoes);
-      return;
+    if (resultado.repetido) {
+      const envio = await estadoDoEnvio(bd, tenantId, pedido.idempotencyKey);
+      if (envio.podeReenviar) {
+        // A chave do turno já tinha linha, e sabe-se que não saiu: o único reenvio.
+        const reenvio = { ...pedido, idempotencyKey: chaveDoReenvio(pedido.idempotencyKey) };
+        await reenviar(bd, enviar, reenvio, resposta.replyId, opcoes);
+        return;
+      }
+      if (!envio.saiu) {
+        opcoes.aoTratar?.("repetida_sem_envio", envio.estado);
+        return;
+      }
     }
     await bd.query(SQL_MARCAR_ENTREGUE, [tenantId, resposta.replyId]);
     opcoes.aoTratar?.(resultado.repetido ? "repetida" : "enviada");
