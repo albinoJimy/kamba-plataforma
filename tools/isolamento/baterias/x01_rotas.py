@@ -1006,8 +1006,9 @@ def _afirmacoes_do_painel(item: str, entradas: list[dict]) -> list[str]:
                 "a",
                 "O `/painel/ligar` mandou o codigo, ou abriu o bilhete, noutro caso "
                 "que nao o da sessao de A, ou cunhou a sessao do registo sem o "
-                "codigo: o pedido escolheu o caso, ou a sessao do painel voltou a "
-                "renovar-se sozinha.",
+                "codigo, ou (KAM-207) perguntou ao COM por um canal que nao o de "
+                "A: o pedido escolheu o caso ou o tenant, ou a sessao do painel "
+                "voltou a renovar-se sozinha.",
             )
         )
     if item.endswith("POST:/painel/codigo"):
@@ -1065,7 +1066,8 @@ def _afirmacoes_do_painel(item: str, entradas: list[dict]) -> list[str]:
                 "sessao",
                 "nenhuma",
                 "Um ataque ao `/painel/verificar` cunhou sessao, ou uma referencia "
-                "que nao e o bilhete do painel chegou ao OTP do caso de B.",
+                "que nao e o bilhete do painel chegou ao OTP do caso de B, ou "
+                "(KAM-207) religou o caso de B sem o codigo de B.",
             )
         )
     return achados

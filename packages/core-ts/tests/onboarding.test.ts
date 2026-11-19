@@ -57,6 +57,7 @@ import {
   SQL_ABANDONAR,
   SQL_ABRIR,
   SQL_APAGAR_CANAL,
+  SQL_CANAL_A_RELIGAR,
   SQL_CONTAR_JANELA,
   SQL_CRIAR_CANAL,
   SQL_FASE,
@@ -65,9 +66,11 @@ import {
   SQL_LIGAR_CANAL,
   SQL_LIMPAR_RECURSOS,
   SQL_PONTO_DE_SALVAGUARDA,
+  SQL_REABRIR,
   SQL_RECURSOS,
   SQL_REGISTAR_RECURSO,
   SQL_REGISTAR_RECUSA,
+  SQL_RELIGAR_CANAL,
   SQL_SOLTAR_CANAL,
   SQL_TENTATIVA,
   SQL_TRANSITAR,
@@ -181,6 +184,14 @@ class BaseFalsa implements ClienteSql {
   pinRef: string | null = null;
   recusas = 0;
   limpou = 0;
+  /**
+   * Um canal que caiu (KAM-207): de que tenant, com que número, e em que estado.
+   * O duplo responde ao `SQL_CANAL_A_RELIGAR` pelos dois argumentos; o predicado
+   * em si mede-se contra a base em `db/tests/test_religacao_do_canal.py`.
+   */
+  caido: { id: string; tenant: string; pnid: string; tokenRef: string; estado: string; waba: string } | null = null;
+  /** O `SQL_REABRIR` reabre? Falso quando o *code* é o mesmo (a base recusa-o). */
+  reabre = true;
 
   async query<T = Record<string, unknown>>(
     texto: string,
@@ -308,6 +319,24 @@ class BaseFalsa implements ClienteSql {
       return { rows: [{ id: randomUUID() }] as T[] };
     }
     if (texto === SQL_ABANDONAR) return { rows: [] };
+    if (texto === SQL_CANAL_A_RELIGAR) {
+      const c = this.caido;
+      if (c === null || c.tenant !== valores[0] || c.pnid !== valores[1] || c.estado !== "desligado") return { rows: [] };
+      return { rows: [{ id: c.id, token_ref: c.tokenRef }] as T[] };
+    }
+    if (texto === SQL_REABRIR) {
+      const linha = this.linhas.get(String(valores[1]));
+      if (linha === undefined || !this.reabre || (this.fase !== "falhado" && this.fase !== "abandonado")) return { rows: [] };
+      this.fase = "iniciado";
+      this.recursos = [];
+      return { rows: [{ ...linha, fase: "iniciado", recursos_criados: [] }] as T[] };
+    }
+    if (texto === SQL_RELIGAR_CANAL) {
+      const c = this.caido;
+      if (c === null || c.id !== valores[3] || c.tenant !== valores[4] || c.estado !== "desligado") return { rows: [] };
+      this.caido = { ...c, waba: String(valores[0]), tokenRef: String(valores[2]), estado: "ativo" };
+      return { rows: [{ id: c.id }] as T[] };
+    }
     throw new Error(`SQL que o duplo não conhece: ${texto.slice(0, 60)}`);
   }
 }
@@ -1303,5 +1332,126 @@ describe("as metricas do onboarding", () => {
     // O `OBS-I` de `docs/seguranca/ameacas_stride.md` recusa identificadores em
     // etiquetas, e um UUID com hífenes **levanta** nas bibliotecas da casa.
     assert.ok(!m.exposicao().includes("tenant"));
+  });
+});
+
+// ------------------------------------------------------- KAM-207: a religação
+
+/** Um canal de `TENANT` que caiu, com o número da entrada de ensaio e um *token* antigo no cofre. */
+async function comCanalCaido(m: ReturnType<typeof montar>, tenant = TENANT) {
+  const tokenRef = await m.cofre.cunhar(FAMILIA_DO_TOKEN, "criptograma-antigo");
+  m.cofre.cunhados.length = 0;
+  const id = randomUUID();
+  m.sql.caido = { id, tenant, pnid: entradaDeEnsaio().phone_number_id, tokenRef, estado: "desligado", waba: entradaDeEnsaio().waba_id };
+  return { id, tokenRef };
+}
+
+/** A tentativa original do `(TENANT, waba)`, já subscrita, a apontar para o canal. */
+function tentativaOriginal(m: ReturnType<typeof montar>, canalId: string, fase: Fase = "subscrito") {
+  const e = entradaDeEnsaio();
+  m.sql.jaExistia = true;
+  m.sql.fase = fase;
+  m.sql.linhas.set(e.waba_id, {
+    id: randomUUID(),
+    tenant_id: TENANT,
+    channel_id: canalId,
+    waba_id: e.waba_id,
+    waac_id: null,
+    phone_number_id: e.phone_number_id,
+    fase,
+    recursos_criados: [],
+    pin_ref: null,
+    motivo: null,
+  });
+}
+
+describe("KAM-207: religar o numero de um canal que caiu", () => {
+  it("integracao: o mesmo numero no mesmo WABA volta por iniciado e o canal volta a ativo", async () => {
+    const m = montar();
+    const caido = await comCanalCaido(m);
+    tentativaOriginal(m, caido.id);
+    const { tentativa, novo } = await m.servico.ligar(entradaDeEnsaio({ code: "AQB-code-da-religacao" }));
+    assert.equal(novo, true);
+    assert.equal(tentativa.fase, "subscrito");
+    assert.equal(tentativa.channel_id, caido.id);
+    // A matriz: `subscrito → falhado → iniciado`, e nunca um salto por cima dela.
+    const fases = m.sql.chamadas.filter((t) => t === SQL_TRANSITAR || t === SQL_REABRIR);
+    assert.deepEqual(fases.slice(0, 2), [SQL_TRANSITAR, SQL_REABRIR]);
+    // **Nenhum canal novo**: o `SQL_CRIAR_CANAL` daria o 409 contra a linha do proprio tenant.
+    assert.ok(!m.sql.chamadas.includes(SQL_CRIAR_CANAL));
+    assert.equal(m.sql.canalApontado, caido.id);
+    assert.equal(m.sql.caido?.estado, "ativo");
+    assert.equal(m.sql.caido?.tokenRef, m.cofre.cunhados[0]);
+    assert.deepEqual(m.graph.subscritos.slice().sort(), [...CAMPOS_DE_WEBHOOK].sort());
+    // O canal nao entra na lista: nao foi esta tentativa que o criou.
+    assert.deepEqual(m.sql.recursos.map((r) => r.recurso), ["token", "subscricao"]);
+    // E o token antigo revoga-se depois de o canal mudar de referencia.
+    assert.deepEqual(m.cofre.revogados, [caido.tokenRef]);
+  });
+
+  it("integracao: o mesmo numero noutro WABA abre uma tentativa nova e leva o WABA ao canal", async () => {
+    const m = montar();
+    const caido = await comCanalCaido(m);
+    const { novo } = await m.servico.ligar(entradaDeEnsaio({ code: "AQB-code-da-religacao", waba_id: "waba-novo-de-ensaio" }));
+    assert.equal(novo, true);
+    assert.ok(!m.sql.chamadas.includes(SQL_REABRIR));
+    assert.ok(!m.sql.chamadas.includes(SQL_CRIAR_CANAL));
+    assert.equal(m.sql.caido?.estado, "ativo");
+    assert.equal(m.sql.caido?.waba, "waba-novo-de-ensaio");
+    assert.equal(m.sql.canalApontado, caido.id);
+  });
+
+  it("adversarial: uma falha na subscricao compensa o que a religacao criou e deixa o canal como caiu", async () => {
+    const m = montar();
+    const caido = await comCanalCaido(m);
+    tentativaOriginal(m, caido.id);
+    m.graph.falharNaSubscricao = true;
+    await assert.rejects(m.servico.ligar(entradaDeEnsaio({ code: "AQB-code-da-religacao" })));
+    assert.equal(m.sql.caido?.estado, "desligado");
+    assert.equal(m.sql.caido?.tokenRef, caido.tokenRef);
+    // O token novo e revogado; o antigo nao; e o canal **nunca** e apagado.
+    assert.deepEqual(m.cofre.revogados, [m.cofre.cunhados[0]]);
+    assert.equal(m.sql.canaisApagados, 0);
+    assert.ok(!m.sql.chamadas.includes(SQL_APAGAR_CANAL));
+    assert.equal(m.sql.fase, "falhado");
+  });
+
+  it("adversarial: o numero de outro tenant nao religa, e da o 409 sem tocar no canal dele", async () => {
+    const m = montar();
+    await comCanalCaido(m, OUTRO_TENANT);
+    m.sql.numeroDeOutroTenant = true;
+    await assert.rejects(m.servico.ligar(entradaDeEnsaio({ code: "AQB-code-da-religacao" })), NumeroJaUsadoError);
+    assert.equal(m.sql.caido?.estado, "desligado");
+    assert.equal(m.sql.caido?.tenant, OUTRO_TENANT);
+    assert.ok(!m.sql.chamadas.includes(SQL_RELIGAR_CANAL));
+  });
+
+  it("adversarial: o mesmo code outra vez nao reabre, e nao fala com a Meta", async () => {
+    const m = montar();
+    const caido = await comCanalCaido(m);
+    tentativaOriginal(m, caido.id, "falhado");
+    m.sql.reabre = false;
+    await assert.rejects(m.servico.ligar(entradaDeEnsaio()), EsNaoEV4Error);
+    assert.ok(!m.graph.chamadas.includes("trocarCode"));
+    assert.equal(m.sql.caido?.estado, "desligado");
+  });
+
+  it("adversarial: uma tentativa em ativo e terminal, e a religacao nao passa por cima da matriz", async () => {
+    const m = montar();
+    const caido = await comCanalCaido(m);
+    tentativaOriginal(m, caido.id, "ativo");
+    await assert.rejects(m.servico.ligar(entradaDeEnsaio({ code: "AQB-code-da-religacao" })), TransicaoInvalidaError);
+    assert.ok(!m.graph.chamadas.includes("trocarCode"));
+    assert.ok(!m.sql.chamadas.includes(SQL_REABRIR));
+  });
+
+  it("um canal que ja nao esta desligado segue o caminho de sempre e devolve a repeticao", async () => {
+    const m = montar();
+    const caido = await comCanalCaido(m);
+    tentativaOriginal(m, caido.id);
+    if (m.sql.caido !== null) m.sql.caido = { ...m.sql.caido, estado: "ativo" };
+    const { novo } = await m.servico.ligar(entradaDeEnsaio({ code: "AQB-code-da-religacao" }));
+    assert.equal(novo, false);
+    assert.ok(!m.graph.chamadas.includes("trocarCode"));
   });
 });

@@ -24,6 +24,13 @@
  *    global da `0001`;
  * 7. **subscrever os onze campos** e **confirmar por leitura** (critério 5).
  *
+ * **Uma religação troca o 3 e o 6** (KAM-207). Se o número já é deste tenant,
+ * num canal `desligado`, não há canal a criar: a tentativa do `(tenant, waba)`
+ * volta a `iniciado` (ou nasce lá, se o WABA for outro), o *token* e a
+ * subscrição refazem-se, e o canal **que caiu** volta a `ativo` no fim. O canal
+ * não entra na lista de recursos — não foi esta tentativa que o criou, e a
+ * compensação apagava-o. Ver o `#religar`.
+ *
  * **O 4 vem antes do 6, e isso é consequência de uma coluna.** O `token_ref` de
  * `tenant_channels` é `NOT NULL` desde a `0001`, pelo que não há linha de canal a
  * criar antes de haver *token*. A primeira leitura disto é um defeito — gasta-se
@@ -107,6 +114,7 @@ import {
   SQL_ABANDONAR,
   SQL_ABRIR,
   SQL_APAGAR_CANAL,
+  SQL_CANAL_A_RELIGAR,
   SQL_CONTAR_JANELA,
   SQL_CRIAR_CANAL,
   SQL_FASE,
@@ -115,9 +123,11 @@ import {
   SQL_LARGAR_O_PONTO,
   SQL_LIMPAR_RECURSOS,
   SQL_PONTO_DE_SALVAGUARDA,
+  SQL_REABRIR,
   SQL_RECURSOS,
   SQL_REGISTAR_RECURSO,
   SQL_REGISTAR_RECUSA,
+  SQL_RELIGAR_CANAL,
   SQL_SOLTAR_CANAL,
   SQL_TENTATIVA,
   SQL_TRANSITAR,
@@ -125,6 +135,12 @@ import {
 } from "./consultas.ts";
 import { compararCampos } from "./graph.ts";
 import { METRICAS, type Metricas, type MotivoDeRecusa } from "./metricas.ts";
+
+/** O canal deste tenant que caiu, como o `SQL_CANAL_A_RELIGAR` o devolve. */
+interface CanalCaido {
+  readonly id: string;
+  readonly token_ref: string;
+}
 
 /** O código SQLSTATE de violação de unicidade. */
 const UNICIDADE_VIOLADA = "23505";
@@ -290,6 +306,14 @@ export class Onboarding {
       throw erro;
     }
 
+    // -------------------------------- 3′. religar um canal que caiu (KAM-207)
+    const caidos = await this.#d.sql.query<CanalCaido>(SQL_CANAL_A_RELIGAR, [
+      entrada.tenant_id,
+      entrada.phone_number_id,
+    ]);
+    const caido = caidos.rows[0];
+    if (caido !== undefined) return this.#religar(entrada, modo, caido);
+
     // --------------------------------------------------- 3. abrir, ou repetir
     const resumo = resumoDoCode(entrada.code);
     const abertas = await this.#d.sql.query<Tentativa>(SQL_ABRIR, [
@@ -352,6 +376,106 @@ export class Onboarding {
       }
       throw erro;
     }
+  }
+
+  /**
+   * Religa o número de um canal deste tenant que caiu. **KAM-207, critério 2.**
+   *
+   * A tentativa volta por `iniciado` — nasce lá se o WABA for outro, ou volta lá
+   * pela matriz (`→ falhado → iniciado`) se for o mesmo, que a
+   * `channel_onboarding_tenant_waba_uq` não deixa abrir duas vezes. Daí os
+   * passos de sempre, menos o 6: o canal **é** o que caiu, liga-se à tentativa e
+   * só volta a `ativo` depois de a subscrição estar confirmada.
+   *
+   * **O canal não entra em `recursos_criados`**, e é a diferença que importa na
+   * compensação: a lista desfaz o *token*, o PIN e a subscrição desta volta, e o
+   * canal fica como caiu — com o *token* antigo, `desligado`, e as conversas e
+   * os contactos que ele tem. Apagá-lo era o que a compensação fazia a um canal
+   * da lista.
+   *
+   * O *token* antigo revoga-se depois de o canal mudar de referência, e a falha
+   * da revogação **não** desfaz a religação: o canal já está ligado com o novo,
+   * e um segredo por revogar é um órfão no cofre, contado no log.
+   */
+  async #religar(entrada: ResultadoDoEs, modo: Modo, canal: CanalCaido): Promise<Resultado> {
+    const resumo = resumoDoCode(entrada.code);
+    const abertas = await this.#d.sql.query<Tentativa>(SQL_ABRIR, [
+      entrada.tenant_id,
+      entrada.waba_id,
+      null,
+      entrada.phone_number_id,
+      resumo,
+    ]);
+    let aberta = abertas.rows[0];
+    if (aberta === undefined) {
+      const { rows } = await this.#d.sql.query<Tentativa>(SQL_TENTATIVA, [
+        entrada.tenant_id,
+        entrada.waba_id,
+      ]);
+      const existente = rows[0];
+      if (existente === undefined) {
+        throw new EsNaoEV4Error(
+          "o code já foi usado noutro onboarding deste tenant; " +
+            "um code do Embedded Signup serve uma vez",
+        );
+      }
+      // Pela matriz, e não por cima dela: o `ativo` é terminal e o
+      // `transitar` recusa-o com `TransicaoInvalidaError`.
+      if (existente.fase !== "falhado" && existente.fase !== "abandonado") {
+        await this.transitar(existente.id, existente.tenant_id, existente.fase, "falhado", "canal desligado");
+      }
+      const reabertas = await this.#d.sql.query<Tentativa>(SQL_REABRIR, [
+        entrada.tenant_id,
+        entrada.waba_id,
+        resumo,
+        entrada.phone_number_id,
+      ]);
+      aberta = reabertas.rows[0];
+      if (aberta === undefined) {
+        throw new EsNaoEV4Error(
+          "a tentativa deste WABA não reabre: o code já foi usado, " +
+            "ou o número não é o da tentativa",
+        );
+      }
+    }
+
+    let tentativa: Tentativa;
+    try {
+      const token = await this.#trocarEGuardar(aberta, entrada.code);
+      const pinRef = modo === "cloud_only" ? await this.#guardarPin(aberta) : null;
+      await this.#d.sql.query(SQL_LIGAR_CANAL, [aberta.id, aberta.tenant_id, canal.id]);
+      await this.#subscrever(aberta, entrada.waba_id, token.claro);
+      const religados = await this.#d.sql.query(SQL_RELIGAR_CANAL, [
+        entrada.waba_id,
+        modo,
+        token.ref,
+        canal.id,
+        entrada.tenant_id,
+      ]);
+      if (religados.rows.length !== 1) {
+        throw new Error("o canal deixou de estar desligado durante a religação");
+      }
+      tentativa = {
+        ...aberta,
+        channel_id: canal.id,
+        fase: "subscrito",
+        pin_ref: pinRef,
+        recursos_criados: await this.#recursos(aberta),
+      };
+    } catch (erro) {
+      await this.compensar(aberta.id, aberta.tenant_id, this.#motivoDe(erro));
+      throw erro;
+    }
+    try {
+      await this.#d.cofre.revogar(canal.token_ref);
+    } catch (erro) {
+      this.#d.log?.excepcao(erro, "religacao_token_antigo_por_revogar", {
+        tenant_id: entrada.tenant_id,
+        outcome: "onboarding_religado",
+      });
+    }
+    this.#d.log?.info({ outcome: "onboarding_religado", tenant_id: entrada.tenant_id });
+    return { tentativa, novo: true };
   }
 
   /** Passo 3: troca o *code*, cifra o *token*, cunha a referência. **O critério 3.** */

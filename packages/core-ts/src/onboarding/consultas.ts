@@ -440,3 +440,115 @@ export const SQL_FASE = `
    WHERE id = $1::uuid
      AND tenant_id = $2::uuid
 `;
+
+// ------------------------------------------------ a religação de um canal (KAM-207)
+
+/**
+ * O canal **deste** tenant com este número, se estiver `desligado`. **KAM-207.**
+ *
+ * É a pergunta que separa uma religação de um onboarding novo, e faz-se antes
+ * de abrir a tentativa: um número que o próprio tenant já tem num canal que caiu
+ * (`PARTNER_REMOVED`, ou levado para outra conta e devolvido) não cria canal —
+ * o `SQL_CRIAR_CANAL` levantava o `23505` da `tenant_channels_phone_number_id_uq`
+ * contra a linha do próprio tenant, e o dono recebia o 409 de quem tenta ligar
+ * um número alheio.
+ *
+ * **O `tenant_id = $1` é o isolamento**, e não um filtro de conveniência: o
+ * `kamba_batch` atravessa a RLS, e sem ele o canal de B com o mesmo número
+ * respondia à religação de A. Um número de outro tenant não aparece aqui, segue
+ * o caminho de sempre, e dá o 409 do critério 4 do KAM-016 na unicidade global.
+ *
+ * O `FOR UPDATE` prende a linha até ao fim da transacção: duas religações do
+ * mesmo número correm uma depois da outra, e a segunda já não o encontra
+ * `desligado` — segue o caminho de sempre e devolve a tentativa como repetição.
+ */
+export const SQL_CANAL_A_RELIGAR = `
+  SELECT id::text AS id,
+         token_ref
+    FROM platform.tenant_channels
+   WHERE tenant_id = $1::uuid
+     AND phone_number_id = $2
+     AND estado = 'desligado'
+     FOR UPDATE
+`;
+
+/**
+ * Volta a tentativa de um `(tenant_id, waba_id)` a `iniciado`, para a religação
+ * correr os passos outra vez. **KAM-207, critério 2.**
+ *
+ * É a aresta `falhado → iniciado` (ou `abandonado → iniciado`) da matriz, por
+ * *compare-and-set* sobre as duas — quem chama leva antes a tentativa a
+ * `falhado` pela matriz, de onde ela estiver. O `ativo` é terminal e não volta:
+ * a matriz recusa-o antes de se chegar aqui.
+ *
+ * Três condições que não são da matriz, e cada uma recusa um pedido que não é
+ * religação:
+ *
+ * * `code_hash <> $3` — o *code* é de uso único na Meta. O mesmo *code* outra vez
+ *   depois de uma religação falhada é um *code* gasto, e não se troca duas vezes;
+ * * `phone_number_id = $4` — a mesma tentativa, o mesmo número. Outro número no
+ *   mesmo WABA é o caminho novo que o dicionário §3.21 deixa por abrir, e não se
+ *   abre por aqui;
+ * * a lista de recursos e o PIN voltam a vazio, porque os da tentativa anterior
+ *   ou foram compensados ou são do canal que caiu — a compensação desta volta só
+ *   pode desfazer o que esta volta criar.
+ */
+export const SQL_REABRIR = `
+  UPDATE platform.channel_onboarding
+     SET fase = 'iniciado',
+         code_hash = $3::bytea,
+         recursos_criados = '[]'::jsonb,
+         pin_ref = NULL,
+         motivo = NULL,
+         actualizado_at = clock_timestamp()
+   WHERE tenant_id = $1::uuid
+     AND waba_id = $2
+     AND fase IN ('falhado', 'abandonado')
+     AND code_hash <> $3::bytea
+     AND phone_number_id = $4
+  RETURNING id::text            AS id,
+            tenant_id::text     AS tenant_id,
+            channel_id::text    AS channel_id,
+            waba_id,
+            waac_id,
+            phone_number_id,
+            fase,
+            recursos_criados,
+            pin_ref,
+            motivo
+`;
+
+/**
+ * O canal que caiu volta a `ativo` (ou a `restrito`, ver abaixo), com o *token*
+ * e o WABA da religação. **KAM-207.**
+ *
+ * Corre **no fim**, depois de a subscrição dos onze campos estar confirmada:
+ * escrito antes, uma falha na subscrição deixava o canal `ativo` a apontar para
+ * um *token* que a compensação acabou de revogar. Até aqui o canal está como
+ * caiu, e uma religação falhada deixa-o assim.
+ *
+ * O WABA entra porque pode ser outro: o número volta pelo popup, e o popup
+ * devolve o WABA em que o dono o pôs. O modo também, pela mesma razão.
+ *
+ * `estado = 'desligado'` no predicado, e não só o `id`: um canal que passou a
+ * `suspenso` ou `encerrado` entretanto (uma decisão nossa, que um popup não
+ * revoga) não volta a `ativo`. Com o `FOR UPDATE` do `SQL_CANAL_A_RELIGAR` isto
+ * não muda dentro da transacção — e o predicado diz a regra por escrito.
+ *
+ * **Uma restrição sobrevive à queda.** O KAM-017 desliga também um canal
+ * `restrito` (o `SQL_DESLIGAR_CANAL`), e o `motivo_restricao` fica escrito. Um
+ * canal com motivo volta a `restrito` e não a `ativo`: em `ativo` com motivo, o
+ * `SQL_REPOR` do KAM-021 (que só repõe de `restrito`) nunca mais o via, e a
+ * restrição que a Meta pôs desaparecia por o dono ter religado o número.
+ */
+export const SQL_RELIGAR_CANAL = `
+  UPDATE platform.tenant_channels
+     SET waba_id = $1,
+         channel_mode = $2,
+         token_ref = $3,
+         estado = CASE WHEN motivo_restricao IS NULL THEN 'ativo' ELSE 'restrito' END
+   WHERE id = $4::uuid
+     AND tenant_id = $5::uuid
+     AND estado = 'desligado'
+  RETURNING id::text AS id
+`;

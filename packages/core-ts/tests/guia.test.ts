@@ -32,6 +32,8 @@ import { Gerador, canalDe, valorDe, interlocutorDe } from "@kamba/meta-sim";
 import {
   AvisosEmMemoria,
   CapacidadeEmMemoria,
+  ESTADOS_DA_RELIGACAO,
+  ESTADOS_DO_GUIA,
   GatesEmMemoria,
   GuiaEmMemoria,
   GuiaRecusadoError,
@@ -807,5 +809,117 @@ describe("KAM-093 contrato: so v4", () => {
     for (const terminal of ["abandonado", "falhado", "desligado"] as const) {
       assert.deepEqual(TRANSICOES_DO_GUIA[terminal], ["iniciado"]);
     }
+  });
+});
+
+// --------------------------------------------- KAM-207: religar um caso activo
+
+/** Leva um caso até `verificado` e põe-no `activo`: o canal de pé de uma loja que já vende. */
+async function activo(m: Montagem, telefone = MOVEL, pnid = "pnid-1") {
+  const c = await ateSubscrito(m, telefone, pnid);
+  assert.equal(await m.repositorio.transitar(c.id, "subscrito", "verificado", {}), true);
+  await m.casos.marcarFase(c.id, "activo");
+  return c;
+}
+
+describe("KAM-207 religar: um caso activo cujo canal caiu volta ao passo do ES", () => {
+  it("integracao: o activo verificado nao abre; religado abre, passa o popup e fica activo", async () => {
+    const m = await montar();
+    const c = await activo(m);
+    await assert.rejects(m.guia.abrir(c.id), (e: unknown) => e instanceof GuiaRecusadoError && e.motivo === "fase_errada");
+
+    assert.equal(await m.guia.religar(c.id), "desligado");
+    assert.deepEqual(m.gates.de(c.id, "meta_es"), { verde: false, motivo: "desligado" });
+    assert.equal((await m.guia.abrir(c.id)).estado, "desligado");
+
+    await m.guia.preflight(c.id, TUDO_ATESTADO);
+    const inicio = await m.guia.iniciar(c.id);
+    assert.equal(inicio.desfecho, "popup");
+    const fim = await m.guia.concluir(c.id, finish(`waba-${c.id}`, "pnid-1"));
+    // O ligador do duplo deduplica por `(tenant, waba)`: o mesmo WABA devolve
+    // `repetido`, e o guia segue para `subscrito` como na primeira vez.
+    assert.equal(fim.estado, "subscrito");
+    const ultima = m.ligador.chamadas.at(-1);
+    assert.equal(ultima?.tenant_id, (await m.casos.porId(c.id))?.tenantId);
+    assert.equal(ultima?.phone_number_id, "pnid-1");
+    // **O caso nao recua de fase** (criterio 3): do principio ao fim, `activo`.
+    assert.equal((await m.casos.porId(c.id))?.fase, "activo");
+  });
+
+  it("o religar e idempotente: um guia ja numa religacao em curso fica onde esta", async () => {
+    const m = await montar();
+    const c = await activo(m);
+    await m.guia.religar(c.id);
+    await m.guia.preflight(c.id, TUDO_ATESTADO);
+    await m.guia.iniciar(c.id);
+    assert.equal(await m.guia.religar(c.id), "iniciado");
+    assert.equal((await m.repositorio.ler(c.id))?.estado, "iniciado");
+  });
+
+  it("a religacao nao passa pela lista de espera: o tecto cheio nao a manda para a fila", async () => {
+    const m = await montar({ maximo: 1 });
+    const c = await activo(m);
+    // A reserva do onboarding original sai da janela, e outro caso toma o
+    // unico lugar. Uma religacao que reservasse ia para a lista de espera.
+    m.relogio.avancar(8 * 24 * 3_600_000);
+    const outro = await m.caso(OUTRO_MOVEL);
+    await m.guia.preflight(outro.id, TUDO_ATESTADO);
+    assert.equal((await m.guia.iniciar(outro.id)).desfecho, "popup");
+    assert.equal(m.capacidade.vivas(), 1);
+
+    await m.guia.religar(c.id);
+    await m.guia.preflight(c.id, TUDO_ATESTADO);
+    assert.equal((await m.guia.iniciar(c.id)).desfecho, "popup");
+    // E o abandono nao devolve o lugar de outro: a religacao nao o tomou.
+    await m.guia.cancelar(c.id);
+    assert.equal(m.capacidade.vivas(), 1);
+  });
+
+  it("adversarial: so um caso activo religa; o aguarda_es e as outras fases recusam", async () => {
+    const m = await montar();
+    const novo = await m.caso();
+    await assert.rejects(m.guia.religar(novo.id), (e: unknown) => e instanceof GuiaRecusadoError && e.motivo === "fase_errada");
+    const parado = await m.caso(OUTRO_MOVEL, "kyc_pendente");
+    await assert.rejects(m.guia.religar(parado.id), (e: unknown) => e instanceof GuiaRecusadoError && e.motivo === "fase_errada");
+    await assert.rejects(m.guia.religar("00000000-0000-4000-8000-00000000ffff"), (e: unknown) => e instanceof GuiaRecusadoError && e.motivo === "sem_caso");
+  });
+
+  it("adversarial: um caso activo sem guia nao religa nem abre, e o abrir nao lhe cria um pre_voo", async () => {
+    const m = await montar();
+    const c = await m.caso();
+    await m.casos.marcarFase(c.id, "activo");
+    await assert.rejects(m.guia.abrir(c.id), (e: unknown) => e instanceof GuiaRecusadoError && e.motivo === "fase_errada");
+    assert.equal(await m.repositorio.ler(c.id), null);
+    await assert.rejects(m.guia.religar(c.id), (e: unknown) => e instanceof GuiaRecusadoError && e.motivo === "estado_errado");
+  });
+
+  it("um caso activo abre so nos estados de uma religacao em curso", async () => {
+    const m = await montar();
+    const abrem: string[] = [];
+    for (const estado of ESTADOS_DO_GUIA) {
+      const c = await m.caso();
+      await m.repositorio.abrir(c.id);
+      if (estado !== "pre_voo") assert.equal(await m.repositorio.transitar(c.id, "pre_voo", estado, {}), true);
+      await m.casos.marcarFase(c.id, "activo");
+      try {
+        await m.guia.abrir(c.id);
+        abrem.push(estado);
+      } catch (e) {
+        assert.ok(e instanceof GuiaRecusadoError && e.motivo === "fase_errada", estado);
+      }
+    }
+    assert.deepEqual(abrem, [...ESTADOS_DA_RELIGACAO].sort((a, b) => ESTADOS_DO_GUIA.indexOf(a) - ESTADOS_DO_GUIA.indexOf(b)));
+  });
+
+  it("o numero alheio continua preso numa religacao: o falhado por divergencia nao reabre o popup", async () => {
+    const m = await montar();
+    const c = await activo(m);
+    await m.guia.religar(c.id);
+    await m.guia.preflight(c.id, TUDO_ATESTADO);
+    await m.guia.iniciar(c.id);
+    await m.guia.concluir(c.id, finish(`waba-${c.id}`, "pnid-1"));
+    assert.equal(await m.guia.confirmarNumero("pnid-1", OUTRO_MOVEL), false);
+    await assert.rejects(m.guia.iniciar(c.id), (e: unknown) => e instanceof GuiaRecusadoError && e.motivo === "preso_em_revisao");
+    assert.equal((await m.casos.porId(c.id))?.fase, "activo");
   });
 });
