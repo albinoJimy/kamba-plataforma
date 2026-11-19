@@ -159,9 +159,26 @@ class TestUmTurnoUmaResposta(ComSaida):
         # nunca o ve e nunca recusa um turno por causa dele: a linha grava, e o
         # envelope fica sem o numero. Quem decide se um texto do AGR pode levar
         # um numero e o renderer (os numeros so de *facts*), nao esta tabela.
-        self.emitir(texto="Ligue para 999 000 000.")
-        self.assertEqual(len(self._linhas()), 1)
-        self.assertNotIn("999", json.dumps(self._eventos()[0]))
+        #
+        # **Procura-se o numero inteiro, e nao «999»** (KAM-229). O envelope
+        # leva cinco UUID aleatorios distintos (`id`, `reply_id`, `tenant_id`,
+        # `contact_id`, `conversation_id`): 110 janelas de tres hexadecimais
+        # dentro dos grupos, cada uma «999» com probabilidade 16^-3, mais os
+        # microssegundos dos dois instantes. A assercao antiga falhava em ~3% das
+        # corridas sem defeito nenhum — no PR #232, um `reply_id` com
+        # `...-4793-999b-...`. Nove algarismos seguidos tem probabilidade da
+        # ordem de 16^-9 por janela, que e zero para um gate. E a licao do KAM-166.
+        texto = "Ligue para 999 000 000."
+        self.emitir(texto=texto)
+        # A prova nao e vazia: o texto esta na linha, com o numero.
+        self.assertEqual([linha[3] for linha in self._linhas()], [texto])
+        envelope = json.dumps(self._eventos()[0])
+        # Os algarismos juntos calculam-se, e nao se escrevem: o varrimento do
+        # gate 7 conta numeros com forma real nos ficheiros do repositorio.
+        algarismos = "".join(c for c in texto if c.isdigit())
+        for agulha in (texto, "999 000 000", algarismos):
+            with self.subTest(agulha=agulha):
+                self.assertNotIn(agulha, envelope)
 
 
 class TestIsolamento(ComSaida):
