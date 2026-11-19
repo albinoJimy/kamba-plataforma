@@ -25,16 +25,19 @@ import { SQL_PAPEL } from "../src/chr/consultas.ts";
 import {
   contactoDoNumero,
   definirDonoNaBase,
+  numaLigacao,
   personaDe,
   TrocaDeTelefone,
   trocaNaBase,
+  trocaPeloPool,
   type DestinoDoAviso,
+  type PoolDeIdentidade,
 } from "../src/dono/index.ts";
 import type { Identidade } from "../src/identity/index.ts";
 import { ContadoresEmMemoria, Otp, OtpEmMemoria, OtpPorSmsLocal, Telefone } from "../src/inscricao/index.ts";
 import { FakeSmsProvider } from "../src/sms/index.ts";
 import { comTenant } from "../src/tenant_guard/index.ts";
-import { ChavesDeTeste, criarTenant, ligar } from "./apoio.ts";
+import { ChavesDeTeste, criarTenant, ligar, poolDe } from "./apoio.ts";
 
 /** Números fictícios, com 999. */
 const NUMERO_ANTIGO = "+244 999 000 501";
@@ -217,5 +220,130 @@ describe("KAM-211 — a troca de telefone pelo caminho real", () => {
       1,
     );
     assert.deepEqual(lidos.get(dono), { papel: "dono", mudou: false });
+  });
+});
+
+/**
+ * A troca **montada como o processo a monta** (KAM-217): o `trocaPeloPool` que o
+ * `server.ts` do `onboarding-web` chama, sobre um *pool* do `kamba_identity`.
+ *
+ * O que só isto prova: um servidor HTTP atende pedidos concorrentes, e a troca
+ * é uma transacção com o tenant no `app.tenant_id`. Duas trocas de dois tenants
+ * ao mesmo tempo têm de acabar cada uma no seu tenant. Com uma ligação
+ * partilhada, o `tenant_guard` recusava a segunda (`LigacaoEmUsoError`), e o
+ * dono que chegasse em segundo recebia um erro.
+ */
+describe("KAM-217 — a troca montada pelo processo, sobre o pool", () => {
+  let pool: pg.Pool;
+
+  before(() => {
+    pool = poolDe("identity", 4);
+  });
+
+  after(async () => {
+    await pool?.end();
+  });
+
+  function montarPeloPool() {
+    const sms = new FakeSmsProvider({});
+    const otp = new Otp({
+      repositorio: new OtpEmMemoria(),
+      contadores: new ContadoresEmMemoria(),
+      provedor: new OtpPorSmsLocal({ sms, pepperDoDestino: PEPPER_DO_DESTINO }),
+      chave: PEPPER,
+    });
+    const troca = trocaPeloPool({ pool, identidade, otp, avisar: async () => {} });
+    const ultimoCodigo = (): string => {
+      const achado = /([0-9]{6})/.exec(sms.enviados.at(-1)?.corpo ?? "")?.[1];
+      assert.ok(achado, "o SMS do codigo nao saiu");
+      return achado;
+    };
+    return { troca, ultimoCodigo };
+  }
+
+  it("cinco pares de trocas concorrentes em dois tenants acabam cada uma no seu tenant", async () => {
+    // A preparação em série: o `tenantComDono` usa a ligação única do ensaio, e
+    // o `tenant_guard` recusa duas transacções ao mesmo tempo nela.
+    const pares: { a: { tenant: string; dono: string }; b: { tenant: string; dono: string } }[] = [];
+    for (let i = 0; i < 5; i += 1) {
+      pares.push({
+        a: await tenantComDono(`pool-a-${i}`, NUMERO_ANTIGO),
+        b: await tenantComDono(`pool-b-${i}`, NUMERO_DE_B),
+      });
+    }
+    const { troca, ultimoCodigo } = montarPeloPool();
+    // Os pedidos em série, para ler o código de cada um; as verificações — que
+    // são o que vai à base — todas ao mesmo tempo. Um número novo por pedido: o
+    // `Otp` limita os envios por destino.
+    const verificacoes: { pedido: string; tenant: string; codigo: string }[] = [];
+    for (const [i, par] of pares.entries()) {
+      for (const [lado, tenant] of [["a", par.a.tenant], ["b", par.b.tenant]] as const) {
+        const pedido = `troca:sessao-${lado}-${i}`;
+        const numero = `+244 999 001 6${lado === "a" ? "0" : "5"}${i}`;
+        const envio = await troca.pedir(pedido, tenant, new Telefone(numero, [PEPPER]));
+        assert.equal(envio.enviado, true);
+        verificacoes.push({ pedido, tenant, codigo: ultimoCodigo() });
+      }
+    }
+    const desfechos = await Promise.all(verificacoes.map((v) => troca.verificar(v.pedido, v.tenant, v.codigo)));
+    assert.deepEqual(
+      desfechos.map((d) => d.trocado),
+      verificacoes.map(() => true),
+    );
+    for (const par of pares) {
+      for (const { tenant, dono } of [par.a, par.b]) {
+        const lidos = await papeis(tenant);
+        const novo = await donoDoTenant(tenant);
+        assert.notEqual(novo, dono, "o dono do tenant nao mudou");
+        assert.equal(lidos.get(novo ?? "")?.papel, "dono");
+        assert.equal(lidos.get(dono)?.papel, "cliente");
+        assert.equal([...lidos.values()].filter((p) => p.papel === "dono").length, 1);
+      }
+    }
+  });
+
+  it("uma porta que falha destrói a ligação, e uma que acerta devolve-a; a troca seguinte do pool passa", async () => {
+    const a = await tenantComDono("pool-falha-a", NUMERO_ANTIGO);
+    const b = await tenantComDono("pool-falha-b", NUMERO_DE_B);
+    // Um espião sobre o pool real: regista o que cada ligação recebe no
+    // `release`. O `ROLLBACK` do `comTenant` deixava a ligação limpa nos dois
+    // casos, pelo que só o argumento do `release` mede a destruição (achado 6 da
+    // revisão adversarial).
+    const libertacoes: unknown[] = [];
+    const espiao: PoolDeIdentidade = {
+      async connect() {
+        const ligacao = await pool.connect();
+        const original = ligacao.release.bind(ligacao);
+        ligacao.release = (destruir?: boolean | Error) => {
+          libertacoes.push(destruir);
+          original(destruir);
+        };
+        return ligacao;
+      },
+    };
+    // O contacto de A no contexto de B: `23503`, dentro de uma ligação do pool.
+    await assert.rejects(
+      numaLigacao(espiao, (ligacao) => trocaNaBase(ligacao)({ tenantId: b.tenant, contactId: a.dono })),
+      (erro: { code?: string }) => erro.code === "23503",
+    );
+    assert.deepEqual(await numaLigacao(espiao, async () => "ok"), "ok");
+    assert.deepEqual(libertacoes, [true, false]);
+    const { troca, ultimoCodigo } = montarPeloPool();
+    await troca.pedir("troca:depois-da-falha", b.tenant, new Telefone(NUMERO_NOVO, [PEPPER]));
+    const desfecho = await troca.verificar("troca:depois-da-falha", b.tenant, ultimoCodigo());
+    assert.equal(desfecho.trocado, true);
+    assert.equal(await donoDoTenant(a.tenant), a.dono);
+    assert.notEqual(await donoDoTenant(b.tenant), b.dono);
+  });
+
+  it("o pedido da sessão de A, verificado com o tenant de B, não troca nada em nenhum", async () => {
+    const a = await tenantComDono("pool-cruzado-a", NUMERO_ANTIGO);
+    const b = await tenantComDono("pool-cruzado-b", NUMERO_DE_B);
+    const { troca, ultimoCodigo } = montarPeloPool();
+    await troca.pedir("troca:sessao-de-a", a.tenant, new Telefone(NUMERO_NOVO, [PEPPER]));
+    const desfecho = await troca.verificar("troca:sessao-de-a", b.tenant, ultimoCodigo());
+    assert.deepEqual(desfecho, { trocado: false, veredicto: "sem_pedido" });
+    assert.equal(await donoDoTenant(a.tenant), a.dono);
+    assert.equal(await donoDoTenant(b.tenant), b.dono);
   });
 });
