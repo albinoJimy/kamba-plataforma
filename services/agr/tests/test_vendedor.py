@@ -1071,7 +1071,7 @@ class TestIsolamentoX09(unittest.TestCase):
         ctx = nos_mod.contexto_de_tool(estado)
         self.assertEqual(ctx.tenant_id, estado["tenant_id"])
         # Por igualdade, e nao por «9999» dentro dele (KAM-229): o `tenant_id`
-        # do estado e um `uuid4` aleatorio, e um em cada ~4000 tem «9999».
+        # do estado e um `uuid4` aleatorio, e um em cada ~3500 tem «9999».
         self.assertNotEqual(ctx.tenant_id, alheio)
 
 
