@@ -4,7 +4,7 @@
 |---|---|
 | Produto | KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para Angola |
 | Documento | Epic — Agent Runtime e Verticais |
-| Versão | 1.25 |
+| Versão | 1.26 |
 | Data | Outubro de 2026 |
 | Classificação | Documento de Referência — Interno |
 | Documento-fonte | `../docs/tecnica/02_Agent_Runtime_Verticais.md`, `../docs/tecnica/00_Arquitectura_Solucao.md` |
@@ -1360,7 +1360,7 @@ Testes: unit, integração, isolamento, idempotência. PR com o template §7. Co
 | Prioridade | P0 |
 | Estimativa | M |
 | Dependências | KAM-001, KAM-002, KAM-010, KAM-069 |
-| Bloqueia | KAM-031, KAM-033, KAM-036, KAM-049, KAM-063, KAM-081, KAM-087, KAM-088, KAM-091, KAM-107, KAM-112, KAM-121 |
+| Bloqueia | KAM-031, KAM-033, KAM-036, KAM-049, KAM-063, KAM-081, KAM-087, KAM-088, KAM-091, KAM-107, KAM-112, KAM-121, KAM-229 |
 | Responsável sugerido | Engenheiro de Plataforma (LLM) |
 | Documentos de referência | `../docs/tecnica/02_Agent_Runtime_Verticais.md` (§13, §14), `../docs/tecnica/06_Dados_Eventos_Analytics.md` (§14, `dat.llm_call_log`), ADR-005, ADR-008, ADR-018, `../docs/tecnica/evidencia/E4_Stack_Licencas.md` (§2.7, §3) |
 
@@ -5442,3 +5442,4 @@ services/agr/tests.
 | 1.23 | Novembro 2026 | KAM-118 (EPIC-11): o KAM-211, credor das ligações de produção do canal do dono, entra no `Bloqueia` do KAM-186: o botão `confirm:{action_id}` só chega ao estado do turno pelo processo do AGR que serve turnos. Nenhuma caixa deste epic muda. | Equipa KAMBÁ |
 | 1.24 | Novembro 2026 | **KAM-214** acrescentado e entregue no mesmo PR: o ensaio `test_conversas_diferentes_nao_esperam_uma_pela_outra` dormia 10 ms dentro da tranca e esperava ver as duas conversas lá dentro. Mas a segunda só entra depois de uma ida ao *pool* do `to_thread`, e numa máquina carregada essa ida passa dos 10 ms. O ensaio passa a medir com uma barreira, e o código de produção não muda. Entra no `Bloqueia` do KAM-034, que escreveu o ensaio. | Equipa KAMBÁ |
 | 1.25 | Novembro 2026 | KAM-224 (EPIC-11): o achado da `PortaDeSaida` do bloco do KAM-186 revisto — a saída do AGR é a `SaidaPorEvento`, pela decisão 2 do fundador de 2026-11-19, e o que falta para o WhatsApp em produção tem credor no **KAM-227**. Nenhuma caixa deste epic muda. | Equipa KAMBÁ |
+| 1.26 | Novembro 2026 | **Aresta recíproca, sem alteração de conteúdo:** o `Bloqueia` do KAM-030 ganha o **KAM-229** (EPIC-11), aberto no PR do KAM-119: a visão do catálogo do dono vai pelo alias `kamba-vision` do gateway. | Equipa KAMBÁ |

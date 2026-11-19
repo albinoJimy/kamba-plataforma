@@ -12,7 +12,7 @@
 
 version: 1
 fonte: "specs/02_Dicionario_de_Dados_Canonico.md"
-versao_dicionario: "1.120"
+versao_dicionario: "1.121"
 entradas:
   - seccao: "3.1"
     conceito: "Contacto"
@@ -6381,6 +6381,7 @@ entradas:
       - "money"
       - "DISPENSAS_DO_PASSO_4"
       - "submit_quote"
+      - "create_product_draft"
       - "klass"
       - "class"
     variantes_literais: []
@@ -6459,6 +6460,8 @@ entradas:
       - "fact_id"
       - "sku"
       - "sob_consulta"
+      - "count"
+      - "get_catalog_status"
     variantes_literais: []
   - seccao: "3.27"
     conceito: "Prova de confirmação por botão"
@@ -10121,12 +10124,16 @@ entradas:
     variantes_literais: []
   - seccao: "3.39"
     conceito: "As rotas da API interna do COM"
-    canonico: "Doze, as do ROTAS de ../services/com/src/api/interna.ts: POST /internal/offer-view, /internal/propose-cart, /internal/create-order, /internal/get-order, /internal/list-orders, /internal/transition, /internal/request-owner-confirmation, /internal/list-offers, /internal/update-offer, /internal/get-offer, /internal/channel-view, /internal/screen"
+    canonico: "Catorze, as do ROTAS de ../services/com/src/api/interna.ts: POST /internal/offer-view, /internal/propose-cart, /internal/create-order, /internal/get-order, /internal/list-orders, /internal/transition, /internal/request-owner-confirmation, /internal/list-offers, /internal/update-offer, /internal/get-offer, /internal/channel-view, /internal/screen, /internal/upsert-product-draft, /internal/publish-product"
     literais:
       - "ROTAS"
     nomes:
       - "ROTAS"
     nomes_nota:
+      - "upsert"
+      - "product"
+      - "draft"
+      - "publish"
       - "list"
       - "offers"
       - "update"
@@ -15648,13 +15655,16 @@ entradas:
       - "regras"
       - "versao_politica"
       - "confianca"
+      - "CHECK"
+      - "produto"
       - "SUJEITOS_DA_ROTA"
       - "SUJEITOS"
       - "tipos.ts"
-      - "CHECK"
       - "VALIDATION_ERROR"
-      - "produto"
-      - "sku"
+      - "conteudo_sha256"
+      - "SQL_POR_REANALISAR"
+      - "publicavel"
+      - "assertPublishable"
       - "UPSTREAM_DOWN"
       - "condicional"
       - "KAMBA_AGR_URL"
@@ -15676,6 +15686,11 @@ entradas:
       - "ScreeningIndisponivelError"
     nomes_nota:
       - "produto"
+      - "publicavel"
+      - "permitida"
+      - "condicional"
+      - "revisao_pendente"
+      - "conferir_condicoes"
       - "PortaDeScreening"
       - "categoria_declarada"
       - "None"
@@ -16915,7 +16930,9 @@ entradas:
       - "jogos"
       - "tabaco"
       - "alcool"
+      - "revisao_pendente"
       - "screening_indisponivel"
+      - "permitida"
       - "bloqueada_categoria"
       - "catalog_ingestions_bloqueada_ck"
       - "publicada"
@@ -20112,7 +20129,14 @@ entradas:
       - "preco_stock_em_massa"
       - "aprovar_conteudo"
       - "enviar_proposta"
-    nomes_nota: []
+    nomes_nota:
+      - "aprovar_conteudo"
+      - "ref"
+      - "ingest"
+      - "o"
+      - "vers"
+      - "do"
+      - "resumo"
     variantes_literais: []
   - seccao: "3.78"
     conceito: "Estado de uma acção"
@@ -20709,14 +20733,16 @@ entradas:
     variantes_literais: []
   - seccao: "3.79"
     conceito: "Dispensa do passo 4"
-    canonico: "DISPENSAS_DO_PASSO_4 = (submit_quote); EspecificacaoDeTool.confirmacao_dispensada"
+    canonico: "DISPENSAS_DO_PASSO_4 = (submit_quote, create_product_draft); EspecificacaoDeTool.confirmacao_dispensada"
     literais:
       - "DISPENSAS_DO_PASSO_4"
       - "submit_quote"
+      - "create_product_draft"
       - "EspecificacaoDeTool.confirmacao_dispensada"
     nomes:
       - "DISPENSAS_DO_PASSO_4"
       - "submit_quote"
+      - "create_product_draft"
       - "EspecificacaoDeTool.confirmacao_dispensada"
     nomes_nota:
       - "write"
@@ -20724,6 +20750,8 @@ entradas:
       - "submit_quote"
       - "confirm"
       - "action_id"
+      - "create_product_draft"
+      - "publish_product"
     variantes_literais: []
   - seccao: "3.79"
     conceito: "Botão do pedido de orçamento"

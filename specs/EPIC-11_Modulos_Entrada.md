@@ -4,7 +4,7 @@
 |---|---|
 | Produto | KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para Angola |
 | Documento | Epic — Módulos de Entrada |
-| Versão | 1.15 |
+| Versão | 1.16 |
 | Data | Novembro de 2026 |
 | Classificação | Documento de Referência — Interno |
 | Documento-fonte | `../docs/tecnica/00_Arquitectura_Solucao.md` (ADR-020, §13.3 D13), `../docs/tecnica/02_Agent_Runtime_Verticais.md` (§21), `../docs/exploracao/14-tese-minima-e-plano-de-validacao.md` (H10–H12) |
@@ -66,6 +66,7 @@ Estado da evidência (E5): **CONFIRMADO** — preços e termos publicados dos fo
 | KAM-226 | Orçamento expresso: o aviso proactivo ao dono e o botão «Aceito» na proposta | feature | S | P2 | KAM-220, KAM-221, KAM-224 |
 | KAM-227 | Saída do AGR em produção: a credencial da Meta por canal, o destinatário e o consumidor `outbound` no compose | feature | L | P1 | KAM-224 |
 | KAM-228 | Orçamento expresso: a porta do *screening* no `submit_quote` e o classificador nos *compose* | feature | S | P2 | KAM-222 |
+| KAM-229 | Catálogo do dono: a foto real — a média no `agent_invocation`, a fonte, o descodificador e a visão | feature | L | P1 | KAM-119, KAM-020, KAM-030 |
 
 ---
 
@@ -223,7 +224,7 @@ Uma revisão independente, que recebeu o diff e os critérios da `main` e não o
 | Prioridade | P1 |
 | Estimativa | L |
 | Dependências | KAM-118, KAM-049, KAM-043 |
-| Bloqueia | KAM-125, KAM-127, KAM-202 |
+| Bloqueia | KAM-125, KAM-127, KAM-202, KAM-229 |
 | Responsável sugerido | Engenheiro de Comércio com Engenheiro de Runtime/IA |
 | Documentos de referência | `../docs/tecnica/02_Agent_Runtime_Verticais.md` (§21.3), `../docs/tecnica/03_Core_Comercio_Medusa.md` (§8, §17), `../docs/tecnica/evidencia/E5_Modulos_Entrada.md` (§7), `specs/EPIC-04_Core_Comercio.md` (KAM-049), ADR-007, ADR-020 |
 
@@ -282,6 +283,71 @@ Regras: o modelo nunca origina preço ou stock (parser determinístico + eco + b
 fotos só do dono, sem pesquisa de imagens; texto de fotos e descrições é dado não confiável; reaproveita KAM-049, não o reescrevas.
 Não implementes foto AI (KAM-120), canal do dono (KAM-118) nem o golden (KAM-125). Testes: unit, integração, isolamento, adversarial.
 ```
+
+### Decisões do fundador
+
+As três perguntas foram à coordenação do lote a 2026-11-19, e o PR segue a opção recomendada (A) de cada uma até à resposta. Nenhuma tem esquema: mudar de opção é código e prosa.
+
+| Data | Autor | Pergunta | Decisão |
+|---|---|---|---|
+| 2026-11-19 | Fundador (Armando Albino), pela coordenação do lote | O critério 5 escreve o botão `confirm:{ingestion_id}`. A opção A é o `confirm:{action_id}` da `owner_actions` do KAM-118, com o tipo `aprovar_conteudo` e o `ref` `{ingestion_id}:{versao_texto}`, como o fundador decidiu para o KAM-123 (herda os 15 min, o duplo toque e o bloqueio de 24 h depois de uma troca de telefone). A opção B mantém a letra, com um botão próprio sem portão | **Por responder** — aplicada a A |
+| 2026-11-19 | Fundador (Armando Albino), pela coordenação do lote | O Objectivo e os Detalhes pedem o `registry/catalogo.yaml`, e o `docs/tecnica/02` §21.4 também. A decisão de 2026-11-18 («Servir todos os donos») pôs as quatro tools na persona `dono`, fechadas pelo módulo `catalogo`, e o KAM-220 não criou o `orcamento.yaml`. A opção A não cria o ficheiro e emenda o §21.4; a B cria-o como manifesto de módulo, sem grafo | **Por responder** — aplicada a A |
+| 2026-11-19 | Fundador (Armando Albino), pela coordenação do lote | O §21.3 dá ao `create_product_draft` a classe `write` sem confirmação, e o passo 4 da ToolLayer exige botão a todo o `write`. A opção A põe-no na lista fechada `DISPENSAS_DO_PASSO_4`, com a razão escrita, como a opção C do KAM-220: só grava o rascunho, e publicar continua a exigir o botão. A opção B pede um toque por foto | **Por responder** — aplicada a A |
+
+### Decisões do executor
+
+- **A conversa corre no nó `confirm` do dono, e sem modelo.** Duas intenções, `modulos` (as palavras do catálogo) e `catalogo` (um botão do catálogo, uma foto, uma referência `PRD-…`, ou uma resposta a um rascunho à espera), vão ao `confirm` pelas arestas 11 e 37, como a resposta a um orçamento do KAM-220 ([`verticais/dono/catalogo.py`](../services/agr/src/kamba_agr/verticais/dono/catalogo.py)). Não há nós novos: o reaproveitamento fica em **70,6%** (doze de dezassete). Os argumentos das tools são construídos pelo nó a partir do estado, e nenhum vem de um modelo de linguagem.
+- **O preço lê-se pelo *parser* do KAM-123, e só o botão do eco o grava.** O `ler_valor_do_dono` recusa o que não é um valor só («45 ou 50 mil», «a partir de 45 mil», contas, moeda estrangeira, «1.5»). O que se acrescenta é o «k» de milhar («45k»), que ele recusa por não ser de orçamento ([`catalogo/regras.py`](../services/agr/src/kamba_agr/catalogo/regras.py)). O eco é «45.000 Kz?», à letra do critério, com dois botões: `preco:{ingestão}:{cêntimos}` («Sim, está certo») e `preco_corrigir:{ingestão}` («Corrigir»). **O esquema do `create_product_draft` não aceita `preco` nas respostas**: o preço entra só por `preco_confirmado`, que o nó preenche a partir do toque. O que o botão leva à ingestão é a forma canónica «N kz», que o `ler_preco` do KAM-049 lê de volta ao mesmo valor, ou nada se grava.
+- **A resposta reparte-se por linhas, e com mais de um rascunho pede-se a referência.** As perguntas em aberto recalculam-se da ingestão (`completude.proximas_perguntas`). Uma pergunta leva o texto inteiro; várias levam uma linha cada, pela ordem; o resto pede uma por linha. Com mais de um rascunho à espera, o dono escreve a referência `PRD-…`, que tem oito letras derivadas do `id`, sem dígitos, como a `ORC-…`. Uma resposta no rascunho errado era o preço de um produto gravado noutro.
+- **O botão de publicar nasce com o resumo.** Quando a ingestão chega a `rascunho`, o `create_product_draft` propõe a acção `aprovar_conteudo`, com a versão do resumo no `ref`. O `publish_product` cita o `action_id`. O passo 4 confere o botão e o contacto, e o executor confere que a acção está `confirmada`, é deste contacto e é de um produto. Uma correcção depois do resumo muda a versão e pede botão novo; o botão antigo recebe «use o do último resumo».
+- **O screening da publicação decide sobre o que vai ser publicado.** O `confirmar` do KAM-049 ganha um `screen` antes de gravar a `publicada`, com o `sku` como sujeito, a categoria do tenant e o `nome`: a mesma entrada que a re-análise do KAM-088 lê de um produto publicado, e a mesma que o COM confere. O da etapa 6 continua sobre a ingestão, e passa a ser conselho. Uma decisão restritiva leva a ingestão a `bloqueada_categoria`; uma porta que falha recusa sem mudar nada.
+- **O COM confere antes de publicar, e diz antes se vai conferir que sim.** A rota nova `POST /internal/publish-product` corre o `assertPublishable` sobre a categoria do tenant e o `nome`, e só então o `publishProduct`. O `nome` é conferido sob a tranca (`nomeEsperado`), e um `nome` que mudou dá `conflito`. A rota `POST /internal/upsert-product-draft` escreve o rascunho, que nunca publica. No sujeito `produto`, o `/internal/screen` devolve também `publicavel`, o mesmo `assertPublishable` depois de gravar. **É o que impede uma ingestão `publicada` sem produto no Registo**: uma `condicional` antiga do mesmo texto continua a recusar ao lado de uma `permitida` nova (achado F03 do KAM-088), e a `publicada` é final. A ponte Python traz essa `permitida` não publicável como `condicional`, com a regra `revisao_pendente` no fim.
+- **O `produto` abriu na rota do screen porque a re-análise passou a comparar o conteúdo.** O `SQL_POR_REANALISAR` só salta um produto publicado com uma decisão `produto` da mesma versão **e** do mesmo `conteudo_sha256`. O resumo é calculado na base, octeto a octeto igual ao `JSON.stringify` do motor, medido contra o PostgreSQL com sete vectores literais. A rota aceita 32 KiB no `/internal/screen` (as outras ficam nos 8 KiB), que chegam às descrições longas.
+- **O `categoria_restrita` devolve a regra que recusou** (credor do KAM-222). Numa `permitida` das regras que o classificador desceu, a razão é a regra sintética do fim e não a categoria que passou. A lista das sintéticas é a do `motor.ts`, e um ensaio compara-as.
+- **As três portas da foto ficam por ligar, e fecham.** Não há fonte de média (o MED do KAM-020 não está montado, e o `agent_invocation` não leva a média), nem descodificador de imagem, nem adaptador de visão. A `PortasDoCatalogo` monta-as a levantar, e uma foto que chegue não vira rascunho. O dono é avisado e encaminhado para o painel. O credor é o **KAM-229**.
+
+### Verificação dos Critérios de Aceitação
+
+Dez critérios: **quatro marcados**, quatro parciais e dois não satisfeitos. O que falta é, quase todo, a foto real a chegar ao AGR, e tem credor: o **KAM-229**.
+
+Os ensaios:
+- [`services/agr/tests/test_catalogo_dono.py`](../services/agr/tests/test_catalogo_dono.py), com as regras, as tools pela ToolLayer real sobre o pipeline do KAM-049 e o grafo do dono (gate 4, AGR);
+- [`test_screening_pelo_com.py`](../services/agr/tests/test_screening_pelo_com.py) (gate 4, AGR);
+- [`libs/py-core/tests/test_catalogo.py`](../libs/py-core/tests/test_catalogo.py) (gate 4, py-core);
+- [`services/com/tests/publicacao.test.ts`](../services/com/tests/publicacao.test.ts), [`screening.test.ts`](../services/com/tests/screening.test.ts) e [`api.interna.test.ts`](../services/com/tests/api.interna.test.ts) (gate 4, COM);
+- [`db/tests_agr/test_catalogo_do_dono.py`](../db/tests_agr/test_catalogo_do_dono.py) e [`db/tests/test_screening_schema.py`](../db/tests/test_screening_schema.py) (gate 8);
+- o caso `X-01/ts/com-interna` (gate 6), que passa a cobrir dezasseis superfícies.
+
+| Critério | Estado | Evidência nomeada |
+|---|---|---|
+| 1 | **parcial — caixa vazia** | **As quatro estão ligadas com a classe do §21.3, e a foto real não chega.** `create_product_draft` é `write` com o passo 4 dispensado (pergunta 3); `ask_missing_fields` é `read`; `publish_product` é `write` com o botão `confirm:{action_id}`; `get_catalog_status` é `read` (`TestAMontagem.test_as_quatro_ligam_se_juntas`). A mesma media duas vezes dá **1** rascunho (`test_a_mesma_foto_duas_vezes_e_um_rascunho`). **Falta**: a foto pelo WhatsApp ou pelo painel não chega ao AGR, e o turno de uma foto diz-o ao dono (`test_uma_foto_diz_que_a_recepcao_nao_esta_ligada`). Credor **KAM-229** |
+| 2 | **não satisfeito** | A latência mede-se com a fonte, o descodificador e a visão reais, que não existem. Credor **KAM-229** |
+| 3 | marcado | **Cem frases, zero valores gravados sem eco.** Cinquenta lidas ao valor certo e cinquenta que voltam a perguntar (`TestRegras.test_os_cem_casos_de_preco`, com a forma canónica a ler-se de volta em todas). O eco «45.000 Kz?» com dois botões, e nada se grava antes do toque, nem com um texto com a forma do botão (`test_o_preco_vai_ao_eco_com_dois_botoes_e_so_o_toque_o_grava`). Uma ambígua volta a perguntar (`test_um_preco_ambiguo_volta_a_perguntar_e_nada_se_grava`). O `preco` não entra pelas respostas, nem em conjunto com outro campo (`test_o_preco_nao_entra_pelas_respostas`). Nenhum modelo escreve argumentos de tool neste grafo. A primeira pergunta é sempre o `preco_tipo` (`test_as_perguntas_em_aberto_sao_as_do_kam_049`) |
+| 4 | **parcial — caixa vazia** | Até três perguntas por mensagem e um crítico de cada vez, pelo `completude` do KAM-049; a reparticão por linhas (`test_a_resposta_reparte_se_por_linhas_e_nunca_da_o_preco`). Uma resposta por voz fica com a fonte `dono_voz` (`test_uma_resposta_por_voz_fica_com_a_fonte_da_voz`). Dez ingestões dão dez rascunhos independentes, cada uma com o seu preço (`test_dez_fotos_dao_dez_rascunhos_independentes`), e com dois rascunhos a resposta vai pela referência ao certo (`test_com_dois_rascunhos_pede_a_referencia_e_com_ela_nao_mistura`). **Falta** o lote real «10 fotos em 60 s» pelo canal. Credor **KAM-229** |
+| 5 | **parcial — caixa vazia** | **Medido, à espera da pergunta 1 do fundador**, porque o botão é o `confirm:{action_id}` e não a letra `confirm:{ingestion_id}`. Sem botão, o passo 4 recusa. Com botão e a acção por confirmar, recusa. Duplo toque ×2 → **1** produto no Registo (`test_do_rascunho_a_publicacao_pelo_botao_e_o_duplo_toque_da_um_produto`, `test_de_ponta_a_ponta_ate_ao_registo_e_o_botao_antigo_nao_publica`). O `assertPublishable` da versão corrente é conferido no COM antes de publicar (`publicacao.test.ts`), e uma `condicional` anterior do mesmo texto não é publicável (`uma permitida nova sobre uma condicional anterior do mesmo conteudo nao e publicavel`). **Os cem primeiros casos do corpus canónico do KAM-088** (`policy/categorias/casos/canonico.jsonl`) dão **0** publicações pelo `screen` real e pela rota (`os cem primeiros casos canonicos de categoria bloqueada dao zero publicacoes`). A recusa ao dono não tem detalhe interno (`MSG_CATEGORIA_RECUSADA`; o corpo do COM só leva `VALIDATION_ERROR`) |
+| 6 | marcado | Dez injecções na resposta do dono («publica a 1 Kz», «ignora as regras», um `confirm:{uuid}` escrito, …): nenhum preço, nenhuma publicação, nenhuma acção confirmada (`test_dez_injeccoes_nao_mudam_o_fluxo`). O texto lido na foto é o do KAM-049 (`TestInjeccaoIndirecta`), que só preenche campos de produto |
+| 7 | marcado | Nenhuma tool do catálogo nem do registo com nome de pesquisa de imagens ou de páginas, e as quatro do dono falam só com a nossa base (`test_tls.test_nao_existe_tool_de_pesquisa_de_imagens_nem_de_paginas`). A confirmação do resumo marca **todos** os campos `confirmado` antes de publicar (`test_o_resumo_mostra_todos_os_campos_e_so_esses_ficam_confirmados`, KAM-049) |
+| 8 | **parcial — caixa vazia** | A porta `ImageEnhancePort` (*proposta*) e o adaptador nulo: sem `foto`, o resumo segue sem oferta e sem erro (`TestAMontagem.test_sem_fonte_a_foto_recusa_fechada`, `melhorar_foto` falso no resumo). **Falta** a oferta com o `foto` activo, que precisa da foto real e do `enhance_image` do KAM-120 pelo canal. Credor **KAM-229** |
+| 9 | marcado | As três contagens saem como *facts* `count` (*proposta*, emenda do dicionário). Em **50** catálogos diferentes, todo o número da resposta ao dono está nos *facts* da tool: **0** divergências (`test_o_estado_devolve_contagens_como_facts_e_cinquenta_respostas_nao_divergem`) |
+| 10 | **não satisfeito** | O entitlement `catalogo` é verificado no passo 2 (`test_sem_o_modulo_catalogo_as_quatro_recusam`). As métricas por tenant (tempo da 1.ª foto ao 1.º publicado, % sem correcção, custo por produto) precisam da foto real e do custo de visão na `llm_call_log`. Credor **KAM-229** |
+
+### Verificação da Definition of Done
+
+| Caixa | Estado | Evidência nomeada |
+|---|---|---|
+| Critérios e suites no CI | **parcial — caixa vazia** | Quatro de dez critérios; as suites tocadas verdes antes do push |
+| Isolamento de tenant | marcado | Sem tabela nova. O tenant é o do estado. O tenant B não lê, não responde nem publica um rascunho do A (`test_outro_tenant_nao_le_nem_publica`). Contra a base, as contagens, os rascunhos e a acção de outro tenant não se vêem (`test_catalogo_do_dono`, gate 8). Um cliente não invoca as tools do catálogo (`test_um_cliente_nao_invoca_as_tools_do_catalogo`) |
+| Idempotência de publicação e de rascunho | marcado | Pela `media_id` e pelo `wamid` da resposta (KAM-049); pela chave do passo 5 e pelo `publishProduct` idempotente na publicação (critério 5) |
+| Números só de tools | marcado | Critério 3 e critério 9 |
+| Conteúdo para terceiros | marcado | Nada publica sem o botão (critério 5) e sem o `assertPublishable` (`publicacao.test.ts`) |
+| Custo, eval-gate e dois revisores | **por fazer** | O custo por produto é do **KAM-229**. O *golden* `dono_catalogo` é do **KAM-125**. Na fase sem revisão humana houve uma revisão adversarial |
+
+### Achado fora de âmbito, com credor
+
+| Achado | Onde | Credor |
+|---|---|---|
+| A quantidade em stock que o dono deu fica na ingestão e no resumo, e não chega ao Registo: o `ProductDraft` da porta não tem campo para ela | [`tls/registo_com.py`](../services/agr/src/kamba_agr/tls/registo_com.py) | **KAM-229** |
+| Um `screen` do conteúdo exacto de um produto já publicado, com a decisão `bloqueada`, faz a re-análise saltá-lo, e o `screening.violation_detected` não sai: a re-análise é quem o emite | nota de [`screening/index.ts`](../services/com/src/screening/index.ts) do COM | **KAM-229**, que liga a foto e o screening por produto em produção |
 
 ---
 
@@ -2039,7 +2105,7 @@ Testes: unit, integração e adversarial.
 - **A ponte é a 12.ª rota da API interna do COM, e não um serviço novo.** É `POST /internal/screen` ([`interna.ts`](../services/com/src/api/interna.ts), operação em [`screening/index.ts`](../services/com/src/screening/index.ts)). O COM já é TypeScript e já depende do `core-ts`. Liga-se à base como `kamba_app`, que tem `INSERT` na `screening_decision` (revisão `0044`). E o AGR já lhe fala pelo `ClienteDoCom`, com o `com_internal_token` e o `x-kamba-tenant`. O motor é o `screen` da biblioteca, com a `politicaCorrente()`, o `classificadorPeloAgr` e o `EscritorSql`: **não há segundo motor**.
 - **A operação abre duas transacções curtas, e nenhuma durante o classificador.** Uma lê a categoria do tenant e a outra grava a decisão. Embrulhar o `screen` num só `comTenant` deixava uma ligação do *pool* presa até 15 s, à espera do modelo.
 - **A categoria das condições é a do tenant**, a `sujeito_ref` da decisão `categoria` mais recente, como na re-análise. As condições não têm categoria própria. Sem categoria avaliada, o `screen` lê `nao_listada` e a decisão é `condicional`.
-- **Só o sujeito das condições entra pela rota** (`SUJEITOS_DA_ROTA`, lido do `SUJEITOS` do `tipos.ts`, que o ensaio da base compara com o `CHECK`). Desde a revisão `0074` a lista tem o sujeito das condições, e só ele (`test_os_dominios_sao_os_do_modulo` compara-a com o `CHECK`). A `categoria` fica fora porque a re-análise lê a mais recente como a categoria do tenant, e um chamador interno que a gravasse mudava-a. O `produto` fica fora porque a re-análise procura uma decisão por `sku` e versão **sem** comparar o conteúdo: uma decisão gravada pela rota com outro texto fazia-a saltar o produto publicado (achado 1 da revisão). Abre-o o KAM-119, com a correcção que está nos Detalhes Técnicos dele.
+- **Só o sujeito das condições entra pela rota** (`SUJEITOS_DA_ROTA`, lido do `SUJEITOS` do `tipos.ts`, que o ensaio da base compara com o `CHECK`). Desde a revisão `0074` a lista tem o sujeito das condições, e só ele (`test_os_dominios_sao_os_do_modulo` compara-a com o `CHECK`). A `categoria` fica fora porque a re-análise lê a mais recente como a categoria do tenant, e um chamador interno que a gravasse mudava-a. O `produto` fica fora porque a re-análise procura uma decisão por `sku` e versão **sem** comparar o conteúdo: uma decisão gravada pela rota com outro texto fazia-a saltar o produto publicado (achado 1 da revisão). Abre-o o KAM-119, com a correcção que está nos Detalhes Técnicos dele. **Revisto no KAM-119**: a rota aceita também o `produto`, porque a re-análise passou a comparar o `conteudo_sha256`, e responde com o `publicavel`; a `categoria` continua fora.
 - **O sujeito é do adaptador**: o [`ScreeningPeloCom`](../services/agr/src/kamba_agr/tls/screening.py) recebe-o na construção e só aceita o das condições. O `PortaDeScreening` do KAM-049 ganha `categoria_declarada: str | None`, em que `None` quer dizer «a do tenant».
 - **No `conferir_condicoes`, o `screen` corre por último.** Antes dele correm o tamanho, a recusa de números e a guarda de entrada do KAM-033, que não se afrouxa e fica como defesa em profundidade. Assim um texto com números nunca sai do AGR, e uma recusa local não custa uma chamada ao classificador. A guarda já recusa «cerveja» por `sensitive`, e isso também se mediu.
 - **A regra da recusa é a última da lista do `screen`, e não o `categoria_restrita` do Catálogo AI.** Numa `permitida` das regras que o classificador desceu, a lista é `moda` e depois a regra sintética. O `categoria_restrita` devolveria `moda`, que é a categoria que **passou**. O mesmo defeito vale no Catálogo AI, e fica como achado com credor (secção seguinte).
@@ -2051,13 +2117,13 @@ Testes: unit, integração e adversarial.
 
 | Achado | Onde | Credor |
 |---|---|---|
-| O `categoria_restrita` devolve a categoria que **passou** quando o classificador desce uma `permitida` das regras: a lista de regras é `moda` e depois a regra sintética, e a função devolve a primeira que tem forma de categoria. A `catalog_ingestions.categoria_restrita` ficava com `moda` numa ingestão `condicional` | [`categoria_restrita`](../libs/py-core/src/kamba_core/catalogo/screening.py) (KAM-049) | **KAM-119**, que monta o pipeline do Catálogo AI com a ponte; linha nos Detalhes Técnicos dele |
+| O `categoria_restrita` devolve a categoria que **passou** quando o classificador desce uma `permitida` das regras: a lista de regras é `moda` e depois a regra sintética, e a função devolve a primeira que tem forma de categoria. A `catalog_ingestions.categoria_restrita` ficava com `moda` numa ingestão `condicional` | [`categoria_restrita`](../libs/py-core/src/kamba_core/catalogo/screening.py) (KAM-049) | **KAM-119**, que monta o pipeline do Catálogo AI com a ponte; linha nos Detalhes Técnicos dele. **Fechado no KAM-119**: a razão é a regra sintética do fim (`REGRAS_DO_CLASSIFICADOR`) |
 
 ### Verificação dos Critérios de Aceitação
 
 Dois critérios, **os dois marcados**, com a revisão `0074` (decisão do fundador de 2026-11-19). O que os critérios pedem é do `conferir_condicoes` e da ponte, e está medido nas três camadas. **O que fica fora deles tem credor:** montar a porta no `submit_quote` e o classificador nos três *compose*, e com isso o ensaio do AGR contra o COM a correr, são do **KAM-228**. Até ele fundir, as condições recusam todas em produção, por falha fechada.
 
-Os ensaios: [`services/com/tests/screening.test.ts`](../services/com/tests/screening.test.ts) e [`api.interna.test.ts`](../services/com/tests/api.interna.test.ts) (gate 4, COM), [`services/agr/tests/test_screening_pelo_com.py`](../services/agr/tests/test_screening_pelo_com.py) e [`test_orcamento.py`](../services/agr/tests/test_orcamento.py) (gate 4, AGR), e o caso `X-01/ts/com-interna` (gate 6), que passa a cobrir catorze superfícies.
+Os ensaios: [`services/com/tests/screening.test.ts`](../services/com/tests/screening.test.ts) e [`api.interna.test.ts`](../services/com/tests/api.interna.test.ts) (gate 4, COM), [`services/agr/tests/test_screening_pelo_com.py`](../services/agr/tests/test_screening_pelo_com.py) e [`test_orcamento.py`](../services/agr/tests/test_orcamento.py) (gate 4, AGR), e o caso `X-01/ts/com-interna` (gate 6), que passa a cobrir catorze superfícies (dezasseis desde o KAM-119).
 
 | Critério | Estado | Evidência nomeada |
 |---|---|---|
@@ -2239,6 +2305,63 @@ Regras: falha fechada; a guarda do KAM-033 fica; nenhum segredo no repositório.
 Testes: integração e adversarial.
 ```
 
+## KAM-229 — Catálogo do dono: a foto real — a média no `agent_invocation`, a fonte, o descodificador e a visão
+
+| Campo | Valor |
+|---|---|
+| Epic | EPIC-11 — Módulos de Entrada |
+| Fase | 1 |
+| Tipo | feature |
+| Prioridade | P1 |
+| Estimativa | L |
+| Dependências | KAM-119, KAM-020, KAM-030 |
+| Bloqueia | — |
+| Responsável sugerido | Engenheiro de Runtime/IA com Engenheiro de Plataforma |
+| Documentos de referência | `EPIC-11_Modulos_Entrada.md` (blocos KAM-119 e KAM-124), `EPIC-04_Core_Comercio.md` (KAM-049), `../docs/tecnica/evidencia/E5_Modulos_Entrada.md` (§7), `02_Dicionario_de_Dados_Canonico.md` (§3.63) |
+
+### Contexto
+
+Credor do KAM-119, aberto no PR dele. O KAM-119 liga as quatro tools do catálogo, a conversa do dono, o eco do preço e a publicação pelo COM com o `assertPublishable`. Mas a foto não chega ao AGR: o `agent_invocation` não leva a média, o MED do KAM-020 não está montado em serviço nenhum, e não há descodificador de imagem nem adaptador de visão. A `PortasDoCatalogo` monta essas três portas a levantar, e o dono é encaminhado para o painel. As caixas 1, 2, 4, 8 e 10 do KAM-119 ficam vazias por isso.
+
+### Objectivo
+
+Uma foto enviada pelo dono, pelo WhatsApp ou pelo painel, vira um rascunho do catálogo com a extracção da visão, dentro da latência e do custo do KAM-119.
+
+### Critérios de Aceitação
+
+- [ ] O `agent_invocation` leva a referência da média de uma `image` do dono (campo aditivo da v1), o CHR passa-a pelo MED do KAM-020 montado, e o grafo do dono chama o `create_product_draft` com ela: uma foto → **1** rascunho; o mesmo `media_id` → nenhum outro. O painel web aceita a mesma foto.
+- [ ] A `FonteDeMedia` lê os bytes do STO pela `media_assets`; o `Descodificador` usa uma biblioteca de imagem de licença aprovada no SBOM; o `ExtractorDeVisao` vai pelo alias `kamba-vision` do gateway (KAM-030), com o *gate* de destinos do KAM-069. Fora de `prod`, só imagens sintéticas.
+- [ ] Recepção ≤ 3 s e rascunho com resumo ≤ 25 s p95, com «estou a preparar» enquanto corre; 10 fotos em 60 s → 10 rascunhos independentes (critérios 2 e 4 do KAM-119).
+- [ ] Com o entitlement `foto`, o resumo oferece «melhorar foto» pelo `enhance_image` do KAM-120 (critério 8 do KAM-119).
+- [ ] Métricas por tenant: tempo da 1.ª foto ao 1.º produto publicado, % publicados sem correcção e custo por produto ≤ US$ 0,02, com o custo de visão na `llm_call_log` (critério 10 do KAM-119 e a rubrica `llm` do KAM-124).
+- [ ] A quantidade em stock que o dono deu chega ao Registo na publicação.
+
+### Detalhes Técnicos
+
+- **Sem esquema novo** previsto no AGR; a média no contrato é um campo aditivo e opcional.
+- Repo público: sem imagens reais nem chaves de visão (regra do KAM-049).
+
+### Testes Requeridos
+
+- Integração: foto pelo WhatsApp → rascunho → perguntas → confirmação → produto no Registo, com a visão por *fake* fora de `prod`.
+- **Adversarial:** foto repetida, foto ilegível, visão em baixo, texto de injecção na foto.
+
+### Definition of Done
+
+- [ ] Critérios de Aceitação satisfeitos; as caixas 1, 2, 4, 8 e 10 do KAM-119 revistas com a evidência.
+- [ ] Nenhuma imagem real nem chave no repositório; EXIF limpo antes de qualquer envio.
+
+### Handoff para Claude Code
+
+```text
+És o executor do ticket KAM-229 da KAMBÁ (a foto real do catálogo do dono).
+Lê specs/EPIC-11_Modulos_Entrada.md (blocos KAM-119 e KAM-229), specs/EPIC-04_Core_Comercio.md (KAM-049),
+services/agr/src/kamba_agr/catalogo/montagem.py e packages/core-ts/src/med/.
+Objectivo: a foto do dono chega ao create_product_draft, com fonte, descodificador e visão reais.
+Regras: só imagens sintéticas fora de prod; nenhuma chave no repositório; falha fechada.
+Testes: integração e adversarial.
+```
+
 
 ---
 
@@ -2296,3 +2419,4 @@ Testes: integração e adversarial.
 | 1.13 | Novembro 2026 | **KAM-220 entregue em parte: o Orçamento expresso nos grafos.** Sem migração. Emenda 1.118 do dicionário, provisória. Bloco do KAM-220: a decisão do fundador de 2026-11-19 (opção C: o botão do cliente no pedido, a dispensa fechada do passo 4 na resposta do dono), as decisões do executor e a verificação (**três de cinco** critérios marcados; o texto do dono no processo fica com o **KAM-223**). As caixas 1, 2, 3, 6, 9 e 10 do KAM-123 revistas, e o 1, o 6 e o 10 marcados: seis de dez. **KAM-226** acrescentado, aberto neste PR com o número a seguir ao maior da `main`: o aviso proactivo ao dono e o botão «Aceito» na proposta (o bloco, a linha do §3 e o `Bloqueia` do KAM-220). | Equipa KAMBÁ |
 | 1.14 | Novembro 2026 | **KAM-224 entregue em parte: a saída do AGR pelo evento de resposta.** Revisão `0073` (provisória, sobre a `0072` do KAM-123), emenda 1.119 do dicionário (§3.80 e §3.5), escrita como 1.118 e renumerada na integração, depois do KAM-220. Bloco do KAM-224: as decisões do executor (o texto na `agent_replies` e o evento com o identificador; a idempotência pela tabela; a transacção do `send`; o agregado `conversation`; os títulos dos botões no AGR; o início do turno num `ContextVar`; o `Saida` numa ligação própria; o consumidor `painel` no processo de lote), **a decisão do fundador de 2026-11-19** (a opção B, com a excepção estreita no `lint_arch` do *gate* 2, e o critério 1 reescrito), a verificação dos critérios (**dois de quatro** marcados) e do DoD (**um de dois**), e a revisão adversarial. O que fica tem credor novo, aberto neste PR com o número a seguir ao KAM-226 da `main` (aberto como KAM-226 e renumerado na integração, depois do KAM-220): a credencial da Meta por canal, o destinatário de produção e o consumidor `outbound` no compose, no **KAM-227** (o bloco, a linha do §3 e o `Bloqueia` do KAM-224) | Equipa KAMBÁ |
 | 1.15 | Novembro 2026 | **KAM-222 entregue em parte: a ponte do `screen` do KAM-088 para Python.** Revisão `0074`, sobre a `0073` do KAM-224: o `sujeito_tipo` da `screening_decision` ganha `condicoes`. Emenda 1.120 do dicionário (§3.58 e §3.39), escrita como 1.118 e renumerada duas vezes na integração, depois do KAM-220 e do KAM-224; e esta linha, escrita como 1.13. Bloco do KAM-222: **duas decisões do fundador, tomadas a 2026-11-19** (o sujeito das condições na `screening_decision`, opção A; e as condições de uma loja cuja categoria não casa uma entrada `permitida`, opção A: recusam sempre), as decisões do executor (a 12.ª rota do COM, só o sujeito das condições, o `screen` por último no `conferir_condicoes`, a regra da recusa), um achado fora de âmbito com credor (o `categoria_restrita` do KAM-049, no **KAM-119**) e a verificação (**os dois critérios e as duas caixas da DoD marcados**; a montagem em produção fica com o credor). A nota do critério 4 do KAM-123 revista. **KAM-228** acrescentado, aberto neste PR com o número a seguir ao maior da `main` (escrito como KAM-227 e renumerado na integração, depois de o KAM-224 tomar o 227): a porta do `screen` no `submit_quote` e o classificador nos três *compose* (o bloco, a linha do §3 e o `Bloqueia` do KAM-222). O KAM-220 fundiu antes e não pode ser credor, e o KAM-226 não cobre o `submit_quote` | Equipa KAMBÁ |
+| 1.16 | Novembro 2026 | **KAM-119 entregue em parte: a vertical `catalogo` do dono.** Sem migração. Emenda 1.121 do dicionário, provisória. Bloco do KAM-119: as três perguntas ao fundador (o botão, o `catalogo.yaml` e a dispensa do passo 4 do `create_product_draft`), por responder e com a opção A aplicada; as decisões do executor (a conversa no `confirm` do dono, o eco do preço pelo *parser* do KAM-123, a referência `PRD-…`, o botão `aprovar_conteudo`, o screening da publicação sobre o `sku` e o `nome`, o `publicavel` do COM, o `produto` aberto com a re-análise por conteúdo, o `categoria_restrita` corrigido); a verificação, com quatro critérios marcados, quatro parciais e dois não satisfeitos. **KAM-229** acrescentado, credor do que falta: a foto real. O KAM-119 passa a bloqueá-lo. No bloco do KAM-222, o credor do `categoria_restrita` fecha e a rota do screen é revista. | Equipa KAMBÁ |
