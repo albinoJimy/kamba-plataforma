@@ -12,7 +12,7 @@
 
 version: 1
 fonte: "specs/02_Dicionario_de_Dados_Canonico.md"
-versao_dicionario: "1.117"
+versao_dicionario: "1.118"
 entradas:
   - seccao: "3.1"
     conceito: "Contacto"
@@ -15580,6 +15580,73 @@ entradas:
       - "litellm_virtual_key"
       - "tenant.approved"
       - "dat.llm_call_log"
+    variantes_literais: []
+  - seccao: "3.58"
+    conceito: "Rota do screen no COM"
+    canonico: "POST /internal/screen, a 12.ª rota da API interna do COM (../services/com/src/api/interna.ts), servida pela operação screen das OperacoesDoCom (../services/com/src/screening/index.ts)"
+    literais:
+      - "screen"
+      - "OperacoesDoCom"
+    nomes:
+      - "screen"
+      - "OperacoesDoCom"
+    nomes_nota:
+      - "screen"
+      - "politicaCorrente"
+      - "classificadorPeloAgr"
+      - "EscritorSql"
+      - "sujeito_tipo"
+      - "sujeito_ref"
+      - "categoria_declarada"
+      - "null"
+      - "categoria"
+      - "textos"
+      - "decisao"
+      - "regras"
+      - "versao_politica"
+      - "confianca"
+      - "SUJEITOS_DA_ROTA"
+      - "UPSTREAM_DOWN"
+      - "condicional"
+      - "KAMBA_AGR_URL"
+      - "agr_screening_token"
+    variantes_literais: []
+  - seccao: "3.58"
+    conceito: "Ponte Python do screen"
+    canonico: "ScreeningPeloCom (../services/agr/src/kamba_agr/tls/screening.py), um PortaDeScreening por sujeito, sobre o ClienteDoCom; erro ScreeningIndisponivelError"
+    literais:
+      - "ScreeningPeloCom"
+      - "PortaDeScreening"
+      - "ClienteDoCom"
+      - "ScreeningIndisponivelError"
+    nomes:
+      - "screen"
+      - "ScreeningPeloCom"
+      - "PortaDeScreening"
+      - "ClienteDoCom"
+      - "ScreeningIndisponivelError"
+    nomes_nota:
+      - "produto"
+    variantes_literais: []
+  - seccao: "3.58"
+    conceito: "Recusa das condições pelo screen"
+    canonico: "CondicoesRecusadasError, com o código condicoes_recusadas e o atributo regra"
+    literais:
+      - "CondicoesRecusadasError"
+      - "condicoes_recusadas"
+      - "regra"
+    nomes:
+      - "screen"
+      - "CondicoesRecusadasError"
+      - "condicoes_recusadas"
+      - "regra"
+    nomes_nota:
+      - "permitida"
+      - "regra"
+      - "screen"
+      - "id"
+      - "classificador_indisponivel"
+      - "screening_indisponivel"
     variantes_literais: []
   - seccao: "3.59"
     conceito: "Documento do índice"

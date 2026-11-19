@@ -44,6 +44,7 @@ import { TIPO_DE_CONTEUDO } from "../src/metricas.ts";
 import { METRICAS_DA_GUARDA, comTenant } from "@kamba/core-ts/tenant_guard";
 import type { OperacoesDoCom } from "../src/adapters/medusa/index.ts";
 import type { AlteracaoDeOferta } from "../src/produtos/index.ts";
+import type { PedidoDeScreen } from "../src/screening/index.ts";
 import {
   conflito,
   erro,
@@ -72,6 +73,8 @@ const alteracoes: AlteracaoDeOferta[] = [];
 const tenantsDasOfertas: string[] = [];
 /** O `ctx` e o `sku` de cada leitura do KAM-190. */
 const leiturasDoPainel: { metodo: string; tenantId: string; sku?: string }[] = [];
+/** O `ctx` e o pedido de cada `screen` (KAM-222). */
+const pedidosDeScreen: { tenantId: string; pedido: PedidoDeScreen }[] = [];
 /** Os filtros que chegaram ao `listOrders`. */
 const filtrosDasEncomendas: unknown[] = [];
 
@@ -239,6 +242,11 @@ function operacoesDeEnsaio(): { operacoes: OperacoesDoCom; chamadas: Chamadas } 
         versao: "2026-11-02T11:00:00.000002Z",
       });
     },
+    async screen(ctx: Ctx, pedido: PedidoDeScreen) {
+      contar("screen");
+      pedidosDeScreen.push({ tenantId: ctx.tenantId, pedido });
+      return ok({ decisao: "permitida" as const, regras: ["moda"], versao_politica: "2026.11.0", confianca: 0.95 });
+    },
   };
   return { operacoes, chamadas: { contagem } };
 }
@@ -278,8 +286,8 @@ const BONS = {
 
 // ------------------------------------------------------------------- a credencial
 
-test("criterio 2: as onze rotas sem credencial dao 401, e nenhuma operacao corre", async () => {
-  assert.equal(ROTAS.length, 11);
+test("criterio 2: as doze rotas sem credencial dao 401, e nenhuma operacao corre", async () => {
+  assert.equal(ROTAS.length, 12);
   const { aplicacao, chamadas } = app();
   for (const rota of ROTAS) {
     const r = await aplicacao.fetch(
@@ -582,7 +590,7 @@ test("um corpo com caracteres multi-octeto conta em octetos e nao em UTF-16", as
 });
 
 test("um GET numa rota /internal/* nao e servido, e nao devolve 200", async () => {
-  // As onze rotas são `POST`. Um `GET` que respondesse era uma superfície que
+  // As doze rotas são `POST`. Um `GET` que respondesse era uma superfície que
   // ninguém desenhou — e um `GET` é o que um *crawler* tenta primeiro.
   const { aplicacao } = app();
   for (const rota of ROTAS) {
@@ -807,4 +815,78 @@ test("KAM-219: o /metrics do COM serve a recusa da base sobre o tecto, com o val
   const corpo = await (await aplicacao.fetch(new Request("http://127.0.0.1/metrics", { method: "GET" }))).text();
   assert.match(corpo, /^# TYPE tenant_guard_tecto_recusado_total counter$/m);
   assert.match(corpo, new RegExp(`^tenant_guard_tecto_recusado_total ${n}$`, "m"));
+});
+
+// ------------------------------------------------------------- /internal/screen
+
+test("KAM-222: o screen recebe o tenant do cabecalho e o pedido do corpo", async () => {
+  pedidosDeScreen.length = 0;
+  const { aplicacao, chamadas } = app();
+  const r = await aplicacao.fetch(
+    pedido(
+      "/internal/screen",
+      {
+        ...CTX_DO_CORPO,
+        sujeito_tipo: "produto",
+        sujeito_ref: ORDER,
+        textos: ["entrega combinada consigo"],
+        // Um tenant no corpo não desloca o `ctx`.
+        tenant_id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+      },
+      BONS,
+    ),
+  );
+  assert.equal(r.status, 200);
+  assert.deepEqual(await r.json(), {
+    tipo: "ok",
+    valor: { decisao: "permitida", regras: ["moda"], versao_politica: "2026.11.0", confianca: 0.95 },
+  });
+  assert.equal(chamadas.contagem.get("screen"), 1);
+  assert.deepEqual(pedidosDeScreen, [
+    {
+      tenantId: TENANT,
+      pedido: {
+        sujeitoTipo: "produto",
+        sujeitoRef: ORDER,
+        categoriaDeclarada: null,
+        textos: ["entrega combinada consigo"],
+      },
+    },
+  ]);
+});
+
+test("KAM-222: um corpo de screen que nao valida da 400, e o screen nao corre", async () => {
+  const { aplicacao, chamadas } = app();
+  const bom = { sujeito_tipo: "produto", sujeito_ref: ORDER, textos: ["x"] };
+  const maus: Record<string, unknown>[] = [
+    { ...bom, sujeito_tipo: "categoria" },
+    { ...bom, sujeito_tipo: "outro" },
+    { ...bom, sujeito_tipo: undefined },
+    { ...bom, sujeito_ref: "" },
+    { ...bom, sujeito_ref: "r".repeat(201) },
+    { ...bom, categoria_declarada: 7 },
+    { ...bom, textos: [] },
+    { ...bom, textos: "x" },
+    { ...bom, textos: ["x", 1] },
+    { ...bom, textos: Array.from({ length: 51 }, () => "x") },
+  ];
+  for (const corpo of maus) {
+    const r = await aplicacao.fetch(pedido("/internal/screen", { ...CTX_DO_CORPO, ...corpo }, BONS));
+    assert.equal(r.status, 400, JSON.stringify(corpo).slice(0, 60));
+    assert.deepEqual(await r.json(), { tipo: "erro", erro: "VALIDATION_ERROR" });
+  }
+  assert.equal(chamadas.contagem.get("screen") ?? 0, 0);
+});
+
+test("KAM-222: um screen que falha sai 503 com o codigo, e nao 200", async () => {
+  const { operacoes } = operacoesDeEnsaio();
+  const aplicacao = createApp(undefined, {
+    operacoes: { ...operacoes, screen: async () => erro("UPSTREAM_DOWN") },
+    credencial: CREDENCIAL,
+  });
+  const r = await aplicacao.fetch(
+    pedido("/internal/screen", { ...CTX_DO_CORPO, sujeito_tipo: "produto", sujeito_ref: ORDER, textos: ["x"] }, BONS),
+  );
+  assert.equal(r.status, 503);
+  assert.deepEqual(await r.json(), { tipo: "erro", erro: "UPSTREAM_DOWN" });
 });

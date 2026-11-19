@@ -1,0 +1,125 @@
+"""A ponte Python -> TypeScript para o `screen` do KAM-088 (KAM-222).
+
+O motor do screening so existe em `packages/core-ts/src/screening/`, e a porta
+Python (`PortaDeScreening` de `kamba_core.catalogo.screening`) e o contrato
+dele. **Nao ha segundo motor em Python.** Este adaptador chama o `screen` pela
+12.a rota da API interna do COM (`POST /internal/screen`, nota em
+`services/com/src/screening/index.ts`), pelo mesmo `ClienteDoCom` das tools de
+comercio, com o `com_internal_token` e o `x-kamba-tenant`.
+
+## Um adaptador por sujeito
+
+O `PortaDeScreening` nao tem sujeito na assinatura: foi escrito para o produto
+do Catalogo AI. O sujeito e do adaptador. O Catalogo AI (KAM-119) monta um com
+`produto`, e as condicoes de um orcamento (KAM-123) montam um com `condicoes`.
+Ate a revisao que poe `condicoes` no `CHECK` da `screening_decision` entrar, o
+COM recusa esse sujeito com 400, e o adaptador levanta. E fechado.
+
+## A categoria declarada, quando nao ha
+
+`None` vai como `null`, e o COM usa a categoria declarada do tenant (a da
+decisao de categoria mais recente). E o caso das condicoes, que nao tem
+categoria propria.
+
+## *Fail-closed*, e sem texto
+
+Tudo o que nao seja um 200 com um resultado de forma fechada **levanta**: um
+erro do COM, um *timeout*, uma decisao fora do dominio, uma regra que nao e
+cadeia. Quem chama trata a excepcao como `screening_indisponivel` e recusa. Nem a
+mensagem da excepcao nem o registo levam os textos: e texto do dono ou do
+cliente, e o ADR-010 nao o deixa sair para um registo.
+"""
+
+from __future__ import annotations
+
+import uuid
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
+from typing import Any, Final
+
+from kamba_core.catalogo.screening import DECISOES, ResultadoDoScreen
+
+from .com import ClienteDoCom
+
+#: A rota do COM. Igual a da constante `ROTAS` de `services/com/src/api/interna.ts`.
+ROTA: Final = "/internal/screen"
+
+#: Os sujeitos que o COM aceita na rota, menos a `categoria` (que e do onboarding).
+#: `condicoes` so passa depois da revisao que o poe no `CHECK`.
+SUJEITOS: Final = ("produto", "condicoes")
+
+#: O tecto de uma chamada. O classificador do `screen` tem 15 s
+#: (`TEMPO_MAXIMO_MS` do `classificador.ts`), e o COM grava depois: vinte
+#: segundos sao essa espera mais a gravacao, e nao um alvo.
+TEMPO_MAXIMO_MS: Final = 20_000
+
+
+class ScreeningIndisponivelError(RuntimeError):
+    """O `screen` nao respondeu com um resultado valido. Sem texto na mensagem."""
+
+
+@dataclass(frozen=True, slots=True)
+class _Ctx:
+    """O `ctx` que o `ClienteDoCom.chamar` le: tenant, vertical e o fio do pedido."""
+
+    tenant_id: str
+    vertical: str
+    turn_id: str
+
+
+def _resultado(valor: Mapping[str, Any]) -> ResultadoDoScreen:
+    """O resultado do COM, lido contra a forma fechada, ou levanta."""
+    decisao = valor.get("decisao")
+    regras = valor.get("regras")
+    versao = valor.get("versao_politica")
+    confianca = valor.get("confianca")
+    if not isinstance(decisao, str) or decisao not in DECISOES:
+        raise ScreeningIndisponivelError("decisao fora do dominio")
+    if not isinstance(regras, list) or not all(isinstance(r, str) for r in regras):
+        raise ScreeningIndisponivelError("regras fora da forma")
+    if not isinstance(versao, str) or not versao:
+        raise ScreeningIndisponivelError("versao da politica em falta")
+    if isinstance(confianca, bool) or not isinstance(confianca, (int, float)):
+        raise ScreeningIndisponivelError("confianca fora da forma")
+    return ResultadoDoScreen(
+        decisao=decisao, regras=tuple(regras), versao_politica=versao, confianca=float(confianca)
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class ScreeningPeloCom:
+    """O `PortaDeScreening` sobre o COM, para um sujeito."""
+
+    cliente: ClienteDoCom
+    sujeito_tipo: str
+    #: A vertical que o `actor` do COM nomeia (`grafo-<vertical>`).
+    vertical: str
+    timeout_ms: int = TEMPO_MAXIMO_MS
+
+    def __post_init__(self) -> None:
+        if self.sujeito_tipo not in SUJEITOS:
+            raise ValueError(f"sujeito fora de {', '.join(SUJEITOS)}")
+
+    nome = "screening-pelo-com"
+
+    def screen(
+        self,
+        tenant_id: str,
+        sujeito_ref: str,
+        categoria_declarada: str | None,
+        textos: Sequence[str],
+    ) -> ResultadoDoScreen:
+        ctx = _Ctx(tenant_id=tenant_id, vertical=self.vertical, turn_id=uuid.uuid4().hex)
+        corpo = {
+            "sujeito_tipo": self.sujeito_tipo,
+            "sujeito_ref": sujeito_ref,
+            "categoria_declarada": categoria_declarada,
+            "textos": list(textos),
+        }
+        try:
+            valor = self.cliente.chamar(ROTA, ctx, corpo, self.timeout_ms)
+        except Exception as excepcao:  # noqa: BLE001 — qualquer falha e fechada
+            # O `ErroDeBackend` diz o codigo e a rota, e nao o corpo. Mesmo
+            # assim nao se encadeia a mensagem: a classe basta a quem opera.
+            raise ScreeningIndisponivelError(type(excepcao).__name__) from None
+        return _resultado(valor)

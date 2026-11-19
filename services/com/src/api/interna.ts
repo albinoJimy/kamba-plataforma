@@ -4,7 +4,7 @@
  * A forma é a do `/internal/turn` e `/internal/resume` do AGR (KAM-025):
  * credencial no cabeçalho, comparação em **tempo constante**, autenticação
  * **antes** de se ler o corpo, e o segredo no inventário. «Mínima» é o
- * adjectivo, e cumpre-se: onze rotas, nenhuma de administração, nenhuma que
+ * adjectivo, e cumpre-se: doze rotas, nenhuma de administração, nenhuma que
  * exista «para depois». A `/healthz` fica onde estava e **não** leva credencial
  * — é a sonda do *rolling deploy*, e uma sonda que precisa de segredo é uma
  * sonda que falha no dia em que o segredo roda.
@@ -74,6 +74,7 @@ import {
 import type { OperacoesDoCom } from "../adapters/medusa/index.ts";
 import { exposicao, TIPO_DE_CONTEUDO } from "../metricas.ts";
 import type { AlteracaoDeOferta } from "../produtos/index.ts";
+import { SUJEITOS_DA_ROTA, type PedidoDeScreen } from "../screening/index.ts";
 import type {
   ErroDaCriacao,
   PedidoDeCriacao,
@@ -108,9 +109,10 @@ export const SEGREDO_DA_API = "com_internal_token";
 export const CORPO_MAXIMO = 8 * 1024;
 
 /**
- * As onze rotas: as sete pela ordem em que a cadeia grafo → TLS → COM as toca,
- * as duas do painel do dono (KAM-099), e as duas leituras que o KAM-190 lhe
- * acrescenta no fim — uma oferta só, e o estado do canal.
+ * As doze rotas: as sete pela ordem em que a cadeia grafo → TLS → COM as toca,
+ * as duas do painel do dono (KAM-099), as duas leituras que o KAM-190 lhe
+ * acrescenta — uma oferta só, e o estado do canal — e o `screen` do KAM-088
+ * para quem não é TypeScript (KAM-222, `../screening/index.ts`).
  *
  * **As duas do painel não são administração**, e é a distinção que o «nenhuma
  * de administração» acima defende: servem um dono a ler e a corrigir o **seu**
@@ -130,6 +132,7 @@ export const ROTAS = [
   "/internal/update-offer",
   "/internal/get-offer",
   "/internal/channel-view",
+  "/internal/screen",
 ] as const;
 
 /**
@@ -326,6 +329,36 @@ function alteracaoDoCorpo(corpo: Record<string, unknown>): AlteracaoDeOferta | n
   };
 }
 
+/** Quantos textos o `screen` recebe por pedido. Os do `LIMITES_DA_ENTRADA`. */
+export const TEXTOS_MAXIMOS_DO_SCREEN = 50;
+
+/**
+ * O pedido de `screen` que o corpo descreve, ou `null` (KAM-222).
+ *
+ * `categoria_declarada` ausente ou `null` quer dizer «a do tenant», que é o caso
+ * das condições de um orçamento. Os textos são uma lista não vazia de cadeias:
+ * uma lista vazia não é um conteúdo que se possa aprovar. O `sujeito_tipo`
+ * confronta-se com o `SUJEITOS_DA_ROTA`, que não tem a `categoria`.
+ */
+function pedidoDeScreenDoCorpo(corpo: Record<string, unknown>): PedidoDeScreen | null {
+  const sujeitoTipo = corpo["sujeito_tipo"];
+  const sujeitoRef = corpo["sujeito_ref"];
+  const categoria = corpo["categoria_declarada"] ?? null;
+  const textos = corpo["textos"];
+  if (typeof sujeitoTipo !== "string") return null;
+  if (!(SUJEITOS_DA_ROTA as readonly string[]).includes(sujeitoTipo)) return null;
+  if (typeof sujeitoRef !== "string" || sujeitoRef.length === 0 || sujeitoRef.length > 200) return null;
+  if (categoria !== null && typeof categoria !== "string") return null;
+  if (!Array.isArray(textos) || textos.length === 0 || textos.length > TEXTOS_MAXIMOS_DO_SCREEN) return null;
+  if (!textos.every((t) => typeof t === "string")) return null;
+  return {
+    sujeitoTipo: sujeitoTipo as PedidoDeScreen["sujeitoTipo"],
+    sujeitoRef,
+    categoriaDeclarada: categoria,
+    textos: textos as string[],
+  };
+}
+
 /** O filtro do `listOrders` que o corpo descreve. A validação é do módulo. */
 function filtroDoCorpo(corpo: Record<string, unknown>): OrderFilter {
   const filtro: {
@@ -368,8 +401,8 @@ export function apiInterna(deps: DependenciasDaApi): Hono {
   /**
    * A autenticação, **antes** de o corpo ser lido.
    *
-   * Um `app.use` e não uma linha em cada rota: onze rotas e onze verificações
-   * era a duodécima a nascer sem ela. O `/metrics` não passa por aqui — ver a nota
+   * Um `app.use` e não uma linha em cada rota: doze rotas e doze verificações
+   * era a décima terceira a nascer sem ela. O `/metrics` não passa por aqui — ver a nota
    * da rota.
    */
   api.use("/internal/*", async (c, next) => {
@@ -449,7 +482,7 @@ function responder(
   );
 }
 
-/** As onze rotas, uma a uma. O despacho é por igualdade e não por padrão. */
+/** As doze rotas, uma a uma. O despacho é por igualdade e não por padrão. */
 async function despachar(
   rota: (typeof ROTAS)[number],
   ctx: Ctx,
@@ -547,6 +580,14 @@ async function despachar(
 
   if (rota === "/internal/channel-view") {
     return responder(await deps.operacoes.vistaDoCanal(ctx));
+  }
+
+  if (rota === "/internal/screen") {
+    const pedido = pedidoDeScreenDoCorpo(corpo);
+    if (pedido === null) {
+      return json({ tipo: "erro", erro: "VALIDATION_ERROR" }, 400);
+    }
+    return responder(await deps.operacoes.screen(ctx, pedido));
   }
 
   if (rota === "/internal/update-offer") {
