@@ -57,6 +57,10 @@ FONTE_DO_DONO: Final = "KAM-118"
 FONTE_DO_BOTAO: Final = "KAM-211"
 #: As quatro do concierge: os nos do KAM-114, pelo ADR-L005.
 FONTE_DO_CONCIERGE: Final = "KAM-114 (ADR-L005)"
+#: Os pedidos de orcamento que esperam o dono (KAM-220). **Uma aresta, e nenhum
+#: no**: os pendentes dizem-se no `compose` que ja existe, e um no proprio a
+#: mais punha o reaproveitamento abaixo do piso do §21.4 (12 de 18).
+FONTE_DO_ORCAMENTO: Final = "KAM-220"
 
 #: O piso do criterio 10 do KAM-118: reutilizados / total.
 REAPROVEITAMENTO_MINIMO: Final = 0.70
@@ -110,8 +114,11 @@ NOS_REUTILIZADOS: Final = (
 #:              Vai ao `confirm`, que chama o `confirmar` do `dono/accoes.py`.
 #:              **So o botao a decide**, e nunca uma palavra: nao ha regra de
 #:              texto que de esta intencao;
+#: `orcamento`  os pedidos de orcamento que esperam o dono (KAM-220). Vai ao
+#:              `compose`, que os lista. Pelas palavras, ou sozinha na primeira
+#:              mensagem do dono quando ha pendentes (criterio 2 do KAM-123);
 #: `outro`      tudo o resto, ao `safe_reply`.
-INTENCOES: Final = ("modulos", "info_loja", "humano", "confirmar", "outro")
+INTENCOES: Final = ("modulos", "info_loja", "humano", "confirmar", "orcamento", "outro")
 
 
 #: As arestas, pela ordem do esqueleto.
@@ -130,6 +137,7 @@ ARESTAS: Final = (
     Aresta(12, "classify", "tools_info", "info", "horario e morada", fonte=FONTE_DO_DONO),
     Aresta(13, "classify", "handoff_prepare", "human", "pedir humano", fonte=FONTE_DO_DONO),
     Aresta(14, "classify", "safe_reply", "other", "outro", fonte=FONTE_DO_DONO),
+    Aresta(35, "classify", "compose", "orcamento", "pedidos de orcamento pendentes", fonte=FONTE_DO_ORCAMENTO),
     Aresta(33, "classify", "confirm", "confirm", "botao confirm:{action_id}", fonte=FONTE_DO_BOTAO),
     Aresta(34, "confirm", "send", None, "sempre (texto estatico)", fonte=FONTE_DO_BOTAO),
     Aresta(15, "tools_info", "compose", None, "sempre", fonte=FONTE_DO_ESQUELETO),

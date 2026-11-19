@@ -63,9 +63,11 @@ from ..vendedor.nos import (
 from ..vendedor.nos import (
     MOTIVO_PEDIDO,
     _blocos_dos_dados,
+    _primeiro_turno,
     _resposta_estatica,
     _texto_do_cliente,
 )
+from ...orcamento.regras import NOME_NEUTRO
 from .arestas import INTENCOES
 
 #: As tools do Assistente do Dono, pela ordem do `registry/dono.yaml`. So para
@@ -85,6 +87,9 @@ TOOLS_DO_DONO: Final = (
 REGRAS_DE_INTENCAO: Final = (
     ("humano", ("falar com uma pessoa", "falar com alguem", "atendente", "humano")),
     ("info_loja", ("horario", "onde fica", "morada", "endereco", "aberto")),
+    # KAM-220. **Antes do `modulos`**, que tem «preco»: «que pedidos de
+    # orcamento tenho?» e uma pergunta pelos pendentes, e nao pelo catalogo.
+    ("orcamento", ("orcamento", "pendente", "proposta")),
     (
         "modulos",
         (
@@ -157,12 +162,65 @@ def classify(deps: Dependencias):
             # mandava-o a `other` de qualquer maneira.
             intencao = escolhida if escolhida in INTENCOES else None
         resolvida = intencao or "outro"
+        if resolvida == "outro" and _primeiro_turno(estado) and await _ha_pendentes(deps, estado):
+            # KAM-220, criterio 2 do KAM-123: **os pendentes aparecem na
+            # primeira mensagem do dono**, que e quase sempre um cumprimento.
+            # So no lugar do `outro`: um pedido de humano, de informacao ou do
+            # catalogo continua a ser respondido pelo que e.
+            resolvida = "orcamento"
         delta: dict[str, Any] = {"intent": resolvida}
         if resolvida == "humano":
             delta["handoff_motivo"] = MOTIVO_PEDIDO
         return delta
 
     return no
+
+
+async def _ha_pendentes(deps: Dependencias, estado: Mapping[str, Any]) -> bool:
+    ler = getattr(deps.orcamentos, "pendentes", None)
+    if ler is None:
+        return False
+    try:
+        return bool(await ler(estado["tenant_id"], limite=1))
+    except Exception:  # noqa: BLE001 — uma leitura que falha nao rebenta o turno
+        return False
+
+
+async def _blocos_dos_pendentes(deps: Dependencias, estado: Mapping[str, Any]) -> tuple[list[dict[str, Any]], list[dict[str, str]]]:
+    """Os blocos da lista dos pendentes e as ofertas que o `validate` precisa.
+
+    **Nenhum valor e nenhuma quantidade**: cada pendente e a referencia `ORC-…`
+    (letras) num bloco `text` e o `sku` num bloco `item` so com o `sku`, que e
+    a forma que o *renderer* do KAM-032 deixa citar. A quantidade tem digitos e
+    nao e *fact*: nenhum dos cinco blocos do §9.1 a leva (a divida 124), e fica
+    escrita como limite no bloco do KAM-220.
+    """
+    ler = getattr(deps.orcamentos, "pendentes", None)
+    if ler is None:
+        return [{"type": "text", "text": MSG_PENDENTES_INDISPONIVEIS}], []
+    try:
+        pendentes = await ler(estado["tenant_id"], limite=LIMITE_DE_PENDENTES)
+    except Exception:  # noqa: BLE001 — a base em baixo diz-se, e nao rebenta
+        return [{"type": "text", "text": MSG_PENDENTES_INDISPONIVEIS}], []
+    if not pendentes:
+        return [{"type": "text", "text": MSG_SEM_PENDENTES}], []
+    blocos: list[dict[str, Any]] = [{"type": "text", "text": MSG_PENDENTES}]
+    ofertas: dict[str, dict[str, str]] = {}
+    for pendente in pendentes:
+        blocos.append({"type": "text", "text": pendente.referencia})
+        blocos.append({"type": "item", "sku": pendente.sku, "show": []})
+        ofertas[pendente.sku] = {
+            "sku": pendente.sku,
+            "nome": NOME_NEUTRO,
+            "preco_tipo": "sob_consulta",
+        }
+    blocos.append({"type": "text", "text": MSG_COMO_RESPONDER})
+    return blocos, list(ofertas.values())
+
+
+#: Quantos pendentes a lista mostra, dos mais novos (o `pendentes` ordena
+#: assim). *Proposta*: cabe numa mensagem do WhatsApp sem a cortar.
+LIMITE_DE_PENDENTES: Final = 5
 
 
 # ---------------------------------------------------------------- o confirm
@@ -271,14 +329,22 @@ def compose(deps: Dependencias):
         blocos: list[dict[str, Any]] = []
         for aviso in tuple(estado.get("avisos") or ()):
             blocos.append({"type": "text", "text": FRASE_DO_AVISO.get(aviso, MSG_NAO_CONSEGUI)})
+        delta: dict[str, Any] = {}
         if estado.get("intent") == "modulos":
             blocos.append({"type": "text", "text": MSG_MODULOS_INACTIVOS})
+        if estado.get("intent") == "orcamento":
+            # KAM-220. As ofertas vao ao estado porque o `validate` reutilizado
+            # so deixa citar um `sku` que esteja nelas.
+            dos_pendentes, ofertas = await _blocos_dos_pendentes(deps, estado)
+            blocos.extend(dos_pendentes)
+            delta["ofertas"] = tuple(ofertas)
         blocos.extend(_blocos_dos_dados(estado))
         if not blocos:
             blocos.append({"type": "text", "text": MSG_NAO_ENTENDI})
         # Preserva o rascunho em vez de o substituir — a licao do achado 9 da
         # revisao do KAM-031, que o `compose` de Servicos tambem escreve.
-        return {"draft": dict(rascunho, blocos=tuple(blocos))}
+        delta["draft"] = dict(rascunho, blocos=tuple(blocos))
+        return delta
 
     return no
 
@@ -308,6 +374,17 @@ MSG_NAO_ENTENDI: Final = (
     "catalogo ainda nao estao activos."
 )
 MSG_NAO_CONSEGUI: Final = "Nao consegui tratar esse pedido por aqui."
+
+#: Os pendentes do Orcamento expresso (KAM-220). Sem digitos, como os outros.
+MSG_PENDENTES: Final = "Tem pedidos de orcamento a espera da sua resposta:"
+MSG_SEM_PENDENTES: Final = "Nao tem pedidos de orcamento a espera de resposta."
+MSG_PENDENTES_INDISPONIVEIS: Final = (
+    "Nao consigo ver os pedidos de orcamento neste momento. Tente outra vez daqui a pouco."
+)
+MSG_COMO_RESPONDER: Final = (
+    "Para responder, escreva o valor final e a referencia do pedido. O valor so "
+    "segue ao cliente depois de o confirmar no botao."
+)
 
 #: As frases do `confirm` (KAM-211). Sem digitos, pela razao dos outros textos.
 #: **A confirmacao regista-se; a accao em si e do modulo** (KAM-119, KAM-121,

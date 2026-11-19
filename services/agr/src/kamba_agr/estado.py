@@ -191,6 +191,9 @@ def estado_inicial(invocacao: InvocacaoDoAgente) -> dict[str, Any]:
         # `turn_seq`: e do turno, e e esta reposicao que faz o modo degradado de
         # um turno nao valer no seguinte (criterio 7).
         "degradado": None,
+        # KAM-220. Do turno, como o `degradado`: o contexto de um «aceito» nao
+        # vale no turno seguinte.
+        "orcamento": None,
         # KAM-114. **O `concierge` entra aqui e o `turn_seq` NÃO**, e a
         # assimetria e o remedio de um defeito medido.
         #
@@ -310,6 +313,9 @@ CAMPOS_DO_TURNO: Final = {
     # obrigava a um caminho de saida do modo degradado, e um caminho de saida
     # que falhe deixa a conversa degradada para sempre.
     "degradado": None,
+    # KAM-220. O contexto do «aceito» de um orcamento: do turno, e o resumo do
+    # *handoff* deste turno e o unico que o le.
+    "orcamento": None,
 }
 
 
@@ -408,6 +414,10 @@ class ConversaState(TypedDict, total=False):
     #: *checkpoint* fica com ele, e e por ai que se sabe, ao ler um turno antigo,
     #: porque e que o cliente recebeu um menu.
     degradado: dict[str, Any] | None
+    #: KAM-220. `{"referencia": "ORC-…", "estado": …}` do ultimo pedido de
+    #: orcamento do cliente, quando o turno e um «aceito». **Sem o valor nem o
+    #: `quote_id`**: e o que o resumo do *handoff* leva ao dono. Do turno.
+    orcamento: dict[str, Any] | None
     #: KAM-112. O mapa `token -> valor original` da minimizacao de PII, que e o
     #: que permite a re-identificacao do criterio 6.
     #:

@@ -199,6 +199,26 @@ MOEDA_ESTRANGEIRA: Final = "MOEDA_ESTRANGEIRA"
 TERMO_DESCONHECIDO: Final = "TERMO_DESCONHECIDO"
 PERGUNTAS_DO_IDX: Final = (TERMO_AMBIGUO, MOEDA_ESTRANGEIRA, TERMO_DESCONHECIDO)
 
+#: Os do Orcamento expresso (KAM-220). Nascem nos nossos nos, e nao num
+#: *backend*, pela razao do `STALE_CONFIRMATION`:
+#:
+#: * `ORCAMENTO_PEDIDO` — o pedido seguiu ao dono (o `request_quote` correu);
+#: * `ORCAMENTO_INDISPONIVEL` — o pedido nao se fez: sem o modulo, balde
+#:   esgotado, fora do catalogo, ou a tool recusou;
+#: * `ORCAMENTO_EM_CURSO` — um «aceito» antes de haver proposta para aceitar;
+#: * `ORCAMENTO_FECHADO` — um «aceito» de uma proposta expirada, cancelada ou
+#:   vencida, que nao se aceita (criterio 9 do KAM-123).
+ORCAMENTO_PEDIDO: Final = "ORCAMENTO_PEDIDO"
+ORCAMENTO_INDISPONIVEL: Final = "ORCAMENTO_INDISPONIVEL"
+ORCAMENTO_EM_CURSO: Final = "ORCAMENTO_EM_CURSO"
+ORCAMENTO_FECHADO: Final = "ORCAMENTO_FECHADO"
+AVISOS_DO_ORCAMENTO: Final = (
+    ORCAMENTO_PEDIDO,
+    ORCAMENTO_INDISPONIVEL,
+    ORCAMENTO_EM_CURSO,
+    ORCAMENTO_FECHADO,
+)
+
 #: O dominio fechado de `state.avisos` (emenda 1.40, mais o do KAM-037 e os tres
 #: do KAM-062). Os sete primeiros sao erros tipados do §6.5 que o §6.5 manda o
 #: `compose` explicar; os outros nascem em nos nossos. **Fechado** porque o `compose` decide por
@@ -215,6 +235,7 @@ AVISOS: Final = (
     STALE_CONFIRMATION,
     REFERENCIA_EM_FALTA,
     *PERGUNTAS_DO_IDX,
+    *AVISOS_DO_ORCAMENTO,
 )
 
 #: Os desfechos da linha 4 — porque e que um turno nao corre (§3.31).

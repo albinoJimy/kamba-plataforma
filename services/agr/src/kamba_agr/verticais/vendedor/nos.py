@@ -83,6 +83,10 @@ from .arestas import (
     AVISOS,
     INTENCOES,
     MOEDA_ESTRANGEIRA,
+    ORCAMENTO_EM_CURSO,
+    ORCAMENTO_FECHADO,
+    ORCAMENTO_INDISPONIVEL,
+    ORCAMENTO_PEDIDO,
     PERGUNTAS_DO_IDX,
     RECUSAS,
     REFERENCIA_EM_FALTA,
@@ -250,6 +254,22 @@ FRASE_DO_AVISO: Final = {
     TERMO_DESCONHECIDO: (
         "Nao encontrei no catalogo da loja algumas das palavras que escreveu. "
         "Pode dizer de outra maneira, ou falar com um colega da loja?"
+    ),
+    # KAM-220. **Nenhuma diz um valor nem faz uma conta**: o preco de um
+    # `sob_consulta` e o que o dono digitar, e chega numa proposta a parte.
+    ORCAMENTO_PEDIDO: (
+        "O preco deste artigo e dado pelo dono da loja. Ja lhe pedi o orcamento, "
+        "e a proposta chega-lhe aqui."
+    ),
+    ORCAMENTO_INDISPONIVEL: (
+        "Nao consegui pedir o orcamento por aqui. Prefere falar com um colega da loja?"
+    ),
+    ORCAMENTO_EM_CURSO: (
+        "O dono ainda esta a preparar o seu orcamento. Quando estiver pronto, "
+        "recebe a proposta aqui."
+    ),
+    ORCAMENTO_FECHADO: (
+        "Esse orcamento ja nao esta valido. Se quiser, peco outro ao dono da loja."
     ),
 }
 
@@ -574,6 +594,10 @@ MOTIVO_UPSTREAM: Final = "upstream"
 #: guardrail e nao `handoff_trigger` da vertical**: vale nas duas, porque o
 #: `guard_in` e partilhado (ADR-012).
 MOTIVO_INJECCAO: Final = "injeccao_repetida"
+#: KAM-220: o «aceito» de uma proposta enviada e dentro da validade. **Nao cria
+#: pedido nenhum** (criterio 9 do KAM-123): e o dono quem fecha a venda, e a
+#: conversa vai-lhe com a referencia `ORC-…` no resumo (KAM-034).
+MOTIVO_ORCAMENTO_ACEITE: Final = "orcamento_aceite"
 MOTIVOS_DE_HANDOFF: Final = (
     MOTIVO_PEDIDO,
     MOTIVO_RECLAMACAO,
@@ -581,6 +605,7 @@ MOTIVOS_DE_HANDOFF: Final = (
     MOTIVO_CITACAO,
     MOTIVO_UPSTREAM,
     MOTIVO_INJECCAO,
+    MOTIVO_ORCAMENTO_ACEITE,
 )
 
 #: O motivo com que o `guard_in` pausa a conversa ao N-esimo abuso (criterio 5).
@@ -839,6 +864,55 @@ def pediu_cancelamento(texto: str) -> bool:
     from ...validador.normalizacao import sem_acento
 
     return bool(_CANCELAMENTO.search(sem_acento(texto.lower())))
+
+
+#: O «aceito» de uma proposta de orcamento (KAM-220), por palavras. Curto de
+#: proposito: e so a forma da aceitacao, e e o ultimo pedido do cliente na base
+#: que decide se ha alguma coisa para aceitar. A negacao («nao aceito») nao e
+#: aceitacao — e cai no fluxo normal.
+_ACEITO: Final = re.compile(r"\b(?:aceito|aceitamos|aceite|esta aceite)\b")
+_NAO_ACEITO: Final = re.compile(r"\bnao\s+(?:\w+\s+)?aceit")
+
+#: O botao «Aceito» de uma proposta. **Nenhuma proposta o leva ainda**: a
+#: proposta sai pela `PortaDeNotificacao`, que so leva texto, e o botao nela e do
+#: credor do envio real (bloco do KAM-220). O grafo reconhece-o ja, pela razao
+#: do `menu:*` do KAM-037: um identificador nosso decide antes do texto.
+BOTAO_ACEITAR_ORCAMENTO: Final = "aceitar_orcamento"
+
+
+def pediu_para_aceitar(texto: str, botao: str = "") -> bool:
+    """Se o cliente aceitou uma proposta, pelo botao ou por palavras."""
+    if botao == BOTAO_ACEITAR_ORCAMENTO:
+        return True
+    from ...validador.normalizacao import sem_acento
+
+    normalizado = sem_acento(texto.lower())
+    return bool(_ACEITO.search(normalizado)) and not _NAO_ACEITO.search(normalizado)
+
+
+async def _decidir_o_aceito(deps: "Dependencias", estado: Mapping[str, Any]) -> dict[str, Any] | None:
+    """O delta do `classify` para um «aceito», ou `None` se nao houver o que aceitar.
+
+    **Nenhum caminho daqui cria um pedido** (criterio 9 do KAM-123). Sem porta,
+    ou sem pedido nenhum deste cliente, o turno segue o fluxo normal.
+    """
+    porta = deps.orcamentos
+    ler = getattr(porta, "ultimo_pedido", None)
+    if ler is None:
+        return None
+    ultimo = await ler(estado["tenant_id"], estado["contact_id"])
+    if ultimo is None:
+        return None
+    agora = porta.agora()
+    contexto = {"referencia": ultimo.referencia, "estado": ultimo.estado}
+    if ultimo.aceitavel(agora):
+        return {
+            "intent": "humano",
+            "handoff_motivo": MOTIVO_ORCAMENTO_ACEITE,
+            "orcamento": contexto,
+        }
+    aviso = ORCAMENTO_FECHADO if ultimo.fechado(agora) else ORCAMENTO_EM_CURSO
+    return {"intent": "outro", "avisos": _avisos_com(estado, aviso), "orcamento": contexto}
 
 
 def intencao_por_regras(texto: str) -> str | None:
@@ -1231,6 +1305,15 @@ def classify(deps: Dependencias):
             # cancelamento ao §7.3 — e e esse ticket o credor, porque e ele que
             # muda o documento.
             return {"intent": "outro", "cart": None, "stage": "browsing"}
+
+        # KAM-220. **O «aceito» decide-se por regra e pela base, nunca pelo
+        # modelo**, e antes do modo degradado: e o ultimo pedido do cliente que
+        # diz se ha proposta para aceitar, e um classificador aqui era um modelo
+        # a decidir que uma venda se fechou.
+        if pediu_para_aceitar(texto_do_turno, botao):
+            aceito = await _decidir_o_aceito(deps, estado)
+            if aceito is not None:
+                return aceito
 
         texto = texto_do_turno
         if estado.get("degradado"):
@@ -1982,11 +2065,26 @@ def safe_reply(deps: Dependencias):
     """Linhas 9, 17 e 33 -> 34: o texto seguro, escolhido pelo que o trouxe."""
 
     async def no(estado: dict[str, Any]) -> dict[str, Any]:
-        resposta = _resposta_estatica(texto_seguro_da_guarda(estado, MSG_FORA_DE_AMBITO))
+        resposta = _resposta_estatica(
+            texto_seguro_da_guarda(estado, _fora_de_ambito_do_turno(estado))
+        )
         resposta["draft"]["botoes"] = botoes_seguros_da_guarda(estado)
         return resposta
 
     return no
+
+
+def _fora_de_ambito_do_turno(estado: Mapping[str, Any]) -> str:
+    """O texto de fora de ambito, ou o do «aceito» que nao se aceita (KAM-220).
+
+    Entra **no lugar** do fora de ambito, e nao antes das guardas: uma saida
+    bloqueada, um cartao ou um abuso continuam a decidir primeiro.
+    """
+    avisos = tuple(estado.get("avisos") or ())
+    for aviso in (ORCAMENTO_FECHADO, ORCAMENTO_EM_CURSO):
+        if aviso in avisos:
+            return FRASE_DO_AVISO[aviso]
+    return MSG_FORA_DE_AMBITO
 
 
 def com_apresentacao(deps: Dependencias, estado: Mapping[str, Any], texto: str) -> str:
@@ -2176,6 +2274,11 @@ def _resumo(estado: Mapping[str, Any]) -> str:
         partes.append(f"estagio={estado['stage']}")
     if estado.get("avisos"):
         partes.append("avisos=" + ",".join(estado["avisos"]))
+    # KAM-220: o contexto do «aceito» — a referencia `ORC-…` (letras, sem o
+    # valor) e o estado do pedido, para o dono saber que proposta se aceitou.
+    orcamento = estado.get("orcamento")
+    if isinstance(orcamento, Mapping) and orcamento.get("referencia"):
+        partes.append(f"orcamento={orcamento['referencia']}")
     return "; ".join(partes)
 
 
