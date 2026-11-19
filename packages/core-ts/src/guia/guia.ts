@@ -3,8 +3,11 @@
  *
  * ## A ordem, e o que cada passo recusa
  *
- *     abrir        o caso existe e está em `aguarda_es` (critério 1); a sessão
- *                  é de quem chama, e verifica-a a rota
+ *     abrir        o caso existe e está em `aguarda_es` (critério 1), ou está
+ *                  `activo` com uma religação em curso (KAM-207); a sessão é
+ *                  de quem chama, e verifica-a a rota
+ *     religar      um caso `activo` cujo canal caiu volta ao passo do ES pelo
+ *                  `desligado`, sem recuar de fase (KAM-207)
  *     preflight    os sete itens, gravados (critério 2)
  *     iniciar      pré-voo cumprido + `CapacityGate.reserve` (critério 8) e só
  *                  então a configuração do popup v4 (critério 1)
@@ -55,6 +58,8 @@ import {
   type EstadoDoGuia,
   type EstadoDoPagamento,
   type EstadoGuardado,
+  ESTADOS_DA_RELIGACAO,
+  FASE_DA_RELIGACAO,
   FEATURE_TYPE_CLOUD_ONLY,
   type FilaDeRevisao,
   type GatesDoOnboarding,
@@ -63,6 +68,7 @@ import {
   type MensagemAoDono,
   type MotivoDeFalha,
   MOTIVOS_QUE_PRENDEM,
+  PONTOS_DE_PARTIDA_DA_RELIGACAO,
   type Preflight,
   type RepositorioDoGuia,
   type Rota,
@@ -161,12 +167,84 @@ export class PassoGuiado {
     this.#agora = dependencias.relogio ?? ((): Date => new Date());
   }
 
-  /** A página abre? **O critério 1**, na metade que não é a sessão. */
+  /**
+   * A página abre? **O critério 1**, na metade que não é a sessão.
+   *
+   * Um caso em `aguarda_es` abre sempre. Um caso `activo` abre **só** com uma
+   * religação em curso (`ESTADOS_DA_RELIGACAO`, KAM-207), e lê o estado sem o
+   * criar: o `repositorio.abrir` punha em `pre_voo` um caso activo sem guia, e
+   * o `pre_voo` leva a `iniciado` sem passar pelo `religar` — que é o passo que
+   * só o painel dá, depois do código e de o COM dizer que o canal caiu.
+   */
   async abrir(onboardingId: string): Promise<EstadoGuardado> {
     const caso = await this.#d.casos.porId(onboardingId);
     if (caso === null) throw new GuiaRecusadoError("sem_caso");
-    if (caso.fase !== "aguarda_es") throw new GuiaRecusadoError("fase_errada");
-    return this.#d.repositorio.abrir(onboardingId);
+    if (caso.fase === "aguarda_es") return this.#d.repositorio.abrir(onboardingId);
+    if (caso.fase === FASE_DA_RELIGACAO) {
+      const guia = await this.#d.repositorio.ler(onboardingId);
+      if (guia !== null && ESTADOS_DA_RELIGACAO.includes(guia.estado)) return guia;
+    }
+    throw new GuiaRecusadoError("fase_errada");
+  }
+
+  /**
+   * Reabre o passo do ES a um caso `activo` cujo canal caiu. **KAM-207.**
+   *
+   * Põe o guia em `desligado` — de onde o `iniciar` o leva a `iniciado` pela
+   * aresta que o critério 7 do KAM-093 já tinha — e **não toca no caso**: a
+   * fase continua `activo`, e o tenant é o mesmo. Quem chama é o painel, e só
+   * depois de duas coisas que este módulo não vê: o código por SMS ao telefone
+   * registado, e o COM a dizer que o canal está `desligado` e não restrito
+   * (`suspenso` e `encerrado` não reabrem).
+   *
+   * Um guia num ponto de partida (`desligado`, `iniciado`, `abandonado`,
+   * `falhado`) fica onde está: o `iniciar` leva-o a `iniciado`. **Qualquer
+   * outro vai a `desligado`**, incluindo o `subscrito` e o `a_sincronizar` de
+   * uma religação anterior: os sinais que levavam o guia a `verificado` não
+   * têm consumidor ligado, pelo que uma religação bem sucedida deixa-o em
+   * `subscrito` — e de lá a matriz não volta a `iniciado`. Sem isto, a
+   * segunda queda do mesmo canal não tinha saída (achado 1 da revisão
+   * adversarial). Quem chama já confirmou que o canal caiu, e é isso que
+   * autoriza a transição.
+   *
+   * Recusa o `pre_voo` (um caso activo sem guia não tem de onde voltar: a
+   * matriz não leva do `pre_voo` ao `desligado`) e qualquer fase do caso que
+   * não seja `activo` — o caso em `aguarda_es` tem o seu caminho, que é o do
+   * KAM-093.
+   */
+  async religar(onboardingId: string): Promise<EstadoDoGuia> {
+    const caso = await this.#d.casos.porId(onboardingId);
+    if (caso === null) throw new GuiaRecusadoError("sem_caso");
+    if (caso.fase !== FASE_DA_RELIGACAO) throw new GuiaRecusadoError("fase_errada");
+    // Quatro voltas, pela razão do `#prender`: o *compare-and-set* perde para
+    // um sinal concorrente, e a volta seguinte lê o estado que ganhou.
+    for (let tentativa = 0; tentativa < 4; tentativa += 1) {
+      const guia = await this.#d.repositorio.ler(onboardingId);
+      if (guia === null || guia.estado === "pre_voo") throw new GuiaRecusadoError("estado_errado");
+      if (PONTOS_DE_PARTIDA_DA_RELIGACAO.includes(guia.estado)) return guia.estado;
+      if (!transicaoDoGuiaValida(guia.estado, "desligado")) throw new GuiaRecusadoError("estado_errado");
+      if (await this.#d.repositorio.transitar(onboardingId, guia.estado, "desligado", {})) {
+        // O `meta_es` fica vermelho, como no `desligado` do critério 7: o número
+        // não está ligado, e volta a verde no `verificado` da religação.
+        await this.#d.gates.marcar(onboardingId, "meta_es", false, "desligado");
+        this.#d.log?.info({ outcome: "es_religacao_aberta" });
+        return "desligado";
+      }
+    }
+    throw new GuiaRecusadoError("estado_errado");
+  }
+
+  /**
+   * O caso passa pelo `CapacityGate`? **Não, numa religação** (KAM-207).
+   *
+   * A lista de espera (KAM-095) é dos casos que ainda não ligaram — o `inserir`
+   * recusa tudo fora do `aprovado` e do `aguarda_es` —, e um caso activo posto
+   * em `aguardando` nunca era promovido. O tecto da Meta continua a valer: o
+   * GWY conta-o no passo 1 do KAM-016 e responde 429, que o `concluir` traduz em
+   * `tecto_da_meta`.
+   */
+  async #usaCapacidade(onboardingId: string): Promise<boolean> {
+    return (await this.#d.casos.porId(onboardingId))?.fase !== FASE_DA_RELIGACAO;
   }
 
   /** Avalia e grava o pré-voo. **O critério 2.** */
@@ -209,7 +287,7 @@ export class PassoGuiado {
     if (guia.estado !== "iniciado" && !transicaoDoGuiaValida(guia.estado, "iniciado")) {
       throw new GuiaRecusadoError("estado_errado");
     }
-    if ((await this.#d.capacidade.reserve(onboardingId)) === "lista_espera") {
+    if ((await this.#usaCapacidade(onboardingId)) && (await this.#d.capacidade.reserve(onboardingId)) === "lista_espera") {
       this.#d.log?.info({ outcome: "es_lista_espera" });
       return { desfecho: "lista_espera" };
     }
@@ -254,7 +332,7 @@ export class PassoGuiado {
   async cancelar(onboardingId: string): Promise<EstadoDoGuia> {
     await this.abrir(onboardingId);
     if (await this.#d.repositorio.transitar(onboardingId, "iniciado", "abandonado", {})) {
-      await this.#d.capacidade.release(onboardingId);
+      if (await this.#usaCapacidade(onboardingId)) await this.#d.capacidade.release(onboardingId);
     }
     return (await this.#d.repositorio.ler(onboardingId))?.estado ?? "pre_voo";
   }
@@ -269,7 +347,7 @@ export class PassoGuiado {
     let n = 0;
     for (const id of await this.#d.repositorio.iniciadosAntesDe(antes)) {
       if (await this.#d.repositorio.transitar(id, "iniciado", "abandonado", {})) {
-        await this.#d.capacidade.release(id);
+        if (await this.#usaCapacidade(id)) await this.#d.capacidade.release(id);
         n += 1;
       }
     }
@@ -318,6 +396,7 @@ export class PassoGuiado {
       return { estado: agora?.estado ?? "iniciado", novo: false };
     }
     const rota = guia.preflight?.rota ?? "coexistencia";
+    const usaCapacidade = await this.#usaCapacidade(onboardingId);
     const resultado = await this.#d.ligador.ligar({
       tenant_id: caso.tenantId,
       code,
@@ -325,13 +404,22 @@ export class PassoGuiado {
       phone_number_id: phoneNumberId,
       session_info: this.sessionInfo(rota),
     });
-    if (resultado.desfecho === "lista_espera" || resultado.desfecho === "recusado") {
+    // **Numa religação, `repetido` é recusa** (KAM-207, achado 2 da revisão
+    // adversarial). O GWY só religa com 201; um 200 quer dizer que encontrou a
+    // tentativa antiga e não fez nada — o canal deixou de estar `desligado`
+    // entre o código e o `FINISH`, ou o popup trouxe outro número no mesmo WABA.
+    // Aceitá-lo deixava o dono a ver sucesso com o canal em baixo. O `FINISH`
+    // repetido da mesma religação não chega aqui: o `estado !== "iniciado"` de
+    // cima devolve-o antes de falar com o GWY.
+    const recusado =
+      resultado.desfecho === "recusado" || (!usaCapacidade && resultado.desfecho === "repetido");
+    if (resultado.desfecho === "lista_espera" || recusado) {
       await this.#falhar(
         onboardingId,
         "es_concluido",
         resultado.desfecho === "lista_espera" ? "tecto_da_meta" : "ligacao_recusada",
       );
-      await this.#d.capacidade.release(onboardingId);
+      if (usaCapacidade) await this.#d.capacidade.release(onboardingId);
       return { estado: "falhado", novo: true };
     }
     // O KAM-016 devolve a tentativa já em `subscrito`: a subscrição dos onze

@@ -2637,7 +2637,10 @@ async function grupoDoGuia(relatorio: Relatorio): Promise<void> {
 //   caso=a                  (KAM-190) o /painel/ligar, com o tenant e o caso de B
 //                           no pedido, manda o codigo so ao caso de A, o bilhete
 //                           da pagina abre-se no caso de A, e nenhuma sessao do
-//                           registo sai sem o codigo
+//                           registo sai sem o codigo. **KAM-207:** duas das tres
+//                           vezes sao a religacao do caso activo de A, com o
+//                           canal de A desligado e o de B tambem: o painel so
+//                           pergunta ao COM pelo canal de A
 //   uniforme=sim            (KAM-190) o /painel/codigo responde a mesma forma ao
 //                           telefone de B e a um que nao existe, nenhum bilhete
 //                           leva o caso de B, e os dois de B sao diferentes
@@ -2645,7 +2648,12 @@ async function grupoDoGuia(relatorio: Relatorio): Promise<void> {
 //                           de B, e o telefone sem painel nao mandou nada
 //   sessao=nenhuma          (KAM-190) nenhum ataque ao /painel/verificar cunhou
 //                           sessao, e so o bilhete do painel chegou ao OTP (o
-//                           `ticket` do registo e o id nu ficam a porta)
+//                           `ticket` do registo e o id nu ficam a porta). **KAM-207:**
+//                           os ataques pedem a ligacao, o caso de B e activo com
+//                           o canal desligado, e nenhum religa nada — uma guarda
+//                           contra regressao, e nao uma medicao: os ataques nao
+//                           tem o codigo de B, e o religar so corre depois dele.
+//                           O que mede a religacao e o caso=a do /painel/ligar
 //   pedido=a                (KAM-211) os tres pedidos de troca do /painel/telefone,
 //                           com o tenant de B no corpo, na consulta e no
 //                           cabecalho, ficaram no tenant e na sessao de A
@@ -2780,8 +2788,11 @@ async function grupoDoPainel(relatorio: Relatorio): Promise<void> {
     const verificados: string[] = [];
     const enviados: string[] = [];
     const reentrada = {
+      // Os dois casos de A tem o telefone de A: o activo e o da religacao (KAM-207).
       telefoneDoCaso: async (id: string) =>
-        id === CASO_DE_A_NO_PAINEL ? new Telefone(TELEFONE_DE_A_NO_PAINEL, [pepper, null]) : null,
+        id === CASO_DE_A_NO_PAINEL || id === CASO_ACTIVO_DE_A_NO_PAINEL
+          ? new Telefone(TELEFONE_DE_A_NO_PAINEL, [pepper, null])
+          : null,
       otp: {
         async enviar(id: string) {
           enviados.push(id);
@@ -2798,6 +2809,20 @@ async function grupoDoPainel(relatorio: Relatorio): Promise<void> {
       },
       anelDoPepper: [pepper, null],
       contadores: { anotar: async () => 1 },
+      // KAM-207: a porta do guia, que conta quem religou.
+      religar: async (id: string) => {
+        religados.push(id);
+        return "desligado";
+      },
+    };
+    const religados: string[] = [];
+    // KAM-207: o COM de duplo que conta de que tenant lhe perguntam o canal.
+    const perguntados: string[] = [];
+    const canalEspiao = {
+      ler: async (tenantId: string, a: unknown) => {
+        perguntados.push(tenantId);
+        return (canal as unknown as { ler(t: string, a: unknown): Promise<unknown> }).ler(tenantId, a);
+      },
     };
 
     const revogacoes = new (sessaoModulo["RevogacoesEmMemoria"] as new () => {
@@ -2849,7 +2874,7 @@ async function grupoDoPainel(relatorio: Relatorio): Promise<void> {
 
     const app = (rotas["rotasDoPainel"] as (o: unknown) => AppHono)({
       comercio,
-      canal,
+      canal: canalEspiao,
       revogacoes,
       casos: { porId: async (id: string) => casos.get(id) ?? null },
       anelDaAssinatura: [chave, null],
@@ -2970,24 +2995,39 @@ async function grupoDoPainel(relatorio: Relatorio): Promise<void> {
     // ---- GET /painel/ligar (KAM-190): a sessao de A com o tenant **e o caso** de B
     // no pedido. O codigo vai ao caso da sessao, e a sessao do registo so sai
     // depois dele — nunca daqui.
+    //
+    // **KAM-207:** a primeira vez e a do caso de A em `aguarda_es`; as outras
+    // duas sao a religacao do caso `activo` de A, com o canal de A desligado — e
+    // o de B tambem, para que um painel que perguntasse pelo canal de B o
+    // encontrasse caido. O codigo vai ao caso da sessao daquela vez, e o COM so
+    // e perguntado pelo canal de A.
     const lerBilhete = sessaoModulo["lerBilhete"] as (b: unknown, a: readonly (Uint8Array | null)[], d: Date) => string | null;
+    const vistaDeA = canal.vistas.get(TENANT_DE_A_NO_PAINEL) as Record<string, unknown>;
+    canal.vistas.set(TENANT_DE_A_NO_PAINEL, { ...vistaDeA, estado: "desligado" });
+    const cookieActivoDeA = `kamba_painel=${cunharSessao(sessaoActivaDeA, chave)}`;
+    const casosDoLigar = [CASO_DE_A_NO_PAINEL, CASO_ACTIVO_DE_A_NO_PAINEL, CASO_ACTIVO_DE_A_NO_PAINEL];
     enviados.length = 0;
+    perguntados.length = 0;
     for (let vez = 0; vez < 3; vez += 1) {
       const [c, headers] = comTenantDeB(`/painel/ligar?caso=${CASO_DE_B_NO_PAINEL}&onboarding_id=${CASO_DE_B_NO_PAINEL}`, vez);
-      await empurrar(ITENS_DO_PAINEL[7], "GET", c, { headers }, () => "");
+      const comSessao = vez === 0 ? headers : { ...headers, cookie: cookieActivoDeA };
+      await empurrar(ITENS_DO_PAINEL[7], "GET", c, { headers: comSessao }, () => "");
     }
     await new Promise((resolver) => setImmediate(resolver));
+    canal.vistas.set(TENANT_DE_A_NO_PAINEL, vistaDeA);
     const entradasDoLigar = relatorio.rotas.filter((e) => e.item === ITENS_DO_PAINEL[7]);
     const bilhetesDoLigar = entradasDoLigar.map((e) => lerBilhete(/data-bilhete="([^"]+)"/.exec(e.corpo)?.[1], [chave, null], agora));
     const semRegisto = entradasDoLigar.every((e) => !String(e.cabecalhos["set-cookie"] ?? "").includes("kamba_onboarding="));
     const doCasoDeA =
       bilhetesDoLigar.length === 3 &&
-      bilhetesDoLigar.every((id) => id === CASO_DE_A_NO_PAINEL) &&
+      bilhetesDoLigar.every((id, i) => id === casosDoLigar[i]) &&
       enviados.length === 3 &&
-      enviados.every((id) => id === CASO_DE_A_NO_PAINEL);
+      enviados.every((id, i) => id === casosDoLigar[i]) &&
+      perguntados.length === 2 &&
+      perguntados.every((t) => t === TENANT_DE_A_NO_PAINEL);
     const marcaDoLigar = doCasoDeA && semRegisto ? "caso=a" : "caso=outro";
     for (const entrada of entradasDoLigar) {
-      entrada.nota += ` ${marcaDoLigar} sonda=${bilhetesDoLigar.every((id) => id === CASO_DE_A_NO_PAINEL) ? "viva" : "morta"}`;
+      entrada.nota += ` ${marcaDoLigar} sonda=${bilhetesDoLigar.every((id, i) => id === casosDoLigar[i]) ? "viva" : "morta"}`;
     }
 
     // ---- POST /painel/codigo (KAM-190): o telefone de B, com e sem o tenant de
@@ -3044,7 +3084,13 @@ async function grupoDoPainel(relatorio: Relatorio): Promise<void> {
       cunharReferencia("ticket", CASO_DE_B_NO_PAINEL, chave, relogio),
       CASO_DE_B_NO_PAINEL,
     ]) {
-      await empurrar(ITENS_DO_PAINEL[9], "POST", "/painel/verificar", comoJson({ referencia, codigo: "000000", tenant_id: TENANT_DE_B_NO_PAINEL }), () => "");
+      await empurrar(
+        ITENS_DO_PAINEL[9],
+        "POST",
+        "/painel/verificar",
+        comoJson({ referencia, codigo: "000000", tenant_id: TENANT_DE_B_NO_PAINEL, destino: "ligar" }),
+        () => "",
+      );
     }
     const semSessao = relatorio.rotas
       .filter((e) => e.item === ITENS_DO_PAINEL[9])
@@ -3052,8 +3098,12 @@ async function grupoDoPainel(relatorio: Relatorio): Promise<void> {
     // So o bilhete do painel chega ao OTP (uma verificacao, do caso de B, com o
     // codigo errado); o `ticket` do registo e o id nu ficam a porta.
     const soOBilhete = verificados.length === 1 && verificados[0] === CASO_DE_B_NO_PAINEL;
+    // KAM-207: o caso de B e activo e o canal dele caiu, e nenhum ataque o religa.
+    const semReligacao = religados.length === 0;
     for (const entrada of relatorio.rotas) {
-      if (entrada.item === ITENS_DO_PAINEL[9]) entrada.nota += semSessao && soOBilhete ? " sessao=nenhuma" : " sessao=cunhada-ou-otp-alheio";
+      if (entrada.item === ITENS_DO_PAINEL[9]) {
+        entrada.nota += semSessao && soOBilhete && semReligacao ? " sessao=nenhuma" : " sessao=cunhada-ou-otp-alheio";
+      }
     }
 
     // ---- POST /painel/telefone (KAM-211): a sessao de A com o tenant de B no

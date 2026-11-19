@@ -237,6 +237,50 @@ export type MotivoDeFalha = (typeof MOTIVOS_DE_FALHA)[number];
  */
 export const MOTIVOS_QUE_PRENDEM: readonly MotivoDeFalha[] = ["numero_divergente"];
 
+/**
+ * A fase do caso em que a página reabre para **religar** o número (KAM-207).
+ *
+ * O passo do ES é do caso em `aguarda_es` (KAM-093). Um caso `activo` cujo canal
+ * caiu volta a ele pelo mesmo popup, sem registo novo, e **sem recuar de fase**:
+ * o caso continua `activo` do princípio ao fim — o que muda é o estado do guia.
+ */
+export const FASE_DA_RELIGACAO = "activo";
+
+/**
+ * Os estados do guia em que um caso `activo` abre a página (KAM-207).
+ *
+ * São os de uma religação **em curso**: o `desligado` de onde ela parte, as
+ * voltas a `iniciado` (`abandonado`, `falhado`) e os passos do popup até o
+ * número estar subscrito — a página continua a ler o estado depois do
+ * `FINISH`. **Ficam de fora o `pre_voo`, o `verificado` e o `pronto`**: um caso
+ * activo nesses estados tem o canal de pé, e reabrir-lhe o popup era deixar
+ * quem tem a sessão do registo trocar o número de uma loja activa. Põem o guia
+ * em `desligado` o `religar`, que o painel chama depois do código e de o COM
+ * dizer que o canal caiu, e o `desligado` do critério 7 do KAM-093, pelo
+ * `PARTNER_REMOVED` (que ainda não tem consumidor ligado).
+ *
+ * **Abrir não é poder voltar a `iniciado`.** Dos sete, só os quatro de
+ * `PONTOS_DE_PARTIDA_DA_RELIGACAO` levam a `iniciado`; dos outros três a
+ * matriz não volta, e é o `religar` que os leva a `desligado` quando o canal
+ * cai outra vez.
+ */
+export const ESTADOS_DA_RELIGACAO: readonly EstadoDoGuia[] = [
+  "desligado",
+  "iniciado",
+  "abandonado",
+  "falhado",
+  "es_concluido",
+  "subscrito",
+  "a_sincronizar",
+];
+
+/**
+ * Os estados de onde uma religação parte sem mais nada: os que voltam a
+ * `iniciado` pela matriz. O `religar` deixa-os como estão; de qualquer outro
+ * leva o guia a `desligado` (KAM-207).
+ */
+export const PONTOS_DE_PARTIDA_DA_RELIGACAO: readonly EstadoDoGuia[] = ["desligado", "iniciado", "abandonado", "falhado"];
+
 /** O prazo do popup, em minutos. O `PRAZO_DE_ABANDONO_MIN` do KAM-016. */
 export { PRAZO_DE_ABANDONO_MIN } from "../onboarding/contrato.ts";
 

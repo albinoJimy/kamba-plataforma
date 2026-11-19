@@ -285,8 +285,11 @@ function montarGuia(): OpcoesDoGuia | undefined {
  * o `onboarding-web` não tem rota para a base. A reentrada por código usa o
  * mesmo `Otp`, os mesmos casos e os mesmos contadores do registo — um telefone
  * esgotado no registo está esgotado aqui.
+ *
+ * A religação de um caso activo (KAM-207) é a do guia montado: sem o guia, o
+ * painel não a oferece e o caso activo tem o 409 de antes.
  */
-async function montarPainel(): Promise<OpcoesDoPainel | undefined> {
+async function montarPainel(guia: PassoGuiado | undefined): Promise<OpcoesDoPainel | undefined> {
   const com = (process.env["ONBOARDING_COM_INTERNO_URL"] ?? "").trim();
   if (com === "") {
     log.info({ outcome: "painel_desligado" });
@@ -307,6 +310,7 @@ async function montarPainel(): Promise<OpcoesDoPainel | undefined> {
       anelDoPepper: [pepper, pepperAnterior],
       contadores,
       proxiesDeConfianca: proxiesDeConfianca(),
+      religar: guia === undefined ? undefined : (id) => guia.religar(id),
     },
   };
 }
@@ -329,6 +333,7 @@ const listenPort = port(DEFAULT_PORT);
 // todos os onboardings; o arranque di-lo numa linha.
 log.info({ outcome: "equipa_desligada" });
 
+const opcoesDoGuia = montarGuia();
 const app = createApp(log, {
   registo,
   otp,
@@ -337,7 +342,7 @@ const app = createApp(log, {
   anelDaAssinatura: [assinatura, assinaturaAnterior],
   anelDoToken: [assinatura, assinaturaAnterior],
   proxiesDeConfianca: proxiesDeConfianca(),
-}, montarGuia(), await montarPainel());
+}, opcoesDoGuia, await montarPainel(opcoesDoGuia?.guia));
 
 serve({ fetch: app.fetch, hostname, port: listenPort }, () => {
   // O anfitrião e a porta não estão na *allowlist* de `docs/tecnica/08` §7.3,
