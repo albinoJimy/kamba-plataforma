@@ -74,7 +74,7 @@ import {
 import type { OperacoesDoCom } from "../adapters/medusa/index.ts";
 import { exposicao, TIPO_DE_CONTEUDO } from "../metricas.ts";
 import type { AlteracaoDeOferta } from "../produtos/index.ts";
-import { SUJEITOS_DA_ROTA, type PedidoDeScreen } from "../screening/index.ts";
+import type { PedidoDeScreen } from "../screening/index.ts";
 import type {
   ErroDaCriacao,
   PedidoDeCriacao,
@@ -329,7 +329,13 @@ function alteracaoDoCorpo(corpo: Record<string, unknown>): AlteracaoDeOferta | n
   };
 }
 
-/** Quantos textos o `screen` recebe por pedido. Os do `LIMITES_DA_ENTRADA`. */
+/**
+ * Quantos textos o `screen` recebe por pedido: o tecto de textos do
+ * `LIMITES_DA_ENTRADA`. **Não** o tecto de caracteres: o corpo inteiro cabe nos
+ * oito KiB do `CORPO_MAXIMO`, e um corpo maior é 413, que também fecha. Chega
+ * para as condições de um orçamento (até 200 caracteres); o Catálogo AI, com
+ * descrições longas, tem de o rever quando ligar o produto (KAM-119).
+ */
 export const TEXTOS_MAXIMOS_DO_SCREEN = 50;
 
 /**
@@ -337,22 +343,22 @@ export const TEXTOS_MAXIMOS_DO_SCREEN = 50;
  *
  * `categoria_declarada` ausente ou `null` quer dizer «a do tenant», que é o caso
  * das condições de um orçamento. Os textos são uma lista não vazia de cadeias:
- * uma lista vazia não é um conteúdo que se possa aprovar. O `sujeito_tipo`
- * confronta-se com o `SUJEITOS_DA_ROTA`, que não tem a `categoria`.
+ * uma lista vazia não é um conteúdo que se possa aprovar. O `sujeito_tipo` aqui
+ * só tem de ser uma cadeia não vazia: quem o confronta com os sujeitos aceites é
+ * a operação (`SUJEITOS_DA_ROTA`), e recusa com o mesmo `VALIDATION_ERROR`.
  */
 function pedidoDeScreenDoCorpo(corpo: Record<string, unknown>): PedidoDeScreen | null {
   const sujeitoTipo = corpo["sujeito_tipo"];
   const sujeitoRef = corpo["sujeito_ref"];
   const categoria = corpo["categoria_declarada"] ?? null;
   const textos = corpo["textos"];
-  if (typeof sujeitoTipo !== "string") return null;
-  if (!(SUJEITOS_DA_ROTA as readonly string[]).includes(sujeitoTipo)) return null;
+  if (typeof sujeitoTipo !== "string" || sujeitoTipo.length === 0) return null;
   if (typeof sujeitoRef !== "string" || sujeitoRef.length === 0 || sujeitoRef.length > 200) return null;
   if (categoria !== null && typeof categoria !== "string") return null;
   if (!Array.isArray(textos) || textos.length === 0 || textos.length > TEXTOS_MAXIMOS_DO_SCREEN) return null;
   if (!textos.every((t) => typeof t === "string")) return null;
   return {
-    sujeitoTipo: sujeitoTipo as PedidoDeScreen["sujeitoTipo"],
+    sujeitoTipo,
     sujeitoRef,
     categoriaDeclarada: categoria,
     textos: textos as string[],

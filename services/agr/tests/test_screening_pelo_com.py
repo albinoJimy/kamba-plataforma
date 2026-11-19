@@ -45,7 +45,7 @@ class Transporte:
         return self.resposta
 
 
-def adaptador(resposta: RespostaDoCom | Exception, sujeito: str = "produto") -> tuple[ScreeningPeloCom, Transporte]:
+def adaptador(resposta: RespostaDoCom | Exception, sujeito: str = "condicoes") -> tuple[ScreeningPeloCom, Transporte]:
     transporte = Transporte(resposta)
     cliente = ClienteDoCom(base="http://com:3002/", credencial=lambda: "c", transporte=transporte)
     return ScreeningPeloCom(cliente=cliente, sujeito_tipo=sujeito, vertical="dono"), transporte
@@ -76,9 +76,13 @@ class TestOPedido(unittest.TestCase):
         self.assertRegex(corpo["trace_id"], r"^[0-9a-f]{32}$")
         self.assertEqual(timeout, 20.0)
 
-    def test_a_categoria_sujeito_nao_se_monta(self) -> None:
-        with self.assertRaises(ValueError):
-            adaptador(RespostaDoCom(200, {}), "categoria")
+    def test_so_o_sujeito_das_condicoes_se_monta(self) -> None:
+        # O `produto` fazia a re-analise saltar um produto publicado, e a
+        # `categoria` mudava a do tenant (nota do `screening/index.ts` do COM).
+        for sujeito in ("categoria", "produto", "outro"):
+            with self.subTest(sujeito=sujeito):
+                with self.assertRaises(ValueError):
+                    adaptador(RespostaDoCom(200, {}), sujeito)
 
 
 class TestFalhaFechada(unittest.TestCase):
@@ -126,9 +130,10 @@ class TestOContratoComOTypeScript(unittest.TestCase):
         for campo in ("sujeito_tipo", "sujeito_ref", "categoria_declarada", "textos"):
             self.assertIn(f'corpo["{campo}"]', funcao.group(0), campo)
 
-    def test_os_sujeitos_do_adaptador_nao_tem_a_categoria(self) -> None:
-        self.assertNotIn("categoria", SUJEITOS)
-        self.assertIn("produto", SUJEITOS)
+    def test_o_sujeito_do_adaptador_e_o_do_com(self) -> None:
+        self.assertEqual(SUJEITOS, ("condicoes",))
+        indice = (RAIZ / "services/com/src/screening/index.ts").read_text(encoding="utf-8")
+        self.assertIn('export const SUJEITO_DAS_CONDICOES = "condicoes";', indice)
 
 
 if __name__ == "__main__":

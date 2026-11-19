@@ -207,6 +207,15 @@ class TestScreeningDasCondicoes(unittest.TestCase):
         for forma in (str(caso.exception), repr(caso.exception), caso.exception.regra):
             self.assertNotIn("brinde", forma)
 
+    def test_o_responder_passa_a_porta_com_o_tenant_e_o_pedido(self) -> None:
+        """A porta dada chega ao `conferir_condicoes`, com o tenant e nao o contacto."""
+        dono = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
+        porta = PortaFalsa("bloqueada", ("alcool",))
+        with self.assertRaises(regras.CondicoesRecusadasError) as caso:
+            rep.responder(None, TENANT, dono, QID, VALOR, None, "entrega combinada consigo", AGORA, screening=porta)
+        self.assertEqual(caso.exception.regra, "alcool")
+        self.assertEqual(porta.chamadas, [(TENANT, QID, None, ("entrega combinada consigo",))])
+
     def test_o_responder_sem_ponte_recusa_condicoes(self) -> None:
         """Sem `screening`, a porta e a `ScreeningPorLigar`: recusa antes da base."""
         with self.assertRaises(regras.CondicoesRecusadasError):

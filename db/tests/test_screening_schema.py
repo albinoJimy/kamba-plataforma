@@ -50,6 +50,8 @@ TIPOS = RAIZ / "packages" / "core-ts" / "src" / "screening" / "tipos.ts"
 SQL_TS = RAIZ / "packages" / "core-ts" / "src" / "screening" / "sql.ts"
 
 EMISSOR_TS = RAIZ / "packages" / "core-ts" / "src" / "screening" / "emissor.ts"
+#: A operacao do `screen` do COM (KAM-222), que le a categoria declarada do tenant.
+SCREEN_DO_COM_TS = RAIZ / "services" / "com" / "src" / "screening" / "index.ts"
 TIPO_VIOLACAO = "screening.violation_detected"
 CONTRATO_V1 = RAIZ / "contratos" / "eventos" / TIPO_VIOLACAO / "v1.schema.json"
 
@@ -249,6 +251,37 @@ class TestReanalise(ComBase):
         admin.execute(q.sql, q.args("1.1.0+m.2", 100))
         skus = sorted(l[1] for l in admin.fetchall() if l[0] == tenant)
         self.assertEqual(skus, ["ja-decidido", "por-decidir"])
+
+
+class TestCategoriaDoTenantDoCom(ComBase):
+    """KAM-222: o `SQL_CATEGORIA_DO_TENANT` le a ultima decisao `categoria` do tenant.
+
+    E a categoria com que o COM faz o `screen` das condicoes de um orcamento. A
+    ordem e o filtro do sujeito so se medem aqui: o duplo do `screening.test.ts`
+    nao corre SQL.
+    """
+
+    def test_a_ultima_categoria_e_so_a_categoria_e_so_deste_tenant(self) -> None:
+        # Tudo pela mesma ligacao da aplicacao, como o COM: o `kamba_app` grava
+        # no seu tenant e le com a RLS.
+        app = self.ligar("app").cursor()
+        a, b = str(uuid.uuid4()), str(uuid.uuid4())
+        factories.contexto(app, a)
+        gravar(app, a, sujeito_tipo="categoria", sujeito_ref="moda")
+        gravar(app, a, sujeito_tipo="categoria", sujeito_ref="electronica")
+        # Depois da ultima categoria: uma decisao de produto e outra de outro
+        # tenant. Nenhuma das duas pode passar por categoria deste.
+        gravar(app, a, sujeito_tipo="produto", sujeito_ref="sku-depois")
+        factories.contexto(app, b)
+        gravar(app, b, sujeito_tipo="categoria", sujeito_ref="servicos")
+        q = ConsultaDoTypeScript("SQL_CATEGORIA_DO_TENANT", SCREEN_DO_COM_TS)
+        factories.contexto(app, a)
+        app.execute(q.sql, q.args(a))
+        self.assertEqual([tuple(l) for l in app.fetchall()], [("electronica",)])
+        # Com o contexto de B, a RLS nao deixa ler as de A.
+        factories.contexto(app, b)
+        app.execute(q.sql, q.args(a))
+        self.assertEqual(list(app.fetchall()), [])
 
 
 class TestViolacao(ComBase):

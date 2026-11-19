@@ -15606,6 +15606,12 @@ entradas:
       - "versao_politica"
       - "confianca"
       - "SUJEITOS_DA_ROTA"
+      - "SUJEITOS"
+      - "tipos.ts"
+      - "CHECK"
+      - "VALIDATION_ERROR"
+      - "produto"
+      - "sku"
       - "UPSTREAM_DOWN"
       - "condicional"
       - "KAMBA_AGR_URL"
@@ -15613,7 +15619,7 @@ entradas:
     variantes_literais: []
   - seccao: "3.58"
     conceito: "Ponte Python do screen"
-    canonico: "ScreeningPeloCom (../services/agr/src/kamba_agr/tls/screening.py), um PortaDeScreening por sujeito, sobre o ClienteDoCom; erro ScreeningIndisponivelError"
+    canonico: "ScreeningPeloCom (../services/agr/src/kamba_agr/tls/screening.py), um PortaDeScreening sobre o ClienteDoCom, com o sujeito fixado na construção; erro ScreeningIndisponivelError"
     literais:
       - "ScreeningPeloCom"
       - "PortaDeScreening"
@@ -15627,6 +15633,9 @@ entradas:
       - "ScreeningIndisponivelError"
     nomes_nota:
       - "produto"
+      - "PortaDeScreening"
+      - "categoria_declarada"
+      - "None"
     variantes_literais: []
   - seccao: "3.58"
     conceito: "Recusa das condições pelo screen"

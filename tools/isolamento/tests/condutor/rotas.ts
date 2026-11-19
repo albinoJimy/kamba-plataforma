@@ -1713,7 +1713,7 @@ async function grupoDaApiInternaDoCom(relatorio: Relatorio): Promise<void> {
       return { sku: SKU_DE_A, preco_tipo: "fixo", preco_minor: "1000000", versao: VERSAO_DE_A };
     }
     if (rota === "/internal/screen") {
-      return { sujeito_tipo: "produto", sujeito_ref: SKU_DE_A, textos: ["arroz de A"] };
+      return { sujeito_tipo: "condicoes", sujeito_ref: ORDER_DE_A, textos: ["entrega de A"] };
     }
     if (rota === "/internal/propose-cart") return rascunho;
     if (rota === "/internal/create-order") {
@@ -1759,7 +1759,7 @@ async function grupoDaApiInternaDoCom(relatorio: Relatorio): Promise<void> {
       return { sku: canario, preco_tipo: "fixo", preco_minor: "1", versao: VERSAO_DE_A, stock: 1 };
     }
     if (rota === "/internal/screen") {
-      return { sujeito_tipo: "produto", sujeito_ref: canario, categoria_declarada: canario, textos: [canario] };
+      return { sujeito_tipo: "condicoes", sujeito_ref: canario, categoria_declarada: canario, textos: [canario] };
     }
     if (rota === "/internal/propose-cart") return rascunho;
     if (rota === "/internal/create-order") {

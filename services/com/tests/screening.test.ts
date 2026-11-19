@@ -19,13 +19,30 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { politicaCorrente, type ClassificadorDeCategorias, type LinhaDeDecisao } from "@kamba/core-ts/screening";
+import {
+  politicaCorrente,
+  type ClassificadorDeCategorias,
+  type LinhaDeDecisao,
+  type SujeitoTipo,
+} from "@kamba/core-ts/screening";
 
-import { operacaoDeScreen, SQL_CATEGORIA_DO_TENANT, SUJEITOS_DA_ROTA } from "../src/screening/index.ts";
+import {
+  operacaoDeScreen,
+  SQL_CATEGORIA_DO_TENANT,
+  SUJEITO_DAS_CONDICOES,
+  SUJEITOS_DA_ROTA,
+} from "../src/screening/index.ts";
 import type { ClienteSql, ComTenant, Ctx } from "../src/port/index.ts";
 
 const TENANT = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const QUOTE = "0000000a-0000-4000-8000-00000000000a";
+/**
+ * O sujeito com que estes casos medem o `screen` real. **A rota não o aceita**
+ * (`SUJEITOS_DA_ROTA`): é a única forma de exercitar a montagem antes de a
+ * revisão `0074` pôr o sujeito das condições no `CHECK`. O caso da lista por
+ * omissão está à parte.
+ */
+const PRODUTO: readonly SujeitoTipo[] = ["produto"];
 const CTX: Ctx = { tenantId: TENANT, actor: { kind: "agente", id: "grafo-dono" }, traceId: "t-1" };
 
 interface Base {
@@ -89,19 +106,26 @@ function classificador(decisao: "permitida" | "condicional" | "bloqueada"): Clas
   return duplo as unknown as ClassificadorDeCategorias & { chamadas: number };
 }
 
-test("KAM-222: a categoria sujeito nao entra pela rota, e nenhuma ligacao se abre", async () => {
-  assert.ok(!SUJEITOS_DA_ROTA.includes("categoria"));
+test("KAM-222: so o sujeito das condicoes entra pela rota, e nenhuma ligacao se abre para os outros", async () => {
+  // A `categoria` mudava a categoria do tenant; o `produto` fazia a re-análise
+  // saltar um produto publicado (achado 1 da revisão adversarial).
+  assert.deepEqual(
+    SUJEITOS_DA_ROTA.filter((s) => (s as string) !== SUJEITO_DAS_CONDICOES),
+    [],
+  );
   const b = base();
   const operar = operacaoDeScreen({ comTenant: b.comTenant, politica: politicaCorrente(), classificador: null });
-  const r = await operar(CTX, { sujeitoTipo: "categoria", sujeitoRef: "moda", categoriaDeclarada: "moda", textos: ["x"] });
-  assert.deepEqual(r, { tipo: "erro", erro: "VALIDATION_ERROR" });
+  for (const sujeitoTipo of ["categoria", "produto", "outro", ""]) {
+    const r = await operar(CTX, { sujeitoTipo, sujeitoRef: "moda", categoriaDeclarada: "moda", textos: ["x"] });
+    assert.deepEqual(r, { tipo: "erro", erro: "VALIDATION_ERROR" }, sujeitoTipo);
+  }
   assert.equal(b.transaccoes.length, 0);
 });
 
 test("KAM-222: texto de categoria restrita sai bloqueada, com o id da politica, e grava-se", async () => {
   const b = base({ categoriaDoTenant: "moda" });
   const c = classificador("permitida");
-  const operar = operacaoDeScreen({ comTenant: b.comTenant, politica: politicaCorrente(), classificador: c });
+  const operar = operacaoDeScreen({ comTenant: b.comTenant, politica: politicaCorrente(), sujeitos: PRODUTO, classificador: c });
   const r = await operar(CTX, {
     sujeitoTipo: "produto",
     sujeitoRef: QUOTE,
@@ -124,7 +148,7 @@ test("KAM-222: sem categoria no pedido, le-se a do tenant; com ela, nao se le", 
   const semCategoria = base({ categoriaDoTenant: "moda" });
   const operar = operacaoDeScreen({
     comTenant: semCategoria.comTenant,
-    politica: politicaCorrente(),
+    politica: politicaCorrente(), sujeitos: PRODUTO,
     classificador: classificador("permitida"),
   });
   const r = await operar(CTX, { sujeitoTipo: "produto", sujeitoRef: QUOTE, categoriaDeclarada: null, textos: ["entrega combinada consigo"] });
@@ -139,7 +163,7 @@ test("KAM-222: sem categoria no pedido, le-se a do tenant; com ela, nao se le", 
   const comCategoria = base({ categoriaDoTenant: "alcool" });
   const outra = operacaoDeScreen({
     comTenant: comCategoria.comTenant,
-    politica: politicaCorrente(),
+    politica: politicaCorrente(), sujeitos: PRODUTO,
     classificador: classificador("permitida"),
   });
   await outra(CTX, { sujeitoTipo: "produto", sujeitoRef: QUOTE, categoriaDeclarada: "moda", textos: ["vestido"] });
@@ -148,7 +172,7 @@ test("KAM-222: sem categoria no pedido, le-se a do tenant; com ela, nao se le", 
 
 test("KAM-222: um tenant sem categoria avaliada nao tem nada permitida", async () => {
   const b = base();
-  const operar = operacaoDeScreen({ comTenant: b.comTenant, politica: politicaCorrente(), classificador: classificador("permitida") });
+  const operar = operacaoDeScreen({ comTenant: b.comTenant, politica: politicaCorrente(), sujeitos: PRODUTO, classificador: classificador("permitida") });
   const r = await operar(CTX, { sujeitoTipo: "produto", sujeitoRef: QUOTE, categoriaDeclarada: null, textos: ["entrega combinada consigo"] });
   assert.equal(r.tipo, "ok");
   if (r.tipo === "ok") {
@@ -159,7 +183,7 @@ test("KAM-222: um tenant sem categoria avaliada nao tem nada permitida", async (
 
 test("KAM-222: sem classificador, uma permitida das regras sai condicional", async () => {
   const b = base({ categoriaDoTenant: "moda" });
-  const operar = operacaoDeScreen({ comTenant: b.comTenant, politica: politicaCorrente(), classificador: null });
+  const operar = operacaoDeScreen({ comTenant: b.comTenant, politica: politicaCorrente(), sujeitos: PRODUTO, classificador: null });
   const r = await operar(CTX, { sujeitoTipo: "produto", sujeitoRef: QUOTE, categoriaDeclarada: null, textos: ["entrega combinada consigo"] });
   assert.equal(r.tipo, "ok");
   if (r.tipo === "ok") {
@@ -172,7 +196,7 @@ test("KAM-222: sem classificador, uma permitida das regras sai condicional", asy
 test("KAM-222: a injeccao ao classificador e condicional pelas regras", async () => {
   const b = base({ categoriaDoTenant: "moda" });
   const c = classificador("permitida");
-  const operar = operacaoDeScreen({ comTenant: b.comTenant, politica: politicaCorrente(), classificador: c });
+  const operar = operacaoDeScreen({ comTenant: b.comTenant, politica: politicaCorrente(), sujeitos: PRODUTO, classificador: c });
   const r = await operar(CTX, {
     sujeitoTipo: "produto",
     sujeitoRef: QUOTE,
@@ -188,14 +212,14 @@ test("KAM-222: a injeccao ao classificador e condicional pelas regras", async ()
 
 test("KAM-222: um escritor que falha da UPSTREAM_DOWN e nao a decisao", async () => {
   const b = base({ categoriaDoTenant: "moda", falhaAGravar: true });
-  const operar = operacaoDeScreen({ comTenant: b.comTenant, politica: politicaCorrente(), classificador: classificador("permitida") });
+  const operar = operacaoDeScreen({ comTenant: b.comTenant, politica: politicaCorrente(), sujeitos: PRODUTO, classificador: classificador("permitida") });
   const r = await operar(CTX, { sujeitoTipo: "produto", sujeitoRef: QUOTE, categoriaDeclarada: null, textos: ["entrega combinada consigo"] });
   assert.deepEqual(r, { tipo: "erro", erro: "UPSTREAM_DOWN" });
 });
 
 test("KAM-222: um ctx sem tenant levanta antes de abrir ligacao", async () => {
   const b = base();
-  const operar = operacaoDeScreen({ comTenant: b.comTenant, politica: politicaCorrente(), classificador: null });
+  const operar = operacaoDeScreen({ comTenant: b.comTenant, politica: politicaCorrente(), sujeitos: PRODUTO, classificador: null });
   await assert.rejects(
     operar({ ...CTX, tenantId: "nao-e-uuid" }, { sujeitoTipo: "produto", sujeitoRef: QUOTE, categoriaDeclarada: "moda", textos: ["x"] }),
   );

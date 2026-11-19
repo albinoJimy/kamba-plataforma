@@ -25,12 +25,23 @@
  * vazia, e o `screen` lê `nao_listada`, que é `condicional`: um tenant sem
  * categoria avaliada não tem nada `permitida`.
  *
- * ## O sujeito `categoria` não entra por aqui
+ * ## Só o sujeito das condições entra por aqui
  *
- * A decisão de categoria é a do onboarding, e a re-análise lê a mais recente
- * como «a categoria declarada do tenant». Se um chamador interno pudesse gravar
- * uma, um defeito no AGR mudava a categoria do tenant. A rota aceita só os
- * sujeitos de `SUJEITOS_DA_ROTA`.
+ * Os outros dois gravariam decisões que outras leituras tomam por verdade:
+ *
+ * - a `categoria` é a do onboarding, e a re-análise lê a mais recente como «a
+ *   categoria declarada do tenant». Um chamador interno que a gravasse mudava a
+ *   categoria do tenant;
+ * - o `produto` é o que a re-análise procura por `sku` e versão, **sem**
+ *   comparar o `conteudo_sha256` (`SQL_POR_REANALISAR`). Uma decisão de um
+ *   produto publicado, gravada com outro texto, fazia a re-análise saltá-lo, e
+ *   o `screening.violation_detected` nunca saía (achado 1 da revisão
+ *   adversarial). O Catálogo AI (KAM-119) abre-o quando a re-análise comparar o
+ *   conteúdo, ou quando a rota ligar a decisão ao conteúdo publicado.
+ *
+ * O sujeito das condições entra no `SUJEITOS` com a revisão `0074` (decisão do
+ * fundador de 2026-11-19, bloco do KAM-222). Até lá a lista é vazia, e a
+ * operação recusa tudo com `VALIDATION_ERROR`. É fechado.
  *
  * ## *Fail-closed*
  *
@@ -60,18 +71,22 @@ import {
   type ResultadoFinal,
 } from "../port/index.ts";
 
+/** O sujeito das condições de um orçamento. Entra no `CHECK` com a revisão `0074`. */
+export const SUJEITO_DAS_CONDICOES = "condicoes";
+
 /**
- * Os sujeitos que a rota aceita: os do `CHECK`, menos a `categoria` (ver a nota
- * do módulo). Derivados e não escritos à mão: um sujeito novo no `SUJEITOS` do
- * `tipos.ts` entra aqui sem segunda edição.
+ * Os sujeitos que a rota aceita: o das condições, **se** estiver no `SUJEITOS`
+ * do `tipos.ts` (que o ensaio da base compara com o `CHECK`). Antes da revisão
+ * `0074` a lista é vazia. Ver a nota do módulo.
  */
 export const SUJEITOS_DA_ROTA: readonly SujeitoTipo[] = SUJEITOS.filter(
-  (sujeito) => sujeito !== "categoria",
+  (sujeito) => (sujeito as string) === SUJEITO_DAS_CONDICOES,
 );
 
 /** O pedido que a rota valida. `categoriaDeclarada` `null` quer dizer «a do tenant». */
 export interface PedidoDeScreen {
-  readonly sujeitoTipo: SujeitoTipo;
+  /** Uma cadeia: quem decide se é um sujeito aceite é a operação. */
+  readonly sujeitoTipo: string;
   readonly sujeitoRef: string;
   readonly categoriaDeclarada: string | null;
   readonly textos: readonly string[];
@@ -91,6 +106,11 @@ export interface DependenciasDoScreenDoCom {
   readonly politica: PoliticaCompilada;
   /** `null` quando o AGR não está configurado: o `screen` lê-o como indisponível. */
   readonly classificador: ClassificadorDeCategorias | null;
+  /**
+   * Os sujeitos aceites. Por omissão o `SUJEITOS_DA_ROTA`. Só um ensaio passa
+   * outra lista, para medir o `screen` real antes da revisão `0074`.
+   */
+  readonly sujeitos?: readonly SujeitoTipo[];
 }
 
 export type OperacaoDeScreen = (
@@ -102,7 +122,9 @@ export function operacaoDeScreen(deps: DependenciasDoScreenDoCom): OperacaoDeScr
   return async (ctx, pedido) => {
     // Antes de qualquer ligação, como em todo o COM (ISO-09).
     const { tenantId } = exigirCtx(ctx);
-    if (!SUJEITOS_DA_ROTA.includes(pedido.sujeitoTipo)) return erro("VALIDATION_ERROR");
+    const aceites = deps.sujeitos ?? SUJEITOS_DA_ROTA;
+    if (!(aceites as readonly string[]).includes(pedido.sujeitoTipo)) return erro("VALIDATION_ERROR");
+    const sujeitoTipo = pedido.sujeitoTipo as SujeitoTipo;
     try {
       const categoria =
         pedido.categoriaDeclarada ??
@@ -112,7 +134,7 @@ export function operacaoDeScreen(deps: DependenciasDoScreenDoCom): OperacaoDeScr
           return typeof valor === "string" ? valor : "";
         }));
       const resultado = await screen(
-        { tenantId, sujeitoTipo: pedido.sujeitoTipo, sujeitoRef: pedido.sujeitoRef },
+        { tenantId, sujeitoTipo, sujeitoRef: pedido.sujeitoRef },
         { categoria_declarada: categoria, textos: pedido.textos },
         {
           politica: deps.politica,

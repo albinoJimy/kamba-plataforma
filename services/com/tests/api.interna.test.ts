@@ -827,7 +827,7 @@ test("KAM-222: o screen recebe o tenant do cabecalho e o pedido do corpo", async
       "/internal/screen",
       {
         ...CTX_DO_CORPO,
-        sujeito_tipo: "produto",
+        sujeito_tipo: "condicoes",
         sujeito_ref: ORDER,
         textos: ["entrega combinada consigo"],
         // Um tenant no corpo não desloca o `ctx`.
@@ -846,7 +846,7 @@ test("KAM-222: o screen recebe o tenant do cabecalho e o pedido do corpo", async
     {
       tenantId: TENANT,
       pedido: {
-        sujeitoTipo: "produto",
+        sujeitoTipo: "condicoes",
         sujeitoRef: ORDER,
         categoriaDeclarada: null,
         textos: ["entrega combinada consigo"],
@@ -857,10 +857,11 @@ test("KAM-222: o screen recebe o tenant do cabecalho e o pedido do corpo", async
 
 test("KAM-222: um corpo de screen que nao valida da 400, e o screen nao corre", async () => {
   const { aplicacao, chamadas } = app();
-  const bom = { sujeito_tipo: "produto", sujeito_ref: ORDER, textos: ["x"] };
+  // O sujeito aceite decide-o a operação (`screening.test.ts`); aqui, só a forma.
+  const bom = { sujeito_tipo: "condicoes", sujeito_ref: ORDER, textos: ["x"] };
   const maus: Record<string, unknown>[] = [
-    { ...bom, sujeito_tipo: "categoria" },
-    { ...bom, sujeito_tipo: "outro" },
+    { ...bom, sujeito_tipo: "" },
+    { ...bom, sujeito_tipo: 7 },
     { ...bom, sujeito_tipo: undefined },
     { ...bom, sujeito_ref: "" },
     { ...bom, sujeito_ref: "r".repeat(201) },
@@ -885,7 +886,7 @@ test("KAM-222: um screen que falha sai 503 com o codigo, e nao 200", async () =>
     credencial: CREDENCIAL,
   });
   const r = await aplicacao.fetch(
-    pedido("/internal/screen", { ...CTX_DO_CORPO, sujeito_tipo: "produto", sujeito_ref: ORDER, textos: ["x"] }, BONS),
+    pedido("/internal/screen", { ...CTX_DO_CORPO, sujeito_tipo: "condicoes", sujeito_ref: ORDER, textos: ["x"] }, BONS),
   );
   assert.equal(r.status, 503);
   assert.deepEqual(await r.json(), { tipo: "erro", erro: "UPSTREAM_DOWN" });

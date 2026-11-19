@@ -7,13 +7,18 @@ dele. **Nao ha segundo motor em Python.** Este adaptador chama o `screen` pela
 `services/com/src/screening/index.ts`), pelo mesmo `ClienteDoCom` das tools de
 comercio, com o `com_internal_token` e o `x-kamba-tenant`.
 
-## Um adaptador por sujeito
+## O sujeito e do adaptador, e hoje so ha um
 
 O `PortaDeScreening` nao tem sujeito na assinatura: foi escrito para o produto
-do Catalogo AI. O sujeito e do adaptador. O Catalogo AI (KAM-119) monta um com
-`produto`, e as condicoes de um orcamento (KAM-123) montam um com `condicoes`.
-Ate a revisao que poe `condicoes` no `CHECK` da `screening_decision` entrar, o
-COM recusa esse sujeito com 400, e o adaptador levanta. E fechado.
+do Catalogo AI. O sujeito e do adaptador, e o unico que a rota aceita e o das
+condicoes de um orcamento (KAM-123). O `produto` fica fora pela razao que a nota
+de `services/com/src/screening/index.ts` escreve: uma decisao de produto gravada
+por aqui fazia a re-analise saltar o produto publicado. Abre-o o KAM-119. Por
+isso o `conferir_condicoes` nao pode receber, por engano, uma porta que grave
+`produto` com o `quote_id`.
+
+Ate a revisao que poe o sujeito das condicoes no `CHECK` da `screening_decision`
+entrar (a `0074`), o COM recusa-o com 400, e o adaptador levanta. E fechado.
 
 ## A categoria declarada, quando nao ha
 
@@ -44,9 +49,9 @@ from .com import ClienteDoCom
 #: A rota do COM. Igual a da constante `ROTAS` de `services/com/src/api/interna.ts`.
 ROTA: Final = "/internal/screen"
 
-#: Os sujeitos que o COM aceita na rota, menos a `categoria` (que e do onboarding).
-#: `condicoes` so passa depois da revisao que o poe no `CHECK`.
-SUJEITOS: Final = ("produto", "condicoes")
+#: Os sujeitos que o COM aceita na rota (`SUJEITOS_DA_ROTA`): so o das condicoes,
+#: e so depois da revisao que o poe no `CHECK`.
+SUJEITOS: Final = ("condicoes",)
 
 #: O tecto de uma chamada. O classificador do `screen` tem 15 s
 #: (`TEMPO_MAXIMO_MS` do `classificador.ts`), e o COM grava depois: vinte
