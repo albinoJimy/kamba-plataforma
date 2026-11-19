@@ -58,7 +58,8 @@ Estado da evidência (E5): **CONFIRMADO** — preços e termos publicados dos fo
 | KAM-215 | Canal do dono: o dono nasce do provisionamento em produção — emissor, `phone_enc` e consumidor | feature | L | P1 | KAM-211 |
 | KAM-216 | Canal do dono: o número da loja persistido e o `owner_channel_wa` no painel | feature | M | P1 | KAM-211 |
 | KAM-217 | Canal do dono: o painel do dono em produção — `OwnerPort`, processo web ligado e troca montada | feature | L | P1 | KAM-211 |
-| KAM-226 | Canal do dono: a `OwnerPort` com caminho de resposta, a credencial do AGR e a troca persistida | feature | L | P1 | KAM-217 |
+| KAM-226 | Canal do dono: a `OwnerPort`, a mensagem do dono persistida e a troca com prova de posse | feature | L | P1 | KAM-217, KAM-227 |
+| KAM-227 | Saída do AGR: o evento de resposta do turno, para o WhatsApp e para o painel | feature | L | P1 | KAM-217 |
 
 ---
 
@@ -174,7 +175,7 @@ Os ensaios: `packages/core-ts/tests/dono.test.ts` e `chr.persona.test.ts` (gate 
 | 6 | marcado | 50 tentativas de um `cliente` com o nome de uma tool do dono → **0** sucessos, 50 `TOOL_NOT_ALLOWED` e 50 linhas de `tool_audit` (`test_cinquenta_tentativas_de_um_cliente_dao_zero_sucessos_e_cinquenta_linhas`), todas recusadas **pela lista** e não pelo estado `declarada`, e a mesma tool passa a lista do dono (`test_o_dono_passa_a_lista_e_para_no_estado_declarada`; achado 1 da revisão); nenhuma tool do dono está na lista de um cliente (`test_nenhuma_tool_do_dono_esta_na_lista_de_um_cliente`) |
 | 7 | **parcial — caixa vazia** | **A decisão está, com os dois cenários; ninguém a lê.** `canalDoDono`: telefone igual ao número da loja → `owner_channel_wa=false` e painel; diferente → WhatsApp activo; número ausente ou ilegível → painel (`dono.test.ts`, critério 7). **Falta** quem a consuma: o `GET /painel/canal` já lê o canal pelo COM desde o KAM-190 (`CanalPeloCom`, `POST /internal/channel-view`), mas a `VistaDoCanal` não traz telefone nenhum por desenho, e nenhuma tabela guarda o número da loja. Credor: **KAM-211**. **Revisto no KAM-211**: guardar o número da loja é esquema novo, e passa ao **KAM-216** |
 | 8 | marcado | **A letra é a do Piloto, reescrita por decisão do fundador de 2026-11-18** («Manter as regras»). `decidirProactiva`: dentro da janela, *service message* sem *template*; fora, `suprimir` com `fora_da_janela`, e 0 *templates* em 100 tentativas; a decisão não tem `template` como desfecho; uma janela que não se leu bem suprime (`dono.test.ts`, critério 8). É uma decisão e não um envio: não está ligada a envio nenhum, porque nenhum caminho manda hoje ao dono uma mensagem que ele não pediu, e o Outbound impõe por conta própria a janela e as `CATEGORIAS_DO_PILOTO` — esta função é a primeira barreira e não a única |
-| 9 | não satisfeito — caixa vazia | O painel não ganhou rota nova: a `OwnerPort` (*proposta*) e o mesmo `thread_id` do dono no painel não existem. O que este ticket deixa é a entrada a que ela chega — a persona `dono` no AGR, pela mesma ToolLayer. Credor: **KAM-211**. **Revisto no KAM-211**: a `OwnerPort` precisa de o texto chegar ao AGR e de a resposta voltar à web, e o processo web não tem base nem credencial do AGR; passa ao **KAM-217**. **Revisto no KAM-217**: o processo tem base, e a `OwnerPort` espera pelas decisões do contrato do texto e da saída do AGR; passa ao **KAM-226** |
+| 9 | não satisfeito — caixa vazia | O painel não ganhou rota nova: a `OwnerPort` (*proposta*) e o mesmo `thread_id` do dono no painel não existem. O que este ticket deixa é a entrada a que ela chega — a persona `dono` no AGR, pela mesma ToolLayer. Credor: **KAM-211**. **Revisto no KAM-211**: a `OwnerPort` precisa de o texto chegar ao AGR e de a resposta voltar à web, e o processo web não tem base nem credencial do AGR; passa ao **KAM-217**. **Revisto no KAM-217**: o processo tem base, e a `OwnerPort` espera pela implementação das decisões do contrato do texto e da saída do AGR, que o fundador tomou a 2026-11-19; passa ao **KAM-226**, com a saída no **KAM-227** |
 | 10 | marcado | `registry/dono.yaml` passa a validação do arranque (`test_o_registo_do_dono_passa_a_validacao_do_arranque`); reaproveitamento de 12 nós em 16, **75%**, os mesmos objectos do Vendedor (`test_o_reaproveitamento_e_de_pelo_menos_setenta_por_cento`, `test_os_reutilizados_sao_os_mesmos_objectos_do_vendedor`); nenhum texto do dono leva dígitos (`test_nenhum_texto_do_dono_leva_digitos`) e os módulos novos passam o `log_policy` do gate 4; 60 mensagens/hora do dono, e a 61.ª descartada (`test_o_dono_passa_sessenta_numa_hora_e_a_seguinte_e_descartada`), sem custo para um cliente (`test_um_cliente_nao_paga_a_janela_da_hora`) |
 
 ### Verificação da Definition of Done
@@ -1236,11 +1237,11 @@ Seis critérios, **um marcado**. **Sem LLM pago, sem chave real e sem telefone r
 | Critério | Estado | Evidência nomeada |
 |---|---|---|
 | 1 | não satisfeito — caixa vazia | Só a porta tem adaptador: `definirDonoNaBase`, idempotente 3× e a recusar um segundo dono com `23505` («o provisionamento pela porta é idempotente e não troca o dono», `tests_bd/dono.bd.test.ts`). O emissor em produção, o formato de cifra e a KEK do `phone_enc`, o escritor do caso e a subscrição (uma revisão de dados) passam ao **KAM-215** |
-| 2 | **parcial — caixa vazia** | **A rota e o adaptador estão, e ensaiam-se pelo caminho real; não estão montados.** Contra a base: até o código acertar o número novo é `cliente` e o antigo `dono`; o código certo move o papel, marca os dois e escreve o `owner_contact_id`; os dois avisos saem pelos ganchos, e a persona que o CHR lê pelo `SQL_PAPEL` como `kamba_app` acompanha (`tests_bd/dono.bd.test.ts`, «até o código acertar o número novo é cliente e o antigo é dono; depois, o contrário»); o `kamba_app` recebe `42501` e o tenant é o do contexto (`23503`). Pela superfície HTTP, com o `Otp` e a `TrocaDeTelefone` reais: o tenant de B no corpo, na consulta ou num cabeçalho não muda nada, e a sessão de A não verifica o pedido de B nem com o código certo de B; antes de `activo` a troca recusa com 409; há limite por rede; dois pedidos concorrentes da mesma sessão dão um envio (`services/onboarding-web/tests/troca.test.ts` e `dono.test.ts`); um mutante que lê o tenant do corpo dá um vermelho ali e `pedido=alheio` no *gate* 6 (medido). **Falta** montá-las no `server.ts`, que é o **KAM-217**. **Revisto no KAM-217**: montadas, com o processo ligado como `kamba_identity` por um *pool* e a troca concorrente de dois tenants ensaiada contra a base pela montagem do processo. Falta persistir o OTP e os pedidos (**KAM-226**), e a prova de posse é decisão do fundador por tomar |
+| 2 | **parcial — caixa vazia** | **A rota e o adaptador estão, e ensaiam-se pelo caminho real; não estão montados.** Contra a base: até o código acertar o número novo é `cliente` e o antigo `dono`; o código certo move o papel, marca os dois e escreve o `owner_contact_id`; os dois avisos saem pelos ganchos, e a persona que o CHR lê pelo `SQL_PAPEL` como `kamba_app` acompanha (`tests_bd/dono.bd.test.ts`, «até o código acertar o número novo é cliente e o antigo é dono; depois, o contrário»); o `kamba_app` recebe `42501` e o tenant é o do contexto (`23503`). Pela superfície HTTP, com o `Otp` e a `TrocaDeTelefone` reais: o tenant de B no corpo, na consulta ou num cabeçalho não muda nada, e a sessão de A não verifica o pedido de B nem com o código certo de B; antes de `activo` a troca recusa com 409; há limite por rede; dois pedidos concorrentes da mesma sessão dão um envio (`services/onboarding-web/tests/troca.test.ts` e `dono.test.ts`); um mutante que lê o tenant do corpo dá um vermelho ali e `pedido=alheio` no *gate* 6 (medido). **Falta** montá-las no `server.ts`, que é o **KAM-217**. **Revisto no KAM-217**: montadas, com o processo ligado como `kamba_identity` por um *pool* e a troca concorrente de dois tenants ensaiada contra a base pela montagem do processo. Falta persistir o OTP e os pedidos (**KAM-226**), e a prova de posse decidiu-a o fundador a 2026-11-19 (opção C do bloco do KAM-217), também no **KAM-226** |
 | 3 | **parcial — caixa vazia** | **O botão chega e confirma; nenhuma acção executa.** A letra pede «duplo toque ×2 → **1** execução», e o que se mede é **uma confirmação** na `owner_actions`: as acções sensíveis em si são do KAM-119, KAM-121 e KAM-123, e é por isso mesmo que a caixa 5 do KAM-118 fica vazia — marcar esta com a mesma medida era ler «execução» como «confirmação» num bloco e não no outro (achado 6 da revisão). Fecha quando o primeiro desses módulos executar uma acção pelo portão. O que está medido: pelo caminho CHR → AGR, numa ponte por *fixture*: um `button_reply` do webhook sai do `Chr.tratar` com o corpo **exacto** de `tests/fixtures/invocacao_do_botao.json` (`chr.botao.test.ts`, «o toque do dono sai do CHR com o corpo exacto da fixture que o AGR le»), e o AGR lê esse ficheiro e corre o turno do dono até ao `confirmar`: duplo toque ×2 → **1** confirmação (`test_dono.TestBotaoPeloContrato`). Vinte textos — «sim», «ok», e o próprio `confirm:{action_id}` escrito — saem do CHR sem `botao` («vinte textos de confirmacao saem sem `botao`») e dão **0**/20 no turno, sem abrir a base (`test_vinte_textos_pelo_turno_nao_confirmam_nem_abrem_a_base`). Replay de botão antigo expira; um botão de outro tenant não confirma e não diz porquê (`TestBotaoNoGrafoDoDono`). Contra a base, a porta do `__main__` dá `confirmada` e `ja_confirmada` com uma ligação `kamba_app` por toque (`test_owner_actions.TestPortaDeConfirmacao`). **Um toque não coalesce**: o estado do lote sai da primeira invocação, e um toque atrás de um texto perdia o `botao` (achado 1 da revisão, medido pela `ExecutorDeTurnos` real); `test_turno.TestUmToqueNaoCoalesce` corre o executor com textos e toques dentro da janela, e o mutante sem as duas guardas dá três vermelhos. Um `interactive` sem `botao` não lê o texto da janela (achado 2), com ensaio directo ao `classify`. Dois mutantes medidos antes: sem a exigência de `type: interactive`, quatro vermelhos; sem a do `_botao_do_turno`, um |
 | 4 | não satisfeito — caixa vazia | Nenhuma tabela guarda o número da loja, e guardá-lo é esquema novo: **KAM-216** |
 | 5 | marcado | Depois de uma troca, o *handoff* do dono antigo retoma no grafo do Vendedor, e o `Retomador` acaba-o (`test_dono.TestRetomaPeloPapel.test_depois_da_troca_o_handoff_do_dono_antigo_retoma_como_cliente`); o sentido contrário também (`test_o_cliente_que_passou_a_dono_retoma_no_grafo_do_dono`); só o papel exacto `dono` abre o grafo do dono, em oito valores (`test_so_o_papel_exacto_dono_da_o_grafo_do_dono`); uma leitura que falha não abre a ligação do CAS (`test_uma_leitura_do_papel_que_falha_nao_abre_a_base_do_cas`); o `main()` liga a porta à ligação de leitura (`test_grafos.test_o_papel_da_retoma_le_se_pela_ligacao_de_leitura`). Contra a base, como `kamba_app`, depois de uma troca pela `definir_dono` o dono antigo lê-se `cliente` (`db/tests_agr/test_retoma_pelo_papel.py`). Um mutante que volta a ler a persona do *checkpoint* dá **11** vermelhos (medido). Está antes de o KAM-119 ligar tools de escrita |
-| 6 | não satisfeito — caixa vazia | A `OwnerPort` precisa do texto no AGR e da resposta na web, e de o processo web ganhar base e credencial do AGR: **KAM-217**. **Revisto no KAM-217**: o processo ganhou a base, e a `OwnerPort` não se escreveu — o AGR não tem saída (`SaidaPorLigar`), e o contrato do texto e da resposta é decisão do fundador por tomar. Passa ao **KAM-226** |
+| 6 | não satisfeito — caixa vazia | A `OwnerPort` precisa do texto no AGR e da resposta na web, e de o processo web ganhar base e credencial do AGR: **KAM-217**. **Revisto no KAM-217**: o processo ganhou a base, e a `OwnerPort` não se escreveu — o AGR não tem saída (`SaidaPorLigar`), e o contrato do texto e da resposta decidiu-o o fundador a 2026-11-19 (bloco do KAM-217). Passa ao **KAM-226**, com a saída do AGR no **KAM-227** |
 
 ### Verificação da Definition of Done
 
@@ -1260,7 +1261,7 @@ Uma revisão independente, que recebeu o diff e os critérios e não o raciocín
 | 2 | deve corrigir | Num `interactive` sem `botao`, o `_botao_do_turno` lia o texto da janela, que acumula turnos anteriores: um `confirm:{uuid}` escrito antes valia como toque quando o texto chegar ao AGR | Sem `botao`, não há botão; o ensaio directo ao `classify` cobre o caso, e o mutante com o recurso ao texto dá um vermelho |
 | 3 | deve corrigir | As rotas da troca não tinham limite por rede: uma sessão mandava SMS a números diferentes até esgotar o orçamento diário do `Otp` | O limite da reentrada, noutra chave (`recusaDaTroca`); ensaio do 429 |
 | 4 | deve corrigir | A troca abria antes do provisionamento: sem dono anterior, criava o primeiro por `troca_de_telefone`, e o `tenant.provisioned` seguinte recusava com `23505` | A troca só abre em `activo` (`FASE_DA_TROCA`), com 409 antes; ensaio nas quatro fases anteriores, e o condutor do *gate* 6 ataca com uma sessão sobre um caso `activo` |
-| 5 | deve corrigir → **decisão por tomar** | A troca não volta a autenticar quem tem o papel: basta a sessão do painel e o OTP do número novo, enquanto a reentrada manda o código ao telefone registado | É de segurança e de produto: escrita como decisão por tomar no **KAM-217**, antes de montar a troca em produção |
+| 5 | deve corrigir → **decisão por tomar** | A troca não volta a autenticar quem tem o papel: basta a sessão do painel e o OTP do número novo, enquanto a reentrada manda o código ao telefone registado | É de segurança e de produto: escrita como decisão por tomar no **KAM-217**, antes de montar a troca em produção. **Decidida pelo fundador a 2026-11-19**: opção C do bloco do KAM-217, implementada no KAM-226 |
 | 6 | deve corrigir | O critério 3 estava marcado com «1 execução» medida como uma confirmação, e a caixa 5 do KAM-118 ficava vazia pela razão oposta | O critério 3 fica **parcial**, com a leitura escrita e as duas caixas pela mesma medida |
 | 7 | menor | A nota do `arestas.py` dizia dezasseis nós e 75% | Dezassete e 70,6% |
 | 8 | menor | Dois `pedir` concorrentes da mesma sessão podiam deixar o desafio de um número com o telefone de outro | A `TrocaDeTelefone` recusa um segundo envio do mesmo pedido enquanto o primeiro corre; ensaio com um OTP lento em `dono.test.ts` |
@@ -1394,7 +1395,7 @@ Testes: integração contra a base com os dois cenários, isolamento.
 | Prioridade | P1 |
 | Estimativa | L |
 | Dependências | KAM-211 |
-| Bloqueia | KAM-226 |
+| Bloqueia | KAM-226, KAM-227 |
 | Responsável sugerido | Engenheiro de Runtime/IA (AGR) com Engenheiro de Plataforma (`onboarding-web`) |
 | Documentos de referência | `EPIC-11_Modulos_Entrada.md` (blocos KAM-118 e KAM-211, critérios «Troca de telefone» e «Painel do dono»), `EPIC-09_Onboarding_Governanca.md` (blocos KAM-099 e KAM-190), `EPIC-03_Agent_Runtime_Verticais.md` (bloco KAM-186), `02_Dicionario_de_Dados_Canonico.md` (§3.13 e §3.78) |
 
@@ -1414,9 +1415,9 @@ O dono fala com o Assistente do Dono pelo painel, com o mesmo `thread_id` e a me
 
 ### Detalhes Técnicos
 
-- **Decisão por tomar:** o contrato do texto do painel até ao AGR (o KAM-186 decidiu que o `agent_invocation` não leva o corpo) e o caminho da resposta. É canon, e a decisão é do fundador.
+- **Decisão do fundador (tomada a 2026-11-19):** o contrato do texto do painel até ao AGR (o KAM-186 decidiu que o `agent_invocation` não leva o corpo) e o caminho da resposta. Decisões 1 e 2 abaixo, opção A nas duas.
 - **Topologia:** dar à rede do `onboarding-web` acesso à base e ao AGR muda o *compose* e o inventário de segredos.
-- **Decisão por tomar — a prova de posse da troca** (achado 5 da revisão do KAM-211): a troca pede o OTP do número **novo** e uma sessão do painel, que dura até 30 dias; quem tiver o *cookie* passa o papel para o seu número, e só o bloqueio de 24 h atrasa as acções sensíveis. A reentrada do KAM-190 manda o código ao telefone **registado**. Pedir também prova ao número antigo fecha isto e tira a troca a quem perdeu o SIM, que é o caso para que ela existe. É de segurança e de produto, e decide-se antes de montar a troca em produção.
+- **Decisão por tomar — a prova de posse da troca** (achado 5 da revisão do KAM-211): a troca pede o OTP do número **novo** e uma sessão do painel, que dura até 30 dias; quem tiver o *cookie* passa o papel para o seu número, e só o bloqueio de 24 h atrasa as acções sensíveis. A reentrada do KAM-190 manda o código ao telefone **registado**. Pedir também prova ao número antigo fecha isto e tira a troca a quem perdeu o SIM, que é o caso para que ela existe. É de segurança e de produto, e decide-se antes de montar a troca em produção. **Tomada a 2026-11-19**: decisão 3 abaixo, opção C.
 
 ### Testes Requeridos
 
@@ -1442,16 +1443,16 @@ Testes: integração, isolamento e adversarial (sessão cruzada, texto que imita
 
 ### Decisões do executor
 
-- **Entregue só a parte que nenhuma decisão bloqueia**, pela divisão confirmada pela coordenação do lote 12 (2026-11-19). Medido na `publico/main` em `f0a31b54`, há três coisas fora do alcance deste ticket. **(1) O AGR não responde a ninguém**: a `saida` que o `main()` liga é a `SaidaPorLigar` (`services/agr/src/kamba_agr/__main__.py`), e nenhum serviço instancia o `Saida` do KAM-015. Um turno que quer responder dá 503 `saida_por_ligar` e volta à fila, no WhatsApp como no painel. **(2) Persistir o OTP e os pedidos da troca é esquema novo**: não há tabela de desafios OTP, e o `Otp` é o mesmo do registo, em memória (`OtpEmMemoria`). **(3) A prova de posse da troca** é do fundador. Por isso a `OwnerPort`, a credencial do AGR e a persistência passam ao **KAM-226**, e as três decisões ficam escritas abaixo, para o fundador.
+- **Entregue só a parte que nenhuma decisão bloqueia**, pela divisão confirmada pela coordenação do lote 12 (2026-11-19). Medido na `publico/main` em `f0a31b54`, há três coisas fora do alcance deste ticket. **(1) O AGR não responde a ninguém**: a `saida` que o `main()` liga é a `SaidaPorLigar` (`services/agr/src/kamba_agr/__main__.py`), e nenhum serviço instancia o `Saida` do KAM-015. Um turno que quer responder dá 503 `saida_por_ligar` e volta à fila, no WhatsApp como no painel. **(2) Persistir o OTP e os pedidos da troca é esquema novo**: não há tabela de desafios OTP, e o `Otp` é o mesmo do registo, em memória (`OtpEmMemoria`). **(3) A prova de posse da troca** é do fundador. Por isso a `OwnerPort`, a credencial do AGR e a persistência passam ao **KAM-226**, e as três decisões ficaram escritas abaixo para o fundador, que as tomou a 2026-11-19.
 - **O processo liga-se à base como `kamba_identity`, e só para a troca.** O `server.ts` monta a troca (`montarTroca`) quando há painel (`ONBOARDING_COM_INTERNO_URL`) **e** a cadeia `ONBOARDING_IDENTITY_DB_URL`. Sem ela as duas rotas respondem 503, como até aqui. As chaves do contacto são as do CHR (`EnvKeyProvider`), e o `Identidade.arrancar` recusa-as se o `KAMBA_ENV` não for o ambiente do processo. **Com a cadeia definida, o `pepper_contact_hmac` e o `kek_contact_dek` são obrigatórios no `Secrets.arrancar`**: o `Identidade.arrancar` não lê chave nenhuma, e sem esta verificação o processo subia e o primeiro dono a acertar o código gastava-o e recebia um 500. Uma ligação que cai, inactiva ou emprestada, é registada e não derruba o processo (os casos vivem em memória), e uma base que não responde dá erro ao fim de 5 s (*proposta*). **O processo continua a recusar `prod`**: o `RepositorioEmMemoriaEmProducaoError` não mudou.
 - **Uma ligação do *pool* por operação** (`trocaPeloPool` e `numaLigacao`, em `packages/core-ts/src/dono/sql.ts`). O servidor atende pedidos concorrentes, e a troca é uma transacção com o tenant no `app.tenant_id`. Sobre uma ligação partilhada, o `tenant_guard` recusa a segunda transacção enquanto a primeira corre (`LigacaoEmUsoError`): não cruza tenants, mas o dono que chega em segundo recebe um erro. O ensaio mediu-o por acidente, numa preparação que corria em paralelo sobre a ligação única do ensaio. Uma ligação que falha é destruída, e não devolvida. O *pool* tem quatro ligações (*proposta*, a calibrar no KAM-084).
 - **Os avisos da troca ficam registados, e não entregues.** Os ganchos `DESTINOS_DO_AVISO` do KAM-118 recebem uma linha por destino, só com o `outcome` (`painel_troca_aviso_numero_antigo_por_entregar`, `painel_troca_aviso_email_por_entregar`), sem tenant nem número. Entregá-los é do KAM-115, que não tem canal. **Hoje o dono antigo não é avisado de nada**, e isto pesa na decisão 3.
 - **Topologia:** o `onboarding-web` entra na rede `data` em `dev` e em `staging`. Em `staging` a cadeia é opcional (`:-`), porque o painel também o é, e a rede `data` entra sem condição: o compose não liga redes por variável, e é em `staging` que a troca se ensaia antes de produção. Em `dev` a cadeia nunca fica vazia, pelo que a troca se desliga pela falta do painel. **O compose de produção não muda**: o processo recusa `prod`, e ligar um processo público à rede `data` antes de ele lá correr era abrir topologia por nada. O inventário de segredos acrescenta o `TEN` (o `onboarding-web`) aos consumidores do `db_identity_password`, do `pepper_contact_hmac` e do `kek_contact_dek`.
 - **Achado fora de escopo:** o serviço `onboarding-web` dos três compose não define o `KAMBA_AMBIENTE` nem os segredos da inscrição. Lido no `server.ts`, isso faz o `exigir` lançar logo no arranque, pelo que o serviço do compose não sobe hoje. É **INDÍCIO**: foi lido, não corrido, porque o motor do Docker esteve em baixo. Não se corrigiu aqui, porque é configuração da inscrição (KAM-086) e não da troca. Passa ao **KAM-226**, que precisa do processo a correr.
 
-### Decisões do fundador por tomar
+### Decisões do fundador
 
-Três decisões, cada uma com as opções medidas. Nenhuma se tomou neste ticket, e o código não antecipa nenhuma.
+Três decisões, cada uma com as opções medidas. **O fundador tomou as três a 2026-11-19, no chat, e a coordenação do lote 12 trouxe-as a este PR**: A, A e C. As tabelas ficam como registo das opções que ele teve à frente. O código deste ticket não antecipa nenhuma; quem as implementa é o KAM-226 e o KAM-227.
 
 **Decisão 1 — o contrato do texto e da resposta do painel.**
 
@@ -1465,6 +1466,8 @@ Três decisões, cada uma com as opções medidas. Nenhuma se tomou neste ticket
 | **B — o texto entra pelo painel, e a resposta volta pelo WhatsApp** | A entrada é a de A, e a resposta sai pelo Outbound para o número do dono, na mesma *thread*. O painel não mostra resposta. | Não há caminho de resposta na web. **Não serve o caso para que o painel existe**: o dono com o Embedded Signup por concluir não tem WhatsApp ligado, e não recebe nada. Fora da janela de 24 h, a resposta precisava de *template*, e a categoria `marketing` está fora do Piloto (decisão do fundador de 2026-11-18). |
 | **C — rota síncrona própria do painel** | Uma rota interna nova no AGR recebe o texto no corpo, fora do `agent_invocation`. Corre o turno do dono sob a mesma tranca, e devolve a resposta na resposta HTTP. | O `agent_invocation` fica como o KAM-186 o deixou, sem migração e sem persistência nova antes do AGR. Mas há **um segundo contrato de entrada com texto**, que pode divergir do primeiro, e o WhatsApp continua sem rota de texto. A rota pede uma credencial própria, pela regra do `agr_screening_token`. O turno tem de caber nos 30 s da `ESPERA_MAXIMA_MS`, e um *handoff* a meio não tem para onde responder. |
 
+**Decidido: opção A** (o fundador, 2026-11-19). A mensagem do dono fica numa fonte persistida, e o AGR lê-a pelo identificador. A resposta volta ao painel pelo canal `painel`. É a mesma rota para o WhatsApp, e fecha a saída (b) do KAM-186. Implementa-a o **KAM-226**: a fonte persistida, a emenda ao §3.13 e a `OwnerPort`.
+
 **Decisão 2 — a saída do AGR.**
 
 *Hoje.* A `PortaDeSaida` do grafo é a `SaidaPorLigar`: avisa e levanta `SaidaPorLigarError`, e a rota dá 503 `saida_por_ligar` com `Retry-After`. O *job* volta à fila e, ao fim de seis tentativas, fica em `failed`. A resposta não sai, mas também não se perde: o turno fica no *checkpoint* com o envio por correr, e reprocessa-se quando a saída existir. O Outbound (`Saida`, `packages/core-ts/src/outbound/`, KAM-015) é uma biblioteca TypeScript que nenhum serviço instancia. O AGR é Python, e não há fila nem rota entre os dois.
@@ -1477,7 +1480,7 @@ Três decisões, cada uma com as opções medidas. Nenhuma se tomou neste ticket
 | **B — chamada HTTP interna** | O AGR chama uma rota interna do processo que tem o `Saida`. | Sem esquema. Mas a resposta não é atómica com o turno, cada consumidor precisa da sua credencial, e a repetição fica a cargo do AGR. |
 | **C — fila própria `agr-outbound`** | Uma fila BullMQ que o AGR enche e o `worker-canal` consome. | O `ADR-L004` escolheu um *shim* TypeScript e não o `bullmq` para Python, porque a interoperabilidade deste com o `bullmq` TypeScript que a casa usa é **NÃO VERIFICADA** e porque era uma dependência nova. Esta opção reabre essas duas perguntas no sentido contrário: mede-se a interoperabilidade, e emenda-se o ADR. |
 
-**Nenhum ticket aberto produz este contrato.** O KAM-186 deixou-o como «achado com credor por abrir». O KAM-226 só o pode fechar para o painel se o fundador o puser lá. Se o quiser em ticket próprio, porque serve também o WhatsApp, é esse o credor, e o KAM-226 passa a depender dele.
+**Decidido: opção A** (o fundador, 2026-11-19). Um evento de resposta pela `platform.evt_emitir`, na transacção do turno, pelo barramento do KAM-006. **O contrato vai para ticket próprio**, porque serve também o WhatsApp: o **KAM-227**, e o KAM-226 depende dele. Era o «achado com credor por abrir» do KAM-186.
 
 **Decisão 3 — a prova de posse da troca de telefone** (achado 5 da revisão do KAM-211).
 
@@ -1489,13 +1492,15 @@ Três decisões, cada uma com as opções medidas. Nenhuma se tomou neste ticket
 | **B — exigir também o OTP do número antigo** | Dois códigos: o do número registado e o do novo. | Fecha o roubo de *cookie*. Mas **tira a troca a quem perdeu o SIM**, que é o caso para que ela existe. Esse dono precisa de recuperação assistida pela equipa, e a consola da equipa não tem IdP (KAM-196, decisão do fundador por tomar). |
 | **C — prova do antigo, ou espera com aviso** | Com o OTP do número antigo a troca é imediata. Sem ele, fica pendente durante um prazo (*proposta*: 72 h). O número antigo e o e-mail são avisados, e o antigo pode cancelar. | Cobre o SIM perdido sem dar o canal a um *cookie*. Mas **só vale com o aviso entregue**: enquanto o KAM-115 não tiver canal, C é a opção A com atraso. Pede também um estado «pendente» que sobreviva a um reinício, logo a persistência do KAM-226. |
 
+**Decidido: opção C** (o fundador, 2026-11-19). Com o OTP do número antigo, a troca é imediata. Sem ele, fica pendente 72 h (*proposta*), com aviso ao número antigo e ao e-mail, e o antigo pode cancelar. **Só protege com o aviso entregue** (KAM-115): até lá, a espera não avisa ninguém. O estado pendente tem de sobreviver a um reinício. Implementa-a o **KAM-226**.
+
 ### Verificação dos Critérios de Aceitação
 
 Três critérios, **nenhum marcado**. Medido no ramo `feature/KAM-217-onboarding-web-identity`, sobre a `publico/main` em `f0a31b54`. Os números dos ensaios são fictícios, com 999, e não há chave real.
 
 | Critério | Estado | Evidência nomeada |
 |---|---|---|
-| 1 | não satisfeito — caixa vazia | A `OwnerPort` não se escreveu: precisa das decisões 1 e 2, e o AGR não tem saída (`SaidaPorLigar`). Credor: **KAM-226** |
+| 1 | não satisfeito — caixa vazia | A `OwnerPort` não se escreveu: precisava das decisões 1 e 2, tomadas depois de o código estar feito, e o AGR não tem saída (`SaidaPorLigar`). Credores: **KAM-226**, com a saída do AGR no **KAM-227** |
 | 2 | **parcial — caixa vazia** | **A base e a troca estão; o AGR e a persistência não.** O `server.ts` liga-se como `kamba_identity` por um *pool* e monta as duas rotas da troca com os adaptadores do KAM-211 (`montarTroca`, `trocaPeloPool`). A rede `data` e a cadeia estão no compose de `dev` e de `staging`, e o `TEN` está no inventário. Contra a base, como `kamba_identity` e pelo `trocaPeloPool` que o processo chama (o `montarTroca` do `server.ts` em si não tem ensaio, porque o processo não se importa sem arrancar): cinco pares de trocas concorrentes em dois tenants acabam cada uma no seu tenant, com um só dono por tenant («cinco pares de trocas concorrentes em dois tenants acabam cada uma no seu tenant», `packages/core-ts/tests_bd/dono.bd.test.ts`). Uma porta que falha com `23503` destrói a ligação e uma que acerta devolve-a, medido no argumento do `release` por um espião sobre o *pool* real; a troca seguinte do *pool* passa. **Falta**: a credencial do AGR (só tem consumidor com a `OwnerPort`) e o OTP e os pedidos persistidos, que pedem tabela nova. Credor: **KAM-226** |
 | 3 | **parcial — caixa vazia** | **Na troca está medido, mas não à letra do critério; no painel do dono falta a `OwnerPort`.** O *gate* 6 ataca as duas rotas da troca três vezes cada, com o tenant de B no corpo, na consulta e no cabeçalho, e com o código certo do pedido de B na sessão de A. O resultado é `pedido=a` e `troca=nenhuma` (o grupo `painel` do condutor, do KAM-211). Contra a base, pela montagem do processo, o pedido da sessão de A verificado com o tenant de B dá `sem_pedido`, e nenhum dos dois donos muda. **A letra pede 404, e a troca não o dá.** Não há recurso de B que se nomeie por identificador: o pedido é a sessão (`troca:{sid}`). Uma falha dá 401 `{"erro":"codigo"}`, uma resposta só, pela razão do `/painel/verificar`. Fica escrita esta leitura, e a decisão — reescrever o critério para o 401 uniforme, ou fazer a troca dar 404 — passa ao **KAM-226** com o isolamento da conversa do dono no painel |
 
@@ -1529,7 +1534,7 @@ Uma revisão independente recebeu o diff e os requisitos, e não o raciocínio d
 
 ---
 
-## KAM-226 — Canal do dono: a `OwnerPort` com caminho de resposta, a credencial do AGR e a troca persistida
+## KAM-226 — Canal do dono: a `OwnerPort`, a mensagem do dono persistida e a troca com prova de posse
 
 | Campo | Valor |
 |---|---|
@@ -1538,37 +1543,39 @@ Uma revisão independente recebeu o diff e os requisitos, e não o raciocínio d
 | Tipo | feature |
 | Prioridade | P1 |
 | Estimativa | L |
-| Dependências | KAM-217 |
+| Dependências | KAM-217, KAM-227 |
 | Bloqueia | — |
-| Responsável sugerido | Engenheiro de Runtime/IA (AGR) com Engenheiro de Plataforma (`onboarding-web`) |
-| Documentos de referência | `EPIC-11_Modulos_Entrada.md` (blocos KAM-211 e KAM-217, as três decisões do fundador por tomar), `EPIC-03_Agent_Runtime_Verticais.md` (bloco KAM-186), `EPIC-09_Onboarding_Governanca.md` (blocos KAM-086 e KAM-190), `02_Dicionario_de_Dados_Canonico.md` (§3.13 e §3.78), `../ops/secrets-inventory.yaml` |
+| Responsável sugerido | Engenheiro de Runtime/IA (AGR) com Engenheiro de Plataforma (`onboarding-web`) e Responsável de Segurança |
+| Documentos de referência | `EPIC-11_Modulos_Entrada.md` (blocos KAM-211, KAM-217 e KAM-227; as decisões do fundador no bloco do KAM-217), `EPIC-03_Agent_Runtime_Verticais.md` (bloco KAM-186), `EPIC-09_Onboarding_Governanca.md` (blocos KAM-086 e KAM-190), `02_Dicionario_de_Dados_Canonico.md` (§3.13 e §3.78), `../ops/secrets-inventory.yaml` |
 
 ### Contexto
 
-Credor dos três critérios do KAM-217, aberto no PR dele, com um número provisório da coordenação do lote 12. O KAM-217 ligou o `onboarding-web` à base como `kamba_identity` e montou a troca de telefone sobre um *pool*. Ficou por fazer o que dependia de decisões do fundador ou de esquema. A `OwnerPort` precisa do contrato do texto e da resposta (decisão 1 do KAM-217) e de uma saída do AGR (decisão 2): hoje a saída é a `SaidaPorLigar`, e nenhum turno responde. A credencial do AGR só tem consumidor com a `OwnerPort`. O desafio do OTP e os pedidos de troca vivem em memória, e persisti-los é tabela nova. A prova de posse da troca é a decisão 3. E o serviço `onboarding-web` dos três compose não define o `KAMBA_AMBIENTE` nem os segredos da inscrição, pelo que, lido o `server.ts`, não arranca pelo compose (INDÍCIO).
+Credor dos três critérios do KAM-217, aberto no PR dele, com um número provisório da coordenação do lote 12. O KAM-217 ligou o `onboarding-web` à base como `kamba_identity` e montou a troca de telefone sobre um *pool*. As três decisões que faltavam tomou-as o fundador a 2026-11-19 (bloco do KAM-217): a mensagem do dono numa fonte persistida que o AGR lê por identificador, com a resposta a voltar ao painel pelo canal `painel` (decisão 1, A); a saída do AGR por um evento de resposta (decisão 2, A, contrato no **KAM-227**); e a troca com prova do número antigo ou espera de 72 h com aviso (decisão 3, C). O desafio do OTP e os pedidos de troca vivem em memória. O `thread_id` do dono lê-se no `tenants.owner_contact_id`, que o `kamba_identity` não lê. E o serviço `onboarding-web` dos três compose não define o `KAMBA_AMBIENTE` nem os segredos da inscrição, pelo que, lido o `server.ts`, não arranca pelo compose (INDÍCIO).
 
 ### Objectivo
 
-O dono fala com o Assistente do Dono pelo painel, com o mesmo `thread_id` e a mesma ToolLayer do WhatsApp, e a troca de telefone sobrevive a um reinício com a prova de posse que o fundador decidir.
+O dono fala com o Assistente do Dono pelo painel, com o mesmo `thread_id` e a mesma ToolLayer do WhatsApp, e a troca de telefone segue a regra C e sobrevive a um reinício.
 
 ### Critérios de Aceitação
 
-- [ ] Com as decisões 1 e 2 do KAM-217 tomadas, a `OwnerPort` entrega o texto do painel ao AGR com persona `dono` e o `thread_id` do dono no WhatsApp (o `contact_id` do `tenants.owner_contact_id`, que o `kamba_identity` não lê), e a resposta chega pelo canal que o fundador escolher; a mesma tool pelo painel e pelo WhatsApp.
+- [ ] **Fonte persistida da mensagem do dono** (decisão 1, A): o painel grava a mensagem numa fonte persistida, a invocação leva o identificador dela (emenda ao §3.13, aditiva), e o AGR lê-a pelo identificador e passa-a pelo `guardas.mensagem_do_cliente` antes da janela. A mesma rota serve o WhatsApp, e fecha a saída (b) do KAM-186.
+- [ ] **`OwnerPort`**: entrega a mensagem do painel ao AGR com persona `dono` e o `thread_id` do dono no WhatsApp (o `contact_id` do `tenants.owner_contact_id`, por uma ligação que o leia — o `kamba_identity` não o lê), e a resposta volta ao painel pelo canal `painel` do evento do KAM-227; a mesma tool pelo painel e pelo WhatsApp.
+- [ ] **Troca com prova de posse** (decisão 3, C): com o OTP do número antigo, a troca é imediata; sem ele, fica pendente 72 h (*proposta*), com aviso ao número antigo e ao e-mail pelos ganchos do KAM-115, e o antigo pode cancelar. O desafio do OTP, os pedidos e o estado pendente persistem: um reinício a meio não perde nem duplica uma troca.
 - [ ] O `onboarding-web` chama o AGR com credencial própria (inventário, compose e rede), e a sessão do tenant A com a conversa do tenant B → 404, no *gate* 6. Na troca, o critério 3 do KAM-217 fecha-se à letra (404) ou reescreve-se para o 401 uniforme que ela dá hoje, por decisão de quem o escreveu.
-- [ ] O desafio do OTP e os pedidos de troca persistidos (revisão nova, com vaga pedida à coordenação): um reinício a meio de uma troca não a perde nem a duplica, e a prova de posse é a da decisão 3.
 - [ ] O serviço `onboarding-web` do compose de `dev` e de `staging` arranca e responde ao `/healthz`, com o `KAMBA_AMBIENTE` e os segredos da inscrição.
 
 ### Detalhes Técnicos
 
-- **Três decisões do fundador antes de escrever:** as três do bloco do KAM-217. A decisão do KAM-186 (o `agent_invocation` sem texto) e as do KAM-118 não se reabrem.
-- **Esquema:** a persistência do OTP e dos pedidos é tabela nova, e a opção A da decisão 1 e a A da decisão 2 também o são. Uma vaga de migração de cada vez.
-- **Fora deste ticket:** a entrega dos avisos da troca ao número antigo e ao e-mail (KAM-115); o provisionamento do dono (KAM-215); o número da loja no painel (KAM-216).
+- **Decisões que não se reabrem:** as três do fundador de 2026-11-19 (bloco do KAM-217), a do KAM-186 (o `agent_invocation` sem o texto; leva o identificador da mensagem, não o corpo) e as do KAM-118.
+- **Esquema:** a fonte persistida da mensagem, e a persistência do OTP, dos pedidos e do estado pendente, são tabelas novas. Leva migração, e entra quando tiver a vaga num lote.
+- **A regra C só protege com o aviso entregue.** Enquanto o KAM-115 não tiver canal, a espera de 72 h não avisa ninguém, e isso diz-se na verificação deste ticket.
+- **Fora deste ticket:** o contrato do evento de resposta do AGR (KAM-227); a entrega dos avisos (KAM-115); o provisionamento do dono (KAM-215); o número da loja no painel (KAM-216).
 
 ### Testes Requeridos
 
-- Integração: a mesma tool pelo painel e pelo WhatsApp; uma troca que atravessa um reinício.
-- Isolamento: dono A contra tenant B na conversa do painel.
-- **Adversarial:** sessão do painel de outro tenant; texto que imita um botão pelo painel; o mesmo pedido de troca em duas réplicas.
+- Integração: a mesma tool pelo painel e pelo WhatsApp; a mensagem do painel lida pelo identificador; uma troca pendente que atravessa um reinício; a troca imediata com o OTP do número antigo; o cancelamento pelo antigo.
+- Isolamento: dono A contra tenant B na conversa do painel e na troca pendente.
+- **Adversarial:** sessão do painel de outro tenant; texto que imita um botão pelo painel; o mesmo pedido de troca em duas réplicas; um *cookie* roubado sem o OTP do antigo não troca antes das 72 h.
 
 ### Definition of Done
 
@@ -1578,12 +1585,70 @@ O dono fala com o Assistente do Dono pelo painel, com o mesmo `thread_id` e a me
 ### Handoff para Claude Code
 
 ```text
-És o executor do ticket KAM-226 da KAMBÁ (a OwnerPort com caminho de resposta e a troca persistida).
-Lê specs/EPIC-11_Modulos_Entrada.md (blocos KAM-211, KAM-217 e KAM-226), services/onboarding-web/src/server.ts,
-services/onboarding-web/src/painel/rotas.ts, packages/core-ts/src/dono/ e services/agr/src/kamba_agr/grafos.py.
-Antes de escrever: confirma com a coordenação as três decisões do fundador do bloco do KAM-217.
-Regras: tenant_id só do cookie assinado; a mesma ToolLayer; o agent_invocation não leva texto.
-Testes: integração, isolamento e adversarial (sessão cruzada, texto que imita botão, reinício a meio da troca).
+És o executor do ticket KAM-226 da KAMBÁ (a OwnerPort, a mensagem do dono persistida e a troca com prova de posse).
+Lê specs/EPIC-11_Modulos_Entrada.md (blocos KAM-211, KAM-217, KAM-226 e KAM-227), services/onboarding-web/src/server.ts,
+services/onboarding-web/src/painel/rotas.ts, packages/core-ts/src/dono/ e services/agr/src/kamba_agr/contexto.py.
+Decisões tomadas (2026-11-19): decisão 1 opção A, decisão 3 opção C, do bloco do KAM-217. Pede a vaga de migração.
+Regras: tenant_id só do cookie assinado; a mesma ToolLayer; o agent_invocation leva o identificador, nunca o corpo.
+Testes: integração, isolamento e adversarial (sessão cruzada, texto que imita botão, reinício a meio da troca, cookie roubado).
+```
+
+---
+
+## KAM-227 — Saída do AGR: o evento de resposta do turno, para o WhatsApp e para o painel
+
+| Campo | Valor |
+|---|---|
+| Epic | EPIC-11 — Módulos de Entrada |
+| Fase | 1 |
+| Tipo | feature |
+| Prioridade | P1 |
+| Estimativa | L |
+| Dependências | KAM-217 |
+| Bloqueia | KAM-226 |
+| Responsável sugerido | Engenheiro de Runtime/IA (AGR) com Engenheiro de Plataforma (`worker-canal`, barramento de eventos) |
+| Documentos de referência | `EPIC-11_Modulos_Entrada.md` (bloco KAM-217, decisão 2), `EPIC-03_Agent_Runtime_Verticais.md` (bloco KAM-186, o achado da `PortaDeSaida`), `EPIC-02_Canais_WhatsApp_Handoff.md` (bloco KAM-015), `EPIC-01_Fundacoes_Dados.md` (bloco KAM-006), `02_Dicionario_de_Dados_Canonico.md` |
+
+### Contexto
+
+Aberto no PR do KAM-217, com um número provisório da coordenação do lote 12, pela decisão 2 do fundador de 2026-11-19 (opção A). Hoje o AGR não responde a ninguém: a `PortaDeSaida` do grafo é a `SaidaPorLigar`, que levanta e dá 503 `saida_por_ligar`, e o Outbound (`Saida`, `packages/core-ts/src/outbound/`, KAM-015) é uma biblioteca TypeScript que nenhum serviço instancia. O KAM-186 deixou isto como «achado com credor por abrir». O fundador decidiu que a resposta sai como um evento pela `platform.evt_emitir`, na transacção do turno, pelo barramento do KAM-006. Ticket próprio, e não parte do KAM-226, porque serve também o WhatsApp.
+
+### Objectivo
+
+Um turno do AGR que quer responder emite um evento de resposta, e a resposta chega ao WhatsApp pelo `Saida` e ao painel pelo `onboarding-web`, sem se perder nem duplicar.
+
+### Critérios de Aceitação
+
+- [ ] **O contrato:** um evento de resposta do turno no `registry/` e no dicionário (nome por proposta, antes de código), com o tenant, o `thread_id`, o canal (`whatsapp` ou `painel`), uma chave idempotente (o `turn_id` com a ordem da resposta), o texto já validado pelo *renderer* e os botões. Sem telefone e sem corpo do cliente.
+- [ ] **O produtor:** o AGR emite-o no `enfileirar` da `PortaDeSaida`, pela `platform.evt_emitir`, na transacção do turno; a `SaidaPorLigar` deixa de ser a porta do `main()`. Um turno repetido não emite duas vezes.
+- [ ] **Os consumidores:** o `worker-canal` consome o canal `whatsapp` e instancia o `Saida` do KAM-015; o `onboarding-web` consome o canal `painel`. As subscrições entram por revisão de dados, e cada consumidor é idempotente pela chave do evento.
+- [ ] Contra o PostgreSQL e a fila: um turno com resposta dá **1** envio pelo `Saida`, a reentrega 3× do evento continua a dar **1**, e um evento de outro tenant não chega ao consumidor errado.
+
+### Detalhes Técnicos
+
+- **Decisões que não se reabrem:** a decisão 2 do fundador de 2026-11-19 (bloco do KAM-217) e a do KAM-186.
+- **Esquema:** as subscrições são revisões de dados, e o evento pode pedir concessões ao papel do AGR na `evt_emitir`. Leva migração, e entra quando tiver a vaga num lote.
+- **Fora deste ticket:** a fonte persistida da mensagem do dono e a `OwnerPort` (KAM-226); a janela de 24 h e os *templates* do Outbound, que são do KAM-015.
+
+### Testes Requeridos
+
+- Integração: turno → evento → `Saida` contra a base e o servidor Graph falso; turno → evento → painel.
+- Isolamento: o evento de A não chega ao consumidor de B; o tenant é o do envelope.
+- **Adversarial:** reentrega 3×; turno repetido pelo *shim*; evento com canal desconhecido vai à DLQ.
+
+### Definition of Done
+
+- [ ] Critérios de Aceitação satisfeitos; a decisão 2 do bloco do KAM-217 e o achado da `PortaDeSaida` do KAM-186 revistos com a evidência.
+- [ ] Telefone nunca em claro em logs, URLs ou eventos (ADR-010); sem segredos.
+
+### Handoff para Claude Code
+
+```text
+És o executor do ticket KAM-227 da KAMBÁ (o evento de resposta do AGR).
+Lê specs/EPIC-11_Modulos_Entrada.md (blocos KAM-217 e KAM-227), services/agr/src/kamba_agr/grafos.py (SaidaPorLigar),
+packages/core-ts/src/outbound/ e o barramento de eventos do KAM-006. Pede a vaga de migração.
+Decisão tomada (2026-11-19): evento pela platform.evt_emitir, na transacção do turno. O nome do evento entra pelo dicionário.
+Testes: integração contra a base, isolamento e adversarial (reentrega, turno repetido, canal desconhecido).
 ```
 
 ---
@@ -1637,4 +1702,4 @@ Testes: integração, isolamento e adversarial (sessão cruzada, texto que imita
 | 1.8 | Novembro 2026 | O bloco do KAM-119 passa a bloquear o **KAM-202** (EPIC-04), aberto no PR do KAM-094: a restrição de BD na publicação da `offer_terms` liga-se depois de o KAM-119 pôr o COM a gravar a decisão de screening antes do `publishProduct`. | Equipa KAMBÁ |
 | 1.9 | Novembro 2026 | **KAM-118 entregue em parte: o canal do dono.** Revisão `0070` (sobre a `0069` do KAM-195, renumerada na integração), emenda 1.112 do dicionário (§3.78). Bloco do KAM-118: as decisões do executor (a porta única `definir_dono`, que escreve o `papel` e o `tenants.owner_contact_id`; o `INSERT` por coluna do `kamba_identity`; a persona no campo aditivo `agent_invocation.persona` e não no `ChannelContext`; o `dono.yaml` pelo módulo `catalogo`, com 75% de reaproveitamento; o `owner_channel_wa` calculado e não coluna), a verificação dos critérios (**cinco de dez** marcados) e do DoD (**três de seis**), e a revisão adversarial (nenhum achado bloqueante). **Duas decisões do fundador, de 2026-11-18**: «Manter as regras» — o critério 8 reescreve-se para o Piloto, sem *push* ao dono pelo número da loja nem *template* de `marketing` —, e «Servir todos os donos» — o Assistente do Dono atende qualquer dono, e cada tool fecha-se pelo entitlement do seu módulo. As vazias têm credor: as ligações de produção — o provisionamento, a troca de telefone, o botão e o painel — no **KAM-211**, aberto neste PR (o bloco, a linha do §3 e o `Bloqueia` do KAM-118). | Equipa KAMBÁ |
 | 1.10 | Novembro 2026 | **KAM-211 entregue em parte: as ligações de produção do canal do dono.** Sem migração. Emenda 1.114 do dicionário (§3.78 e §3.56), escrita como 1.113 e renumerada na integração, depois do KAM-204. Bloco do KAM-211: as decisões do executor, a verificação dos critérios (**um de seis** marcado: a retoma; o botão confirma e fica parcial, porque nenhuma acção executa) e do DoD (**dois de três**), e a revisão adversarial (onze achados, nenhum bloqueante; dez corrigidos, e a prova de posse da troca como decisão por tomar no KAM-217). A retoma decide o grafo pelo papel de agora, e fecha o achado 4 da revisão do KAM-118; o botão chega ao `confirmar` pelo campo aditivo `agent_invocation.botao` e pelo nó `confirm` do grafo do dono; a troca de telefone ganha duas rotas no painel e os adaptadores da porta, ensaiados contra a base. As caixas 3, 4, 5, 7 e 9 do KAM-118 revistas. Os três critérios que ficam têm credor novo, aberto neste PR: o provisionamento no **KAM-215**, o canal no painel no **KAM-216** e a `OwnerPort` com o processo web ligado no **KAM-217** (os blocos, as linhas do §3 e o `Bloqueia` do KAM-211). | Equipa KAMBÁ |
-| 1.11 | Novembro 2026 | **KAM-217 entregue em parte: o processo web ligado à base e a troca de telefone montada.** Sem migração. Emenda 1.115 do dicionário (§3.78), com número a acertar na integração. Bloco do KAM-217: as decisões do executor (o `kamba_identity` por um *pool*, uma ligação por operação, os avisos da troca registados e não entregues, a rede `data` só em `dev` e `staging`), **três decisões do fundador por tomar** (o contrato do texto e da resposta do painel, a saída do AGR e a prova de posse da troca), a verificação dos critérios (**nenhum de três** marcado: a troca está montada e ensaiada contra a base, e o critério 3 não dá 404 à letra) e do DoD (**um de dois**). Os critérios «Troca de telefone» e «Painel do dono» do KAM-211 e a caixa 9 do KAM-118 revistos. O que fica tem credor novo, aberto neste PR com um número provisório: a `OwnerPort`, a credencial do AGR e a troca persistida no **KAM-226** (o bloco, a linha do §3 e o `Bloqueia` do KAM-217). | Equipa KAMBÁ |
+| 1.11 | Novembro 2026 | **KAM-217 entregue em parte: o processo web ligado à base e a troca de telefone montada.** Sem migração. Emenda 1.115 do dicionário (§3.78), com número a acertar na integração. Bloco do KAM-217: as decisões do executor (o `kamba_identity` por um *pool*, uma ligação por operação, os avisos da troca registados e não entregues, a rede `data` só em `dev` e `staging`), **três decisões do fundador, tomadas a 2026-11-19** (o contrato do texto e da resposta do painel, opção A; a saída do AGR, opção A; a prova de posse da troca, opção C), a verificação dos critérios (**nenhum de três** marcado: a troca está montada e ensaiada contra a base, e o critério 3 não dá 404 à letra) e do DoD (**um de dois**). Os critérios «Troca de telefone» e «Painel do dono» do KAM-211 e a caixa 9 do KAM-118 revistos. O que fica tem dois credores novos, abertos neste PR com números provisórios: a fonte persistida da mensagem do dono, a `OwnerPort`, a troca persistida com a regra C e a credencial do AGR no **KAM-226**, e o contrato do evento de resposta do AGR no **KAM-227**, de que o KAM-226 depende (os blocos, as linhas do §3 e o `Bloqueia` do KAM-217). | Equipa KAMBÁ |
