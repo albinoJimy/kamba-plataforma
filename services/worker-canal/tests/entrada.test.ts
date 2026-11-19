@@ -20,6 +20,7 @@ import {
   criarApp,
 } from "../src/entrada.ts";
 import { SERVICE } from "../src/meta.ts";
+import { METRICAS_DA_GUARDA, comTenant } from "@kamba/core-ts/tenant_guard";
 
 const WABA = "109876543210987";
 
@@ -148,5 +149,23 @@ describe("o ambiente das chaves de identidade (KAM-187)", () => {
     // compara com o declarado; aqui so se prova que nao se promove nada.
     assert.equal(ambienteDasChaves({ KAMBA_ENV: "producao" }), "dev");
     assert.equal(ambienteDasChaves({}), "dev");
+  });
+});
+
+/** KAM-219: faz subir o contador da guarda pelo caminho real — um `comTenant` cuja base recusa o tecto. */
+async function recusaNoTecto(): Promise<number> {
+  const cliente = { async query() { return { rows: [] }; } };
+  const erro = Object.assign(new Error("permission denied for table trust_level"), { code: "42501" });
+  await assert.rejects(comTenant(cliente, "0b6f1d2e-3c4a-4b5c-8d6e-7f8091a2b3c4", async () => { throw erro; }));
+  return METRICAS_DA_GUARDA.recusas();
+}
+
+describe("KAM-219: a recusa da base sobre o tecto", () => {
+  it("o /metrics da entrada serve-a, com o valor do processo", async () => {
+    const n = await recusaNoTecto();
+    assert.ok(n >= 1);
+    const texto = await (await criarApp().request("/metrics")).text();
+    assert.match(texto, /^# TYPE tenant_guard_tecto_recusado_total counter$/m);
+    assert.match(texto, new RegExp(`^tenant_guard_tecto_recusado_total ${n}$`, "m"));
   });
 });

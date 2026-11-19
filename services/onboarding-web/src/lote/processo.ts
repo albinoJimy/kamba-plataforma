@@ -135,7 +135,7 @@ import { METRICAS, MaquinaNaBase, filasDe, type Envelope } from "@kamba/core-ts/
 import type { criarTrabalhadores, Trabalhadores } from "@kamba/core-ts/eventos/trabalhador_bullmq";
 import { EscritorSql, LeitorSql, type EscritorDeDecisoes } from "@kamba/core-ts/screening";
 import { isAmbiente } from "@kamba/core-ts/secrets";
-import { comTenant } from "@kamba/core-ts/tenant_guard";
+import { METRICAS_DA_GUARDA, comTenant } from "@kamba/core-ts/tenant_guard";
 import {
   CANAL_SEM_ADAPTADOR,
   CicloDoOffboarding,
@@ -779,7 +779,9 @@ export function criarApp(
         metricasDoTrust.exposicao() +
         metricasDaConfianca.exposicao() +
         metricasDoOffboarding.exposicao() +
-        METRICAS.exposicao(),
+        METRICAS.exposicao() +
+        // KAM-219: o 42501 sobre o tecto, visto pelo `comTenant`/`comBatch` deste processo.
+        METRICAS_DA_GUARDA.exposicao(),
       200,
       {
         "content-type": "text/plain; version=0.0.4; charset=utf-8",

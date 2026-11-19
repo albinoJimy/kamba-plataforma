@@ -262,6 +262,13 @@ class TestRepositorio(unittest.TestCase):
         # dos dados, que corre outro processo.
         "packages/core-ts/src/offboarding/metricas.ts",
         "packages/core-ts/src/ten/metricas.ts",
+        # Nasceu com o KAM-219 (a recusa da base sobre o tecto de confianca).
+        # Um contador sem etiquetas, alimentado pelo `catch` do `comTenant` e do
+        # `comBatch` e **servido por tres processos** — o `onboarding-lote`, o
+        # `com` e o `worker-canal-entrada` —, porque o contador e de cada
+        # processo e a recusa pode chegar a qualquer um que use os *helpers*.
+        # Citado pela regra `confianca_tecto_escrita_recusada`.
+        "packages/core-ts/src/tenant_guard/metricas.ts",
         "services/agr/src/kamba_agr/metricas.py",
         # Conta **zero** nomes, e esta aqui por isso: e um modulo de exposicao
         # que importa os nomes do `repo-base`. Ver o teste da reconciliacao.

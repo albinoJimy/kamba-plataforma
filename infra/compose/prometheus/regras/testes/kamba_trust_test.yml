@@ -122,3 +122,60 @@ tests:
       - eval_time: 35m
         alertname: confianca_recalculo_com_falhas
         exp_alerts: []
+
+  # KAM-219: a recusa da base sobre o tecto. O caso e o controlo do adversarial
+  # (f): a primeira recusa dispara, e um processo sem recusas — o lote a escrever
+  # o tecto como `kamba_batch`, que a base aceita — fica em silencio.
+  - interval: 1m
+    name: "tecto: a primeira recusa dispara, e passada a janela resolve"
+    input_series:
+      - series: 'tenant_guard_tecto_recusado_total{job="com",instance="com:3002"}'
+        values: '0x10 1x30'
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: confianca_tecto_escrita_recusada
+        exp_alerts: []
+      - eval_time: 12m
+        alertname: confianca_tecto_escrita_recusada
+        exp_alerts:
+          - exp_labels:
+              severity: P2
+              componente: gov
+              job: com
+            exp_annotations:
+              resumo: A base recusou (42501) a uma transaccao da aplicacao uma operacao sobre platform.trust_level.
+              qual_tenant: Nao se le desta serie (OBS-I); o job diz o processo, e o runbook diz onde procurar.
+              runbook_url: https://github.com/albinoJimy/kamba-plataforma/blob/main/docs/runbooks/trust-e-safety.md
+      - eval_time: 35m
+        alertname: confianca_tecto_escrita_recusada
+        exp_alerts: []
+
+  - interval: 1m
+    name: "tecto: o controlo, zero recusas em todos os processos, nao dispara"
+    input_series:
+      - series: 'tenant_guard_tecto_recusado_total{job="onboarding_lote",instance="onboarding-lote:3014"}'
+        values: '0x40'
+      - series: 'tenant_guard_tecto_recusado_total{job="com",instance="com:3002"}'
+        values: '0x40'
+      - series: 'tenant_guard_tecto_recusado_total{job="entrada",instance="worker-canal-entrada:3013"}'
+        values: '0x40'
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: confianca_tecto_escrita_recusada
+        exp_alerts: []
+      - eval_time: 40m
+        alertname: confianca_tecto_escrita_recusada
+        exp_alerts: []
+
+  - interval: 1m
+    name: "tecto: um reinicio do processo (o contador volta a zero) nao dispara"
+    input_series:
+      - series: 'tenant_guard_tecto_recusado_total{job="onboarding_lote",instance="onboarding-lote:3014"}'
+        values: '0x10 1x50 0x30'
+    alert_rule_test:
+      - eval_time: 63m
+        alertname: confianca_tecto_escrita_recusada
+        exp_alerts: []
+      - eval_time: 75m
+        alertname: confianca_tecto_escrita_recusada
+        exp_alerts: []

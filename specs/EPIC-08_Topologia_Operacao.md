@@ -4,7 +4,7 @@
 |---|---|
 | Produto | KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para Angola |
 | Documento | Epic — Topologia e Operação |
-| Versão | 1.27 |
+| Versão | 1.28 |
 | Data | Novembro de 2026 |
 | Classificação | Documento de Referência — Interno |
 | Documento-fonte | `../docs/tecnica/09_Topologia_Operacao_Escala.md` |
@@ -792,6 +792,14 @@ subprocessadores (critério 4), e a **ausência de *staging* e de produção**
 > `publico/main` integrada em `61900afe` (o KAM-210 já fundido): **32 módulos,
 > 160 nomes**, 162 declaradas, e as restantes nas mesmas. Nenhuma caixa deste
 > epic muda.
+>
+> **E o KAM-219 trouxe outro, do `tenant_guard`:** o
+> `packages/core-ts/src/tenant_guard/metricas.ts`, com **um** contador da recusa
+> `42501` da base sobre `platform.trust_level`, que o `onboarding-lote`, o `com`
+> e o `worker-canal-entrada` servem e a regra `confianca_tecto_escrita_recusada`
+> cita. Medido no ramo do KAM-219 sobre a `publico/main` em `f0a31b54`: **33
+> módulos, 161 nomes**, 163 declaradas, e as restantes nas mesmas. Nenhuma caixa
+> deste epic muda.
 >
 > É por isso que **8 das 12 linhas do §9.2 não se escreveram**. Um alerta sobre
 > uma série que ninguém produz nunca dispara, e um alerta que nunca dispara
@@ -1937,3 +1945,4 @@ Nao expandas escopo: ajustar limites no compose e um PR de seguimento. PR com o 
 | 1.25 | Novembro 2026 | **KAM-200**, emenda de **propagação** como a 1.23: o inventário fechado de módulos de métricas do `tools/obs_lint` ganha o `packages/core-ts/src/trust/metricas.ts`, e a nota do bloco do KAM-080 passa a **30 módulos, 155 nomes** e 157 declaradas. Nenhuma caixa muda. | Equipa KAMBÁ |
 | 1.26 | Novembro 2026 | **KAM-210**, emenda de **propagação** como a 1.25: o inventário fechado de módulos de métricas do `tools/obs_lint` ganha o `packages/core-ts/src/offboarding/metricas.ts`, e a nota do bloco do KAM-080 passa a **31 módulos, 158 nomes** e 160 declaradas. Nenhuma caixa muda. | Equipa KAMBÁ |
 | 1.27 | Novembro 2026 | **KAM-203**, emenda de **propagação** como a 1.25: o inventário fechado de módulos de métricas do `tools/obs_lint` ganha o `packages/core-ts/src/confianca/metricas.ts`, e a nota do bloco do KAM-080 passa a **32 módulos, 160 nomes**, 162 declaradas, com o KAM-210 já fundido. Nenhuma caixa muda. | Equipa KAMBÁ |
+| 1.28 | Novembro 2026 | **KAM-219**, emenda de **propagação** como a 1.25: o inventário fechado de módulos de métricas do `tools/obs_lint` ganha o `packages/core-ts/src/tenant_guard/metricas.ts`, e a nota do bloco do KAM-080 passa a **33 módulos, 161 nomes**, 163 declaradas. Nenhuma caixa muda. | Equipa KAMBÁ |

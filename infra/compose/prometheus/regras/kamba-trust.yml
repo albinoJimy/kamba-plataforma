@@ -1,5 +1,6 @@
-# Regras de alerta de Trust & Safety — KAM-200, criterio 3; e a do recalculo
-# da confianca gradual, que corre no mesmo processo — KAM-203.
+# Regras de alerta de Trust & Safety — KAM-200, criterio 3; a do recalculo
+# da confianca gradual, que corre no mesmo processo — KAM-203; e a da recusa
+# da base sobre o tecto — KAM-219.
 #
 # Validado por `make obs-promtool`: `promtool check rules` (sintaxe) e
 # `promtool test rules` (comportamento, em `testes/kamba_trust_test.yml`).
@@ -77,4 +78,26 @@ groups:
         annotations:
           resumo: O recalculo da confianca gradual falhou para pelo menos um tenant.
           qual_tenant: A metrica e o registo nao levam tenant (OBS-I); os tenants sem nivel leem-se da platform.trust_level contra os casos aprovados, pelo lote.
+          runbook_url: https://github.com/albinoJimy/kamba-plataforma/blob/main/docs/runbooks/trust-e-safety.md
+
+      # KAM-219: a base recusou (42501) uma escrita ou a leitura do motivo em
+      # `platform.trust_level` a uma transaccao da aplicacao. So o `kamba_batch`
+      # escreve o tecto (KAM-096), e nenhum codigo da aplicacao o tenta: uma
+      # recusa e um tenant a tentar mudar o proprio tecto por um caminho que nao
+      # devia existir, ou um processo com a credencial errada no lugar do lote.
+      # As duas pedem quem olhe ja. **Dispara na primeira**: a serie nasce a
+      # zero, e o `increase` ve o 0 -> 1. P2 e a janela de 10 min sao *proposta*.
+      #
+      # **So ve o que passa pelo `comTenant`/`comBatch`** de um processo
+      # TypeScript que a sirva (`packages/core-ts/src/tenant_guard/metricas.ts`);
+      # uma ligacao directa nao chega aqui, e o bloco do KAM-219 diz o credor.
+      - alert: confianca_tecto_escrita_recusada
+        expr: 'sum by (job) (increase(tenant_guard_tecto_recusado_total[10m])) > 0'
+        for: 0m
+        labels:
+          severity: P2
+          componente: gov
+        annotations:
+          resumo: A base recusou (42501) a uma transaccao da aplicacao uma operacao sobre platform.trust_level.
+          qual_tenant: Nao se le desta serie (OBS-I); o job diz o processo, e o runbook diz onde procurar.
           runbook_url: https://github.com/albinoJimy/kamba-plataforma/blob/main/docs/runbooks/trust-e-safety.md

@@ -496,6 +496,22 @@ metricas:
           - sancao
           - recalibracao
 
+  # KAM-219: a recusa da base (42501) sobre `platform.trust_level`, vista no
+  # `catch` do `comTenant`/`comBatch` (`tenant_guard`). Sem etiquetas, logo sem
+  # tenant (`OBS-I`); nasce a zero, e cada processo que usa os *helpers* serve a
+  # sua. A regra `confianca_tecto_escrita_recusada` esta no `kamba-trust.yml`.
+  # So ve o que passa por esses *helpers* num processo TypeScript: uma ligacao
+  # directa nao chega aqui (o bloco do KAM-219 diz o credor).
+  - nome: tenant_guard_tecto_recusado_total
+    tipo: counter
+    fonte: packages/core-ts/src/tenant_guard/metricas.ts
+    exposta_por:
+      - onboarding-lote
+      - com
+      - worker-canal-entrada
+    ajuda: Recusas da base (42501) sobre platform.trust_level vistas numa transaccao do tenant_guard.
+    etiquetas: []
+
   # ------------------------------------------------- backup (KAM-079)
   #
   # **As quatro tem `exposta_por` vazio, e e a declaracao que importa.** A

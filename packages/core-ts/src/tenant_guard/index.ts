@@ -41,6 +41,16 @@
  * objecto**; um invólucro diferente à volta da mesma ligação não é reconhecido.
  */
 
+import { METRICAS_DA_GUARDA } from "./metricas.ts";
+
+export {
+  METRICA_TECTO_RECUSADO,
+  METRICAS_DA_GUARDA,
+  MetricasDaGuarda,
+  SQLSTATE_PRIVILEGIO,
+  eRecusaNoTecto,
+} from "./metricas.ts";
+
 /** O mínimo de um cliente SQL de que este módulo precisa. */
 export interface ClienteSql {
   query(sql: string, parametros?: readonly unknown[]): Promise<unknown>;
@@ -195,6 +205,8 @@ async function emTransaccao<T>(
       await cliente.query("COMMIT");
       return resultado;
     } catch (erro) {
+      // KAM-219: a recusa da base sobre o tecto só se vê aqui. Conta e segue.
+      METRICAS_DA_GUARDA.observar(erro);
       try {
         await cliente.query("ROLLBACK");
       } catch {

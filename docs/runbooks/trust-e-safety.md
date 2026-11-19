@@ -1,4 +1,4 @@
-# Runbook — Trust & Safety: uma suspensão decidida, a escada automática acima do ritmo, e o recálculo da confiança com falhas
+# Runbook — Trust & Safety: uma suspensão decidida, a escada automática acima do ritmo, o recálculo da confiança com falhas, e a recusa da base sobre o tecto
 
 **Esboço** (KAM-200, critério 3). **Não é procedimento ratificado** e nenhum passo foi ensaiado
 contra uma pilha com tráfego. O desenho está no [`docs/tecnica/10`](../tecnica/10_Onboarding_Governanca.md)
@@ -10,11 +10,11 @@ contra uma pilha com tráfego. O desenho está no [`docs/tecnica/10`](../tecnica
 
 | Campo | Valor |
 |---|---|
-| Cenário | Uma loja foi suspensa por decisão de T&S; a escada automática (`aviso`, `limitacao`) deu mais passos numa hora do que o ritmo esperado; ou o recálculo da confiança gradual falhou para um tenant (KAM-203) |
-| Severidade | **P3** a suspensão; **P2** a escada acima do ritmo e o recálculo com falhas |
+| Cenário | Uma loja foi suspensa por decisão de T&S; a escada automática (`aviso`, `limitacao`) deu mais passos numa hora do que o ritmo esperado; o recálculo da confiança gradual falhou para um tenant (KAM-203); ou a base recusou (`42501`) a uma transacção da aplicação uma operação sobre `platform.trust_level` (KAM-219) |
+| Severidade | **P3** a suspensão; **P2** a escada acima do ritmo, o recálculo com falhas e a recusa sobre o tecto |
 | Quem age | **T2**, com o responsável de produto de T&S |
-| Alertas que apontam para aqui | `ts_suspensao_decidida`, `ts_escada_automatica_acima_do_ritmo` e `confianca_recalculo_com_falhas`, em [`../../infra/compose/prometheus/regras/kamba-trust.yml`](../../infra/compose/prometheus/regras/kamba-trust.yml) |
-| Série | `ts_sancoes_total{passo,origem}` e `confianca_recalculos_total{origem,desfecho}`, servidas pelo `onboarding-lote` |
+| Alertas que apontam para aqui | `ts_suspensao_decidida`, `ts_escada_automatica_acima_do_ritmo`, `confianca_recalculo_com_falhas` e `confianca_tecto_escrita_recusada`, em [`../../infra/compose/prometheus/regras/kamba-trust.yml`](../../infra/compose/prometheus/regras/kamba-trust.yml) |
+| Série | `ts_sancoes_total{passo,origem}` e `confianca_recalculos_total{origem,desfecho}`, servidas pelo `onboarding-lote`; `tenant_guard_tecto_recusado_total`, servida pelo `onboarding-lote`, pelo `com` e pelo `worker-canal-entrada` |
 | Estado | **Esboço.** Gatilho e leitura fixados; o ritmo de 5 passos por hora é *proposta* |
 
 ---
@@ -92,9 +92,33 @@ de um onboarding aprovado), `entrega` (depois de um `order.delivered`, e o BullM
   `onboarding-lote` corre a volta diária no arranque. **Não se escreve `trust_level` à mão**: só o
   `kamba_batch` a escreve, e cada escrita vai ao `audit_log`.
 
+## 5. A recusa da base sobre o tecto (`confianca_tecto_escrita_recusada`)
+
+Uma transacção do `comTenant` ou do `comBatch` (`../../packages/core-ts/src/tenant_guard/`) recebeu da base
+um `42501` que nomeia `trust_level`. Só o `kamba_batch` escreve o tecto (KAM-096), e nenhum código da
+aplicação o tenta escrever com outro papel: ou alguém está a tentar mudar um tecto por um caminho que não
+devia existir (uma injecção, um defeito novo), ou um processo tem a credencial errada no lugar da do lote.
+**A base já recusou**: o tecto não mudou. O alerta existe para que se saiba quem tentou.
+
+- **Qual processo.** A etiqueta `job` diz qual: `onboarding_lote`, `com` ou `entrada`.
+- **Qual credencial.** O `onboarding-lote` não arranca com a `KAMBA_LOTE_DB_URL` de outro papel
+  (`../../services/onboarding-web/src/lote.ts`), pelo que uma recusa nele não é a credencial do arranque:
+  é código a tentar o que não devia. Nos outros dois, confirmar que nenhuma mudança recente pôs SQL sobre
+  `trust_level` no processo (`git log -S trust_level -- services packages`).
+- **Qual tenant.** **Não se lê desta série** (`OBS-I`), nem do `audit_log`, que só tem as escritas que
+  passaram. O registo do processo no mesmo minuto pode dizer o passo que falhou, pelo `error_code`, e
+  nunca o tenant. **Não verificado** contra uma pilha com tráfego.
+- **O que fazer.** Nada no tecto. Se a origem não for a credencial, é um incidente de segurança: preservar
+  o registo do processo e do proxy, e seguir o [`RB-K10`](RB-K10-incidente-de-seguranca.md) se o
+  pedido vier de fora.
+- **O que esta regra não vê.** Uma ligação directa à base com a credencial do `kamba_app`, um processo
+  Python ou uma consulta fora dos *helpers* não chegam ao contador. Ver essas pede o registo do PostgreSQL
+  recolhido, que o compose não tem; o credor está no bloco do KAM-219.
+
 ## Controlo de versões
 
 | Versão | Data | Alteração | Autor |
 |---|---|---|---|
 | 0.1 | Novembro 2026 | Esboço, com as duas regras do KAM-200 | Equipa KAMBÁ |
 | 0.2 | Novembro 2026 | KAM-203: o §4, a regra `confianca_recalculo_com_falhas` | Equipa KAMBÁ |
+| 0.3 | Novembro 2026 | KAM-219: o §5, a regra `confianca_tecto_escrita_recusada` | Equipa KAMBÁ |
