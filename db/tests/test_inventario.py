@@ -2819,6 +2819,24 @@ INVENTARIO["owner_actions"] = {
     "confirmada_at": ("timestamp with time zone", SIM, None, "nao"),
 }
 
+#: A resposta de um turno do AGR (KAM-224, revisao da resposta do AGR). O
+#: contacto e a conversa sao referencias opacas (ADR-010). O `texto` e o que o
+#: *renderer* do AGR validou e o cliente vai ler: **nunca** o corpo do cliente,
+#: e por isso nao vai no evento, que leva so o `reply_id`.
+INVENTARIO["agent_replies"] = {
+    "reply_id": ("uuid", NAO, "gen_random_uuid()", "nao — o identificador que o evento leva"),
+    "tenant_id": ("uuid", NAO, None, "nao"),
+    "chave": ("text", NAO, None, "nao — a chave de idempotencia do envio do turno"),
+    "contact_id": ("uuid", NAO, None, "referencia opaca a contacts (KAM-008, ADR-010)"),
+    "conversation_id": ("uuid", NAO, None, "referencia opaca a conversations (ADR-010)"),
+    "canal": ("text", NAO, None, "nao — lista fechada de dois"),
+    "texto": ("text", NAO, None, "texto do AGR para o cliente, validado pelo renderer; nunca do cliente"),
+    "botoes": ("jsonb", NAO, "'[]'::jsonb", "nao — identificadores e titulos dos botoes"),
+    "turno_iniciado_em": ("timestamp with time zone", SIM, None, "nao"),
+    "criado_at": ("timestamp with time zone", NAO, "now()", "nao"),
+    "entregue_at": ("timestamp with time zone", SIM, None, "nao"),
+}
+
 #: Os pedidos de orcamento (KAM-123, revisao do Orcamento expresso). O cliente
 #: e a conversa sao referencias opacas (ADR-010); o `valor_minor` e o que o
 #: dono digitou, e as `condicoes` sao texto do dono **sem numeros**, passado
@@ -3782,6 +3800,12 @@ class TestInventario(ComBase):
                         "quote_requests_tenant_fk",
                         "quote_requests_contact_fk",
                         "quote_requests_conversation_fk",
+                        # KAM-224 (revisao da resposta do AGR): a resposta
+                        # aponta o tenant e, pelos pares, o contacto e a
+                        # conversa, sem cascata.
+                        "agent_replies_tenant_fk",
+                        "agent_replies_contact_fk",
+                        "agent_replies_conversation_fk",
                         "refund_cases_tenant_fk",
                         "refund_cases_charge_fk",
                         "fraud_signals_tenant_fk",
@@ -4670,6 +4694,17 @@ class TestInventario(ComBase):
                     "quote_requests_resposta_ck",
                     "quote_requests_sku_ck",
                     "quote_requests_valor_ck",
+                    # ---------- KAM-224 (revisao da resposta do AGR)
+                    #
+                    # **Seis.** A chave; os dominios da `chave`, do `canal`, do
+                    # `texto` e dos `botoes`; e a unicidade `(tenant_id,
+                    # chave)`, que e a idempotencia do produtor.
+                    "agent_replies_botoes_ck",
+                    "agent_replies_canal_ck",
+                    "agent_replies_chave_ck",
+                    "agent_replies_chave_uq",
+                    "agent_replies_pkey",
+                    "agent_replies_texto_ck",
                     "purge_log_classe_ck",
                     "purge_log_linhas_ck",
                     "purge_log_modo_ck",

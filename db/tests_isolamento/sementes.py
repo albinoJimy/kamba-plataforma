@@ -1035,6 +1035,21 @@ def _midia(cursor, tenant_id: str, canario: str) -> None:
     )
 
 
+def _resposta_do_agr(cursor, tenant_id: str, canario: str) -> None:
+    """Uma resposta do AGR do tenant (KAM-224). O canario vai no `texto`.
+
+    A chave e o proprio canario, que e unico por semente. A coluna alteravel e
+    o `entregue_at`, a unica do `GRANT UPDATE` por coluna. Semeia o
+    administrador, pela razao do pedido de orcamento.
+    """
+    cursor.execute(
+        "INSERT INTO platform.agent_replies "
+        "(tenant_id, chave, contact_id, conversation_id, canal, texto) "
+        f"VALUES (%s, %s, {_UM_CONTACTO}, {_UMA_CONVERSA}, 'whatsapp', %s)",
+        (tenant_id, canario, tenant_id, tenant_id, canario),
+    )
+
+
 def _pedido_de_orcamento(cursor, tenant_id: str, canario: str) -> None:
     """Um pedido de orcamento do tenant (KAM-123). O canario vai no `sku`.
 
@@ -1853,6 +1868,11 @@ RECEITAS: dict[tuple[str, str], Receita] = {
     ("platform", "quote_requests"): Receita(
         _pedido_de_orcamento, "sku", "estado", "cancelado", semeador="admin",
     ),
+    # KAM-224: a resposta do AGR. O canario vai no `texto`; a coluna alteravel
+    # e o `entregue_at`, que e o unico `GRANT UPDATE` por coluna.
+    ("platform", "agent_replies"): Receita(
+        _resposta_do_agr, "texto", "entregue_at", "2099-01-01T00:00:00+00:00", semeador="admin",
+    ),
     ("platform", "events_outbox"): Receita(
         _evento_no_outbox, "agregado_id", None, None, semeador="admin"
     ),
@@ -2401,6 +2421,9 @@ ORDEM = (
     # KAM-123: o pedido de orcamento aponta o contacto e a conversa, pelo que
     # vem depois dos dois; ninguem o aponta.
     ("platform", "quote_requests"),
+    # KAM-224: a resposta do AGR aponta o contacto e a conversa, pelo que vem
+    # depois dos dois; ninguem a aponta.
+    ("platform", "agent_replies"),
     # KAM-009: as duas so tem FK para `tenants`, e por isso ficam no fim.
     ("platform", "tenant_usage"),
     ("platform", "usage_ledger"),

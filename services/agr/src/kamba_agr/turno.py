@@ -78,6 +78,7 @@ mensagem duas vezes.
 from __future__ import annotations
 
 import asyncio
+import datetime
 import inspect
 import time
 from collections.abc import Awaitable, Callable
@@ -85,6 +86,7 @@ from dataclasses import dataclass
 from typing import Any, Protocol
 
 from .admissao import Admissao, Pendente
+from .saida import INICIO_DO_TURNO
 from .contexto import MODO_DO_BOT, InvocacaoDoAgente
 from .estado import estado_inicial
 from .metricas import METRICA_DURACAO, METRICA_TURNOS, METRICAS
@@ -352,8 +354,16 @@ class ExecutorDeTurnos:
             for invocacao in invocacoes
         ):
             raise LoteMisturadoError("lote_atravessou_conversas")
+        marca_do_inicio = None
         try:
             async with self._trancas.tomar(thread_id):
+                # KAM-224. O inicio do turno, para o `PreSendGuard` do KAM-018:
+                # a resposta que este turno emitir leva-o, e uma pessoa que fale
+                # depois dele suprime-a. Posto **antes** de ler a palavra, que e
+                # o que o turno ve da conversa; os nos herdam-no (ver `saida.py`).
+                marca_do_inicio = INICIO_DO_TURNO.set(
+                    datetime.datetime.now(datetime.UTC)
+                )
                 palavra = await self._ler_palavra(primeira)
                 if palavra is None:
                     # Zero linhas **nao** e «esta em `bot`». A conversa nao
@@ -399,6 +409,9 @@ class ExecutorDeTurnos:
             if isinstance(erro, asyncio.CancelledError):
                 raise
             return
+        finally:
+            if marca_do_inicio is not None:
+                INICIO_DO_TURNO.reset(marca_do_inicio)
 
         METRICAS.contar(METRICA_TURNOS, desfecho)
         METRICAS.medir(METRICA_DURACAO, (self._agora() - comecou) * 1_000)

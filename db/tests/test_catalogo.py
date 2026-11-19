@@ -525,6 +525,12 @@ class TestConvencoes(ComBase):
                 # das accoes de plataforma precisa de uma linha com
                 # `tenant_id` nulo (medido contra o PostgreSQL 18.6). A de
                 # `audit_log` e de identidade, como a de `events_dlq`.
+                # KAM-224 (revisao da resposta do AGR): a resposta de um turno,
+                # `uuid` gerado pela regra geral e com o nome do bloco
+                # (`reply_id`): e o identificador que o evento leva, e um
+                # sequencial deixava medir quantas respostas a plataforma da.
+                # A primeira da lista («ag» < «au»).
+                ("agent_replies", "reply_id", "uuid", "gen_random_uuid()"),
                 ("audit_heads", "chave", "uuid",
                  "COALESCE(tenant_id, '00000000-0000-0000-0000-000000000000'::uuid)"),
                 ("audit_log", "id", "bigint", None),
@@ -1493,7 +1499,12 @@ class TestConvencoes(ComBase):
              # `quote_requests_abertos_idx (tenant_id, criado_at)` e pelo
              # `quote_requests_repeticao_idx`. **Com** FK para `tenants` e as
              # compostas para o contacto e a conversa.
-             "quote_requests"},
+             "quote_requests",
+             # KAM-224 (revisao da resposta do AGR). Pela `agent_replies_chave_uq
+             # (tenant_id, chave)`, que e a idempotencia do produtor, e pelo
+             # `agent_replies_conversa_idx`. **Com** FK para `tenants` e as
+             # compostas para o contacto e a conversa.
+             "agent_replies"},
         )
         for tabela, anulavel in com_tenant:
             with self.subTest(tabela=tabela):
@@ -2184,7 +2195,12 @@ class TestConvencoes(ComBase):
         # `quote_requests_contact_fk` e `quote_requests_conversation_fk`,
         # pela regra da `0030`: um pedido de um tenant nao aponta para o
         # contacto nem para a conversa de outro.
-        self.assertEqual(len(linhas), 110)
+        #
+        # **113** desde a revisao da resposta do AGR (KAM-224): a
+        # `agent_replies_tenant_fk`, simples, e as compostas
+        # `agent_replies_contact_fk` e `agent_replies_conversation_fk`: uma
+        # resposta de um tenant nao aponta para a conversa de outro.
+        self.assertEqual(len(linhas), 113)
         for nome, alvo in linhas:
             with self.subTest(fk=nome):
                 self.assertTrue(alvo.startswith("platform."), alvo)

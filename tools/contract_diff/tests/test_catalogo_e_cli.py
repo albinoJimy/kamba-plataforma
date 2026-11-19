@@ -18,13 +18,14 @@ from contract_diff import catalogo, cli, exemplos, gerar, pii, subscricoes
 
 RAIZ = Path(__file__).resolve().parents[3]
 
-#: Os quarenta e quatro **tipos** do dicionario §3.5: os trinta e oito da emenda
+#: Os quarenta e cinco **tipos** do dicionario §3.5: os trinta e oito da emenda
 #: 1.11, os dois do KAM-050 (1.83), o `screening.violation_detected` da 1.84
-#: (KAM-191), o `billing.cycle_paid` do KAM-059 e os dois `quote.*` do KAM-123.
+#: (KAM-191), o `billing.cycle_paid` do KAM-059, os dois `quote.*` do KAM-123 e o
+#: `agent.replied` do KAM-224.
 #: Escritos aqui a
 #: mao e nao lidos do dicionario: se alguem apagar um contrato **e** a linha do
 #: dicionario, uma contagem derivada dos dois continuava a bater.
-ESPERADOS = 44
+ESPERADOS = 45
 
 #: As versoes publicadas de cada tipo. Sao **duas** desde o KAM-159, que
 #: acrescentou a `v2` a todos: a uniao das finalidades de consentimento alarga
@@ -121,7 +122,7 @@ class TestOCatalogoDoRepositorio(unittest.TestCase):
 
     def test_sao_trinta_e_oito_e_carregam_todos(self) -> None:
         # O nome e o de 2026-10 e fica: o `specs/tickets/KAM-007.md` cita-o como
-        # evidencia. A contagem e a de `ESPERADOS`, quarenta e quatro desde o KAM-123.
+        # evidencia. A contagem e a de `ESPERADOS`, quarenta e cinco desde o KAM-224.
         self.assertEqual(len(self.contratos), ESPERADOS_FICHEIROS)
         self.assertEqual(len({c.tipo for c in self.contratos}), ESPERADOS)
 
@@ -552,11 +553,12 @@ class TestSubscricoesDoRegisto(unittest.TestCase):
         # Oito das duas verticais (KAM-027), cinco do consumidor do indice, a
         # quarta forma do registo (KAM-194), tres do consumidor do CHR (a
         # activacao do KAM-201, e a suspensao e o encerramento do KAM-098),
-        # e as sete do consumidor de Trust & Safety (KAM-200).
-        self.assertEqual(len(lidas), 23, [(s.consumer, s.tipo) for s in lidas])
+        # as sete do consumidor de Trust & Safety (KAM-200), e as duas da resposta
+        # do AGR, uma do `outbound` e uma do `painel` (KAM-224).
+        self.assertEqual(len(lidas), 25, [(s.consumer, s.tipo) for s in lidas])
         # O `consumer` vem do `id` da vertical, e do `consumidor` da quarta
         # forma, e nao do nome do ficheiro.
-        self.assertEqual({s.consumer for s in lidas}, {"vendedor", "servicos", "idx", "chr", "trust"})
+        self.assertEqual({s.consumer for s in lidas}, {"vendedor", "servicos", "idx", "chr", "trust", "outbound", "painel"})
         self.assertEqual(
             sorted((s.tipo, s.versao_max) for s in lidas if s.consumer == "chr"),
             [("tenant.activated", 1), ("tenant.closed", 1), ("tenant.suspended", 1)],
@@ -684,11 +686,12 @@ class TestCli(unittest.TestCase):
         e que a saida as **conta**: um gate que diz zero sobre oito e um gate que
         passa vacuamente. O KAM-194 acrescentou as cinco do `idx` (a quarta forma
         do registo), o KAM-201 a do `chr`, o KAM-200 as sete do `trust`, e o
-        KAM-098 as duas do `chr` da suspensao e do encerramento: sao vinte e tres.
+        KAM-098 as duas do `chr` da suspensao e do encerramento, e o KAM-224 a do
+        `outbound` e a do `painel`: sao vinte e cinco.
         """
         codigo, texto = self.correr("subscricoes")
         self.assertEqual(codigo, cli.SAIDA_OK, texto)
-        self.assertIn("23 subscricao(oes) lida(s)", texto)
+        self.assertIn("25 subscricao(oes) lida(s)", texto)
 
     def test_sem_base_diz_que_nao_correu(self) -> None:
         """Uma verificacao que se desliga tem de o dizer na saida."""

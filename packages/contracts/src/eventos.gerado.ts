@@ -9,6 +9,24 @@
  * O gate 7 (`make ci-7`) falha se este ficheiro estiver desactualizado.
  */
 
+/** Payload de `agent.replied` v1. */
+export interface PayloadAgentReplied {
+  readonly reply_id: string;
+  readonly thread_id: string;
+  readonly conversation_id: string;
+  readonly contact_id: string;
+  readonly canal: "whatsapp" | "painel";
+}
+
+/** Payload de `agent.replied` v2. */
+export interface PayloadAgentRepliedV2 {
+  readonly reply_id: string;
+  readonly thread_id: string;
+  readonly conversation_id: string;
+  readonly contact_id: string;
+  readonly canal: "whatsapp" | "painel";
+}
+
 /** Payload de `billing.cycle_paid` v1. */
 export interface PayloadBillingCyclePaid {
   readonly billing_cycle_id: string;
@@ -679,6 +697,11 @@ export interface EntradaDoCatalogo {
 
 /** Todos os contratos, por tipo. A lista e fechada: um tipo fora dela e desconhecido. */
 export const CATALOGO = {
+  "agent.replied": {
+    versoes: [1, 2],
+    obrigatorios: ["canal", "contact_id", "conversation_id", "reply_id", "thread_id"],
+    permitidos: ["canal", "contact_id", "conversation_id", "reply_id", "thread_id"],
+  },
   "billing.cycle_paid": {
     versoes: [1, 2],
     obrigatorios: ["billing_cycle_id", "charge_id", "currency", "periodo_fim", "periodo_inicio", "subscription_id", "valor_minor"],

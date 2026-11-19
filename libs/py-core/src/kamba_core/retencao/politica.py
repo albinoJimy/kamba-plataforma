@@ -204,6 +204,10 @@ POLITICA: Final[tuple[Classe, ...]] = (
             _t("platform.handoffs", pendencia=_CONVERSAS_PENDENTE),
             _t("platform.tool_audit", pendencia=_CONVERSAS_PENDENTE),
             _t("platform.draft_decisions", pendencia=_CONVERSAS_PENDENTE),
+            # KAM-224: a resposta do AGR e conteudo da conversa, com as FK para
+            # `conversations`; sai com a classe, pelo caminho que o KAM-098 tem
+            # por escrever para as outras.
+            _t("platform.agent_replies", pendencia=_CONVERSAS_PENDENTE),
             _t("platform.tool_idempotency", pendencia=_CONVERSAS_PENDENTE),
             _t("platform.inbound_events", pendencia=_CONVERSAS_PENDENTE),
         ),

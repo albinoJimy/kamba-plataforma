@@ -1538,6 +1538,26 @@ ESPERADO_POR_TABELA.update(
     }
 )
 
+#: A resposta do AGR (KAM-224, revisao da resposta do AGR). **So a aplicacao**:
+#: o AGR insere como `kamba_app`, e os dois consumidores (o `worker-canal` e o
+#: lote do `onboarding-web`) leem e marcam a entrega, tambem como `kamba_app`
+#: (ver `COLUNAS_POR_PAPEL`). **Ninguem apaga.**
+ESPERADO_POR_TABELA.update(
+    {
+        "agent_replies": {
+            "kamba_app": {"SELECT"},
+            "kamba_batch": set(),
+            "kamba_resolver": set(),
+            "kamba_identity": set(),
+            "kamba_audit": set(),
+            "kamba_agr": set(),
+            "kamba_pay_hooks": set(),
+            "kamba_migrator": set(PRIVILEGIOS_DE_TABELA),
+            "public": set(),
+        },
+    }
+)
+
 #: Os pedidos de orcamento (KAM-123, revisao do Orcamento expresso). **So a
 #: aplicacao**: o AGR corre como `kamba_app`, le, insere e actualiza por coluna
 #: (ver `COLUNAS_POR_PAPEL`). **Ninguem apaga**: um pedido fecha-se pelo
@@ -2496,6 +2516,15 @@ COLUNAS_POR_PAPEL = {
     # (valor_minor)` deixava-o nascer com preco que o dono nao deu. O `UPDATE`
     # e o estado e a resposta do dono, **menos a identidade** e o `criado_at`,
     # que e o relogio da janela de repeticao.
+    # KAM-224 (revisao da resposta do AGR): o `INSERT` da aplicacao e o
+    # conteudo da resposta, sem o `reply_id` nem o `criado_at`, que vem do
+    # `DEFAULT`, e sem o `entregue_at`, que nasce vazio. O `UPDATE` e **so** o
+    # `entregue_at`: uma resposta emitida nao muda de texto nem de canal.
+    ("kamba_app", "agent_replies", "INSERT"): {
+        "tenant_id", "chave", "contact_id", "conversation_id", "canal", "texto",
+        "botoes", "turno_iniciado_em",
+    },
+    ("kamba_app", "agent_replies", "UPDATE"): {"entregue_at"},
     ("kamba_app", "quote_requests", "INSERT"): {
         "tenant_id", "contact_id", "conversation_id", "sku", "quantidade",
     },
@@ -2618,6 +2647,10 @@ TABELAS_COM_MATRIZ_DE_COLUNA = (
     # `GRANT UPDATE (sku)` a mais era invisivel na matriz de tabela, e com ele
     # a proposta saia para outro produto.
     "quote_requests",
+    # KAM-224: a resposta do AGR tem `INSERT` e `UPDATE` por coluna. Um
+    # `GRANT UPDATE (texto)` a mais deixava mudar o que o cliente vai ler depois
+    # de o evento ter saido.
+    "agent_replies",
     # KAM-054 (0032): as quatro. Duas tem privilegio por coluna — o
     # `payment_confirmers` (`papel`, `pode_segunda_aprovacao`, `ativo`) e a
     # `refund_cases` (`estado`, `prova_ref`, `fechado_at`) —, e as outras duas
