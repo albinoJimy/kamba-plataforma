@@ -324,7 +324,7 @@ const AVISO_POR_ENTREGAR: Record<DestinoDoAviso, string> = {
  * `EnvKeyProvider`, como no CHR,
  * e o `Identidade.arrancar` recusa-as se o `KAMBA_ENV` não for este ambiente.
  *
- * **O que fica em memória, e tem credor** (KAM-226): o desafio do OTP e os
+ * **O que fica em memória, e tem credor** (KAM-223): o desafio do OTP e os
  * pedidos de troca em curso. Um reinício obriga o dono a pedir outro código, que
  * é o lado seguro; persisti-los é uma tabela nova.
  */
