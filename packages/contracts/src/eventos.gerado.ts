@@ -453,6 +453,42 @@ export interface PayloadQueryUnresolvedV2 {
   readonly turn_id: string;
 }
 
+/** Payload de `quote.requested` v1. */
+export interface PayloadQuoteRequested {
+  readonly quote_id: string;
+  readonly contact_id: string;
+  readonly sku: string;
+  readonly quantidade?: number;
+}
+
+/** Payload de `quote.requested` v2. */
+export interface PayloadQuoteRequestedV2 {
+  readonly quote_id: string;
+  readonly contact_id: string;
+  readonly sku: string;
+  readonly quantidade?: number;
+}
+
+/** Payload de `quote.sent` v1. */
+export interface PayloadQuoteSent {
+  readonly quote_id: string;
+  readonly contact_id: string;
+  readonly sku: string;
+  readonly valor_minor: number;
+  readonly currency: "AOA";
+  readonly validade_ate: string;
+}
+
+/** Payload de `quote.sent` v2. */
+export interface PayloadQuoteSentV2 {
+  readonly quote_id: string;
+  readonly contact_id: string;
+  readonly sku: string;
+  readonly valor_minor: number;
+  readonly currency: "AOA";
+  readonly validade_ate: string;
+}
+
 /** Payload de `review.created` v1. */
 export interface PayloadReviewCreated {
   readonly order_id: string;
@@ -787,6 +823,16 @@ export const CATALOGO = {
     versoes: [1, 2],
     obrigatorios: ["thread_id", "turn_id"],
     permitidos: ["thread_id", "turn_id"],
+  },
+  "quote.requested": {
+    versoes: [1, 2],
+    obrigatorios: ["contact_id", "quote_id", "sku"],
+    permitidos: ["contact_id", "quantidade", "quote_id", "sku"],
+  },
+  "quote.sent": {
+    versoes: [1, 2],
+    obrigatorios: ["contact_id", "currency", "quote_id", "sku", "validade_ate", "valor_minor"],
+    permitidos: ["contact_id", "currency", "quote_id", "sku", "validade_ate", "valor_minor"],
   },
   "review.created": {
     versoes: [1, 2],

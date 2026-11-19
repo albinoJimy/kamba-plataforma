@@ -75,7 +75,13 @@ VEREDICTOS: Final = (
 )
 
 #: Os `kind` de *fact* que sustentam um valor monetario (`MONEY_KINDS` do §9.1).
-MONEY_KINDS: Final = ("price", "total")
+#: O `quote_price` (KAM-123) e o valor que o dono fixou num orcamento, e
+#: **so sustenta com o `sku` dele na linha**, como o `price` — e e o unico que
+#: sustenta um valor numa linha `sob_consulta` (ver `_dinheiro`).
+MONEY_KINDS: Final = ("price", "total", "quote_price")
+
+#: Os `kind` de dinheiro que pertencem a um produto e exigem o `sku` na linha.
+_KINDS_DE_PRODUTO: Final = ("price", "quote_price")
 
 
 class VeredictoDesconhecidoError(ValueError):
@@ -202,8 +208,21 @@ def _dinheiro(
         valor = numero.value_minor
         # Passo 3 antes do passo 1: `sob_consulta` recusa mesmo um valor que
         # exista nos *facts* (criterio 4, «com qualquer numero falha»).
+        #
+        # **A unica excepcao e o orcamento do dono** (KAM-123): um *fact*
+        # `quote_price` com o `sku` desta linha e **exactamente** este valor. O
+        # preco de um `sob_consulta` nao existe no catalogo; existe na resposta
+        # do dono a um pedido, e e so essa que se cita. Um `price` ou um
+        # `total` com o mesmo valor continuam a recusar.
         if sob_consulta:
-            erros.append(Erro("sku_price_mismatch", sku=sob_consulta[0]))
+            if not any(
+                f.kind == "quote_price"
+                and f.sku in sob_consulta
+                and f.sku in linha.skus
+                and _inteiro(f.value) == valor
+                for f in facts
+            ):
+                erros.append(Erro("sku_price_mismatch", sku=sob_consulta[0]))
             continue
         if valor is None:
             # Moeda estrangeira: nao ha `kind` de moeda onde a sustentar.
@@ -226,7 +245,9 @@ def _dinheiro(
             # errado com preco certo» do ADR-007 — e na carga mais comum da loja
             # acontecia sempre, nao por acidente.
             continue
-        ligados = [f for f in casam if f.kind == "price" and f.sku and f.sku in linha.skus]
+        ligados = [
+            f for f in casam if f.kind in _KINDS_DE_PRODUTO and f.sku and f.sku in linha.skus
+        ]
         if not ligados:
             erros.append(
                 Erro(

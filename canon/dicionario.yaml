@@ -12,7 +12,7 @@
 
 version: 1
 fonte: "specs/02_Dicionario_de_Dados_Canonico.md"
-versao_dicionario: "1.114"
+versao_dicionario: "1.115"
 entradas:
   - seccao: "3.1"
     conceito: "Contacto"
@@ -1316,7 +1316,7 @@ entradas:
     variantes_literais: []
   - seccao: "3.5"
     conceito: "Tipos do Piloto"
-    canonico: "order.created, order.paid, order.expired, order.cancelled, order.delivered, payment.reference_issued, payment.confirmed, payment.manual_confirmed, payment.failed, payment.expired, review.requested, review.created, query.resolved, query.unresolved, query.handoff, tenant.approved, tenant.provisioned, tenant.activated, tenant.suspended, tenant.reactivated, tenant.closed, catalog.product_changed, catalog.price_changed, stock.reserved, stock.released, stock.adjusted, stock.low, consent.recorded, consent.withdrawn, privacy.erasure_requested, privacy.erasure_applied, channel.updated, channel.inactivity_warning, contact.merged, conversation.mode_changed, booking.created, booking.reminder_due, booking.cancelled, order.exception, order.refund_requested, screening.violation_detected, billing.cycle_paid"
+    canonico: "order.created, order.paid, order.expired, order.cancelled, order.delivered, payment.reference_issued, payment.confirmed, payment.manual_confirmed, payment.failed, payment.expired, review.requested, review.created, query.resolved, query.unresolved, query.handoff, tenant.approved, tenant.provisioned, tenant.activated, tenant.suspended, tenant.reactivated, tenant.closed, catalog.product_changed, catalog.price_changed, stock.reserved, stock.released, stock.adjusted, stock.low, consent.recorded, consent.withdrawn, privacy.erasure_requested, privacy.erasure_applied, channel.updated, channel.inactivity_warning, contact.merged, conversation.mode_changed, booking.created, booking.reminder_due, booking.cancelled, order.exception, order.refund_requested, screening.violation_detected, billing.cycle_paid, quote.requested, quote.sent"
     literais:
       - "order.created"
       - "order.paid"
@@ -1360,6 +1360,8 @@ entradas:
       - "order.refund_requested"
       - "screening.violation_detected"
       - "billing.cycle_paid"
+      - "quote.requested"
+      - "quote.sent"
     nomes:
       - "order.created"
       - "order.paid"
@@ -1403,7 +1405,11 @@ entradas:
       - "order.refund_requested"
       - "screening.violation_detected"
       - "billing.cycle_paid"
+      - "quote.requested"
+      - "quote.sent"
     nomes_nota:
+      - "quote"
+      - "quote_id"
       - "billing.cycle_paid"
       - "order"
       - "billing_cycle"
@@ -1440,7 +1446,7 @@ entradas:
     variantes_literais: []
   - seccao: "3.5"
     conceito: "Campos de payload dos eventos"
-    canonico: "order_id, review_id, numero_publico, sku, qty, linhas, currency, nota, motivo, entrega_modo, entrega_confirmada_por, paga_via, expira_at, autenticacao, authn_ok, provider_event_id, plano, evento_pagamento_id, subscription_id, periodo_inicio, periodo_fim, kyc_nivel, tecto_inicial_minor, intervencao_humana"
+    canonico: "order_id, review_id, numero_publico, sku, qty, linhas, currency, nota, motivo, entrega_modo, entrega_confirmada_por, paga_via, expira_at, autenticacao, authn_ok, provider_event_id, plano, evento_pagamento_id, subscription_id, periodo_inicio, periodo_fim, kyc_nivel, tecto_inicial_minor, intervencao_humana, quote_id, quantidade, validade_ate"
     literais:
       - "order_id"
       - "review_id"
@@ -1466,6 +1472,9 @@ entradas:
       - "kyc_nivel"
       - "tecto_inicial_minor"
       - "intervencao_humana"
+      - "quote_id"
+      - "quantidade"
+      - "validade_ate"
     nomes:
       - "order_id"
       - "review_id"
@@ -1491,6 +1500,9 @@ entradas:
       - "kyc_nivel"
       - "tecto_inicial_minor"
       - "intervencao_humana"
+      - "quote_id"
+      - "quantidade"
+      - "validade_ate"
     nomes_nota:
       - "v1"
       - "v2"
@@ -1896,7 +1908,7 @@ entradas:
     variantes_literais: []
   - seccao: "3.7"
     conceito: "Pedidos de orçamento"
-    canonico: "quote_requests; fact quote_price"
+    canonico: "quote_requests; fact quote_price (§3.79, emenda 1.115)"
     literais:
       - "quote_requests"
       - "quote_price"
@@ -6375,21 +6387,28 @@ entradas:
     variantes_literais: []
   - seccao: "3.27"
     conceito: "Natureza de um fact"
-    canonico: "kind ∈ {price, stock, total, datetime}"
+    canonico: "kind ∈ {price, stock, total, datetime, quote_price}"
     literais:
       - "kind"
       - "price"
       - "stock"
       - "total"
       - "datetime"
+      - "quote_price"
     nomes:
       - "kind"
       - "price"
       - "stock"
       - "total"
       - "datetime"
+      - "quote_price"
     nomes_nota:
+      - "quote_price"
       - "kind"
+      - "quote_id"
+      - "fact_id"
+      - "sku"
+      - "sob_consulta"
     variantes_literais: []
   - seccao: "3.27"
     conceito: "Prova de confirmação por botão"
@@ -20306,6 +20325,190 @@ entradas:
       - "provisionamento"
       - "resolveContact"
     variantes_literais: []
+  - seccao: "3.79"
+    conceito: "Pedido de orçamento"
+    canonico: "platform.quote_requests(quote_id, tenant_id, contact_id, conversation_id, sku, quantidade, estado, valor_minor, currency, validade_ate, condicoes, criado_at, respondido_at, enviado_at)"
+    literais:
+      - "platform.quote_requests(quote_id, tenant_id, contact_id, conversation_id, sku, quantidade, estado, valor_minor, currency, validade_ate, condicoes, criado_at, respondido_at, enviado_at)"
+    nomes:
+      - "platform.quote_requests"
+      - "quote_id"
+      - "tenant_id"
+      - "contact_id"
+      - "conversation_id"
+      - "sku"
+      - "quantidade"
+      - "estado"
+      - "valor_minor"
+      - "currency"
+      - "validade_ate"
+      - "condicoes"
+      - "criado_at"
+      - "respondido_at"
+      - "enviado_at"
+    nomes_nota:
+      - "FORCE"
+      - "kamba_app"
+    variantes_literais: []
+  - seccao: "3.79"
+    conceito: "Estado de um pedido"
+    canonico: "quote_requests.estado ∈ {pedido, respondido, enviado, aguarda_janela, expirado, cancelado}"
+    literais:
+      - "quote_requests.estado"
+      - "pedido"
+      - "respondido"
+      - "enviado"
+      - "aguarda_janela"
+      - "expirado"
+      - "cancelado"
+    nomes:
+      - "quote_requests.estado"
+      - "pedido"
+      - "respondido"
+      - "enviado"
+      - "aguarda_janela"
+      - "expirado"
+      - "cancelado"
+    nomes_nota:
+      - "quote_requests_transicao"
+      - "enviado"
+      - "pedido"
+      - "respondido"
+      - "aguarda_janela"
+      - "quote_requests_abertos_idx"
+    variantes_literais: []
+  - seccao: "3.79"
+    conceito: "Valor do dono num orçamento"
+    canonico: "fact quote_price, com fact_id = quote_id"
+    literais:
+      - "quote_price"
+      - "fact_id"
+      - "quote_id"
+    nomes:
+      - "quote_price"
+      - "fact_id"
+      - "quote_id"
+    nomes_nota:
+      - "sku"
+    variantes_literais: []
+  - seccao: "3.79"
+    conceito: "Referência interna"
+    canonico: "ORC- e oito letras derivadas do quote_id"
+    literais:
+      - "ORC-"
+      - "quote_id"
+    nomes:
+      - "ORC"
+      - "quote_id"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.79"
+    conceito: "Rótulo da proposta"
+    canonico: "«Orçamento — não é factura»"
+    literais: []
+    nomes: []
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.79"
+    conceito: "Validade por omissão"
+    canonico: "sete dias de calendário de Africa/Luanda"
+    literais: []
+    nomes: []
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.79"
+    conceito: "Janela de repetição de um pedido"
+    canonico: "dez minutos, por contacto e sku"
+    literais:
+      - "sku"
+    nomes:
+      - "sku"
+    nomes_nota:
+      - "quote_id"
+      - "orcamentos_mes"
+    variantes_literais: []
+  - seccao: "3.79"
+    conceito: "Acção do envio"
+    canonico: "owner_actions.tipo enviar_proposta, com ref = {quote_id}/{marca}"
+    literais:
+      - "owner_actions.tipo"
+      - "enviar_proposta"
+      - "ref"
+    nomes:
+      - "owner_actions.tipo"
+      - "enviar_proposta"
+      - "ref"
+    nomes_nota:
+      - "marca"
+      - "desactualizado"
+    variantes_literais: []
+  - seccao: "3.79"
+    conceito: "Template da proposta com a janela fechada"
+    canonico: "orcamento_pronto"
+    literais:
+      - "orcamento_pronto"
+    nomes:
+      - "orcamento_pronto"
+    nomes_nota:
+      - "utility"
+    variantes_literais: []
+  - seccao: "3.79"
+    conceito: "Desfecho de um envio"
+    canonico: "enviado, aguarda_janela, nao_enviado, ja_enviado, desactualizado, nao_e_orcamento"
+    literais:
+      - "enviado"
+      - "aguarda_janela"
+      - "nao_enviado"
+      - "ja_enviado"
+      - "desactualizado"
+      - "nao_e_orcamento"
+    nomes:
+      - "enviado"
+      - "aguarda_janela"
+      - "nao_enviado"
+      - "ja_enviado"
+      - "desactualizado"
+      - "nao_e_orcamento"
+    nomes_nota:
+      - "enviar"
+    variantes_literais: []
+  - seccao: "3.79"
+    conceito: "Tool do pedido de orçamento"
+    canonico: "request_quote (tool request_quote)"
+    literais:
+      - "request_quote"
+    nomes:
+      - "request_quote"
+    nomes_nota:
+      - "write"
+      - "orcamento"
+    variantes_literais: []
+  - seccao: "3.79"
+    conceito: "Tool da resposta do dono"
+    canonico: "submit_quote (tool submit_quote)"
+    literais:
+      - "submit_quote"
+    nomes:
+      - "submit_quote"
+    nomes_nota:
+      - "write"
+      - "orcamento"
+    variantes_literais: []
+  - seccao: "3.79"
+    conceito: "Envio da proposta"
+    canonico: "send_quote é o botão confirm:{action_id} e não tool"
+    literais:
+      - "send_quote"
+      - "confirm:{action_id}"
+    nomes:
+      - "send_quote"
+      - "confirm"
+      - "action_id"
+    nomes_nota:
+      - "confirm"
+      - "orcamentos"
+      - "PortaDeOrcamento"
+    variantes_literais: []
 
 tabelas:
   - nome: "contacts"
@@ -21771,6 +21974,27 @@ tabelas:
     assinatura: "platform.owner_actions(action_id, tenant_id, contact_id, tipo, ref, estado, criado_at, expira_at, confirmada_at)"
     seccao: "3.78"
     conceito: "Acções sensíveis do dono"
+  - nome: "quote_requests"
+    esquema: "platform"
+    colunas:
+      - "quote_id"
+      - "tenant_id"
+      - "contact_id"
+      - "conversation_id"
+      - "sku"
+      - "quantidade"
+      - "estado"
+      - "valor_minor"
+      - "currency"
+      - "validade_ate"
+      - "condicoes"
+      - "criado_at"
+      - "respondido_at"
+      - "enviado_at"
+    aberta: false
+    assinatura: "platform.quote_requests(quote_id, tenant_id, contact_id, conversation_id, sku, quantidade, estado, valor_minor, currency, validade_ate, condicoes, criado_at, respondido_at, enviado_at)"
+    seccao: "3.79"
+    conceito: "Pedido de orçamento"
 
 dominios:
   - coluna: "consent_event.purpose"
@@ -22270,6 +22494,7 @@ dominios:
       - "stock"
       - "total"
       - "datetime"
+      - "quote_price"
     seccao: "3.27"
     conceito: "Natureza de um fact"
     so_no_registo: false
@@ -23547,6 +23772,17 @@ dominios:
       - "outro"
     seccao: "3.78"
     conceito: "Intenções do Assistente do Dono"
+    so_no_registo: false
+  - coluna: "quote_requests.estado"
+    valores:
+      - "pedido"
+      - "respondido"
+      - "enviado"
+      - "aguarda_janela"
+      - "expirado"
+      - "cancelado"
+    seccao: "3.79"
+    conceito: "Estado de um pedido"
     so_no_registo: false
 
 variantes:

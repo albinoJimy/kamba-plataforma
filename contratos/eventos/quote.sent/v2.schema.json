@@ -1,0 +1,167 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contratos.kamba.ao/eventos/quote.sent/v2.schema.json",
+  "title": "quote.sent v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "id",
+    "tipo",
+    "versao",
+    "tenant_id",
+    "ocorrido_em",
+    "registado_em",
+    "produtor",
+    "agregado",
+    "correlacao_id",
+    "causa_id",
+    "trace_id",
+    "classe_pii",
+    "finalidades",
+    "payload"
+  ],
+  "properties": {
+    "id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "UUIDv7 do evento. Chave global de idempotencia."
+    },
+    "tipo": {
+      "type": "string",
+      "const": "quote.sent"
+    },
+    "versao": {
+      "type": "integer",
+      "const": 2
+    },
+    "tenant_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "ocorrido_em": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "registado_em": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "produtor": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "agregado": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "tipo",
+        "id",
+        "seq"
+      ],
+      "properties": {
+        "tipo": {
+          "type": "string",
+          "const": "quote"
+        },
+        "id": {
+          "type": "string"
+        },
+        "seq": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "correlacao_id": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "uuid"
+    },
+    "causa_id": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "uuid"
+    },
+    "trace_id": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "classe_pii": {
+      "type": "string",
+      "enum": [
+        "P0"
+      ]
+    },
+    "finalidades": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "enum": [
+          "transacao",
+          "atendimento",
+          "marketing",
+          "analytics_agregado",
+          "melhoria_servico",
+          "sugestoes_patrocinadas",
+          "partilha_loja",
+          "partilha_parceiros",
+          "partilha_estafeta",
+          "notificacao_dono"
+        ]
+      }
+    },
+    "payload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "quote_id",
+        "contact_id",
+        "sku",
+        "valor_minor",
+        "currency",
+        "validade_ate"
+      ],
+      "properties": {
+        "quote_id": {
+          "type": "string",
+          "format": "uuid",
+          "description": "O quote_requests.quote_id do pedido. E tambem o agregado.id."
+        },
+        "contact_id": {
+          "type": "string",
+          "format": "uuid",
+          "description": "O contact_id do cliente que pediu. Identificador opaco, nunca o telefone."
+        },
+        "sku": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100
+        },
+        "valor_minor": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "O valor que o dono digitou, em centimos de AOA. Nunca um valor calculado pelo sistema."
+        },
+        "currency": {
+          "type": "string",
+          "const": "AOA"
+        },
+        "validade_ate": {
+          "type": "string",
+          "format": "date",
+          "description": "A data civil (Africa/Luanda) ate a qual a proposta vale."
+        }
+      }
+    }
+  }
+}

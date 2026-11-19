@@ -40,6 +40,7 @@ from collections.abc import Mapping
 from typing import Any, Final
 
 from ...dono import accoes
+from ...tls import orcamento as orcamento_repo
 from ...tls.erros import LIMIT_EXCEEDED, UPSTREAM_DOWN, UPSTREAM_TIMEOUT
 from ..vendedor.nos import (
     BOTAO_HUMANO,
@@ -187,12 +188,35 @@ def confirm(deps: Dependencias):
         porta = deps.accoes_do_dono
         if porta is None:
             return _resposta_estatica(MSG_CONFIRMACAO_INDISPONIVEL)
-        desfecho = await porta.confirmar(
-            estado["tenant_id"], estado["contact_id"], _botao_do_turno(estado)
-        )
+        botao = _botao_do_turno(estado)
+        desfecho = await porta.confirmar(estado["tenant_id"], estado["contact_id"], botao)
+        if desfecho == accoes.CONFIRMADA:
+            # **A accao executa aqui, e so com `confirmada`** (KAM-123): o
+            # `ja_confirmada` de um segundo toque nao chega a esta linha, e e
+            # isso que faz o duplo toque dar uma proposta. Uma accao que nao e
+            # `enviar_proposta` volta `nao_e_orcamento` e fica a frase de antes.
+            envio = await _enviar_orcamento(deps, estado, botao)
+            if envio is not None:
+                return _resposta_estatica(FRASE_DO_ENVIO.get(envio, MSG_CONFIRMADA))
         return _resposta_estatica(FRASE_DA_CONFIRMACAO.get(desfecho, MSG_PEDIDO_NAO_ENCONTRADO))
 
     return no
+
+
+async def _enviar_orcamento(deps: Dependencias, estado: Mapping[str, Any], botao: str) -> str | None:
+    """O desfecho do envio de uma proposta, ou `None` se a accao nao for uma.
+
+    Sem porta ligada **nada se envia** e fica a frase da confirmacao, que nao
+    diz que a proposta saiu; uma accao de outro tipo devolve `None` tambem.
+    """
+    action_id = accoes.accao_do_botao(botao)
+    porta = deps.orcamentos
+    if action_id is None or porta is None:
+        return None
+    envio = await porta.enviar(estado["tenant_id"], estado["contact_id"], action_id)
+    if envio.desfecho == orcamento_repo.NAO_E_ORCAMENTO:
+        return None
+    return envio.desfecho
 
 
 # ------------------------------------------------- os tres de texto de persona
@@ -302,6 +326,30 @@ FRASE_DA_CONFIRMACAO: Final = {
     accoes.JA_CONFIRMADA: MSG_JA_CONFIRMADA,
     accoes.EXPIRADA: MSG_EXPIRADA,
     accoes.BLOQUEADA_PELA_TROCA: MSG_BLOQUEADA_PELA_TROCA,
+}
+
+#: As frases do envio de uma proposta de orcamento (KAM-123). Sem digitos, e
+#: **sem o valor**: o dono ja o viu no eco, e repeti-lo aqui era um numero sem
+#: *fact* no texto do dono.
+MSG_PROPOSTA_ENVIADA: Final = "Proposta enviada ao cliente."
+MSG_PROPOSTA_A_ESPERA: Final = (
+    "O cliente nao fala connosco ha mais de um dia. Mandei-lhe um aviso de que o "
+    "orcamento esta pronto, e o valor segue quando ele responder."
+)
+MSG_PROPOSTA_NAO_ENVIADA: Final = (
+    "Nao consegui enviar a proposta agora. O pedido continua pendente; tente "
+    "outra vez mais tarde."
+)
+MSG_PROPOSTA_JA_ENVIADA: Final = "Esta proposta ja tinha sido enviada."
+MSG_PROPOSTA_DESACTUALIZADA: Final = (
+    "Este botao era de um valor anterior. Use o botao da ultima resposta."
+)
+FRASE_DO_ENVIO: Final = {
+    orcamento_repo.ENVIADO: MSG_PROPOSTA_ENVIADA,
+    orcamento_repo.AGUARDA_JANELA: MSG_PROPOSTA_A_ESPERA,
+    orcamento_repo.NAO_ENVIADO: MSG_PROPOSTA_NAO_ENVIADA,
+    orcamento_repo.JA_ENVIADO: MSG_PROPOSTA_JA_ENVIADA,
+    orcamento_repo.DESACTUALIZADO: MSG_PROPOSTA_DESACTUALIZADA,
 }
 
 #: Os avisos que o `tools_info` pode deixar (o `_aviso_do_erro` do Vendedor).

@@ -1035,6 +1035,21 @@ def _midia(cursor, tenant_id: str, canario: str) -> None:
     )
 
 
+def _pedido_de_orcamento(cursor, tenant_id: str, canario: str) -> None:
+    """Um pedido de orcamento do tenant (KAM-123). O canario vai no `sku`.
+
+    O `sku` e o unico texto livre que o `INSERT` aceita: as `condicoes` so
+    entram numa resposta do dono. A coluna alteravel e o `estado` para
+    `cancelado`, que o gatilho aceita a partir de `pedido`. Semeia o
+    administrador, pela razao da ficha do dono.
+    """
+    cursor.execute(
+        "INSERT INTO platform.quote_requests (tenant_id, contact_id, conversation_id, sku) "
+        f"VALUES (%s, {_UM_CONTACTO}, {_UMA_CONVERSA}, %s)",
+        (tenant_id, tenant_id, tenant_id, canario),
+    )
+
+
 def _identidade(inserir, coluna, alteravel, valor, guardado) -> Receita:
     return Receita(
         inserir, coluna, alteravel, valor,
@@ -1833,6 +1848,11 @@ RECEITAS: dict[tuple[str, str], Receita] = {
     ("platform", "owner_actions"): Receita(
         _accao_do_dono, "ref", "estado", "cancelada", semeador="admin",
     ),
+    # KAM-123: os pedidos de orcamento. O canario vai no `sku`; a coluna
+    # alteravel e o `estado`, que esta no `GRANT UPDATE` por coluna.
+    ("platform", "quote_requests"): Receita(
+        _pedido_de_orcamento, "sku", "estado", "cancelado", semeador="admin",
+    ),
     ("platform", "events_outbox"): Receita(
         _evento_no_outbox, "agregado_id", None, None, semeador="admin"
     ),
@@ -2378,6 +2398,9 @@ ORDEM = (
     # `contacts`, pelo que vem depois do contacto. Fica aqui, a seguir as do
     # aviso ao dono, porque a ordem inversa e a de apagar e ninguem a aponta.
     ("platform", "owner_actions"),
+    # KAM-123: o pedido de orcamento aponta o contacto e a conversa, pelo que
+    # vem depois dos dois; ninguem o aponta.
+    ("platform", "quote_requests"),
     # KAM-009: as duas so tem FK para `tenants`, e por isso ficam no fim.
     ("platform", "tenant_usage"),
     ("platform", "usage_ledger"),

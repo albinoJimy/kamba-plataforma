@@ -4,7 +4,7 @@
 |---|---|
 | Produto | KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para Angola |
 | Documento | Epic — Módulos de Entrada |
-| Versão | 1.10 |
+| Versão | 1.11 |
 | Data | Novembro de 2026 |
 | Classificação | Documento de Referência — Interno |
 | Documento-fonte | `../docs/tecnica/00_Arquitectura_Solucao.md` (ADR-020, §13.3 D13), `../docs/tecnica/02_Agent_Runtime_Verticais.md` (§21), `../docs/exploracao/14-tese-minima-e-plano-de-validacao.md` (H10–H12) |
@@ -58,6 +58,8 @@ Estado da evidência (E5): **CONFIRMADO** — preços e termos publicados dos fo
 | KAM-215 | Canal do dono: o dono nasce do provisionamento em produção — emissor, `phone_enc` e consumidor | feature | L | P1 | KAM-211 |
 | KAM-216 | Canal do dono: o número da loja persistido e o `owner_channel_wa` no painel | feature | M | P1 | KAM-211 |
 | KAM-217 | Canal do dono: o painel do dono em produção — `OwnerPort`, processo web ligado e troca montada | feature | L | P1 | KAM-211 |
+| KAM-220 | Orçamento expresso nos grafos: o pedido do cliente, a resposta do dono, o «aceito» e os pendentes | feature | M | P1 | KAM-123 |
+| KAM-221 | Orçamento expresso: o envio real — Outbound, *template* `orcamento_pronto`, a janela e as 24 h | feature | M | P1 | KAM-123 |
 
 ---
 
@@ -568,7 +570,7 @@ Testes: unit, integração, idempotência, adversarial e CI de ausência de publ
 | Prioridade | P1 |
 | Estimativa | M |
 | Dependências | KAM-043, KAM-118, KAM-031, KAM-032, KAM-005, KAM-007, KAM-015, KAM-018 |
-| Bloqueia | KAM-125, KAM-127 |
+| Bloqueia | KAM-125, KAM-127, KAM-220, KAM-221 |
 | Responsável sugerido | Engenheiro de Runtime/IA com Engenheiro de Comércio |
 | Documentos de referência | `../docs/tecnica/02_Agent_Runtime_Verticais.md` (§9, §21.3), `../docs/tecnica/evidencia/E5_Modulos_Entrada.md` (§4, §5, B10, B11), `../docs/tecnica/evidencia/E3_Regulatorio_Dados.md` (§4, §6), `specs/EPIC-03_Agent_Runtime_Verticais.md` (KAM-031, KAM-032), `specs/EPIC-04_Core_Comercio.md` (KAM-043), ADR-007, ADR-020 |
 
@@ -588,7 +590,7 @@ Implementar `request_quote`, `submit_quote` e `send_quote`, a tabela `quote_requ
 - [ ] `condicoes` (≤ 200 caracteres) é texto do dono passado por `screen()` e por injecção; `validade_ate` obrigatória (omissão: 7 dias, *proposta*, mostrada como data calculada por código).
 - [ ] `send_quote` (write, confirmação do dono) mostra pré-visualização e só envia com botão `confirm:{quote_id}`; duplo toque ×2 → **1** mensagem ao cliente e 1 evento `quote.sent`; envio pelo caminho `send` único (nenhuma tool envia por si).
 - [ ] A mensagem usa o *renderer* por referência (`{{quote_price:quote_id}}`) e passa pelo validador: em 100 saídas adversariais com outro número, desconto ou total («e com 10% de desconto?») → **0** passam; o bot recusa calcular e abre novo pedido ao dono.
-- [ ] Texto fixo «Orçamento — não é factura», validade e referência interna `ORC-…`; nenhum campo `nif`, `serie` ou numeração fiscal no modelo; sem PDF.
+- [x] Texto fixo «Orçamento — não é factura», validade e referência interna `ORC-…`; nenhum campo `nif`, `serie` ou numeração fiscal no modelo; sem PDF.
 - [ ] Cliente com janela de 24 h fechada: estado `aguarda_janela`, *template* utility sem número («o teu orçamento está pronto, responde para ver»), orçado como marketing no pior caso (0,0225 USD); o valor só é enviado depois de o cliente responder.
 - [ ] Orçamento expirado ou cancelado não pode ser aceite; resposta «aceito» do cliente **não cria pedido** e entrega a conversa ao dono com o contexto (KAM-034); pedido sem resposta do dono em 24 h (*proposta*) gera 1 mensagem neutra ao cliente e oferta de humano.
 - [ ] Isolamento: o dono de A não vê orçamentos de B; o cliente X não vê os de Y; `orcamentos_mes` aplicado por TEN; pedidos de bens fora do catálogo ou de PDFs/sites de terceiros não são ingeridos.
@@ -615,9 +617,9 @@ CREATE TABLE quote_requests (  -- proposta; RLS FORCE
 ### Definition of Done
 
 - [ ] Critérios de Aceitação satisfeitos; golden `dono_orcamento` (KAM-125) preparado.
-- [ ] Números só de tools: preço só como *fact* `quote_price` validado (ADR-007).
-- [ ] Idempotência de pedido, envio e eventos com teste de repetição (ADR-009); sem pagamento envolvido, o orçamento não marca nada como pago (ADR-013).
-- [ ] Sem fundos de terceiros nem documento fiscal; rótulo «não é factura» *(a confirmar por parecer, E5 Q8)*.
+- [x] Números só de tools: preço só como *fact* `quote_price` validado (ADR-007).
+- [x] Idempotência de pedido, envio e eventos com teste de repetição (ADR-009); sem pagamento envolvido, o orçamento não marca nada como pago (ADR-013).
+- [x] Sem fundos de terceiros nem documento fiscal; rótulo «não é factura» *(a confirmar por parecer, E5 Q8)*.
 - [ ] Isolamento de tenant e contacto (ADR-015); logs sem conteúdo (ADR-010); migração reversível; dois revisores.
 
 ### Handoff para Claude Code
@@ -630,6 +632,54 @@ Regras: o bot nunca calcula nem inventa o preço; a mensagem passa pelo validado
 aceitação do cliente não cria pedido (vai ao dono); janela de 24 h tratada com template sem número. Sem base de preços extraída de terceiros.
 Não alteres o grafo do Vendedor além do necessário nem implementes planos (KAM-124). Testes: unit, integração, isolamento, adversarial. PR com o template da §7.
 ```
+
+### Decisões do executor
+
+- **O domínio vive em dois sítios, e a fronteira é a escrita.** As regras puras — os estados e as transições, o *parser* do valor do dono, a validade, as condições, a referência e o modelo da proposta — estão em `services/agr/src/kamba_agr/orcamento/regras.py`; o SQL está em `services/agr/src/kamba_agr/tls/orcamento.py`, **dentro da ToolLayer**, porque o `lint_arch` (`tool_schema.py`) recusa escritas no `platform` fora dela e a dispensa da `owner_actions` (KAM-118) escreveu que as escritas dos módulos passam pela ToolLayer. Não se acrescentou entrada nenhuma à lista de dispensas do *gate*.
+- **O `send_quote` é o botão, e não uma tool.** O §6.2 do `../docs/tecnica/02` proíbe tools que enviem («o único caminho para o cliente é o nó `send` → Outbound»), e o `test_nao_existe_tool_de_envio_de_mensagem` recusa uma tool com `send` no nome. O envio é o nó `confirm` do grafo do dono: com o desfecho `confirmada`, chama a porta `orcamentos` (`kamba_agr/orcamento/porta.py`), que lê a acção `enviar_proposta` deste dono, tranca o pedido e envia pela `PortaDeNotificacao` do KAM-038. O `request_quote` e o `submit_quote` entram no catálogo **declarados**, com o módulo `orcamento` e o credor KAM-220.
+- **O botão é o `confirm:{action_id}` da `owner_actions`, com `ref` = `{quote_id}/{marca}`.** A `marca` é o `respondido_at` em microssegundos: o dono que corrige o valor recebe botão novo, e o botão velho devolve `desactualizado` sem enviar. A letra do critério 5 diz `confirm:{quote_id}`; a leitura está devolvida (ver «Decisões por tomar»).
+- **O pedido só nasce para um `sku` publicado `sob_consulta` do catálogo do tenant** (`SQL_OFERTA_SOB_CONSULTA` sobre a `offer_terms`): um `sku` inventado, de outro tenant ou com preço publicado dá `fora_do_catalogo` e nada se escreve. É a metade do critério 10 sobre o que não se ingere.
+- **A proposta é um modelo com os números por referência** (`{{quote_price:<quote_id>}}` e `{{validade:<quote_id>}}`), preenchido só pelos *facts* e validado pelo validador do KAM-032 com o produto como `sob_consulta`. Para isso o `quote_price` entra no `KINDS` e no `MONEY_KINDS`, e o `_dinheiro` passa a aceitar numa linha `sob_consulta` **só** um `quote_price` do mesmo `sku` e com o valor exacto (emenda 1.115 do dicionário, §3.27 e §3.79).
+- **A referência `ORC-…` não tem dígitos**: oito letras derivadas do `quote_id` (os mesmos 32 bits dos oito primeiros hexadecimais). Um dígito na proposta era um número que o validador quer sustentado, e não é série nem numeração fiscal.
+- **As condições recusam números, também por extenso.** Vão ao cliente dentro da proposta, e um número escrito pelo dono ali era um número sem *fact*; recusa-se onde o dono ainda pode reescrever.
+- **A conversa do cliente é coluna** (`conversation_id`): é por ela que a proposta volta, pelo Outbound, a uma conversa que não é a do turno do dono.
+- **A descida não recusa com linhas**, pela razão da `owner_actions`: o registo do que foi enviado é o `quote.sent` no outbox, que a descida não toca, e uma recusa punha a revisão entre as que travam as descidas da suite.
+
+### Decisões por tomar
+
+| Data | Para | Pergunta | Estado |
+|---|---|---|---|
+| 2026-11-19 | Fundador, pela coordenação do lote | O critério 5 escreve `confirm:{quote_id}`; o KAM-118 generalizou o botão como `confirm:{action_id}` da `owner_actions`, que é o que se usou (validade de 15 min, troca de SIM, *compare-and-set*). Conta como cumprido por essa leitura, ou fica a letra? | **em aberto** — a caixa 5 fica vazia até à resposta |
+| 2026-11-19 | Fundador, pela coordenação do lote | O critério 4 pede o `screen()` nas condições; o do KAM-088 só existe em TypeScript, e a porta Python é a `ScreeningPorLigar`, que recusa tudo. Usou-se a guarda de entrada do KAM-033 (injecção, abuso, sensível e dados de cartão) e a recusa de números. Serve, ou a caixa espera pela ponte? | **em aberto** — a caixa 4 fica vazia até à resposta |
+
+### Verificação dos Critérios de Aceitação
+
+Dez critérios, **um marcado**. O domínio está inteiro e medido contra o PostgreSQL; o que falta é a ligação aos dois grafos (credor **KAM-220**) e o envio real (credor **KAM-221**), e duas leituras devolvidas ao fundador. **Sem LLM pago, sem chave real e sem Outbound**: a proposta sai por uma porta de notificação falsa que devolve o desfecho pedido.
+
+Os ensaios: `services/agr/tests/test_orcamento.py` (gate 4) e `db/tests_agr/test_quote_requests.py` e `db/tests/test_orcamento_schema.py` (gate 8), contra o PostgreSQL.
+
+| Critério | Estado | Evidência nomeada |
+|---|---|---|
+| 1 | **parcial — caixa vazia** | **O pedido está; o grafo não o chama.** Três pedidos do mesmo `contact_id` e `sku` em dez minutos → o **mesmo** `quote_id`, uma linha, **um** `quote.requested` e **um** consumo de `orcamentos_mes` (`test_tres_pedidos_em_dez_minutos_dao_um_quote_id_uma_linha_um_evento`); duas mensagens concorrentes → um pedido (`test_duas_mensagens_concorrentes_dao_um_pedido`); depois da janela, outro (`test_fora_da_janela_de_repeticao_e_outro_pedido`). **Falta** o Vendedor chamar o `request_quote` ao pedido de preço de um `sob_consulta` e responder sem número: a tool está declarada e o grafo não a chama. Credor: **KAM-220** |
+| 2 | **parcial — caixa vazia** | Os seis estados no `CHECK` e no gatilho `quote_requests_transicao`, iguais ao `regras.py` (`test_as_transicoes_sao_as_da_revisao`); os finais não mudam e uma transição fora da lista recusa com `23514` (`test_o_gatilho_recusa_mudar_um_enviado_e_saltar_estados`); a lista dos pendentes (`pendentes`, `test_o_dono_de_b_nao_ve_nem_responde_os_pedidos_de_a`) e o pedido sem aviso fica visível nela. **Falta** mostrá-los na primeira mensagem do dono e no painel, e o aviso proactivo dentro da janela. Credor: **KAM-220** |
+| 3 | **parcial — caixa vazia** | O *parser* lê as formas do critério («120 mil», «120.000», «120 000 Kz», por extenso) e recusa o ambíguo e o composto sem adivinhar (`TestValorDoDono`); o `responder` grava o valor e devolve o eco e o botão (`test_o_dono_responde_e_recebe_o_botao`); em **100** pedidos com quantidades de 1 a 100, o valor enviado é sempre o digitado e a mensagem tem **um** valor monetário (`test_cem_pedidos_com_quantidades_diferentes_nunca_dao_um_total_calculado`). **Falta** o texto do dono chegar ao grafo e ao `submit_quote` (o turno do dono só recebe o botão desde o KAM-211). Credor: **KAM-220** |
+| 4 | **pendente de decisão — caixa vazia** | Condições ≤ 200 caracteres, sem números (também por extenso) e pela guarda de entrada do KAM-033 (`test_as_condicoes_recusam_numeros_injeccao_e_tamanho`); validade obrigatória, por omissão sete dias de Luanda calculados por código e mostrados como data (`test_a_validade_por_omissao_e_sete_dias_em_luanda`), e no passado recusa (`test_validade_no_passado_recusa`). A leitura do `screen()` está devolvida |
+| 5 | **pendente de decisão — caixa vazia** | Pré-visualização no eco da resposta (`Resposta.previsao`, o texto exacto que o cliente lê); só envia depois de o botão dar `confirmada`; duplo toque ×2 → **1** mensagem e **1** `quote.sent` (`test_duplo_toque_duas_vezes_da_uma_mensagem`), também em duas sessões concorrentes (`test_duplo_toque_concorrente_da_uma_mensagem`) e pelo turno do dono (`test_o_toque_confirma_e_envia_uma_vez`); o botão de um valor anterior não envia o valor novo (`test_o_botao_de_um_valor_anterior_nao_envia_o_valor_novo`); o envio é o do Outbound, e nenhuma tool envia. A forma do botão está devolvida |
+| 6 | **parcial — caixa vazia** | O modelo cita por referência e o validador recusa **0/100** saídas adversariais — quarenta outros valores, trinta descontos, trinta totais por quantidade — e mais três à mão (`test_cem_saidas_adversariais_nao_passam`); um `price` ou um `total` com o mesmo valor, ou um `quote_price` de outro `sku`, não sustentam o `sob_consulta` (`test_um_price_ou_total_igual_nao_sustenta_o_sob_consulta`). **Falta** o Vendedor recusar calcular e abrir pedido novo ao dono. Credor: **KAM-220** |
+| 7 | marcado | Primeira linha «Orçamento — não é factura», a validade e a referência `ORC-` com oito letras (`test_o_rotulo_a_referencia_o_valor_e_a_validade`, `test_a_referencia_e_estavel_e_sem_digitos`); nenhum campo `nif`, série nem numeração fiscal no modelo nem na revisão, e sem PDF (`test_sem_campos_fiscais_nem_pdf`) |
+| 8 | **parcial — caixa vazia** | **O estado está; o Outbound não.** Com a janela fechada a porta envia o *template* sem número, o pedido fica `aguarda_janela` e **não** sai `quote.sent`; depois de o cliente responder, o `libertar_da_janela` envia o valor e emite o evento (`test_janela_fechada_espera_e_o_valor_so_sai_depois`); sem *template* aprovado nada sai e o pedido fica (`test_sem_template_nada_sai_e_o_pedido_fica`). **Falta** o Outbound real, o *template* `orcamento_pronto` aprovado (a categoria utility é NÃO VERIFICADA), a chamada ao `libertar_da_janela` quando o cliente escreve e o custo orçado como marketing. Credor: **KAM-221** |
+| 9 | **parcial — caixa vazia** | Um expirado não se responde nem se envia, e o botão dele devolve `desactualizado` (`test_expirado_nao_se_responde_nem_se_envia`); um cancelado é final (`test_cancelado_e_final`); o `ultimo_do_cliente` dá ao grafo o estado para o «aceito». **Falta** o «aceito» entregar a conversa ao dono sem criar pedido (KAM-034), e a mensagem neutra das 24 h sem resposta. Credores: **KAM-220** (o «aceito») e **KAM-221** (as 24 h) |
+| 10 | **parcial — caixa vazia** | RLS `FORCE` pela `tenant_iso` e nas três listas do X-05 e nas sementes do isolamento; o dono de B não vê nem responde os pedidos de A, e o cliente X não vê o último pedido de Y (`TestIsolamento`); o `kamba_app` não muda o `sku` nem apaga (`test_a_aplicacao_nao_muda_a_identidade_nem_apaga`); `orcamentos_mes` pelo TEN, com o balde esgotado a recusar e sem o módulo nada a nascer (`test_o_balde_esgotado_recusa_o_pedido_seguinte`, `test_sem_o_modulo_nao_ha_pedido_nem_evento`); um `sku` fora do catálogo, de outro tenant, com preço publicado ou um URL não é ingerido (`test_fora_do_catalogo_ou_com_preco_publicado_nao_ha_pedido`). **Falta** o ensaio X-05 do isolamento correr com a receita nova no CI (gate 6), que esta sessão não correu localmente |
+
+### Verificação da Definition of Done
+
+| Caixa | Estado | Evidência nomeada |
+|---|---|---|
+| 1 | não satisfeito — caixa vazia | Um critério de dez; o *golden* `dono_orcamento` é do KAM-125 e não foi preparado aqui |
+| 2 | marcado | O valor só existe como *fact* `quote_price`, citado por referência e validado (`test_a_proposta_passa_o_proprio_validador`, `test_um_quote_price_nao_sustenta_o_preco_de_outro_produto`) |
+| 3 | marcado | Pedido, envio e eventos com ensaio de repetição (critérios 1 e 5); o orçamento não toca em pagamento nenhum |
+| 4 | marcado | Sem fundos de terceiros nem documento fiscal; o rótulo «não é factura» está na proposta, *a confirmar por parecer* (E5 Q8) |
+| 5 | **parcial — caixa vazia** | Isolamento de tenant e de contacto (critério 10); nenhum módulo novo escreve *logs*, e as excepções levam códigos e nunca valores; migração reversível (`test_desce_e_volta`). **Dois revisores**: a revisão adversarial deste PR é uma, e a segunda é nomeação do fundador |
 
 ---
 
@@ -1441,6 +1491,120 @@ Testes: integração, isolamento e adversarial (sessão cruzada, texto que imita
 
 ---
 
+## KAM-220 — Orçamento expresso nos grafos: o pedido do cliente, a resposta do dono, o «aceito» e os pendentes
+
+| Campo | Valor |
+|---|---|
+| Epic | EPIC-11 — Módulos de Entrada |
+| Fase | 1 |
+| Tipo | feature |
+| Prioridade | P1 |
+| Estimativa | M |
+| Dependências | KAM-123 |
+| Bloqueia | — |
+| Responsável sugerido | Engenheiro de Runtime/IA (AGR, TLS) |
+| Documentos de referência | `EPIC-11_Modulos_Entrada.md` (bloco KAM-123, critérios 1, 2, 3, 6 e 9), `02_Dicionario_de_Dados_Canonico.md` (§3.79), `../docs/tecnica/02_Agent_Runtime_Verticais.md` (§6.2, §9, §21.3) |
+
+### Contexto
+
+Credor dos critérios 1, 2, 3, 6 e 9 do KAM-123, aberto no PR dele. O domínio está entregue e medido contra a base (`kamba_agr/orcamento/regras.py`, `kamba_agr/tls/orcamento.py`): o pedido idempotente, a resposta do dono com eco e botão, o envio pelo botão, a lista dos pendentes. As duas tools estão **declaradas** no catálogo da ToolLayer, com o módulo `orcamento`, e nenhum grafo as chama.
+
+### Objectivo
+
+Ligar o pedido e a resposta aos grafos: o Vendedor pede orçamento de um `sob_consulta` e recusa calcular; o dono responde pelo texto; o «aceito» vai ao dono; os pendentes aparecem ao dono.
+
+### Critérios de Aceitação
+
+- [ ] O `request_quote` e o `submit_quote` ficam **ligados** na ToolLayer (modelo de argumentos sem parâmetros proibidos, executor sobre o `tls/orcamento.py`, `tool_audit` com os *facts*), e fechados pelo entitlement `orcamento`.
+- [ ] Ao pedido de preço de um produto `sob_consulta`, o Vendedor chama o `request_quote` e responde sem número; «calcula 12 unidades» ou «e com 10% de desconto?» abre pedido novo ao dono e não calcula (0 em 100).
+- [ ] O texto do dono chega ao `submit_quote` com o eco e o botão `confirm:{action_id}`; um valor ambíguo pede para reescrever.
+- [ ] «Aceito» de um cliente não cria pedido e entrega a conversa ao dono com o contexto (KAM-034); um orçamento expirado ou cancelado não se aceita.
+- [ ] Os pendentes aparecem na primeira mensagem do dono e no painel; o aviso proactivo só dentro da janela do dono (KAM-118, critério 8).
+
+### Detalhes Técnicos
+
+- **Sem esquema novo** previsto: a `quote_requests` é da revisão do KAM-123. O texto do dono no turno depende da decisão do KAM-186 sobre a janela `messages`.
+
+### Testes Requeridos
+
+- Unit: o grafo do Vendedor com um `sob_consulta`; o grafo do dono com texto e botão.
+- Integração contra a base: cliente → pedido → dono → envio.
+- **Adversarial:** «calcula 12 unidades», desconto negociado, cliente a forjar `quote_id`, dono a digitar valor ambíguo.
+
+### Definition of Done
+
+- [ ] Critérios de Aceitação satisfeitos; as caixas 1, 2, 3, 6 e 9 do KAM-123 revistas com a evidência.
+- [ ] Isolamento de tenant e contacto (ADR-015); números só de tools (ADR-007).
+
+### Handoff para Claude Code
+
+```text
+És o executor do ticket KAM-220 da KAMBÁ (Orçamento expresso nos grafos).
+Lê specs/EPIC-11_Modulos_Entrada.md (blocos KAM-123 e KAM-220), services/agr/src/kamba_agr/orcamento/regras.py,
+services/agr/src/kamba_agr/tls/orcamento.py e o §3.79 do dicionário.
+Objectivo: request_quote e submit_quote ligados na ToolLayer e chamados pelos grafos do Vendedor e do dono; o «aceito» ao dono; os pendentes ao dono.
+Regras: o bot nunca calcula; o envio continua a ser o botão e não uma tool; tenant_id só do contexto.
+Testes: unit, integração contra a base e adversarial.
+```
+
+---
+
+## KAM-221 — Orçamento expresso: o envio real — Outbound, *template* `orcamento_pronto`, a janela e as 24 h
+
+| Campo | Valor |
+|---|---|
+| Epic | EPIC-11 — Módulos de Entrada |
+| Fase | 1 |
+| Tipo | feature |
+| Prioridade | P1 |
+| Estimativa | M |
+| Dependências | KAM-123 |
+| Bloqueia | — |
+| Responsável sugerido | Engenheiro de Canais (Outbound) com Engenheiro de Runtime/IA |
+| Documentos de referência | `EPIC-11_Modulos_Entrada.md` (bloco KAM-123, critérios 8 e 9), `02_Dicionario_de_Dados_Canonico.md` (§3.79), `../docs/tecnica/evidencia/E5_Modulos_Entrada.md` (§5, B10) |
+
+### Contexto
+
+Credor do critério 8 e da metade das 24 h do critério 9 do KAM-123, aberto no PR dele. A proposta sai pela `PortaDeNotificacao` do KAM-038, que no processo é o `OutboundPorLigar` (devolve `sem_template`): hoje nenhuma proposta sai, e o dono é avisado. O estado `aguarda_janela` e o `libertar_da_janela` estão entregues e medidos com uma porta falsa.
+
+### Objectivo
+
+A proposta sai de facto ao cliente: em mensagem livre com a janela aberta, e pelo *template* sem número com ela fechada, com o valor a seguir quando o cliente responde.
+
+### Critérios de Aceitação
+
+- [ ] A porta `orcamentos` do processo usa o Outbound real; o *template* `orcamento_pronto` está no catálogo de *templates* e no `config/templates_por_modulo.yaml`, sem número e com a categoria confirmada pela Meta.
+- [ ] Uma mensagem do cliente com uma proposta em `aguarda_janela` chama o `libertar_da_janela`, e o valor sai uma vez.
+- [ ] Um pedido sem resposta do dono em 24 h (*proposta*) gera **uma** mensagem neutra ao cliente e oferta de humano; as respostas vencidas passam a `expirado` por um *job* nomeado.
+- [ ] O custo do *template* entra na rubrica `mensagem` do módulo `orcamento` (KAM-124), orçado como marketing no pior caso.
+
+### Detalhes Técnicos
+
+- **Sem esquema novo** previsto. O *job* das 24 h corre no processo de lote, como `kamba_batch` ou com o contexto de cada tenant.
+
+### Testes Requeridos
+
+- Integração: janela aberta, janela fechada e libertação; *job* das 24 h com relógio fixo.
+- **Adversarial:** reentrega do *template*; cliente que responde duas vezes; pedido cancelado durante a espera.
+
+### Definition of Done
+
+- [ ] Critérios de Aceitação satisfeitos; as caixas 8 e 9 do KAM-123 revistas com a evidência.
+- [ ] Nenhum número no *template*; logs sem conteúdo (ADR-010).
+
+### Handoff para Claude Code
+
+```text
+És o executor do ticket KAM-221 da KAMBÁ (o envio real do Orçamento expresso).
+Lê specs/EPIC-11_Modulos_Entrada.md (blocos KAM-123 e KAM-221), services/agr/src/kamba_agr/orcamento/porta.py,
+services/agr/src/kamba_agr/tls/orcamento.py e services/agr/src/kamba_agr/eventos/notificacao.py.
+Objectivo: o Outbound real na porta orcamentos, o template orcamento_pronto, a libertação na janela e o job das 24 h.
+Regras: nenhum número no template; o valor só depois de o cliente responder; uma mensagem por chave.
+Testes: integração e adversarial.
+```
+
+---
+
 ## Riscos do Epic e itens NÃO VERIFICADOS
 
 | Risco / item | Estado | Impacto | Mitigação / critério de saída | Decisão |
@@ -1490,3 +1654,4 @@ Testes: integração, isolamento e adversarial (sessão cruzada, texto que imita
 | 1.8 | Novembro 2026 | O bloco do KAM-119 passa a bloquear o **KAM-202** (EPIC-04), aberto no PR do KAM-094: a restrição de BD na publicação da `offer_terms` liga-se depois de o KAM-119 pôr o COM a gravar a decisão de screening antes do `publishProduct`. | Equipa KAMBÁ |
 | 1.9 | Novembro 2026 | **KAM-118 entregue em parte: o canal do dono.** Revisão `0070` (sobre a `0069` do KAM-195, renumerada na integração), emenda 1.112 do dicionário (§3.78). Bloco do KAM-118: as decisões do executor (a porta única `definir_dono`, que escreve o `papel` e o `tenants.owner_contact_id`; o `INSERT` por coluna do `kamba_identity`; a persona no campo aditivo `agent_invocation.persona` e não no `ChannelContext`; o `dono.yaml` pelo módulo `catalogo`, com 75% de reaproveitamento; o `owner_channel_wa` calculado e não coluna), a verificação dos critérios (**cinco de dez** marcados) e do DoD (**três de seis**), e a revisão adversarial (nenhum achado bloqueante). **Duas decisões do fundador, de 2026-11-18**: «Manter as regras» — o critério 8 reescreve-se para o Piloto, sem *push* ao dono pelo número da loja nem *template* de `marketing` —, e «Servir todos os donos» — o Assistente do Dono atende qualquer dono, e cada tool fecha-se pelo entitlement do seu módulo. As vazias têm credor: as ligações de produção — o provisionamento, a troca de telefone, o botão e o painel — no **KAM-211**, aberto neste PR (o bloco, a linha do §3 e o `Bloqueia` do KAM-118). | Equipa KAMBÁ |
 | 1.10 | Novembro 2026 | **KAM-211 entregue em parte: as ligações de produção do canal do dono.** Sem migração. Emenda 1.114 do dicionário (§3.78 e §3.56), escrita como 1.113 e renumerada na integração, depois do KAM-204. Bloco do KAM-211: as decisões do executor, a verificação dos critérios (**um de seis** marcado: a retoma; o botão confirma e fica parcial, porque nenhuma acção executa) e do DoD (**dois de três**), e a revisão adversarial (onze achados, nenhum bloqueante; dez corrigidos, e a prova de posse da troca como decisão por tomar no KAM-217). A retoma decide o grafo pelo papel de agora, e fecha o achado 4 da revisão do KAM-118; o botão chega ao `confirmar` pelo campo aditivo `agent_invocation.botao` e pelo nó `confirm` do grafo do dono; a troca de telefone ganha duas rotas no painel e os adaptadores da porta, ensaiados contra a base. As caixas 3, 4, 5, 7 e 9 do KAM-118 revistas. Os três critérios que ficam têm credor novo, aberto neste PR: o provisionamento no **KAM-215**, o canal no painel no **KAM-216** e a `OwnerPort` com o processo web ligado no **KAM-217** (os blocos, as linhas do §3 e o `Bloqueia` do KAM-211). | Equipa KAMBÁ |
+| 1.11 | Novembro 2026 | **KAM-123 entregue em parte: o Orçamento expresso.** Revisão `0072` (provisória, sobre a `0071` do KAM-204), emenda 1.115 do dicionário (§3.79, §3.5 e §3.27). Bloco do KAM-123: as decisões do executor, duas decisões devolvidas ao fundador (a forma do botão e o `screen()` das condições) e a verificação — um critério marcado de dez, as vazias com credor. **KAM-220** e **KAM-221** acrescentados, abertos no PR do KAM-123 e não implementados: a ligação aos grafos e o envio real. Provisória: quem fundir em segundo renumera | Equipa KAMBÁ |

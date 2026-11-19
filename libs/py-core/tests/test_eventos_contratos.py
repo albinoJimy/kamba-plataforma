@@ -26,18 +26,18 @@ from kamba_core.eventos.contratos import CATALOGO
 RAIZ = Path(__file__).resolve().parents[3]
 CONTRATOS = RAIZ / "contratos" / "eventos"
 
-#: Os quarenta e dois do dicionario §3.5: os trinta e oito da emenda 1.11, os dois
-#: do KAM-050 (1.83), o `screening.violation_detected` da 1.84 (KAM-191) e o
-#: `billing.cycle_paid` do KAM-059.
-ESPERADOS = 42
+#: Os quarenta e quatro do dicionario §3.5: os trinta e oito da emenda 1.11, os
+#: dois do KAM-050 (1.83), o `screening.violation_detected` da 1.84 (KAM-191), o
+#: `billing.cycle_paid` do KAM-059 e os dois `quote.*` do KAM-123.
+ESPERADOS = 44
 
 #: Os sete do `docs/tecnica/06` §7.3.
 PROIBIDOS = ("telefone", "msisdn", "bsuid", "nome", "morada", "texto", "email")
 
 
-#: Os contratos: dois por pasta desde o KAM-159 — 84 ficheiros em 42 pastas
+#: Os contratos: dois por pasta desde o KAM-159 — 88 ficheiros em 44 pastas
 #: desde o KAM-059.
-ESPERADOS_CONTRATOS = 84
+ESPERADOS_CONTRATOS = 88
 
 
 def versoes_de(tipo: str) -> list[int]:
