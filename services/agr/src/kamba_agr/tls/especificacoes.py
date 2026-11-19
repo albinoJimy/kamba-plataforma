@@ -88,6 +88,18 @@ BACKENDS: Final = ("com", "pay", "idx", "plataforma")
 #: mesma de uma etiqueta de metrica — porque o nome **e** etiqueta de metrica.
 NOME_DE_TOOL: Final = re.compile(r"^[a-z][a-z0-9_]{1,62}$")
 
+#: As tools a quem o passo 4 se **dispensa**, e porque. Lista **fechada**, e a
+#: unica (decisao do fundador de 2026-11-19, KAM-220, opcao C): uma `write`
+#: ligada sem `campo_de_confirmacao` so se constroi se o nome estiver aqui **e**
+#: a especificacao trouxer a razao por escrito. Acrescentar um nome e emendar o
+#: §6.1 passo 4 do `docs/tecnica/02` e o §3.26 do dicionario, e nao uma linha de
+#: codigo: e por isso que a lista vive aqui e nao na especificacao.
+#:
+#: * `submit_quote` — o dono fixa o valor de um orcamento. **So grava** a resposta
+#:   e propoe o botao `confirm:{action_id}` da `owner_actions`; nada sai para o
+#:   cliente sem esse botao, que e a confirmacao que o §21.3 pede ao envio.
+DISPENSAS_DO_PASSO_4: Final = ("submit_quote",)
+
 #: A forma de um credor: um ticket do backlog mestre. O *gate* 3 (referencias
 #: cruzadas) le os `KAM-NNN` deste ficheiro como le os de qualquer outro, pelo
 #: que um credor inventado falha o CI sem precisar de verificacao propria.
@@ -212,6 +224,9 @@ class EspecificacaoDeTool:
     campo_de_confirmacao: str | None = None
     #: O ticket que liga esta entrada. Obrigatorio numa entrada `declarada`.
     credor: str | None = None
+    #: A razao por escrito da dispensa do passo 4, ou `None`. So vale numa `write`
+    #: ligada cujo nome esteja em `DISPENSAS_DO_PASSO_4` (KAM-220).
+    confirmacao_dispensada: str | None = None
     #: O modulo cujo entitlement fecha esta tool no passo 2, ou `None` para o da
     #: vertical do turno (`ctx.vertical`). **Decisao do fundador (2026-11-18,
     #: KAM-118):** o Assistente do Dono atende qualquer dono, e cada tool fica
@@ -259,8 +274,8 @@ class EspecificacaoDeTool:
 
     @property
     def exige_confirmacao(self) -> bool:
-        """Se o §6.1 passo 4 se lhe aplica."""
-        return self.klass in CLASSES_DE_ESCRITA
+        """Se o §6.1 passo 4 se lhe aplica: a uma `write`/`money` sem dispensa."""
+        return self.klass in CLASSES_DE_ESCRITA and self.confirmacao_dispensada is None
 
     def parametros_visiveis(self) -> frozenset[str]:
         """Os campos que o modelo ve. Vazio numa entrada `declarada`.
@@ -299,6 +314,8 @@ class EspecificacaoDeTool:
                 f"o modelo de `{self.nome}` expoe {expostos} ao modelo. O modelo nunca "
                 "ve nem fornece estes parametros (§6.1, ADR-015): vem do `ToolContext`"
             )
+        if self.confirmacao_dispensada is not None:
+            self._validar_dispensa()
         if self.exige_confirmacao:
             if self.campo_de_confirmacao is None:
                 raise EspecificacaoInvalidaError(
@@ -320,6 +337,29 @@ class EspecificacaoDeTool:
                 "responder ao horario da loja"
             )
 
+    def _validar_dispensa(self) -> None:
+        """A dispensa do passo 4 e **fechada**: nome na lista, `write`, razao, e sem campo."""
+        if self.nome not in DISPENSAS_DO_PASSO_4:
+            raise EspecificacaoInvalidaError(
+                f"a tool `{self.nome}` declara dispensa do passo 4 e nao esta em "
+                f"{list(DISPENSAS_DO_PASSO_4)}. A lista e fechada: acrescentar-lhe um "
+                "nome e emendar o §6.1 passo 4, e nao escrever a especificacao"
+            )
+        if self.klass != "write":
+            raise EspecificacaoInvalidaError(
+                f"a tool `{self.nome}` e `{self.klass}` e declara dispensa do passo 4: "
+                "so uma `write` a pode ter, e uma `money` nunca"
+            )
+        if not self.confirmacao_dispensada.strip():
+            raise EspecificacaoInvalidaError(
+                f"a dispensa do passo 4 da tool `{self.nome}` nao tem razao escrita"
+            )
+        if self.campo_de_confirmacao is not None:
+            raise EspecificacaoInvalidaError(
+                f"a tool `{self.nome}` dispensa o passo 4 e diz que campo o botao cita: "
+                "e uma coisa ou a outra"
+            )
+
     def _validar_declarada(self) -> None:
         if self.credor is None or not CREDOR.match(self.credor):
             raise EspecificacaoInvalidaError(
@@ -327,6 +367,11 @@ class EspecificacaoDeTool:
                 f"{self.credor!r}. Uma entrada sem executor tem de nomear o ticket "
                 "que a liga, na forma `KAM-NNN` — um atalho sem o ticket que o fecha "
                 "nao e atalho (a regra do `registry/gates.yaml`, KAM-027)"
+            )
+        if self.confirmacao_dispensada is not None:
+            raise EspecificacaoInvalidaError(
+                f"a tool `{self.nome}` esta declarada e dispensa o passo 4: a dispensa "
+                "e de quem a liga, com o executor"
             )
         if self.campo_de_confirmacao is not None:
             raise EspecificacaoInvalidaError(

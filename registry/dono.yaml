@@ -66,6 +66,8 @@ tools:
   - ask_missing_fields
   - publish_product
   - get_catalog_status
+  # KAM-220: a resposta do dono a um pedido de orcamento (modulo `orcamento`).
+  - submit_quote
 entitlements:
   limites:
     - msgs_ai_mes

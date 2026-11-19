@@ -1009,8 +1009,9 @@ class TestFicheirosReais(unittest.TestCase):
             do_registo.update(vertical.tools)
         # Quinze desde o KAM-118: as quatro do modulo `catalogo` (§21.3) que o
         # `registry/dono.yaml` lista. Entram no dicionario pela emenda do mesmo
-        # ticket.
-        self.assertEqual(len(do_registo), 15, sorted(do_registo))
+        # ticket. Dezassete desde o KAM-220: o `request_quote` no Vendedor e o
+        # `submit_quote` no dono (§3.79).
+        self.assertEqual(len(do_registo), 17, sorted(do_registo))
         for tool in sorted(do_registo):
             self.assertTrue(
                 saber.conhecido(tool, "tool"),

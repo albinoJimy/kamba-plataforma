@@ -69,7 +69,11 @@ from langgraph.graph import END, START
 #: entregar.** A outra metade — «casos degradados no *golden*» — depende do gate
 #: 13, que **nao existe** e nasce com o KAM-040; a caixa fica vazia, com a razao
 #: escrita na secção de verificacao do bloco.
-VERSAO_DO_GRAFO: Final = "1.2.0"
+#:
+#: **1.3.0 e nao 1.2.1:** o KAM-220 acrescenta **um** no (`quote_request`), e a
+#: regra e a mesma. Nao e *major*: o `orcamento_oferecido` que ele le e um campo
+#: novo e opcional, e um *checkpoint* escrito pela 1.2.0 le-se sem ele.
+VERSAO_DO_GRAFO: Final = "1.3.0"
 
 #: O numero de linhas da tabela de §7.3. Afirma-se para que o numero do criterio
 #: 1 continue verificavel depois de alguem perceber que as arestas sao mais.
@@ -92,7 +96,12 @@ FONTE_DO_DEGRADADO: Final = "KAM-037"
 #: foi a deste ticket, que teria inflacionado a contagem das quarenta e duas
 #: para quarenta e quatro sem ninguem notar. Um filtro por negacao de **um**
 #: valor nao e um filtro: e uma lista de proibidos com um elemento.
-FONTES_FORA_DO_73: Final = (FONTE_DO_CONCIERGE, FONTE_DO_DEGRADADO)
+#: O valor de `Aresta.fonte` das duas arestas do Orcamento expresso (KAM-220).
+#: Pela razao do `FONTE_DO_CONCIERGE`: nao estao no §7.3 e nao contam para o
+#: `LINHAS_DO_73`.
+FONTE_DO_ORCAMENTO: Final = "KAM-220"
+
+FONTES_FORA_DO_73: Final = (FONTE_DO_CONCIERGE, FONTE_DO_DEGRADADO, FONTE_DO_ORCAMENTO)
 
 #: A `fonte` da **unica** aresta do §7.3 que o KAM-114 altera: a 35, que passou
 #: de incondicional («sempre») a condicional. Nao fica com a omissao, e a razao
@@ -150,6 +159,10 @@ NOS: Final = (
     # degradado tal como estao (e o que o bloco manda), e o que nao existia era
     # o menu. O dicionario §3.35 declara-o.
     "degraded_menu",
+    # KAM-220: o pedido de orcamento depois do botao «Pedir orcamento»
+    # (`confirm:{oferta}`). E o no que chama o `request_quote` com a confirmacao do
+    # passo 4, como o `create_order` chama o `criar_pedido`.
+    "quote_request",
 )
 
 #: As nove intencoes do Vendedor (§7.3 linhas 11 a 17; dicionario §3.31).
@@ -199,6 +212,26 @@ MOEDA_ESTRANGEIRA: Final = "MOEDA_ESTRANGEIRA"
 TERMO_DESCONHECIDO: Final = "TERMO_DESCONHECIDO"
 PERGUNTAS_DO_IDX: Final = (TERMO_AMBIGUO, MOEDA_ESTRANGEIRA, TERMO_DESCONHECIDO)
 
+#: Os do Orcamento expresso (KAM-220). Nascem nos nossos nos, e nao num
+#: *backend*, pela razao do `STALE_CONFIRMATION`:
+#:
+#: * `ORCAMENTO_PEDIDO` — o pedido seguiu ao dono (o `request_quote` correu);
+#: * `ORCAMENTO_INDISPONIVEL` — o pedido nao se fez: sem o modulo, balde
+#:   esgotado, fora do catalogo, ou a tool recusou;
+#: * `ORCAMENTO_EM_CURSO` — um «aceito» antes de haver proposta para aceitar;
+#: * `ORCAMENTO_FECHADO` — um «aceito» de uma proposta expirada, cancelada ou
+#:   vencida, que nao se aceita (criterio 9 do KAM-123).
+ORCAMENTO_PEDIDO: Final = "ORCAMENTO_PEDIDO"
+ORCAMENTO_INDISPONIVEL: Final = "ORCAMENTO_INDISPONIVEL"
+ORCAMENTO_EM_CURSO: Final = "ORCAMENTO_EM_CURSO"
+ORCAMENTO_FECHADO: Final = "ORCAMENTO_FECHADO"
+AVISOS_DO_ORCAMENTO: Final = (
+    ORCAMENTO_PEDIDO,
+    ORCAMENTO_INDISPONIVEL,
+    ORCAMENTO_EM_CURSO,
+    ORCAMENTO_FECHADO,
+)
+
 #: O dominio fechado de `state.avisos` (emenda 1.40, mais o do KAM-037 e os tres
 #: do KAM-062). Os sete primeiros sao erros tipados do §6.5 que o §6.5 manda o
 #: `compose` explicar; os outros nascem em nos nossos. **Fechado** porque o `compose` decide por
@@ -215,6 +248,7 @@ AVISOS: Final = (
     STALE_CONFIRMATION,
     REFERENCIA_EM_FALTA,
     *PERGUNTAS_DO_IDX,
+    *AVISOS_DO_ORCAMENTO,
 )
 
 #: Os desfechos da linha 4 — porque e que um turno nao corre (§3.31).
@@ -398,6 +432,19 @@ ARESTAS: Final = (
         "sempre; o validador aplica-se tambem ao modo deterministico",
         fonte=FONTE_DO_DEGRADADO,
     ),
+    # KAM-220. O botao `confirm:{oferta}` do orcamento oferecido no turno anterior
+    # chega pelo mesmo `confirm_gate` que o do carrinho: e o no das confirmacoes
+    # do cliente, e o `classify` nao distingue os dois (um botao `confirm:*`
+    # nunca passa por modelo).
+    Aresta(
+        46,
+        "confirm_gate",
+        "quote_request",
+        "orcamento",
+        "botao confirm:{oferta} do orcamento oferecido, dentro da validade",
+        fonte=FONTE_DO_ORCAMENTO,
+    ),
+    Aresta(47, "quote_request", "compose", None, "sempre", fonte=FONTE_DO_ORCAMENTO),
 )
 
 
@@ -418,6 +465,11 @@ def do_concierge() -> tuple["Aresta", ...]:
 def do_degradado() -> tuple["Aresta", ...]:
     """So as arestas que o KAM-037 acrescenta."""
     return tuple(a for a in ARESTAS if a.fonte == FONTE_DO_DEGRADADO)
+
+
+def do_orcamento() -> tuple["Aresta", ...]:
+    """So as arestas que o KAM-220 acrescenta."""
+    return tuple(a for a in ARESTAS if a.fonte == FONTE_DO_ORCAMENTO)
 
 
 def pares() -> frozenset[tuple[str, str]]:
