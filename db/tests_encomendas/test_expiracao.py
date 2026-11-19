@@ -30,6 +30,7 @@ suite corria **uma**.
 from __future__ import annotations
 
 import concurrent.futures
+import datetime
 import re
 import threading
 
@@ -80,6 +81,19 @@ VENCIDAS = 6
 #: **para** em vez de falhar. Generoso — o que ele corta e a espera infinita,
 #: nao uma corrida lenta.
 PRAZO_DA_BARREIRA = 60
+
+
+def agora() -> str:
+    """O instante do varrimento: o relogio real, e nao uma data fixa.
+
+    As reservas «vencidas» nascem com o `now()` da base menos um minuto. Com o
+    varrimento preso a `2026-12-01`, a partir desse dia elas passavam a vencer
+    **depois** do instante perguntado, e os dois ensaios do varrimento ficavam
+    vermelhos sem ninguem tocar numa linha — a bomba-relogio do KAM-212, do
+    KAM-213 e da fixture do `lint_backlog`. Com o instante de agora, a vencida
+    entra pela folga de um minuto e a activa (`now() + 48 h`) fica de fora.
+    """
+    return datetime.datetime.now(datetime.timezone.utc).isoformat()
 
 
 class ComUmaReserva(ComReservas):
@@ -384,14 +398,14 @@ class TestOVarrimento(ComUmaReserva):
     def test_o_varrimento_ve_so_as_vencidas_e_so_as_activas(self) -> None:
         vencida = self.criar_reserva(linha=0, vencida=True)
         self.criar_reserva(linha=1, vencida=False)
-        linhas = self.no_batch(SQL_VENCIDAS, "2026-12-01T00:00:00+00:00", 100)
+        linhas = self.no_batch(SQL_VENCIDAS, agora(), 100)
         ids = {str(l[0]) for l in linhas}
         self.assertIn(vencida, ids)
 
         # Uma libertada deixa de ser vista, e e o indice parcial a dizer o
         # mesmo que o predicado: `WHERE estado = 'ativa'`.
         self.no_app(SQL_LIBERTAR, self.tenant, self.encomenda, "expirada")
-        linhas = self.no_batch(SQL_VENCIDAS, "2026-12-01T00:00:00+00:00", 100)
+        linhas = self.no_batch(SQL_VENCIDAS, agora(), 100)
         self.assertNotIn(
             vencida,
             {str(l[0]) for l in linhas},
@@ -429,7 +443,7 @@ class TestOVarrimento(ComUmaReserva):
                 barreira.wait()
                 cursor.execute(
                     SQL_VENCIDAS.sql,
-                    SQL_VENCIDAS.args("2026-12-01T00:00:00+00:00", VENCIDAS // 2),
+                    SQL_VENCIDAS.args(agora(), VENCIDAS // 2),
                 )
                 meu = [str(l[0]) for l in cursor.fetchall()]
                 # So depois de os dois terem lido e que se largam as trancas.
