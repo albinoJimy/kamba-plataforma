@@ -393,9 +393,14 @@ export class Onboarding {
    * os contactos que ele tem. Apagá-lo era o que a compensação fazia a um canal
    * da lista.
    *
-   * O *token* antigo revoga-se depois de o canal mudar de referência, e a falha
-   * da revogação **não** desfaz a religação: o canal já está ligado com o novo,
-   * e um segredo por revogar é um órfão no cofre, contado no log.
+   * O *token* antigo — e o PIN da tentativa reaberta, em `cloud_only` —
+   * revogam-se depois de o canal mudar de referência, e a falha da revogação
+   * **não** desfaz a religação: um segredo por revogar é um órfão no cofre,
+   * contado no log. **Dentro da transacção de quem chama**, que ainda não
+   * confirmou: se o `COMMIT` falhar depois, o canal fica `desligado` a apontar
+   * para um *token* revogado — o mesmo canal caído de antes, que a religação
+   * seguinte troca. É o lado barato de falhar; revogar depois do `COMMIT` pedia
+   * um passo fora da transacção que este módulo não tem.
    */
   async #religar(entrada: ResultadoDoEs, modo: Modo, canal: CanalCaido): Promise<Resultado> {
     const resumo = resumoDoCode(entrada.code);
@@ -407,6 +412,7 @@ export class Onboarding {
       resumo,
     ]);
     let aberta = abertas.rows[0];
+    let pinAntigo: string | null = null;
     if (aberta === undefined) {
       const { rows } = await this.#d.sql.query<Tentativa>(SQL_TENTATIVA, [
         entrada.tenant_id,
@@ -421,6 +427,7 @@ export class Onboarding {
       }
       // Pela matriz, e não por cima dela: o `ativo` é terminal e o
       // `transitar` recusa-o com `TransicaoInvalidaError`.
+      pinAntigo = existente.pin_ref;
       if (existente.fase !== "falhado" && existente.fase !== "abandonado") {
         await this.transitar(existente.id, existente.tenant_id, existente.fase, "falhado", "canal desligado");
       }
@@ -466,13 +473,16 @@ export class Onboarding {
       await this.compensar(aberta.id, aberta.tenant_id, this.#motivoDe(erro));
       throw erro;
     }
-    try {
-      await this.#d.cofre.revogar(canal.token_ref);
-    } catch (erro) {
-      this.#d.log?.excepcao(erro, "religacao_token_antigo_por_revogar", {
-        tenant_id: entrada.tenant_id,
-        outcome: "onboarding_religado",
-      });
+    for (const antigo of [canal.token_ref, pinAntigo]) {
+      if (antigo === null) continue;
+      try {
+        await this.#d.cofre.revogar(antigo);
+      } catch (erro) {
+        this.#d.log?.excepcao(erro, "religacao_segredo_antigo_por_revogar", {
+          tenant_id: entrada.tenant_id,
+          outcome: "onboarding_religado",
+        });
+      }
     }
     this.#d.log?.info({ outcome: "onboarding_religado", tenant_id: entrada.tenant_id });
     return { tentativa, novo: true };

@@ -1347,7 +1347,7 @@ async function comCanalCaido(m: ReturnType<typeof montar>, tenant = TENANT) {
 }
 
 /** A tentativa original do `(TENANT, waba)`, já subscrita, a apontar para o canal. */
-function tentativaOriginal(m: ReturnType<typeof montar>, canalId: string, fase: Fase = "subscrito") {
+function tentativaOriginal(m: ReturnType<typeof montar>, canalId: string, fase: Fase = "subscrito", pinRef: string | null = null) {
   const e = entradaDeEnsaio();
   m.sql.jaExistia = true;
   m.sql.fase = fase;
@@ -1360,7 +1360,7 @@ function tentativaOriginal(m: ReturnType<typeof montar>, canalId: string, fase: 
     phone_number_id: e.phone_number_id,
     fase,
     recursos_criados: [],
-    pin_ref: null,
+    pin_ref: pinRef,
     motivo: null,
   });
 }
@@ -1453,5 +1453,29 @@ describe("KAM-207: religar o numero de um canal que caiu", () => {
     const { novo } = await m.servico.ligar(entradaDeEnsaio({ code: "AQB-code-da-religacao" }));
     assert.equal(novo, false);
     assert.ok(!m.graph.chamadas.includes("trocarCode"));
+  });
+});
+
+describe("KAM-207: achados da revisao adversarial", () => {
+  it("achado 6: o PIN da tentativa reaberta revoga-se com o token antigo, e nao fica orfao", async () => {
+    const m = montar();
+    const caido = await comCanalCaido(m);
+    const pinAntigo = await m.cofre.cunhar(FAMILIA_DO_PIN, "123456");
+    m.cofre.cunhados.length = 0;
+    tentativaOriginal(m, caido.id, "subscrito", pinAntigo);
+    await m.servico.ligar(entradaDeEnsaio({ code: "AQB-code-da-religacao" }));
+    assert.deepEqual(m.cofre.revogados, [caido.tokenRef, pinAntigo]);
+  });
+
+  it("uma revogacao antiga que falha nao desfaz a religacao", async () => {
+    const m = montar();
+    const caido = await comCanalCaido(m);
+    tentativaOriginal(m, caido.id);
+    m.cofre.revogar = async () => {
+      throw new Error("o cofre nao respondeu");
+    };
+    const { novo } = await m.servico.ligar(entradaDeEnsaio({ code: "AQB-code-da-religacao" }));
+    assert.equal(novo, true);
+    assert.equal(m.sql.caido?.estado, "ativo");
   });
 });

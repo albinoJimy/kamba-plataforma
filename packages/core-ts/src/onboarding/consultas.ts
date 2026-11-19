@@ -460,16 +460,36 @@ export const SQL_FASE = `
  *
  * O `FOR UPDATE` prende a linha até ao fim da transacção: duas religações do
  * mesmo número correm uma depois da outra, e a segunda já não o encontra
- * `desligado` — segue o caminho de sempre e devolve a tentativa como repetição.
+ * `desligado` — segue o caminho de sempre. Com o mesmo WABA devolve a tentativa
+ * como repetição (que o guia trata como recusa numa religação); com **outro**
+ * WABA abre uma tentativa nova e dá o 409 da unicidade contra a linha do
+ * próprio tenant, com o registo de recusa a dizer «de outro tenant». É uma
+ * corrida de dois popups do mesmo dono, e o 409 falha fechado.
+ *
+ * **Nem todo o `desligado` é um canal que caiu** (achado 3 da revisão
+ * adversarial). A fase `canal` do encerramento (KAM-098) também desliga os
+ * canais, antes de os encerrar, e um tenant suspenso (por T&S ou pela régua de
+ * cobrança, em `tenants.estado`) tem os canais como estavam. Por isso o
+ * tenant tem de estar `ativo` ou `restrito`, e sem encerramento em curso —
+ * qualquer linha da `offboarding_run` que não esteja `cancelada`. Religar um
+ * canal a meio do encerramento deixava um *token* e uma subscrição novos que a
+ * fase `canal`, já concluída, não voltava a desfazer.
  */
 export const SQL_CANAL_A_RELIGAR = `
-  SELECT id::text AS id,
-         token_ref
-    FROM platform.tenant_channels
-   WHERE tenant_id = $1::uuid
-     AND phone_number_id = $2
-     AND estado = 'desligado'
-     FOR UPDATE
+  SELECT c.id::text AS id,
+         c.token_ref
+    FROM platform.tenant_channels AS c
+    JOIN platform.tenants AS t ON t.id = c.tenant_id
+   WHERE c.tenant_id = $1::uuid
+     AND c.phone_number_id = $2
+     AND c.estado = 'desligado'
+     AND t.estado IN ('ativo', 'restrito')
+     AND NOT EXISTS (
+           SELECT 1
+             FROM platform.offboarding_run AS r
+            WHERE r.tenant_id = c.tenant_id
+              AND r.estado <> 'cancelada')
+     FOR UPDATE OF c
 `;
 
 /**
@@ -489,9 +509,10 @@ export const SQL_CANAL_A_RELIGAR = `
  * * `phone_number_id = $4` — a mesma tentativa, o mesmo número. Outro número no
  *   mesmo WABA é o caminho novo que o dicionário §3.21 deixa por abrir, e não se
  *   abre por aqui;
- * * a lista de recursos e o PIN voltam a vazio, porque os da tentativa anterior
- *   ou foram compensados ou são do canal que caiu — a compensação desta volta só
- *   pode desfazer o que esta volta criar.
+ * * a lista de recursos e o PIN voltam a vazio: a compensação desta volta só
+ *   pode desfazer o que esta volta criar. O PIN da tentativa anterior (em
+ *   `cloud_only`) não fica esquecido por isso: quem chama leu-o antes e
+ *   revoga-o quando a religação acabar, como o *token* antigo do canal.
  */
 export const SQL_REABRIR = `
   UPDATE platform.channel_onboarding

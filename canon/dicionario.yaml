@@ -4635,12 +4635,18 @@ entradas:
     variantes_literais: []
   - seccao: "3.21"
     conceito: "Religação de um canal que caiu"
-    canonico: "a mesma POST /internal/channels, quando o número já é do próprio tenant num canal em «tenant_channels.estado» = desligado"
+    canonico: "a mesma POST /internal/channels, quando o número já é do próprio tenant num canal em «tenant_channels.estado» = desligado, com o tenant ativo ou restrito e sem encerramento em curso na «offboarding_run»"
     literais:
       - "desligado"
+      - "ativo"
+      - "restrito"
     nomes:
       - "desligado"
+      - "ativo"
+      - "restrito"
     nomes_nota:
+      - "desligado"
+      - "canal"
       - "SQL_CRIAR_CANAL"
       - "iniciado"
       - "falhado"

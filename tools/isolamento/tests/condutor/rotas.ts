@@ -2650,7 +2650,10 @@ async function grupoDoGuia(relatorio: Relatorio): Promise<void> {
 //                           sessao, e so o bilhete do painel chegou ao OTP (o
 //                           `ticket` do registo e o id nu ficam a porta). **KAM-207:**
 //                           os ataques pedem a ligacao, o caso de B e activo com
-//                           o canal desligado, e nenhum religa nada
+//                           o canal desligado, e nenhum religa nada — uma guarda
+//                           contra regressao, e nao uma medicao: os ataques nao
+//                           tem o codigo de B, e o religar so corre depois dele.
+//                           O que mede a religacao e o caso=a do /painel/ligar
 //   pedido=a                (KAM-211) os tres pedidos de troca do /painel/telefone,
 //                           com o tenant de B no corpo, na consulta e no
 //                           cabecalho, ficaram no tenant e na sessao de A
@@ -2785,8 +2788,11 @@ async function grupoDoPainel(relatorio: Relatorio): Promise<void> {
     const verificados: string[] = [];
     const enviados: string[] = [];
     const reentrada = {
+      // Os dois casos de A tem o telefone de A: o activo e o da religacao (KAM-207).
       telefoneDoCaso: async (id: string) =>
-        id === CASO_DE_A_NO_PAINEL ? new Telefone(TELEFONE_DE_A_NO_PAINEL, [pepper, null]) : null,
+        id === CASO_DE_A_NO_PAINEL || id === CASO_ACTIVO_DE_A_NO_PAINEL
+          ? new Telefone(TELEFONE_DE_A_NO_PAINEL, [pepper, null])
+          : null,
       otp: {
         async enviar(id: string) {
           enviados.push(id);

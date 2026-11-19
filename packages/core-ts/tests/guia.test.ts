@@ -101,11 +101,20 @@ class LigadorFalso implements LigadorDeCanal {
   readonly chamadas: ResultadoDoEs[] = [];
   readonly canais = new Set<string>();
   desfecho: ResultadoDaLigacao["desfecho"] = "criado";
+  /**
+   * Os números que o GWY religaria (KAM-207): um canal deste tenant em
+   * `desligado`. A religação responde 201 uma vez e tira o número daqui; sem
+   * ele, o mesmo WABA dá `repetido`, como na base.
+   */
+  readonly religaveis = new Set<string>();
   /** Cede o turno antes de responder: é o que deixa dois `FINISH` cruzarem-se. */
   async ligar(entrada: ResultadoDoEs): Promise<ResultadoDaLigacao> {
     this.chamadas.push(entrada);
     await new Promise((r) => setImmediate(r));
     if (this.desfecho !== "criado") return { desfecho: this.desfecho, tentativaId: null };
+    if (this.religaveis.delete(entrada.phone_number_id)) {
+      return { desfecho: "criado", tentativaId: `t-religada-${entrada.phone_number_id}` };
+    }
     const chave = `${entrada.tenant_id}:${entrada.waba_id}`;
     const novo = !this.canais.has(chave);
     this.canais.add(chave);
@@ -835,9 +844,8 @@ describe("KAM-207 religar: um caso activo cujo canal caiu volta ao passo do ES",
     await m.guia.preflight(c.id, TUDO_ATESTADO);
     const inicio = await m.guia.iniciar(c.id);
     assert.equal(inicio.desfecho, "popup");
+    m.ligador.religaveis.add("pnid-1");
     const fim = await m.guia.concluir(c.id, finish(`waba-${c.id}`, "pnid-1"));
-    // O ligador do duplo deduplica por `(tenant, waba)`: o mesmo WABA devolve
-    // `repetido`, e o guia segue para `subscrito` como na primeira vez.
     assert.equal(fim.estado, "subscrito");
     const ultima = m.ligador.chamadas.at(-1);
     assert.equal(ultima?.tenant_id, (await m.casos.porId(c.id))?.tenantId);
@@ -917,9 +925,50 @@ describe("KAM-207 religar: um caso activo cujo canal caiu volta ao passo do ES",
     await m.guia.religar(c.id);
     await m.guia.preflight(c.id, TUDO_ATESTADO);
     await m.guia.iniciar(c.id);
+    m.ligador.religaveis.add("pnid-1");
     await m.guia.concluir(c.id, finish(`waba-${c.id}`, "pnid-1"));
     assert.equal(await m.guia.confirmarNumero("pnid-1", OUTRO_MOVEL), false);
     await assert.rejects(m.guia.iniciar(c.id), (e: unknown) => e instanceof GuiaRecusadoError && e.motivo === "preso_em_revisao");
     assert.equal((await m.casos.porId(c.id))?.fase, "activo");
+  });
+});
+
+describe("KAM-207 religar: achados da revisao adversarial", () => {
+  it("achado 1: a segunda queda tem saida — de subscrito o religar leva a desligado e o popup reabre", async () => {
+    const m = await montar();
+    const c = await activo(m);
+    await m.guia.religar(c.id);
+    await m.guia.preflight(c.id, TUDO_ATESTADO);
+    await m.guia.iniciar(c.id);
+    m.ligador.religaveis.add("pnid-1");
+    assert.equal((await m.guia.concluir(c.id, finish(`waba-${c.id}`, "pnid-1"))).estado, "subscrito");
+    // Sem consumidor dos sinais, o guia fica em `subscrito`. O canal cai outra vez:
+    assert.equal(await m.guia.religar(c.id), "desligado");
+    assert.equal((await m.guia.iniciar(c.id)).desfecho, "popup");
+  });
+
+  it("achado 2: numa religacao, o repetido do GWY e recusa e nao sucesso", async () => {
+    const m = await montar();
+    const c = await activo(m);
+    await m.guia.religar(c.id);
+    await m.guia.preflight(c.id, TUDO_ATESTADO);
+    await m.guia.iniciar(c.id);
+    // O canal deixou de estar desligado entre o codigo e o FINISH: o GWY nao religa e repete.
+    const fim = await m.guia.concluir(c.id, finish(`waba-${c.id}`, "pnid-1"));
+    assert.equal(fim.estado, "falhado");
+    assert.equal((await m.repositorio.ler(c.id))?.motivo, "ligacao_recusada");
+    assert.equal((await m.casos.porId(c.id))?.fase, "activo");
+    // E o falhado volta a `iniciado` pela matriz: a religacao seguinte nao fica presa.
+    assert.equal(await m.guia.religar(c.id), "falhado");
+    assert.equal((await m.guia.iniciar(c.id)).desfecho, "popup");
+  });
+
+  it("o repetido de um caso novo continua a ser sucesso, como no KAM-093", async () => {
+    const m = await montar();
+    const c = await ateSubscrito(m);
+    // O mesmo FINISH outra vez, depois de concluido, nao chega ao ligador.
+    const outra = await m.guia.concluir(c.id, finish(`waba-${c.id}`, "pnid-1"));
+    assert.equal(outra.novo, false);
+    assert.equal(outra.estado, "subscrito");
   });
 });

@@ -68,6 +68,7 @@ import {
   type MensagemAoDono,
   type MotivoDeFalha,
   MOTIVOS_QUE_PRENDEM,
+  PONTOS_DE_PARTIDA_DA_RELIGACAO,
   type Preflight,
   type RepositorioDoGuia,
   type Rota,
@@ -196,10 +197,20 @@ export class PassoGuiado {
    * registado, e o COM a dizer que o canal está `desligado` e não restrito
    * (`suspenso` e `encerrado` não reabrem).
    *
-   * Idempotente: um guia já numa religação em curso fica onde está. Recusa o
-   * `pre_voo` (um caso activo sem guia não tem de onde voltar: a matriz não
-   * leva do `pre_voo` ao `desligado`) e qualquer fase do caso que não seja
-   * `activo` — o caso em `aguarda_es` tem o seu caminho, que é o do KAM-093.
+   * Um guia num ponto de partida (`desligado`, `iniciado`, `abandonado`,
+   * `falhado`) fica onde está: o `iniciar` leva-o a `iniciado`. **Qualquer
+   * outro vai a `desligado`**, incluindo o `subscrito` e o `a_sincronizar` de
+   * uma religação anterior: os sinais que levavam o guia a `verificado` não
+   * têm consumidor ligado, pelo que uma religação bem sucedida deixa-o em
+   * `subscrito` — e de lá a matriz não volta a `iniciado`. Sem isto, a
+   * segunda queda do mesmo canal não tinha saída (achado 1 da revisão
+   * adversarial). Quem chama já confirmou que o canal caiu, e é isso que
+   * autoriza a transição.
+   *
+   * Recusa o `pre_voo` (um caso activo sem guia não tem de onde voltar: a
+   * matriz não leva do `pre_voo` ao `desligado`) e qualquer fase do caso que
+   * não seja `activo` — o caso em `aguarda_es` tem o seu caminho, que é o do
+   * KAM-093.
    */
   async religar(onboardingId: string): Promise<EstadoDoGuia> {
     const caso = await this.#d.casos.porId(onboardingId);
@@ -210,7 +221,7 @@ export class PassoGuiado {
     for (let tentativa = 0; tentativa < 4; tentativa += 1) {
       const guia = await this.#d.repositorio.ler(onboardingId);
       if (guia === null || guia.estado === "pre_voo") throw new GuiaRecusadoError("estado_errado");
-      if (ESTADOS_DA_RELIGACAO.includes(guia.estado)) return guia.estado;
+      if (PONTOS_DE_PARTIDA_DA_RELIGACAO.includes(guia.estado)) return guia.estado;
       if (!transicaoDoGuiaValida(guia.estado, "desligado")) throw new GuiaRecusadoError("estado_errado");
       if (await this.#d.repositorio.transitar(onboardingId, guia.estado, "desligado", {})) {
         // O `meta_es` fica vermelho, como no `desligado` do critério 7: o número
@@ -385,6 +396,7 @@ export class PassoGuiado {
       return { estado: agora?.estado ?? "iniciado", novo: false };
     }
     const rota = guia.preflight?.rota ?? "coexistencia";
+    const usaCapacidade = await this.#usaCapacidade(onboardingId);
     const resultado = await this.#d.ligador.ligar({
       tenant_id: caso.tenantId,
       code,
@@ -392,13 +404,22 @@ export class PassoGuiado {
       phone_number_id: phoneNumberId,
       session_info: this.sessionInfo(rota),
     });
-    if (resultado.desfecho === "lista_espera" || resultado.desfecho === "recusado") {
+    // **Numa religação, `repetido` é recusa** (KAM-207, achado 2 da revisão
+    // adversarial). O GWY só religa com 201; um 200 quer dizer que encontrou a
+    // tentativa antiga e não fez nada — o canal deixou de estar `desligado`
+    // entre o código e o `FINISH`, ou o popup trouxe outro número no mesmo WABA.
+    // Aceitá-lo deixava o dono a ver sucesso com o canal em baixo. O `FINISH`
+    // repetido da mesma religação não chega aqui: o `estado !== "iniciado"` de
+    // cima devolve-o antes de falar com o GWY.
+    const recusado =
+      resultado.desfecho === "recusado" || (!usaCapacidade && resultado.desfecho === "repetido");
+    if (resultado.desfecho === "lista_espera" || recusado) {
       await this.#falhar(
         onboardingId,
         "es_concluido",
         resultado.desfecho === "lista_espera" ? "tecto_da_meta" : "ligacao_recusada",
       );
-      if (await this.#usaCapacidade(onboardingId)) await this.#d.capacidade.release(onboardingId);
+      if (usaCapacidade) await this.#d.capacidade.release(onboardingId);
       return { estado: "falhado", novo: true };
     }
     // O KAM-016 devolve a tentativa já em `subscrito`: a subscrição dos onze

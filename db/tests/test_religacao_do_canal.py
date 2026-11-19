@@ -6,9 +6,10 @@ estao escritas** e **como `kamba_batch`**, que e o papel com que o GWY corre o o
 O duplo da bateria do `core-ts` responde por argumento, e por isso nao mede predicado
 nenhum: e aqui que cada um se prova.
 
-1. **O canal a religar e so o do proprio tenant, e so em `desligado`.** O `kamba_batch`
-   atravessa a RLS, pelo que o `tenant_id = $1` e o isolamento: sem ele, o canal de B
-   com o mesmo numero respondia a religacao de A.
+1. **O canal a religar e so o do proprio tenant, e so em `desligado`**, com o tenant
+   `ativo` ou `restrito` e sem encerramento em curso. O `kamba_batch` atravessa a RLS,
+   pelo que o `tenant_id = $1` e o isolamento: sem ele, o canal de B com o mesmo numero
+   respondia a religacao de A.
 2. **A tentativa so reabre de `falhado` ou `abandonado`, com outro `code` e o mesmo
    numero.** E a aresta `→ iniciado` da matriz, e as duas condicoes recusam o que nao e
    religacao: o `code` gasto e o segundo numero no mesmo WABA.
@@ -51,8 +52,8 @@ class TestReligacaoDoCanal(ComBase):
     def setUp(self) -> None:
         super().setUp()
         self.cursor = self.ligar("admin").cursor()
-        self.a = factories.tenant(self.cursor)
-        self.b = factories.tenant(self.cursor)
+        self.a = self._tenant_activo()
+        self.b = self._tenant_activo()
         sufixo = uuid.uuid4().hex[:8]
         self.pnid_a = f"pnid-religa-a-{sufixo}"
         self.pnid_b = f"pnid-religa-b-{sufixo}"
@@ -64,6 +65,13 @@ class TestReligacaoDoCanal(ComBase):
         factories.contexto(self.cursor, None)
 
     # ----------------------------------------------------------------- ajudantes
+
+    def _tenant_activo(self) -> str:
+        """Um tenant `ativo`: a religacao e de um caso activo, e a consulta exige-o."""
+        tenant = factories.tenant(self.cursor)
+        factories.aceitar_contratos_vigentes(self.cursor, tenant)
+        self.cursor.execute("UPDATE platform.tenants SET estado = 'ativo' WHERE id = %s", (tenant,))
+        return tenant
 
     def como_batch(self) -> None:
         self.cursor.execute("RESET ROLE")
@@ -136,6 +144,37 @@ class TestReligacaoDoCanal(ComBase):
                 self.estado_do_canal(self.canal_a, estado)
                 self.como_batch()
                 self.assertEqual(self.linhas(SQL_CANAL_A_RELIGAR, self.a, self.pnid_a), [])
+
+    def test_um_tenant_suspenso_ou_por_activar_nao_religa(self) -> None:
+        """A suspensao vive em `tenants.estado`, e o canal fica como estava (achado 3)."""
+        for estado in ("suspenso", "onboarding"):
+            with self.subTest(estado=estado):
+                self.como_admin()
+                self.cursor.execute("UPDATE platform.tenants SET estado = %s WHERE id = %s", (estado, self.a))
+                self.como_batch()
+                self.assertEqual(self.linhas(SQL_CANAL_A_RELIGAR, self.a, self.pnid_a), [])
+        # O `restrito` (tecto de confianca) continua a religar: o tenant opera.
+        self.como_admin()
+        self.cursor.execute("UPDATE platform.tenants SET estado = 'restrito' WHERE id = %s", (self.a,))
+        self.como_batch()
+        self.assertEqual([c["id"] for c in self.linhas(SQL_CANAL_A_RELIGAR, self.a, self.pnid_a)], [self.canal_a])
+
+    def test_um_encerramento_em_curso_nao_religa_e_um_cancelado_sim(self) -> None:
+        """A fase `canal` do KAM-098 tambem desliga: esse `desligado` nao e um canal que caiu."""
+        self.como_admin()
+        self.cursor.execute(
+            "INSERT INTO platform.offboarding_run (tenant_id, fase, estado, prazo_at) "
+            "VALUES (%s, 'canal', 'concluida', now() + interval '1 day')",
+            (self.a,),
+        )
+        self.como_batch()
+        self.assertEqual(self.linhas(SQL_CANAL_A_RELIGAR, self.a, self.pnid_a), [])
+        # O encerramento de A nao fecha a religacao de B.
+        self.assertEqual([c["id"] for c in self.linhas(SQL_CANAL_A_RELIGAR, self.b, self.pnid_b)], [self.canal_b])
+        self.como_admin()
+        self.cursor.execute("UPDATE platform.offboarding_run SET estado = 'cancelada' WHERE tenant_id = %s", (self.a,))
+        self.como_batch()
+        self.assertEqual([c["id"] for c in self.linhas(SQL_CANAL_A_RELIGAR, self.a, self.pnid_a)], [self.canal_a])
 
     # -------------------------------------------------------- 2. a tentativa
 
