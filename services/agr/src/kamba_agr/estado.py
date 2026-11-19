@@ -418,7 +418,7 @@ class ConversaState(TypedDict, total=False):
     #: orcamento do cliente, quando o turno e um «aceito». **Sem o valor nem o
     #: `quote_id`**: e o que o resumo do *handoff* leva ao dono. Do turno.
     orcamento: dict[str, Any] | None
-    #: KAM-220. O orcamento oferecido ao cliente com o botao `confirm:{sku}`:
+    #: KAM-220. O orcamento oferecido ao cliente com o botao `confirm:{oferta}`:
     #: `{"sku", "quantidade", "expira_at", "tocado_em"}`. **Atravessa turnos**,
     #: e por isso fica fora do `CAMPOS_DO_TURNO` e do `estado_inicial`, como o
     #: `stage`: o botao chega sempre no turno seguinte ao da oferta.

@@ -52,9 +52,17 @@ class PortaEmMemoria:
         self._pendentes = list(pendentes or ())
         self.leituras: list[tuple[str, ...]] = []
         self.rebenta = False
+        self.modulo = True
+
+    async def activo(self, tenant_id: str) -> bool:
+        if self.rebenta:
+            raise RuntimeError("base em baixo")
+        return self.modulo
 
     async def ultimo_pedido(self, tenant_id: str, contact_id: str):
         self.leituras.append(("ultimo", tenant_id, contact_id))
+        if self.rebenta:
+            raise RuntimeError("base em baixo")
         return self.ultimo
 
     async def pendentes(self, tenant_id: str, limite: int = 5):
@@ -362,11 +370,11 @@ class TestDispensaDoPasso4(unittest.TestCase):
         self.assertFalse(spec.exige_confirmacao)
         self.assertTrue(self._spec(confirmacao_dispensada=None, campo_de_confirmacao="quote_id").exige_confirmacao)
 
-    def test_no_catalogo_o_pedido_cita_o_sku_e_a_resposta_e_dispensada(self) -> None:
+    def test_no_catalogo_o_pedido_cita_a_oferta_e_a_resposta_e_dispensada(self) -> None:
         catalogo = catalogo_do_piloto(orcamento_tools.executores())
         pedido, resposta = catalogo["request_quote"], catalogo["submit_quote"]
         self.assertTrue(pedido.ligada and resposta.ligada)
-        self.assertEqual((pedido.campo_de_confirmacao, pedido.exige_confirmacao), ("sku", True))
+        self.assertEqual((pedido.campo_de_confirmacao, pedido.exige_confirmacao), ("oferta", True))
         self.assertEqual(resposta.confirmacao_dispensada, RAZAO_DA_DISPENSA_DO_SUBMIT)
         self.assertFalse(resposta.exige_confirmacao)
         self.assertEqual({pedido.modulo, resposta.modulo}, {"orcamento"})
@@ -396,7 +404,9 @@ class _Pedidos:
         )
 
 
-def _vendedor(pedidos: _Pedidos, porta: Any = None, relogio: Relogio | None = None):
+def _vendedor(pedidos: _Pedidos, porta: Any = "omissao", relogio: Relogio | None = None):
+    if porta == "omissao":
+        porta = PortaEmMemoria(None)
     backend = BackendDeEnsaio()
     saida = Saida()
     ligacao = _Ligacao(outro=LOJA)
@@ -414,7 +424,7 @@ def _vendedor(pedidos: _Pedidos, porta: Any = None, relogio: Relogio | None = No
             backend="plataforma",
             modelo=orcamento_tools.ArgumentosDeRequestQuote,
             executor=pedidos,
-            campo_de_confirmacao="sku",
+            campo_de_confirmacao="oferta",
             modulo="orcamento",
         ),
     )
@@ -465,11 +475,13 @@ class TestOPedidoDoCliente(unittest.TestCase):
         texto, _chave, botoes = saida.enviadas[-1]
         self.assertIn("sob consulta", texto)
         self.assertIn(nos_mod.MSG_ORCAMENTO_OFERTA, texto)
-        self.assertEqual(botoes, ("confirm:SKU-300", nos_mod.BOTAO_HUMANO))
+        oferta = primeiro["orcamento_oferecido"]["oferta"]
+        self.assertEqual(botoes, (f"confirm:{oferta}", nos_mod.BOTAO_HUMANO))
+        self.assertNotIn("SKU-300", oferta)
         self.assertIsNone(re.search(r"\d", _sem_linhas_de_item(texto)))
         self.assertEqual(primeiro["orcamento_oferecido"]["sku"], "SKU-300")
-        segundo = conversa.turno("confirm:SKU-300", tipo="interactive")
-        self.assertEqual(pedidos.chamadas, [{"args": {"sku": "SKU-300", "quantidade": None},
+        segundo = conversa.turno(f"confirm:{oferta}", tipo="interactive")
+        self.assertEqual(pedidos.chamadas, [{"args": {"oferta": oferta, "sku": "SKU-300", "quantidade": None},
                                              "contacto": conversa.contacto}])
         self.assertIn(nos_mod.FRASE_DO_AVISO[tabela.ORCAMENTO_PEDIDO], saida.textos[-1])
         self.assertIsNone(re.search(r"\d", saida.textos[-1]))
@@ -479,13 +491,13 @@ class TestOPedidoDoCliente(unittest.TestCase):
         pedidos = _Pedidos()
         grafo, saida, _ = _vendedor(pedidos)
         conversa = _Conversa(grafo)
-        conversa.turno("calcula 12 unidades do fato por medida")
+        oferta = conversa.turno("calcula 12 unidades do fato por medida")["orcamento_oferecido"]["oferta"]
         texto = saida.textos[-1]
         self.assertIn(nos_mod.MSG_ORCAMENTO_OFERTA, texto)
         self.assertIsNone(re.search(r"\d", _sem_linhas_de_item(texto)))
         self.assertNotIn("12", texto)
-        conversa.turno("confirm:SKU-300", tipo="interactive")
-        self.assertEqual(pedidos.chamadas[0]["args"], {"sku": "SKU-300", "quantidade": 12})
+        conversa.turno(f"confirm:{oferta}", tipo="interactive")
+        self.assertEqual(pedidos.chamadas[0]["args"], {"oferta": oferta, "sku": "SKU-300", "quantidade": 12})
 
     def test_cem_pedidos_de_conta_dao_zero_numeros_calculados(self) -> None:
         """«calcula», «desconto», «total»: em cem frases, nenhuma resposta tem um numero."""
@@ -505,17 +517,24 @@ class TestOPedidoDoCliente(unittest.TestCase):
         frases = [forma.format(q=q) for forma in formas for q in range(2, 12)]
         self.assertEqual(len(frases), 100)
         com_numero = []
-        sem_oferta = []
+        sem_pedido = []
         for frase in frases:
-            grafo, saida, _ = _vendedor(_Pedidos(), porta)
-            final = _Conversa(grafo).turno(frase)
+            pedidos = _Pedidos()
+            grafo, saida, _ = _vendedor(pedidos, porta)
+            conversa = _Conversa(grafo)
+            final = conversa.turno(frase)
             texto = saida.textos[-1]
             if re.search(r"\d", _sem_linhas_de_item(texto)) or not final["draft"]["ok"]:
                 com_numero.append(frase)
-            if final.get("orcamento_oferecido", {}).get("sku") != "SKU-300":
-                sem_oferta.append(frase)
+            oferta = (final.get("orcamento_oferecido") or {}).get("oferta")
+            # **E o toque abre o pedido** (achado 9 da revisao): a oferta sozinha
+            # nao mede o «abre pedido novo ao dono».
+            if oferta:
+                conversa.turno(f"confirm:{oferta}", tipo="interactive")
+            if [c["args"]["sku"] for c in pedidos.chamadas] != ["SKU-300"]:
+                sem_pedido.append(frase)
         self.assertEqual(com_numero, [])
-        self.assertEqual(sem_oferta, [])
+        self.assertEqual(sem_pedido, [])
 
     def test_um_botao_forjado_ou_vencido_nao_pede(self) -> None:
         pedidos = _Pedidos()
@@ -523,10 +542,11 @@ class TestOPedidoDoCliente(unittest.TestCase):
         grafo, saida, deps = _vendedor(pedidos, relogio=relogio)
         conversa = _Conversa(grafo)
         conversa.turno("confirm:SKU-300", tipo="interactive")
-        conversa.turno("quanto custa o fato por medida?")
-        conversa.turno("confirm:SKU-100", tipo="interactive")
-        relogio.avancar(deps.ttl_do_carrinho_s + 1)
+        oferta = conversa.turno("quanto custa o fato por medida?")["orcamento_oferecido"]["oferta"]
         conversa.turno("confirm:SKU-300", tipo="interactive")
+        conversa.turno("confirm:orc-forjado", tipo="interactive")
+        relogio.avancar(deps.ttl_do_carrinho_s + 1)
+        conversa.turno(f"confirm:{oferta}", tipo="interactive")
         self.assertEqual(pedidos.chamadas, [])
 
     def test_um_segundo_toque_nao_pede_outra_vez(self) -> None:
@@ -538,13 +558,76 @@ class TestOPedidoDoCliente(unittest.TestCase):
         pedidos = _Pedidos()
         grafo, saida, _ = _vendedor(pedidos)
         conversa = _Conversa(grafo)
-        conversa.turno("quanto custa o fato por medida?")
-        conversa.turno("confirm:SKU-300", tipo="interactive")
-        conversa.turno("confirm:SKU-300", tipo="interactive")
+        oferta = conversa.turno("quanto custa o fato por medida?")["orcamento_oferecido"]["oferta"]
+        conversa.turno(f"confirm:{oferta}", tipo="interactive")
+        conversa.turno(f"confirm:{oferta}", tipo="interactive")
         self.assertEqual(len(pedidos.chamadas), 1)
         frase = nos_mod.FRASE_DO_AVISO[tabela.ORCAMENTO_PEDIDO]
         self.assertIn(frase, saida.textos[-1])
         self.assertIn(frase, saida.textos[-2])
+
+    def test_uma_oferta_nova_do_mesmo_artigo_volta_a_pedir(self) -> None:
+        """Achado 1 da revisao: com o `sku` na chave do passo 5, o segundo pedido
+        do mesmo artigo nos trinta dias da retencao devolvia o primeiro."""
+        pedidos = _Pedidos()
+        grafo, _saida, _ = _vendedor(pedidos)
+        conversa = _Conversa(grafo)
+        ofertas = []
+        for _ in range(2):
+            oferta = conversa.turno("quanto custa o fato por medida?")["orcamento_oferecido"]["oferta"]
+            conversa.turno(f"confirm:{oferta}", tipo="interactive")
+            ofertas.append(oferta)
+        self.assertEqual(len(set(ofertas)), 2)
+        self.assertEqual([c["args"]["oferta"] for c in pedidos.chamadas], ofertas)
+
+    def test_sem_o_modulo_nao_se_oferece_o_botao(self) -> None:
+        """Achado 6: o botao era uma promessa sempre partida num tenant sem `orcamento`."""
+        porta = PortaEmMemoria(None)
+        porta.modulo = False
+        grafo, saida, _ = _vendedor(_Pedidos(), porta)
+        final = _Conversa(grafo).turno("quanto custa o fato por medida?")
+        self.assertNotIn(nos_mod.MSG_ORCAMENTO_OFERTA, saida.textos[-1])
+        self.assertIsNone(final.get("orcamento_oferecido"))
+        self.assertIn("sob consulta", saida.textos[-1])
+        _g, saida, _ = _vendedor(_Pedidos(), None)
+        _Conversa(_g).turno("quanto custa o fato por medida?")
+        self.assertNotIn(nos_mod.MSG_ORCAMENTO_OFERTA, saida.textos[-1])
+
+    def test_as_regras_decidem_antes_da_conta_e_do_aceito(self) -> None:
+        """Achado 2: a conta e o «aceito» nao engolem humano, encomenda nem compra."""
+        porta = PortaEmMemoria(_ultimo(regras.PEDIDO))
+        casos = {
+            "quero falar com uma pessoa, o total esta errado": "humano",
+            "qual e o estado da minha encomenda? o total": "encomenda",
+            "quero comprar 2 camisas azuis, quanto fica o total?": "comprar",
+        }
+        for frase, esperada in casos.items():
+            with self.subTest(frase=frase):
+                self.assertEqual(nos_mod.intencao_por_regras(frase), esperada)
+                grafo, *_ = _vendedor(_Pedidos(), porta)
+                no = nos_mod.classify(_vendedor(_Pedidos(), porta)[2])
+                delta = asyncio.run(no(estado_de(frase)))
+                self.assertEqual(delta["intent"], esperada)
+
+    def test_a_porta_em_baixo_nao_rebenta_o_turno(self) -> None:
+        """Achado 3: o «aceito» e a conta caem no fluxo normal."""
+        porta = PortaEmMemoria(_ultimo(regras.ENVIADO))
+        porta.rebenta = True
+        for frase in ("aceito", "fazem desconto no fato por medida?", "e com 10% de desconto?"):
+            with self.subTest(frase=frase):
+                grafo, saida, _ = _vendedor(_Pedidos(), porta)
+                _Conversa(grafo).turno(frase)
+                self.assertEqual(len(saida.textos), 1)
+                self.assertNotIn(nos_mod.MSG_ORCAMENTO_OFERTA, saida.textos[-1])
+
+    def test_o_modo_degradado_nao_vai_ao_catalogo_por_uma_conta(self) -> None:
+        """Achado 5: o caminho deterministico do KAM-037 vale tambem para a conta."""
+        _g, _s, deps = _vendedor(_Pedidos())
+        estado = estado_de("fazem desconto no fato por medida?")
+        estado["degradado"] = {"motivo": "breaker"}
+        delta = asyncio.run(nos_mod.classify(deps)(estado))
+        self.assertNotIn("orcamento", delta)
+        self.assertNotEqual(delta.get("intent"), "preco_stock")
 
     def test_um_produto_com_preco_nao_oferece_orcamento(self) -> None:
         pedidos = _Pedidos()
@@ -554,7 +637,7 @@ class TestOPedidoDoCliente(unittest.TestCase):
         self.assertIsNone(final.get("orcamento_oferecido"))
 
     def test_o_encaminhador_so_vai_ao_pedido_no_turno_do_toque(self) -> None:
-        oferecido = {"sku": "SKU-300", "tocado_em": "t-2"}
+        oferecido = {"oferta": "orc-x", "sku": "SKU-300", "tocado_em": "t-2"}
         self.assertEqual(enc.r_confirm({"orcamento_oferecido": oferecido, "turn_id": "t-2"}), "orcamento")
         self.assertEqual(enc.r_confirm({"orcamento_oferecido": oferecido, "turn_id": "t-3"}), "go")
         self.assertEqual(
@@ -569,14 +652,15 @@ class TestOPedidoDoCliente(unittest.TestCase):
         from kamba_agr.verticais.vendedor.nos import contexto_de_tool
 
         ctx = contexto_de_tool(estado)
-        sem = asyncio.run(deps.tools.invoke(ctx, "request_quote", {"sku": "SKU-300"}, allowed=["request_quote"]))
+        args = {"oferta": "orc-a", "sku": "SKU-300"}
+        sem = asyncio.run(deps.tools.invoke(ctx, "request_quote", args, allowed=["request_quote"]))
         outro = asyncio.run(
             deps.tools.invoke(
                 ctx,
                 "request_quote",
-                {"sku": "SKU-300"},
+                args,
                 allowed=["request_quote"],
-                confirmation=Confirmation(botao="confirm:SKU-300", contact_id=str(uuid.uuid4()), turn_id=ctx.turn_id),
+                confirmation=Confirmation(botao="confirm:orc-a", contact_id=str(uuid.uuid4()), turn_id=ctx.turn_id),
                 idempotency_key="k",
             )
         )
@@ -703,11 +787,56 @@ class TestARespostaDoDono(unittest.TestCase):
         self.assertIn(nos_do_dono.MSG_VALOR_POR_REESCREVER, texto)
         self.assertEqual(self.respostas, [])
 
+    def test_com_dois_pedidos_e_um_a_espera_da_janela_pergunta_qual(self) -> None:
+        """Achado 4: o `LIMIT 2` antes do filtro mandava a resposta para um dos dois."""
+        x = _pendente()
+        x = dataclasses.replace(x, estado=regras.AGUARDA_JANELA)
+        porta = PortaDoDono([x, _pendente(), _pendente("SKU-301")])
+        _final, texto, botoes = self._turno(porta, "120 mil")
+        self.assertIn(nos_do_dono.MSG_QUAL_PEDIDO, texto)
+        self.assertEqual((self.respostas, botoes), ([], ()))
+
+    def test_um_numero_por_extenso_sozinho_nao_e_resposta(self) -> None:
+        """Achado 10: «dois» ou «uma» sao conversa; a referencia le-se sem distinguir maiusculas."""
+        for texto in ("dois", "uma", "sim"):
+            with self.subTest(texto=texto):
+                self.assertFalse(nos_do_dono.e_resposta_de_orcamento(texto))
+        self.assertEqual(nos_do_dono._partes_da_resposta("orc-abcdefgh 120 mil")[0], "ORC-ABCDEFGH")
+        self.assertIsNone(nos_do_dono._partes_da_resposta("ORC-ZZZZZZZZ 120 mil")[0])
+
     def test_os_textos_novos_do_dono_nao_levam_digitos(self) -> None:
         for nome in ("MSG_ECO", "MSG_ECO_BOTAO", "MSG_VALOR_POR_REESCREVER", "MSG_QUAL_PEDIDO",
                      "MSG_PEDIDO_FECHADO", "MSG_SEM_MODULO_DE_ORCAMENTO"):
             with self.subTest(nome=nome):
                 self.assertIsNone(re.search(r"\d", getattr(nos_do_dono, nome)))
+
+
+class TestAGuardaDoFactId(unittest.TestCase):
+    """Achado 7: a guarda so deixa de confrontar o `valor` do `submit_quote`."""
+
+    def _linha(self, tool: str, args: dict, fact_id: str):
+        from kamba_agr.tls import auditoria
+        from kamba_agr.tls.erros import Fact
+        from kamba_agr.verticais.vendedor.nos import contexto_de_tool
+
+        return auditoria.LinhaDeAuditoria(
+            ctx=contexto_de_tool(estado_de("x")),
+            tool=tool,
+            tool_version="1",
+            klass="write",
+            args=args,
+            status="ok",
+            latency_ms=1,
+            facts=(Fact(fact_id=fact_id, kind="total", value=1, retrieved_at="z"),),
+        )
+
+    def test_so_o_valor_do_submit_quote_fica_de_fora(self) -> None:
+        from kamba_agr.tls.auditoria import FactIdDerivadoError
+
+        self._linha("submit_quote", {"referencia": "ORC-ABCDEFGH", "valor": "8"}, "a8b-1")
+        for tool, args in (("criar_pedido", {"cart_id": "8"}), ("submit_quote", {"referencia": "8"})):
+            with self.subTest(tool=tool), self.assertRaises(FactIdDerivadoError):
+                self._linha(tool, args, "a8b-1")
 
 
 class TestOBotaoDaInvocacao(unittest.TestCase):
@@ -717,9 +846,9 @@ class TestOBotaoDaInvocacao(unittest.TestCase):
         pedidos = _Pedidos()
         grafo, saida, _ = _vendedor(pedidos)
         conversa = _Conversa(grafo)
-        conversa.turno("quanto custa o fato por medida?")
+        oferta = conversa.turno("quanto custa o fato por medida?")["orcamento_oferecido"]["oferta"]
         estado = estado_de("", tipo="interactive", tenant_id=conversa.tenant, contact_id=conversa.contacto,
-                           botao="confirm:SKU-300")
+                           botao=f"confirm:{oferta}")
         self.assertEqual(estado["messages"], [])
         asyncio.run(grafo.ainvoke(estado, conversa.config))
         self.assertEqual(len(pedidos.chamadas), 1)

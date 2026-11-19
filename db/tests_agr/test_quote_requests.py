@@ -619,8 +619,8 @@ class TestPelaToolLayer(ComOrcamento):
         return [tuple(linha) for linha in self.semente.fetchall()]
 
     def test_cliente_pedido_dono_envio(self) -> None:
-        pedido = self._invocar("request_quote", {"sku": SKU, "quantidade": 12}, self.cliente,
-                               botao=f"confirm:{SKU}")
+        pedido = self._invocar("request_quote", {"oferta": "orc-1", "sku": SKU, "quantidade": 12}, self.cliente,
+                               botao="confirm:orc-1")
         self.assertTrue(pedido.ok, pedido.error)
         self.assertEqual(pedido.facts, ())
         quote_id = pedido.data["quote_id"]
@@ -647,18 +647,18 @@ class TestPelaToolLayer(ComOrcamento):
         self.assertIn(quote_id, auditoria[1][3])
 
     def test_sem_o_botao_do_cliente_nada_se_pede(self) -> None:
-        for botao in (None, "confirm:SKU-301", "confirm:"):
+        for botao in (None, "confirm:orc-2", f"confirm:{SKU}", "confirm:"):
             with self.subTest(botao=botao):
-                resultado = self._invocar("request_quote", {"sku": SKU}, self.cliente, botao=botao)
+                resultado = self._invocar("request_quote", {"oferta": "orc-1", "sku": SKU}, self.cliente, botao=botao)
                 self.assertFalse(resultado.ok)
                 self.assertEqual(resultado.error.codigo, "VALIDATION_ERROR")
         self.assertEqual(self._linhas(), [])
         self.assertEqual(self._consumidos(), 0)
 
     def test_fora_do_catalogo_e_o_valor_ambiguo_recusam_com_o_codigo(self) -> None:
-        fora = self._invocar("request_quote", {"sku": "SKU-999"}, self.cliente, botao="confirm:SKU-999")
+        fora = self._invocar("request_quote", {"oferta": "orc-9", "sku": "SKU-999"}, self.cliente, botao="confirm:orc-9")
         self.assertEqual((fora.ok, fora.error.codigo, fora.error.detalhe), (False, "NOT_FOUND", rep.FORA_DO_CATALOGO))
-        pedido = self._invocar("request_quote", {"sku": SKU}, self.cliente, botao=f"confirm:{SKU}")
+        pedido = self._invocar("request_quote", {"oferta": "orc-1", "sku": SKU}, self.cliente, botao="confirm:orc-1")
         quote_id = pedido.data["quote_id"]
         for valor in ("120 50", "12 x 10 mil", "120 dolares"):
             with self.subTest(valor=valor):
@@ -667,8 +667,50 @@ class TestPelaToolLayer(ComOrcamento):
                 self.assertIn(ambiguo.error.detalhe, regras.RECUSAS_DO_VALOR)
         self.assertEqual(self._linhas(), [(quote_id, "pedido", None)])
 
+    def test_um_pedido_novo_do_mesmo_artigo_chega_ao_dono(self) -> None:
+        """Achado 1 da revisao: com o `sku` na chave do passo 5, o segundo pedido
+        devolvia o primeiro durante os trinta dias da retencao."""
+        primeiro = self._invocar("request_quote", {"oferta": "orc-1", "sku": SKU}, self.cliente, botao="confirm:orc-1")
+        rep.cancelar(self.app, self.tenant, self.dono, primeiro.data["quote_id"])
+        segundo = self._invocar("request_quote", {"oferta": "orc-2", "sku": SKU}, self.cliente,
+                                botao="confirm:orc-2", turno="t-2")
+        self.assertTrue(segundo.ok, segundo.error)
+        self.assertFalse(segundo.idempotent_replay)
+        self.assertNotEqual(segundo.data["quote_id"], primeiro.data["quote_id"])
+        self.assertEqual(len(self._eventos(rep.EVENTO_PEDIDO)), 2)
+
+    def test_o_dono_de_b_nao_responde_com_a_referencia_de_a(self) -> None:
+        """Achado 9: a referencia resolve-se no tenant do contexto, sob RLS."""
+        pedido = self._invocar("request_quote", {"oferta": "orc-1", "sku": SKU}, self.cliente, botao="confirm:orc-1")
+        outra = self.criar_conversa()
+        dono_b = factories.contacto(self.semente, outra.tenant_id)
+        self.semente.execute(
+            "UPDATE platform.contacts SET papel = 'dono' WHERE tenant_id = %s AND contact_id = %s",
+            (outra.tenant_id, dono_b),
+        )
+        factories.contexto(self.semente, None)
+        from kamba_agr.tls import orcamento_tools
+        from kamba_agr.tls.especificacoes import Pedido as PedidoDeTool
+        from kamba_agr.tls.especificacoes import ErroDeBackend
+        from kamba_agr.tls.contexto import ToolContext
+
+        ctx = ToolContext.de_estado(
+            {"tenant_id": outra.tenant_id, "channel_id": outra.canal_id, "contact_id": dono_b,
+             "conversation_id": outra.conversation_id, "turn_id": "t-9", "vertical": "vendedor"},
+            run_id="r-9", graph_version="1.3.0",
+        )
+        args = orcamento_tools.ArgumentosDeSubmitQuote(
+            referencia=regras.referencia_interna(pedido.data["quote_id"]), valor="120 mil"
+        )
+        with self.assertRaises(ErroDeBackend) as caso:
+            orcamento_tools.executores()["submit_quote"](
+                PedidoDeTool(ctx=ctx, args=args, timeout_ms=8000, ligacao=self.app)
+            )
+        self.assertEqual((caso.exception.codigo, caso.exception.detalhe), ("NOT_FOUND", rep.DESCONHECIDO))
+        self.assertEqual(self._linhas(), [(pedido.data["quote_id"], "pedido", None)])
+
     def test_um_cliente_nao_responde_pelo_dono_nem_forja_o_quote_id(self) -> None:
-        pedido = self._invocar("request_quote", {"sku": SKU}, self.cliente, botao=f"confirm:{SKU}")
+        pedido = self._invocar("request_quote", {"oferta": "orc-1", "sku": SKU}, self.cliente, botao="confirm:orc-1")
         quote_id = pedido.data["quote_id"]
         cliente = self._invocar("submit_quote", {"referencia": regras.referencia_interna(quote_id), "valor": "1 Kz"}, self.cliente)
         self.assertEqual((cliente.ok, cliente.error.codigo), (False, "TENANT_MISMATCH"))

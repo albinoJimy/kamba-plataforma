@@ -4,7 +4,7 @@
 |---|---|
 | Produto | KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para Angola |
 | Documento | Epic — Segurança e Conformidade |
-| Versão | 1.51 |
+| Versão | 1.52 |
 | Data | Outubro de 2026 |
 | Classificação | Documento de Referência — Interno |
 | Documento-fonte | `../docs/tecnica/08_Seguranca_Conformidade.md` |
@@ -2066,7 +2066,7 @@ O `../docs/seguranca/validar.py` é a **única verificação por máquina** dos 
 assert len(KAM) == 138 and len(ADR) == 20 and len(DEC) == 13, (len(KAM), len(ADR), len(DEC))
 ```
 
-O *backlog* tem 225 tickets, pelo que, da raiz do repositório, o `assert` aborta. A saída abaixo foi capturada quando ele ainda batia com a contagem da época — o primeiro elemento do tuplo **é** a contagem viva, pelo que cresce a cada entrada nova, e é por isso que o defeito é estrutural e não uma gralha:
+O *backlog* tem 226 tickets, pelo que, da raiz do repositório, o `assert` aborta. A saída abaixo foi capturada quando ele ainda batia com a contagem da época — o primeiro elemento do tuplo **é** a contagem viva, pelo que cresce a cada entrada nova, e é por isso que o defeito é estrutural e não uma gralha:
 
 ```text
 AssertionError: (143, 20, 13)
@@ -2516,3 +2516,4 @@ Testes: unitários, integração contra a base, privacidade.
 | 1.49 | Novembro 2026 | KAM-219 (EPIC-09), aberto no PR do KAM-203 com o número provisório do lote 11: a contagem viva do backlog na nota do `assert` passa a **219**. Nenhuma caixa deste epic muda. | Equipa KAMBÁ |
 | 1.50 | Novembro 2026 | KAM-223 e KAM-224 (EPIC-11), abertos no PR do KAM-217 com os menores números livres a 2026-11-19, que eram provisórios do lote 12: a contagem viva do backlog na nota do `assert` passa a **224**, contada na árvore integrada com o KAM-123. Nenhuma caixa deste epic muda. | Equipa KAMBÁ |
 | 1.51 | Novembro 2026 | KAM-225 (EPIC-09), aberto no PR do KAM-219: a contagem viva do backlog na nota do `assert` passa a **225**, com os do KAM-123 e do KAM-217 já fundidos. Nenhuma caixa deste epic muda. | Equipa KAMBÁ |
+| 1.52 | Novembro 2026 | KAM-226 (EPIC-11), aberto no PR do KAM-220: a contagem viva do backlog na nota do `assert` passa a **226**. Sem outra alteração. | Equipa KAMBÁ |

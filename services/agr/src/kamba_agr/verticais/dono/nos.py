@@ -194,7 +194,11 @@ def classify(deps: Dependencias):
 
 #: Uma referencia `ORC-…` no texto do dono: oito das dezasseis letras do
 #: `regras.referencia_interna`, sem distinguir maiusculas.
-_REFERENCIA_NO_TEXTO: Final = re.compile(r"\bORC-([A-Za-z]{8})\b")
+_REFERENCIA_NO_TEXTO: Final = re.compile(r"\bORC-([A-HJ-NP-R]{8})\b", re.IGNORECASE)
+
+#: Sem referencia, so e resposta um valor com algarismos ou com o multiplicador
+#: (achado 10 da revisao): «dois» ou «uma» sozinhos sao conversa, e nao um preco.
+_FORMA_DE_VALOR: Final = re.compile(r"\d|\bmil\b|\bmilh", re.IGNORECASE)
 
 #: As palavras de ligacao que o dono escreve a volta do valor e que o *parser*
 #: do KAM-123 nao tem de ler: «120 mil para o ORC-…», «ORC-…: 120 mil».
@@ -220,6 +224,8 @@ def e_resposta_de_orcamento(texto: str) -> bool:
     referencia, resto = _partes_da_resposta(texto)
     if referencia is not None:
         return True
+    if not _FORMA_DE_VALOR.search(resto):
+        return False
     try:
         regras.ler_valor_do_dono(resto)
     except regras.ValorRecusadoError:
@@ -240,10 +246,20 @@ async def _qual_pedido(deps: Dependencias, estado: Mapping[str, Any], referencia
     ler = getattr(deps.orcamentos, "pendentes", None)
     if ler is None:
         return None
-    abertos = [
-        p for p in await ler(estado["tenant_id"], limite=2) if p.estado in (regras.PEDIDO, regras.RESPONDIDO)
-    ]
+    # **O filtro antes de contar, e a lista inteira** (achado 4 da revisao): com
+    # um `LIMIT 2` antes do filtro, um `aguarda_janela` mais novo tirava um dos
+    # dois `pedido` da conta, e a resposta ia para o outro. Uma lista cortada
+    # pelo limite tambem nao decide: pode haver outro a espera fora dela.
+    lidos = await ler(estado["tenant_id"], limite=LIMITE_DA_ESCOLHA)
+    if len(lidos) >= LIMITE_DA_ESCOLHA:
+        return None
+    abertos = [p for p in lidos if p.estado in (regras.PEDIDO, regras.RESPONDIDO)]
     return abertos[0].referencia if len(abertos) == 1 else None
+
+
+#: Quantos abertos se leem para escolher o pedido de uma resposta sem
+#: referencia. Com tantos ou mais, pede-se a referencia. *Proposta*.
+LIMITE_DA_ESCOLHA: Final = 20
 
 
 async def _responder_orcamento(deps: Dependencias, estado: Mapping[str, Any]) -> dict[str, Any]:
@@ -500,7 +516,7 @@ MSG_NAO_ENTENDI: Final = (
 MSG_NAO_CONSEGUI: Final = "Nao consegui tratar esse pedido por aqui."
 
 #: Os pendentes do Orcamento expresso (KAM-220). Sem digitos, como os outros.
-MSG_PENDENTES: Final = "Tem pedidos de orcamento a espera da sua resposta:"
+MSG_PENDENTES: Final = "Tem pedidos de orcamento em aberto:"
 MSG_SEM_PENDENTES: Final = "Nao tem pedidos de orcamento a espera de resposta."
 MSG_PENDENTES_INDISPONIVEIS: Final = (
     "Nao consigo ver os pedidos de orcamento neste momento. Tente outra vez daqui a pouco."

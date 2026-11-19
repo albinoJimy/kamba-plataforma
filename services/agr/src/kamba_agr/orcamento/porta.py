@@ -83,6 +83,10 @@ class PortaDeOrcamento:
             self._com_ligacao, repositorio.ultimo_pedido, tenant_id, contact_id
         )
 
+    async def activo(self, tenant_id: str) -> bool:
+        """Se o tenant tem o modulo `orcamento` (o passo 2, perguntado antes)."""
+        return await asyncio.to_thread(self._com_ligacao, repositorio.modulo_activo, tenant_id)
+
     def agora(self) -> datetime.datetime:
         """O relogio da porta, para o grafo julgar a validade com o mesmo instante."""
         return self._relogio()

@@ -229,9 +229,11 @@ RAZAO_DA_DISPENSA_DO_SUBMIT: Final = (
 def _do_orcamento(ligaveis: Mapping[str, Executor]) -> tuple[EspecificacaoDeTool, ...]:
     """As duas do orcamento: **ligadas** com o executor, declaradas sem ele (KAM-220).
 
-    * `request_quote` cita o `sku` no botao `confirm:{sku}` que o cliente toca
-      («Pedir orcamento»): o toque e a confirmacao do passo 4 **e** o
-      consentimento para gastar um `orcamentos_mes` (opcao C do fundador);
+    * `request_quote` cita a `oferta` no botao `confirm:{oferta}` que o cliente
+      toca («Pedir orcamento»): o toque e a confirmacao do passo 4 **e** o
+      consentimento para gastar um `orcamentos_mes` (opcao C do fundador). A
+      `oferta` e opaca e uma por oferta, como o `cart_id`, para que a chave do
+      passo 5 nao prenda um `sku` durante a retencao;
     * `submit_quote` tem a dispensa do passo 4, com a razao escrita.
 
     As duas ligam-se juntas ou nenhuma: um executor so de uma era um catalogo
@@ -250,7 +252,7 @@ def _do_orcamento(ligaveis: Mapping[str, Executor]) -> tuple[EspecificacaoDeTool
             backend="plataforma",
             modelo=orcamento_tools.ArgumentosDeRequestQuote,
             executor=pedir,
-            campo_de_confirmacao="sku",
+            campo_de_confirmacao="oferta",
             modulo=MODULO_DO_ORCAMENTO,
         ),
         EspecificacaoDeTool(

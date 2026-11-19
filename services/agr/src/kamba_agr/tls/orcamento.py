@@ -60,7 +60,7 @@ from dataclasses import dataclass
 from typing import Any, Final
 
 from kamba_core import tenant_guard
-from kamba_core.ten.entitlements import Resultado, consume_limit
+from kamba_core.ten.entitlements import Resultado, check_entitlement, consume_limit
 
 from ..dono import accoes
 from ..eventos.notificacao import Notificacao
@@ -734,6 +734,28 @@ class UltimoPedido:
         if self.estado in (regras.EXPIRADO, regras.CANCELADO):
             return True
         return self.estado == regras.ENVIADO and not self.aceitavel(agora)
+
+
+class _SemMetricas:
+    """A leitura do `modulo_activo` e uma pergunta, e nao um acesso negado."""
+
+    def contar(self, *_argumentos: object, **_nomeados: object) -> None:
+        return None
+
+
+def modulo_activo(ligacao: Any, tenant_id: str) -> bool:
+    """Se o tenant tem o modulo `orcamento` activo (KAM-220).
+
+    E a mesma decisao do passo 2 da ToolLayer (`check_entitlement`, falha
+    fechada), perguntada **antes** de oferecer o botao: sem o modulo, um botao
+    «Pedir orcamento» era uma promessa sempre partida. Nao conta recusas: quem
+    recusa um acesso e o passo 2, e isto nao e um acesso.
+    """
+    with tenant_guard.tx(ligacao, tenant_id) as cursor:
+        decisao = check_entitlement(
+            _ClienteDeCursor(cursor), tenant_id, MODULO, metricas=_SemMetricas()
+        )
+    return bool(decisao.permitido)
 
 
 def ultimo_pedido(ligacao: Any, tenant_id: str, contact_id: str) -> UltimoPedido | None:

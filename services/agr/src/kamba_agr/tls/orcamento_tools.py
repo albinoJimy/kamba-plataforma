@@ -8,7 +8,11 @@ fala com a base. A tool passa entao pelos oito passos do §6.1 — o entitlement
 
 ## O que o modelo ve, e o que nunca ve
 
-* `request_quote`: o `sku` e a quantidade. O contacto e a conversa sao os do
+* `request_quote`: a `oferta`, o `sku` e a quantidade. A `oferta` e o
+  identificador opaco que o botao `confirm:{oferta}` cita, um por oferta, e e
+  ela que entra na chave do passo 5: com o `sku` na chave, um segundo pedido do
+  mesmo artigo nos trinta dias da retencao devolvia o primeiro, e nunca chegava
+  ao dono (achado 1 da revisao adversarial do KAM-220). O contacto e a conversa sao os do
   `ToolContext`, e nunca argumentos: um `contact_id` no esquema era um cliente a
   pedir orcamento em nome de outro.
 * `submit_quote`: a **referencia** `ORC-…` do pedido, o **texto** do valor tal
@@ -63,6 +67,7 @@ _CODIGO_DA_RECUSA: Final = {
 class ArgumentosDeRequestQuote(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
+    oferta: str = Field(min_length=1, max_length=64)
     sku: str = Field(min_length=1, max_length=64)
     quantidade: int | None = Field(default=None, ge=1, le=repositorio.QUANTIDADE_MAXIMA)
 

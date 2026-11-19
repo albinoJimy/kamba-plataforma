@@ -160,7 +160,7 @@ NOS: Final = (
     # o menu. O dicionario §3.35 declara-o.
     "degraded_menu",
     # KAM-220: o pedido de orcamento depois do botao «Pedir orcamento»
-    # (`confirm:{sku}`). E o no que chama o `request_quote` com a confirmacao do
+    # (`confirm:{oferta}`). E o no que chama o `request_quote` com a confirmacao do
     # passo 4, como o `create_order` chama o `criar_pedido`.
     "quote_request",
 )
@@ -432,7 +432,7 @@ ARESTAS: Final = (
         "sempre; o validador aplica-se tambem ao modo deterministico",
         fonte=FONTE_DO_DEGRADADO,
     ),
-    # KAM-220. O botao `confirm:{sku}` do orcamento oferecido no turno anterior
+    # KAM-220. O botao `confirm:{oferta}` do orcamento oferecido no turno anterior
     # chega pelo mesmo `confirm_gate` que o do carrinho: e o no das confirmacoes
     # do cliente, e o `classify` nao distingue os dois (um botao `confirm:*`
     # nunca passa por modelo).
@@ -441,7 +441,7 @@ ARESTAS: Final = (
         "confirm_gate",
         "quote_request",
         "orcamento",
-        "botao confirm:{sku} do orcamento oferecido, dentro da validade",
+        "botao confirm:{oferta} do orcamento oferecido, dentro da validade",
         fonte=FONTE_DO_ORCAMENTO,
     ),
     Aresta(47, "quote_request", "compose", None, "sempre", fonte=FONTE_DO_ORCAMENTO),

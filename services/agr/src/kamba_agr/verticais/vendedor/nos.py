@@ -217,7 +217,7 @@ MSG_COOLDOWN: Final = (
     "Um colega da loja vai responder-lhe aqui. Se preferir, toque em falar com humano."
 )
 #: KAM-220. A oferta do orcamento de um `sob_consulta`, com o botao
-#: `confirm:{sku}` ao lado. **Nao promete preco nem prazo**: diz quem o da.
+#: `confirm:{oferta}` ao lado. **Nao promete preco nem prazo**: diz quem o da.
 MSG_ORCAMENTO_OFERTA: Final = (
     "O preco deste artigo e dado pelo dono da loja. Quer que lhe peca o orcamento?"
 )
@@ -941,12 +941,36 @@ def quantidade_reclamada(texto: str) -> int | None:
     return candidatos.pop() if len(candidatos) == 1 else None
 
 
-async def _ultimo_sob_consulta(deps: "Dependencias", estado: Mapping[str, Any]) -> dict[str, Any] | None:
-    """O `sku` do ultimo pedido de orcamento do cliente, para uma conta sem produto."""
-    ler = getattr(deps.orcamentos, "ultimo_pedido", None)
+async def _ler_o_ultimo(deps: "Dependencias", estado: Mapping[str, Any]) -> Any:
+    """O ultimo pedido do cliente, ou `None` — tambem se a porta falhar.
+
+    **Uma leitura que falha nao rebenta o turno** (achado 3 da revisao): o
+    «aceito» e a conta caem no fluxo normal, que e o que acontece sem porta.
+    So se le com o modulo activo: sem ele, o tenant nao tem pedidos.
+    """
+    porta = deps.orcamentos
+    ler = getattr(porta, "ultimo_pedido", None)
     if ler is None:
         return None
-    ultimo = await ler(estado["tenant_id"], estado["contact_id"])
+    try:
+        if not await _modulo_activo(deps, estado):
+            return None
+        return await ler(estado["tenant_id"], estado["contact_id"])
+    except Exception:  # noqa: BLE001 — a base em baixo nao rebenta o turno
+        return None
+
+
+async def _modulo_activo(deps: "Dependencias", estado: Mapping[str, Any]) -> bool:
+    """O modulo `orcamento` do tenant, pela porta. Sem a pergunta, `False`."""
+    activo = getattr(deps.orcamentos, "activo", None)
+    if activo is None:
+        return False
+    return bool(await activo(estado["tenant_id"]))
+
+
+async def _ultimo_sob_consulta(deps: "Dependencias", estado: Mapping[str, Any]) -> dict[str, Any] | None:
+    """O `sku` do ultimo pedido de orcamento do cliente, para uma conta sem produto."""
+    ultimo = await _ler_o_ultimo(deps, estado)
     if ultimo is None:
         return None
     return {"referencia": ultimo.referencia, "estado": ultimo.estado, "sku": ultimo.sku}
@@ -959,10 +983,7 @@ async def _decidir_o_aceito(deps: "Dependencias", estado: Mapping[str, Any]) -> 
     ou sem pedido nenhum deste cliente, o turno segue o fluxo normal.
     """
     porta = deps.orcamentos
-    ler = getattr(porta, "ultimo_pedido", None)
-    if ler is None:
-        return None
-    ultimo = await ler(estado["tenant_id"], estado["contact_id"])
+    ultimo = await _ler_o_ultimo(deps, estado)
     if ultimo is None:
         return None
     agora = porta.agora()
@@ -1368,24 +1389,12 @@ def classify(deps: Dependencias):
             # muda o documento.
             return {"intent": "outro", "cart": None, "stage": "browsing"}
 
-        # KAM-220. **O «aceito» decide-se por regra e pela base, nunca pelo
-        # modelo**, e antes do modo degradado: e o ultimo pedido do cliente que
-        # diz se ha proposta para aceitar, e um classificador aqui era um modelo
-        # a decidir que uma venda se fechou.
-        if pediu_para_aceitar(texto_do_turno, botao):
+        # KAM-220. O botao «Aceito» decide como os outros identificadores
+        # nossos, antes do texto e do modo degradado.
+        if botao == BOTAO_ACEITAR_ORCAMENTO:
             aceito = await _decidir_o_aceito(deps, estado)
             if aceito is not None:
                 return aceito
-        # KAM-220, criterio 2: **uma conta, um desconto ou um total nunca se
-        # fazem**. A frase vai ao `retrieve` como pergunta de preco; se nao
-        # nomear produto, o do ultimo orcamento do cliente e o que se oferece
-        # outra vez ao dono — e um orcamento ja enviado abre pedido novo.
-        if not botao and pediu_uma_conta(texto_do_turno):
-            delta: dict[str, Any] = {"intent": "preco_stock"}
-            anterior = await _ultimo_sob_consulta(deps, estado)
-            if anterior is not None:
-                delta["orcamento"] = dict(anterior, negociacao=True)
-            return delta
 
         texto = texto_do_turno
         if estado.get("degradado"):
@@ -1397,6 +1406,24 @@ def classify(deps: Dependencias):
             return _com_motivo_de_humano({"intent": _intencao_degradada(botao, texto)})
 
         intencao = intencao_por_regras(texto)
+        # KAM-220. **Depois das regras, e so onde elas nao decidiram outra
+        # coisa** (achado 2 da revisao): «quero falar com um humano, o total esta
+        # errado» e um pedido de humano, e «qual e o total da minha encomenda?»
+        # uma consulta. O «aceito» decide-se pela base, nunca pelo modelo: e o
+        # ultimo pedido do cliente que diz se ha proposta para aceitar.
+        if intencao in (None, "outro") and pediu_para_aceitar(texto):
+            aceito = await _decidir_o_aceito(deps, estado)
+            if aceito is not None:
+                return aceito
+        # Criterio 2: **uma conta, um desconto ou um total nunca se fazem**. A
+        # frase vai ao `retrieve` como pergunta de preco; sem produto nomeado,
+        # o do ultimo orcamento do cliente volta a oferecer-se ao dono.
+        if intencao in (None, "produto", "preco_stock") and pediu_uma_conta(texto):
+            anterior = await _ultimo_sob_consulta(deps, estado)
+            if anterior is not None:
+                return {"intent": "preco_stock", "orcamento": dict(anterior, negociacao=True)}
+            if intencao is None:
+                return {"intent": "preco_stock"}
         if intencao is None and deps.classificador is not None:
             tenant_id = estado["tenant_id"]
             if not deps.degradacao.pode_chamar_o_llm(tenant_id):
@@ -1684,14 +1711,15 @@ def confirm_gate(deps: Dependencias):
         )
         if no_estagio and cita_o_carrinho and esta_valido:
             return {}
-        # KAM-220. O botao `confirm:{sku}` do orcamento oferecido no turno
+        # KAM-220. O botao `confirm:{oferta}` do orcamento oferecido no turno
         # anterior: as mesmas duas perguntas — cita-o, e esta dentro da validade.
         # O contacto e o turno sao os do `Confirmation` que o `quote_request`
         # constroi, e o passo 4 confronta-os.
         oferecido = estado.get("orcamento_oferecido")
         if (
             isinstance(oferecido, Mapping)
-            and botao == f"{PREFIXO_DE_CONFIRMACAO}{oferecido.get('sku')}"
+            and oferecido.get("oferta")
+            and botao == f"{PREFIXO_DE_CONFIRMACAO}{oferecido.get('oferta')}"
             and float(oferecido.get("expira_at", 0)) > deps.relogio()
         ):
             return {"orcamento_oferecido": dict(oferecido, tocado_em=estado["turn_id"])}
@@ -1788,7 +1816,10 @@ def quote_request(deps: Dependencias):
             contact_id=estado["contact_id"],
             turn_id=estado["turn_id"],
         )
-        argumentos: dict[str, Any] = {"sku": str(oferecido.get("sku") or "")}
+        argumentos: dict[str, Any] = {
+            "oferta": str(oferecido.get("oferta") or ""),
+            "sku": str(oferecido.get("sku") or ""),
+        }
         if oferecido.get("quantidade") is not None:
             argumentos["quantidade"] = oferecido["quantidade"]
         resultado = await _com_retry(
@@ -1982,12 +2013,12 @@ def compose(deps: Dependencias):
 
         delta: dict[str, Any] = {}
         oferta = _oferta_de_orcamento(deps, estado, ofertas, blocos)
-        if oferta is not None:
+        if oferta is not None and await _modulo_activo_ou_nao(deps, estado):
             blocos.append({"type": "text", "text": MSG_ORCAMENTO_OFERTA})
             blocos.append(
                 {
                     "type": "buttons",
-                    "ids": [f"{PREFIXO_DE_CONFIRMACAO}{oferta['sku']}", BOTAO_HUMANO],
+                    "ids": [f"{PREFIXO_DE_CONFIRMACAO}{oferta['oferta']}", BOTAO_HUMANO],
                 }
             )
             delta["orcamento_oferecido"] = oferta
@@ -2030,12 +2061,33 @@ def _oferta_de_orcamento(
         return None
     for oferta in ofertas:
         if oferta.get("preco_tipo") == "sob_consulta":
+            sku = str(oferta["sku"])
             return {
-                "sku": str(oferta["sku"]),
+                "oferta": _id_da_oferta(estado, sku),
+                "sku": sku,
                 "quantidade": quantidade_reclamada(_texto_do_cliente(estado)),
                 "expira_at": deps.relogio() + deps.ttl_do_carrinho_s,
             }
     return None
+
+
+def _id_da_oferta(estado: Mapping[str, Any], sku: str) -> str:
+    """O identificador opaco que o botao cita: um por oferta (`thread`, turno, `sku`).
+
+    Opaco, como o `cart_id`: **nao** e o `sku`, porque a chave do passo 5 deriva
+    dele, e com o `sku` um segundo pedido do mesmo artigo nos trinta dias da
+    retencao devolvia o primeiro (achado 1 da revisao adversarial).
+    """
+    cru = f"{estado.get('thread_id')}:{int(estado.get('turn_seq') or 0)}:{sku}"
+    return "orc-" + hashlib.sha256(cru.encode()).hexdigest()[:24]
+
+
+async def _modulo_activo_ou_nao(deps: Dependencias, estado: Mapping[str, Any]) -> bool:
+    """Se se pode oferecer o botao: o modulo `orcamento` do tenant, e falha fechada."""
+    try:
+        return await _modulo_activo(deps, estado)
+    except Exception:  # noqa: BLE001 — sem a resposta, nao se oferece
+        return False
 
 
 def _blocos_dos_dados(estado: Mapping[str, Any]) -> list[dict[str, Any]]:

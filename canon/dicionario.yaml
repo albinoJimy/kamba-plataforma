@@ -892,7 +892,7 @@ entradas:
       - "expires_at"
   - seccao: "3.3"
     conceito: "Identificador de confirmação"
-    canonico: "confirm:{cart_id} (Vendedor), confirm:{hold_id} (Serviços), confirm:{item_id} (módulos de entrada: conteúdo, proposta, publicação de produto; proposta), confirm:{action_id} (acções sensíveis da persona dono, owner_actions; emenda 1.112, §3.78), confirm:{sku} (o pedido de orçamento do cliente; emenda 1.118, §3.79)"
+    canonico: "confirm:{cart_id} (Vendedor), confirm:{hold_id} (Serviços), confirm:{item_id} (módulos de entrada: conteúdo, proposta, publicação de produto; proposta), confirm:{action_id} (acções sensíveis da persona dono, owner_actions; emenda 1.112, §3.78), confirm:{oferta} (o pedido de orçamento do cliente; emenda 1.118, §3.79)"
     literais:
       - "confirm:{cart_id}"
       - "confirm:{hold_id}"
@@ -900,7 +900,7 @@ entradas:
       - "confirm:{action_id}"
       - "dono"
       - "owner_actions"
-      - "confirm:{sku}"
+      - "confirm:{oferta}"
     nomes:
       - "confirm"
       - "cart_id"
@@ -909,7 +909,7 @@ entradas:
       - "action_id"
       - "dono"
       - "owner_actions"
-      - "sku"
+      - "oferta"
     nomes_nota: []
     variantes_literais:
       - "confirm:{cart_id}"
@@ -6462,7 +6462,7 @@ entradas:
       - "botao"
       - "confirm"
       - "cart_id"
-      - "sku"
+      - "oferta"
       - "hold_id"
       - "contact_id"
     variantes_literais: []
@@ -20569,6 +20569,7 @@ entradas:
     nomes_nota:
       - "write"
       - "orcamento"
+      - "oferta"
       - "sku"
     variantes_literais: []
   - seccao: "3.79"
@@ -20621,13 +20622,20 @@ entradas:
     variantes_literais: []
   - seccao: "3.79"
     conceito: "Botão do pedido de orçamento"
-    canonico: "confirm:{sku}, com o texto «Pedir orçamento»"
+    canonico: "confirm:{oferta}, com o texto «Pedir orçamento»"
     literais:
-      - "confirm:{sku}"
+      - "confirm:{oferta}"
     nomes:
       - "confirm"
-      - "sku"
+      - "oferta"
     nomes_nota:
+      - "oferta"
+      - "orc"
+      - "thread_id"
+      - "turn_seq"
+      - "sku"
+      - "cart_id"
+      - "orcamento"
       - "compose"
       - "sob_consulta"
       - "request_quote"
@@ -20635,12 +20643,13 @@ entradas:
     variantes_literais: []
   - seccao: "3.79"
     conceito: "Orçamento oferecido"
-    canonico: "state.orcamento_oferecido = {sku, quantidade, expira_at, tocado_em}"
+    canonico: "state.orcamento_oferecido = {oferta, sku, quantidade, expira_at, tocado_em}"
     literais:
       - "state.orcamento_oferecido"
-      - "{sku, quantidade, expira_at, tocado_em}"
+      - "{oferta, sku, quantidade, expira_at, tocado_em}"
     nomes:
       - "state.orcamento_oferecido"
+      - "oferta"
       - "sku"
       - "quantidade"
       - "expira_at"
