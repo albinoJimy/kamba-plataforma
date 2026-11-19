@@ -1475,7 +1475,10 @@ class TestFicheirosDePolitica(unittest.TestCase):
     #: `kamba_app`, que serve o turno onde chega o «sou o dono», leva `42501` —
     #: `test_so_a_identidade_executa_a_porta` de
     #: `../tests/test_canal_do_dono_schema.py`.
-    DONO_NA_ALLOWLIST = "platform.definir_dono(p_contact_id uuid, p_origem text)"
+    #: Com o terceiro argumento desde a `0075` (KAM-216): o `owner_channel_wa`.
+    DONO_NA_ALLOWLIST = (
+        "platform.definir_dono(p_contact_id uuid, p_origem text, p_owner_channel_wa boolean)"
+    )
 
     def test_os_ficheiros_reais_leem_se_e_tem_o_que_esta_declarado(self) -> None:
         """Os dois nasceram vazios e deixaram de o estar no KAM-012.

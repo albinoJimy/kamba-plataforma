@@ -75,6 +75,8 @@ GRUPOS = (
     "KAM-211 — a troca de telefone pelo caminho real",
     # KAM-217: a troca montada como o `onboarding-web` a monta, sobre o pool.
     "KAM-217 — a troca montada pelo processo, sobre o pool",
+    # KAM-216: o canal do dono guardado pela troca e lido pelo painel.
+    "KAM-216 — o canal do dono guardado, contra a base",
 )
 
 #: Testes que **tem** de ter corrido e passado, pelo nome. Lista curta, com os
@@ -108,6 +110,10 @@ TESTES_OBRIGATORIOS = (
     # KAM-211: a troca pelo caminho real, e a porta fechada ao `kamba_app`.
     "até o código acertar o número novo é cliente e o antigo é dono; depois, o contrário",
     "com o papel da aplicação, a porta não executa",
+    # KAM-216: os dois cenarios do criterio 3, e o isolamento.
+    "telefone diferente do número da loja: a troca guarda o WhatsApp, e o painel lê-o",
+    "telefone igual ao número da loja: o dono que volta ao número do registo tem o painel",
+    "isolamento: o canal de B não se lê do contexto de A, nem por id",
     # KAM-217: duas trocas concorrentes de dois tenants, cada uma no seu.
     "cinco pares de trocas concorrentes em dois tenants acabam cada uma no seu tenant",
 )
