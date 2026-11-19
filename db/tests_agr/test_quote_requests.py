@@ -595,16 +595,38 @@ class TestEnvioForaDaTransaccao(ComOrcamento):
         return pedido.quote_id, resposta
 
     def _outra(self):
-        """Outra sessao `kamba_app`, que desiste de uma tranca ao fim de 2 s.
+        """Outra sessao `kamba_app`, que desiste de uma tranca ao fim de 30 s.
 
-        Sem o `lock_timeout`, um envio que voltasse a chamar o Outbound dentro
-        da transaccao pendurava o ensaio em vez de o pôr vermelho: a outra
-        sessao esperava pela tranca de quem a esta a chamar.
+        O tecto existe para que um defeito pendure o ensaio por 30 s e nao para
+        sempre: a outra sessao espera pela tranca de quem a esta a chamar.
         """
         outra = self.ligar("app")
-        outra.cursor().execute("SET lock_timeout = '2s'")
+        outra.cursor().execute("SET lock_timeout = '30s'")
         outra.commit()
         return outra
+
+    def _durante_o_envio(self, accao):
+        """Corre `accao` noutro fio durante o envio, e mede se ela esperou.
+
+        Devolve `(saida, fio)`: a porta lanca o fio, espera um segundo, regista
+        se ele ainda esta a espera e so depois devolve `livre`.
+        """
+        resultado: dict[str, object] = {}
+
+        def correr() -> None:
+            try:
+                resultado["valor"] = accao()
+            except BaseException as erro:  # noqa: BLE001 — o fio nao propaga
+                resultado["erro"] = erro
+
+        fio = threading.Thread(target=correr)
+
+        def durante(_chave) -> None:
+            fio.start()
+            fio.join(1.0)
+            resultado["esperou"] = fio.is_alive()
+
+        return SaidaQueEspreita("livre", durante), fio, resultado
 
     def _trancar_sem_esperar(self, quote_id: str) -> None:
         """Outra sessao tranca a linha com `NOWAIT`: levanta se alguem a tiver."""
@@ -635,36 +657,49 @@ class TestEnvioForaDaTransaccao(ComOrcamento):
         envios = rep.libertar_da_janela(self.app, self.tenant, self.cliente, saida, _agora())
         self.assertEqual(envios, [rep.Envio(rep.ENVIADO, quote_id)])
 
-    def test_cancelado_durante_o_envio_nao_fica_enviado(self) -> None:
-        """A fase 3 le a linha outra vez: um cancelamento a meio ganha ao registo."""
-        quote_id, resposta = self._confirmado()
-        outra = self._outra()
-        saida = SaidaQueEspreita(
-            "livre", lambda _chave: rep.cancelar(outra, self.tenant, self.dono, quote_id)
-        )
-        envio = rep.enviar(self.app, self.tenant, self.dono, resposta.action_id, saida, _agora())
-        self.assertEqual(envio.desfecho, rep.DESACTUALIZADO)
-        self.assertEqual(self._linhas()[0][1], "cancelado")
-        self.assertEqual(self._eventos(rep.EVENTO_ENVIADO), [])
+    def test_um_cancelamento_durante_o_envio_espera_e_nao_cancela(self) -> None:
+        """Achado 1 da revisao: a proposta que saiu fica `enviado`, com o evento.
 
-    def test_uma_resposta_corrigida_durante_o_envio_nao_fica_enviada(self) -> None:
-        """O dono corrige o valor enquanto a proposta velha sai: a nova fica por enviar."""
+        Sem a tranca do envio, o cancelamento corria debaixo da chamada ao
+        Outbound: o cliente recebia a proposta e o pedido ficava `cancelado`,
+        sem `quote.sent`.
+        """
         quote_id, resposta = self._confirmado()
         outra = self._outra()
-        saida = SaidaQueEspreita(
-            "livre",
-            lambda _chave: rep.responder(outra, self.tenant, self.dono, quote_id,
-                                         regras.ler_valor_do_dono("130 mil"), None, None, _agora()),
+        saida, fio, resultado = self._durante_o_envio(
+            lambda: rep.cancelar(outra, self.tenant, self.dono, quote_id)
         )
         envio = rep.enviar(self.app, self.tenant, self.dono, resposta.action_id, saida, _agora())
-        self.assertEqual(envio.desfecho, rep.DESACTUALIZADO)
-        self.assertEqual(self._linhas()[0][1:], ("respondido", 13_000_000))
-        self.assertEqual(self._eventos(rep.EVENTO_ENVIADO), [])
+        fio.join(30)
+        self.assertTrue(resultado["esperou"])
+        self.assertEqual(envio.desfecho, rep.ENVIADO)
+        self.assertNotIn("erro", resultado)
+        self.assertIs(resultado["valor"], False)
+        self.assertEqual(self._linhas()[0][1], "enviado")
+        self.assertEqual(len(self._eventos(rep.EVENTO_ENVIADO)), 1)
+
+    def test_uma_correccao_durante_o_envio_espera_e_encontra_fechado(self) -> None:
+        """O dono corrige o valor enquanto a proposta sai: a correccao espera."""
+        quote_id, resposta = self._confirmado()
+        outra = self._outra()
+        saida, fio, resultado = self._durante_o_envio(
+            lambda: rep.responder(outra, self.tenant, self.dono, quote_id,
+                                  regras.ler_valor_do_dono("130 mil"), None, None, _agora())
+        )
+        envio = rep.enviar(self.app, self.tenant, self.dono, resposta.action_id, saida, _agora())
+        fio.join(30)
+        self.assertTrue(resultado["esperou"])
+        self.assertEqual(envio.desfecho, rep.ENVIADO)
+        self.assertIsInstance(resultado.get("erro"), rep.OrcamentoRecusadoError)
+        self.assertEqual(resultado["erro"].codigo, rep.FECHADO)
+        self.assertEqual(self._linhas()[0][1:], ("enviado", 12_000_000))
+        self.assertEqual(len(self._eventos(rep.EVENTO_ENVIADO)), 1)
 
     def test_dois_envios_concorrentes_dao_uma_mensagem_e_um_evento(self) -> None:
         """O no `confirm` chama o envio tambem num `ja_confirmada`: dois toques
-        concorrentes chegam os dois ao envio. A chave faz **uma** mensagem, e a
-        fase 3 faz **um** `quote.sent`."""
+        concorrentes chegam os dois ao envio. A tranca do envio faz o segundo
+        esperar e ler `ja_enviado`: **uma** chamada ao Outbound e **um**
+        `quote.sent`."""
         quote_id, resposta = self._confirmado()
         saida = SaidaQueDeduplica("livre")
         ligacoes = [self.ligar("app"), self.ligar("app")]
@@ -686,10 +721,8 @@ class TestEnvioForaDaTransaccao(ComOrcamento):
         for f in fios:
             f.join(30)
         self.assertEqual(erros, [])
-        self.assertEqual(len(desfechos), 2)
-        self.assertIn(rep.ENVIADO, desfechos)
-        self.assertEqual(len(saida.mensagens), 1)
-        self.assertEqual({c for _t, _n, c in saida.chamadas}, set(saida.mensagens))
+        self.assertEqual(sorted(desfechos), sorted([rep.ENVIADO, rep.JA_ENVIADO]))
+        self.assertEqual(len(saida.chamadas), 1)
         self.assertEqual(self._linhas()[0][1], "enviado")
         self.assertEqual(len(self._eventos(rep.EVENTO_ENVIADO)), 1)
         self.assertEqual(self._eventos(rep.EVENTO_ENVIADO)[0]["payload"]["quote_id"], quote_id)
@@ -748,9 +781,41 @@ class TestJanela(ComOrcamento):
         for f in fios:
             f.join(30)
         self.assertEqual(erros, [])
-        self.assertEqual(len(saida.mensagens), 1)
+        self.assertEqual(len(saida.chamadas), 1)
         self.assertEqual(len(self._eventos(rep.EVENTO_ENVIADO)), 1)
         self.assertEqual(self._eventos(rep.EVENTO_ENVIADO)[0]["payload"]["quote_id"], quote_id)
+
+    def test_uma_proposta_que_falha_nao_para_as_outras_do_mesmo_cliente(self) -> None:
+        """Achado 3 da revisao: a primeira levanta, a segunda sai, a primeira espera."""
+        primeira = self._a_espera()
+        segundo = rep.pedir(self.app, self.tenant, self.cliente, self.conversa.conversation_id,
+                            "SKU-301", None, _agora())
+        resposta = self._responder(segundo.quote_id)
+        self._tocar(resposta.action_id, Saida("template"))
+
+        class Rebenta(Saida):
+            def notificar(self, *, tenant_id, notificacao, chave):
+                if chave.startswith(f"orcamento:{primeira}:"):
+                    raise RuntimeError("outbound em baixo")
+                return super().notificar(tenant_id=tenant_id, notificacao=notificacao, chave=chave)
+
+        envios = rep.libertar_da_janela(self.app, self.tenant, self.cliente, Rebenta("livre"), _agora())
+        self.assertEqual(
+            sorted(envios, key=lambda e: e.quote_id),
+            sorted([rep.Envio(rep.AGUARDA_JANELA, primeira), rep.Envio(rep.ENVIADO, segundo.quote_id)],
+                   key=lambda e: e.quote_id),
+        )
+        estados = {q: e for q, e, _v in self._linhas()}
+        self.assertEqual((estados[primeira], estados[segundo.quote_id]), ("aguarda_janela", "enviado"))
+
+    def test_a_mensagem_de_um_cliente_nao_expira_as_de_outro(self) -> None:
+        """Achado 6 da revisao: a expiracao da janela e so das propostas de quem escreveu."""
+        quote_id = self._a_espera()
+        outro = factories.contacto(self.semente, self.tenant)
+        factories.contexto(self.semente, None)
+        depois = _agora() + datetime.timedelta(days=9)
+        self.assertEqual(rep.libertar_da_janela(self.app, self.tenant, outro, Saida("livre"), depois), [])
+        self.assertEqual({q: e for q, e, _v in self._linhas()}[quote_id], "aguarda_janela")
 
     def test_cancelado_durante_a_espera_nao_sai(self) -> None:
         quote_id = self._a_espera()
@@ -827,10 +892,31 @@ class TestSemRespostaDoDono(ComOrcamento):
         self.assertEqual(len(saida.chamadas), 2)
         self.assertEqual(list(saida.mensagens), [f"orcamento:{pedido.quote_id}:sem_resposta"])
 
-    def test_respondido_cancelado_ou_fora_do_horizonte_nao_recebem_nada(self) -> None:
-        respondido = self._pedir()
-        self._responder(respondido.quote_id)
-        self._com_idade(respondido.quote_id, 25)
+    def test_um_valor_escrito_e_nunca_enviado_tambem_recebe_a_mensagem(self) -> None:
+        """Achado 7 da revisao: para o cliente, o dono nao respondeu."""
+        pedido = self._pedir()
+        self._responder(pedido.quote_id)
+        self._com_idade(pedido.quote_id, 25)
+        saida = Saida("livre")
+        self.assertEqual(rep.avisar_sem_resposta(self.app, self.tenant, saida, _agora())["livre"], 1)
+        self.assertEqual(saida.chamadas[0][2], f"orcamento:{pedido.quote_id}:sem_resposta")
+
+    def test_o_tecto_serve_primeiro_os_que_acabaram_de_passar_as_24_horas(self) -> None:
+        """Achado 2 da revisao: com o tecto cheio, o mais novo nao fica para tras."""
+        velho = self._pedir()
+        self._com_idade(velho.quote_id, 40)
+        novo = rep.pedir(self.app, self.tenant, self.cliente, self.conversa.conversation_id,
+                         "SKU-301", None, _agora())
+        self._com_idade(novo.quote_id, 25)
+        saida = Saida("livre")
+        rep.avisar_sem_resposta(self.app, self.tenant, saida, _agora(), tecto=1)
+        self.assertEqual([c for _t, _n, c in saida.chamadas], [f"orcamento:{novo.quote_id}:sem_resposta"])
+
+    def test_enviado_a_espera_cancelado_ou_fora_do_horizonte_nao_recebem_nada(self) -> None:
+        enviado = self._pedir()
+        resposta = self._responder(enviado.quote_id)
+        self._com_idade(enviado.quote_id, 25)
+        self._tocar(resposta.action_id, Saida("template"))
         cancelado = rep.pedir(self.app, self.tenant, self.cliente, self.conversa.conversation_id,
                               "SKU-301", None, _agora())
         # Envelhece-se antes de cancelar: um cancelado e final, e o gatilho

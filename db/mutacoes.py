@@ -5009,29 +5009,40 @@ MUTACOES = [
      '            raise OrcamentoRecusadoError(FORA_DO_CATALOGO)',
      '            pass',
      "tests_agr"),
-    # ---- KAM-221 (o envio do Orcamento expresso). As quatro primeiras sao do
-    # SQL na ToolLayer e morrem no `db/tests_agr/test_quote_requests.py`; as tres
-    # ultimas sao da ligacao, e morrem no `services/agr/tests/test_orcamento.py`.
+    # ---- KAM-221 (o envio do Orcamento expresso). As cinco primeiras sao do
+    # SQL na ToolLayer e morrem no `db/tests_agr/test_quote_requests.py`; as
+    # quatro ultimas sao da ligacao, e morrem no `services/agr/tests/
+    # test_orcamento.py`. O `_registar` continua a reler a linha, e ja nao ha
+    # ensaio que o distinga: a tranca do envio impede a mudanca que ele apanhava.
     #
     # O Outbound volta para dentro da transaccao: outra sessao ja nao tranca a
     # linha com `NOWAIT` (`test_no_instante_do_envio_a_linha_nao_esta_trancada`).
     ('orc: o outbound volta a correr dentro da transaccao', AG_TLS_ORC,
-     '        preparado = _preparar(quote_id, linha, agora)\n'
-     '    desfecho = _notificar(porta, tenant_id, preparado, f"orcamento:{quote_id}:{preparado.marca}")',
-     '        preparado = _preparar(quote_id, linha, agora)\n'
+     '            preparado = _preparar(quote_id, linha, agora)\n'
      '        desfecho = _notificar(porta, tenant_id, preparado, f"orcamento:{quote_id}:{preparado.marca}")',
+     '            preparado = _preparar(quote_id, linha, agora)\n'
+     '            desfecho = _notificar(porta, tenant_id, preparado, f"orcamento:{quote_id}:{preparado.marca}")',
      "tests_agr"),
-    # O registo grava sobre uma resposta corrigida a meio do envio:
-    # `test_uma_resposta_corrigida_durante_o_envio_nao_fica_enviada`.
-    ('orc: o registo grava sobre outra resposta', AG_TLS_ORC,
-     'mesma = linha is not None and _marca(linha[7]) == preparado.marca',
-     'mesma = linha is not None',
+    # Um cancelamento deixa de esperar pela proposta que esta a sair, e o
+    # pedido fica `cancelado` com a proposta no cliente (achado 1 da revisao):
+    # `test_um_cancelamento_durante_o_envio_espera_e_nao_cancela`.
+    ('orc: o cancelamento deixa de esperar pelo envio', AG_TLS_ORC,
+     '        cursor.execute(SQL_ESPERAR_PELO_ENVIO, (_chave_do_envio(quote_id),))\n'
+     '        cursor.execute(SQL_CANCELAR',
+     '        cursor.execute(SQL_CANCELAR',
      "tests_agr"),
-    # O registo deixa de reler o estado, e um cancelado a meio fica enviado:
-    # `test_cancelado_durante_o_envio_nao_fica_enviado`.
-    ('orc: o registo deixa de reler o estado', AG_TLS_ORC,
-     'if estado in (regras.RESPONDIDO, regras.AGUARDA_JANELA) and mesma:',
-     'if mesma:',
+    # Uma correccao deixa de esperar, e muda a resposta que esta a sair:
+    # `test_uma_correccao_durante_o_envio_espera_e_encontra_fechado`.
+    ('orc: a correccao deixa de esperar pelo envio', AG_TLS_ORC,
+     '        cursor.execute(SQL_ESPERAR_PELO_ENVIO, (_chave_do_envio(quote_id),))\n'
+     '        cursor.execute(SQL_TRANCAR_PEDIDO',
+     '        cursor.execute(SQL_TRANCAR_PEDIDO',
+     "tests_agr"),
+    # A expiracao da janela volta a ser do tenant inteiro:
+    # `test_a_mensagem_de_um_cliente_nao_expira_as_de_outro`.
+    ('orc: a janela expira as propostas de todos os clientes', AG_TLS_ORC,
+     'cursor.execute(SQL_EXPIRAR_DO_CONTACTO, (tenant_id, contact_id, hoje))',
+     'cursor.execute(SQL_EXPIRAR, (tenant_id, hoje))',
      "tests_agr"),
     # A mensagem das 24 h ganha uma chave por volta, e sai em cada uma:
     # `test_a_volta_seguinte_repete_a_mesma_chave`.
@@ -5048,8 +5059,17 @@ MUTACOES = [
     # O turno deixa de chamar a libertacao:
     # `test_a_mensagem_liberta_dentro_da_tranca_e_antes_do_grafo`.
     ('orc: o turno deixa de libertar a janela', AG_TURNO,
-     '                    await self._cliente_escreveu(primeira)\n',
-     '                    pass\n',
+     '                    await self._cliente_escreveu(primeira)\n'
+     '                    estado = estado_inicial(primeira)',
+     '                    estado = estado_inicial(primeira)',
+     AGR_UNIT),
+    # A libertacao perde o prazo, e um Outbound pendurado prende o turno:
+    # `test_uma_libertacao_pendurada_nao_prende_o_turno`.
+    ('orc: a libertacao perde o prazo', AG_TURNO,
+     '            await asyncio.wait_for(\n'
+     '                self._ao_cliente_escrever(invocacao), PRAZO_DA_LIBERTACAO_S\n'
+     '            )',
+     '            await self._ao_cliente_escrever(invocacao)',
      AGR_UNIT),
     # Uma mensagem do dono abre uma ligacao e liberta:
     # `test_o_dono_nao_abre_ligacao_e_o_cliente_abre_e_fecha_uma`.

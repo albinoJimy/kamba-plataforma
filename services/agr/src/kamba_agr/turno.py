@@ -187,6 +187,12 @@ def sem_grafos(_invocacao: InvocacaoDoAgente) -> Grafo:
     raise GrafoNaoRegistadoError("grafo_nao_registado")
 
 
+#: Quanto o turno espera pela libertacao das propostas da janela (KAM-221,
+#: *proposta*). E o tecto de uma ida a base e de uma chamada ao Outbound; o
+#: turno do cliente nao fica preso a mais do que isto.
+PRAZO_DA_LIBERTACAO_S: float = 10.0
+
+
 @dataclass(frozen=True, slots=True)
 class DesfechoDoTurno:
     """O que aconteceu. O `desfecho` e um dos `DESFECHOS` de `metricas.py`."""
@@ -262,11 +268,19 @@ class ExecutorDeTurnos:
         `_substituir_pendentes`: a proposta fica `aguarda_janela` e a mensagem
         seguinte do cliente tenta outra vez, com a mesma chave; perder o turno
         por isso era perder a mensagem do cliente.
+
+        **E tem prazo** (`PRAZO_DA_LIBERTACAO_S`, achado 5 da revisao): uma
+        base ou um Outbound pendurados prendiam o turno do cliente dentro da
+        tranca da conversa. Passado o prazo o turno segue; o trabalho que ja
+        estava a correr acaba noutro fio, e o que nao acabar fica para a
+        mensagem seguinte.
         """
         if self._ao_cliente_escrever is None:
             return
         try:
-            await self._ao_cliente_escrever(invocacao)
+            await asyncio.wait_for(
+                self._ao_cliente_escrever(invocacao), PRAZO_DA_LIBERTACAO_S
+            )
         except asyncio.CancelledError:
             raise
         except BaseException:  # noqa: BLE001 — ver docstring
@@ -383,10 +397,6 @@ class ExecutorDeTurnos:
         try:
             async with self._trancas.tomar(thread_id):
                 palavra = await self._ler_palavra(primeira)
-                if palavra is not None:
-                    # Com a conversa lida, e seja de quem for a palavra: um
-                    # cliente que escreve a um humano tambem abriu a janela.
-                    await self._cliente_escreveu(primeira)
                 if palavra is None:
                     # Zero linhas **nao** e «esta em `bot`». A conversa nao
                     # existe, foi apagada, ou o contexto de RLS e de outro
@@ -406,8 +416,15 @@ class ExecutorDeTurnos:
                     # janela pelo tempo de uma chamada ao HND.
                     await self._substituir_pendentes(thread_id)
                     await self._reencaminhar(invocacoes)
+                    # KAM-221: **depois** do HND, e nao antes do `substituir`,
+                    # para nao alargar a janela do KAM-114. Um cliente que escreve
+                    # a um humano tambem abriu a janela.
+                    await self._cliente_escreveu(primeira)
                     desfecho = "entregue_ao_hnd"
                 else:
+                    # KAM-221: antes do grafo, para o valor chegar antes da
+                    # resposta do bot.
+                    await self._cliente_escreveu(primeira)
                     estado = estado_inicial(primeira)
                     try:
                         # A porta do processo e `async` (KAM-186): le o

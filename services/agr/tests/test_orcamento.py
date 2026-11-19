@@ -521,6 +521,58 @@ class TestLibertacaoNoTurno(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(chamadas, [(invocacao.tenant_id, invocacao.contact_id, True)])
         self.assertEqual(ordem, ["libertar", "grafo"])
 
+    async def test_com_um_humano_a_falar_liberta_depois_do_substituir_e_do_hnd(self) -> None:
+        """Achado 4 da revisao: a janela do KAM-114 entre o `substituir` e o HND
+        nao se alarga com a ida a base da libertacao."""
+        from kamba_agr.turno import ExecutorDeTurnos
+
+        ordem: list[str] = []
+
+        class Palavra:
+            do_humano = True
+
+        async def ler(_invocacao):
+            return Palavra()
+
+        async def substituir(_thread_id):
+            ordem.append("substituir")
+            return 0
+
+        async def reencaminhar(_invocacoes):
+            ordem.append("hnd")
+
+        async def libertar(_invocacao):
+            ordem.append("libertar")
+
+        executor = ExecutorDeTurnos(
+            trancas=_TrancaQueConta(),
+            ler_palavra=ler,
+            grafos=lambda _i: None,
+            reencaminhar=reencaminhar,
+            substituir_rascunhos=substituir,
+            ao_cliente_escrever=libertar,
+        )
+        desfecho = await executor.correr(self._invocacao())
+        self.assertEqual(desfecho.desfecho, "entregue_ao_hnd")
+        self.assertEqual(ordem, ["substituir", "hnd", "libertar"])
+
+    async def test_uma_libertacao_pendurada_nao_prende_o_turno(self) -> None:
+        """Achado 5 da revisao: passado o prazo, o turno segue para o grafo."""
+        from kamba_agr import turno
+
+        async def pendurada(_invocacao):
+            await asyncio.sleep(30)
+
+        executor, _t, ordem = self._executor(pendurada)
+        original = turno.PRAZO_DA_LIBERTACAO_S
+        try:
+            turno.PRAZO_DA_LIBERTACAO_S = 0.05
+            desfecho = await asyncio.wait_for(executor.correr(self._invocacao()), 5)
+        finally:
+            turno.PRAZO_DA_LIBERTACAO_S = original
+        self.assertEqual(desfecho.desfecho, "executado")
+        self.assertEqual(ordem, ["grafo"])
+
     async def test_uma_libertacao_que_falha_nao_perde_o_turno(self) -> None:
         async def libertar(_invocacao):
             raise RuntimeError("base em baixo")
@@ -529,21 +581,6 @@ class TestLibertacaoNoTurno(unittest.IsolatedAsyncioTestCase):
         desfecho = await executor.correr(self._invocacao())
         self.assertEqual(desfecho.desfecho, "executado")
         self.assertEqual(ordem, ["grafo"])
-
-    async def test_com_um_humano_a_falar_tambem_liberta(self) -> None:
-        chamadas: list[Any] = []
-
-        async def libertar(invocacao):
-            chamadas.append(invocacao)
-
-        class Palavra:
-            do_humano = True
-
-        executor, _t, ordem = self._executor(libertar, palavra=Palavra())
-        desfecho = await executor.correr(self._invocacao())
-        self.assertEqual(desfecho.desfecho, "entregue_ao_hnd")
-        self.assertEqual(len(chamadas), 1)
-        self.assertEqual(ordem, ["hnd"])
 
     async def test_sem_conversa_nao_vai_a_base(self) -> None:
         from kamba_agr.turno import ExecutorDeTurnos

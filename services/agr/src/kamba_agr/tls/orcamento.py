@@ -53,6 +53,7 @@ valor nem um texto do dono ou do cliente.
 
 from __future__ import annotations
 
+import contextlib
 import datetime
 import json
 import re
@@ -95,9 +96,10 @@ TEMPLATE_ORCAMENTO_PRONTO: Final = "orcamento_pronto"
 #: e a aprovacao pela Meta e a categoria sao NAO VERIFICADAS.
 TEMPLATE_ORCAMENTO_EM_ESPERA: Final = "orcamento_em_espera"
 
-#: Quantos pedidos sem resposta uma volta trata, por tenant (*proposta*). A
-#: razao do `TECTO_POR_VARREDURA` do `handoff/prazos.py`: os mais antigos
-#: primeiro, e a volta seguinte trata o resto.
+#: Quantos pedidos sem resposta uma volta trata, por tenant (*proposta*). Os
+#: mais novos primeiro (ver o `SQL_SEM_RESPOSTA`): com mais do que isto a passar
+#: as 24 h entre duas voltas, os que sobram so voltam a ser vistos quando os
+#: novos sairem do horizonte, e podem perder a mensagem.
 TECTO_DO_AVISO: Final = 200
 
 #: O tipo de accao do KAM-118 que este modulo usa.
@@ -228,13 +230,46 @@ SQL_EXPIRAR: Final = (
     "AND validade_ate < %s"
 )
 
+#: A expiracao de **um** pedido (o toque tardio) e a das propostas de **um**
+#: cliente (a mensagem dele): nunca o *tenant* inteiro fora do *job*. Um
+#: `UPDATE` do *tenant* em cada mensagem de cliente trancava as vencidas de
+#: todos os clientes, e cruzava-se com o `FOR UPDATE` de um envio (achado 6 da
+#: revisao do KAM-221: `40P01` possivel).
+SQL_EXPIRAR_DO_PEDIDO: Final = (
+    "UPDATE platform.quote_requests SET estado = 'expirado' "
+    "WHERE tenant_id = %s AND quote_id = %s AND estado IN ('respondido', 'aguarda_janela') "
+    "AND validade_ate < %s"
+)
+
+SQL_EXPIRAR_DO_CONTACTO: Final = (
+    "UPDATE platform.quote_requests SET estado = 'expirado' "
+    "WHERE tenant_id = %s AND contact_id = %s AND estado IN ('respondido', 'aguarda_janela') "
+    "AND validade_ate < %s"
+)
+
+#: A tranca do envio de um pedido (KAM-221). **De sessao**, e nao de
+#: transaccao: segura-se pelas tres fases do envio, com nenhuma transaccao
+#: aberta durante a chamada ao Outbound. O cancelamento e a resposta do dono
+#: esperam por ela com a forma de transaccao (`SQL_ESPERAR_PELO_ENVIO`), e por
+#: isso nunca mudam um pedido enquanto a proposta dele esta a sair.
+SQL_TRANCAR_O_ENVIO: Final = "SELECT pg_advisory_lock(hashtextextended(%s, 0))"
+SQL_DESTRANCAR_O_ENVIO: Final = "SELECT pg_advisory_unlock(hashtextextended(%s, 0))"
+SQL_ESPERAR_PELO_ENVIO: Final = "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))"
+
 #: Os pedidos que esperam o dono ha mais de vinte e quatro horas, dentro do
 #: horizonte da varredura: o limite e o seu inicio sao parametros, pela razao
 #: do `handoff/prazos.py` (o ensaio corre com o relogio que quiser).
+#:
+#: **`respondido` tambem**: um valor que o dono escreveu e nunca enviou, ou cujo
+#: envio nao saiu, e para o cliente um dono que nao respondeu (achado 7).
+#: **Do mais novo para o mais velho**: o aviso nao muda a linha, e com o mais
+#: velho primeiro o tecto voltava a escolher os mesmos em todas as voltas (achado
+#: 2); assim cada pedido e servido nas voltas a seguir a passar as 24 h.
 SQL_SEM_RESPOSTA: Final = (
     "SELECT quote_id, contact_id, conversation_id FROM platform.quote_requests "
-    "WHERE tenant_id = %s AND estado = 'pedido' AND criado_at <= %s AND criado_at > %s "
-    "ORDER BY criado_at LIMIT %s"
+    "WHERE tenant_id = %s AND estado IN ('pedido', 'respondido') "
+    "AND criado_at <= %s AND criado_at > %s "
+    "ORDER BY criado_at DESC LIMIT %s"
 )
 
 SQL_CANCELAR: Final = (
@@ -471,6 +506,9 @@ def responder(
         raise OrcamentoRecusadoError(VALIDADE_NO_PASSADO)
     with tenant_guard.tx(ligacao, tenant_id) as cursor:
         _exigir_dono(cursor, tenant_id, contact_id)
+        # Uma correccao nao muda a resposta que esta a sair: espera pelo envio,
+        # e depois encontra `enviado` e recusa `fechado` (achado 1 do KAM-221).
+        cursor.execute(SQL_ESPERAR_PELO_ENVIO, (_chave_do_envio(quote_id),))
         cursor.execute(SQL_TRANCAR_PEDIDO, (tenant_id, quote_id))
         linha = cursor.fetchone()
         if linha is None:
@@ -558,20 +596,49 @@ def texto_da_proposta(
 #      ela ainda for a mesma resposta (o mesmo estado de partida e a mesma
 #      marca).
 #
-# O que isto compra: uma chamada de rede lenta ou pendurada ja nao segura uma
-# transaccao aberta e um `FOR UPDATE` sobre o pedido, nem faz um `COMMIT`
-# falhado desfazer o registo de uma mensagem que ja saiu sem ninguem saber
-# porque. O que **nao** compra, e fica escrito: entre a fase 2 e a 3 a mensagem
-# ja saiu, e se a fase 3 falhar a linha fica `respondido`. O mesmo botao repete
-# com a mesma chave (`orcamento:{quote_id}:{marca}`), que o Outbound deduplica;
-# uma resposta **nova** do dono antes disso tem outra chave e sai outra
-# proposta. Isso so fecha com o *outbox*: a proposta emitida como o evento de
-# resposta do KAM-224, na mesma transaccao que muda o estado.
+# **As tres fases correm debaixo da tranca de sessao do pedido**
+# (`_envio_exclusivo`), e e ela que substitui o `FOR UPDATE` que antes durava a
+# chamada inteira. Um cancelamento ou uma correccao do dono esperam por ela, e
+# depois encontram o pedido `enviado`; um segundo envio do mesmo pedido espera
+# tambem, e le `ja_enviado` sem chamar o Outbound. Sem ela, um cancelamento a
+# meio deixava a proposta no cliente sem `quote.sent` e com o pedido
+# `cancelado` (achado 1 da revisao do KAM-221).
 #
-# **Duas chamadas concorrentes chegam as duas ao Outbound**, com a mesma chave:
-# a fase 1 ja nao as serializa ate ao fim. Quem garante **uma** mensagem e a
-# chave, como no `handoff/prazos.py`; quem garante **um** `quote.sent` e a fase
-# 3, que so muda uma linha que ainda esta no estado de partida.
+# O que isto compra: uma chamada de rede lenta ou pendurada ja nao segura uma
+# transaccao aberta nem uma linha trancada — a tranca de sessao e de uma tomada
+# parada, e cai com ela se o processo morrer. O que **nao** compra, e fica
+# escrito: entre a fase 2 e a 3 a mensagem ja saiu, e se a fase 3 falhar a
+# linha fica `respondido`. O mesmo botao repete com a mesma chave
+# (`orcamento:{quote_id}:{marca}`), que o Outbound deduplica; uma resposta
+# **nova** do dono antes disso tem outra chave e sai outra proposta. Isso so
+# fecha com o *outbox*: a proposta emitida como o evento de resposta do KAM-224,
+# na mesma transaccao que muda o estado. A fase 3 continua a reler a linha.
+
+def _chave_do_envio(quote_id: str) -> str:
+    return f"orcamento-envio|{quote_id}"
+
+
+def _na_sessao(ligacao: Any, sql: str, chave: str) -> None:
+    """Uma instrucao de tranca de sessao, na sua propria transaccao curta."""
+    cursor = ligacao.cursor()
+    try:
+        cursor.execute(sql, (chave,))
+        cursor.fetchall()
+        ligacao.commit()
+    finally:
+        cursor.close()
+
+
+@contextlib.contextmanager
+def _envio_exclusivo(ligacao: Any, quote_id: str):
+    """Segura a tranca de sessao do envio deste pedido pelas tres fases."""
+    chave = _chave_do_envio(quote_id)
+    _na_sessao(ligacao, SQL_TRANCAR_O_ENVIO, chave)
+    try:
+        yield
+    finally:
+        _na_sessao(ligacao, SQL_DESTRANCAR_O_ENVIO, chave)
+
 
 #: Os desfechos que a `PortaDeNotificacao` pode devolver ao cliente.
 _LIVRE: Final = "livre"
@@ -683,8 +750,8 @@ def enviar(
 
     Le a accao confirmada **deste** dono; se for `enviar_proposta`, tranca o
     pedido e decide o envio **so** se a resposta for a mesma que o botao
-    confirmou. O Outbound e chamado depois, fora da transaccao (ver a nota
-    acima).
+    confirmou. O Outbound e chamado depois, fora da transaccao e debaixo da
+    tranca de sessao do pedido (ver a nota acima).
     """
     with tenant_guard.tx(ligacao, tenant_id) as cursor:
         cursor.execute(SQL_ACCAO_CONFIRMADA, (tenant_id, action_id, contact_id))
@@ -695,22 +762,26 @@ def enviar(
         if casado is None:
             return Envio(NAO_E_ORCAMENTO)
         quote_id, marca = casado.group(1), casado.group(2)
-        cursor.execute(SQL_TRANCAR_PEDIDO, (tenant_id, quote_id))
-        linha = cursor.fetchone()
-        if linha is None:
-            return Envio(NAO_E_ORCAMENTO)
-        if linha[0] in (regras.ENVIADO, regras.AGUARDA_JANELA):
-            return Envio(JA_ENVIADO, quote_id)
-        if linha[0] != regras.RESPONDIDO or _marca(linha[7]) != marca:
-            return Envio(DESACTUALIZADO, quote_id)
-        if linha[5] < regras.hoje_em_luanda(agora):
-            # A validade passou entre a resposta e o toque: nao se envia uma
-            # proposta vencida, e o pedido fecha-se pelo que e.
-            cursor.execute(SQL_EXPIRAR, (tenant_id, regras.hoje_em_luanda(agora)))
-            return Envio(DESACTUALIZADO, quote_id)
-        preparado = _preparar(quote_id, linha, agora)
-    desfecho = _notificar(porta, tenant_id, preparado, f"orcamento:{quote_id}:{preparado.marca}")
-    return Envio(_registar(ligacao, tenant_id, preparado, desfecho, agora), quote_id)
+    with _envio_exclusivo(ligacao, quote_id):
+        with tenant_guard.tx(ligacao, tenant_id) as cursor:
+            cursor.execute(SQL_TRANCAR_PEDIDO, (tenant_id, quote_id))
+            linha = cursor.fetchone()
+            if linha is None:
+                return Envio(NAO_E_ORCAMENTO)
+            if linha[0] in (regras.ENVIADO, regras.AGUARDA_JANELA):
+                return Envio(JA_ENVIADO, quote_id)
+            if linha[0] != regras.RESPONDIDO or _marca(linha[7]) != marca:
+                return Envio(DESACTUALIZADO, quote_id)
+            if linha[5] < regras.hoje_em_luanda(agora):
+                # A validade passou entre a resposta e o toque: nao se envia uma
+                # proposta vencida, e o pedido fecha-se pelo que e.
+                cursor.execute(
+                    SQL_EXPIRAR_DO_PEDIDO, (tenant_id, quote_id, regras.hoje_em_luanda(agora))
+                )
+                return Envio(DESACTUALIZADO, quote_id)
+            preparado = _preparar(quote_id, linha, agora)
+        desfecho = _notificar(porta, tenant_id, preparado, f"orcamento:{quote_id}:{preparado.marca}")
+        return Envio(_registar(ligacao, tenant_id, preparado, desfecho, agora), quote_id)
 
 
 def libertar_da_janela(
@@ -723,33 +794,48 @@ def libertar_da_janela(
     outra vez, agora com a janela aberta. A chave do Outbound e outra
     (`…:janela`) da do *template*, que ja saiu, e e a mesma em todas as
     mensagens do cliente: duas mensagens seguidas dao **um** valor.
+
+    **Uma proposta que falha nao para as outras** (achado 3): fica
+    `aguarda_janela`, e a mensagem seguinte do cliente tenta outra vez.
     """
     with tenant_guard.tx(ligacao, tenant_id) as cursor:
-        # As vencidas fecham-se primeiro, e nao saem: um «valido ate» no
-        # passado e uma proposta que o cliente ja nao pode aceitar.
+        # As vencidas deste cliente fecham-se primeiro, e nao saem: um «valido
+        # ate» no passado e uma proposta que o cliente ja nao pode aceitar.
         hoje = regras.hoje_em_luanda(agora)
-        cursor.execute(SQL_EXPIRAR, (tenant_id, hoje))
+        cursor.execute(SQL_EXPIRAR_DO_CONTACTO, (tenant_id, contact_id, hoje))
         cursor.execute(SQL_A_ESPERA_DA_JANELA, (tenant_id, contact_id, hoje))
         ids = [_texto(q) for (q,) in cursor.fetchall()]
-        preparados: list[_Preparado] = []
-        for quote_id in ids:
+    envios: list[Envio] = []
+    for quote_id in ids:
+        try:
+            envio = _libertar_um(ligacao, tenant_id, quote_id, porta, agora)
+        except Exception:  # noqa: BLE001 — ver a docstring; o estado nao mudou
+            envio = Envio(AGUARDA_JANELA, quote_id)
+        if envio is not None:
+            envios.append(envio)
+    return envios
+
+
+def _libertar_um(
+    ligacao: Any, tenant_id: str, quote_id: str, porta: Any, agora: datetime.datetime
+) -> Envio | None:
+    """Uma proposta a espera da janela, pelas tres fases. `None` se ja nao espera."""
+    with _envio_exclusivo(ligacao, quote_id):
+        with tenant_guard.tx(ligacao, tenant_id) as cursor:
             cursor.execute(SQL_TRANCAR_PEDIDO, (tenant_id, quote_id))
             linha = cursor.fetchone()
             if linha is None or linha[0] != regras.AGUARDA_JANELA:
-                continue
-            preparados.append(_preparar(quote_id, linha, agora))
-    envios: list[Envio] = []
-    for preparado in preparados:
+                # Outra mensagem do cliente ja a libertou, ou o dono cancelou.
+                return None
+            preparado = _preparar(quote_id, linha, agora)
         desfecho = _notificar(
-            porta, tenant_id, preparado, f"orcamento:{preparado.quote_id}:{preparado.marca}:janela"
+            porta, tenant_id, preparado, f"orcamento:{quote_id}:{preparado.marca}:janela"
         )
         if desfecho != _LIVRE:
             # A janela continua fechada para o Outbound, ou nada saiu: o pedido
             # fica a espera, e a mensagem seguinte do cliente tenta outra vez.
-            envios.append(Envio(AGUARDA_JANELA, preparado.quote_id))
-            continue
-        envios.append(Envio(_registar(ligacao, tenant_id, preparado, desfecho, agora), preparado.quote_id))
-    return envios
+            return Envio(AGUARDA_JANELA, quote_id)
+        return Envio(_registar(ligacao, tenant_id, preparado, desfecho, agora), quote_id)
 
 
 # ------------------------------------------- a mensagem neutra das 24 horas
@@ -764,7 +850,8 @@ def avisar_sem_resposta(
 ) -> dict[str, int]:
     """A mensagem neutra e a oferta de humano a quem espera o dono (KAM-221).
 
-    Um pedido ainda `pedido` ha mais de `regras.ESPERA_DO_DONO` recebe **uma**
+    Um pedido `pedido` ou `respondido` (o valor escrito e nunca enviado) ha mais
+    de `regras.ESPERA_DO_DONO` recebe **uma**
     mensagem neutra (`regras.texto_sem_resposta`), ou o *template*
     `orcamento_em_espera` com a janela fechada. O pedido **nao muda**: continua
     visivel ao dono, que ainda pode responder, e nada se emite.
@@ -772,7 +859,7 @@ def avisar_sem_resposta(
     **A «uma mensagem» e a chave do Outbound** (`orcamento:{quote_id}:sem_resposta`),
     como a `{hid}:timeout` do `handoff/prazos.py`: nao ha coluna de controlo, e
     a varredura volta a ver o mesmo pedido em cada volta do horizonte. Um pedido
-    respondido, cancelado ou expirado entretanto ja nao e `pedido` e nao recebe
+    enviado, a espera da janela, cancelado ou expirado entretanto nao recebe
     nada. Uma porta que levanta conta `falhou` e nao para as outras.
 
     Devolve a contagem por desfecho da porta, e `falhou`.
@@ -820,6 +907,9 @@ def cancelar(ligacao: Any, tenant_id: str, contact_id: str, quote_id: str) -> bo
         raise OrcamentoRecusadoError(DESCONHECIDO)
     with tenant_guard.tx(ligacao, tenant_id) as cursor:
         _exigir_dono(cursor, tenant_id, contact_id)
+        # Um cancelamento nao corre debaixo de uma proposta a sair: espera, e
+        # depois encontra `enviado` e devolve `False` (achado 1 do KAM-221).
+        cursor.execute(SQL_ESPERAR_PELO_ENVIO, (_chave_do_envio(quote_id),))
         cursor.execute(SQL_CANCELAR, (tenant_id, quote_id))
         return cursor.fetchone() is not None
 

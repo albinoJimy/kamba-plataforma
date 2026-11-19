@@ -20537,6 +20537,7 @@ entradas:
     nomes: []
     nomes_nota:
       - "pedido"
+      - "respondido"
       - "orcamento"
       - "quote_id"
       - "sem_resposta"
@@ -20586,8 +20587,6 @@ entradas:
       - "enviar"
       - "confirm"
       - "ja_confirmada"
-      - "desactualizado"
-      - "ja_enviado"
     variantes_literais: []
   - seccao: "3.79"
     conceito: "Tool do pedido de orçamento"
