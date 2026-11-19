@@ -102,6 +102,15 @@ SQL_ESCREVER = (
 )
 
 
+#: Os argumentos que a guarda do `fact_id` nao confronta, por `(tool, campo)`.
+#: Lista **fechada** (KAM-220): o `valor` do `submit_quote` e o texto que o dono
+#: escreveu («8», «500»), e o `fact_id` do `quote_price` e um `quote_id` (§3.79)
+#: cujos digitos o casavam por acaso — o turno rebentava num valor que ninguem
+#: derivou. O executor nao cunha *fact* nenhum a partir dele. As outras tools e os
+#: outros campos continuam todos confrontados.
+_TEXTO_LIVRE_NAO_CONFRONTADO: Final = (("submit_quote", "valor"),)
+
+
 class FactIdDerivadoError(ValueError):
     """Um `fact_id` cunhado a partir de um argumento.
 
@@ -203,8 +212,14 @@ class LinhaDeAuditoria:
         redigir: um `fact_id` que se redigisse deixava de resolver a citacao que
         ele existe para resolver. E defeito de quem cunha o *fact*.
         """
+        # KAM-220: o `valor` do `submit_quote` nao se confronta. Ver o
+        # `_TEXTO_LIVRE_NAO_CONFRONTADO`.
         valores = {
-            str(valor) for valor in self.args.values() if isinstance(valor, str) and valor
+            str(valor)
+            for campo, valor in self.args.items()
+            if isinstance(valor, str)
+            and valor
+            and (self.tool, campo) not in _TEXTO_LIVRE_NAO_CONFRONTADO
         }
         for facto in self.facts:
             for valor in valores:

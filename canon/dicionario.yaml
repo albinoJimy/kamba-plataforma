@@ -12,7 +12,7 @@
 
 version: 1
 fonte: "specs/02_Dicionario_de_Dados_Canonico.md"
-versao_dicionario: "1.117"
+versao_dicionario: "1.118"
 entradas:
   - seccao: "3.1"
     conceito: "Contacto"
@@ -892,7 +892,7 @@ entradas:
       - "expires_at"
   - seccao: "3.3"
     conceito: "Identificador de confirmação"
-    canonico: "confirm:{cart_id} (Vendedor), confirm:{hold_id} (Serviços), confirm:{item_id} (módulos de entrada: conteúdo, proposta, publicação de produto; proposta), confirm:{action_id} (acções sensíveis da persona dono, owner_actions; emenda 1.112, §3.78)"
+    canonico: "confirm:{cart_id} (Vendedor), confirm:{hold_id} (Serviços), confirm:{item_id} (módulos de entrada: conteúdo, proposta, publicação de produto; proposta), confirm:{action_id} (acções sensíveis da persona dono, owner_actions; emenda 1.112, §3.78), confirm:{oferta} (o pedido de orçamento do cliente; emenda 1.118, §3.79)"
     literais:
       - "confirm:{cart_id}"
       - "confirm:{hold_id}"
@@ -900,6 +900,7 @@ entradas:
       - "confirm:{action_id}"
       - "dono"
       - "owner_actions"
+      - "confirm:{oferta}"
     nomes:
       - "confirm"
       - "cart_id"
@@ -908,6 +909,7 @@ entradas:
       - "action_id"
       - "dono"
       - "owner_actions"
+      - "oferta"
     nomes_nota: []
     variantes_literais:
       - "confirm:{cart_id}"
@@ -6362,6 +6364,8 @@ entradas:
       - "read"
       - "write"
       - "money"
+      - "DISPENSAS_DO_PASSO_4"
+      - "submit_quote"
       - "klass"
       - "class"
     variantes_literais: []
@@ -6458,6 +6462,7 @@ entradas:
       - "botao"
       - "confirm"
       - "cart_id"
+      - "oferta"
       - "hold_id"
       - "contact_id"
     variantes_literais: []
@@ -7779,7 +7784,7 @@ entradas:
     variantes_literais: []
   - seccao: "3.31"
     conceito: "Aviso de negócio para o compose"
-    canonico: "state.avisos ⊆ {NOT_FOUND, OUT_OF_STOCK, PRICE_CHANGED, LIMIT_EXCEEDED, VALIDATION_ERROR, UPSTREAM_TIMEOUT, UPSTREAM_DOWN, STALE_CONFIRMATION, REFERENCIA_EM_FALTA, TERMO_AMBIGUO, MOEDA_ESTRANGEIRA, TERMO_DESCONHECIDO}"
+    canonico: "state.avisos ⊆ {NOT_FOUND, OUT_OF_STOCK, PRICE_CHANGED, LIMIT_EXCEEDED, VALIDATION_ERROR, UPSTREAM_TIMEOUT, UPSTREAM_DOWN, STALE_CONFIRMATION, REFERENCIA_EM_FALTA, TERMO_AMBIGUO, MOEDA_ESTRANGEIRA, TERMO_DESCONHECIDO, ORCAMENTO_PEDIDO, ORCAMENTO_INDISPONIVEL, ORCAMENTO_EM_CURSO, ORCAMENTO_FECHADO}"
     literais:
       - "state.avisos"
       - "NOT_FOUND"
@@ -7794,6 +7799,10 @@ entradas:
       - "TERMO_AMBIGUO"
       - "MOEDA_ESTRANGEIRA"
       - "TERMO_DESCONHECIDO"
+      - "ORCAMENTO_PEDIDO"
+      - "ORCAMENTO_INDISPONIVEL"
+      - "ORCAMENTO_EM_CURSO"
+      - "ORCAMENTO_FECHADO"
     nomes:
       - "compose"
       - "state.avisos"
@@ -7809,6 +7818,10 @@ entradas:
       - "TERMO_AMBIGUO"
       - "MOEDA_ESTRANGEIRA"
       - "TERMO_DESCONHECIDO"
+      - "ORCAMENTO_PEDIDO"
+      - "ORCAMENTO_INDISPONIVEL"
+      - "ORCAMENTO_EM_CURSO"
+      - "ORCAMENTO_FECHADO"
     nomes_nota:
       - "order_status"
       - "retrieve"
@@ -9162,11 +9175,12 @@ entradas:
     variantes_literais: []
   - seccao: "3.35"
     conceito: "Versão do grafo do Vendedor"
-    canonico: "1.2.0"
+    canonico: "1.3.0"
     literais:
-      - "1.2.0"
+      - "1.3.0"
     nomes: []
     nomes_nota:
+      - "quote_request"
       - "degradado"
       - "handoff_wait"
       - "draft_wait"
@@ -20196,13 +20210,15 @@ entradas:
     variantes_literais: []
   - seccao: "3.78"
     conceito: "Intenções do Assistente do Dono"
-    canonico: "intent ∈ {modulos, info_loja, humano, confirmar, outro}"
+    canonico: "intent ∈ {modulos, info_loja, humano, confirmar, orcamento, responder_orcamento, outro}"
     literais:
       - "intent"
       - "modulos"
       - "info_loja"
       - "humano"
       - "confirmar"
+      - "orcamento"
+      - "responder_orcamento"
       - "outro"
     nomes:
       - "intent"
@@ -20210,9 +20226,13 @@ entradas:
       - "info_loja"
       - "humano"
       - "confirmar"
+      - "orcamento"
+      - "responder_orcamento"
       - "outro"
     nomes_nota:
       - "confirmar"
+      - "orcamento"
+      - "responder_orcamento"
       - "kamba_agr.verticais.dono"
       - "confirm"
       - "action_id"
@@ -20549,6 +20569,8 @@ entradas:
     nomes_nota:
       - "write"
       - "orcamento"
+      - "oferta"
+      - "sku"
     variantes_literais: []
   - seccao: "3.79"
     conceito: "Tool da resposta do dono"
@@ -20560,6 +20582,10 @@ entradas:
     nomes_nota:
       - "write"
       - "orcamento"
+      - "referencia"
+      - "ORC"
+      - "quote_id"
+      - "quote_price"
     variantes_literais: []
   - seccao: "3.79"
     conceito: "Envio da proposta"
@@ -20575,6 +20601,133 @@ entradas:
       - "confirm"
       - "orcamentos"
       - "PortaDeOrcamento"
+    variantes_literais: []
+  - seccao: "3.79"
+    conceito: "Dispensa do passo 4"
+    canonico: "DISPENSAS_DO_PASSO_4 = (submit_quote); EspecificacaoDeTool.confirmacao_dispensada"
+    literais:
+      - "DISPENSAS_DO_PASSO_4"
+      - "submit_quote"
+      - "EspecificacaoDeTool.confirmacao_dispensada"
+    nomes:
+      - "DISPENSAS_DO_PASSO_4"
+      - "submit_quote"
+      - "EspecificacaoDeTool.confirmacao_dispensada"
+    nomes_nota:
+      - "write"
+      - "money"
+      - "submit_quote"
+      - "confirm"
+      - "action_id"
+    variantes_literais: []
+  - seccao: "3.79"
+    conceito: "Botão do pedido de orçamento"
+    canonico: "confirm:{oferta}, com o texto «Pedir orçamento»"
+    literais:
+      - "confirm:{oferta}"
+    nomes:
+      - "confirm"
+      - "oferta"
+    nomes_nota:
+      - "oferta"
+      - "orc"
+      - "thread_id"
+      - "turn_seq"
+      - "sku"
+      - "cart_id"
+      - "orcamento"
+      - "compose"
+      - "sob_consulta"
+      - "request_quote"
+      - "orcamentos_mes"
+    variantes_literais: []
+  - seccao: "3.79"
+    conceito: "Orçamento oferecido"
+    canonico: "state.orcamento_oferecido = {oferta, sku, quantidade, expira_at, tocado_em}"
+    literais:
+      - "state.orcamento_oferecido"
+      - "{oferta, sku, quantidade, expira_at, tocado_em}"
+    nomes:
+      - "state.orcamento_oferecido"
+      - "oferta"
+      - "sku"
+      - "quantidade"
+      - "expira_at"
+      - "tocado_em"
+    nomes_nota:
+      - "CAMPOS_DO_TURNO"
+      - "estado_inicial"
+      - "stage"
+    variantes_literais: []
+  - seccao: "3.79"
+    conceito: "Nó do pedido de orçamento"
+    canonico: "quote_request"
+    literais:
+      - "quote_request"
+    nomes:
+      - "quote_request"
+    nomes_nota:
+      - "confirm_gate"
+      - "quote_request"
+      - "orcamento"
+      - "compose"
+      - "request_quote"
+    variantes_literais: []
+  - seccao: "3.79"
+    conceito: "Contexto do «aceito»"
+    canonico: "state.orcamento = {referencia, estado} (mais sku e negociacao num pedido de conta)"
+    literais:
+      - "state.orcamento"
+      - "{referencia, estado}"
+      - "sku"
+      - "negociacao"
+    nomes:
+      - "state.orcamento"
+      - "referencia"
+      - "estado"
+      - "sku"
+      - "negociacao"
+    nomes_nota:
+      - "quote_id"
+    variantes_literais: []
+  - seccao: "3.79"
+    conceito: "Motivo do handoff de um «aceito»"
+    canonico: "orcamento_aceite"
+    literais:
+      - "orcamento_aceite"
+    nomes:
+      - "orcamento_aceite"
+    nomes_nota:
+      - "state.handoff_motivo"
+      - "enviado"
+      - "expirado"
+      - "cancelado"
+    variantes_literais: []
+  - seccao: "3.79"
+    conceito: "Botão «Aceito» de uma proposta"
+    canonico: "aceitar_orcamento"
+    literais:
+      - "aceitar_orcamento"
+    nomes:
+      - "aceitar_orcamento"
+    nomes_nota:
+      - "PortaDeNotificacao"
+    variantes_literais: []
+  - seccao: "3.79"
+    conceito: "Avisos do orçamento"
+    canonico: "ORCAMENTO_PEDIDO, ORCAMENTO_INDISPONIVEL, ORCAMENTO_EM_CURSO, ORCAMENTO_FECHADO"
+    literais:
+      - "ORCAMENTO_PEDIDO"
+      - "ORCAMENTO_INDISPONIVEL"
+      - "ORCAMENTO_EM_CURSO"
+      - "ORCAMENTO_FECHADO"
+    nomes:
+      - "ORCAMENTO_PEDIDO"
+      - "ORCAMENTO_INDISPONIVEL"
+      - "ORCAMENTO_EM_CURSO"
+      - "ORCAMENTO_FECHADO"
+    nomes_nota:
+      - "state.avisos"
     variantes_literais: []
 
 tabelas:
@@ -23836,6 +23989,8 @@ dominios:
       - "info_loja"
       - "humano"
       - "confirmar"
+      - "orcamento"
+      - "responder_orcamento"
       - "outro"
     seccao: "3.78"
     conceito: "Intenções do Assistente do Dono"

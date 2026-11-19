@@ -42,17 +42,51 @@ class PortaDeOrcamento:
         self._saida = saida if saida is not None else OutboundPorLigar()
         self._relogio = relogio or (lambda: datetime.datetime.now(datetime.UTC))
 
-    def _enviar(self, tenant_id: str, contact_id: str, action_id: str) -> repositorio.Envio:
+    def _com_ligacao(self, funcao: Callable[..., Any], *argumentos: Any) -> Any:
         ligacao = self._abrir()
         try:
-            return repositorio.enviar(
-                ligacao, tenant_id, contact_id, action_id, self._saida, self._relogio()
-            )
+            return funcao(ligacao, *argumentos)
         finally:
             try:
                 ligacao.close()
-            except Exception:  # noqa: BLE001 — o envio ja aconteceu ou ja falhou
+            except Exception:  # noqa: BLE001 — a operacao ja aconteceu ou ja falhou
                 pass
 
     async def enviar(self, tenant_id: str, contact_id: str, action_id: str) -> repositorio.Envio:
-        return await asyncio.to_thread(self._enviar, tenant_id, contact_id, action_id)
+        return await asyncio.to_thread(
+            self._com_ligacao,
+            repositorio.enviar,
+            tenant_id,
+            contact_id,
+            action_id,
+            self._saida,
+            self._relogio(),
+        )
+
+    # ------------------------------------------------------------ KAM-220
+    #
+    # As duas leituras que os grafos fazem fora da ToolLayer. **Sao leituras**:
+    # a escrita do pedido e da resposta e das tools (`request_quote`,
+    # `submit_quote`), que passam pelos oito passos do §6.1. Os pendentes sao o
+    # que o dono ve na primeira mensagem (criterio 2 do KAM-123); o ultimo
+    # pedido e o que decide o «aceito» do cliente (criterio 9).
+
+    async def pendentes(self, tenant_id: str, limite: int = 5) -> list[repositorio.Pendente]:
+        return await asyncio.to_thread(
+            self._com_ligacao, repositorio.pendentes, tenant_id, limite
+        )
+
+    async def ultimo_pedido(
+        self, tenant_id: str, contact_id: str
+    ) -> repositorio.UltimoPedido | None:
+        return await asyncio.to_thread(
+            self._com_ligacao, repositorio.ultimo_pedido, tenant_id, contact_id
+        )
+
+    async def activo(self, tenant_id: str) -> bool:
+        """Se o tenant tem o modulo `orcamento` (o passo 2, perguntado antes)."""
+        return await asyncio.to_thread(self._com_ligacao, repositorio.modulo_activo, tenant_id)
+
+    def agora(self) -> datetime.datetime:
+        """O relogio da porta, para o grafo julgar a validade com o mesmo instante."""
+        return self._relogio()

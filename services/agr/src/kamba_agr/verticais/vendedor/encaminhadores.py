@@ -189,7 +189,14 @@ def r_confirm(estado: dict[str, Any]) -> str:
     que o no tinha recusado.
     """
     avisos = estado.get("avisos") or ()
-    return "stale" if STALE_CONFIRMATION in avisos else "go"
+    if STALE_CONFIRMATION in avisos:
+        return "stale"
+    # KAM-220. O `confirm_gate` marcou o orcamento oferecido como tocado: o
+    # botao era o `confirm:{oferta}` dele, e nao o do carrinho.
+    oferecido = estado.get("orcamento_oferecido")
+    if isinstance(oferecido, dict) and oferecido.get("tocado_em") == estado.get("turn_id"):
+        return "orcamento"
+    return "go"
 
 
 def r_cite(estado: dict[str, Any]) -> str:
