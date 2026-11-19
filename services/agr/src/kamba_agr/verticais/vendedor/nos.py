@@ -501,9 +501,19 @@ def textos_do_turno(estado: Mapping[str, Any]) -> str:
 
 
 def _botao_do_turno(estado: Mapping[str, Any]) -> str:
-    """O identificador do botao tocado, quando a entrada e interactiva."""
+    """O identificador do botao tocado, quando a entrada e interactiva.
+
+    **Primeiro o `botao` da invocacao** (`agent_invocation.botao`, KAM-211), que
+    e o que o processo enche: a janela `messages` nasce vazia em cada turno
+    (decisao do KAM-186), e sem esta leitura nenhum botao do Vendedor — o
+    «Pedir orcamento» e o «Aceito» do KAM-220, e o `confirm:{cart_id}` — chegava
+    ao grafo no processo. **Depois a janela**, que e como as baterias o poem.
+    """
     if estado.get("input_kind") != "interactive":
         return ""
+    botao = estado.get("botao")
+    if isinstance(botao, str) and botao.strip():
+        return botao.strip()
     return _texto_do_cliente(estado).strip()
 
 

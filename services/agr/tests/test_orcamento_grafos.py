@@ -710,5 +710,27 @@ class TestARespostaDoDono(unittest.TestCase):
                 self.assertIsNone(re.search(r"\d", getattr(nos_do_dono, nome)))
 
 
+class TestOBotaoDaInvocacao(unittest.TestCase):
+    """O `agent_invocation.botao` chega ao Vendedor, com a janela vazia como no processo."""
+
+    def test_o_pedir_orcamento_e_o_aceito_chegam_pelo_campo_da_invocacao(self) -> None:
+        pedidos = _Pedidos()
+        grafo, saida, _ = _vendedor(pedidos)
+        conversa = _Conversa(grafo)
+        conversa.turno("quanto custa o fato por medida?")
+        estado = estado_de("", tipo="interactive", tenant_id=conversa.tenant, contact_id=conversa.contacto,
+                           botao="confirm:SKU-300")
+        self.assertEqual(estado["messages"], [])
+        asyncio.run(grafo.ainvoke(estado, conversa.config))
+        self.assertEqual(len(pedidos.chamadas), 1)
+
+        porta = PortaEmMemoria(_ultimo(regras.ENVIADO))
+        hnd = Handoff()
+        grafo, *_ = montar(hnd=hnd, checkpointer=InMemorySaver(), orcamentos=porta)
+        estado = estado_de("", tipo="interactive", botao=nos_mod.BOTAO_ACEITAR_ORCAMENTO)
+        asyncio.run(grafo.ainvoke(estado, {"configurable": {"thread_id": str(uuid.uuid4())}}))
+        self.assertEqual([r["motivo"] for r in hnd.recebido], [nos_mod.MOTIVO_ORCAMENTO_ACEITE])
+
+
 if __name__ == "__main__":
     unittest.main()

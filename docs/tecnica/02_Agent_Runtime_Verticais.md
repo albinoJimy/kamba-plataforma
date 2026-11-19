@@ -4,7 +4,7 @@
 |---|---|
 | Produto | KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para Angola |
 | Documento | Técnica — Agent Runtime e Verticais |
-| Versão | 1.9 |
+| Versão | 1.10 |
 | Data | Outubro de 2026 |
 | Classificação | Documento de Referência — Interno |
 | Documento-fonte | `00_Arquitectura_Solucao.md`, `evidencia/E4_Stack_Licencas.md`, `evidencia/E1_Meta_WhatsApp.md`, `../exploracao/11-arquitetura-detalhada-engenharia.md` §4, `../exploracao/12-diagramas-c4-fluxogramas.md` C4.1, `../exploracao/14-tese-minima-e-plano-de-validacao.md` §3A |
@@ -323,7 +323,7 @@ class ToolResult:
     ok: bool; data: dict; facts: list[Fact]; error: ToolError | None; idempotent_replay: bool = False
 ```
 
-Pipeline de `invoke` (falha-fecha em cada passo): (1) a tool pertence à lista `allowed` da vertical; (2) entitlement activo e limites do TEN (`msgs_ai_mes`, `valor_max_pedido_minor`); (3) argumentos validados por Pydantic com `extra="forbid"`; (4) tools de classe `write`/`money` exigem `confirmation` com `cart_id` confirmado por botão no turno actual;
+Pipeline de `invoke` (falha-fecha em cada passo): (1) a tool pertence à lista `allowed` da vertical; (2) entitlement activo e limites do TEN (`msgs_ai_mes`, `valor_max_pedido_minor`); (3) argumentos validados por Pydantic com `extra="forbid"`; (4) tools de classe `write`/`money` exigem `confirmation` com `cart_id` confirmado por botão no turno actual — **com uma excepção fechada**: as tools da lista `DISPENSAS_DO_PASSO_4` (`tls/especificacoes.py`), hoje **só** a `submit_quote`, que **só grava** a resposta do dono e propõe o botão `confirm:{action_id}`, sem o qual nada sai para o cliente; a dispensa vai na especificação com a razão escrita, nunca numa `money`, e acrescentar um nome à lista é emendar este passo (decisão do fundador de 2026-11-19, KAM-220, opção C);
 (5) chave de idempotência (§6.3); (6) chamada ao backend com `tenant_id` no cabeçalho **e** `SET LOCAL app.tenant_id` (RLS no Postgres das nossas tabelas — defesa em profundidade; as tabelas do Medusa são protegidas pelo adaptador COM); (7) linha em `tool_audit`; (8) devolução de `facts`.
 
 ### 6.2 Catálogo de tools do Piloto
@@ -1029,7 +1029,7 @@ O dono fala com o **número da própria loja**, a partir do telemóvel verificad
 | `catalogo` | Vertical *owner-facing* | `create_product_draft` (write), `ask_missing_fields` (read), `publish_product` (write, confirmação), `get_catalog_status` (read) | Confirmação do dono antes de publicar | 1 |
 | `foto` | **Ferramenta** (não é vertical conversacional), invocada por `catalogo` e `social` | `enhance_image` via `ImageProvider` (write, gera nova versão, nunca substitui o original) | O dono escolhe a versão | 1 |
 | `social` | Vertical *owner-facing* | `get_brand_profile` (read), `generate_calendar` (write), `generate_caption` (write), `generate_art` (write), `request_approval` (write) | Aprovação do dono; **sem tool de publicação**: o dono publica manualmente | 1 |
-| `orcamento` | Vertical fina; liga o cliente ao dono | `request_quote` (write, cliente), `submit_quote` (write, dono), `send_quote` (write, confirmação do dono) | O dono fixa o preço; o bot nunca o calcula | 1 |
+| `orcamento` | Vertical fina; liga o cliente ao dono | `request_quote` (write, cliente, com o botão `confirm:{sku}` do cliente), `submit_quote` (write, dono, com o passo 4 dispensado: só grava), `send_quote` (write, confirmação do dono: é o botão `confirm:{action_id}`, e não uma tool) | O dono fixa o preço; o bot nunca o calcula | 1 |
 
 Regras comuns: preços e totais de uma proposta são *facts* inseridos pelo dono (`quote_price`) e passam pelo validador de citação; conteúdo gerado para terceiros é marcado como gerado por IA; categorias bloqueadas (ADR-019, KAM-088) aplicam-se também ao conteúdo social; nenhuma tool envia mensagens ou publica por si (o `send` continua a ser o único caminho ao cliente).
 
@@ -1063,3 +1063,4 @@ Metering por módulo (KAM-124); budgets LiteLLM por tenant incluem o custo de im
 | 1.7 | Novembro 2026 | **KAM-039, caixa devolvida: a condição (d) passa, e o §5.1 ganha o `notifica`.** A notificação ao dono sai do núcleo — era a tabela `AO_DONO` do `eventos/handlers.py`, pares `(vertical, tipo)` só do Vendedor lidos num `if`, e a única ocorrência de `fluxo` que a medição do KAM-039 encontrou — e passa a `subscriptions[].notifica`, domínio fechado `{cliente, dono}`, com a omissão a ser a lista vazia (dicionário §3.26, emenda 1.65). Decisão do fundador a 2026-11-06. **Medido sobre `db0582d`: `python -m reuse_metric nucleo` ia de `fluxo 1`, saída 1, para `fluxo 0`, saída 0**; a outra metade do G0-2 passa com 88,30% (limiar 70%) e não foi tocada. O §5.4 deixa de dizer que a condição não passa, e o exemplo do §5.1 ganha a chave nas duas verticais. **O que fica em aberto:** a fronteira do `conteudo` — as 45 ocorrências que a métrica conta e nomeia sem reprovar —, devolvida ao fundador. |
 | 1.8 | Novembro 2026 | **KAM-033** (guardrails): a linha 10 do §7.3 passa a levar também a 3.ª `injection` na hora no mesmo contacto — é a L5 do `../08` §4.3 («3 tentativas/h por contacto → handoff e *cool-down*»), e vai pela **mesma** aresta do `sensitive`, pelo que o grafo continua com as quarenta e duas arestas. O §8.4 diz isso na linha da injecção e dá à do abuso a porta que pausa. Os nomes e os limiares estão no dicionário §3.51 (emenda 1.71). | Equipa KAMBÁ |
 | 1.9 | Novembro 2026 | **KAM-192**: o §13.2 ganha o quinto papel, `screening-nano`, o classificador de categorias do GOV que o KAM-088 deixara nomeado e não declarado. Tem papel próprio porque o cliente do AGR indexa os aliases por papel; o domínio fechado do papel está no dicionário §3.29 (emenda 1.85) e no `CHECK` da revisão `0047`. Não escolhe modelo, e o papel fica sem finalidade de transferência: uma chamada sai em `destino_negado`. | Equipa KAMBÁ |
+| 1.10 | Novembro 2026 | **KAM-220**: o §6.1 passo 4 ganha a excepção fechada `DISPENSAS_DO_PASSO_4`, só com a `submit_quote`, por decisão do fundador de 2026-11-19 (opção C): o pedido do cliente (`request_quote`) continua a exigir o botão, `confirm:{sku}`, que é também o consentimento para gastar um `orcamentos_mes`; a resposta do dono só grava e propõe o botão `confirm:{action_id}`, que é o que envia. O §21.3 diz o mesmo da linha do `orcamento`. | Equipa KAMBÁ |

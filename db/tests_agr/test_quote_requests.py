@@ -23,7 +23,6 @@ from __future__ import annotations
 import datetime
 import json
 import threading
-import uuid
 
 from tests import factories
 from tests.base import PRIVILEGIO_INSUFICIENTE, VIOLACAO_DE_CHECK, sqlstate
@@ -628,7 +627,7 @@ class TestPelaToolLayer(ComOrcamento):
         self.assertEqual(self._linhas(), [(quote_id, "pedido", None)])
         self.assertEqual(len(self._eventos(rep.EVENTO_PEDIDO)), 1)
         # O dono responde **sem botao**: o passo 4 esta dispensado para esta tool.
-        resposta = self._invocar("submit_quote", {"quote_id": quote_id, "valor": "120 mil"}, self.dono,
+        resposta = self._invocar("submit_quote", {"referencia": regras.referencia_interna(quote_id), "valor": "120 mil"}, self.dono,
                                  turno="t-2")
         self.assertTrue(resposta.ok, resposta.error)
         self.assertEqual(self._linhas(), [(quote_id, "respondido", 12_000_000)])
@@ -663,7 +662,7 @@ class TestPelaToolLayer(ComOrcamento):
         quote_id = pedido.data["quote_id"]
         for valor in ("120 50", "12 x 10 mil", "120 dolares"):
             with self.subTest(valor=valor):
-                ambiguo = self._invocar("submit_quote", {"quote_id": quote_id, "valor": valor}, self.dono)
+                ambiguo = self._invocar("submit_quote", {"referencia": regras.referencia_interna(quote_id), "valor": valor}, self.dono)
                 self.assertEqual(ambiguo.error.codigo, "VALIDATION_ERROR")
                 self.assertIn(ambiguo.error.detalhe, regras.RECUSAS_DO_VALOR)
         self.assertEqual(self._linhas(), [(quote_id, "pedido", None)])
@@ -671,9 +670,9 @@ class TestPelaToolLayer(ComOrcamento):
     def test_um_cliente_nao_responde_pelo_dono_nem_forja_o_quote_id(self) -> None:
         pedido = self._invocar("request_quote", {"sku": SKU}, self.cliente, botao=f"confirm:{SKU}")
         quote_id = pedido.data["quote_id"]
-        cliente = self._invocar("submit_quote", {"quote_id": quote_id, "valor": "1 Kz"}, self.cliente)
+        cliente = self._invocar("submit_quote", {"referencia": regras.referencia_interna(quote_id), "valor": "1 Kz"}, self.cliente)
         self.assertEqual((cliente.ok, cliente.error.codigo), (False, "TENANT_MISMATCH"))
-        forjado = self._invocar("submit_quote", {"quote_id": str(uuid.uuid4()), "valor": "120 mil"}, self.dono)
+        forjado = self._invocar("submit_quote", {"referencia": "ORC-ABCDEFGH", "valor": "120 mil"}, self.dono)
         self.assertEqual(forjado.error.codigo, "NOT_FOUND")
         self.assertEqual(self._linhas(), [(quote_id, "pedido", None)])
 
