@@ -12,7 +12,7 @@
 
 version: 1
 fonte: "specs/02_Dicionario_de_Dados_Canonico.md"
-versao_dicionario: "1.114"
+versao_dicionario: "1.115"
 entradas:
   - seccao: "3.1"
     conceito: "Contacto"
@@ -20281,6 +20281,7 @@ entradas:
       - "activo"
       - "FASE_DA_TROCA"
       - "server.ts"
+      - "kamba_identity"
     variantes_literais: []
   - seccao: "3.78"
     conceito: "Os adaptadores da porta do dono"
@@ -20305,6 +20306,30 @@ entradas:
       - "troca_de_telefone"
       - "provisionamento"
       - "resolveContact"
+    variantes_literais: []
+  - seccao: "3.78"
+    conceito: "A troca montada pelo processo"
+    canonico: "ONBOARDING_IDENTITY_DB_URL, trocaPeloPool, numaLigacao, PoolDeIdentidade, LigacaoDoPool"
+    literais:
+      - "ONBOARDING_IDENTITY_DB_URL"
+      - "trocaPeloPool"
+      - "numaLigacao"
+      - "PoolDeIdentidade"
+      - "LigacaoDoPool"
+    nomes:
+      - "ONBOARDING_IDENTITY_DB_URL"
+      - "trocaPeloPool"
+      - "numaLigacao"
+      - "PoolDeIdentidade"
+      - "LigacaoDoPool"
+    nomes_nota:
+      - "kamba_identity"
+      - "onboarding"
+      - "web"
+      - "pepper_contact_hmac"
+      - "kek_contact_dek"
+      - "trocaPeloPool"
+      - "numaLigacao"
     variantes_literais: []
 
 tabelas:

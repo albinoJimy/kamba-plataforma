@@ -89,6 +89,24 @@ import { paginaDeRegisto } from "./pagina.ts";
 const log = instalar(SERVICE);
 
 const VARIAVEL_DO_AMBIENTE = "KAMBA_AMBIENTE";
+
+/**
+ * A ligação à base do `kamba_identity` (KAM-217). **Opcional, como a do COM**:
+ * sem ela, as duas rotas da troca de telefone respondem 503 e o resto do painel
+ * serve igual. Com ela, a troca monta sobre os adaptadores do KAM-211, e as duas
+ * chaves do contacto passam a obrigatórias no arranque (ver `obrigatorios`).
+ */
+const VARIAVEL_DA_IDENTIDADE = "ONBOARDING_IDENTITY_DB_URL";
+const URL_DA_IDENTIDADE = (process.env[VARIAVEL_DA_IDENTIDADE] ?? "").trim();
+
+/**
+ * As chaves do contacto que o `resolveContact` usa: o *pepper* do HMAC e a KEK
+ * das DEK. **Obrigatórias só com a troca ligada**, e verificadas no arranque:
+ * o `Identidade.arrancar` confere o `KAMBA_ENV` e não lê chave nenhuma, pelo que
+ * sem isto o processo subia e o primeiro dono a acertar o código gastava-o e
+ * recebia um 500 (achado 5 da revisão adversarial do KAM-217).
+ */
+const CHAVES_DA_TROCA = ["pepper_contact_hmac", "kek_contact_dek"] as const;
 const VARIAVEL_DOS_PROXIES = "ONBOARDING_PROXIES_DE_CONFIANCA";
 
 /**
@@ -164,7 +182,7 @@ const secrets = await Secrets.arrancar({
   // nao ha como cunhar um `Destino` — isto e, nao ha OTP. O inventario declara-o
   // com `obrigatorio_em: []` porque nenhum **outro** servico o pede; a lista de
   // arranque de quem o usa e que o torna obrigatorio aqui.
-  obrigatorios: [...REFERENCIAS, REF_PEPPER_DO_SMS],
+  obrigatorios: [...REFERENCIAS, REF_PEPPER_DO_SMS, ...(URL_DA_IDENTIDADE === "" ? [] : CHAVES_DA_TROCA)],
 });
 
 const [pepper, pepperAnterior] = await anelDoPepper(secrets);
@@ -277,13 +295,6 @@ function montarGuia(): OpcoesDoGuia | undefined {
 }
 
 /**
- * A ligação à base do `kamba_identity` (KAM-217). **Opcional, como a do COM**:
- * sem ela, as duas rotas da troca de telefone respondem 503 e o resto do painel
- * serve igual. Com ela, a troca monta sobre os adaptadores do KAM-211.
- */
-const VARIAVEL_DA_IDENTIDADE = "ONBOARDING_IDENTITY_DB_URL";
-
-/**
  * Quantas ligações do `kamba_identity` o processo abre, no máximo. ***Proposta***:
  * uma troca usa duas, uma de cada vez (o contacto e a porta), e o painel é de
  * donos, que são poucos. Calibra-se com a carga real (KAM-084).
@@ -318,20 +329,29 @@ const AVISO_POR_ENTREGAR: Record<DestinoDoAviso, string> = {
  * é o lado seguro; persisti-los é uma tabela nova.
  */
 async function montarTroca(): Promise<OpcoesDaTroca | undefined> {
-  const url = (process.env[VARIAVEL_DA_IDENTIDADE] ?? "").trim();
-  if (url === "") {
+  if (URL_DA_IDENTIDADE === "") {
     log.info({ outcome: "painel_troca_desligada" });
     return undefined;
   }
   const identidade = await Identidade.arrancar({ chaves: new EnvKeyProvider({ ambiente: env }) });
   const pool = new pg.Pool({
-    connectionString: url,
+    connectionString: URL_DA_IDENTIDADE,
     max: LIGACOES_DA_IDENTIDADE,
+    // ***Proposta***: uma base que não responde dá erro ao fim de 5 s, e o
+    // pedido da troca recebe-o, em vez de ficar pendurado à espera de ligação.
+    connectionTimeoutMillis: 5_000,
     application_name: "onboarding-web:identidade",
   });
-  // Uma ligação inactiva que cai não pode derrubar o processo: o `pg` emite
-  // `error` no *pool*, e sem ouvinte isso é uma excepção por tratar.
+  // Uma ligação que cai não pode derrubar o processo, e há dois sítios onde
+  // ela cai. **Inactiva**: o `pg` emite `error` no *pool*. **Emprestada**: o
+  // *pool* tira o seu ouvinte enquanto a empresta, e o `error` sai do cliente;
+  // sem ouvinte, é uma excepção por tratar e o processo sai — e com ele os casos
+  // em memória. O ouvinte de cada cliente põe-se quando ele nasce (achado 7 da
+  // revisão adversarial); a instrução em curso falha na mesma, e o pedido dá 500.
   pool.on("error", (erro) => log.excepcao(erro, "identidade_bd_falhou"));
+  pool.on("connect", (cliente) => {
+    cliente.on("error", (erro) => log.excepcao(erro, "identidade_bd_falhou"));
+  });
   return {
     troca: trocaPeloPool({
       pool,

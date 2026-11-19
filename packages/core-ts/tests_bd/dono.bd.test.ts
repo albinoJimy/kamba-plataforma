@@ -31,6 +31,7 @@ import {
   trocaNaBase,
   trocaPeloPool,
   type DestinoDoAviso,
+  type PoolDeIdentidade,
 } from "../src/dono/index.ts";
 import type { Identidade } from "../src/identity/index.ts";
 import { ContadoresEmMemoria, Otp, OtpEmMemoria, OtpPorSmsLocal, Telefone } from "../src/inscricao/index.ts";
@@ -301,14 +302,32 @@ describe("KAM-217 — a troca montada pelo processo, sobre o pool", () => {
     }
   });
 
-  it("uma porta que falha não deixa a ligação a meio: a troca seguinte do pool passa", async () => {
+  it("uma porta que falha destrói a ligação, e uma que acerta devolve-a; a troca seguinte do pool passa", async () => {
     const a = await tenantComDono("pool-falha-a", NUMERO_ANTIGO);
     const b = await tenantComDono("pool-falha-b", NUMERO_DE_B);
+    // Um espião sobre o pool real: regista o que cada ligação recebe no
+    // `release`. O `ROLLBACK` do `comTenant` deixava a ligação limpa nos dois
+    // casos, pelo que só o argumento do `release` mede a destruição (achado 6 da
+    // revisão adversarial).
+    const libertacoes: unknown[] = [];
+    const espiao: PoolDeIdentidade = {
+      async connect() {
+        const ligacao = await pool.connect();
+        const original = ligacao.release.bind(ligacao);
+        ligacao.release = (destruir?: boolean | Error) => {
+          libertacoes.push(destruir);
+          original(destruir);
+        };
+        return ligacao;
+      },
+    };
     // O contacto de A no contexto de B: `23503`, dentro de uma ligação do pool.
     await assert.rejects(
-      numaLigacao(pool, (ligacao) => trocaNaBase(ligacao)({ tenantId: b.tenant, contactId: a.dono })),
+      numaLigacao(espiao, (ligacao) => trocaNaBase(ligacao)({ tenantId: b.tenant, contactId: a.dono })),
       (erro: { code?: string }) => erro.code === "23503",
     );
+    assert.deepEqual(await numaLigacao(espiao, async () => "ok"), "ok");
+    assert.deepEqual(libertacoes, [true, false]);
     const { troca, ultimoCodigo } = montarPeloPool();
     await troca.pedir("troca:depois-da-falha", b.tenant, new Telefone(NUMERO_NOVO, [PEPPER]));
     const desfecho = await troca.verificar("troca:depois-da-falha", b.tenant, ultimoCodigo());
