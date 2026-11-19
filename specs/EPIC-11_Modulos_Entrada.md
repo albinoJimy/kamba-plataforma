@@ -4,7 +4,7 @@
 |---|---|
 | Produto | KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para Angola |
 | Documento | Epic — Módulos de Entrada |
-| Versão | 1.15 |
+| Versão | 1.16 |
 | Data | Novembro de 2026 |
 | Classificação | Documento de Referência — Interno |
 | Documento-fonte | `../docs/tecnica/00_Arquitectura_Solucao.md` (ADR-020, §13.3 D13), `../docs/tecnica/02_Agent_Runtime_Verticais.md` (§21), `../docs/exploracao/14-tese-minima-e-plano-de-validacao.md` (H10–H12) |
@@ -66,6 +66,7 @@ Estado da evidência (E5): **CONFIRMADO** — preços e termos publicados dos fo
 | KAM-226 | Orçamento expresso: o aviso proactivo ao dono e o botão «Aceito» na proposta | feature | S | P2 | KAM-220, KAM-221, KAM-224 |
 | KAM-227 | Saída do AGR em produção: a credencial da Meta por canal, o destinatário e o consumidor `outbound` no compose | feature | L | P1 | KAM-224 |
 | KAM-228 | Orçamento expresso: a porta do *screening* no `submit_quote` e o classificador nos *compose* | feature | S | P2 | KAM-222 |
+| KAM-230 | Orçamento expresso: as condições do dono no processo, e o AGR contra o COM a correr | feature | S | P2 | KAM-228 |
 
 ---
 
@@ -669,7 +670,7 @@ Os ensaios: `services/agr/tests/test_orcamento.py` (gate 4) e `db/tests_agr/test
 | 1 | marcado (**KAM-220**) | **Revisto no KAM-220:** o Vendedor oferece o botão «Pedir orçamento» (`confirm:{oferta}`) num `sob_consulta` e responde sem número, e o toque chama o `request_quote` pela ToolLayer — a forma da decisão do fundador de 2026-11-19 (opção C, bloco do KAM-220): o toque é a confirmação do passo 4 e o consentimento para gastar um `orcamentos_mes` (`test_o_preco_de_um_sob_consulta_oferece_o_botao_e_o_toque_pede`, e contra a base `test_cliente_pedido_dono_envio`). **O que estava:** **O pedido está; o grafo não o chama.** Três pedidos do mesmo `contact_id` e `sku` em dez minutos → o **mesmo** `quote_id`, uma linha, **um** `quote.requested` e **um** consumo de `orcamentos_mes` (`test_tres_pedidos_em_dez_minutos_dao_um_quote_id_uma_linha_um_evento`); duas mensagens concorrentes → um pedido (`test_duas_mensagens_concorrentes_dao_um_pedido`); depois da janela, outro (`test_fora_da_janela_de_repeticao_e_outro_pedido`). **Falta** o Vendedor chamar o `request_quote` ao pedido de preço de um `sob_consulta` e responder sem número: a tool está declarada e o grafo não a chama. Credor: **KAM-220** |
 | 2 | **parcial — caixa vazia** | Os seis estados no `CHECK` e no gatilho `quote_requests_transicao`, iguais ao `regras.py` (`test_as_transicoes_sao_as_da_revisao`); os finais não mudam e uma transição fora da lista recusa com `23514` (`test_o_gatilho_recusa_mudar_um_enviado_e_saltar_estados`), e um `UPDATE` que deixa o estado como está passa, porque não é transição (o `SET estado = estado` do X-03 do gate 6, que a primeira versão do gatilho recusava); a lista dos pendentes (`pendentes`, `test_o_dono_de_b_nao_ve_nem_responde_os_pedidos_de_a`) e o pedido sem aviso fica visível nela. **Falta** mostrá-los na primeira mensagem do dono e no painel, e o aviso proactivo dentro da janela. Credor: **KAM-220**. **Revisto no KAM-220:** a primeira mensagem do dono mostra-os, e a pedido também (`test_a_primeira_mensagem_mostra_os_pendentes_sem_valor_nem_quantidade`). O painel é a mesma conversa e espera a `OwnerPort` (**KAM-223**), e o aviso proactivo espera a saída do AGR (**KAM-226**) |
 | 3 | **parcial — caixa vazia** | O *parser* lê as formas do critério («120 mil», «120.000», «120 000 Kz», por extenso) e recusa o ambíguo e o composto sem adivinhar (`TestValorDoDono`); o `responder` grava o valor e devolve o eco e o botão (`test_o_dono_responde_e_recebe_o_botao`); em **100** pedidos com quantidades de 1 a 100, o valor enviado é sempre o digitado e a mensagem tem **um** valor monetário (`test_cem_pedidos_com_quantidades_diferentes_nunca_dao_um_total_calculado`). **Falta** o texto do dono chegar ao grafo e ao `submit_quote` (o turno do dono só recebe o botão desde o KAM-211). Credor: **KAM-220**. **Revisto no KAM-220:** no grafo, o texto do dono chega ao `submit_quote`, com o eco e o botão (`test_um_valor_com_um_so_pendente_da_o_eco_e_o_botao`). No processo, o texto do dono ainda não chega ao turno (a janela `messages` nasce vazia): é a fonte persistida do **KAM-223** |
-| 4 | marcado | Condições ≤ 200 caracteres, sem números (também por extenso) e pela guarda de entrada do KAM-033 (`test_as_condicoes_recusam_numeros_injeccao_e_tamanho`: «tres dias», «dez por cento de sinal», «meia duzia», «metade adiantada» recusam; «um sinal» passa); validade obrigatória, por omissão sete dias de Luanda calculados por código e mostrados como data (`test_a_validade_por_omissao_e_sete_dias_em_luanda`), e no passado recusa (`test_validade_no_passado_recusa`). A guarda é a do KAM-033, por decisão do fundador de 2026-11-19; a ponte para o `screen` do KAM-088 é do **KAM-222**. **Revista pelo KAM-222:** a guarda continua, e depois dela o `conferir_condicoes` chama o `screen` pela porta que o `responder` recebe. A porta de produção é o `ScreeningPeloCom`, sobre uma rota do COM; quem a monta no `submit_quote` é o **KAM-228**, e sem ela o `responder` usa a `ScreeningPorLigar`. Só `permitida` segue, e uma porta que falha recusa (`test_so_permitida_segue`, `test_uma_porta_que_falha_recusa`). O sujeito das condições está na `screening_decision` desde a revisão `0074` (decisão do fundador de 2026-11-19, bloco do KAM-222). Hoje as condições recusam todas, por falha fechada, por duas razões que se juntam: a porta não está montada no `submit_quote`, e o classificador não está ligado nos *compose* — as duas no **KAM-228**. E, por decisão do fundador de 2026-11-19 (opção A, bloco do KAM-222), uma loja cuja categoria não casa nenhuma entrada `permitida` da política recusa sempre as condições: o dono envia o orçamento sem condições escritas |
+| 4 | marcado | Condições ≤ 200 caracteres, sem números (também por extenso) e pela guarda de entrada do KAM-033 (`test_as_condicoes_recusam_numeros_injeccao_e_tamanho`: «tres dias», «dez por cento de sinal», «meia duzia», «metade adiantada» recusam; «um sinal» passa); validade obrigatória, por omissão sete dias de Luanda calculados por código e mostrados como data (`test_a_validade_por_omissao_e_sete_dias_em_luanda`), e no passado recusa (`test_validade_no_passado_recusa`). A guarda é a do KAM-033, por decisão do fundador de 2026-11-19; a ponte para o `screen` do KAM-088 é do **KAM-222**. **Revista pelo KAM-222:** a guarda continua, e depois dela o `conferir_condicoes` chama o `screen` pela porta que o `responder` recebe. A porta de produção é o `ScreeningPeloCom`, sobre uma rota do COM; quem a monta no `submit_quote` é o **KAM-228**, e sem ela o `responder` usa a `ScreeningPorLigar`. Só `permitida` segue, e uma porta que falha recusa (`test_so_permitida_segue`, `test_uma_porta_que_falha_recusa`). O sujeito das condições está na `screening_decision` desde a revisão `0074` (decisão do fundador de 2026-11-19, bloco do KAM-222). Hoje as condições recusam todas, por falha fechada, por duas razões que se juntam: a porta não está montada no `submit_quote`, e o classificador não está ligado nos *compose* — as duas no **KAM-228**. **Revista pelo KAM-228:** as duas estão feitas, e as condições que cheguem ao `submit_quote` passam pelo `screen` do KAM-088; mas nenhum nó do processo lhas passa ainda (o grafo do dono chama a tool só com a referência e o valor), e esse caminho é do **KAM-230**. E, por decisão do fundador de 2026-11-19 (opção A, bloco do KAM-222), uma loja cuja categoria não casa nenhuma entrada `permitida` da política recusa sempre as condições: o dono envia o orçamento sem condições escritas |
 | 5 | marcado | Pré-visualização no eco da resposta (`Resposta.previsao`, o texto exacto que o cliente lê); só envia depois de o botão dar `confirmada`; duplo toque ×2 → **1** mensagem e **1** `quote.sent` (`test_duplo_toque_duas_vezes_da_uma_mensagem`), também em duas sessões concorrentes (`test_duplo_toque_concorrente_da_uma_mensagem`) e pelo turno do dono (`test_o_toque_confirma_e_envia_uma_vez`); o botão de um valor anterior não envia o valor novo (`test_o_botao_de_um_valor_anterior_nao_envia_o_valor_novo`); um envio que falhou repete-se com o mesmo botão (`test_um_envio_que_falhou_repete_com_o_mesmo_botao`, `test_sem_template_nada_sai_e_o_pedido_fica`), e uma porta que levanta não rebenta o turno (`test_uma_porta_que_levanta_nao_rebenta_o_turno`); o envio é o do Outbound, e nenhuma tool envia. O botão `confirm:{action_id}` conta pela decisão do fundador de 2026-11-19; o Outbound real é do **KAM-221** |
 | 6 | marcado (**KAM-220**) | **Revisto no KAM-220:** o Vendedor recusa calcular e oferece o pedido ao dono. Em **100** frases de conta, desconto ou total, **0** respostas têm um número fora das linhas `item`, e as cem oferecem o botão (`test_cem_pedidos_de_conta_dao_zero_numeros_calculados`). O limite do extractor que se lê abaixo continua a ser do KAM-032, e nenhum texto do modelo chega ao cliente: o `compose` só escreve blocos. **O que estava:** O modelo cita por referência e o validador recusa **0/100** saídas adversariais — quarenta outros valores, trinta descontos, trinta totais por quantidade — e mais três à mão (`test_cem_saidas_adversariais_nao_passam`); um `price` ou um `total` com o mesmo valor, ou um `quote_price` de outro `sku`, não sustentam o `sob_consulta` (`test_um_price_ou_total_igual_nao_sustenta_o_sob_consulta`), e só numa linha de um produto só (`test_um_quote_price_so_sustenta_uma_linha_de_um_produto_so`). **Limite medido, e é do validador do KAM-032:** o extractor não lê percentagens nem quantidades **por extenso** («com dez por cento de desconto» passa a camada 2). A proposta não as pode ter — o texto é de código e as condições recusam-nas —, mas um texto do modelo pode, e é o KAM-220 quem põe o modelo no caminho. **Falta** o Vendedor recusar calcular e abrir pedido novo ao dono. Credor: **KAM-220** |
 | 7 | marcado | Primeira linha «Orçamento — não é factura», a validade e a referência `ORC-` com oito letras (`test_o_rotulo_a_referencia_o_valor_e_a_validade`, `test_a_referencia_e_estavel_e_sem_digitos`); nenhum campo `nif`, série nem numeração fiscal no modelo nem na revisão, e sem PDF (`test_sem_campos_fiscais_nem_pdf`) |
@@ -2045,7 +2046,7 @@ Testes: unit, integração e adversarial.
 - **A regra da recusa é a última da lista do `screen`, e não o `categoria_restrita` do Catálogo AI.** Numa `permitida` das regras que o classificador desceu, a lista é `moda` e depois a regra sintética. O `categoria_restrita` devolveria `moda`, que é a categoria que **passou**. O mesmo defeito vale no Catálogo AI, e fica como achado com credor (secção seguinte).
 - **A categoria das condições é a do tenant, e com a política de hoje isso fecha mais do que a letra parece pedir.** O `avaliarRegras` só dá `permitida` quando a categoria casa uma das cinco entradas `permitida` da política (`moda`, `electronica`, `servicos`, `restauracao_formal`, `material_construcao`). Um tenant com outra categoria («mercearia», «papelaria»), mesmo aprovado por um humano depois de `nao_listada`, recebe `condicional` em todas as condições, e o classificador nem é chamado (achado 2 da revisão). A letra do critério («só `permitida`») não deixa escolher outra leitura, e a escolha foi do fundador: **opção A**, a 2026-11-19 (tabela acima). O dono envia o orçamento sem condições escritas.
 - **Uma `condicional` das condições não abre caso na fila de revisão.** O [`escritorComFila`](../packages/core-ts/src/revisao/entradas.ts) do KAM-089 abria um caso `catalogo` a toda a `condicional` que não fosse de `categoria`, e com o sujeito novo abria-o com o `quote_id` no lugar do `sku`: uma revisão de nada, porque a decisão A do fundador não dá recurso humano às condições. O compilador apanhou-o quando o `SUJEITOS` ganhou o terceiro valor; a rota do COM grava pelo `EscritorSql` e não passava por ali (`uma condicional das condicoes de um orcamento grava-se e nao abre caso`).
-- **O classificador liga-se com `KAMBA_AGR_URL` no COM**, e então o `agr_screening_token` passa a obrigatório no arranque, pela regra do `com_internal_token` no `onboarding-web`. Sem a variável, o classificador é `null`, uma `permitida` das regras fica `condicional`, e as condições recusam. É fechado. Os três *compose* não definem a variável nem o segredo: a ligação vai para o **KAM-228**, que monta também a porta no `submit_quote`. O KAM-220 fundiu antes deste PR e não pode ser credor, e o KAM-226 não cobre o `submit_quote`.
+- **O classificador liga-se com `KAMBA_AGR_URL` no COM**, e então o `agr_screening_token` passa a obrigatório no arranque, pela regra do `com_internal_token` no `onboarding-web`. Sem a variável, o classificador é `null`, uma `permitida` das regras fica `condicional`, e as condições recusam. É fechado. Os três *compose* não definem a variável nem o segredo: a ligação vai para o **KAM-228**, que monta também a porta no `submit_quote`. O KAM-220 fundiu antes deste PR e não pode ser credor, e o KAM-226 não cobre o `submit_quote`. **Feita no KAM-228**, com a `litellm_screening_key` do AGR, que também faltava.
 
 ### Achado fora de âmbito, com credor
 
@@ -2055,13 +2056,13 @@ Testes: unit, integração e adversarial.
 
 ### Verificação dos Critérios de Aceitação
 
-Dois critérios, **os dois marcados**, com a revisão `0074` (decisão do fundador de 2026-11-19). O que os critérios pedem é do `conferir_condicoes` e da ponte, e está medido nas três camadas. **O que fica fora deles tem credor:** montar a porta no `submit_quote` e o classificador nos três *compose*, e com isso o ensaio do AGR contra o COM a correr, são do **KAM-228**. Até ele fundir, as condições recusam todas em produção, por falha fechada.
+Dois critérios, **os dois marcados**, com a revisão `0074` (decisão do fundador de 2026-11-19). O que os critérios pedem é do `conferir_condicoes` e da ponte, e está medido nas três camadas. **O que fica fora deles tem credor:** montar a porta no `submit_quote` e o classificador nos três *compose*, e com isso o ensaio do AGR contra o COM a correr, são do **KAM-228**. Até ele fundir, as condições recusam todas em produção, por falha fechada. **Revisto pelo KAM-228:** a porta está montada e o classificador ligado nos três *compose*; o ensaio contra o COM TypeScript a correr passa ao **KAM-230**, que também é o credor de um nó que passe as condições à tool — nenhum o faz ainda.
 
 Os ensaios: [`services/com/tests/screening.test.ts`](../services/com/tests/screening.test.ts) e [`api.interna.test.ts`](../services/com/tests/api.interna.test.ts) (gate 4, COM), [`services/agr/tests/test_screening_pelo_com.py`](../services/agr/tests/test_screening_pelo_com.py) e [`test_orcamento.py`](../services/agr/tests/test_orcamento.py) (gate 4, AGR), e o caso `X-01/ts/com-interna` (gate 6), que passa a cobrir catorze superfícies.
 
 | Critério | Estado | Evidência nomeada |
 |---|---|---|
-| 1 | marcado | O `conferir_condicoes` chama a porta com o `quote_id` e sem categoria (`test_condicoes_limpas_passam`). Só `permitida` segue (`test_so_permitida_segue`). Uma porta que levanta, a `ScreeningPorLigar` e uma decisão fora do domínio recusam com `screening_indisponivel` (`test_uma_porta_que_falha_recusa`, `test_uma_decisao_fora_do_dominio_recusa`). O `responder` passa a porta que recebe, com o tenant e não o contacto (`test_o_responder_passa_a_porta_com_o_tenant_e_o_pedido`), e sem porta recusa antes da base (`test_o_responder_sem_ponte_recusa_condicoes`). O adaptador vai à rota com os dois cabeçalhos e levanta em nove formas de falha (`TestFalhaFechada`), e a rota e os campos são os do `interna.ts` (`TestOContratoComOTypeScript`). Do lado do COM, a rota passa o tenant do cabeçalho e recusa dez corpos maus sem chamar a operação; a operação recusa a `categoria`, o `produto` e qualquer outro sujeito sem abrir ligação, e corre o `screen` real. A categoria do tenant lê-se contra o PostgreSQL, a última e só a `categoria`, e a RLS não deixa ler a de outro tenant (`test_a_ultima_categoria_e_so_a_categoria_e_so_deste_tenant`, gate 8). O `operacoesDoCom` passa o classificador ao `screen` e grava a decisão com o sujeito das condições, e sem classificador fecha (`o operacoesDoCom passa o classificador ao screen, e a decisao grava-se com o sujeito das condicoes`). **A revisão `0074`**: a aplicação grava as condições do seu tenant e só ele as lê, um sujeito mal escrito recusa com `23514` (`TestSujeitoDasCondicoes`), e a descida apaga só as condições, repõe o domínio de dois, o *trigger* e a RLS `FORCE`, e volta (`test_desce_apagando_so_as_condicoes_e_volta`, gate 8). O ensaio do AGR contra o COM a correr é do **KAM-228**, com a montagem |
+| 1 | marcado | O `conferir_condicoes` chama a porta com o `quote_id` e sem categoria (`test_condicoes_limpas_passam`). Só `permitida` segue (`test_so_permitida_segue`). Uma porta que levanta, a `ScreeningPorLigar` e uma decisão fora do domínio recusam com `screening_indisponivel` (`test_uma_porta_que_falha_recusa`, `test_uma_decisao_fora_do_dominio_recusa`). O `responder` passa a porta que recebe, com o tenant e não o contacto (`test_o_responder_passa_a_porta_com_o_tenant_e_o_pedido`), e sem porta recusa antes da base (`test_o_responder_sem_ponte_recusa_condicoes`). O adaptador vai à rota com os dois cabeçalhos e levanta em nove formas de falha (`TestFalhaFechada`), e a rota e os campos são os do `interna.ts` (`TestOContratoComOTypeScript`). Do lado do COM, a rota passa o tenant do cabeçalho e recusa dez corpos maus sem chamar a operação; a operação recusa a `categoria`, o `produto` e qualquer outro sujeito sem abrir ligação, e corre o `screen` real. A categoria do tenant lê-se contra o PostgreSQL, a última e só a `categoria`, e a RLS não deixa ler a de outro tenant (`test_a_ultima_categoria_e_so_a_categoria_e_so_deste_tenant`, gate 8). O `operacoesDoCom` passa o classificador ao `screen` e grava a decisão com o sujeito das condições, e sem classificador fecha (`o operacoesDoCom passa o classificador ao screen, e a decisao grava-se com o sujeito das condicoes`). **A revisão `0074`**: a aplicação grava as condições do seu tenant e só ele as lê, um sujeito mal escrito recusa com `23514` (`TestSujeitoDasCondicoes`), e a descida apaga só as condições, repõe o domínio de dois, o *trigger* e a RLS `FORCE`, e volta (`test_desce_apagando_so_as_condicoes_e_volta`, gate 8). O ensaio do AGR contra o COM a correr é do **KAM-228**, com a montagem. **Revisto pelo KAM-228:** a montagem está medida pela ToolLayer contra um COM de ensaio por HTTP real (`test_submit_quote_screening.py`); o ensaio contra o COM TypeScript a correr é do **KAM-230** |
 | 2 | marcado | Pela política real e com o sujeito das condições, um texto com «cerveja» sai `bloqueada` com `alcool`, grava-se, e o classificador não é chamado (`texto de categoria restrita sai bloqueada, com o id da politica, e grava-se`). A injecção ao classificador fica `condicional` pelas regras (`a injeccao ao classificador e condicional pelas regras`). No AGR, a recusa sai com o código `condicoes_recusadas` e a `regra` `alcool`, sem o texto na mensagem nem no `repr`, e sem registo nenhum (`test_a_recusa_nao_leva_o_texto_nem_escreve_registo`, com `assertNoLogs`) |
 
 ### Verificação da Definition of Done
@@ -2197,7 +2198,7 @@ Testes: integração pela fila, isolamento e adversarial.
 | Prioridade | P2 |
 | Estimativa | S |
 | Dependências | KAM-222 |
-| Bloqueia | — |
+| Bloqueia | KAM-230 |
 | Responsável sugerido | Engenheiro de Runtime/IA com Engenheiro de Plataforma |
 | Documentos de referência | `EPIC-11_Modulos_Entrada.md` (blocos KAM-123, critério 4, KAM-220 e KAM-222), `02_Dicionario_de_Dados_Canonico.md` (§3.58 e §3.79), `../ops/secrets-inventory.yaml` (`agr_screening_token`) |
 
@@ -2211,8 +2212,8 @@ As condições de um orçamento chegam ao `screen` do KAM-088 em produção, e o
 
 ### Critérios de Aceitação
 
-- [ ] O `submit_quote` passa ao `responder` um `ScreeningPeloCom` com o sujeito das condições, sobre o `ClienteDoCom` do `KAMBA_COM_URL`; e corre numa *thread* (`asyncio.to_thread`, como os executores da ToolLayer), porque o AGR espera o COM até 20 s e o COM chama o `/internal/screening` do mesmo AGR — com o ciclo de eventos preso, o classificador sai por tempo e as condições recusam sempre.
-- [ ] Os três *compose* definem o `KAMBA_AGR_URL` no COM e o `agr_screening_token` no AGR, que o verifica, e no COM, que o apresenta; o `secrets-inventory` passa a declarar onde é obrigatório.
+- [x] O `submit_quote` passa ao `responder` um `ScreeningPeloCom` com o sujeito das condições, sobre o `ClienteDoCom` do `KAMBA_COM_URL`; e corre numa *thread* (`asyncio.to_thread`, como os executores da ToolLayer), porque o AGR espera o COM até 20 s e o COM chama o `/internal/screening` do mesmo AGR — com o ciclo de eventos preso, o classificador sai por tempo e as condições recusam sempre.
+- [x] Os três *compose* definem o `KAMBA_AGR_URL` no COM e o `agr_screening_token` no AGR, que o verifica, e no COM, que o apresenta; o `secrets-inventory` passa a declarar onde é obrigatório.
 
 ### Detalhes Técnicos
 
@@ -2225,8 +2226,8 @@ As condições de um orçamento chegam ao `screen` do KAM-088 em produção, e o
 
 ### Definition of Done
 
-- [ ] Critérios de Aceitação satisfeitos; os critérios 1 e 2 do KAM-222 e a nota do critério 4 do KAM-123 revistos com a evidência.
-- [ ] Nenhum texto do dono em logs (ADR-010), e o `env_lint` e o `compose_prod` sem achados.
+- [x] Critérios de Aceitação satisfeitos; os critérios 1 e 2 do KAM-222 e a nota do critério 4 do KAM-123 revistos com a evidência.
+- [x] Nenhum texto do dono em logs (ADR-010), e o `env_lint` e o `compose_prod` sem achados.
 
 ### Handoff para Claude Code
 
@@ -2239,6 +2240,94 @@ Regras: falha fechada; a guarda do KAM-033 fica; nenhum segredo no repositório.
 Testes: integração e adversarial.
 ```
 
+### Decisões do executor
+
+- **A *thread* é a da ToolLayer, e não uma nova.** O `invoke` da [`camada.py`](../services/agr/src/kamba_agr/tls/camada.py) já corre todo o executor em `asyncio.to_thread`, e o `submit_quote` é um executor da ToolLayer: o ciclo de eventos do AGR fica livre para servir o `POST /internal/screening` que o COM chama durante o `screen`. Um segundo `to_thread` dentro do executor não mudava nada. O que faltava era a medida: o ensaio põe o «AGR» no ciclo de eventos do próprio ensaio, e o canário corre o mesmo executor **no ciclo** e exige a recusa (`test_com_o_ciclo_preso_as_condicoes_recusam`). Sem o canário, um verde não distinguia «corre numa *thread*» de «o COM de ensaio não chama ninguém».
+- **As duas *pools* não se esgotam uma à outra.** A ToolLayer usa o executor por omissão do `asyncio`, e a rota do classificador do AGR usa o `run_in_threadpool` do Starlette, que é o limitador do `anyio`. São duas *pools*, e quatro tomadas da ToolLayer presas à espera do COM não tiram a *thread* ao classificador.
+- **O `screen` cabe no tecto do executor, e não nos 20 s do adaptador.** A ToolLayer corta uma tool `write` aos 8 s mais a margem (§6.5). Um `screen` de 20 s dava ao dono um `UPSTREAM_TIMEOUT` com a *thread* ainda viva, e a resposta gravava-se depois, sem eco nem botão. O tecto do `screen` é o que sobra do tecto do executor depois do que já correu e de uma reserva de 1,5 s para a transacção (`RESERVA_DA_TRANSACCAO_MS`, *proposta*); sem tempo que sobre, não há porta, e as condições recusam. Com os 8 s de hoje, o `screen` tem até ~6,5 s, e o classificador do COM espera até 15 s: **um classificador mais lento do que isso recusa as condições**. É fechado, e a latência real do `screening-nano` não está medida (**NÃO VERIFICADO**).
+- **Um cliente do COM para as duas coisas.** O [`__main__.py`](../services/agr/src/kamba_agr/__main__.py) constrói o `ClienteDoCom` uma vez (`_cliente_do_com`) e passa-o aos executores de comércio e aos do orçamento. Sem `KAMBA_COM_URL` não há cliente, as condições recusam e uma resposta sem condições segue.
+- **A vertical do `actor` é a do turno** (`grafo-<vertical>`), lida do `ToolContext`, e não uma fixa: a porta constrói-se por chamada, com o tecto dela.
+- **Os *compose*.** O `agr_screening_token` entra com `:?` nos três, `dev` incluído, pela regra do `com_internal_token`; e com um marcador no `egress_dez.MARCADORES`, senão o `egress-dez` do gate 6 falha na interpolação. O `KAMBA_AGR_URL` do COM é `http://agr:8000`, na rede `app` e no `NO_PROXY`: a chamada não passa pelo proxy de saída. O COM não ganha `depends_on` do AGR: sem ele, o classificador falha e as condições recusam, que é fechado.
+- **A chave do LiteLLM do classificador também entra, e opcional.** O AGR chama o `screening-nano` com a `litellm_screening_key`, e nenhum *compose* lha dava: em `staging` e `prod` as condições recusavam sempre, mesmo com o `KAMBA_AGR_URL` ligado. Entra com `:-`, como o inventário a declara («não é obrigatória no arranque»). Em `dev` não entra, porque o LiteLLM não está na pilha de desenvolvimento.
+- **O inventário.** O `agr_screening_token` passa a `obrigatorio_em: [dev, staging, prod]`: o COM exige-o no arranque com o `KAMBA_AGR_URL`, e os três *compose* recusam arrancar sem ele. O AGR continua a lê-lo a cada pedido.
+
+### Achados fora de âmbito, com credor
+
+| Achado | Onde | Credor |
+|---|---|---|
+| **Nenhum nó do processo passa condições ao `submit_quote`.** O `_responder_orcamento` do grafo do dono chama a tool com a `referencia` e o `valor` e mais nada, pelo que a porta montada aqui só é alcançada por uma chamada com `condicoes` que hoje ninguém faz | [`verticais/dono/nos.py`](../services/agr/src/kamba_agr/verticais/dono/nos.py) (KAM-220) | **KAM-230**, aberto neste PR |
+| **O AGR contra o COM TypeScript a correr.** Os ensaios deste ticket medem o AGR contra um COM de ensaio por HTTP real, e o `screen` real do COM está medido do lado dele (KAM-222). O ensaio que junta os dois processos, com a base e um classificador falso, não existe | `services/agr/tests/` e `services/com/tests/` | **KAM-230** |
+
+### Verificação dos Critérios de Aceitação
+
+Dois critérios, **os dois marcados**. Os ensaios estão em [`services/agr/tests/test_submit_quote_screening.py`](../services/agr/tests/test_submit_quote_screening.py) (gate 4, AGR): o executor pela ToolLayer, com o transporte real (`httpx`) contra um COM de ensaio em `127.0.0.1` que fala o contrato do `POST /internal/screen`, e com o classificador desse COM a chamar o «AGR» no ciclo de eventos do ensaio.
+
+| Critério | Estado | Evidência nomeada |
+|---|---|---|
+| 1 | marcado | Condições limpas seguem: uma chamada ao COM com os dois cabeçalhos, o sujeito das condições, o `quote_id` como referência, a categoria do tenant (`null`) e o `actor` `grafo-dono`, e uma ao classificador do «AGR» (`test_condicoes_limpas_seguem_pelo_com_e_pelo_classificador`). O mesmo executor no ciclo recusa (`test_com_o_ciclo_preso_as_condicoes_recusam`). Sem condições nada vai ao COM (`test_sem_condicoes_nao_vai_ao_com`); sem COM as condições recusam e a resposta sem elas segue (`test_sem_com_as_condicoes_recusam_e_sem_elas_segue`). A porta é a do sujeito das condições, com a vertical do turno e o tecto do executor (`TestAPortaDasCondicoes`), e o `__main__` passa-lhe o cliente (`TestOArranque`) |
+| 2 | marcado | Os três *compose* lidos pelo `docker compose config` (Docker 29.7.2, 2026-11-19): o COM com `KAMBA_AGR_URL=http://agr:8000` e o `KAMBA_SECRET_AGR_SCREENING_TOKEN`, o AGR com o mesmo segredo, nos três; o `prod` sem o segredo recusa na interpolação. O marcador no `egress_dez` (`test_cada_variavel_obrigatoria_tem_marcador`). O inventário com `obrigatorio_em: [dev, staging, prod]` (`secrets_inventory`, suite: 77 ensaios). **Não medido:** o arranque da pilha com o classificador a responder, que pede o LiteLLM e uma chave |
+
+### Verificação da Definition of Done
+
+| Caixa | Estado | Evidência nomeada |
+|---|---|---|
+| 1 | marcado | Os dois critérios; o critério 1 e a nota da verificação do KAM-222 e a nota do critério 4 do KAM-123 revistos, com o credor do que fica (**KAM-230**) |
+| 2 | marcado | A recusa de uma regra da política não leva o texto à saída, ao erro, ao `repr` do resultado nem a registo nenhum (`test_uma_regra_da_politica_recusa_sem_o_texto_em_registo_nenhum`); o COM em baixo e o AGR em baixo recusam sem prender o turno (`test_com_em_baixo_recusa_depressa`, `test_agr_em_baixo_durante_o_screen_recusa`, `test_um_com_lento_nao_prende_o_turno`). `env_lint lint` e `compose_prod lint`: **0 achados**; os canários deles, 25 de 25 e 67 de 67 casos a morder |
+
+---
+
+## KAM-230 — Orçamento expresso: as condições do dono no processo, e o AGR contra o COM a correr
+
+| Campo | Valor |
+|---|---|
+| Epic | EPIC-11 — Módulos de Entrada |
+| Fase | 1 |
+| Tipo | feature |
+| Prioridade | P2 |
+| Estimativa | S |
+| Dependências | KAM-228 |
+| Bloqueia | — |
+| Responsável sugerido | Engenheiro de Runtime/IA |
+| Documentos de referência | `EPIC-11_Modulos_Entrada.md` (blocos KAM-123, critério 4, KAM-220, KAM-222 e KAM-228) |
+
+### Contexto
+
+Credor do KAM-228, aberto no PR dele. O KAM-228 monta a porta do `screen` no `submit_quote` e o classificador nos *compose*, mas **nenhum nó do processo passa condições à tool**: o `_responder_orcamento` do grafo do dono chama o `submit_quote` com a referência e o valor, e o texto que o dono escreva além do valor vai todo para o *parser* do valor. E os ensaios do KAM-228 medem o AGR contra um COM de ensaio; o que junta o AGR, o COM TypeScript, a base e o classificador não existe.
+
+### Objectivo
+
+As condições que o dono escreve chegam ao `screen` do KAM-088 pelo grafo, e isso mede-se com os dois processos a correr.
+
+### Critérios de Aceitação
+
+- [ ] A resposta do dono pode levar condições, e o nó do grafo do dono passa-as ao `submit_quote` no argumento `condicoes`; o valor continua a ler-se só pelo *parser* determinístico, e um texto ambíguo entre os dois recusa em vez de adivinhar.
+- [ ] Contra o COM a correr, com a base e um classificador falso: condições limpas seguem, e uma categoria restrita recusa com `condicoes_recusadas`, com a decisão gravada na `screening_decision` com o sujeito das condições.
+
+### Detalhes Técnicos
+
+- **Sem esquema novo** previsto.
+- A forma como o dono separa o valor das condições muda o que ele escreve: se não houver uma óbvia, devolve-se ao fundador.
+
+### Testes Requeridos
+
+- Integração: AGR → COM → AGR, com o PostgreSQL.
+- **Adversarial:** um número ou uma injecção nas condições escritas na mesma mensagem do valor; o COM e o AGR em baixo.
+
+### Definition of Done
+
+- [ ] Critérios de Aceitação satisfeitos; os achados do KAM-228 revistos com a evidência.
+- [ ] Nenhum texto do dono em logs (ADR-010).
+
+### Handoff para Claude Code
+
+```text
+És o executor do ticket KAM-230 da KAMBÁ (as condições do dono no processo).
+Lê specs/EPIC-11_Modulos_Entrada.md (blocos KAM-220, KAM-222, KAM-228 e KAM-230),
+services/agr/src/kamba_agr/verticais/dono/nos.py e services/agr/tests/test_submit_quote_screening.py.
+Objectivo: o grafo do dono passa as condições ao submit_quote, e o AGR mede-se contra o COM a correr.
+Regras: o valor só pelo parser determinístico; falha fechada; a guarda do KAM-033 fica.
+Testes: integração com a base e adversarial.
+```
 
 ---
 
@@ -2296,3 +2385,4 @@ Testes: integração e adversarial.
 | 1.13 | Novembro 2026 | **KAM-220 entregue em parte: o Orçamento expresso nos grafos.** Sem migração. Emenda 1.118 do dicionário, provisória. Bloco do KAM-220: a decisão do fundador de 2026-11-19 (opção C: o botão do cliente no pedido, a dispensa fechada do passo 4 na resposta do dono), as decisões do executor e a verificação (**três de cinco** critérios marcados; o texto do dono no processo fica com o **KAM-223**). As caixas 1, 2, 3, 6, 9 e 10 do KAM-123 revistas, e o 1, o 6 e o 10 marcados: seis de dez. **KAM-226** acrescentado, aberto neste PR com o número a seguir ao maior da `main`: o aviso proactivo ao dono e o botão «Aceito» na proposta (o bloco, a linha do §3 e o `Bloqueia` do KAM-220). | Equipa KAMBÁ |
 | 1.14 | Novembro 2026 | **KAM-224 entregue em parte: a saída do AGR pelo evento de resposta.** Revisão `0073` (provisória, sobre a `0072` do KAM-123), emenda 1.119 do dicionário (§3.80 e §3.5), escrita como 1.118 e renumerada na integração, depois do KAM-220. Bloco do KAM-224: as decisões do executor (o texto na `agent_replies` e o evento com o identificador; a idempotência pela tabela; a transacção do `send`; o agregado `conversation`; os títulos dos botões no AGR; o início do turno num `ContextVar`; o `Saida` numa ligação própria; o consumidor `painel` no processo de lote), **a decisão do fundador de 2026-11-19** (a opção B, com a excepção estreita no `lint_arch` do *gate* 2, e o critério 1 reescrito), a verificação dos critérios (**dois de quatro** marcados) e do DoD (**um de dois**), e a revisão adversarial. O que fica tem credor novo, aberto neste PR com o número a seguir ao KAM-226 da `main` (aberto como KAM-226 e renumerado na integração, depois do KAM-220): a credencial da Meta por canal, o destinatário de produção e o consumidor `outbound` no compose, no **KAM-227** (o bloco, a linha do §3 e o `Bloqueia` do KAM-224) | Equipa KAMBÁ |
 | 1.15 | Novembro 2026 | **KAM-222 entregue em parte: a ponte do `screen` do KAM-088 para Python.** Revisão `0074`, sobre a `0073` do KAM-224: o `sujeito_tipo` da `screening_decision` ganha `condicoes`. Emenda 1.120 do dicionário (§3.58 e §3.39), escrita como 1.118 e renumerada duas vezes na integração, depois do KAM-220 e do KAM-224; e esta linha, escrita como 1.13. Bloco do KAM-222: **duas decisões do fundador, tomadas a 2026-11-19** (o sujeito das condições na `screening_decision`, opção A; e as condições de uma loja cuja categoria não casa uma entrada `permitida`, opção A: recusam sempre), as decisões do executor (a 12.ª rota do COM, só o sujeito das condições, o `screen` por último no `conferir_condicoes`, a regra da recusa), um achado fora de âmbito com credor (o `categoria_restrita` do KAM-049, no **KAM-119**) e a verificação (**os dois critérios e as duas caixas da DoD marcados**; a montagem em produção fica com o credor). A nota do critério 4 do KAM-123 revista. **KAM-228** acrescentado, aberto neste PR com o número a seguir ao maior da `main` (escrito como KAM-227 e renumerado na integração, depois de o KAM-224 tomar o 227): a porta do `screen` no `submit_quote` e o classificador nos três *compose* (o bloco, a linha do §3 e o `Bloqueia` do KAM-222). O KAM-220 fundiu antes e não pode ser credor, e o KAM-226 não cobre o `submit_quote` | Equipa KAMBÁ |
+| 1.16 | Novembro 2026 | **KAM-228 entregue: a porta do *screening* no `submit_quote` e o classificador nos *compose*.** Sem migração. Emenda 1.121 do dicionário (§3.58), provisória. Bloco do KAM-228: as decisões do executor (a *thread* é a da ToolLayer, medida com um canário; o `screen` cabe no tecto do executor e não nos 20 s do adaptador; um cliente do COM para as duas coisas; os *compose* e o inventário; a `litellm_screening_key` do AGR, opcional) e a verificação (**os dois critérios e as duas caixas da DoD marcados**). O critério 1 e a verificação do KAM-222 e a nota do critério 4 do KAM-123 revistos. **KAM-230** acrescentado, aberto neste PR com o número a seguir ao KAM-229 do PR #233, provisório: um nó do grafo do dono que passe as condições ao `submit_quote`, que nenhum passa, e o ensaio do AGR contra o COM TypeScript a correr (o bloco, a linha do §3 e o `Bloqueia` do KAM-228) | Equipa KAMBÁ |

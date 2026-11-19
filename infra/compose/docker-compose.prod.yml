@@ -588,6 +588,11 @@ services:
       # KAM-228. O AGR verifica a credencial do `POST /internal/screening`, que o
       # classificador do `screen` do COM apresenta. Tem de ser o mesmo valor.
       KAMBA_SECRET_AGR_SCREENING_TOKEN: ${KAMBA_SECRET_AGR_SCREENING_TOKEN:?o cofre entrega a credencial da rota do classificador do AGR}
+      # A chave virtual da plataforma para o `screening-nano` (KAM-195), com que o
+      # AGR chama o LiteLLM do classificador. **Opcional**, como o inventario a
+      # declara: sem ela o `chamar` falha, o COM le `condicional`, e as condicoes
+      # recusam. Fecha, e nao abre.
+      KAMBA_SECRET_LITELLM_SCREENING_KEY: ${KAMBA_SECRET_LITELLM_SCREENING_KEY:-}
     # Duas replicas, criterio 5.
     deploy:
       replicas: 2
