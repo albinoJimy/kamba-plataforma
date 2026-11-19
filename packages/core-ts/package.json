@@ -159,6 +159,10 @@
       "types": "./dist/trust/index.d.ts",
       "default": "./dist/trust/index.js"
     },
+    "./resposta": {
+      "types": "./dist/resposta/index.d.ts",
+      "default": "./dist/resposta/index.js"
+    },
     "./offboarding": {
       "types": "./dist/offboarding/index.d.ts",
       "default": "./dist/offboarding/index.js"

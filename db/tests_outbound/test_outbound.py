@@ -161,6 +161,15 @@ FICHEIROS = (
     "tests/coexistencia.test.ts",
     "tests/coexistencia.fixtures.test.ts",
     "tests_bd/coexistencia.bd.test.ts",
+    # KAM-224. A resposta do AGR vive em `src/resposta/`, e entra nesta suite
+    # pela razao que nenhuma outra tem: o criterio 4 pede «um turno com
+    # resposta da **1** envio pelo `Saida`», e isso conta-se no `GraphFalso`,
+    # que so esta suite monta, sobre a `outbound_messages`, que e a tabela
+    # dela. O lado do AGR corre com o SQL do proprio `saida.py`, lido do
+    # ficheiro. O de unidade entra pela prova por mutacao, pela razao escrita
+    # acima para o `metering.test.ts`.
+    "tests/resposta.test.ts",
+    "tests_bd/resposta.bd.test.ts",
 )
 
 #: Os grupos que **tem** de aparecer na saida, um por propriedade que a suite
@@ -255,6 +264,11 @@ GRUPOS = (
     "coexistencia: isolamento de tenant",
     "as fixtures do KAM-024 contra o tratador da coexistencia",
     "a coexistencia contra a base",
+    # KAM-224, do `tests_bd/resposta.bd.test.ts`.
+    "um turno, um envio (criterio 4)",
+    "isolamento: o tenant é o do envelope",
+    "adversarial",
+    "turno → evento → painel",
 )
 
 #: Testes que **tem** de ter corrido e passado, pelo nome. Lista curta, com os
@@ -471,6 +485,12 @@ TESTES_OBRIGATORIOS = (
     "a rotacao da KEK nao perde os tokens antigos",
     # E a do cliente da Graph que fixa a exposicao declarada do `graph.ts`.
     "o code e o client_secret vao na consulta, como a Meta documenta",
+    # KAM-224: a letra do criterio 4 e dos tres adversariais do bloco.
+    "**um turno com resposta dá 1 envio pelo Saida, e a reentrega 3× continua a dar 1**",
+    "o turno repetido pelo shim não emite outra vez, e não envia outra vez",
+    "o reply_id de A num envelope de B não envia nada e vai à DLQ de B",
+    "**um evento com canal desconhecido vai à DLQ**, e não sai pelo WhatsApp",
+    "o consumidor do painel marca a resposta uma vez, e o do WhatsApp ignora-a",
 )
 
 #: Os ficheiros do modulo. A cobertura mede-se em **cada um**.

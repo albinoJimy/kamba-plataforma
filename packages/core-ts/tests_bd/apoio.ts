@@ -275,6 +275,9 @@ export async function apagarTenant(admin: pg.Client, tenant: string): Promise<vo
   // `23503` no `after` do ensaio — e rebenta **depois** de os testes passarem,
   // o que faz a suite ficar vermelha sem nenhuma assercao ter falhado.
   await admin.query("DELETE FROM platform.outbound_messages WHERE tenant_id = $1", [tenant]);
+  // KAM-224: a resposta do AGR, com as FK compostas para a conversa e o
+  // contacto, pela mesma razao das duas da saida.
+  await admin.query("DELETE FROM platform.agent_replies WHERE tenant_id = $1", [tenant]);
   await admin.query("DELETE FROM platform.message_templates WHERE tenant_id = $1", [tenant]);
   // KAM-014: antes dos contactos e dos canais, que ela referencia.
   await admin.query("DELETE FROM platform.conversations WHERE tenant_id = $1", [tenant]);

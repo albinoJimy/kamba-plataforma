@@ -4,7 +4,7 @@
 |---|---|
 | Produto | KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para Angola |
 | Documento | Epic — Agent Runtime e Verticais |
-| Versão | 1.24 |
+| Versão | 1.25 |
 | Data | Outubro de 2026 |
 | Classificação | Documento de Referência — Interno |
 | Documento-fonte | `../docs/tecnica/02_Agent_Runtime_Verticais.md`, `../docs/tecnica/00_Arquitectura_Solucao.md` |
@@ -5200,7 +5200,7 @@ services packages` só encontra comentários), e o AGR é Python, sem fila nem r
 para lá. O processo liga a `SaidaPorLigar`, que avisa (`outcome=saida`,
 `error_code=saida_por_ligar`) e levanta: a rota responde **503
 `saida_por_ligar`**, o *job* volta à fila e nenhuma resposta se perde. Nenhuma
-linha do §4 do `INDICE.md` é a ponte AGR → Outbound; abri-la é L1.
+linha do §4 do `INDICE.md` é a ponte AGR → Outbound; abri-la é L1. **Revisto no KAM-224**: a ponte existe. A decisão 2 do fundador de 2026-11-19 (bloco do KAM-217) pôs a resposta num evento, e o `main()` liga a `SaidaPorEvento` (`kamba_agr/saida.py`): a resposta grava-se na `platform.agent_replies` e sai como `agent.replied` pela `evt_emitir`, na mesma transacção, e um turno repetido não emite. O consumidor `outbound` do `worker-canal` instancia o `Saida` do KAM-015 e está medido contra a base e o servidor Graph falso; em produção ainda não arranca, por falta do cliente da Graph de cada canal e do destinatário, e o credor é o **KAM-226**.
 
 **DoD.** «Critérios satisfeitos» fica **vazia** (o 3, o 4, o 6 e o 9 são
 parciais e o 7 e o 11 estão devolvidos); «decisão do critério 1 devolvida e não
@@ -5441,3 +5441,4 @@ services/agr/tests.
 | 1.22 | Novembro 2026 | **KAM-192**: os Detalhes Técnicos do bloco do KAM-030 passam a nomear o quinto papel do cliente, `screening` — o do classificador de categorias do GOV (KAM-088), com o alias `screening-nano`. A lista fechada vive no dicionário §3.29 (emenda 1.85) e no `CHECK` da revisão `0047`. A secção de verificação do KAM-030 não muda: «os quatro em `llm/aliases.yaml`» continua verdadeiro, e era a evidência daquela entrega. | Equipa KAMBÁ |
 | 1.23 | Novembro 2026 | KAM-118 (EPIC-11): o KAM-211, credor das ligações de produção do canal do dono, entra no `Bloqueia` do KAM-186: o botão `confirm:{action_id}` só chega ao estado do turno pelo processo do AGR que serve turnos. Nenhuma caixa deste epic muda. | Equipa KAMBÁ |
 | 1.24 | Novembro 2026 | **KAM-214** acrescentado e entregue no mesmo PR: o ensaio `test_conversas_diferentes_nao_esperam_uma_pela_outra` dormia 10 ms dentro da tranca e esperava ver as duas conversas lá dentro. Mas a segunda só entra depois de uma ida ao *pool* do `to_thread`, e numa máquina carregada essa ida passa dos 10 ms. O ensaio passa a medir com uma barreira, e o código de produção não muda. Entra no `Bloqueia` do KAM-034, que escreveu o ensaio. | Equipa KAMBÁ |
+| 1.25 | Novembro 2026 | KAM-224 (EPIC-11): o achado da `PortaDeSaida` do bloco do KAM-186 revisto — a saída do AGR é a `SaidaPorEvento`, pela decisão 2 do fundador de 2026-11-19, e o que falta para o WhatsApp em produção tem credor no **KAM-226**. Nenhuma caixa deste epic muda. | Equipa KAMBÁ |

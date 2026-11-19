@@ -21,20 +21,25 @@
  *    é a ligação de operação que lê a DLQ, e não a de consumo.
  * 4. Serve `/metrics`, como o publicador, na sua porta.
  *
- * ## O efeito, e porque este processo não tem nenhum
+ * ## O efeito, escolhido pelo nome do consumidor
  *
- * Um consumidor sem efeito de negócio não serve para nada — e, hoje, não há
- * efeito nenhum para aplicar: as verticais que consomem eventos são o KAM-038,
- * e o core de comércio é o KAM-041. Este processo traz o **esqueleto** com um
- * efeito que só regista, e é por isso que o `KAMBA_CONSUMER` é obrigatório mas
- * o efeito é fixo. Quem acrescentar uma vertical troca o efeito e mais nada.
+ * Até ao KAM-224 o processo trazia só o **esqueleto**, com um efeito que
+ * registava e mais nada. Hoje o `KAMBA_CONSUMER` escolhe-o (`efeitoDoConsumidor`):
+ *
+ * - `outbound` — a resposta do AGR de canal `whatsapp` (`agent.replied`), pelo
+ *   `Saida` do KAM-015 (`@kamba/core-ts/resposta`). **Não arranca sem o cliente
+ *   da Meta e o destinatário**, que não têm fonte de produção neste repositório
+ *   (o `tenant_channels.token_ref` sem leitor, e nenhum `ObterDestinatario`):
+ *   sai com `SaidaSemPortasError` antes de levantar *workers*. O credor é o
+ *   **KAM-226**. Os eventos ficam nas filas `evt.outbound.p<n>` à espera.
+ * - qualquer outro — o esqueleto, que regista e mais nada.
  */
 
 import { serve } from '@hono/node-server';
 import { healthz } from '@kamba/core-ts';
 import { instalar } from '@kamba/core-ts/logger';
 import { Hono } from 'hono';
-import { Client } from 'pg';
+import pg, { Client } from 'pg';
 
 import { SERVICE, VERSION } from './meta.ts';
 import {
@@ -49,8 +54,17 @@ import {
   publicarAbertas,
   reporUmaVez,
 } from '@kamba/core-ts/eventos';
+import type { Efeito } from '@kamba/core-ts/eventos';
 import { FilasBullmq } from '@kamba/core-ts/eventos/filas_bullmq';
 import { criarTrabalhadores } from '@kamba/core-ts/eventos/trabalhador_bullmq';
+import type { ClienteDaMeta, ObterDestinatario } from '@kamba/core-ts/outbound';
+import {
+  CONSUMIDOR_DO_OUTBOUND,
+  efeitoDoOutbound,
+  envioPeloSaida,
+  type DesfechoDaResposta,
+  type LigacaoDoEnvio,
+} from '@kamba/core-ts/resposta';
 
 const log = instalar(SERVICE);
 
@@ -107,6 +121,62 @@ export class ArranqueRecusadoError extends Error {
 }
 
 /**
+ * O consumidor `outbound` sem o cliente da Meta ou sem o destinatário.
+ *
+ * Arrancar sem eles era consumir as respostas e recusá-las todas — ou pior,
+ * enviá-las sem destinatário. Sai antes de levantar *workers*, e os eventos
+ * esperam nas filas (KAM-224; credor das duas portas: KAM-226).
+ */
+export class SaidaSemPortasError extends Error {
+  readonly emFalta: readonly string[];
+
+  constructor(emFalta: readonly string[]) {
+    super(
+      `o consumidor ${CONSUMIDOR_DO_OUTBOUND} precisa de ${emFalta.join(' e ')}: ` +
+        'sem eles nenhuma resposta do AGR sai pelo WhatsApp (credor KAM-226)',
+    );
+    this.name = 'SaidaSemPortasError';
+    this.emFalta = emFalta;
+  }
+}
+
+/** As portas que o `outbound` precisa e que o processo ainda não tem. */
+export interface PortasDoOutbound {
+  readonly meta: ClienteDaMeta | null;
+  readonly destinatario: ObterDestinatario | null;
+  /** Toma uma ligação `kamba_app` própria para o `Saida`. */
+  readonly tomar: () => Promise<LigacaoDoEnvio>;
+  readonly devolver: (ligacao: LigacaoDoEnvio, erro?: unknown) => Promise<void> | void;
+  readonly aoTratar?: (desfecho: DesfechoDaResposta, motivo?: string) => void;
+}
+
+/**
+ * O efeito do consumidor, pelo nome. Exportada para se ensaiar sem processo.
+ *
+ * O `outbound` monta o `Saida` (`envioPeloSaida`) e recusa sem as duas portas;
+ * os outros nomes ficam com o efeito do esqueleto.
+ */
+export function efeitoDoConsumidor(consumer: string, portas: PortasDoOutbound): Efeito {
+  if (consumer !== CONSUMIDOR_DO_OUTBOUND) return async () => {};
+  const emFalta = [
+    ...(portas.meta === null ? ['o cliente da Meta'] : []),
+    ...(portas.destinatario === null ? ['o destinatario'] : []),
+  ];
+  if (portas.meta === null || portas.destinatario === null) {
+    throw new SaidaSemPortasError(emFalta);
+  }
+  return efeitoDoOutbound(
+    envioPeloSaida({
+      tomar: portas.tomar,
+      devolver: portas.devolver,
+      meta: portas.meta,
+      destinatario: portas.destinatario,
+    }),
+    portas.aoTratar === undefined ? {} : { aoTratar: portas.aoTratar },
+  );
+}
+
+/**
  * Recusa o arranque com uma subscrição de pagamento sem ordem.
  *
  * Exportada para ser exercitada sem levantar o processo: é o critério 7, e um
@@ -146,6 +216,20 @@ async function principal(): Promise<void> {
   await operacao.connect();
   await exigirOrdemNosPagamentos(operacao);
 
+  // O `Saida` corre numa ligação própria, e não na do consumo: ver a nota do
+  // `efeito.ts` de `@kamba/core-ts/resposta`. Um conjunto pequeno, tomado por
+  // envio. **As duas portas da Meta não têm fonte** (KAM-226): o `outbound`
+  // sai aqui com `SaidaSemPortasError`, antes de levantar *workers*.
+  const envios = new pg.Pool({ connectionString: urlDaBase, max: 4 });
+  envios.on('error', () => log.warn({ outcome: 'ligacao_do_envio_caiu' }));
+  const efeito = efeitoDoConsumidor(consumer, {
+    meta: null,
+    destinatario: null,
+    tomar: async () => envios.connect(),
+    devolver: (ligacao, erro) => (ligacao as pg.PoolClient).release(erro instanceof Error ? erro : undefined),
+    aoTratar: (desfecho) => log.info({ outcome: `resposta_${desfecho}` }),
+  });
+
   const consumo = criarTrabalhadores({
     // Uma ligação por fila, aberta à primeira entrega: a transacção do consumo
     // é da fila, e dezasseis filas numa sessão intercalavam `BEGIN`/`COMMIT`.
@@ -156,8 +240,8 @@ async function principal(): Promise<void> {
     },
     subscricao: { consumer, exigeOrdem: true },
     filas: filasDe(consumer),
-    // O efeito do esqueleto: regista e mais nada. Ver a docstring.
-    efeito: async () => {},
+    // Pelo nome do consumidor: ver a docstring.
+    efeito,
     metricas: METRICAS,
     url: urlDaFila,
     // O `log` da biblioteca tem *allowlist* de campos (`docs/tecnica/08`
@@ -195,6 +279,7 @@ async function principal(): Promise<void> {
     await consumo.fechar();
     await filas.fechar();
     await operacao.end().catch(() => {});
+    await envios.end().catch(() => {});
     servidor.close();
   }
 }

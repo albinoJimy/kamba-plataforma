@@ -163,6 +163,8 @@ class TestCatalogoReal(ComBase):
                 # `audit_heads` nao tem politica para provar, e o `audit_log` e
                 # append-only — semea-lo obrigava a desligar o trigger na
                 # limpeza.
+                # KAM-224: a resposta do AGR, a primeira de `platform` («ag» < «au»).
+                ("platform", "agent_replies", "tenant_id"),
                 ("platform", "audit_heads", "tenant_id"),
                 ("platform", "audit_log", "tenant_id"),
                 # KAM-059: o ciclo e as aprovacoes de ops («au» < «bi» < «ca»).
@@ -517,6 +519,8 @@ class TestCatalogoReal(ComBase):
             [
                 # KAM-012: o `audit_heads` nao aparece — nao tem politica, por
                 # excepcao declarada.
+                # KAM-224: a resposta do AGR, uma politica so («ag» < «au»).
+                ("agent_replies", "tenant_iso", "ALL", "{public}"),
                 ("audit_log", "tenant_iso", "ALL", "{public}"),
                 # KAM-017: o estado de coexistencia, antes da de onboarding
                 # («channel_c» < «channel_o»).
@@ -824,7 +828,9 @@ class TestCatalogoReal(ComBase):
         )
         self.assertEqual(
             [l[0] for l in linhas],
-            [# KAM-012: o registo de auditoria. O `audit_heads` nao esta
+            [# KAM-224: a resposta do AGR («ag» < «au»).
+             "agent_replies",
+             # KAM-012: o registo de auditoria. O `audit_heads` nao esta
              # aqui, por excepcao declarada em `ci/rls_exceptions.yaml`.
              "audit_log",
              # KAM-059: o ciclo e as aprovacoes de ops («au» < «bi» < «ca»).

@@ -73,7 +73,6 @@ from .grafos import (
     PoliticaDoTurno,
     PortaDeGrafos,
     PortasIncoerentesError,
-    SaidaPorLigar,
     admitir,
     compilar,
     para_validar,
@@ -82,9 +81,11 @@ from .handoff.servico import ServicoDeHandoff
 from .concierge.substituicao import Substituidor
 from .handoff.retoma import Retomador
 from .orcamento.porta import PortaDeOrcamento
+from .saida import SaidaPorEvento
 from .metricas import METRICAS
 from .ligacao import (
     ligar_para_accoes,
+    ligar_para_saida,
     ligar_para_checkpoint,
     ligar_para_concierge,
     ligar_para_eventos,
@@ -694,8 +695,13 @@ def main() -> int:
     # `async` e a leitura e sincrona (ver `grafos.py`).
     portas_do_grafo = {
         "tools": tools,
-        "saida": SaidaPorLigar(
-            aviso=lambda motivo: log.warn(outcome="saida", error_code=motivo)
+        # KAM-224: a resposta do turno grava-se na `agent_replies` e sai como
+        # `agent.replied` pela `evt_emitir`, numa transaccao so. A
+        # `SaidaPorLigar` deixou de ser a porta do processo (decisao 2 do
+        # fundador de 2026-11-19, bloco do KAM-217).
+        "saida": SaidaPorEvento(
+            ligar_para_saida,
+            aviso=lambda motivo: log.info(outcome="saida", error_code=motivo),
         ),
         "hnd": ServicoDeHandoff(metricas=METRICAS),
         "metricas": METRICAS,
@@ -739,13 +745,12 @@ def main() -> int:
         politica=portas_do_grafo["concierge"],
     )
     log.info(outcome="grafos_ligados", error_code=f"verticais_{len(grafos_do_processo)}")
-    # **O que fica por ligar diz-se, porta a porta.** Nenhuma destas finge: a
-    # `saida` avisa e levanta em cada envio, e a rota responde 503 (nao ha
-    # Outbound a que o AGR fale, e o achado esta no `grafos.py`), o `stt` sem porta da `ask_repeat` (KAM-036), os
+    # **O que fica por ligar diz-se, porta a porta.** Nenhuma destas finge: o
+    # `stt` sem porta da `ask_repeat` (KAM-036), os
     # dois classificadores sem porta deixam decidir as regras, e os `modos` sao
     # o KAM-018. Uma porta por ligar que nao aparece no registo de arranque e
     # uma omissao silenciosa, que e o que o DoD do KAM-186 proibe.
-    for porta in ("classificador", "classificador_de_guarda", "modos", "saida", "stt"):
+    for porta in ("classificador", "classificador_de_guarda", "modos", "stt"):
         log.warn(outcome="grafo_porta_por_ligar", error_code=porta)
 
     # KAM-114. O `Decisor` entra em `/internal/draft-decision` e o

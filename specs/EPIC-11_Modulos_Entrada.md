@@ -4,7 +4,7 @@
 |---|---|
 | Produto | KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para Angola |
 | Documento | Epic — Módulos de Entrada |
-| Versão | 1.12 |
+| Versão | 1.13 |
 | Data | Novembro de 2026 |
 | Classificação | Documento de Referência — Interno |
 | Documento-fonte | `../docs/tecnica/00_Arquitectura_Solucao.md` (ADR-020, §13.3 D13), `../docs/tecnica/02_Agent_Runtime_Verticais.md` (§21), `../docs/exploracao/14-tese-minima-e-plano-de-validacao.md` (H10–H12) |
@@ -63,6 +63,7 @@ Estado da evidência (E5): **CONFIRMADO** — preços e termos publicados dos fo
 | KAM-222 | Orçamento expresso: as condições do dono pelo *screening* do KAM-088, com ponte para Python | feature | S | P2 | KAM-123 |
 | KAM-223 | Canal do dono: a `OwnerPort`, a mensagem do dono persistida e a troca com prova de posse | feature | L | P1 | KAM-217, KAM-224 |
 | KAM-224 | Saída do AGR: o evento de resposta do turno, para o WhatsApp e para o painel | feature | L | P1 | KAM-217 |
+| KAM-226 | Saída do AGR em produção: a credencial da Meta por canal, o destinatário e o consumidor `outbound` no compose | feature | L | P1 | KAM-224 |
 
 ---
 
@@ -1678,7 +1679,7 @@ Testes: integração, isolamento e adversarial (sessão cruzada, texto que imita
 | Prioridade | P1 |
 | Estimativa | L |
 | Dependências | KAM-217 |
-| Bloqueia | KAM-223 |
+| Bloqueia | KAM-223, KAM-226 |
 | Responsável sugerido | Engenheiro de Runtime/IA (AGR) com Engenheiro de Plataforma (`worker-canal`, barramento de eventos) |
 | Documentos de referência | `EPIC-11_Modulos_Entrada.md` (bloco KAM-217, decisão 2), `EPIC-03_Agent_Runtime_Verticais.md` (bloco KAM-186, o achado da `PortaDeSaida`), `EPIC-02_Canais_WhatsApp_Handoff.md` (bloco KAM-015), `EPIC-01_Fundacoes_Dados.md` (bloco KAM-006), `02_Dicionario_de_Dados_Canonico.md` |
 
@@ -1693,7 +1694,7 @@ Um turno do AGR que quer responder emite um evento de resposta, e a resposta che
 ### Critérios de Aceitação
 
 - [ ] **O contrato:** um evento de resposta do turno no `registry/` e no dicionário (nome por proposta, antes de código), com o tenant, o `thread_id`, o canal (`whatsapp` ou `painel`), uma chave idempotente (o `turn_id` com a ordem da resposta), o texto já validado pelo *renderer* e os botões. Sem telefone e sem corpo do cliente.
-- [ ] **O produtor:** o AGR emite-o no `enfileirar` da `PortaDeSaida`, pela `platform.evt_emitir`, na transacção do turno; a `SaidaPorLigar` deixa de ser a porta do `main()`. Um turno repetido não emite duas vezes.
+- [x] **O produtor:** o AGR emite-o no `enfileirar` da `PortaDeSaida`, pela `platform.evt_emitir`, na transacção do turno; a `SaidaPorLigar` deixa de ser a porta do `main()`. Um turno repetido não emite duas vezes.
 - [ ] **Os consumidores:** o `worker-canal` consome o canal `whatsapp` e instancia o `Saida` do KAM-015; o `onboarding-web` consome o canal `painel`. As subscrições entram por revisão de dados, e cada consumidor é idempotente pela chave do evento.
 - [ ] Contra o PostgreSQL e a fila: um turno com resposta dá **1** envio pelo `Saida`, a reentrega 3× do evento continua a dar **1**, e um evento de outro tenant não chega ao consumidor errado.
 
@@ -1712,7 +1713,7 @@ Um turno do AGR que quer responder emite um evento de resposta, e a resposta che
 ### Definition of Done
 
 - [ ] Critérios de Aceitação satisfeitos; a decisão 2 do bloco do KAM-217 e o achado da `PortaDeSaida` do KAM-186 revistos com a evidência.
-- [ ] Telefone nunca em claro em logs, URLs ou eventos (ADR-010); sem segredos.
+- [x] Telefone nunca em claro em logs, URLs ou eventos (ADR-010); sem segredos.
 
 ### Handoff para Claude Code
 
@@ -1723,6 +1724,42 @@ packages/core-ts/src/outbound/ e o barramento de eventos do KAM-006. Pede a vaga
 Decisão tomada (2026-11-19): evento pela platform.evt_emitir, na transacção do turno. O nome do evento entra pelo dicionário.
 Testes: integração contra a base, isolamento e adversarial (reentrega, turno repetido, canal desconhecido).
 ```
+
+### Decisões do executor
+
+Medido no ramo `feature/KAM-224-saida-do-agr`, sobre a `publico/main` em `57446ec0`. Revisão `0073` (provisória, sobre a `0072` do KAM-123), emenda 1.118 do dicionário (§3.80 e §3.5).
+
+- **O texto da resposta fica numa tabela, e o evento leva o identificador dela.** O critério 1 pede «o texto já validado pelo *renderer* e os botões» no evento, mas o lint de PII do *gate* 7 recusa um campo `texto`, `mensagem` ou `conteudo` num *payload* (`tools/contract_diff/pii.py`, a regra do `../docs/tecnica/06` §7.1, «sem PII crua em eventos»), e a lista aprovada (`ci/contratos-allow.yaml`) só aceita campos que não são dado pessoal — e uma resposta a um cliente pode levar o nome dele. A resposta grava-se na `platform.agent_replies` (dicionário §3.80) e o `agent.replied` leva `reply_id`, `thread_id`, `conversation_id`, `contact_id` e `canal`, classe **P0**. É a forma da decisão 1 do fundador do mesmo dia (uma fonte persistida que se lê por identificador), e serve também o painel, que precisa de ler a resposta de algum lado. **É uma leitura do critério, e está devolvida ao fundador** pela coordenação do lote 13 com as duas opções: (A) o texto no evento, com uma entrada na lista aprovada do *gate* 7; (B) a tabela, que é o que este PR entrega. Por isso o critério 1 fica por marcar.
+- **A idempotência do produtor é a própria tabela.** `UNIQUE (tenant_id, chave)`, com a chave que o grafo já calcula para o envio (`turn_id:seq`, `{draft_id}:send`, `{handoff_id}:msg`): o `INSERT ... ON CONFLICT DO NOTHING RETURNING` não insere na repetição, e sem linha nova a `evt_emitir` não corre. Linha e evento nascem na mesma transacção (`services/agr/src/kamba_agr/saida.py`).
+- **«Na transacção do turno» é a transacção do `send`.** O turno do AGR não é uma transacção de base: o estado vai ao *checkpoint* pelo papel `kamba_agr`, noutra ligação, e um papel não vê o esquema do outro (KAM-026). O que fica atómico é a resposta com o evento. Um processo que morra entre o `COMMIT` da resposta e o *checkpoint* do `send` repete o turno, e a chave é a mesma.
+- **A `SaidaPorLigar` deixou de ser a porta do `main()`**: é a `SaidaPorEvento`, com uma ligação `kamba-agr:saida` por envio (`ligar_para_saida`), pela razão da `PortaDeConfirmacao` do KAM-211. A `SaidaPorLigar` fica para a validação de arranque, que compila o grafo sem portas.
+- **O agregado é a conversa**, para que as respostas de uma conversa caiam na mesma partição do barramento.
+- **O título dos botões resolve-o o AGR.** O `Corpo` do Outbound exige `{id, titulo}` e o grafo só dá o `id`; a dívida estava escrita no `degradado/textos.py` com credor KAM-015. A `saida.py` tem a tabela (`TITULOS`), com os três `menu:*` iguais ao `ROTULO_DA_OPCAO` do modo degradado (um ensaio confronta-os), e um `id` sem título **levanta** em vez de chegar cru ao cliente.
+- **O início do turno viaja num `ContextVar`** (`INICIO_DO_TURNO`), posto pelo `ExecutorDeTurnos` antes de ler a palavra da conversa: o `PreSendGuard` do KAM-018 recusa um envio do bot sem `turnoIniciadoEm`. Fora de um turno (a retoma do *handoff*, a decisão do concierge) vale o instante do envio. É a forma da `_ADMISSAO` do KAM-186, e não uma chave nova no estado, que pedia emenda ao §5.3.
+- **O `Saida` corre numa ligação própria, e não na do consumo.** Ele grava a linha antes da rede, e é isso que o torna idempotente; dentro da transacção do consumo, a linha só ficava com o `COMMIT`, e um processo que morresse depois do `200` da Meta reenviava. O `envioPeloSaida` (`packages/core-ts/src/resposta/envio.ts`) toma uma ligação, põe-lhe o tenant de sessão, monta o `Saida` com o `PreSendGuard` do KAM-018 sobre a mesma ligação, e limpa o contexto antes de a devolver.
+- **Uma recusa do Outbound é desfecho, e não erro**: janela fechada ou conversa em modo humano consomem o evento sem marcar a entrega. Um erro do envio recua pela escada do KAM-006.
+- **Um evento com canal desconhecido vai à DLQ pela escada**, e não directo: o `consumir` do KAM-006 só manda direito à DLQ os erros de máquina de estados, e mudar o motor para um ticket de canal era alargar o escopo. O que importa vale: o evento não se aplica em tentativa nenhuma.
+- **O consumidor `painel` corre no processo de lote do `onboarding-web`** (`consumidorDoPainel`), ao lado do de T&S, porque o servidor recusa `prod` e o lote não. O efeito marca a resposta entregue; a rota que a mostra ao dono é a `OwnerPort` do KAM-223.
+- **O consumidor `outbound` não arranca sem o cliente da Meta e o destinatário.** Nenhum dos dois tem fonte de produção: o *token* de cada canal é um `tenant_channels.token_ref` sem leitor, e não há `ObterDestinatario` fora dos ensaios. O `efeitoDoConsumidor` do `worker-canal` sai com `SaidaSemPortasError` antes de levantar *workers*, e os eventos esperam nas filas. O compose não muda: o `worker-canal-consumidor` continua com o `KAMBA_CONSUMER` de omissão. Credor: **KAM-226**.
+- **O `gov/contratos/versoes.json` não se toca**: é o manifesto dos documentos do aceite (KAM-090), e não de contratos de evento.
+
+### Verificação dos Critérios de Aceitação
+
+Quatro critérios, **um marcado**. Medido no ramo `feature/KAM-224-saida-do-agr`, sobre a `publico/main` em `57446ec0`. Os números dos ensaios são fictícios e não há chave real.
+
+| Critério | Estado | Evidência nomeada |
+|---|---|---|
+| 1 | **parcial — caixa vazia** | O contrato está no `registry/` (`registry/outbound.yaml`, `registry/painel.yaml`), em `contratos/eventos/agent.replied/` (v1 e v2) e no dicionário (§3.5 e §3.80), com as subscrições na revisão `0073` e confrontadas com o registo (`services/agr/tests/test_subscricoes_0052.py`, `TestRevisaoDaRespostaContraORegisto`). Leva o tenant, o `thread_id`, o canal e, pela linha, a chave do turno, os botões e o texto; sem telefone e sem corpo do cliente (`test_o_evento_nao_leva_o_texto`, nas duas suites). **O texto e os botões não vão no evento**, e é essa a leitura devolvida ao fundador (decisões do executor). `contract_diff check`: conforme, 90 contratos |
+| 2 | marcado | A `SaidaPorEvento` é a porta `saida` do `main()` (`test_a_saida_do_processo_e_o_evento_pela_ligacao_da_saida`), e emite pela `platform.evt_emitir` na transacção que grava a resposta (`db/tests_agr/test_agent_replies.py`, `test_um_turno_da_uma_linha_e_um_evento`). O turno repetido não emite: três repetições dão uma linha e um evento (`test_o_turno_repetido_tres_vezes_continua_a_dar_uma`), e duas sessões concorrentes com a mesma chave dão uma (`test_duas_sessoes_concorrentes_com_a_mesma_chave_dao_uma`) |
+| 3 | **parcial — caixa vazia** | O `worker-canal` consome o canal `whatsapp` e instancia o `Saida` do KAM-015 (`efeitoDoConsumidor` com `envioPeloSaida`), e o processo de lote do `onboarding-web` consome o `painel` (`consumidorDoPainel`). As subscrições entram pela revisão `0073`, e cada consumidor é idempotente pela chave do evento (`events_consumed`) e, no WhatsApp, pela chave do `Saida` (`tests_bd/resposta.bd.test.ts`, «um segundo evento sobre a mesma resposta pára na linha e na chave do Saida»). **Em produção o `outbound` não arranca**: falta o cliente da Meta por canal e o destinatário (`SaidaSemPortasError`, `services/worker-canal/tests/consumidor.test.ts`). Credor: **KAM-226** |
+| 4 | **parcial — caixa vazia** | Contra o PostgreSQL e o `GraphFalso`, com o SQL do próprio `saida.py`: um turno com resposta dá **1** envio pelo `Saida`, e a reentrega 3× continua a dar **1** («**um turno com resposta dá 1 envio pelo Saida, e a reentrega 3× continua a dar 1**»); o `reply_id` de A num envelope de B não envia nada e vai à DLQ de B. **Não contra a fila**: o consumo corre pelo `processar` do KAM-006 e não por um *worker* BullMQ, porque a suite que monta o `GraphFalso` não levanta fila. Credor: **KAM-226**, com o consumidor `outbound` no compose |
+
+### Verificação da Definition of Done
+
+| Caixa | Estado | Evidência nomeada |
+|---|---|---|
+| 1 | não satisfeito — caixa vazia | O critério 2 marcado, os outros três parciais. O achado da `PortaDeSaida` do KAM-186 está revisto no bloco dele (EPIC-03), e a decisão 2 cumprida pela opção A, com a leitura do texto devolvida |
+| 2 | marcado | O evento leva identificadores e o canal, e o texto não sai da `agent_replies` (`test_um_numero_no_texto_nao_chega_ao_evento`); os registos dos consumidores levam só o desfecho (`resposta_<desfecho>`, `painel_<desfecho>`); os ensaios usam números fictícios e um BSUID de ensaio |
 
 ---
 
@@ -1894,6 +1931,65 @@ Testes: unit, integração e adversarial.
 
 ---
 
+## KAM-226 — Saída do AGR em produção: a credencial da Meta por canal, o destinatário e o consumidor `outbound` no compose
+
+| Campo | Valor |
+|---|---|
+| Epic | EPIC-11 — Módulos de Entrada |
+| Fase | 1 |
+| Tipo | feature |
+| Prioridade | P1 |
+| Estimativa | L |
+| Dependências | KAM-224 |
+| Bloqueia | — |
+| Responsável sugerido | Engenheiro de Canais (Outbound) com Engenheiro de Plataforma (`worker-canal`, cofre e compose) |
+| Documentos de referência | `EPIC-11_Modulos_Entrada.md` (bloco KAM-224), `EPIC-02_Canais_WhatsApp_Handoff.md` (blocos KAM-015 e KAM-016), `02_Dicionario_de_Dados_Canonico.md` (§3.80), `../ops/secrets-inventory.yaml` |
+
+### Contexto
+
+Credor dos critérios 3 e 4 do KAM-224, aberto no PR dele. O AGR grava a resposta de um turno na `platform.agent_replies` e emite o `agent.replied`; o consumidor `outbound` do `worker-canal` instancia o `Saida` do KAM-015 numa ligação própria (`envioPeloSaida`) e está medido contra a base e o `GraphFalso`. **Em produção não arranca**: faltam-lhe as duas portas do `Saida` que nenhum serviço tem. O *token* da Graph API de cada canal é um `tenant_channels.token_ref` sem leitor (a cifra é a do `kek_token_cliente`), e não há `ObterDestinatario` fora dos ensaios — o BSUID ou o telefone de um contacto só o `kamba_identity` os lê. Sem elas, o `efeitoDoConsumidor` sai com `SaidaSemPortasError`, e os eventos esperam nas filas `evt.outbound.p<n>`.
+
+### Objectivo
+
+O consumidor `outbound` arranca em produção, e uma resposta do AGR chega ao cliente pelo WhatsApp.
+
+### Critérios de Aceitação
+
+- [ ] O cliente da Graph de cada canal lê o *token* pelo `tenant_channels.token_ref`, decifrado com o `kek_token_cliente` do cofre, sem o *token* em claro em registo nenhum; um canal sem *token* recusa o envio com motivo próprio.
+- [ ] O `ObterDestinatario` de produção: o BSUID quando existe e o telefone só sem ele, lidos por uma ligação que o possa ler (`kamba_identity`), num sítio de chamada do `revelar()` escrito.
+- [ ] O `worker-canal-consumidor` com `KAMBA_CONSUMER=outbound` nos três compose, com as credenciais no inventário de segredos, e o arranque em `prod` medido.
+- [ ] Contra o PostgreSQL **e a fila**: um turno com resposta dá **1** envio, a reentrega 3× pelo BullMQ continua a dar **1**, e um evento de outro tenant não chega ao consumidor errado (o critério 4 do KAM-224, pela fila).
+
+### Detalhes Técnicos
+
+- **Decisões que não se reabrem:** a decisão 2 do fundador de 2026-11-19 (bloco do KAM-217) e as do KAM-224, salvo a leitura do texto fora do evento, que está devolvida ao fundador.
+- **Sem esquema novo** previsto: a `agent_replies` e as subscrições são do KAM-224.
+- **Fora deste ticket:** a fonte persistida da mensagem do dono e a `OwnerPort` (KAM-223); a janela de 24 h e os *templates* do Outbound (KAM-015).
+
+### Testes Requeridos
+
+- Integração: turno → evento → fila → `Saida` contra a base e o servidor Graph falso.
+- Isolamento: o *token* de um canal não serve o envio de outro tenant.
+- **Adversarial:** reentrega 3× pela fila; *token* em falta; destinatário sem BSUID nem telefone.
+
+### Definition of Done
+
+- [ ] Critérios de Aceitação satisfeitos; os critérios 3 e 4 do KAM-224 revistos com a evidência.
+- [ ] Telefone e *token* nunca em claro em logs, URLs ou eventos (ADR-010); sem segredos no repositório.
+
+### Handoff para Claude Code
+
+```text
+És o executor do ticket KAM-226 da KAMBÁ (a saída do AGR em produção).
+Lê specs/EPIC-11_Modulos_Entrada.md (blocos KAM-224 e KAM-226), packages/core-ts/src/resposta/,
+packages/core-ts/src/outbound/ e services/worker-canal/src/consumidor.ts.
+Objectivo: o cliente da Graph por canal, o destinatário de produção e o consumidor outbound no compose.
+Regras: nenhum token em claro; o destinatário só por quem o pode ler; tenant_id só do envelope.
+Testes: integração pela fila, isolamento e adversarial.
+```
+
+---
+
 ## Riscos do Epic e itens NÃO VERIFICADOS
 
 | Risco / item | Estado | Impacto | Mitigação / critério de saída | Decisão |
@@ -1945,3 +2041,4 @@ Testes: unit, integração e adversarial.
 | 1.10 | Novembro 2026 | **KAM-211 entregue em parte: as ligações de produção do canal do dono.** Sem migração. Emenda 1.114 do dicionário (§3.78 e §3.56), escrita como 1.113 e renumerada na integração, depois do KAM-204. Bloco do KAM-211: as decisões do executor, a verificação dos critérios (**um de seis** marcado: a retoma; o botão confirma e fica parcial, porque nenhuma acção executa) e do DoD (**dois de três**), e a revisão adversarial (onze achados, nenhum bloqueante; dez corrigidos, e a prova de posse da troca como decisão por tomar no KAM-217). A retoma decide o grafo pelo papel de agora, e fecha o achado 4 da revisão do KAM-118; o botão chega ao `confirmar` pelo campo aditivo `agent_invocation.botao` e pelo nó `confirm` do grafo do dono; a troca de telefone ganha duas rotas no painel e os adaptadores da porta, ensaiados contra a base. As caixas 3, 4, 5, 7 e 9 do KAM-118 revistas. Os três critérios que ficam têm credor novo, aberto neste PR: o provisionamento no **KAM-215**, o canal no painel no **KAM-216** e a `OwnerPort` com o processo web ligado no **KAM-217** (os blocos, as linhas do §3 e o `Bloqueia` do KAM-211). | Equipa KAMBÁ |
 | 1.11 | Novembro 2026 | **KAM-123 entregue em parte: o Orçamento expresso.** Revisão `0072` (provisória, sobre a `0071` do KAM-204), emenda 1.116 do dicionário (§3.79, §3.5 e §3.27). Bloco do KAM-123: as decisões do executor, duas decisões devolvidas ao fundador (a forma do botão e o `screen()` das condições) e a verificação — um critério marcado de dez, as vazias com credor. Duas decisões do fundador de 2026-11-19 registadas (o botão e a guarda das condições), e com elas os critérios 4 e 5 marcados: três de dez. **KAM-220**, **KAM-221** e **KAM-222** acrescentados, abertos no PR do KAM-123 e não implementados: a ligação aos grafos, ao painel e ao aviso; o envio real; e a ponte do *screening*. Provisória: quem fundir em segundo renumera | Equipa KAMBÁ |
 | 1.12 | Novembro 2026 | **KAM-217 entregue em parte: o processo web ligado à base e a troca de telefone montada.** Sem migração. Emenda 1.117 do dicionário (§3.78), escrita como 1.115 e renumerada na integração, depois do KAM-207 e do KAM-123. Bloco do KAM-217: as decisões do executor (o `kamba_identity` por um *pool*, uma ligação por operação, os avisos da troca registados e não entregues, a rede `data` só em `dev` e `staging`), **três decisões do fundador, tomadas a 2026-11-19** (o contrato do texto e da resposta do painel, opção A; a saída do AGR, opção A; a prova de posse da troca, opção C), a verificação dos critérios (**nenhum de três** marcado: a troca está montada e ensaiada contra a base, e o critério 3 não dá 404 à letra) e do DoD (**um de dois**). Os critérios «Troca de telefone» e «Painel do dono» do KAM-211 e a caixa 9 do KAM-118 revistos. O que fica tem dois credores novos, abertos neste PR com os números a seguir ao KAM-222 da `main`, que até à integração eram provisórios da coordenação: a fonte persistida da mensagem do dono, a `OwnerPort`, a troca persistida com a regra C e a credencial do AGR no **KAM-223**, e o contrato do evento de resposta do AGR no **KAM-224**, de que o KAM-223 depende (os blocos, as linhas do §3 e o `Bloqueia` do KAM-217). | Equipa KAMBÁ |
+| 1.13 | Novembro 2026 | **KAM-224 entregue em parte: a saída do AGR pelo evento de resposta.** Revisão `0073` (provisória, sobre a `0072` do KAM-123), emenda 1.118 do dicionário (§3.80 e §3.5). Bloco do KAM-224: as decisões do executor (o texto na `agent_replies` e o evento com o identificador, devolvida ao fundador como leitura do critério 1; a idempotência pela tabela; a transacção do `send`; o agregado `conversation`; os títulos dos botões no AGR; o início do turno num `ContextVar`; o `Saida` numa ligação própria; o consumidor `painel` no processo de lote), a verificação dos critérios (**um de quatro** marcado) e do DoD (**um de dois**). O que fica tem credor novo, aberto neste PR com o número a seguir ao KAM-225 da `main`: a credencial da Meta por canal, o destinatário de produção e o consumidor `outbound` no compose, no **KAM-226** (o bloco, a linha do §3 e o `Bloqueia` do KAM-224) | Equipa KAMBÁ |

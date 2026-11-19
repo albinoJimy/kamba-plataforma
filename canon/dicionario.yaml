@@ -12,7 +12,7 @@
 
 version: 1
 fonte: "specs/02_Dicionario_de_Dados_Canonico.md"
-versao_dicionario: "1.117"
+versao_dicionario: "1.118"
 entradas:
   - seccao: "3.1"
     conceito: "Contacto"
@@ -1316,7 +1316,7 @@ entradas:
     variantes_literais: []
   - seccao: "3.5"
     conceito: "Tipos do Piloto"
-    canonico: "order.created, order.paid, order.expired, order.cancelled, order.delivered, payment.reference_issued, payment.confirmed, payment.manual_confirmed, payment.failed, payment.expired, review.requested, review.created, query.resolved, query.unresolved, query.handoff, tenant.approved, tenant.provisioned, tenant.activated, tenant.suspended, tenant.reactivated, tenant.closed, catalog.product_changed, catalog.price_changed, stock.reserved, stock.released, stock.adjusted, stock.low, consent.recorded, consent.withdrawn, privacy.erasure_requested, privacy.erasure_applied, channel.updated, channel.inactivity_warning, contact.merged, conversation.mode_changed, booking.created, booking.reminder_due, booking.cancelled, order.exception, order.refund_requested, screening.violation_detected, billing.cycle_paid, quote.requested, quote.sent"
+    canonico: "order.created, order.paid, order.expired, order.cancelled, order.delivered, payment.reference_issued, payment.confirmed, payment.manual_confirmed, payment.failed, payment.expired, review.requested, review.created, query.resolved, query.unresolved, query.handoff, tenant.approved, tenant.provisioned, tenant.activated, tenant.suspended, tenant.reactivated, tenant.closed, catalog.product_changed, catalog.price_changed, stock.reserved, stock.released, stock.adjusted, stock.low, consent.recorded, consent.withdrawn, privacy.erasure_requested, privacy.erasure_applied, channel.updated, channel.inactivity_warning, contact.merged, conversation.mode_changed, booking.created, booking.reminder_due, booking.cancelled, order.exception, order.refund_requested, screening.violation_detected, billing.cycle_paid, quote.requested, quote.sent, agent.replied"
     literais:
       - "order.created"
       - "order.paid"
@@ -1362,6 +1362,7 @@ entradas:
       - "billing.cycle_paid"
       - "quote.requested"
       - "quote.sent"
+      - "agent.replied"
     nomes:
       - "order.created"
       - "order.paid"
@@ -1407,7 +1408,15 @@ entradas:
       - "billing.cycle_paid"
       - "quote.requested"
       - "quote.sent"
+      - "agent.replied"
     nomes_nota:
+      - "agent.replied"
+      - "conversation"
+      - "conversation_id"
+      - "reply_id"
+      - "thread_id"
+      - "contact_id"
+      - "canal"
       - "quote"
       - "quote_id"
       - "billing.cycle_paid"
@@ -1446,7 +1455,7 @@ entradas:
     variantes_literais: []
   - seccao: "3.5"
     conceito: "Campos de payload dos eventos"
-    canonico: "order_id, review_id, numero_publico, sku, qty, linhas, currency, nota, motivo, entrega_modo, entrega_confirmada_por, paga_via, expira_at, autenticacao, authn_ok, provider_event_id, plano, evento_pagamento_id, subscription_id, periodo_inicio, periodo_fim, kyc_nivel, tecto_inicial_minor, intervencao_humana, quote_id, quantidade, validade_ate"
+    canonico: "order_id, review_id, numero_publico, sku, qty, linhas, currency, nota, motivo, entrega_modo, entrega_confirmada_por, paga_via, expira_at, autenticacao, authn_ok, provider_event_id, plano, evento_pagamento_id, subscription_id, periodo_inicio, periodo_fim, kyc_nivel, tecto_inicial_minor, intervencao_humana, quote_id, quantidade, validade_ate, reply_id, canal"
     literais:
       - "order_id"
       - "review_id"
@@ -1475,6 +1484,8 @@ entradas:
       - "quote_id"
       - "quantidade"
       - "validade_ate"
+      - "reply_id"
+      - "canal"
     nomes:
       - "order_id"
       - "review_id"
@@ -1503,7 +1514,11 @@ entradas:
       - "quote_id"
       - "quantidade"
       - "validade_ate"
+      - "reply_id"
+      - "canal"
     nomes_nota:
+      - "reply_id"
+      - "canal"
       - "quote_id"
       - "quantidade"
       - "validade_ate"
@@ -20576,6 +20591,73 @@ entradas:
       - "orcamentos"
       - "PortaDeOrcamento"
     variantes_literais: []
+  - seccao: "3.80"
+    conceito: "Resposta de um turno"
+    canonico: "platform.agent_replies(reply_id, tenant_id, chave, contact_id, conversation_id, canal, texto, botoes, turno_iniciado_em, criado_at, entregue_at)"
+    literais:
+      - "platform.agent_replies(reply_id, tenant_id, chave, contact_id, conversation_id, canal, texto, botoes, turno_iniciado_em, criado_at, entregue_at)"
+    nomes:
+      - "platform.agent_replies"
+      - "reply_id"
+      - "tenant_id"
+      - "chave"
+      - "contact_id"
+      - "conversation_id"
+      - "canal"
+      - "texto"
+      - "botoes"
+      - "turno_iniciado_em"
+      - "criado_at"
+      - "entregue_at"
+    nomes_nota:
+      - "FORCE"
+      - "kamba_app"
+      - "entregue_at"
+      - "DELETE"
+      - "tenant_id"
+      - "chave"
+      - "agent_replies_chave_uq"
+      - "botoes"
+    variantes_literais: []
+  - seccao: "3.80"
+    conceito: "Canal de uma resposta"
+    canonico: "agent_replies.canal ∈ {whatsapp, painel}"
+    literais:
+      - "agent_replies.canal"
+      - "whatsapp"
+      - "painel"
+    nomes:
+      - "agent_replies.canal"
+      - "whatsapp"
+      - "painel"
+    nomes_nota:
+      - "whatsapp"
+    variantes_literais: []
+  - seccao: "3.80"
+    conceito: "Consumidor da resposta no WhatsApp"
+    canonico: "outbound, em platform.evt_subscricoes"
+    literais:
+      - "outbound"
+      - "platform.evt_subscricoes"
+    nomes:
+      - "outbound"
+      - "platform.evt_subscricoes"
+    nomes_nota:
+      - "versao_max"
+      - "kamba_app"
+    variantes_literais: []
+  - seccao: "3.80"
+    conceito: "Consumidor da resposta no painel"
+    canonico: "painel, em platform.evt_subscricoes"
+    literais:
+      - "painel"
+      - "platform.evt_subscricoes"
+    nomes:
+      - "painel"
+      - "platform.evt_subscricoes"
+    nomes_nota:
+      - "kamba_app"
+    variantes_literais: []
 
 tabelas:
   - nome: "contacts"
@@ -22062,6 +22144,24 @@ tabelas:
     assinatura: "platform.quote_requests(quote_id, tenant_id, contact_id, conversation_id, sku, quantidade, estado, valor_minor, currency, validade_ate, condicoes, criado_at, respondido_at, enviado_at)"
     seccao: "3.79"
     conceito: "Pedido de orçamento"
+  - nome: "agent_replies"
+    esquema: "platform"
+    colunas:
+      - "reply_id"
+      - "tenant_id"
+      - "chave"
+      - "contact_id"
+      - "conversation_id"
+      - "canal"
+      - "texto"
+      - "botoes"
+      - "turno_iniciado_em"
+      - "criado_at"
+      - "entregue_at"
+    aberta: false
+    assinatura: "platform.agent_replies(reply_id, tenant_id, chave, contact_id, conversation_id, canal, texto, botoes, turno_iniciado_em, criado_at, entregue_at)"
+    seccao: "3.80"
+    conceito: "Resposta de um turno"
 
 dominios:
   - coluna: "consent_event.purpose"
@@ -23850,6 +23950,13 @@ dominios:
       - "cancelado"
     seccao: "3.79"
     conceito: "Estado de um pedido"
+    so_no_registo: false
+  - coluna: "agent_replies.canal"
+    valores:
+      - "whatsapp"
+      - "painel"
+    seccao: "3.80"
+    conceito: "Canal de uma resposta"
     so_no_registo: false
 
 variantes:
