@@ -625,6 +625,8 @@ AG_ORC_REGRAS = "services/agr/src/kamba_agr/orcamento/regras.py"
 AG_TLS_ORC = "services/agr/src/kamba_agr/tls/orcamento.py"
 AG_ORC_PORTA = "services/agr/src/kamba_agr/orcamento/porta.py"
 AG_DONO_NOS = "services/agr/src/kamba_agr/verticais/dono/nos.py"
+#: KAM-221: a notificacao ao cliente pela resposta do KAM-224.
+AG_PELA_RESPOSTA = "services/agr/src/kamba_agr/eventos/pela_resposta.py"
 #: KAM-224: a saida do AGR pelo evento de resposta.
 AG_SAIDA = "services/agr/src/kamba_agr/saida.py"
 AG_TURNO = "services/agr/src/kamba_agr/turno.py"
@@ -5017,8 +5019,9 @@ MUTACOES = [
      "tests_agr"),
     # ---- KAM-221 (o envio do Orcamento expresso). As cinco primeiras sao do
     # SQL na ToolLayer e morrem no `db/tests_agr/test_quote_requests.py`; as
-    # quatro ultimas sao da ligacao, e morrem no `services/agr/tests/
-    # test_orcamento.py`. O `_registar` continua a reler a linha, e ja nao ha
+    # quatro seguintes sao da ligacao, e morrem no `services/agr/tests/
+    # test_orcamento.py`; as tres ultimas sao do envio pela resposta, e morrem
+    # no `services/agr/tests/test_pela_resposta.py`. O `_registar` continua a reler a linha, e ja nao ha
     # ensaio que o distinga: a tranca do envio impede a mudanca que ele apanhava.
     #
     # O Outbound volta para dentro da transaccao: outra sessao ja nao tranca a
@@ -5082,6 +5085,26 @@ MUTACOES = [
     ('orc: a porta liberta pela mensagem do dono', AG_ORC_PORTA,
      'if getattr(invocacao, "persona", None) != PERSONA_CLIENTE:',
      'if False:',
+     AGR_UNIT),
+    # O envio real pela resposta do KAM-224 (`eventos/pela_resposta.py`). Sem a
+    # margem, uma janela que fecha daqui a quatro minutos manda texto livre que o
+    # `worker-canal` ja pode recusar: `test_a_janela_dentro_da_margem_conta_como_fechada`.
+    ('orc: a escolha da janela perde a margem', AG_PELA_RESPOSTA,
+     '    return expira - margem > agora',
+     '    return expira > agora',
+     AGR_UNIT),
+    # Sem o modo, a proposta vai a uma conversa com um humano e o `PreSendGuard`
+    # recusa-a depois de o pedido ficar `enviado`:
+    # `test_uma_conversa_fora_do_modo_bot_nao_envia`.
+    ('orc: a escolha da janela ignora o modo', AG_PELA_RESPOSTA,
+     '    if modo != MODO_DO_BOT or expira is None:',
+     '    if expira is None:',
+     AGR_UNIT),
+    # O `main()` volta ao `OutboundPorLigar`, e nenhuma proposta sai:
+    # `test_a_porta_dos_orcamentos_sai_pela_resposta`.
+    ('orc: o __main__ deixa a proposta por ligar', AG_MAIN,
+     '            ligar_para_accoes, saida=NotificacaoPelaResposta(ligar_para_saida)\n',
+     '            ligar_para_accoes\n',
      AGR_UNIT),
     # ---- KAM-224 (a saida do AGR). As duas primeiras sao do produtor, e quem as
     # mata e a `agr_unit` (`services/agr/tests/test_saida.py`); a terceira e do

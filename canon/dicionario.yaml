@@ -20578,6 +20578,25 @@ entradas:
       - "sem_resposta"
     variantes_literais: []
   - seccao: "3.79"
+    conceito: "Notificação ao cliente pela resposta do AGR"
+    canonico: "NotificacaoPelaResposta"
+    literais:
+      - "NotificacaoPelaResposta"
+    nomes:
+      - "NotificacaoPelaResposta"
+    nomes_nota:
+      - "PortaDeNotificacao"
+      - "agent_replies"
+      - "window_expires_at"
+      - "mode"
+      - "bot"
+      - "agent.replied"
+      - "livre"
+      - "sem_template"
+      - "template_nome"
+      - "orcamentos"
+    variantes_literais: []
+  - seccao: "3.79"
     conceito: "Template de uma resposta do AGR"
     canonico: "template_nome"
     literais:

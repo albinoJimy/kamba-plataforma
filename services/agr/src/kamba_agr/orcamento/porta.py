@@ -9,8 +9,10 @@ por si).
 O Outbound visto daqui e a `PortaDeNotificacao` do KAM-038, e nao a
 `PortaDeSaida` do grafo: a proposta vai a **outra** conversa (a do cliente), e
 pode encontrar a janela fechada — que e o caso do *template*. Por omissao e o
-`OutboundPorLigar`, que devolve `sem_template`: hoje nada sai, e o dono e
-avisado de que a proposta nao seguiu (credor do Outbound no bloco).
+`OutboundPorLigar`, que devolve `sem_template`; no processo e a
+`NotificacaoPelaResposta` (KAM-221), que grava a proposta na `agent_replies` do
+KAM-224 e emite o `agent.replied` com a janela aberta, e com ela fechada ainda
+nao envia nada (o *template* espera pela revisao do `template_nome`).
 
 Uma ligacao por envio, aberta e fechada aqui, pela razao da
 `PortaDeConfirmacao`: e raro, e uma tomada guardada pedia um trinco para nada.
@@ -18,9 +20,7 @@ Uma ligacao por envio, aberta e fechada aqui, pela razao da
 **A libertacao da janela tambem passa aqui** (KAM-221): o `libertar` e o
 `ao_cliente_escrever` do `ExecutorDeTurnos`, e corre em cada mensagem de um
 cliente. Uma ligacao por mensagem, como o `leitor_de_contacto` do
-`conversa.py` faz para a leitura do contacto. O envio real e o evento de
-resposta do KAM-224: quando ele fundir, a `saida` daqui deixa de ser o
-`OutboundPorLigar`.
+`conversa.py` faz para a leitura do contacto.
 """
 
 from __future__ import annotations
