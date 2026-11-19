@@ -63,6 +63,7 @@ from dataclasses import dataclass
 from typing import Any, Final
 
 from kamba_core import tenant_guard
+from kamba_core.catalogo.screening import PortaDeScreening, ScreeningPorLigar
 from kamba_core.ten.entitlements import Resultado, check_entitlement, consume_limit
 
 from ..dono import accoes
@@ -490,13 +491,20 @@ def responder(
     validade_ate: datetime.date | None,
     condicoes: str | None,
     agora: datetime.datetime,
+    *,
+    screening: PortaDeScreening | None = None,
 ) -> Resposta:
     """O `submit_quote`: o dono fixa o valor; devolve o eco e o botao de envio.
 
     O `valor_minor` ja vem do `regras.ler_valor_do_dono`; as `condicoes` passam
-    aqui pelo `conferir_condicoes`. A validade por omissao e a do
-    `regras.validade_por_omissao`. **O sistema nao calcula nada**: o valor
-    gravado e o valor recebido.
+    aqui pelo `conferir_condicoes`, e com ele pelo `screen` do KAM-088 na
+    `screening` (KAM-222). Sem `screening`, a porta e a `ScreeningPorLigar`, que
+    levanta: umas condicoes nao passam sem ponte. Sem condicoes, nada vai ao
+    `screen`. A validade por omissao e a do `regras.validade_por_omissao`.
+    **O sistema nao calcula nada**: o valor gravado e o valor recebido.
+
+    O `screen` corre **antes** da transaccao, como o resto da validacao: dentro
+    dela, a linha do pedido ficava trancada durante a chamada ao classificador.
     """
     if not isinstance(quote_id, str) or not _UUID.fullmatch(quote_id):
         raise OrcamentoRecusadoError(DESCONHECIDO)
@@ -504,7 +512,12 @@ def responder(
         0 < valor_minor <= regras.VALOR_MAXIMO_MINOR
     ):
         raise OrcamentoRecusadoError(regras.VALOR_FORA_DO_INTERVALO)
-    limpas = regras.conferir_condicoes(condicoes)
+    limpas = regras.conferir_condicoes(
+        condicoes,
+        screening=screening if screening is not None else ScreeningPorLigar(),
+        tenant_id=tenant_id,
+        quote_id=quote_id,
+    )
     validade = validade_ate or regras.validade_por_omissao(agora)
     if validade <= regras.hoje_em_luanda(agora):
         raise OrcamentoRecusadoError(VALIDADE_NO_PASSADO)
