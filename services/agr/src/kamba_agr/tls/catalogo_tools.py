@@ -15,10 +15,11 @@ os argumentos no 3, a `tool_audit` no 7.
 
 ## O que o modelo nunca escreve
 
-**O preco.** O `create_product_draft` nao aceita `preco` nas `respostas` (o
-modelo recusa-o no passo 3): o preco entra so por `preco_confirmado`, um inteiro
-em centimos que **so o no do grafo** preenche, e so a partir do botao
-`preco:{ingestao}:{centimos}` do eco (`catalogo/regras.py`). Nenhum no deste
+**O preco e o stock.** O `create_product_draft` nao aceita `preco` nem `stock`
+nas `respostas` (o modelo recusa-os no passo 3): entram so por
+`preco_confirmado` e `stock_confirmado`, que **so o no do grafo** preenche, e so
+a partir dos botoes `preco:{ingestao}:{centimos}` e `stock:{ingestao}:{n}` do
+eco (`catalogo/regras.py`), com a pergunta deles ainda em aberto. Nenhum no deste
 grafo pede argumentos a um modelo — o grafo do dono e deterministico —, mas a
 barreira esta no esquema e nao na disciplina de quem chama.
 
@@ -42,7 +43,8 @@ accao esta `confirmada`, e deste contacto, e e do tipo certo.
 |---|---|
 | ingestao ou accao inexistente neste tenant | `NOT_FOUND` |
 | confirmacao fora de estado, de outra versao, com campos em falta | `VALIDATION_ERROR` (`confirmacao_recusada`) |
-| o screening da publicacao nao permitiu | `VALIDATION_ERROR` (`categoria_bloqueada`) |
+| o screening da publicacao nao permitiu | `VALIDATION_ERROR` (`categoria_bloqueada`, ou `revisao_pendente` quando espera por humano) |
+| um botao de eco cuja pergunta ja nao esta em aberto | `VALIDATION_ERROR` (`botao_antigo`) |
 | o screening nao respondeu | `UPSTREAM_DOWN` (`screening_indisponivel`) |
 | a foto nao tem por onde entrar (porta por ligar) | `UPSTREAM_DOWN` (`foto_indisponivel`) |
 | limitacao de T&S em vigor | `VALIDATION_ERROR` (`loja_limitada`) |
@@ -75,6 +77,7 @@ from kamba_core.catalogo.pipeline import (
     versao_do_texto,
 )
 from kamba_core.catalogo.repositorio import ConflitoDeEstado, Ingestao, LojaLimitada
+from kamba_core.catalogo.screening import REGRA_REVISAO_PENDENTE, REGRAS_DO_CLASSIFICADOR
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from ..catalogo import regras
@@ -87,7 +90,17 @@ from .especificacoes import ErroDeBackend, Executor, Pedido, Resposta
 TIPO_DA_ACCAO: Final = "aprovar_conteudo"
 
 #: Os campos que uma resposta do dono pode ter. **Sem `preco`**: ver o cabecalho.
-_CAMPO: Final = r"^(?!preco$)[a-z_]{2,20}$"
+_CAMPO: Final = r"^(?!preco$|stock$)[a-z_]{2,20}$"
+
+#: As regras que querem dizer «a espera de um humano do T&S» e nao «categoria
+#: proibida»: o classificador em baixo ou parcial, e a `condicional` anterior do
+#: mesmo texto (achado 8 da revisao adversarial). O dono le outra frase.
+REGRAS_DE_REVISAO: Final = (*REGRAS_DO_CLASSIFICADOR, REGRA_REVISAO_PENDENTE)
+
+#: Quantas accoes de publicar se tentam para a mesma versao do resumo, quando a
+#: anterior expirou ou e de outro contacto. *Proposta*: um dono que deixa
+#: expirar cinquenta botoes seguidos tem outra conversa a ter.
+TENTATIVAS_DO_BOTAO: Final = 50
 
 _UUID: Final = r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
 
@@ -115,7 +128,7 @@ SQL_PENDENTES: Final = (
 
 #: A accao do botao de publicar, lida no tenant da invocacao.
 SQL_ACCAO: Final = (
-    "SELECT tipo, ref, estado, contact_id::text, confirmada_at FROM platform.owner_actions "
+    "SELECT tipo, ref, estado, contact_id::text, confirmada_at, expira_at FROM platform.owner_actions "
     "WHERE tenant_id = %s::uuid AND action_id = %s::uuid"
 )
 
@@ -129,6 +142,7 @@ class ArgumentosDeCreateProductDraft(BaseModel):
     ingestao: str | None = Field(default=None, pattern=_UUID)
     respostas: dict[str, str] | None = Field(default=None, max_length=3)
     preco_confirmado: int | None = Field(default=None, ge=100, le=10**14)
+    stock_confirmado: int | None = Field(default=None, ge=0, le=regras.STOCK_MAXIMO)
     mesmo_produto: bool | None = None
     voz: bool = False
 
@@ -136,7 +150,11 @@ class ArgumentosDeCreateProductDraft(BaseModel):
     def _uma_operacao(self) -> ArgumentosDeCreateProductDraft:
         if (self.media_id is None) == (self.ingestao is None):
             raise ValueError("ou uma foto, ou uma ingestao")
-        operacoes = [x for x in (self.respostas, self.preco_confirmado, self.mesmo_produto) if x is not None]
+        operacoes = [
+            x
+            for x in (self.respostas, self.preco_confirmado, self.stock_confirmado, self.mesmo_produto)
+            if x is not None
+        ]
         if self.media_id is not None and operacoes:
             raise ValueError("uma foto nova nao leva respostas")
         if self.ingestao is not None and len(operacoes) != 1:
@@ -227,15 +245,15 @@ def _exigir_ligacao(pedido: Pedido) -> None:
         )
 
 
-def ler_accao(ligacao: Any, tenant_id: str, action_id: str) -> tuple[str, str, str, str, Any] | None:
-    """`(tipo, ref, estado, contact_id, confirmada_at)` de uma accao **deste** tenant, ou `None`."""
+def ler_accao(ligacao: Any, tenant_id: str, action_id: str) -> tuple[str, str, str, str, Any, Any] | None:
+    """`(tipo, ref, estado, contact_id, confirmada_at, expira_at)` de uma accao **deste** tenant, ou `None`."""
     with tenant_guard.tx(ligacao, tenant_id) as cursor:
         cursor.execute(SQL_ACCAO, (tenant_id, action_id))
         linha = cursor.fetchone()
     if linha is None:
         return None
-    tipo, ref, estado, contacto, confirmada_at = linha
-    return str(tipo), str(ref), str(estado), str(contacto).lower(), confirmada_at
+    tipo, ref, estado, contacto, confirmada_at, expira_at = linha
+    return str(tipo), str(ref), str(estado), str(contacto).lower(), confirmada_at, expira_at
 
 
 def ler_estado(ligacao: Any, tenant_id: str) -> tuple[dict[str, int], list[tuple[str, str]]]:
@@ -248,13 +266,33 @@ def ler_estado(ligacao: Any, tenant_id: str) -> tuple[dict[str, int], list[tuple
     return por_estado, pendentes
 
 
-def _ref_da_accao(ingestao_id: str, versao_texto: str) -> str:
-    return f"{ingestao_id}:{versao_texto}"
+def _ref_da_accao(ingestao_id: str, versao_texto: str, tentativa: int = 1) -> str:
+    """`{ingestao}:{versao}`, e `:{n}` a partir da segunda accao da mesma versao."""
+    base = f"{ingestao_id}:{versao_texto}"
+    return base if tentativa == 1 else f"{base}:{tentativa}"
 
 
 def _ler_ref(ref: str) -> tuple[str, str] | None:
-    casado = re.fullmatch(r"([0-9a-f-]{36}):([0-9a-f]{16})", ref)
+    casado = re.fullmatch(r"([0-9a-f-]{36}):([0-9a-f]{16})(?::[0-9]{1,3})?", ref)
     return (casado.group(1), casado.group(2)) if casado else None
+
+
+def _serve(accao: tuple[str, str, str, str, Any, Any] | None, contacto: str, instante: datetime.datetime) -> bool:
+    """Se a accao ainda serve ao dono deste turno: a dele, e pendente no prazo ou ja confirmada.
+
+    Uma `confirmada` serve: e o botao com que a publicacao se repete quando o
+    Registo nao a recebeu. Uma expirada, cancelada ou de outro contacto (depois
+    de uma troca de telefone) nao serve, e o `propor` devolvia-a outra vez — a
+    `UNIQUE (tenant_id, tipo, ref)` (achado 2 da revisao adversarial).
+    """
+    if accao is None:
+        return False
+    _tipo, _ref, estado, dono_da_accao, _confirmada_at, expira_at = accao
+    if dono_da_accao != contacto.lower():
+        return False
+    if estado == "confirmada":
+        return True
+    return estado == "pendente" and expira_at is not None and expira_at > instante
 
 
 def executores(
@@ -272,14 +310,21 @@ def executores(
             # O botao de publicar nasce com o resumo (opcao A do fundador). Um
             # contacto que nao e o dono nao chega aqui (o grafo do dono so corre
             # para `papel='dono'`), e se chegasse o `propor` recusava.
-            dados["action_id"] = accoes.propor(
-                pedido.ligacao,
-                pedido.ctx.tenant_id,
-                pedido.ctx.contact_id,
-                TIPO_DA_ACCAO,
-                _ref_da_accao(linha.id, dados["versao_texto"]),
-                instante,
-            )
+            for tentativa in range(1, TENTATIVAS_DO_BOTAO + 1):
+                action_id = accoes.propor(
+                    pedido.ligacao,
+                    pedido.ctx.tenant_id,
+                    pedido.ctx.contact_id,
+                    TIPO_DA_ACCAO,
+                    _ref_da_accao(linha.id, dados["versao_texto"], tentativa),
+                    instante,
+                )
+                lida = ler_accao(pedido.ligacao, pedido.ctx.tenant_id, action_id)
+                if _serve(lida, pedido.ctx.contact_id, instante):
+                    break
+            else:
+                raise ErroDeBackend(VALIDATION_ERROR, "botoes_esgotados")
+            dados["action_id"] = action_id
             dados["melhorar_foto"] = bool(portas.enhance.disponivel(pedido.ctx.tenant_id))
             return Resposta(data=dados, facts=_facts_do_produto(linha, instante))
         return Resposta(data=dados)
@@ -297,6 +342,21 @@ def executores(
             except ValueError:
                 # A forma canonica nao se le de volta ao valor do eco: nada se grava.
                 raise ErroDeBackend(VALIDATION_ERROR, "preco_recusado") from None
+        if args.stock_confirmado is not None:
+            respostas = {"stock": str(args.stock_confirmado)}
+        if args.preco_confirmado is not None or args.stock_confirmado is not None:
+            # **Um botao de eco so vale com a pergunta dele em aberto** (achado 4
+            # da revisao adversarial): o «Sim» de um eco antigo reescrevia o
+            # preco corrigido depois dele. Com o preco ja respondido, a pergunta
+            # em aberto e outra, e o toque nao grava nada.
+            assert args.ingestao is not None
+            lida = servico.repositorio.ler(tenant, args.ingestao)
+            if lida is None:
+                raise ErroDeBackend(NOT_FOUND, "ingestao_desconhecida")
+            esperado = ["preco"] if args.preco_confirmado is not None else ["stock"]
+            abertas = regras.perguntas_em_aberto(_produto(lida), lida.perguntas_feitas, _sugestao(lida))
+            if lida.estado != estados.A_PERGUNTAR or [p.campo for p in abertas] != esperado:
+                raise ErroDeBackend(VALIDATION_ERROR, "botao_antigo")
         try:
             if args.media_id is not None:
                 resultado = servico.receber(tenant, args.media_id, sintetica=portas.sintetica)
@@ -355,7 +415,7 @@ def executores(
         accao = ler_accao(pedido.ligacao, pedido.ctx.tenant_id, args.action_id)
         if accao is None:
             raise ErroDeBackend(NOT_FOUND, "accao_desconhecida")
-        tipo, ref, estado, contacto, confirmada_at = accao
+        tipo, ref, estado, contacto, confirmada_at, _expira_at = accao
         if contacto != pedido.ctx.contact_id.lower():
             raise ErroDeBackend(TENANT_MISMATCH, "accao_de_outro_contacto")
         lido = _ler_ref(ref)
@@ -378,6 +438,8 @@ def executores(
         except IngestaoInexistente:
             raise ErroDeBackend(NOT_FOUND, "ingestao_desconhecida") from None
         except PublicacaoRecusada as recusa:
+            if recusa.motivo == MOTIVO_CATEGORIA and recusa.regra in REGRAS_DE_REVISAO:
+                raise ErroDeBackend(VALIDATION_ERROR, "revisao_pendente") from None
             if recusa.motivo == MOTIVO_CATEGORIA:
                 raise ErroDeBackend(VALIDATION_ERROR, "categoria_bloqueada") from None
             raise ErroDeBackend(UPSTREAM_DOWN, "screening_indisponivel") from None

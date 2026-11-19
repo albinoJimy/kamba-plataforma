@@ -64,13 +64,41 @@ _UUID: Final = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9
 #: `interactive` (KAM-211). O titulo de cada um esta em `saida.TITULOS_POR_PREFIXO`.
 PREFIXO_DO_PRECO: Final = "preco:"
 PREFIXO_DE_CORRIGIR_PRECO: Final = "preco_corrigir:"
+PREFIXO_DO_STOCK: Final = "stock:"
+PREFIXO_DE_CORRIGIR_STOCK: Final = "stock_corrigir:"
 PREFIXO_DO_MESMO_PRODUTO: Final = "mesmo_produto:"
 PREFIXO_DE_OUTRO_PRODUTO: Final = "outro_produto:"
 
 _BOTAO_DO_PRECO: Final = re.compile(rf"preco:({_UUID.pattern}):([1-9][0-9]{{0,14}})")
+_BOTAO_DO_STOCK: Final = re.compile(rf"stock:({_UUID.pattern}):(0|[1-9][0-9]{{0,6}})")
 _BOTAO_DE_INGESTAO: Final = re.compile(
-    rf"(preco_corrigir|mesmo_produto|outro_produto):({_UUID.pattern})"
+    rf"(preco_corrigir|stock_corrigir|mesmo_produto|outro_produto):({_UUID.pattern})"
 )
+
+#: O stock que o dono escreve: um inteiro so, com a unidade facultativa. **Sem
+#: separador de milhares nem multiplicador**: «1.500», «2 mil», «12k» voltam a
+#: perguntar, porque o `interpretar` do KAM-049 leria «50 mil» como 50 (achado 6
+#: da revisao adversarial).
+_STOCK_DO_DONO: Final = re.compile(
+    r"^\s*(\d{1,7})\s*(?:unidades?|unid\.?|un\.?|pecas|peças|pcs)?\s*\.?\s*$", re.IGNORECASE
+)
+
+#: O tecto do stock, o mesmo do `_ler_inteiro` do KAM-049.
+STOCK_MAXIMO: Final = 1_000_000
+
+#: O que nao e resposta a uma pergunta do rascunho, mesmo com um a espera
+#: (achado 3 da revisao adversarial): cumprimentos, agradecimentos e acordos
+#: soltos. Sem acentos e em minusculas.
+_SOCIAIS: Final = frozenset(
+    "bom dia|boa tarde|boa noite|ola|oi|ola bom dia|ola boa tarde|ola boa noite|obrigado|obrigada|"
+    "muito obrigado|muito obrigada|ok|okay|ta bem|esta bem|tudo bem|certo|sim|nao|pronto|beleza|"
+    "valeu|bom|ate logo|adeus|tchau".split("|")
+)
+_COMECOS_SOCIAIS: Final = ("bom dia", "boa tarde", "boa noite", "ola", "oi ")
+
+
+class StockRecusado(ValueError):
+    """O texto nao e um stock sem duvidas: volta a perguntar."""
 
 #: O «k» de milhar: «45k», «45 k», «1,5k». Nao casa dentro de palavras («kz»).
 _MILHAR_EM_K: Final = re.compile(r"(\d)\s*[kK](?![A-Za-z])")
@@ -149,10 +177,11 @@ def repartir_respostas(texto: str, perguntas: Sequence[PerguntaEmAberto]) -> dic
     """A resposta do dono por campo, ou `None` se nao der para saber.
 
     Uma pergunta: o texto inteiro. Varias: uma linha por pergunta, pela ordem.
-    **O preco nunca sai daqui** — e do eco (`ler_preco_do_dono` e o botao).
+    **O preco e o stock nunca saem daqui** — sao do eco (`ler_preco_do_dono`,
+    `ler_stock_do_dono` e os botoes).
     """
     campos = [p.campo for p in perguntas]
-    if not campos or "preco" in campos:
+    if not campos or "preco" in campos or "stock" in campos:
         return None
     linhas = [_NUMERACAO.sub("", linha.strip()) for linha in texto.splitlines() if linha.strip()]
     linhas = [linha for linha in linhas if linha]
@@ -202,6 +231,50 @@ def eco_do_preco(centimos: int) -> str:
     return f"{centimos // 100:,}".replace(",", ".") + " Kz?"
 
 
+# ----------------------------------------------------------------- o stock
+
+
+def ler_stock_do_dono(texto: str) -> int:
+    """As unidades que o dono escreveu. Levanta `StockRecusado` se nao for um inteiro so."""
+    casado = _STOCK_DO_DONO.fullmatch(texto or "")
+    if casado is None:
+        raise StockRecusado("stock_ambiguo")
+    valor = int(casado.group(1))
+    if valor > STOCK_MAXIMO:
+        raise StockRecusado("stock_fora_do_intervalo")
+    return valor
+
+
+def eco_do_stock(unidades: int) -> str:
+    """«50 unidades?» — o valor que o *parser* leu, antes de se gravar."""
+    return f"{unidades} unidade?" if unidades == 1 else f"{unidades} unidades?"
+
+
+# ----------------------------------------------------------------- as respostas
+
+
+def _sem_acentos(texto: str) -> str:
+    import unicodedata
+
+    decomposto = unicodedata.normalize("NFKD", texto.lower())
+    return "".join(c for c in decomposto if not unicodedata.combining(c))
+
+
+def parece_resposta(texto: str) -> bool:
+    """Se um texto sem palavra do catalogo pode ser a resposta a uma pergunta do rascunho.
+
+    **Nao** e: uma pergunta (acaba em «?»), um cumprimento, um agradecimento ou
+    um acordo solto. «bom dia» gravado na `entrega`, ou «quanto vendi hoje?» no
+    `nome`, era texto do dono a ir parar ao produto sem ser resposta.
+    """
+    limpo = " ".join(_sem_acentos(texto).replace("!", " ").replace(".", " ").replace(",", " ").split())
+    if not limpo or texto.strip().endswith("?"):
+        return False
+    if limpo in _SOCIAIS:
+        return False
+    return not (any(limpo.startswith(c) for c in _COMECOS_SOCIAIS) and len(limpo.split()) <= 5)
+
+
 # ----------------------------------------------------------------- os botoes
 
 
@@ -211,6 +284,14 @@ def botao_do_preco(ingestao_id: str, centimos: int) -> str:
 
 def botao_de_corrigir_preco(ingestao_id: str) -> str:
     return f"{PREFIXO_DE_CORRIGIR_PRECO}{ingestao_id}"
+
+
+def botao_do_stock(ingestao_id: str, unidades: int) -> str:
+    return f"{PREFIXO_DO_STOCK}{ingestao_id}:{unidades}"
+
+
+def botao_de_corrigir_stock(ingestao_id: str) -> str:
+    return f"{PREFIXO_DE_CORRIGIR_STOCK}{ingestao_id}"
 
 
 def botao_do_mesmo_produto(ingestao_id: str) -> str:
@@ -223,11 +304,11 @@ def botao_de_outro_produto(ingestao_id: str) -> str:
 
 @dataclass(frozen=True)
 class BotaoDoCatalogo:
-    """Um toque num botao do catalogo: o que pede, a ingestao, e o valor do preco."""
+    """Um toque num botao do catalogo: o que pede, a ingestao, e o valor (centimos ou unidades)."""
 
     accao: str
     ingestao: str
-    centimos: int | None = None
+    valor: int | None = None
 
 
 def ler_botao(botao: object) -> BotaoDoCatalogo | None:
@@ -237,6 +318,9 @@ def ler_botao(botao: object) -> BotaoDoCatalogo | None:
     preco = _BOTAO_DO_PRECO.fullmatch(botao)
     if preco is not None:
         return BotaoDoCatalogo("preco", preco.group(1), int(preco.group(2)))
+    stock = _BOTAO_DO_STOCK.fullmatch(botao)
+    if stock is not None:
+        return BotaoDoCatalogo("stock", stock.group(1), int(stock.group(2)))
     outro = _BOTAO_DE_INGESTAO.fullmatch(botao)
     if outro is not None:
         return BotaoDoCatalogo(outro.group(1), outro.group(2))
@@ -246,7 +330,13 @@ def ler_botao(botao: object) -> BotaoDoCatalogo | None:
 __all__ = [
     "BotaoDoCatalogo",
     "PerguntaEmAberto",
+    "StockRecusado",
     "ValorRecusadoError",
+    "botao_de_corrigir_stock",
+    "botao_do_stock",
+    "eco_do_stock",
+    "ler_stock_do_dono",
+    "parece_resposta",
     "botao_de_corrigir_preco",
     "botao_de_outro_produto",
     "botao_do_mesmo_produto",

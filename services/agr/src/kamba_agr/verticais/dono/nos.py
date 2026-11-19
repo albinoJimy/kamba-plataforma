@@ -199,9 +199,17 @@ def classify(deps: Dependencias):
             # So no lugar do `outro`: um pedido de humano, de informacao ou do
             # catalogo continua a ser respondido pelo que e.
             resolvida = "orcamento"
-        if resolvida == "outro" and await catalogo.ha_resposta_a_dar(deps, estado):
+        if (
+            resolvida == "outro"
+            and catalogo.regras.parece_resposta(texto)
+            and await catalogo.ha_resposta_a_dar(deps, estado)
+        ):
             # KAM-119: o dono a responder as perguntas de um rascunho («camisa
-            # polo», «azul») nao tem palavra que o diga. So no lugar do `outro`.
+            # polo», «azul») nao tem palavra que o diga. So no lugar do `outro`,
+            # e **nunca** um cumprimento ou uma pergunta (achado 3 da revisao):
+            # «bom dia» ia parar a `entrega`. A leitura custa uma linha de
+            # `tool_audit` por turno destes, e num tenant sem o modulo e um
+            # `ENTITLEMENT_DENIED` — o preco de nao guardar estado proprio.
             resolvida = "catalogo"
         delta: dict[str, Any] = {"intent": resolvida}
         if resolvida == "humano":

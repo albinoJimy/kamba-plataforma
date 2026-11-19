@@ -120,6 +120,8 @@ TITULO_DE_CONFIRMACAO: Final = "Confirmar"
 TITULOS_POR_PREFIXO: Final = {
     "preco:": "Sim, esta certo",
     "preco_corrigir:": "Corrigir",
+    "stock:": "Sim, esta certo",
+    "stock_corrigir:": "Corrigir",
     "mesmo_produto:": "Sim, e o mesmo",
     "outro_produto:": "Nao, e outro",
 }

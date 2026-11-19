@@ -41,7 +41,7 @@ from kamba_core.catalogo.completude import CRITICOS
 
 from ...catalogo import regras
 from ...tls.contexto import Confirmation
-from ...tls.erros import ENTITLEMENT_DENIED, NOT_FOUND, TOOL_NOT_ALLOWED, VALIDATION_ERROR
+from ...tls.erros import ENTITLEMENT_DENIED, NOT_FOUND, TOOL_NOT_ALLOWED, UPSTREAM_TIMEOUT, VALIDATION_ERROR
 from ..vendedor.nos import Dependencias, _invocar, _resposta_estatica, _texto_do_cliente
 
 #: Quantos rascunhos a lista do estado mostra. *Proposta*: cabe numa mensagem.
@@ -138,7 +138,28 @@ async def _responder(
     if senao is not None and not all(p.campo in CRITICOS for p in perguntas):
         return _resposta_do_estado(senao)
     if not perguntas:
+        if lida.data.get("estado") == "rascunho":
+            # O resumo outra vez, com um botao que serve: o anterior pode ter
+            # expirado, ou ser do telefone antigo do dono (achado 2 da revisao).
+            # Sem respostas, a ingestao nao muda; o executor propoe a accao.
+            reaberto = await _invocar(deps, estado, "create_product_draft", {"ingestao": ingestao, "respostas": {}})
+            if not reaberto.ok:
+                return _resposta_estatica(_frase_do_erro(reaberto.error))
+            return _resposta_da_ingestao(reaberto.data)
         return _resposta_da_ingestao(lida.data)
+    if [p.campo for p in perguntas] == ["stock"]:
+        # **O stock tambem nao se grava aqui** (achado 6 da revisao): le-se como
+        # um inteiro so, e volta ao dono como eco com os dois botoes.
+        try:
+            unidades = regras.ler_stock_do_dono(texto)
+        except regras.StockRecusado:
+            return _resposta_estatica("\n".join((MSG_STOCK_POR_REESCREVER, *_linhas_das_perguntas(lida.data))))
+        resposta = _resposta_estatica("\n".join((MSG_ECO_DO_STOCK, regras.eco_do_stock(unidades))))
+        resposta["draft"]["botoes"] = (
+            regras.botao_do_stock(ingestao, unidades),
+            regras.botao_de_corrigir_stock(ingestao),
+        )
+        return resposta
     if [p.campo for p in perguntas] == ["preco"]:
         # **O preco nao se grava aqui**: le-se, e volta ao dono como eco.
         try:
@@ -167,13 +188,16 @@ async def _responder(
 
 
 async def _do_botao(deps: Dependencias, estado: Mapping[str, Any], toque: regras.BotaoDoCatalogo) -> dict[str, Any]:
-    if toque.accao == "preco_corrigir":
+    if toque.accao in ("preco_corrigir", "stock_corrigir"):
         lida = await _invocar(deps, estado, "ask_missing_fields", {"ingestao": toque.ingestao})
         if not lida.ok:
             return _resposta_estatica(_frase_do_erro(lida.error))
-        return _resposta_estatica("\n".join((MSG_PRECO_OUTRA_VEZ, *_linhas_das_perguntas(lida.data))))
+        frase = MSG_PRECO_OUTRA_VEZ if toque.accao == "preco_corrigir" else MSG_STOCK_OUTRA_VEZ
+        return _resposta_estatica("\n".join((frase, *_linhas_das_perguntas(lida.data))))
     if toque.accao == "preco":
-        argumentos: dict[str, Any] = {"ingestao": toque.ingestao, "preco_confirmado": toque.centimos}
+        argumentos: dict[str, Any] = {"ingestao": toque.ingestao, "preco_confirmado": toque.valor}
+    elif toque.accao == "stock":
+        argumentos = {"ingestao": toque.ingestao, "stock_confirmado": toque.valor}
     else:
         argumentos = {"ingestao": toque.ingestao, "mesmo_produto": toque.accao == "mesmo_produto"}
     gravada = await _invocar(deps, estado, "create_product_draft", argumentos)
@@ -206,8 +230,15 @@ async def publicar(deps: Dependencias, estado: Mapping[str, Any], botao: str, ac
         return None
     if codigo == VALIDATION_ERROR and detalhe == "categoria_bloqueada":
         return MSG_CATEGORIA_RECUSADA
+    if codigo == VALIDATION_ERROR and detalhe == "revisao_pendente":
+        return MSG_EM_REVISAO
     if codigo == VALIDATION_ERROR and detalhe == "confirmacao_recusada":
         return MSG_RESUMO_DESACTUALIZADO
+    if codigo == UPSTREAM_TIMEOUT:
+        # O tecto da ToolLayer (8 s, §6.5) e mais curto do que o screening com o
+        # classificador: a publicacao pode estar a acabar. O toque seguinte e
+        # idempotente e diz o que aconteceu (achado 5 da revisao).
+        return MSG_PUBLICACAO_EM_CURSO
     return MSG_PUBLICACAO_POR_ACABAR
 
 
@@ -278,6 +309,8 @@ def _frase_do_erro(erro: Any) -> str:
         return MSG_LOJA_LIMITADA
     if detalhe == "foto_indisponivel":
         return MSG_FOTO_POR_LIGAR
+    if detalhe == "botao_antigo":
+        return MSG_BOTAO_ANTIGO
     return MSG_NAO_CONSEGUI
 
 
@@ -297,6 +330,18 @@ MSG_PRECO_POR_REESCREVER: Final = (
     "Nao percebi o preco sem duvidas. Escreva so o valor final em kwanzas, sem contas."
 )
 MSG_PRECO_OUTRA_VEZ: Final = "Escreva o preco outra vez:"
+MSG_STOCK_POR_REESCREVER: Final = (
+    "Nao percebi o stock sem duvidas. Escreva so o numero de unidades, sem pontos nem «mil»."
+)
+MSG_STOCK_OUTRA_VEZ: Final = "Escreva o stock outra vez:"
+MSG_ECO_DO_STOCK: Final = "O stock fica assim?"
+MSG_BOTAO_ANTIGO: Final = "Esse botao ja nao vale: essa pergunta ja foi respondida."
+MSG_EM_REVISAO: Final = (
+    "Este produto ficou para revisao da nossa equipa antes de ser publicado. Avisamos quando estiver decidido."
+)
+MSG_PUBLICACAO_EM_CURSO: Final = (
+    "Ainda estou a publicar. Toque outra vez no mesmo botao daqui a pouco para ver se ficou."
+)
 MSG_ECO_DO_PRECO: Final = "O preco fica assim?"
 MSG_NA_FOTO: Final = "na foto vi"
 MSG_MESMO_PRODUTO: Final = "Esta foto parece de um produto que ja mandou. E o mesmo produto?"

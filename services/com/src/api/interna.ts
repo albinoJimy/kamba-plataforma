@@ -435,9 +435,11 @@ function rascunhoDeProdutoDoCorpo(corpo: Record<string, unknown>): ProductDraft 
  *
  * A confirmação é a do dono, e o `kind` **não** vem do corpo: é sempre `dono`,
  * porque é a única que o `confirmacaoValida` aceita — um corpo que pudesse dizer
- * `agente` só servia para ser recusado mais à frente. O `actor_id` é o id da
- * mensagem que confirmou (critério 4 do KAM-043), e o `em` um instante ISO, que
- * a operação confere.
+ * `agente` só servia para ser recusado mais à frente. O `actor_id` é quem
+ * confirmou: o AGR manda o `contact_id` do dono, e não o id da mensagem que o
+ * critério 4 do KAM-043 descreve, porque a mesma confirmação repete-se com o
+ * mesmo botão quando o Registo não a recebeu, e o actor tem de ser o mesmo. O
+ * `em` é um instante ISO, que a operação confere.
  */
 function pedidoDePublicacaoDoCorpo(corpo: Record<string, unknown>): PedidoDePublicacao | null {
   const sku = corpo["sku"];

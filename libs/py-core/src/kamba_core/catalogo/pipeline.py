@@ -190,9 +190,12 @@ class PublicacaoRecusada(ConfirmacaoRecusada):
     respondeu, e entao nada mudou e a mesma confirmacao pode repetir-se.
     """
 
-    def __init__(self, motivo: str) -> None:
+    def __init__(self, motivo: str, regra: str | None = None) -> None:
         super().__init__(f"publicacao recusada pelo screening: {motivo}")
         self.motivo = motivo
+        #: A `categoria_restrita` da decisao, quando foi restritiva. Nao e texto
+        #: do produto: e o `id` da politica ou uma regra sintetica.
+        self.regra = regra
 
 
 class IngestaoInexistente(LookupError):
@@ -515,6 +518,12 @@ class ServicoDeIngestao:
             # O dono confirmou um texto que ja nao e este: um campo mudou depois.
             raise ConfirmacaoRecusada("a confirmacao e de outra versao do resumo")
         if linha.estado == estados.PUBLICADA and linha.sku and linha.confirmado_por == confirmacao.actor:
+            # **A recuperacao confere outra vez** (KAM-119, achado 1 da revisao):
+            # o COM so publica com uma decisao da versao corrente da politica e
+            # da categoria do tenant de agora, e qualquer das duas pode ter
+            # mudado desde a primeira tentativa. Sem um `screen` novo, uma
+            # recusa do COM repetia-se para sempre sobre uma linha final.
+            self._screening_da_publicacao(linha, produto, recuperacao=True)
             self._sincronizar_registo(linha, confirmacao)
             return Resultado(linha)
         if linha.estado != estados.RASCUNHO:
@@ -689,7 +698,9 @@ class ServicoDeIngestao:
 
     # ------------------------------------------------------------ apoio
 
-    def _screening_da_publicacao(self, linha: Ingestao, produto: Mapping[str, Campo]) -> Ingestao:
+    def _screening_da_publicacao(
+        self, linha: Ingestao, produto: Mapping[str, Campo], *, recuperacao: bool = False
+    ) -> Ingestao:
         """O `screen` do KAM-088 sobre **o que vai ser publicado** (KAM-119).
 
         O da etapa 6 decide sobre a ingestao (`sujeito_ref` = o `id` dela, os
@@ -704,7 +715,8 @@ class ServicoDeIngestao:
 
         Uma decisao restritiva leva a ingestao a `bloqueada_categoria`, com a
         regra; uma porta que falha recusa **sem** mudar nada, e a mesma
-        confirmacao tenta outra vez.
+        confirmacao tenta outra vez. Na `recuperacao` (a linha ja e `publicada`,
+        que e final) uma decisao restritiva recusa sem transicao.
         """
         nome = self._texto(produto, "nome")
         if not nome or not linha.sku:
@@ -718,8 +730,9 @@ class ServicoDeIngestao:
         restrita = categoria_restrita(resultado)
         if restrita is None:
             return linha
-        self._mudar(linha, replace(linha, estado=estados.BLOQUEADA_CATEGORIA, categoria_restrita=restrita))
-        raise PublicacaoRecusada(MOTIVO_CATEGORIA)
+        if not recuperacao:
+            self._mudar(linha, replace(linha, estado=estados.BLOQUEADA_CATEGORIA, categoria_restrita=restrita))
+        raise PublicacaoRecusada(MOTIVO_CATEGORIA, restrita)
 
     def _mudar(self, lido: Ingestao, nova: Ingestao, **resultado: object) -> Resultado:
         gravada = self.repositorio.gravar(lido, nova)

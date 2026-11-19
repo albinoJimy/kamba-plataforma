@@ -260,6 +260,8 @@ class TestTitulosDosBotoes(unittest.TestCase):
         for identificador in (
             regras.botao_do_preco(ingestao, 4_500_000),
             regras.botao_de_corrigir_preco(ingestao),
+            regras.botao_do_stock(ingestao, 12),
+            regras.botao_de_corrigir_stock(ingestao),
             regras.botao_do_mesmo_produto(ingestao),
             regras.botao_de_outro_produto(ingestao),
         ):
@@ -271,6 +273,8 @@ class TestTitulosDosBotoes(unittest.TestCase):
             {
                 regras.PREFIXO_DO_PRECO,
                 regras.PREFIXO_DE_CORRIGIR_PRECO,
+                regras.PREFIXO_DO_STOCK,
+                regras.PREFIXO_DE_CORRIGIR_STOCK,
                 regras.PREFIXO_DO_MESMO_PRODUTO,
                 regras.PREFIXO_DE_OUTRO_PRODUTO,
             },

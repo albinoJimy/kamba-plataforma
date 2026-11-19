@@ -228,7 +228,7 @@ WHERE tenant_id = $1 AND sku = $2 AND deleted_at IS NULL`;
 /** O pedido de publicação que a rota valida. */
 export interface PedidoDePublicacao {
   readonly sku: string;
-  /** A confirmação do dono: o `actor` é `dono`, e o `id` é o da mensagem. */
+  /** A confirmação do dono: o `actor` é `dono`, e o `id` é quem confirmou (o `contact_id`, pelo AGR). */
   readonly confirmacao: OwnerConfirmation;
 }
 

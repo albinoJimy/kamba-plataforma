@@ -15457,6 +15457,9 @@ entradas:
       - "produto"
       - "sku"
       - "offer_terms"
+      - "id"
+      - "assertPublishable"
+      - "conteudo_sha256"
       - "quote_id"
     variantes_literais: []
   - seccao: "3.58"

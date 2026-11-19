@@ -116,6 +116,8 @@ class TestLeiturasDoCatalogoDoDono(ComAgr):
         lida = catalogo_tools.ler_accao(self.app, self.tenant, action_id)
         self.assertEqual(lida[:4], (catalogo_tools.TIPO_DA_ACCAO, ref, "pendente", self.dono.lower()))  # type: ignore[index]
         self.assertIsNone(lida[4])  # type: ignore[index]
+        # O prazo vem com ela: e por ele que o executor sabe se ainda serve.
+        self.assertGreater(lida[5], AGORA)  # type: ignore[index]
         self.assertEqual(
             accoes.confirmar(self.app, self.tenant, self.dono, f"confirm:{action_id}", AGORA), accoes.CONFIRMADA
         )

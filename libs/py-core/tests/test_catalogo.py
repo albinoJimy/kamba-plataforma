@@ -717,6 +717,24 @@ class TestPipeline(unittest.TestCase):
         final = m.servico.confirmar(A, r.ingestao.id, confirmacao(r.versao_texto or ""))
         self.assertEqual(final.estado, estados.PUBLICADA)
 
+    def test_a_recuperacao_de_uma_publicada_volta_a_passar_pelo_screening(self) -> None:
+        # KAM-119, achado 1 da revisao: a linha ja diz `publicada` e o Registo
+        # recusou; o toque seguinte grava uma decisao nova antes de repetir.
+        m = montar()
+        r = _ate_ao_rascunho(m, m.servico.receber(A, "m1").ingestao.id)
+        m.servico.confirmar(A, r.ingestao.id, confirmacao(r.versao_texto or ""))
+        antes = len(m.screening.pedidos)
+        m.servico.confirmar(A, r.ingestao.id, confirmacao(r.versao_texto or ""))
+        self.assertEqual(len(m.screening.pedidos), antes + 1)
+        self.assertEqual(len(m.registo.publicados), 2)
+        # Uma decisao restritiva na recuperacao recusa sem tocar na linha final.
+        m.screening.decisao_forcada = screening.ResultadoDoScreen("bloqueada", ("alcool",), "1.0.0+m.2", 1.0)
+        with self.assertRaises(PublicacaoRecusada) as recusa:
+            m.servico.confirmar(A, r.ingestao.id, confirmacao(r.versao_texto or ""))
+        self.assertEqual(recusa.exception.regra, "alcool")
+        self.assertEqual(m.repo.ler(A, r.ingestao.id).estado, estados.PUBLICADA)  # type: ignore[union-attr]
+        self.assertEqual(len(m.registo.publicados), 2)
+
     def test_confirmar_fora_do_rascunho(self) -> None:
         m = montar()
         r = m.servico.receber(A, "m1")
