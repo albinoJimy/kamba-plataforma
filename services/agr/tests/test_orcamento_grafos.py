@@ -686,7 +686,7 @@ class TestARespostaDoDono(unittest.TestCase):
     def setUp(self) -> None:
         self.respostas: list[tuple] = []
 
-        def responder(_ligacao, tenant, contacto, quote_id, valor_minor, validade, condicoes, agora):
+        def responder(_ligacao, tenant, contacto, quote_id, valor_minor, validade, condicoes, agora, *, screening=None):
             self.respostas.append((tenant, contacto, quote_id, valor_minor))
             validade = validade or regras.validade_por_omissao(agora)
             previsao = rep.texto_da_proposta(quote_id, "SKU-300", valor_minor, validade, condicoes, agora)

@@ -256,6 +256,9 @@ MARCADORES = {
     # KAM-198: as duas ligacoes do processo de lote do onboarding. Mesma razao.
     "KAMBA_LOTE_DB_URL": "postgresql://marcador@marcador.invalid:5432/marcador",
     "KAMBA_LOTE_APP_DB_URL": "postgresql://marcador@marcador.invalid:5432/marcador",
+    # KAM-228: a credencial da rota do classificador, que o AGR verifica e o COM
+    # apresenta. Mesma razao e mesmo sintoma.
+    "KAMBA_SECRET_AGR_SCREENING_TOKEN": "marcador",
 }
 
 
