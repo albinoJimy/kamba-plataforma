@@ -203,7 +203,7 @@ class TestMoeda(unittest.TestCase):
         KAM-031 (divida 105), e este teste existe para que a afirmacao nao se
         leia como mais forte do que e.
         """
-        self.assertEqual(KINDS, ("price", "stock", "total", "datetime"))
+        self.assertEqual(KINDS, ("price", "stock", "total", "datetime", "quote_price"))
         self.assertNotIn("currency", KINDS)
         self.assertNotIn("discount", KINDS)
 
@@ -1193,7 +1193,9 @@ class TestCorreccoesDaRevisao(_ComCatalogo):
             "SKU-100 - Camisa Azul - 12 500 Kz", facts, veredicto.Policy(), self.ofertas
         )
         self.assertEqual(ver.codigos, ("money_unbacked",))
-        self.assertEqual(veredicto.MONEY_KINDS, ("price", "total"))
+        # O `quote_price` (KAM-123) e dinheiro do dono, preso ao `sku` como o
+        # `price`; o `stock` continua fora.
+        self.assertEqual(veredicto.MONEY_KINDS, ("price", "total", "quote_price"))
 
     def test_o_nome_da_funcao_de_metricas_nao_colide_com_o_lint(self) -> None:
         """O `log_policy` do *gate* 2 marca qualquer `.registar(`.

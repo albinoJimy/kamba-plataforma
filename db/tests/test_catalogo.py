@@ -887,6 +887,13 @@ class TestConvencoes(ComBase):
                 # purga nao tem chave natural, e a unidade (classe, tabela,
                 # tenant) repete-se a cada execucao de proposito.
                 ("purge_log", "purge_id", "uuid", "gen_random_uuid()"),
+                # KAM-123 (revisao do Orcamento expresso): o pedido, `uuid`
+                # gerado pela regra geral e com o nome do bloco (`quote_id`):
+                # e o `fact_id` do `quote_price` e a raiz da referencia
+                # `ORC-…`, e um sequencial deixava medir quantos pedidos a
+                # plataforma recebe. Entre a purga e o reembolso («pu» < «qu»
+                # < «re»).
+                ("quote_requests", "quote_id", "uuid", "gen_random_uuid()"),
                 ("refund_cases", "id", "uuid", "gen_random_uuid()"),
                 # KAM-089 (0048): o caso de revisao e o registo de decisoes,
                 # pela regra geral. Entre o caso de reembolso e a decisao de
@@ -1481,7 +1488,12 @@ class TestConvencoes(ComBase):
              # (tenant_id, tipo, ref)`, que e a idempotencia da criacao e o
              # indice que a RLS precisa. **Com** FK para `tenants` e FK
              # composta para o contacto.
-             "owner_actions"},
+             "owner_actions",
+             # KAM-123 (revisao do Orcamento expresso). Pelo
+             # `quote_requests_abertos_idx (tenant_id, criado_at)` e pelo
+             # `quote_requests_repeticao_idx`. **Com** FK para `tenants` e as
+             # compostas para o contacto e a conversa.
+             "quote_requests"},
         )
         for tabela, anulavel in com_tenant:
             with self.subTest(tabela=tabela):
@@ -1685,6 +1697,11 @@ class TestConvencoes(ComBase):
         # O custo de um facto, em centimos de Kz ao cambio do registo, que vai
         # na mesma linha (`fx_aoa_per_usd`). O ledger e so de acrescentar.
         ("module_cost_ledger", "custo_minor"),
+        # KAM-123, o Orcamento expresso. **Nao e saldo**: e o valor que o dono
+        # digitou para **uma** proposta a um cliente, sem numeracao fiscal e sem
+        # cobranca nenhuma por tras — o orcamento nao marca nada como pago
+        # (ADR-013). Nao se soma no tempo nem e detido por ninguem.
+        ("quote_requests", "valor_minor"),
         # O preco de teste de um modulo num plano, `hipotese_nao_validada` por
         # `CHECK`. Nao e precario (esse e o `price_book` do KAM-059).
         ("module_test_prices", "preco_teste_minor"),
@@ -2161,7 +2178,13 @@ class TestConvencoes(ComBase):
         # `owner_actions_contact_fk`, composta `(tenant_id, contact_id)` para a
         # `contacts_tenant_contact_uq`, pela regra da `0030`: a ficha de um
         # tenant nao aponta para o contacto de outro.
-        self.assertEqual(len(linhas), 107)
+        #
+        # **110** desde a revisao do Orcamento expresso (KAM-123): a
+        # `quote_requests_tenant_fk`, simples, e as compostas
+        # `quote_requests_contact_fk` e `quote_requests_conversation_fk`,
+        # pela regra da `0030`: um pedido de um tenant nao aponta para o
+        # contacto nem para a conversa de outro.
+        self.assertEqual(len(linhas), 110)
         for nome, alvo in linhas:
             with self.subTest(fk=nome):
                 self.assertTrue(alvo.startswith("platform."), alvo)

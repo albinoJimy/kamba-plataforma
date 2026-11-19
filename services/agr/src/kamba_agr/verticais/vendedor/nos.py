@@ -407,6 +407,11 @@ class Dependencias:
     #: chama. `None` enquanto ninguem a liga, e nesse caso **nada se confirma**
     #: — que e o lado seguro: uma accao sensivel por confirmar nao executa.
     accoes_do_dono: Any | None = None
+    #: KAM-123. O envio de uma proposta de orcamento depois de o botao dar
+    #: `confirmada`: a `PortaDeOrcamento` de `kamba_agr/orcamento/porta.py`, que
+    #: so o no `confirm` do grafo do dono chama. `None` e **nada se envia**, e o
+    #: dono e avisado — o lado seguro, pela razao do `accoes_do_dono`.
+    orcamentos: Any | None = None
 
     def __post_init__(self) -> None:
         if self.relogio is None:

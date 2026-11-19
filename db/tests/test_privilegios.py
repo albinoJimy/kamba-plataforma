@@ -1538,6 +1538,26 @@ ESPERADO_POR_TABELA.update(
     }
 )
 
+#: Os pedidos de orcamento (KAM-123, revisao do Orcamento expresso). **So a
+#: aplicacao**: o AGR corre como `kamba_app`, le, insere e actualiza por coluna
+#: (ver `COLUNAS_POR_PAPEL`). **Ninguem apaga**: um pedido fecha-se pelo
+#: `estado`.
+ESPERADO_POR_TABELA.update(
+    {
+        "quote_requests": {
+            "kamba_app": {"SELECT"},
+            "kamba_batch": set(),
+            "kamba_resolver": set(),
+            "kamba_identity": set(),
+            "kamba_audit": set(),
+            "kamba_agr": set(),
+            "kamba_pay_hooks": set(),
+            "kamba_migrator": set(PRIVILEGIOS_DE_TABELA),
+            "public": set(),
+        },
+    }
+)
+
 #: O registo da purga (KAM-071, revisao `0042`). **Append-only por privilegio,
 #: e por mais nada**: o lote escreve e le, a auditoria le, e ninguem tem
 #: `UPDATE` nem `DELETE` — nem o lote, que e quem purga e por isso o ultimo que
@@ -2471,6 +2491,17 @@ COLUNAS_POR_PAPEL = {
     # contacto), o `tipo` e a `ref` (confirmava-se outra accao) e o `expira_at`
     # (empurrava-se o prazo de 15 min do botao, *proposta*).
     ("kamba_app", "owner_actions", "UPDATE"): {"estado", "confirmada_at"},
+    # KAM-123 (revisao do Orcamento expresso): o `INSERT` da aplicacao e so a
+    # identidade do pedido — nasce `pedido` e sem valor; um `INSERT
+    # (valor_minor)` deixava-o nascer com preco que o dono nao deu. O `UPDATE`
+    # e o estado e a resposta do dono, **menos a identidade** e o `criado_at`,
+    # que e o relogio da janela de repeticao.
+    ("kamba_app", "quote_requests", "INSERT"): {
+        "tenant_id", "contact_id", "conversation_id", "sku", "quantidade",
+    },
+    ("kamba_app", "quote_requests", "UPDATE"): {
+        "estado", "valor_minor", "validade_ate", "condicoes", "respondido_at", "enviado_at",
+    },
 }
 PRIVILEGIOS_DE_COLUNA =("SELECT", "INSERT", "UPDATE", "REFERENCES")
 
@@ -2583,6 +2614,10 @@ TABELAS_COM_MATRIZ_DE_COLUNA = (
     # UPDATE (expira_at)` a mais era invisivel na matriz de tabela, e com ele o
     # botao nunca expirava.
     "owner_actions",
+    # KAM-123: o pedido de orcamento tem `INSERT` e `UPDATE` por coluna. Um
+    # `GRANT UPDATE (sku)` a mais era invisivel na matriz de tabela, e com ele
+    # a proposta saia para outro produto.
+    "quote_requests",
     # KAM-054 (0032): as quatro. Duas tem privilegio por coluna — o
     # `payment_confirmers` (`papel`, `pode_segunda_aprovacao`, `ativo`) e a
     # `refund_cases` (`estado`, `prova_ref`, `fechado_at`) —, e as outras duas

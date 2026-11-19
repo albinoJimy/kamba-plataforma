@@ -376,6 +376,10 @@ REGRAS_OBRIGATORIAS = ("estado_contra_caixa",)
 #: (**149 medidos** na `main` pristina): **150 medidos**, e `150 // 2` sao 75.
 #: Sobe para 75, que serve ate aos 151. Ha tres PRs ao lado no lote 12, e quem
 #: fundir em segundo remede na arvore integrada.
+#:
+#: **O 151.o e o do KAM-123**, medido na arvore integrada com a `publico/main`
+#: em `d6c427fa` (o #225 do KAM-207 ja fundido, com **150 medidos** na `main`):
+#: **151 medidos**, e `151 // 2` sao 75. Fica em 75, e o 152.o sobe-o para 76.
 MINIMO_DE_BLOCOS_MEDIDOS = 75
 
 #: Quantos blocos existem, no minimo. O mesmo argumento, para a camada de baixo:
