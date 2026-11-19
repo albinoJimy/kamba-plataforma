@@ -23,6 +23,7 @@ from __future__ import annotations
 import datetime
 import json
 import threading
+import uuid
 
 from tests import factories
 from tests.base import PRIVILEGIO_INSUFICIENTE, VIOLACAO_DE_CHECK, sqlstate
@@ -547,6 +548,134 @@ class TestIsolamento(ComOrcamento):
         outra = self.criar_conversa()
         factories.contexto(self.semente, None)
         self.assertIsNone(rep.ultimo_pedido(self.app, outra.tenant_id, self.cliente))
+
+
+class TestPelaToolLayer(ComOrcamento):
+    """KAM-220: cliente -> pedido -> dono -> envio, pelas duas tools **ligadas**.
+
+    Os oito passos do §6.1 a serio — o entitlement `orcamento`, o botao do
+    passo 4 no `request_quote` e a dispensa no `submit_quote` (decisao do
+    fundador de 2026-11-19, opcao C), a `tool_audit` com os *facts* — sobre os
+    executores reais de `tls/orcamento_tools.py`.
+    """
+
+    def setUp(self) -> None:
+        super().setUp()
+        import asyncio as _asyncio
+
+        from kamba_agr.tls import orcamento_tools
+        from kamba_agr.tls.camada import ToolLayer
+        from kamba_agr.tls.catalogo import catalogo_do_piloto
+
+        self._asyncio = _asyncio
+        factories.aceitar_contratos_vigentes(self.semente, self.tenant)
+        self.semente.execute("UPDATE platform.tenants SET estado = 'ativo' WHERE id = %s", (self.tenant,))
+        factories.contexto(self.semente, None)
+        self.addCleanup(
+            lambda: self.semente.execute(
+                "DELETE FROM platform.tool_idempotency WHERE tenant_id = %s", (self.tenant,)
+            )
+        )
+        self.camada = ToolLayer(
+            catalogo_do_piloto(orcamento_tools.executores()), abrir_ligacao=lambda: self.app
+        )
+
+    def _contexto(self, contacto: str, turno: str = "t-1", vertical: str = "vendedor"):
+        from kamba_agr.tls.contexto import ToolContext
+
+        return ToolContext.de_estado(
+            {
+                "tenant_id": self.tenant,
+                "channel_id": self.conversa.canal_id,
+                "contact_id": contacto,
+                "conversation_id": self.conversa.conversation_id,
+                "turn_id": turno,
+                "vertical": vertical,
+            },
+            run_id="r-1",
+            graph_version="1.3.0",
+        )
+
+    def _invocar(self, nome: str, args: dict, contacto: str, botao: str | None = None, turno: str = "t-1"):
+        from kamba_agr.tls.contexto import Confirmation
+
+        confirmacao = None if botao is None else Confirmation(botao=botao, contact_id=contacto, turn_id=turno)
+        return self._asyncio.run(
+            self.camada.invoke(
+                self._contexto(contacto, turno),
+                nome,
+                args,
+                allowed=[nome],
+                confirmation=confirmacao,
+                idempotency_key=f"{turno}:0" if botao is not None else None,
+            )
+        )
+
+    def _auditoria(self) -> list[tuple]:
+        self.semente.execute(
+            "SELECT tool, status, error_code, fact_ids::text FROM platform.tool_audit "
+            "WHERE tenant_id = %s ORDER BY id",
+            (self.tenant,),
+        )
+        return [tuple(linha) for linha in self.semente.fetchall()]
+
+    def test_cliente_pedido_dono_envio(self) -> None:
+        pedido = self._invocar("request_quote", {"sku": SKU, "quantidade": 12}, self.cliente,
+                               botao=f"confirm:{SKU}")
+        self.assertTrue(pedido.ok, pedido.error)
+        self.assertEqual(pedido.facts, ())
+        quote_id = pedido.data["quote_id"]
+        self.assertEqual(self._linhas(), [(quote_id, "pedido", None)])
+        self.assertEqual(len(self._eventos(rep.EVENTO_PEDIDO)), 1)
+        # O dono responde **sem botao**: o passo 4 esta dispensado para esta tool.
+        resposta = self._invocar("submit_quote", {"quote_id": quote_id, "valor": "120 mil"}, self.dono,
+                                 turno="t-2")
+        self.assertTrue(resposta.ok, resposta.error)
+        self.assertEqual(self._linhas(), [(quote_id, "respondido", 12_000_000)])
+        self.assertEqual([f.kind for f in resposta.facts], ["quote_price", "datetime"])
+        self.assertEqual(resposta.facts[0].value, 12_000_000)
+        self.assertEqual(resposta.facts[0].sku, SKU)
+        self.assertIn("120 000", resposta.data["previsao"])
+        # Nada saiu ainda: o envio e o botao `confirm:{action_id}`, e so ele.
+        self.assertEqual(self._eventos(rep.EVENTO_ENVIADO), [])
+        saida = Saida("livre")
+        self.assertEqual(self._tocar(resposta.data["action_id"], saida).desfecho, rep.ENVIADO)
+        self.assertEqual(len(saida.chamadas), 1)
+        self.assertEqual(len(self._eventos(rep.EVENTO_ENVIADO)), 1)
+        auditoria = self._auditoria()
+        self.assertEqual([(t, s) for t, s, _c, _f in auditoria],
+                         [("request_quote", "ok"), ("submit_quote", "ok")])
+        self.assertIn(quote_id, auditoria[1][3])
+
+    def test_sem_o_botao_do_cliente_nada_se_pede(self) -> None:
+        for botao in (None, "confirm:SKU-301", "confirm:"):
+            with self.subTest(botao=botao):
+                resultado = self._invocar("request_quote", {"sku": SKU}, self.cliente, botao=botao)
+                self.assertFalse(resultado.ok)
+                self.assertEqual(resultado.error.codigo, "VALIDATION_ERROR")
+        self.assertEqual(self._linhas(), [])
+        self.assertEqual(self._consumidos(), 0)
+
+    def test_fora_do_catalogo_e_o_valor_ambiguo_recusam_com_o_codigo(self) -> None:
+        fora = self._invocar("request_quote", {"sku": "SKU-999"}, self.cliente, botao="confirm:SKU-999")
+        self.assertEqual((fora.ok, fora.error.codigo, fora.error.detalhe), (False, "NOT_FOUND", rep.FORA_DO_CATALOGO))
+        pedido = self._invocar("request_quote", {"sku": SKU}, self.cliente, botao=f"confirm:{SKU}")
+        quote_id = pedido.data["quote_id"]
+        for valor in ("120 50", "12 x 10 mil", "120 dolares"):
+            with self.subTest(valor=valor):
+                ambiguo = self._invocar("submit_quote", {"quote_id": quote_id, "valor": valor}, self.dono)
+                self.assertEqual(ambiguo.error.codigo, "VALIDATION_ERROR")
+                self.assertIn(ambiguo.error.detalhe, regras.RECUSAS_DO_VALOR)
+        self.assertEqual(self._linhas(), [(quote_id, "pedido", None)])
+
+    def test_um_cliente_nao_responde_pelo_dono_nem_forja_o_quote_id(self) -> None:
+        pedido = self._invocar("request_quote", {"sku": SKU}, self.cliente, botao=f"confirm:{SKU}")
+        quote_id = pedido.data["quote_id"]
+        cliente = self._invocar("submit_quote", {"quote_id": quote_id, "valor": "1 Kz"}, self.cliente)
+        self.assertEqual((cliente.ok, cliente.error.codigo), (False, "TENANT_MISMATCH"))
+        forjado = self._invocar("submit_quote", {"quote_id": str(uuid.uuid4()), "valor": "120 mil"}, self.dono)
+        self.assertEqual(forjado.error.codigo, "NOT_FOUND")
+        self.assertEqual(self._linhas(), [(quote_id, "pedido", None)])
 
 
 class TestOAceito(ComOrcamento):

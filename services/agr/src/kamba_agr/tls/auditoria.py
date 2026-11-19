@@ -57,6 +57,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from collections.abc import Collection
 from dataclasses import dataclass
 from typing import Any, Final
@@ -100,6 +101,11 @@ SQL_ESCREVER = (
     + ", ".join(["%s"] * len(COLUNAS))
     + ")"
 )
+
+
+#: Os argumentos que a guarda do `fact_id` nao confronta (KAM-220): so digitos, e
+#: menos de oito. Ver o `LinhaDeAuditoria.__post_init__`.
+_DIGITOS_CURTOS: Final = re.compile(r"\d{1,7}")
 
 
 class FactIdDerivadoError(ValueError):
@@ -203,8 +209,16 @@ class LinhaDeAuditoria:
         redigir: um `fact_id` que se redigisse deixava de resolver a citacao que
         ele existe para resolver. E defeito de quem cunha o *fact*.
         """
+        # **Uma cadeia so de digitos e curta nao deriva nada** (KAM-220): o
+        # `submit_quote` recebe o valor do dono em texto («8», «500»), e um `fact_id`
+        # que e um `quote_id` (dicionario §3.79) tem digitos que o casam por acaso
+        # — o turno rebentava num valor que ninguem derivou. A partir de oito
+        # digitos a coincidencia com um UUID e desprezavel (~27/16^8), e o canario
+        # do executor de ensaio (`f-{cart_id}`) continua a morder.
         valores = {
-            str(valor) for valor in self.args.values() if isinstance(valor, str) and valor
+            str(valor)
+            for valor in self.args.values()
+            if isinstance(valor, str) and valor and not _DIGITOS_CURTOS.fullmatch(valor)
         }
         for facto in self.facts:
             for valor in valores:

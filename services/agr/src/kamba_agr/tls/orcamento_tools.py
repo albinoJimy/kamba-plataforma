@@ -11,8 +11,12 @@ fala com a base. A tool passa entao pelos oito passos do §6.1 — o entitlement
 * `request_quote`: o `sku` e a quantidade. O contacto e a conversa sao os do
   `ToolContext`, e nunca argumentos: um `contact_id` no esquema era um cliente a
   pedir orcamento em nome de outro.
-* `submit_quote`: o `quote_id`, o **texto** do valor tal como o dono o escreveu,
-  a validade e as condicoes. **O valor vai em texto, e nao em centimos**: quem o
+* `submit_quote`: a **referencia** `ORC-…` do pedido, o **texto** do valor tal
+  como o dono o escreveu, a validade e as condicoes. **Nao o `quote_id`**: o
+  modelo nunca o ve, e e o executor que o resolve dentro do tenant do contexto
+  (`por_referencia`), pelo que um `quote_id` forjado nao tem por onde entrar. E o
+  `quote_id` e o `fact_id` do `quote_price` (§3.79): num argumento, a guarda da
+  `tool_audit` recusava o *fact* por derivar dele. **O valor vai em texto, e nao em centimos**: quem o
   le e o *parser* deterministico do KAM-123 (`regras.ler_valor_do_dono`), e um
   inteiro no esquema era um numero que o modelo podia calcular — «cento e vinte
   mil vezes doze» — e entregar ja feito. Com o texto, uma conta recusa-se no
@@ -66,7 +70,7 @@ class ArgumentosDeRequestQuote(BaseModel):
 class ArgumentosDeSubmitQuote(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    quote_id: str = Field(pattern=r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
+    referencia: str = Field(pattern=r"^ORC-[A-HJ-NP-R]{8}$")
     valor: str = Field(min_length=1, max_length=64)
     validade_ate: datetime.date | None = None
     condicoes: str | None = Field(default=None, max_length=regras.CONDICOES_MAX)
@@ -124,11 +128,16 @@ def executores(
         instante = agora()
         try:
             valor_minor = regras.ler_valor_do_dono(args.valor)
+            quote_id = repositorio.por_referencia(pedido.ligacao, pedido.ctx.tenant_id, args.referencia)
+            if quote_id is None:
+                # Nenhum, ou mais de um, aberto **deste** tenant com aquela
+                # referencia: o dono escolhe pela lista, e nada se grava.
+                raise repositorio.OrcamentoRecusadoError(repositorio.DESCONHECIDO)
             resposta = repositorio.responder(
                 pedido.ligacao,
                 pedido.ctx.tenant_id,
                 pedido.ctx.contact_id,
-                args.quote_id,
+                quote_id,
                 valor_minor,
                 args.validade_ate,
                 args.condicoes,

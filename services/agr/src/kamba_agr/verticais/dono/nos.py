@@ -228,24 +228,22 @@ def e_resposta_de_orcamento(texto: str) -> bool:
 
 
 async def _qual_pedido(deps: Dependencias, estado: Mapping[str, Any], referencia: str | None) -> str | None:
-    """O `quote_id` a que a resposta se refere, ou `None` se nao der para saber.
+    """A referencia `ORC-…` a que a resposta se refere, ou `None` se nao der para saber.
 
-    Com referencia, o pedido aberto dela **deste** tenant (`por_referencia`).
-    Sem ela, **so** se houver um pedido a espera e um so: com dois, a resposta ia
-    para o cliente errado, e o dono escolhe pela referencia.
+    Com referencia escrita, e essa: quem a resolve **dentro do tenant** e o
+    executor do `submit_quote`, e uma de outro tenant ou inventada da
+    `NOT_FOUND`. Sem ela, **so** se houver um pedido a espera e um so: com dois,
+    a resposta ia para o cliente errado, e o dono escolhe pela referencia.
     """
-    porta = deps.orcamentos
-    tenant_id = estado["tenant_id"]
     if referencia is not None:
-        ler = getattr(porta, "por_referencia", None)
-        return None if ler is None else await ler(tenant_id, referencia)
-    ler = getattr(porta, "pendentes", None)
+        return referencia
+    ler = getattr(deps.orcamentos, "pendentes", None)
     if ler is None:
         return None
     abertos = [
-        p for p in await ler(tenant_id, limite=2) if p.estado in (regras.PEDIDO, regras.RESPONDIDO)
+        p for p in await ler(estado["tenant_id"], limite=2) if p.estado in (regras.PEDIDO, regras.RESPONDIDO)
     ]
-    return abertos[0].quote_id if len(abertos) == 1 else None
+    return abertos[0].referencia if len(abertos) == 1 else None
 
 
 async def _responder_orcamento(deps: Dependencias, estado: Mapping[str, Any]) -> dict[str, Any]:
@@ -262,15 +260,15 @@ async def _responder_orcamento(deps: Dependencias, estado: Mapping[str, Any]) ->
     """
     referencia, resto = _partes_da_resposta(_texto_do_cliente(estado))
     try:
-        quote_id = await _qual_pedido(deps, estado, referencia)
+        qual = await _qual_pedido(deps, estado, referencia)
     except Exception:  # noqa: BLE001 — a base em baixo diz-se, e nao rebenta
         return _resposta_estatica(MSG_PENDENTES_INDISPONIVEIS)
-    if quote_id is None:
+    if qual is None:
         return _resposta_estatica(MSG_QUAL_PEDIDO)
     if not resto:
         return _resposta_estatica(MSG_VALOR_POR_REESCREVER)
     resultado = await _invocar(
-        deps, estado, "submit_quote", {"quote_id": quote_id, "valor": resto}
+        deps, estado, "submit_quote", {"referencia": qual, "valor": resto}
     )
     if not resultado.ok:
         return _resposta_estatica(_frase_da_recusa(resultado.error))
