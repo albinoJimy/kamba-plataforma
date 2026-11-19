@@ -7,6 +7,7 @@ Sem o segundo metade, a lista podia nao estar ligada a nada.
 
 from __future__ import annotations
 
+import datetime
 import shutil
 import tempfile
 import unittest
@@ -20,6 +21,15 @@ MINIMO = 1
 
 #: O cabecalho obrigatorio de `ci/backlog-allow.yaml`.
 ALLOW_VAZIO = 'version: 1\n'
+
+#: **O dia de todos os casos que nao o dizem**, dentro do prazo das declaracoes
+#: da fixture (criadas a 2026-10-18, vencem a 2026-11-18). Ate aqui eles liam o
+#: relogio real, e a 2026-11-19 as declaracoes venceram e tres casos ficaram
+#: vermelhos na `main` sem ninguem tocar numa linha — a bomba-relogio que o
+#: KAM-212 e o KAM-213 ja tinham desarmado noutros ensaios. Com o dia preso, o
+#: ensaio mede a regra e nao o calendario; os que medem o vencimento passam o
+#: seu proprio `hoje`.
+HOJE = datetime.date(2026, 10, 20)
 
 
 class Base(unittest.TestCase):
@@ -56,7 +66,7 @@ class TestLeitura(Base):
         self.assertIsNone(controlo.cabecalho)
         self.assertFalse(controlo.atrasado)
         self.assertEqual(controlo.buracos, ())
-        self.assertEqual(verificar(pasta, minimo=MINIMO).achados, [])
+        self.assertEqual(verificar(pasta, minimo=MINIMO, hoje=HOJE).achados, [])
 
     def test_a_ordem_de_escrita_nao_faz_buraco(self) -> None:
         """O `specs/INDICE.md` real tem o 1.2 escrito antes do 1.1."""
@@ -93,7 +103,7 @@ class TestSequencia(Base):
         conjunto.versoes['specs/EPIC-01_Fundacoes_Dados.md'] = [
             '1.0', '1.1', '1.3']
         conjunto.cabecalhos['specs/EPIC-01_Fundacoes_Dados.md'] = '1.3'
-        veredicto = verificar(self.escrever(conjunto), minimo=MINIMO)
+        veredicto = verificar(self.escrever(conjunto), minimo=MINIMO, hoje=HOJE)
         achado = next(a for a in veredicto.achados if 'salta' in a)
         self.assertIn('1.2', achado)
         self.assertIn('specs/EPIC-01_Fundacoes_Dados.md', achado)
@@ -112,7 +122,7 @@ class TestNumeroRepetido(Base):
         conjunto.versoes['specs/EPIC-02_Canais_WhatsApp_Handoff.md'] = [
             '1.0', '1.1', '1.1']
         conjunto.cabecalhos['specs/EPIC-02_Canais_WhatsApp_Handoff.md'] = '1.1'
-        veredicto = verificar(self.escrever(conjunto), minimo=MINIMO)
+        veredicto = verificar(self.escrever(conjunto), minimo=MINIMO, hoje=HOJE)
         achado = next(a for a in veredicto.achados if 'duas linhas' in a)
         self.assertIn('1.1', achado)
         self.assertIn('EPIC-02', achado)
@@ -139,7 +149,7 @@ class TestCabecalho(Base):
         conjunto = Conjunto()
         conjunto.versoes['specs/EPIC-02_Canais_WhatsApp_Handoff.md'] = [
             '1.0', '1.1']
-        veredicto = verificar(self.escrever(conjunto), minimo=MINIMO)
+        veredicto = verificar(self.escrever(conjunto), minimo=MINIMO, hoje=HOJE)
         achado = next(a for a in veredicto.achados if 'cabecalho' in a)
         self.assertIn('EPIC-02', achado)
         self.assertIn('1.0', achado)
@@ -148,7 +158,7 @@ class TestCabecalho(Base):
     def test_cabecalho_atrasado_na_forma_de_texto_corrido(self) -> None:
         conjunto = Conjunto()
         conjunto.versoes['specs/INDICE.md'] = ['1.0', '1.1', '1.2']
-        veredicto = verificar(self.escrever(conjunto), minimo=MINIMO)
+        veredicto = verificar(self.escrever(conjunto), minimo=MINIMO, hoje=HOJE)
         achado = next(a for a in veredicto.achados
                       if 'cabecalho' in a and 'INDICE' in a)
         self.assertIn('1.2', achado)
@@ -177,14 +187,14 @@ class TestDeclaracoes(Base):
     def test_sem_declaracao_falha(self) -> None:
         conjunto = self.conjunto_com_cabecalho_atrasado()
         conjunto.allow = ALLOW_VAZIO
-        veredicto = verificar(self.escrever(conjunto), minimo=MINIMO)
+        veredicto = verificar(self.escrever(conjunto), minimo=MINIMO, hoje=HOJE)
         self.assertTrue(any('cabecalho' in a for a in veredicto.achados))
         self.assertEqual(veredicto.avisos, [])
 
     def test_com_declaracao_baixa_a_aviso(self) -> None:
         conjunto = self.conjunto_com_cabecalho_atrasado()
         conjunto.allow = self.DECLARACAO
-        veredicto = verificar(self.escrever(conjunto), minimo=MINIMO)
+        veredicto = verificar(self.escrever(conjunto), minimo=MINIMO, hoje=HOJE)
         self.assertEqual(veredicto.achados, [])
         self.assertEqual(veredicto.configuracao, [])
         self.assertTrue(any('cabecalho atrasado declarado' in a
@@ -194,17 +204,17 @@ class TestDeclaracoes(Base):
         conjunto = self.conjunto_com_cabecalho_atrasado()
         conjunto.allow = self.DECLARACAO
         pasta = self.escrever(conjunto)
-        self.assertEqual(verificar(pasta, minimo=MINIMO).achados, [])
+        self.assertEqual(verificar(pasta, minimo=MINIMO, hoje=HOJE).achados, [])
         (pasta / 'ci' / 'backlog-allow.yaml').write_text(
             ALLOW_VAZIO, encoding='utf-8')
         self.assertTrue(any('cabecalho' in a
-                            for a in verificar(pasta, minimo=MINIMO).achados))
+                            for a in verificar(pasta, minimo=MINIMO, hoje=HOJE).achados))
 
     def test_declaracao_que_nao_casa_nada_e_erro_de_configuracao(self) -> None:
         """Uma declaracao esquecida abre uma porta que ninguem vigia."""
         conjunto = Conjunto()  # o cabecalho do EPIC-02 esta a dia
         conjunto.allow = self.DECLARACAO
-        veredicto = verificar(self.escrever(conjunto), minimo=MINIMO)
+        veredicto = verificar(self.escrever(conjunto), minimo=MINIMO, hoje=HOJE)
         self.assertTrue(any('ja esta a dia' in c for c in veredicto.configuracao))
 
     def test_declaracao_de_ficheiro_sem_tabela_e_erro(self) -> None:
@@ -220,7 +230,7 @@ class TestDeclaracoes(Base):
             '    razao: >-\n'
             '      Uma razao suficientemente longa para passar o limiar da\n'
             '      verificacao de razoes curtas.\n')
-        veredicto = verificar(self.escrever(conjunto), minimo=MINIMO)
+        veredicto = verificar(self.escrever(conjunto), minimo=MINIMO, hoje=HOJE)
         self.assertTrue(any('nao tem tabela' in c for c in veredicto.configuracao))
 
     def test_razao_curta_e_recusada(self) -> None:
@@ -235,7 +245,7 @@ class TestDeclaracoes(Base):
             '    expira_em: 2026-11-18\n'
             '    razao: curta\n')
         with self.assertRaises(ConfiguracaoInvalida):
-            ler_declaracoes(self.escrever(conjunto))
+            ler_declaracoes(self.escrever(conjunto), hoje=HOJE)
 
     def test_chave_desconhecida_e_recusada(self) -> None:
         """A recusa do KAM-134: nenhum codigo le a chave, logo nao entra."""
@@ -243,7 +253,7 @@ class TestDeclaracoes(Base):
         conjunto = Conjunto()
         conjunto.allow = 'version: 1\ninventada: 2\n'
         with self.assertRaises(ConfiguracaoInvalida) as capturado:
-            ler_declaracoes(self.escrever(conjunto))
+            ler_declaracoes(self.escrever(conjunto), hoje=HOJE)
         self.assertIn('inventada', str(capturado.exception))
 
     def test_version_errada_e_recusada(self) -> None:
@@ -251,7 +261,7 @@ class TestDeclaracoes(Base):
         conjunto = Conjunto()
         conjunto.allow = 'version: 2\n'
         with self.assertRaises(ConfiguracaoInvalida):
-            ler_declaracoes(self.escrever(conjunto))
+            ler_declaracoes(self.escrever(conjunto), hoje=HOJE)
 
     def test_a_dispensa_vencida_volta_a_ser_achado(self) -> None:
         """Sem prazo, «passa a falha quando a lista esvaziar» nunca acontece.
@@ -289,7 +299,7 @@ class TestDeclaracoes(Base):
         conjunto.allow = self.DECLARACAO.replace('expira_em: 2026-11-18',
                                                  'expira_em: 2027-11-18')
         with self.assertRaises(ConfiguracaoInvalida) as capturado:
-            ler_declaracoes(self.escrever(conjunto))
+            ler_declaracoes(self.escrever(conjunto), hoje=HOJE)
         self.assertIn('o maximo sao 31 contados da criacao',
                       str(capturado.exception))
 
@@ -342,12 +352,20 @@ class TestDeclaracoes(Base):
         self.assertIn('nao se cria no futuro', erro.getvalue())
 
     def test_expira_antes_de_criar_e_recusado(self) -> None:
+        """Com o `hoje` **depois** da criacao, senao a recusa e a do futuro.
+
+        A primeira versao corria com o relogio real e um `criado_em` de
+        2026-12-18: recusava por «nao se cria no futuro», que e outra regra, e
+        o ensaio ficava verde com a ordem das duas datas por verificar. Agora a
+        mensagem afirma-se.
+        """
         from lint_backlog.cli import ConfiguracaoInvalida, ler_declaracoes
         conjunto = self.conjunto_com_cabecalho_atrasado()
         conjunto.allow = self.DECLARACAO.replace('criado_em: 2026-10-18',
                                                  'criado_em: 2026-12-18')
-        with self.assertRaises(ConfiguracaoInvalida):
-            ler_declaracoes(self.escrever(conjunto))
+        with self.assertRaises(ConfiguracaoInvalida) as capturado:
+            ler_declaracoes(self.escrever(conjunto), hoje=datetime.date(2026, 12, 20))
+        self.assertIn('e anterior a `criado_em`', str(capturado.exception))
 
     def test_declaracao_sem_prazo_e_recusada(self) -> None:
         from lint_backlog.cli import ConfiguracaoInvalida, ler_declaracoes
@@ -355,7 +373,7 @@ class TestDeclaracoes(Base):
         conjunto.allow = self.DECLARACAO.replace(
             '    criado_em: 2026-10-18\n', '')
         with self.assertRaises(ConfiguracaoInvalida) as capturado:
-            ler_declaracoes(self.escrever(conjunto))
+            ler_declaracoes(self.escrever(conjunto), hoje=HOJE)
         self.assertIn('criado_em', str(capturado.exception))
 
     def test_inversao_declarada_baixa_a_aviso_e_tirada_repoe_a_falha(self) -> None:
@@ -383,14 +401,14 @@ class TestDeclaracoes(Base):
             '      A segunda aresta que entra no mesmo ticket; declara-se uma\n'
             '      por aresta, e nao uma por ticket, de proposito.\n')
         pasta = self.escrever(conjunto)
-        veredicto = verificar(pasta, minimo=MINIMO)
+        veredicto = verificar(pasta, minimo=MINIMO, hoje=HOJE)
         self.assertEqual(veredicto.achados, [])
         self.assertTrue(any('inversao de prioridade declarada' in a
                             for a in veredicto.avisos))
         (pasta / 'ci' / 'backlog-allow.yaml').write_text(
             ALLOW_VAZIO, encoding='utf-8')
         self.assertTrue(any('inversao de prioridade' in a
-                            for a in verificar(pasta, minimo=MINIMO).achados))
+                            for a in verificar(pasta, minimo=MINIMO, hoje=HOJE).achados))
 
 
 if __name__ == '__main__':
