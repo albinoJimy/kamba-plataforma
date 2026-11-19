@@ -428,6 +428,42 @@ class PayloadQueryUnresolvedV2(TypedDict):
     turn_id: str
 
 
+class PayloadQuoteRequested(TypedDict):
+    """Payload de `quote.requested` v1."""
+    quote_id: str
+    contact_id: str
+    sku: str
+    quantidade: NotRequired[int]
+
+
+class PayloadQuoteRequestedV2(TypedDict):
+    """Payload de `quote.requested` v2."""
+    quote_id: str
+    contact_id: str
+    sku: str
+    quantidade: NotRequired[int]
+
+
+class PayloadQuoteSent(TypedDict):
+    """Payload de `quote.sent` v1."""
+    quote_id: str
+    contact_id: str
+    sku: str
+    valor_minor: int
+    currency: str
+    validade_ate: str
+
+
+class PayloadQuoteSentV2(TypedDict):
+    """Payload de `quote.sent` v2."""
+    quote_id: str
+    contact_id: str
+    sku: str
+    valor_minor: int
+    currency: str
+    validade_ate: str
+
+
 class PayloadReviewCreated(TypedDict):
     """Payload de `review.created` v1."""
     order_id: str
@@ -756,6 +792,16 @@ CATALOGO: dict[str, dict[str, object]] = {
         "versoes": [1, 2],
         "obrigatorios": ['thread_id', 'turn_id'],
         "permitidos": ['thread_id', 'turn_id'],
+    },
+    "quote.requested": {
+        "versoes": [1, 2],
+        "obrigatorios": ['contact_id', 'quote_id', 'sku'],
+        "permitidos": ['contact_id', 'quantidade', 'quote_id', 'sku'],
+    },
+    "quote.sent": {
+        "versoes": [1, 2],
+        "obrigatorios": ['contact_id', 'currency', 'quote_id', 'sku', 'validade_ate', 'valor_minor'],
+        "permitidos": ['contact_id', 'currency', 'quote_id', 'sku', 'validade_ate', 'valor_minor'],
     },
     "review.created": {
         "versoes": [1, 2],

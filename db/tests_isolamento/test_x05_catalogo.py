@@ -367,6 +367,8 @@ class TestCatalogoReal(ComBase):
                 # («pro» < «pur» < «ref»). As tres listas deste ficheiro no
                 # mesmo PR, pela licao que a nota do KAM-017 escreveu.
                 ("platform", "purge_log", "tenant_id"),
+                # KAM-123: os pedidos de orcamento («pu» < «qu» < «re»).
+                ("platform", "quote_requests", "tenant_id"),
                 ("platform", "refund_cases", "tenant_id"),
                 # KAM-089: a fila de revisao, entre o reembolso e o screening
                 # («ref» < «rev» < «scr»), e as duas tabelas dela por ordem.
@@ -712,6 +714,8 @@ class TestCatalogoReal(ComBase):
                 # `tenant_id` nulo (um `DROP` de particao) nao casam com ela, e
                 # so as ve quem tem `BYPASSRLS` — a forma do `audit_log`.
                 ("purge_log", "tenant_iso", "ALL", "{public}"),
+                # KAM-123: os pedidos de orcamento, uma politica so.
+                ("quote_requests", "tenant_iso", "ALL", "{public}"),
                 ("refund_cases", "tenant_iso", "ALL", "{public}"),
                 # KAM-047: as duas ultimas do `servicos`, e vem **antes** das
                 # duas de `tenant_channels` — a ordem e por nome de tabela, e
@@ -954,6 +958,8 @@ class TestCatalogoReal(ComBase):
              "provisioning_step",
              # KAM-071: o registo da purga.
              "purge_log",
+             # KAM-123: os pedidos de orcamento.
+             "quote_requests",
              "refund_cases",
              # KAM-089: a fila de revisao.
              "review_case",

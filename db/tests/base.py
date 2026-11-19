@@ -702,6 +702,17 @@ TABELAS_OFFBOARDING = ("offboarding_run",)
 #: `contacts_um_dono` e a porta `definir_dono`.
 TABELAS_CANAL_DO_DONO = ("owner_actions",)
 
+#: O que a revisao do Orcamento expresso (KAM-123) acrescenta.
+#:
+#: **Pelo nome e nao pelo numero**, pela razao do `TABELAS_CATALOGO_AI`: o
+#: numero (`0072`, sobre a `0071` do KAM-204) e provisorio.
+#:
+#: Uma tabela de tenant, a `quote_requests`: os pedidos de orcamento de
+#: produtos `sob_consulta`, com RLS `FORCE` pela `tenant_iso`, FK para
+#: `tenants` e compostas para a `contacts` e a `conversations`, e um gatilho
+#: de transicoes. O `kamba_app` insere e actualiza por coluna; ninguem apaga.
+TABELAS_ORCAMENTO = ("quote_requests",)
+
 TABELAS = tuple(
     sorted(
         TABELAS_0001 + TABELAS_0003 + TABELAS_0004 + TABELAS_0005
@@ -718,6 +729,7 @@ TABELAS = tuple(
         + TABELAS_REGUA_DE_COBRANCA + TABELAS_KPIS_DE_CHURN
         + TABELAS_CATALOGO_MINIMO + TABELAS_CONFIANCA + TABELAS_OFFBOARDING
         + TABELAS_CANAL_DO_DONO
+        + TABELAS_ORCAMENTO
     )
 )
 
@@ -729,8 +741,13 @@ TABELAS = tuple(
 #: poe a sua aqui e faz **esta** derivar da dela. Chama-se pela tabela e nao
 #: pelo numero, pela razao escrita no `TABELAS_CATALOGO_AI`. A anterior e a
 #: da finalidade do screening (KAM-195), que nao cria tabela nenhuma.
+TABELAS_ANTES_DO_ORCAMENTO = tuple(sorted(set(TABELAS) - set(TABELAS_ORCAMENTO)))
+
+#: (Desde o KAM-123 a cadeia comeca no `TABELAS_ANTES_DO_ORCAMENTO`, acima: a
+#: revisao do Orcamento expresso e o topo, e a `0071` do KAM-204, entre as
+#: duas, nao cria tabela.)
 TABELAS_ANTES_DO_CANAL_DO_DONO = tuple(
-    sorted(set(TABELAS) - set(TABELAS_CANAL_DO_DONO))
+    sorted(set(TABELAS_ANTES_DO_ORCAMENTO) - set(TABELAS_CANAL_DO_DONO))
 )
 
 #: O que existe em `platform` quando a base esta na revisao anterior a do

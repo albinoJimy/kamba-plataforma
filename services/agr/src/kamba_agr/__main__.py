@@ -81,6 +81,7 @@ from .grafos import (
 from .handoff.servico import ServicoDeHandoff
 from .concierge.substituicao import Substituidor
 from .handoff.retoma import Retomador
+from .orcamento.porta import PortaDeOrcamento
 from .metricas import METRICAS
 from .ligacao import (
     ligar_para_accoes,
@@ -713,6 +714,10 @@ def main() -> int:
         # portao das accoes sensiveis, uma ligacao `kamba_app` por confirmacao,
         # com nome proprio porque escreve.
         "accoes_do_dono": PortaDeConfirmacao(ligar_para_accoes),
+        # KAM-123: o envio da proposta de orcamento depois do botao, pela mesma
+        # ligacao das accoes (escreve). O Outbound e o `OutboundPorLigar` por
+        # omissao: hoje a proposta nao sai e o dono e avisado.
+        "orcamentos": PortaDeOrcamento(ligar_para_accoes),
         # O limiar do `retrieve` e o do pontuador que o `search_catalog` usa.
         # Ligado o indice real (KAM-061), e o `LIMIAR_DO_RRF` de `tls/idx.py`, e
         # nao o `LIMIAR_IDX` do duplo — que comparado com um RRF mandava toda a

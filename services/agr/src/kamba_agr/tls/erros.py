@@ -123,7 +123,13 @@ VIOLACOES: Final = (ENTITLEMENT_DENIED, TOOL_NOT_ALLOWED, TENANT_MISMATCH)
 #: tool produz e um valor que o validador de citacao nunca vai receber, e a
 #: forma de o acrescentar e a que o §5 do dicionario fixa — **emenda primeiro,
 #: codigo depois**. A divergencia esta em `docs/dividas-documentais.md`.
-KINDS: Final = ("price", "stock", "total", "datetime")
+#:
+#: **O `quote_price` e o quinto** (KAM-123): o valor que o **dono** fixou para um
+#: pedido de orcamento de um produto `sob_consulta`, com o `quote_id` como
+#: `fact_id` e o `sku` do pedido. Esta no §3.7 do dicionario desde que o
+#: conjunto nomeou o modulo, e entra aqui com a tool que o produz
+#: (`submit_quote`), que e a regra de cima.
+KINDS: Final = ("price", "stock", "total", "datetime", "quote_price")
 
 
 class CodigoDesconhecidoError(ValueError):
