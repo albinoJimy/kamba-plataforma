@@ -620,6 +620,10 @@ AG_VAL_NORM = "services/agr/src/kamba_agr/validador/normalizacao.py"
 AG_VAL_EXTR = "services/agr/src/kamba_agr/validador/extraccao.py"
 AG_VAL_REND = "services/agr/src/kamba_agr/validador/render.py"
 AG_VAL_VER = "services/agr/src/kamba_agr/validador/veredicto.py"
+#: KAM-123: o Orcamento expresso.
+AG_ORC_REGRAS = "services/agr/src/kamba_agr/orcamento/regras.py"
+AG_TLS_ORC = "services/agr/src/kamba_agr/tls/orcamento.py"
+AG_DONO_NOS = "services/agr/src/kamba_agr/verticais/dono/nos.py"
 #: O grafo do Vendedor (KAM-031). Tambem na `agr_unit`: o grafo corre com
 #: *fakes* por contrato e com a ToolLayer a serio, e nada do que estas mutacoes
 #: alteram toca a base.
@@ -4955,9 +4959,55 @@ MUTACOES = [
     # O `name_sku_mismatch` era o unico dos sete veredictos sem mutacao, e e
     # metade da familia 3 do criterio 2 — «nome que resolve para outro `sku`».
     ('cit: o stock passa a sustentar um preco', AG_VAL_VER,
-     'MONEY_KINDS: Final = ("price", "total")',
-     'MONEY_KINDS: Final = ("price", "total", "stock")',
+     'MONEY_KINDS: Final = ("price", "total", "quote_price")',
+     'MONEY_KINDS: Final = ("price", "total", "quote_price", "stock")',
      AGR_UNIT),
+    # ---- KAM-123 (Orcamento expresso). As quatro primeiras sao do validador, das
+    # regras e do no `confirm` (suite `agr_unit`, `services/agr/tests/
+    # test_orcamento.py`); as tres ultimas sao do SQL na ToolLayer, e quem as
+    # mata e o `db/tests_agr/test_quote_requests.py`.
+    #
+    # Um `quote_price` sustenta uma linha com dois `sku`:
+    # `test_um_quote_price_so_sustenta_uma_linha_de_um_produto_so`.
+    ('orc: o quote_price sustenta uma linha de dois sku', AG_VAL_VER,
+     'if len(set(linha.skus)) != 1 or not any(',
+     'if not any(',
+     AGR_UNIT),
+    # «dez por cento de sinal» chega ao cliente:
+    # `test_as_condicoes_recusam_numeros_injeccao_e_tamanho`.
+    ('orc: as condicoes aceitam numeros por extenso', AG_ORC_REGRAS,
+     '        or _tem_numero_por_extenso(limpo)\n',
+     '',
+     AGR_UNIT),
+    # «120 50» le-se 12 050 Kz: `test_o_ambiguo_e_o_composto_recusam_sem_adivinhar`.
+    ('orc: o parser aceita grupos mal formados', AG_ORC_REGRAS,
+     '    if grupos and not _bem_formado(grupos[0], tem_multiplicador):',
+     '    if False:',
+     AGR_UNIT),
+    # Um envio que falhou deixa de se repetir com o mesmo botao:
+    # `test_um_envio_que_falhou_repete_com_o_mesmo_botao`.
+    ('orc: o confirm deixa de repetir o envio', AG_DONO_NOS,
+     'if desfecho in (accoes.CONFIRMADA, accoes.JA_CONFIRMADA):',
+     'if desfecho == accoes.CONFIRMADA:',
+     AGR_UNIT),
+    # O botao de um valor anterior envia o valor novo:
+    # `test_o_botao_de_um_valor_anterior_nao_envia_o_valor_novo`.
+    ('orc: o botao antigo envia o valor novo', AG_TLS_ORC,
+     'if linha[0] != regras.RESPONDIDO or _marca(linha[7]) != marca:',
+     'if linha[0] != regras.RESPONDIDO:',
+     "tests_agr"),
+    # Duas mensagens concorrentes dao dois pedidos:
+    # `test_duas_mensagens_concorrentes_dao_um_pedido`.
+    ('orc: o pedido perde a tranca', AG_TLS_ORC,
+     '        cursor.execute(SQL_TRANCA, (f"{tenant_id}|{contact_id}|{sku}",))\n',
+     '',
+     "tests_agr"),
+    # Um `sku` inventado ou de outro tenant vira pedido:
+    # `test_fora_do_catalogo_ou_com_preco_publicado_nao_ha_pedido`.
+    ('orc: o pedido aceita um sku fora do catalogo', AG_TLS_ORC,
+     '            raise OrcamentoRecusadoError(FORA_DO_CATALOGO)',
+     '            pass',
+     "tests_agr"),
     # A separacao por `kind` e a mitigacao que o §9.2 nomeia para a coincidencia
     # de valores: com o `stock` aqui, o stock de um produto sustenta o preco de
     # outro.
