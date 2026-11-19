@@ -20543,6 +20543,26 @@ entradas:
       - "sem_resposta"
     variantes_literais: []
   - seccao: "3.79"
+    conceito: "Template de uma resposta do AGR"
+    canonico: "template_nome"
+    literais:
+      - "template_nome"
+    nomes:
+      - "template_nome"
+    nomes_nota:
+      - "window_expires_at"
+    variantes_literais: []
+  - seccao: "3.79"
+    conceito: "Parâmetros do template de uma resposta"
+    canonico: "template_parametros"
+    literais:
+      - "template_parametros"
+    nomes:
+      - "template_parametros"
+    nomes_nota:
+      - "template_nome"
+    variantes_literais: []
+  - seccao: "3.79"
     conceito: "Trabalho de lote da mensagem das 24 h"
     canonico: "agr_orcamento_sem_resposta"
     literais:
