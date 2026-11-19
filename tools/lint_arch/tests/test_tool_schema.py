@@ -245,6 +245,31 @@ class TestCanarios(_ComArvore):
         self.assertEqual(len(achados), 1, achados)
         self.assertIn("unica via de escrita", achados[0])
 
+    def test_a_resposta_do_agr_so_entra_pelo_insert_do_saida(self) -> None:
+        """KAM-224: a excepcao do fundador e estreita — a tabela, o verbo e o modulo.
+
+        O `INSERT` em `platform.agent_replies` passa no `saida.py`, e so ai. O
+        mesmo `INSERT` noutro modulo do AGR, outro verbo na mesma tabela, e
+        outra tabela no `saida.py` continuam recusados.
+        """
+        passa = self.arvore(
+            dentro_da_tls=False,
+            nome="saida.py",
+            fonte='SQL = "INSERT INTO platform.agent_replies (tenant_id) VALUES (%s)"\n',
+        )
+        self.assertEqual(passa, [])
+        recusados = {
+            "outro modulo": ("turno.py", "INSERT INTO platform.agent_replies (tenant_id) VALUES (%s)"),
+            "update": ("saida.py", "UPDATE platform.agent_replies SET texto = %s"),
+            "delete": ("saida.py", "DELETE FROM platform.agent_replies WHERE reply_id = %s"),
+            "outra tabela": ("saida.py", "INSERT INTO platform.outbound_messages (tenant_id) VALUES (%s)"),
+        }
+        for caso, (nome, instrucao) in recusados.items():
+            with self.subTest(caso=caso):
+                achados = self.arvore(dentro_da_tls=False, nome=nome, fonte=f'SQL = "{instrucao}"\n')
+                self.assertEqual(len(achados), 1, achados)
+                self.assertIn("unica via de escrita", achados[0])
+
     def test_um_insert_ou_delete_na_tabela_dispensada_continua_a_falhar(self) -> None:
         """**A dispensa e por verbo, e a primeira versao deixou-o de fora.**
 

@@ -4947,8 +4947,8 @@ dono na decisão 1 do mesmo dia. **A tabela é também a idempotência do produt
 | Consumidor da resposta no WhatsApp | `outbound`, em `platform.evt_subscricoes` | — | *proposta* (emenda 1.118, KAM-224). Declarado no [registo do consumidor](../registry/outbound.yaml) e escrito pela revisão da resposta, com `versao_max` 2. Corre no consumidor do worker-canal, como `kamba_app`, e envia pelo Saida do KAM-015 numa ligação própria. Não arranca sem o cliente da Meta e o destinatário (credor KAM-226) |
 | Consumidor da resposta no painel | `painel`, em `platform.evt_subscricoes` | — | *proposta* (emenda 1.118, KAM-224). Declarado no [registo do consumidor](../registry/painel.yaml). Corre no processo de lote do onboarding-web, como `kamba_app`, e marca a resposta entregue; a rota que a mostra ao dono é do KAM-223 |
 
-**O que esta emenda não decide, e a quem.** O texto fora do evento é uma leitura do critério 1 do
-KAM-224, que pedia o texto no *payload*, e está devolvida ao fundador pela coordenação do lote 13. A
+**O texto fora do evento é decisão do fundador** (2026-11-19, opção B do bloco do KAM-224), com a
+excepção estreita no lint de arquitectura que ela pede. **O que esta emenda não decide, e a quem.** A
 fonte persistida da mensagem do dono e a OwnerPort são do KAM-223; a credencial da Meta por canal e o
 destinatário de produção, do KAM-226.
 

@@ -266,6 +266,32 @@ ESCRITAS_DO_PLANO_DE_CONTROLO = frozenset(
         # `estado`.
         ("services/agr/src/kamba_agr/dono/accoes.py", "owner_actions", "insert"),
         ("services/agr/src/kamba_agr/dono/accoes.py", "owner_actions", "update"),
+        # KAM-224: a resposta do turno. **Excepcao decidida pelo fundador a
+        # 2026-11-19** (Armando Albino, no chat, trazida pela coordenacao do lote
+        # 13; registada no bloco do KAM-224). E a unica entrada desta lista em que
+        # a condicao 1 **nao vale a letra**, e fica dito:
+        #
+        # 1. **o texto e saida de modelo** — e a resposta que o grafo compos e o
+        #    *renderer* validou (numeros so de *facts*, guardas de saida). Nao e
+        #    um dado de negocio: e o texto do Outbound, o que vai ao cliente, e o
+        #    `send` do grafo e o unico sitio por onde sai. A decisao 2 do fundador
+        #    (bloco do KAM-217) pos essa saida num evento, e a decisao desta
+        #    entrada pos o texto numa linha, porque o lint de PII do *gate* 7 nao
+        #    deixa leva-lo no evento;
+        # 2. **nao mexe em encomenda, preco, stock nem contacto** — a linha diz o
+        #    que o turno quer dizer ao cliente e por que canal, e mais nada;
+        # 3. **o `tenant_id` esta na instrucao e ela corre em `tenant_guard.tx`**
+        #    — a revisao `*_resposta_do_agr.py` da a `agent_replies` com RLS
+        #    `FORCE`, e ao `kamba_app` o `INSERT` do conteudo e o `UPDATE` so do
+        #    `entregue_at`, que e dos consumidores e nao do AGR;
+        # 4. **o bloco do ticket e o fundador nomeiam a tabela, a instrucao e o
+        #    modulo** — o `SQL_INSERIR` de `saida.py`, e so ele.
+        #
+        # **So o `insert`, e so neste ficheiro.** O `UPDATE` do `entregue_at` e
+        # dos consumidores (TypeScript, fora deste *lint*), e um `UPDATE` ou um
+        # `DELETE` escrito no AGR continua recusado
+        # (`test_a_resposta_do_agr_so_entra_pelo_insert_do_saida`).
+        ("services/agr/src/kamba_agr/saida.py", "agent_replies", "insert"),
     }
 )
 
