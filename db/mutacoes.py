@@ -625,6 +625,12 @@ AG_ORC_REGRAS = "services/agr/src/kamba_agr/orcamento/regras.py"
 AG_TLS_ORC = "services/agr/src/kamba_agr/tls/orcamento.py"
 AG_ORC_PORTA = "services/agr/src/kamba_agr/orcamento/porta.py"
 AG_DONO_NOS = "services/agr/src/kamba_agr/verticais/dono/nos.py"
+#: KAM-224: a saida do AGR pelo evento de resposta.
+AG_SAIDA = "services/agr/src/kamba_agr/saida.py"
+AG_TURNO = "services/agr/src/kamba_agr/turno.py"
+RESPOSTA_EFEITO = "packages/core-ts/src/resposta/efeito.ts"
+RESPOSTA_ENVIO = "packages/core-ts/src/resposta/envio.ts"
+RESPOSTA_CONTRATO = "packages/core-ts/src/resposta/contrato.ts"
 #: O grafo do Vendedor (KAM-031). Tambem na `agr_unit`: o grafo corre com
 #: *fakes* por contrato e com a ToolLayer a serio, e nada do que estas mutacoes
 #: alteram toca a base.
@@ -5077,6 +5083,56 @@ MUTACOES = [
      'if getattr(invocacao, "persona", None) != PERSONA_CLIENTE:',
      'if False:',
      AGR_UNIT),
+    # ---- KAM-224 (a saida do AGR). As duas primeiras sao do produtor, e quem as
+    # mata e a `agr_unit` (`services/agr/tests/test_saida.py`); a terceira e do
+    # SQL contra a base (`db/tests_agr/test_agent_replies.py`); as tres ultimas
+    # sao dos consumidores (suite `tests_outbound`, `tests/resposta.test.ts`).
+    #
+    # Sem o `ON CONFLICT`, o turno repetido insere e emite outra vez:
+    # `test_um_turno_repetido_nao_insere_nem_emite`.
+    ('saida: o turno repetido emite outra vez', AG_SAIDA,
+     '    "ON CONFLICT (tenant_id, chave) DO NOTHING RETURNING reply_id"',
+     '    "RETURNING reply_id"',
+     AGR_UNIT),
+    # Sem o inicio do turno, a guarda do KAM-018 recusa todos os envios do bot
+    # (`sem_turno`): `test_o_grafo_ve_o_inicio_e_depois_do_turno_ja_nao`.
+    ('saida: o turno deixa de por o inicio', AG_TURNO,
+     '                marca_do_inicio = INICIO_DO_TURNO.set(\n'
+     '                    datetime.datetime.now(datetime.UTC)\n'
+     '                )\n',
+     '',
+     AGR_UNIT),
+    # Contra a base, o mesmo `ON CONFLICT` a menos parte o turno repetido com
+    # `23505`: `test_o_turno_repetido_tres_vezes_continua_a_dar_uma`.
+    ('saida: a base recebe o turno repetido', AG_SAIDA,
+     '    "ON CONFLICT (tenant_id, chave) DO NOTHING RETURNING reply_id"',
+     '    "RETURNING reply_id"',
+     "tests_agr"),
+    # A resposta do painel sai pelo WhatsApp:
+    # «uma resposta do painel não sai pelo WhatsApp, nem se lê».
+    ('resposta: o outbound aplica o canal do painel', RESPOSTA_EFEITO,
+     '    if (payload.canal !== "whatsapp") {\n'
+     '      opcoes.aoTratar?.("de_outro_canal");\n'
+     '      return;\n'
+     '    }\n'
+     '    const resposta = await respostaParaEnviar',
+     '    const resposta = await respostaParaEnviar',
+     SAIDA),
+    # Um canal desconhecido cai no WhatsApp:
+    # «recusa um canal desconhecido, e não o trata como WhatsApp».
+    ('resposta: o canal desconhecido passa', RESPOSTA_CONTRATO,
+     '  if (!(CANAIS_DA_RESPOSTA as readonly unknown[]).includes(canal)) {\n'
+     '    throw new RespostaInvalidaError("canal desconhecido");\n'
+     '  }\n',
+     '',
+     SAIDA),
+    # O Saida corre sem o tenant, e a RLS `FORCE` da `outbound_messages` nao lhe
+    # deixa ver a janela: «cada instrução do Saida corre numa transacção sua,
+    # com o tenant local, e nunca de sessão».
+    ('resposta: o Saida corre sem o tenant', RESPOSTA_ENVIO,
+     '        bd: comTenantPorInstrucao(ligacao, pedido.tenantId),\n',
+     '        bd: ligacao,\n',
+     SAIDA),
     # A separacao por `kind` e a mitigacao que o §9.2 nomeia para a coincidencia
     # de valores: com o `stock` aqui, o stock de um produto sustenta o preco de
     # outro.

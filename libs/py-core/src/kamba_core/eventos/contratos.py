@@ -8,6 +8,24 @@ ficheiro estiver desactualizado.
 from typing import NotRequired, TypedDict
 
 
+class PayloadAgentReplied(TypedDict):
+    """Payload de `agent.replied` v1."""
+    reply_id: str
+    thread_id: str
+    conversation_id: str
+    contact_id: str
+    canal: str
+
+
+class PayloadAgentRepliedV2(TypedDict):
+    """Payload de `agent.replied` v2."""
+    reply_id: str
+    thread_id: str
+    conversation_id: str
+    contact_id: str
+    canal: str
+
+
 class PayloadBillingCyclePaid(TypedDict):
     """Payload de `billing.cycle_paid` v1."""
     billing_cycle_id: str
@@ -648,6 +666,11 @@ class PayloadTenantSuspendedV2(TypedDict):
 
 #: Todos os contratos, por tipo. Lista fechada.
 CATALOGO: dict[str, dict[str, object]] = {
+    "agent.replied": {
+        "versoes": [1, 2],
+        "obrigatorios": ['canal', 'contact_id', 'conversation_id', 'reply_id', 'thread_id'],
+        "permitidos": ['canal', 'contact_id', 'conversation_id', 'reply_id', 'thread_id'],
+    },
     "billing.cycle_paid": {
         "versoes": [1, 2],
         "obrigatorios": ['billing_cycle_id', 'charge_id', 'currency', 'periodo_fim', 'periodo_inicio', 'subscription_id', 'valor_minor'],

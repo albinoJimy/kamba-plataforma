@@ -1,0 +1,30 @@
+# registry/outbound.yaml — o consumidor da resposta do AGR no WhatsApp (KAM-224)
+#
+# A QUARTA FORMA dos ficheiros de `registry/` (a do `registry/idx.yaml`,
+# KAM-194), distinguida pela chave de topo `consumidor`: um consumidor de
+# eventos que NAO e vertical. Nao tem persona, grafo, tools nem entitlements.
+#
+# O efeito e o `efeitoDoOutbound` (`packages/core-ts/src/resposta/efeito.ts`),
+# e corre no processo do consumidor do `worker-canal`
+# (`services/worker-canal/src/consumidor.ts`, com `KAMBA_CONSUMER=outbound`),
+# que instancia o `Saida` do KAM-015. Aplica so as respostas de canal
+# `whatsapp`; as de `painel` sao do `registry/painel.yaml`.
+#
+# O nome `outbound` e o `events_consumed.consumer` e o prefixo das filas
+# `evt.outbound.p<n>`.
+#
+# ---------------------------------------------------------------------------
+# ESTE FICHEIRO E A REVISAO DE DADOS `*_resposta_do_agr.py` DIZEM O MESMO, e
+# um ensaio confronta-os (`services/agr/tests/test_subscricoes_0052.py`).
+#
+# A `versao` e a 2: o *payload* do `agent.replied` e o mesmo na v1 e na v2, e
+# uma subscricao a v2 recebe a v1 sem conversao.
+#
+# ESTILO DE BLOCO, E NAO DE FLUXO: o `tools/kamba_yaml.py` nao le mapas em
+# estilo de fluxo.
+
+consumidor: outbound
+version: 1.0.0
+subscriptions:
+  - tipo: agent.replied
+    versao: 2

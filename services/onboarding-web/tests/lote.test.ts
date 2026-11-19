@@ -49,6 +49,7 @@ import {
   AvisoDeSancaoSemVia,
   AvisoSemVia,
   ConfiguracaoDoLoteError,
+  consumidorDoPainel,
   consumidorDoTrust,
   registarVoltaDoTrust,
   arrancar,
@@ -65,6 +66,7 @@ import {
   registarVoltaDaConfianca,
   verificarPapeis,
   OnboardingsQueRecalculam,
+  SUBSCRICAO_DO_PAINEL,
   SUBSCRICAO_DO_TRUST,
   depoisDoTrust,
 } from "../src/lote/processo.ts";
@@ -822,4 +824,52 @@ test("KAM-219: o /metrics do lote serve a recusa da base sobre o tecto, com o va
   const corpo = await (await criarApp().request("/metrics")).text();
   assert.match(corpo, /^# TYPE tenant_guard_tecto_recusado_total counter$/m);
   assert.match(corpo, new RegExp(`^tenant_guard_tecto_recusado_total ${n}$`, "m"));
+});
+
+test("o consumidor do painel (KAM-224): as dezasseis filas do painel, sem ordem, e o efeito marca a resposta do painel", async () => {
+  let pedido: Parameters<NonNullable<Parameters<typeof consumidorDoPainel>[0]["criar"]>>[0] | undefined;
+  const registos: string[] = [];
+  consumidorDoPainel({
+    urlDaApp: URL_APP,
+    urlDaFila: URL_FILA,
+    log: { info: (l: { outcome?: string }) => void registos.push(String(l.outcome)) } as never,
+    criar: (o) => {
+      pedido = o;
+      return { fechar: async () => {} } as never;
+    },
+  });
+  assert.ok(pedido !== undefined);
+  assert.equal(pedido.subscricao, SUBSCRICAO_DO_PAINEL);
+  assert.deepEqual(pedido.subscricao, { consumer: "painel", exigeOrdem: false });
+  assert.deepEqual(pedido.filas, Array.from({ length: 16 }, (_, i) => `evt.painel.p${i}`));
+  assert.equal(pedido.url, URL_FILA);
+  // O efeito é o do painel: lê a linha do painel e marca-a, sob o tenant do envelope.
+  const tenant = "99999999-9999-4999-8999-999999999999";
+  const contacto = "2b3c4d5e-6f70-4182-93a4-b5c6d7e8f901";
+  const instrucoes: string[] = [];
+  const bd = {
+    query: async (sql: string) => {
+      instrucoes.push(sql);
+      return /SELECT r\.reply_id/.test(sql)
+        ? { rows: [{ reply_id: "r-1", entregue_at: null }], rowCount: 1 }
+        : { rows: [], rowCount: 1 };
+    },
+  };
+  await pedido.efeito(bd, {
+    id: "e-1",
+    tipo: "agent.replied",
+    versao: 1,
+    tenant_id: tenant,
+    payload: {
+      reply_id: "0192f1c4-8c2d-7e3f-9a4b-5c6d7e8f9a0b",
+      thread_id: `${tenant}:${contacto}`,
+      conversation_id: "7a2b3c4d-5e6f-4a1b-8c2d-3e4f5a6b7c8d",
+      contact_id: contacto,
+      canal: "painel",
+    },
+  } as never);
+  assert.equal(instrucoes.length, 2);
+  assert.match(instrucoes[0] ?? "", /r\.canal = 'painel'/);
+  assert.match(instrucoes[1] ?? "", /UPDATE platform\.agent_replies SET entregue_at/);
+  assert.deepEqual(registos, ["painel_entregue_ao_painel"]);
 });

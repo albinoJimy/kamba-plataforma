@@ -1,0 +1,28 @@
+# registry/painel.yaml — o consumidor da resposta do AGR no painel do dono (KAM-224)
+#
+# A QUARTA FORMA dos ficheiros de `registry/` (a do `registry/idx.yaml`,
+# KAM-194), distinguida pela chave de topo `consumidor`: um consumidor de
+# eventos que NAO e vertical. Nao tem persona, grafo, tools nem entitlements.
+#
+# O efeito e o `efeitoDoPainel` (`packages/core-ts/src/resposta/efeito.ts`), e
+# corre no processo de lote do `onboarding-web`
+# (`services/onboarding-web/src/lote.ts`), sobre ligacoes do `kamba_app`.
+# Aplica so as respostas de canal `painel` (decisao 1 do fundador de
+# 2026-11-19, bloco do KAM-217): marca a linha da `agent_replies` como
+# entregue, e o painel le-a pelo `thread_id` (a `OwnerPort` e do KAM-223).
+#
+# O nome `painel` e o `events_consumed.consumer` e o prefixo das filas
+# `evt.painel.p<n>`.
+#
+# ---------------------------------------------------------------------------
+# ESTE FICHEIRO E A REVISAO DE DADOS `*_resposta_do_agr.py` DIZEM O MESMO, e
+# um ensaio confronta-os (`services/agr/tests/test_subscricoes_0052.py`).
+#
+# ESTILO DE BLOCO, E NAO DE FLUXO: o `tools/kamba_yaml.py` nao le mapas em
+# estilo de fluxo.
+
+consumidor: painel
+version: 1.0.0
+subscriptions:
+  - tipo: agent.replied
+    versao: 2

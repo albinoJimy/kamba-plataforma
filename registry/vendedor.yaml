@@ -68,6 +68,8 @@ tools:
   - criar_pedido
   - get_order_status
   - get_store_info
+  # KAM-220: o pedido de orcamento de um `sob_consulta`, com o botao do cliente.
+  - request_quote
 entitlements:
   modulo: vendedor
   limites:

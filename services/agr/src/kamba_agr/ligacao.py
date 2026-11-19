@@ -121,6 +121,8 @@ NOME_DO_CONCIERGE: Final = "kamba-agr:concierge"
 #: A nona, do portao das accoes sensiveis do dono (KAM-211): so
 #: `platform.owner_actions` e a leitura do `papel` em `platform.contacts`.
 NOME_DAS_ACCOES: Final = "kamba-agr:accoes"
+#: KAM-224: a saida do turno, que grava a resposta e emite o `agent.replied`.
+NOME_DA_SAIDA: Final = "kamba-agr:saida"
 
 
 class ConfiguracaoEmFalta(RuntimeError):
@@ -316,3 +318,18 @@ def ligar_para_accoes(ambiente: Any = None) -> Any:
     papel_mudou_at)` na `contacts`.
     """
     return _ligar(ambiente, autocommit=False, nome=NOME_DAS_ACCOES)
+
+
+def ligar_para_saida(ambiente: Any = None) -> Any:
+    """A ligacao da saida do turno (KAM-224). Transaccional, `kamba_app`.
+
+    **A decima tomada, e nao a das accoes**: o `send` de um turno e a
+    confirmacao de um botao correm ao mesmo tempo em conversas diferentes, e o
+    `kamba_core.tenant_guard` recusa uma segunda transaccao na mesma ligacao. A
+    `SaidaPorEvento` abre uma por envio e fecha-a, pela razao da
+    `PortaDeConfirmacao`.
+
+    Papel `kamba_app`: e a quem a revisao `*_resposta_do_agr.py` concede o
+    `INSERT` na `agent_replies`, e a `0004` o `EXECUTE` na `evt_emitir`.
+    """
+    return _ligar(ambiente, autocommit=False, nome=NOME_DA_SAIDA)

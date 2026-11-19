@@ -25,8 +25,8 @@ que entra aqui e o **nome**».
 | `ask_missing_fields` | Dono | `read` | declarada | KAM-119 |
 | `publish_product` | Dono | **`write`** | declarada | KAM-119 |
 | `get_catalog_status` | Dono | `read` | declarada | KAM-119 |
-| `request_quote` | Vendedor | **`write`** | declarada | KAM-220 |
-| `submit_quote` | Dono | **`write`** | declarada | KAM-220 |
+| `request_quote` | Vendedor | **`write`** | ligada com executor (KAM-220) | — |
+| `submit_quote` | Dono | **`write`** | ligada com executor (KAM-220) | — |
 
 ## As quatro do dono entram declaradas, e e o que o KAM-118 pode fazer
 
@@ -74,6 +74,7 @@ from collections.abc import Mapping
 from typing import Final
 
 from . import get_store_info
+from . import orcamento_tools
 from . import vendedor
 from .especificacoes import Catalogo, EspecificacaoDeTool, Executor
 
@@ -216,6 +217,55 @@ ESPECIFICACOES_DO_PILOTO: Final = (
     *_AS_DUAS_DO_ORCAMENTO,
 )
 
+#: A razao da dispensa do passo 4 do `submit_quote` (decisao do fundador de
+#: 2026-11-19, KAM-220, opcao C). Fica na especificacao, e nao so aqui, porque e
+#: a especificacao que a `especificacoes.py` confere.
+RAZAO_DA_DISPENSA_DO_SUBMIT: Final = (
+    "so grava a resposta do dono e propoe o botao confirm:{action_id} da "
+    "owner_actions; o envio ao cliente continua a exigir esse botao"
+)
+
+
+def _do_orcamento(ligaveis: Mapping[str, Executor]) -> tuple[EspecificacaoDeTool, ...]:
+    """As duas do orcamento: **ligadas** com o executor, declaradas sem ele (KAM-220).
+
+    * `request_quote` cita a `oferta` no botao `confirm:{oferta}` que o cliente
+      toca («Pedir orcamento»): o toque e a confirmacao do passo 4 **e** o
+      consentimento para gastar um `orcamentos_mes` (opcao C do fundador). A
+      `oferta` e opaca e uma por oferta, como o `cart_id`, para que a chave do
+      passo 5 nao prenda um `sku` durante a retencao;
+    * `submit_quote` tem a dispensa do passo 4, com a razao escrita.
+
+    As duas ligam-se juntas ou nenhuma: um executor so de uma era um catalogo
+    meio ligado, e o grafo do dono pedia uma resposta que nada podia enviar.
+    """
+    pedir = ligaveis.get("request_quote")
+    responder = ligaveis.get("submit_quote")
+    if pedir is None and responder is None:
+        return _AS_DUAS_DO_ORCAMENTO
+    if pedir is None or responder is None:
+        raise ValueError("as duas tools do orcamento ligam-se juntas, ou nenhuma")
+    return (
+        EspecificacaoDeTool(
+            nome="request_quote",
+            klass="write",
+            backend="plataforma",
+            modelo=orcamento_tools.ArgumentosDeRequestQuote,
+            executor=pedir,
+            campo_de_confirmacao="oferta",
+            modulo=MODULO_DO_ORCAMENTO,
+        ),
+        EspecificacaoDeTool(
+            nome="submit_quote",
+            klass="write",
+            backend="plataforma",
+            modelo=orcamento_tools.ArgumentosDeSubmitQuote,
+            executor=responder,
+            confirmacao_dispensada=RAZAO_DA_DISPENSA_DO_SUBMIT,
+            modulo=MODULO_DO_ORCAMENTO,
+        ),
+    )
+
 
 def especificacoes_do_piloto(
     executores: Mapping[str, Executor] | None = None,
@@ -274,7 +324,7 @@ def especificacoes_do_piloto(
         *do_vendedor,
         *_AS_SEIS_QUE_NAO_SAO_DO_VENDEDOR,
         *_AS_QUATRO_DO_DONO,
-        *_AS_DUAS_DO_ORCAMENTO,
+        *_do_orcamento(ligaveis),
     )
 
 

@@ -1,0 +1,163 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contratos.kamba.ao/eventos/agent.replied/v1.schema.json",
+  "title": "agent.replied v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "id",
+    "tipo",
+    "versao",
+    "tenant_id",
+    "ocorrido_em",
+    "registado_em",
+    "produtor",
+    "agregado",
+    "correlacao_id",
+    "causa_id",
+    "trace_id",
+    "classe_pii",
+    "finalidades",
+    "payload"
+  ],
+  "properties": {
+    "id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "UUIDv7 do evento. Chave global de idempotencia."
+    },
+    "tipo": {
+      "type": "string",
+      "const": "agent.replied"
+    },
+    "versao": {
+      "type": "integer",
+      "const": 1
+    },
+    "tenant_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "ocorrido_em": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "registado_em": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "produtor": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "agregado": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "tipo",
+        "id",
+        "seq"
+      ],
+      "properties": {
+        "tipo": {
+          "type": "string",
+          "const": "conversation"
+        },
+        "id": {
+          "type": "string"
+        },
+        "seq": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "correlacao_id": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "uuid"
+    },
+    "causa_id": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "uuid"
+    },
+    "trace_id": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "classe_pii": {
+      "type": "string",
+      "enum": [
+        "P0"
+      ]
+    },
+    "finalidades": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "enum": [
+          "transacao",
+          "atendimento",
+          "marketing",
+          "analytics_agregado",
+          "melhoria_servico",
+          "sugestoes_patrocinadas",
+          "partilha_loja",
+          "partilha_parceiros"
+        ]
+      }
+    },
+    "payload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "reply_id",
+        "thread_id",
+        "conversation_id",
+        "contact_id",
+        "canal"
+      ],
+      "properties": {
+        "reply_id": {
+          "type": "string",
+          "format": "uuid",
+          "description": "O agent_replies.reply_id da resposta. O texto e os botoes leem-se na linha, por ele: nunca vao no evento."
+        },
+        "thread_id": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+          "description": "O thread_id do turno, {tenant_id}:{contact_id}."
+        },
+        "conversation_id": {
+          "type": "string",
+          "format": "uuid",
+          "description": "A conversa do turno. E tambem o agregado.id: as respostas de uma conversa caem na mesma particao."
+        },
+        "contact_id": {
+          "type": "string",
+          "format": "uuid",
+          "description": "O contact_id do interlocutor. Identificador opaco, nunca o telefone."
+        },
+        "canal": {
+          "type": "string",
+          "enum": [
+            "whatsapp",
+            "painel"
+          ],
+          "description": "Por onde a resposta sai: o Outbound do KAM-015 ou o painel do dono."
+        }
+      }
+    }
+  }
+}

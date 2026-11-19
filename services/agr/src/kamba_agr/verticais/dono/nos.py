@@ -35,13 +35,21 @@ turno de texto do dono cai em `outro` pela mesma razao que o de um cliente.
 
 from __future__ import annotations
 
+import re
 import unicodedata
 from collections.abc import Mapping
 from typing import Any, Final
 
 from ...dono import accoes
 from ...tls import orcamento as orcamento_repo
-from ...tls.erros import LIMIT_EXCEEDED, UPSTREAM_DOWN, UPSTREAM_TIMEOUT
+from ...tls.erros import (
+    ENTITLEMENT_DENIED,
+    LIMIT_EXCEEDED,
+    NOT_FOUND,
+    UPSTREAM_DOWN,
+    UPSTREAM_TIMEOUT,
+    VALIDATION_ERROR,
+)
 from ..vendedor.nos import (
     BOTAO_HUMANO,
     Dependencias,
@@ -63,9 +71,13 @@ from ..vendedor.nos import (
 from ..vendedor.nos import (
     MOTIVO_PEDIDO,
     _blocos_dos_dados,
+    _invocar,
+    _primeiro_turno,
     _resposta_estatica,
     _texto_do_cliente,
 )
+from ...orcamento import regras
+from ...orcamento.regras import NOME_NEUTRO
 from .arestas import INTENCOES
 
 #: As tools do Assistente do Dono, pela ordem do `registry/dono.yaml`. So para
@@ -77,6 +89,7 @@ TOOLS_DO_DONO: Final = (
     "ask_missing_fields",
     "publish_product",
     "get_catalog_status",
+    "submit_quote",
 )
 
 #: As palavras que decidem cada intencao, **pela ordem em que correm**: «quero
@@ -85,6 +98,9 @@ TOOLS_DO_DONO: Final = (
 REGRAS_DE_INTENCAO: Final = (
     ("humano", ("falar com uma pessoa", "falar com alguem", "atendente", "humano")),
     ("info_loja", ("horario", "onde fica", "morada", "endereco", "aberto")),
+    # KAM-220. **Antes do `modulos`**, que tem «preco»: «que pedidos de
+    # orcamento tenho?» e uma pergunta pelos pendentes, e nao pelo catalogo.
+    ("orcamento", ("orcamento", "pendente", "proposta")),
     (
         "modulos",
         (
@@ -150,6 +166,11 @@ def classify(deps: Dependencias):
         if botao == BOTAO_HUMANO:
             return {"intent": "humano", "handoff_motivo": MOTIVO_PEDIDO}
         texto = _texto_do_cliente(estado)
+        if e_resposta_de_orcamento(texto):
+            # KAM-220. **Antes das palavras e do modelo**: um valor escrito pelo
+            # dono e a resposta a um pedido, e um classificador aqui era um
+            # modelo a decidir se um numero e um preco.
+            return {"intent": "responder_orcamento"}
         intencao = intencao_por_regras(texto)
         if intencao is None and deps.classificador is not None:
             escolhida = deps.classificador(texto)
@@ -157,12 +178,184 @@ def classify(deps: Dependencias):
             # mandava-o a `other` de qualquer maneira.
             intencao = escolhida if escolhida in INTENCOES else None
         resolvida = intencao or "outro"
+        if resolvida == "outro" and _primeiro_turno(estado) and await _ha_pendentes(deps, estado):
+            # KAM-220, criterio 2 do KAM-123: **os pendentes aparecem na
+            # primeira mensagem do dono**, que e quase sempre um cumprimento.
+            # So no lugar do `outro`: um pedido de humano, de informacao ou do
+            # catalogo continua a ser respondido pelo que e.
+            resolvida = "orcamento"
         delta: dict[str, Any] = {"intent": resolvida}
         if resolvida == "humano":
             delta["handoff_motivo"] = MOTIVO_PEDIDO
         return delta
 
     return no
+
+
+#: Uma referencia `ORC-…` no texto do dono: oito das dezasseis letras do
+#: `regras.referencia_interna`, sem distinguir maiusculas.
+_REFERENCIA_NO_TEXTO: Final = re.compile(r"\bORC-([A-HJ-NP-R]{8})\b", re.IGNORECASE)
+
+#: Sem referencia, so e resposta um valor com algarismos ou com o multiplicador
+#: (achado 10 da revisao): «dois» ou «uma» sozinhos sao conversa, e nao um preco.
+_FORMA_DE_VALOR: Final = re.compile(r"\d|\bmil\b|\bmilh", re.IGNORECASE)
+
+#: As palavras de ligacao que o dono escreve a volta do valor e que o *parser*
+#: do KAM-123 nao tem de ler: «120 mil para o ORC-…», «ORC-…: 120 mil».
+_LIGACAO: Final = re.compile(r"\b(?:para|pro|o|do|ao|pedido|referencia|ref)\b|[:;,\-]", re.IGNORECASE)
+
+
+def _partes_da_resposta(texto: str) -> tuple[str | None, str]:
+    """`(referencia, texto_do_valor)`: a referencia tirada, e o resto limpo."""
+    achada = _REFERENCIA_NO_TEXTO.search(texto)
+    referencia = f"ORC-{achada.group(1).upper()}" if achada else None
+    resto = _REFERENCIA_NO_TEXTO.sub(" ", texto)
+    resto = " ".join(_LIGACAO.sub(" ", resto).split())
+    return referencia, resto
+
+
+def e_resposta_de_orcamento(texto: str) -> bool:
+    """Se o texto do dono e a resposta a um pedido: uma referencia, ou um valor so.
+
+    **Um valor so**: o mesmo *parser* deterministico que o `submit_quote` usa, e
+    nao uma pergunta ao modelo. «120 mil» e uma resposta; «quanto vendi hoje?»
+    nao e, e segue o caminho de sempre.
+    """
+    referencia, resto = _partes_da_resposta(texto)
+    if referencia is not None:
+        return True
+    if not _FORMA_DE_VALOR.search(resto):
+        return False
+    try:
+        regras.ler_valor_do_dono(resto)
+    except regras.ValorRecusadoError:
+        return False
+    return True
+
+
+async def _qual_pedido(deps: Dependencias, estado: Mapping[str, Any], referencia: str | None) -> str | None:
+    """A referencia `ORC-…` a que a resposta se refere, ou `None` se nao der para saber.
+
+    Com referencia escrita, e essa: quem a resolve **dentro do tenant** e o
+    executor do `submit_quote`, e uma de outro tenant ou inventada da
+    `NOT_FOUND`. Sem ela, **so** se houver um pedido a espera e um so: com dois,
+    a resposta ia para o cliente errado, e o dono escolhe pela referencia.
+    """
+    if referencia is not None:
+        return referencia
+    ler = getattr(deps.orcamentos, "pendentes", None)
+    if ler is None:
+        return None
+    # **O filtro antes de contar, e a lista inteira** (achado 4 da revisao): com
+    # um `LIMIT 2` antes do filtro, um `aguarda_janela` mais novo tirava um dos
+    # dois `pedido` da conta, e a resposta ia para o outro. Uma lista cortada
+    # pelo limite tambem nao decide: pode haver outro a espera fora dela.
+    lidos = await ler(estado["tenant_id"], limite=LIMITE_DA_ESCOLHA)
+    if len(lidos) >= LIMITE_DA_ESCOLHA:
+        return None
+    abertos = [p for p in lidos if p.estado in (regras.PEDIDO, regras.RESPONDIDO)]
+    return abertos[0].referencia if len(abertos) == 1 else None
+
+
+#: Quantos abertos se leem para escolher o pedido de uma resposta sem
+#: referencia. Com tantos ou mais, pede-se a referencia. *Proposta*.
+LIMITE_DA_ESCOLHA: Final = 20
+
+
+async def _responder_orcamento(deps: Dependencias, estado: Mapping[str, Any]) -> dict[str, Any]:
+    """O texto do dono ao `submit_quote`, e o eco com o botao (KAM-220, criterio 3).
+
+    **Pela ToolLayer**, com os oito passos do §6.1: o entitlement `orcamento`, os
+    argumentos sem o tenant nem o contacto, a `tool_audit` com o *fact*
+    `quote_price`. O passo 4 esta dispensado para esta tool (decisao do fundador
+    de 2026-11-19, opcao C): ela **so grava**, e o que envia e o botao
+    `confirm:{action_id}` que este eco leva.
+
+    O sistema nao le o valor aqui: passa o **texto** a tool, e e o *parser* do
+    KAM-123 quem o le ou o recusa.
+    """
+    referencia, resto = _partes_da_resposta(_texto_do_cliente(estado))
+    try:
+        qual = await _qual_pedido(deps, estado, referencia)
+    except Exception:  # noqa: BLE001 — a base em baixo diz-se, e nao rebenta
+        return _resposta_estatica(MSG_PENDENTES_INDISPONIVEIS)
+    if qual is None:
+        return _resposta_estatica(MSG_QUAL_PEDIDO)
+    if not resto:
+        return _resposta_estatica(MSG_VALOR_POR_REESCREVER)
+    resultado = await _invocar(
+        deps, estado, "submit_quote", {"referencia": qual, "valor": resto}
+    )
+    if not resultado.ok:
+        return _resposta_estatica(_frase_da_recusa(resultado.error))
+    resposta = _resposta_estatica(
+        "\n".join((MSG_ECO, str(resultado.data["previsao"]), MSG_ECO_BOTAO))
+    )
+    resposta["draft"]["botoes"] = (f"confirm:{resultado.data['action_id']}",)
+    return resposta
+
+
+def _frase_da_recusa(erro: Any) -> str:
+    codigo = getattr(erro, "codigo", "")
+    detalhe = getattr(erro, "detalhe", "")
+    if codigo == VALIDATION_ERROR and detalhe in regras.RECUSAS_DO_VALOR:
+        return MSG_VALOR_POR_REESCREVER
+    if codigo == VALIDATION_ERROR and detalhe in regras.RECUSAS_DAS_CONDICOES:
+        return MSG_VALOR_POR_REESCREVER
+    if codigo == VALIDATION_ERROR and detalhe == orcamento_repo.FECHADO:
+        return MSG_PEDIDO_FECHADO
+    if codigo == NOT_FOUND:
+        return MSG_PEDIDO_NAO_ENCONTRADO
+    if codigo == ENTITLEMENT_DENIED:
+        return MSG_SEM_MODULO_DE_ORCAMENTO
+    return MSG_NAO_CONSEGUI
+
+
+async def _ha_pendentes(deps: Dependencias, estado: Mapping[str, Any]) -> bool:
+    ler = getattr(deps.orcamentos, "pendentes", None)
+    if ler is None:
+        return False
+    try:
+        return bool(await ler(estado["tenant_id"], limite=1))
+    except Exception:  # noqa: BLE001 — uma leitura que falha nao rebenta o turno
+        return False
+
+
+async def _blocos_dos_pendentes(deps: Dependencias, estado: Mapping[str, Any]) -> tuple[list[dict[str, Any]], list[dict[str, str]]]:
+    """Os blocos da lista dos pendentes e as ofertas que o `validate` precisa.
+
+    **Nenhum valor e nenhuma quantidade**: cada pendente e a referencia `ORC-…`
+    (letras) num bloco `text` e o `sku` num bloco `item` so com o `sku`, que e
+    a forma que o *renderer* do KAM-032 deixa citar. A quantidade tem digitos e
+    nao e *fact*: nenhum dos cinco blocos do §9.1 a leva (a divida 124), e fica
+    escrita como limite no bloco do KAM-220.
+    """
+    ler = getattr(deps.orcamentos, "pendentes", None)
+    if ler is None:
+        return [{"type": "text", "text": MSG_PENDENTES_INDISPONIVEIS}], []
+    try:
+        pendentes = await ler(estado["tenant_id"], limite=LIMITE_DE_PENDENTES)
+    except Exception:  # noqa: BLE001 — a base em baixo diz-se, e nao rebenta
+        return [{"type": "text", "text": MSG_PENDENTES_INDISPONIVEIS}], []
+    if not pendentes:
+        return [{"type": "text", "text": MSG_SEM_PENDENTES}], []
+    blocos: list[dict[str, Any]] = [{"type": "text", "text": MSG_PENDENTES}]
+    ofertas: dict[str, dict[str, str]] = {}
+    for pendente in pendentes:
+        blocos.append({"type": "text", "text": pendente.referencia})
+        blocos.append({"type": "item", "sku": pendente.sku, "show": []})
+        ofertas[pendente.sku] = {
+            "sku": pendente.sku,
+            "nome": NOME_NEUTRO,
+            "preco_tipo": "sob_consulta",
+        }
+    blocos.append({"type": "text", "text": MSG_COMO_RESPONDER})
+    return blocos, list(ofertas.values())
+
+
+#: Quantos pendentes a lista mostra, dos mais novos (o `pendentes` ordena
+#: assim). *Proposta*: cabe numa mensagem do WhatsApp sem a cortar.
+LIMITE_DE_PENDENTES: Final = 5
 
 
 # ---------------------------------------------------------------- o confirm
@@ -185,6 +378,11 @@ def confirm(deps: Dependencias):
     """
 
     async def no(estado: dict[str, Any]) -> dict[str, Any]:
+        if estado.get("intent") == "responder_orcamento":
+            # KAM-220, aresta 36: o texto do dono com o valor de um pedido. E o
+            # outro lado do mesmo botao — o eco que este ramo devolve e o botao
+            # que o ramo de baixo confirma.
+            return await _responder_orcamento(deps, estado)
         porta = deps.accoes_do_dono
         if porta is None:
             return _resposta_estatica(MSG_CONFIRMACAO_INDISPONIVEL)
@@ -272,14 +470,22 @@ def compose(deps: Dependencias):
         blocos: list[dict[str, Any]] = []
         for aviso in tuple(estado.get("avisos") or ()):
             blocos.append({"type": "text", "text": FRASE_DO_AVISO.get(aviso, MSG_NAO_CONSEGUI)})
+        delta: dict[str, Any] = {}
         if estado.get("intent") == "modulos":
             blocos.append({"type": "text", "text": MSG_MODULOS_INACTIVOS})
+        if estado.get("intent") == "orcamento":
+            # KAM-220. As ofertas vao ao estado porque o `validate` reutilizado
+            # so deixa citar um `sku` que esteja nelas.
+            dos_pendentes, ofertas = await _blocos_dos_pendentes(deps, estado)
+            blocos.extend(dos_pendentes)
+            delta["ofertas"] = tuple(ofertas)
         blocos.extend(_blocos_dos_dados(estado))
         if not blocos:
             blocos.append({"type": "text", "text": MSG_NAO_ENTENDI})
         # Preserva o rascunho em vez de o substituir — a licao do achado 9 da
         # revisao do KAM-031, que o `compose` de Servicos tambem escreve.
-        return {"draft": dict(rascunho, blocos=tuple(blocos))}
+        delta["draft"] = dict(rascunho, blocos=tuple(blocos))
+        return delta
 
     return no
 
@@ -309,6 +515,30 @@ MSG_NAO_ENTENDI: Final = (
     "catalogo ainda nao estao activos."
 )
 MSG_NAO_CONSEGUI: Final = "Nao consegui tratar esse pedido por aqui."
+
+#: Os pendentes do Orcamento expresso (KAM-220). Sem digitos, como os outros.
+MSG_PENDENTES: Final = "Tem pedidos de orcamento em aberto:"
+MSG_SEM_PENDENTES: Final = "Nao tem pedidos de orcamento a espera de resposta."
+MSG_PENDENTES_INDISPONIVEIS: Final = (
+    "Nao consigo ver os pedidos de orcamento neste momento. Tente outra vez daqui a pouco."
+)
+#: O eco da resposta do dono (KAM-220, criterio 3). Antes e depois da
+#: pre-visualizacao, que e o texto exacto que o cliente vai ler.
+MSG_ECO: Final = "O cliente vai receber esta proposta:"
+MSG_ECO_BOTAO: Final = "Se estiver certa, confirme no botao para a enviar."
+MSG_VALOR_POR_REESCREVER: Final = (
+    "Nao percebi o valor sem duvidas. Escreva so o valor final em kwanzas, sem "
+    "contas, e a referencia do pedido."
+)
+MSG_QUAL_PEDIDO: Final = (
+    "Nao sei a que pedido se refere. Escreva o valor com a referencia ORC do pedido."
+)
+MSG_PEDIDO_FECHADO: Final = "Esse pedido ja esta fechado e nao se responde."
+MSG_SEM_MODULO_DE_ORCAMENTO: Final = "O Orcamento expresso nao esta activo para a sua loja."
+MSG_COMO_RESPONDER: Final = (
+    "Para responder, escreva o valor final e a referencia do pedido. O valor so "
+    "segue ao cliente depois de o confirmar no botao."
+)
 
 #: As frases do `confirm` (KAM-211). Sem digitos, pela razao dos outros textos.
 #: **A confirmacao regista-se; a accao em si e do modulo** (KAM-119, KAM-121,

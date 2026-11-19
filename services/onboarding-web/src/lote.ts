@@ -38,6 +38,7 @@ import pg from "pg";
 import { SERVICE } from "./meta.ts";
 import {
   arrancar,
+  consumidorDoPainel,
   consumidorDoTrust,
   lerConfiguracao,
   opcoesDoConjunto,
@@ -128,6 +129,13 @@ async function principal(): Promise<void> {
       log,
       criar: criarTrabalhadores,
     });
+    // KAM-224: a resposta do AGR de canal `painel`, pelo mesmo barramento.
+    const painel = consumidorDoPainel({
+      urlDaApp: config.urlDaApp,
+      urlDaFila: config.urlDaFila,
+      log,
+      criar: criarTrabalhadores,
+    });
     arrancou = true;
     log.info({ outcome: "service_started" });
     await new Promise<void>((resolver) => {
@@ -143,7 +151,7 @@ async function principal(): Promise<void> {
     // em baixo, fechar um *worker* espera por uma ligação que não vem, e um
     // `SIGTERM` que pendura é um contentor que o orquestrador mata à força.
     await Promise.race([
-      consumo.fechar().catch(() => {}),
+      Promise.all([consumo.fechar().catch(() => {}), painel.fechar().catch(() => {})]),
       new Promise<void>((pronto) => setTimeout(pronto, 10_000).unref()),
     ]);
     servidor.close();
