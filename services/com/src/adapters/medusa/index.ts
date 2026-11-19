@@ -132,6 +132,13 @@ import {
   type RepoBase,
 } from "../../repo-base/index.ts";
 import { SQL_TECTO } from "@kamba/core-ts/ten";
+import {
+  politicaCorrente,
+  type ClassificadorDeCategorias,
+  type PoliticaCompilada,
+  type ResultadoDoScreen,
+} from "@kamba/core-ts/screening";
+import { operacaoDeScreen, type PedidoDeScreen } from "../../screening/index.ts";
 
 import { vistaDoCanal as vistaDoCanalDoModulo, type VistaDoCanal } from "../../canal/vista.ts";
 import { SQL_GRAFO } from "../../orders/consultas.ts";
@@ -379,6 +386,14 @@ export interface Dependencias {
    * Credor: **KAM-045**.
    */
   readonly stockDisponivel?: AutoridadeDeStock;
+  /**
+   * O classificador do `screen` (KAM-222), pelo AGR. **`null` por omissão**, e o
+   * `screen` lê-o como indisponível: uma `permitida` das regras com confiança
+   * baixa fica `condicional`. Quem o liga é o `server.ts`.
+   */
+  readonly classificador?: ClassificadorDeCategorias | null;
+  /** A política. Por omissão a `politicaCorrente()`; um ensaio pode dar outra. */
+  readonly politica?: PoliticaCompilada;
 }
 
 /**
@@ -956,6 +971,12 @@ export interface OperacoesDoCom {
   vistaDoCanal(ctx: Ctx): Promise<Resultado<VistaDoCanal>>;
   /** Preço e stock de uma oferta, com CAS sobre o `atualizado_at` (KAM-099). */
   alterarOferta(ctx: Ctx, a: AlteracaoDeOferta): Promise<Resultado<OfertaDoPainel>>;
+  /**
+   * O `screen` do KAM-088 para quem não é TypeScript (KAM-222). **Não é método
+   * da porta**, pela razão do `proposeCart`: o §3.39 fecha-a em doze. A nota
+   * está no `../../screening/index.ts`.
+   */
+  screen(ctx: Ctx, pedido: PedidoDeScreen): Promise<Resultado<ResultadoDoScreen>>;
 }
 
 /**
@@ -980,6 +1001,11 @@ export function operacoesDoCom(
   deps: Dependencias,
   agora: Relogio = RELOGIO_DO_SISTEMA,
 ): OperacoesDoCom {
+  const screenDoCom = operacaoDeScreen({
+    comTenant: deps.comTenant,
+    politica: deps.politica ?? politicaCorrente(),
+    classificador: deps.classificador ?? null,
+  });
   return {
     porta: adaptadorMedusa(deps, agora),
 
@@ -1054,6 +1080,10 @@ export function operacoesDoCom(
 
     async alterarOferta(ctx: Ctx, a: AlteracaoDeOferta) {
       return comRegisto(deps, ctx, (r) => alterarOfertaDoModulo(r, a));
+    },
+
+    async screen(ctx: Ctx, pedido: PedidoDeScreen) {
+      return screenDoCom(ctx, pedido);
     },
   };
 }

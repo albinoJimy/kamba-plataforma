@@ -322,7 +322,13 @@ class PortaDeGrafos:
         return self._grafo(chave_do_registo(persona, valores.get("vertical")))
 
 class SaidaPorLigar:
-    """A `PortaDeSaida` do grafo, por ligar: **nao ha Outbound a que o AGR fale**.
+    """A `PortaDeSaida` do grafo, por ligar. **Ja nao e a do processo** (KAM-224).
+
+    Desde o KAM-224 o `main()` liga a `SaidaPorEvento` de `saida.py`: a resposta
+    grava-se na `agent_replies` e sai como `agent.replied`. Esta fica para o
+    `para_validar` (a validacao de arranque compila o grafo sem portas) e para
+    as baterias que medem a outra direccao. O que se segue e o historico do
+    KAM-186, e continua a valer para quem a ligar.
 
     O Outbound e o `Saida` de `packages/core-ts/src/outbound/` (KAM-015), uma
     biblioteca TypeScript que **nenhum servico instancia** — medido:

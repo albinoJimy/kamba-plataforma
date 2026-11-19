@@ -643,6 +643,19 @@ describe("as outras portas de entrada", () => {
     await assertPublishable({ tenantId: o.tenantId, ref: "sku-1", entrada: { categoria_declarada: "x", textos: [] } }, { politica, leitor });
   });
 
+  it("KAM-222: uma condicional das condicoes de um orcamento grava-se e nao abre caso", async () => {
+    const m = montarRevisao();
+    const o = m.onboarding({ fase: "kyc_pendente" });
+    const linhas: LinhaDeDecisao[] = [];
+    const escritor = escritorComFila({ gravar: async (l: LinhaDeDecisao) => void linhas.push(l) }, m.servico);
+    await escritor.gravar({
+      tenantId: o.tenantId, onboardingId: null, sujeitoTipo: "condicoes", sujeitoRef: randomUUID(), decisao: "condicional",
+      regras: ["nao_listada"], versaoPolitica: "1.0.0+m.2", origem: "regra", conteudoSha256: new Uint8Array(32).fill(3),
+    });
+    assert.equal(linhas.length, 1, "a decisao grava-se");
+    assert.equal(m.repositorio.casos.size, 0, "e nenhum caso abre");
+  });
+
   it("rejeitar um caso de catalogo grava bloqueada humana", async () => {
     const m = montarRevisao();
     const o = m.onboarding();

@@ -60,7 +60,8 @@ from dataclasses import dataclass
 from typing import Any, Final
 
 from kamba_core import tenant_guard
-from kamba_core.ten.entitlements import Resultado, consume_limit
+from kamba_core.catalogo.screening import PortaDeScreening, ScreeningPorLigar
+from kamba_core.ten.entitlements import Resultado, check_entitlement, consume_limit
 
 from ..dono import accoes
 from ..eventos.notificacao import Notificacao
@@ -226,9 +227,11 @@ SQL_ACCAO_CONFIRMADA: Final = (
     "WHERE tenant_id = %s AND action_id = %s AND contact_id = %s AND estado = 'confirmada'"
 )
 
-#: O ultimo pedido de um cliente, para o «aceito» do criterio 9.
+#: O ultimo pedido de um cliente, para o «aceito» do criterio 9. O `sku` e a
+#: validade sao do KAM-220: o «aceito» de uma proposta cuja validade ja passou
+#: nao se aceita, mesmo antes de alguem a fechar `expirado`.
 SQL_ULTIMO_DO_CLIENTE: Final = (
-    "SELECT quote_id, estado FROM platform.quote_requests "
+    "SELECT quote_id, estado, sku, validade_ate FROM platform.quote_requests "
     "WHERE tenant_id = %s AND contact_id = %s ORDER BY criado_at DESC LIMIT 1"
 )
 
@@ -268,6 +271,8 @@ class Resposta:
     action_id: str
     #: A pre-visualizacao: o texto exacto que o cliente vai ler.
     previsao: str
+    #: O `sku` do pedido, para os *facts* da `tool_audit` (KAM-220).
+    sku: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -428,13 +433,20 @@ def responder(
     validade_ate: datetime.date | None,
     condicoes: str | None,
     agora: datetime.datetime,
+    *,
+    screening: PortaDeScreening | None = None,
 ) -> Resposta:
     """O `submit_quote`: o dono fixa o valor; devolve o eco e o botao de envio.
 
     O `valor_minor` ja vem do `regras.ler_valor_do_dono`; as `condicoes` passam
-    aqui pelo `conferir_condicoes`. A validade por omissao e a do
-    `regras.validade_por_omissao`. **O sistema nao calcula nada**: o valor
-    gravado e o valor recebido.
+    aqui pelo `conferir_condicoes`, e com ele pelo `screen` do KAM-088 na
+    `screening` (KAM-222). Sem `screening`, a porta e a `ScreeningPorLigar`, que
+    levanta: umas condicoes nao passam sem ponte. Sem condicoes, nada vai ao
+    `screen`. A validade por omissao e a do `regras.validade_por_omissao`.
+    **O sistema nao calcula nada**: o valor gravado e o valor recebido.
+
+    O `screen` corre **antes** da transaccao, como o resto da validacao: dentro
+    dela, a linha do pedido ficava trancada durante a chamada ao classificador.
     """
     if not isinstance(quote_id, str) or not _UUID.fullmatch(quote_id):
         raise OrcamentoRecusadoError(DESCONHECIDO)
@@ -442,7 +454,12 @@ def responder(
         0 < valor_minor <= regras.VALOR_MAXIMO_MINOR
     ):
         raise OrcamentoRecusadoError(regras.VALOR_FORA_DO_INTERVALO)
-    limpas = regras.conferir_condicoes(condicoes)
+    limpas = regras.conferir_condicoes(
+        condicoes,
+        screening=screening if screening is not None else ScreeningPorLigar(),
+        tenant_id=tenant_id,
+        quote_id=quote_id,
+    )
     validade = validade_ate or regras.validade_por_omissao(agora)
     if validade <= regras.hoje_em_luanda(agora):
         raise OrcamentoRecusadoError(VALIDADE_NO_PASSADO)
@@ -473,6 +490,7 @@ def responder(
         condicoes=limpas,
         action_id=action_id,
         previsao=previsao,
+        sku=sku,
     )
 
 
@@ -696,10 +714,73 @@ def ultimo_do_cliente(ligacao: Any, tenant_id: str, contact_id: str) -> tuple[st
     cria pedido; um orcamento `expirado` ou `cancelado` nao se aceita, e um
     `enviado` vai ao dono com o contexto (o *handoff*), que e quem fecha.
     """
+    ultimo = ultimo_pedido(ligacao, tenant_id, contact_id)
+    return None if ultimo is None else (ultimo.quote_id, ultimo.estado)
+
+
+@dataclass(frozen=True, slots=True)
+class UltimoPedido:
+    quote_id: str
+    estado: str
+    sku: str
+    validade_ate: datetime.date | None
+
+    @property
+    def referencia(self) -> str:
+        return regras.referencia_interna(self.quote_id)
+
+    def aceitavel(self, agora: datetime.datetime) -> bool:
+        """Se um «aceito» do cliente vale por este pedido (KAM-220).
+
+        So um `enviado` dentro da validade: o cliente aceita o que leu. Um
+        `expirado` ou `cancelado` nao se aceita, e um `enviado` cuja validade
+        passou tambem nao, mesmo que ninguem o tenha fechado ainda.
+        """
+        return (
+            self.estado == regras.ENVIADO
+            and self.validade_ate is not None
+            and self.validade_ate >= regras.hoje_em_luanda(agora)
+        )
+
+    def fechado(self, agora: datetime.datetime) -> bool:
+        """Se este pedido ja nao se aceita nem se espera: expirado, cancelado ou vencido."""
+        if self.estado in (regras.EXPIRADO, regras.CANCELADO):
+            return True
+        return self.estado == regras.ENVIADO and not self.aceitavel(agora)
+
+
+class _SemMetricas:
+    """A leitura do `modulo_activo` e uma pergunta, e nao um acesso negado."""
+
+    def contar(self, *_argumentos: object, **_nomeados: object) -> None:
+        return None
+
+
+def modulo_activo(ligacao: Any, tenant_id: str) -> bool:
+    """Se o tenant tem o modulo `orcamento` activo (KAM-220).
+
+    E a mesma decisao do passo 2 da ToolLayer (`check_entitlement`, falha
+    fechada), perguntada **antes** de oferecer o botao: sem o modulo, um botao
+    «Pedir orcamento» era uma promessa sempre partida. Nao conta recusas: quem
+    recusa um acesso e o passo 2, e isto nao e um acesso.
+    """
+    with tenant_guard.tx(ligacao, tenant_id) as cursor:
+        decisao = check_entitlement(
+            _ClienteDeCursor(cursor), tenant_id, MODULO, metricas=_SemMetricas()
+        )
+    return bool(decisao.permitido)
+
+
+def ultimo_pedido(ligacao: Any, tenant_id: str, contact_id: str) -> UltimoPedido | None:
+    """O ultimo pedido do cliente, com o `sku` e a validade, ou `None`."""
     with tenant_guard.tx(ligacao, tenant_id) as cursor:
         cursor.execute(SQL_ULTIMO_DO_CLIENTE, (tenant_id, contact_id))
         linha = cursor.fetchone()
-    return None if linha is None else (_texto(linha[0]), linha[1])
+    if linha is None:
+        return None
+    return UltimoPedido(
+        quote_id=_texto(linha[0]), estado=linha[1], sku=linha[2], validade_ate=linha[3]
+    )
 
 
 __all__ = [
@@ -715,6 +796,7 @@ __all__ = [
     "PropostaInvalidaError",
     "Resposta",
     "TEMPLATE_ORCAMENTO_PRONTO",
+    "UltimoPedido",
     "cancelar",
     "enviar",
     "expirar_vencidos",
@@ -727,4 +809,5 @@ __all__ = [
     "responder",
     "texto_da_proposta",
     "ultimo_do_cliente",
+    "ultimo_pedido",
 ]

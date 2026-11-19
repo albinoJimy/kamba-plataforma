@@ -408,18 +408,18 @@ class TestLigacaoDoArranque(unittest.TestCase):
         porta = self._porta_do_turno().__self__
         self.assertIs(porta._checkpointer, self.saver)
 
-    def test_a_saida_por_ligar_avisa_no_registo_e_levanta(self) -> None:
-        import io
+    def test_a_saida_do_processo_e_o_evento_pela_ligacao_da_saida(self) -> None:
+        """KAM-224: a porta `saida` do processo e a `SaidaPorEvento`, que abre a
+        ligacao **da saida** (`kamba-agr:saida`) e nao a de leitura nem a das
+        accoes. Com a `SaidaPorLigar` no lugar, isto fica vermelho."""
+        from kamba_agr.saida import SaidaPorEvento
 
         portas = self.capturado["compilar"][0][1]
-        registo = io.StringIO()
-        with mock.patch("sys.stdout", registo), self.assertRaises(SaidaPorLigarError):
-            portas["saida"].enfileirar({}, "ola", chave="t:0")
-        linhas = [json.loads(l) for l in registo.getvalue().splitlines() if l.startswith("{")]
-        self.assertIn(
-            ("saida", "saida_por_ligar"),
-            [(l.get("outcome"), l.get("error_code")) for l in linhas],
-        )
+        porta = portas["saida"]
+        self.assertIsInstance(porta, SaidaPorEvento)
+        self.assertNotIsInstance(porta, grafos_mod.SaidaPorLigar)
+        self.assertIs(porta._abrir, arranque.ligar_para_saida)
+        self.assertIsNot(porta._abrir, arranque.ligar_para_accoes)
 
     def test_o_detector_de_degradacao_le_a_admissao_do_processo(self) -> None:
         """Sem a admissao, os dois sinais de carga do KAM-037 nunca disparam."""
@@ -436,7 +436,7 @@ class TestLigacaoDoArranque(unittest.TestCase):
             l["error_code"] for l in linhas if l.get("outcome") == "grafo_porta_por_ligar"
         )
         self.assertEqual(
-            por_ligar, ["classificador", "classificador_de_guarda", "modos", "saida", "stt"]
+            por_ligar, ["classificador", "classificador_de_guarda", "modos", "stt"]
         )
 
 
@@ -464,13 +464,15 @@ class TestToolsNoArranque(unittest.TestCase):
     def test_com_o_com_ligam_se_seis_de_quinze(self) -> None:
         # Quatro do COM, a `get_store_info` e, desde o KAM-061, o
         # `search_catalog` do IDX. O catalogo tem quinze desde o KAM-118: as
-        # quatro do dono entram declaradas (credor KAM-119).
-        self.assertEqual(self._linha(KAMBA_COM_URL="http://com.interno:3000"), "ligadas_6_de_17")
+        # quatro do dono entram declaradas (credor KAM-119). Desde o KAM-220, as
+        # duas do orcamento ligam-se sempre, como a `get_store_info`: oito.
+        self.assertEqual(self._linha(KAMBA_COM_URL="http://com.interno:3000"), "ligadas_8_de_17")
 
     def test_sem_o_com_a_da_plataforma_e_a_do_indice(self) -> None:
         # O `search_catalog` liga-se sem `KAMBA_COM_URL`: o indice vive na base
-        # da plataforma, e nao depende do COM (KAM-061).
-        self.assertEqual(self._linha(), "ligadas_2_de_17")
+        # da plataforma, e nao depende do COM (KAM-061). E as duas do orcamento
+        # escrevem na mesma base (KAM-220).
+        self.assertEqual(self._linha(), "ligadas_4_de_17")
 
 
 class TestPesquisaSemExecutor(unittest.TestCase):
@@ -487,7 +489,9 @@ class TestPesquisaSemExecutor(unittest.TestCase):
         # E as cinco do Vendedor que falam com o COM ficam `declaradas` sem
         # `KAMBA_COM_URL`: so a da plataforma responde.
         vendedor = _agentes({"vendedor"}).verticais["vendedor"]
-        declaradas = set(vendedor.tools) - {"get_store_info"}
+        # O `request_quote` (KAM-220) fala com a base da plataforma, e nao com o
+        # COM: fica fora desta conta, e declarado num catalogo sem executores.
+        declaradas = set(vendedor.tools) - {"get_store_info", "request_quote"}
         self.assertEqual(len(declaradas), 5)
         self.assertFalse(declaradas & set(catalogo.ligadas()))
         tools = ToolLayer(catalogo, abrir_ligacao=_Ligacao(outro=LOJA).nova_vaga)

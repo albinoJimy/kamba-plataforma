@@ -58,13 +58,19 @@ class ResultadoDoScreen:
 
 @runtime_checkable
 class PortaDeScreening(Protocol):
-    """O `screen` do KAM-088 para um produto (`sujeitoTipo = 'produto'`)."""
+    """O `screen` do KAM-088 para um sujeito que o adaptador fixa.
+
+    Escrita para o produto (`sujeitoTipo = 'produto'`). Desde o KAM-222 serve
+    tambem as condicoes de um orcamento, pela ponte do COM
+    (`kamba_agr.tls.screening`), e entao `categoria_declarada` e `None`: a ponte
+    usa a categoria declarada do tenant.
+    """
 
     def screen(
         self,
         tenant_id: str,
         sujeito_ref: str,
-        categoria_declarada: str,
+        categoria_declarada: str | None,
         textos: Sequence[str],
     ) -> ResultadoDoScreen: ...
 
@@ -83,7 +89,7 @@ class ScreeningPorLigar:
         self,
         tenant_id: str,
         sujeito_ref: str,
-        categoria_declarada: str,
+        categoria_declarada: str | None,
         textos: Sequence[str],
     ) -> ResultadoDoScreen:
         raise RuntimeError(

@@ -15,7 +15,8 @@ O que so uma base prova, e por isso este ficheiro existe:
    ler as decisoes de uma chave pela ordem, e os produtos por re-analisar com a
    categoria declarada mais recente.
 6. **RLS pela ligacao da aplicacao**: um tenant nao ve nem escreve o de outro.
-7. **O `downgrade`.**
+7. **O `downgrade`**, o da `0044` e o da revisao do sujeito das condicoes
+   (KAM-222), que apaga as decisoes `condicoes` e repoe o dominio de dois.
 8. **O emissor da violacao** (KAM-191): o `SQL_EMITIR_VIOLACAO` na transaccao
    da decisao, o envelope contra o contrato `v1`, e a decisao desfeita quando a
    escrita no *outbox* e recusada.
@@ -50,6 +51,13 @@ TIPOS = RAIZ / "packages" / "core-ts" / "src" / "screening" / "tipos.ts"
 SQL_TS = RAIZ / "packages" / "core-ts" / "src" / "screening" / "sql.ts"
 
 EMISSOR_TS = RAIZ / "packages" / "core-ts" / "src" / "screening" / "emissor.ts"
+#: A operacao do `screen` do COM (KAM-222), que le a categoria declarada do tenant.
+SCREEN_DO_COM_TS = RAIZ / "services" / "com" / "src" / "screening" / "index.ts"
+#: A revisao do sujeito das condicoes (KAM-222). Por *glob* e nao pelo numero, e o
+#: `down_revision` le-se dela: muda na integracao, e o ensaio segue-o.
+REVISAO_DAS_CONDICOES = next(
+    (RAIZ / "db" / "migrations" / "versions").glob("*_sujeito_das_condicoes.py")
+)
 TIPO_VIOLACAO = "screening.violation_detected"
 CONTRATO_V1 = RAIZ / "contratos" / "eventos" / TIPO_VIOLACAO / "v1.schema.json"
 
@@ -251,6 +259,37 @@ class TestReanalise(ComBase):
         self.assertEqual(skus, ["ja-decidido", "por-decidir"])
 
 
+class TestCategoriaDoTenantDoCom(ComBase):
+    """KAM-222: o `SQL_CATEGORIA_DO_TENANT` le a ultima decisao `categoria` do tenant.
+
+    E a categoria com que o COM faz o `screen` das condicoes de um orcamento. A
+    ordem e o filtro do sujeito so se medem aqui: o duplo do `screening.test.ts`
+    nao corre SQL.
+    """
+
+    def test_a_ultima_categoria_e_so_a_categoria_e_so_deste_tenant(self) -> None:
+        # Tudo pela mesma ligacao da aplicacao, como o COM: o `kamba_app` grava
+        # no seu tenant e le com a RLS.
+        app = self.ligar("app").cursor()
+        a, b = str(uuid.uuid4()), str(uuid.uuid4())
+        factories.contexto(app, a)
+        gravar(app, a, sujeito_tipo="categoria", sujeito_ref="moda")
+        gravar(app, a, sujeito_tipo="categoria", sujeito_ref="electronica")
+        # Depois da ultima categoria: uma decisao de produto e outra de outro
+        # tenant. Nenhuma das duas pode passar por categoria deste.
+        gravar(app, a, sujeito_tipo="produto", sujeito_ref="sku-depois")
+        factories.contexto(app, b)
+        gravar(app, b, sujeito_tipo="categoria", sujeito_ref="servicos")
+        q = ConsultaDoTypeScript("SQL_CATEGORIA_DO_TENANT", SCREEN_DO_COM_TS)
+        factories.contexto(app, a)
+        app.execute(q.sql, q.args(a))
+        self.assertEqual([tuple(l) for l in app.fetchall()], [("electronica",)])
+        # Com o contexto de B, a RLS nao deixa ler as de A.
+        factories.contexto(app, b)
+        app.execute(q.sql, q.args(a))
+        self.assertEqual(list(app.fetchall()), [])
+
+
 class TestViolacao(ComBase):
     """KAM-191: o `SQL_EMITIR_VIOLACAO` do `emissor.ts`, na transaccao da decisao.
 
@@ -402,6 +441,120 @@ class TestDowngrade(unittest.TestCase):
         self.assertEqual(self._existe(), (0, 0))
         alembic_ok("upgrade", "head")
         self.assertEqual(self._existe(), (1, 1))
+
+
+class TestSujeitoDasCondicoes(ComBase):
+    """O sujeito das condicoes de um orcamento (KAM-222, revisao do fundador de 2026-11-19)."""
+
+    def test_a_aplicacao_grava_as_condicoes_do_seu_tenant_e_so_ele_as_le(self) -> None:
+        app = self.ligar("app").cursor()
+        a, b = str(uuid.uuid4()), str(uuid.uuid4())
+        quote_id = str(uuid.uuid4())
+        factories.contexto(app, a)
+        gravar(app, a, sujeito_tipo="condicoes", sujeito_ref=quote_id, regras=["moda"])
+        app.execute(
+            f"SELECT sujeito_ref FROM {TABELA} WHERE sujeito_tipo = 'condicoes' AND tenant_id = %s",
+            (a,),
+        )
+        self.assertEqual([tuple(linha) for linha in app.fetchall()], [(quote_id,)])
+        factories.contexto(app, b)
+        app.execute(f"SELECT count(*) FROM {TABELA} WHERE sujeito_tipo = 'condicoes'")
+        self.assertEqual(app.fetchone()[0], 0)
+
+    def test_um_sujeito_mal_escrito_e_recusado(self) -> None:
+        app = self.ligar("app").cursor()
+        a = str(uuid.uuid4())
+        factories.contexto(app, a)
+        q = ConsultaDoTypeScript("SQL_GRAVAR", SQL_TS)
+        self.assertErroSql(
+            VIOLACAO_DE_CHECK,
+            app,
+            q.sql,
+            tuple(q.args(a, None, "condicao", "q-1", "permitida", ["moda"], VERSAO, "regra", _sha("x"))),
+        )
+
+
+class TestDowngradeDoSujeitoDasCondicoes(unittest.TestCase):
+    """Desce para a revisao anterior, lida da revisao, e volta.
+
+    **Nao exige `em_head()` no meio**, pela licao do KAM-089: com outra revisao
+    por cima, o Alembic desce-a primeiro. Afirma a revisao em que a base fica.
+    """
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        exigir_base_descartavel()
+        if not em_head():
+            alembic_ok("upgrade", "head")
+
+    @classmethod
+    def tearDownClass(cls) -> None:
+        if not em_head():
+            alembic_ok("upgrade", "head")
+
+    @staticmethod
+    def _anterior() -> str:
+        achado = re.search(
+            r'^down_revision = "(\d{4})"$', REVISAO_DAS_CONDICOES.read_text(encoding="utf-8"), re.M
+        )
+        assert achado is not None
+        return achado.group(1)
+
+    def _contar(self, tenant: str) -> dict[str, int]:
+        conexao = ligacao.ligar("app")
+        try:
+            c = conexao.cursor()
+            factories.contexto(c, tenant)
+            c.execute(f"SELECT sujeito_tipo, count(*) FROM {TABELA} GROUP BY sujeito_tipo")
+            return {tipo: int(n) for tipo, n in c.fetchall()}
+        finally:
+            conexao.close()
+
+    def _estado(self) -> tuple[str, tuple[str, ...]]:
+        conexao = ligacao.ligar("admin")
+        try:
+            c = conexao.cursor()
+            c.execute("SELECT version_num FROM public.alembic_version")
+            versao = c.fetchone()[0]
+            return versao, _dominio(c, "screening_decision_sujeito_tipo_ck")
+        finally:
+            conexao.close()
+
+    def test_desce_apagando_so_as_condicoes_e_volta(self) -> None:
+        tenant = str(uuid.uuid4())
+        conexao = ligacao.ligar("app")
+        try:
+            c = conexao.cursor()
+            factories.contexto(c, tenant)
+            gravar(c, tenant, sujeito_tipo="condicoes", sujeito_ref=str(uuid.uuid4()))
+            gravar(c, tenant, sujeito_tipo="produto", sujeito_ref="sku-fica")
+            conexao.commit()
+        finally:
+            conexao.close()
+        self.assertEqual(self._contar(tenant), {"condicoes": 1, "produto": 1})
+
+        anterior = self._anterior()
+        alembic_ok("downgrade", anterior)
+        self.assertEqual(self._estado(), (anterior, ("categoria", "produto")))
+        # **So as condicoes**: a decisao de produto fica, e o *trigger* volta.
+        self.assertEqual(self._contar(tenant), {"produto": 1})
+        admin = ligacao.ligar("admin")
+        try:
+            c = admin.cursor()
+            c.execute(
+                "SELECT tgenabled FROM pg_trigger WHERE tgname = 'screening_decision_imutavel'"
+            )
+            self.assertEqual(c.fetchone()[0], "O")
+            c.execute(
+                "SELECT relforcerowsecurity FROM pg_class "
+                "WHERE oid = 'platform.screening_decision'::regclass"
+            )
+            self.assertIs(c.fetchone()[0], True)
+        finally:
+            admin.close()
+
+        alembic_ok("upgrade", "head")
+        self.assertEqual(self._estado()[1], ("categoria", "condicoes", "produto"))
 
 
 if __name__ == "__main__":
