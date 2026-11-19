@@ -223,16 +223,18 @@ class TestContratoDoGrafo(unittest.TestCase):
         ao §7.4 sem o documentar continue a falhar aqui.
         """
         nos = tabela.nos_do_compilado(self.grafo)
-        self.assertEqual(len(nos), 24)
+        # Vinte e cinco desde o KAM-220: o `quote_request` do Orcamento expresso.
+        self.assertEqual(len(nos), 25)
         do_concierge = ("draft_prepare", "draft_wait")
         do_degradado = ("degraded_menu",)
+        do_orcamento = ("quote_request",)
         self.assertEqual(sorted(n for n in tabela.NOS if n.startswith("draft_")), sorted(do_concierge))
         self.assertEqual(
             sorted(n for n in tabela.NOS if n.startswith("degraded_")),
             sorted(do_degradado),
         )
         self.assertEqual(
-            len([n for n in tabela.NOS if n not in do_concierge + do_degradado]), 21
+            len([n for n in tabela.NOS if n not in do_concierge + do_degradado + do_orcamento]), 21
         )
         self.assertEqual(nos, frozenset(tabela.NOS))
         # A mutacao `os sentinelas do LangGraph passam a contar como nos` do
@@ -261,8 +263,10 @@ class TestContratoDoGrafo(unittest.TestCase):
         # negacao de uma, e e isso que impede estas duas de entrarem na contagem
         # do §7.3 — media-se em `test_degradacao`.
         self.assertEqual(len(tabela.do_degradado()), 2)
-        self.assertEqual(len(tabela.ARESTAS), 48)
-        self.assertEqual(len(tabela.pares()), 48, "ha duas arestas iguais na tabela")
+        # E as duas do Orcamento expresso (KAM-220), pela mesma razao.
+        self.assertEqual(len(tabela.do_orcamento()), 2)
+        self.assertEqual(len(tabela.ARESTAS), 50)
+        self.assertEqual(len(tabela.pares()), 50, "ha duas arestas iguais na tabela")
         multiplas = {
             linha: sorted((a.de, a.para) for a in tabela.ARESTAS if a.linha == linha)
             for linha in (27, 34)

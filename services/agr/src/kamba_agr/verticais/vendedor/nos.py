@@ -135,6 +135,7 @@ TOOLS_DO_VENDEDOR: Final = (
     "criar_pedido",
     "get_order_status",
     "get_store_info",
+    "request_quote",
 )
 
 # ------------------------------------------------------------ textos estaticos
@@ -214,6 +215,11 @@ MSG_SAIDA_BLOQUEADA: Final = (
 #: o cliente nao chegava a uma pessoa durante uma hora (achado 6).
 MSG_COOLDOWN: Final = (
     "Um colega da loja vai responder-lhe aqui. Se preferir, toque em falar com humano."
+)
+#: KAM-220. A oferta do orcamento de um `sob_consulta`, com o botao
+#: `confirm:{sku}` ao lado. **Nao promete preco nem prazo**: diz quem o da.
+MSG_ORCAMENTO_OFERTA: Final = (
+    "O preco deste artigo e dado pelo dono da loja. Quer que lhe peca o orcamento?"
 )
 MSG_PEDIDO_REGISTADO: Final = (
     "O seu pedido ficou registado. A loja confirma o pagamento e avisa-o aqui."
@@ -890,6 +896,52 @@ def pediu_para_aceitar(texto: str, botao: str = "") -> bool:
     return bool(_ACEITO.search(normalizado)) and not _NAO_ACEITO.search(normalizado)
 
 
+#: O cliente pede uma conta, um desconto ou um total (KAM-220, criterio 2).
+#: **O bot nunca a faz**: a frase vai ao `retrieve` como pergunta de preco, e um
+#: `sob_consulta` volta com a oferta de pedir o orcamento ao dono. Sem acentos:
+#: compara-se o texto normalizado.
+_PEDE_CONTA: Final = re.compile(
+    r"\b(?:calcul\w*|faz(?:er|es|e)? a conta|desconto\w*|abatimento|por ?cento|"
+    r"percent\w*|mais barato|quanto (?:fica|sai|faz|da)|total|preco para)\b|%"
+)
+
+
+def pediu_uma_conta(texto: str) -> bool:
+    """Se o cliente pediu uma conta, um desconto ou um total, por palavras."""
+    from ...validador.normalizacao import sem_acento
+
+    return bool(_PEDE_CONTA.search(sem_acento(texto.lower())))
+
+
+def quantidade_reclamada(texto: str) -> int | None:
+    """A quantidade que o cliente pediu, ou `None` se nenhuma ou mais de uma.
+
+    E a do `quantidade_pedida`, **sem a omissao de uma**: num pedido de
+    orcamento a quantidade e informacao para o dono, e uma inventada era pior do
+    que nenhuma.
+    """
+    from ...validador.normalizacao import sem_acento
+
+    normalizado = sem_acento(texto.lower())
+    candidatos = {
+        int(achado.group(1))
+        for padrao in (_QUANTIDADE_ANTES, _QUANTIDADE_DEPOIS)
+        for achado in padrao.finditer(normalizado)
+    }
+    return candidatos.pop() if len(candidatos) == 1 else None
+
+
+async def _ultimo_sob_consulta(deps: "Dependencias", estado: Mapping[str, Any]) -> dict[str, Any] | None:
+    """O `sku` do ultimo pedido de orcamento do cliente, para uma conta sem produto."""
+    ler = getattr(deps.orcamentos, "ultimo_pedido", None)
+    if ler is None:
+        return None
+    ultimo = await ler(estado["tenant_id"], estado["contact_id"])
+    if ultimo is None:
+        return None
+    return {"referencia": ultimo.referencia, "estado": ultimo.estado, "sku": ultimo.sku}
+
+
 async def _decidir_o_aceito(deps: "Dependencias", estado: Mapping[str, Any]) -> dict[str, Any] | None:
     """O delta do `classify` para um «aceito», ou `None` se nao houver o que aceitar.
 
@@ -1314,6 +1366,16 @@ def classify(deps: Dependencias):
             aceito = await _decidir_o_aceito(deps, estado)
             if aceito is not None:
                 return aceito
+        # KAM-220, criterio 2: **uma conta, um desconto ou um total nunca se
+        # fazem**. A frase vai ao `retrieve` como pergunta de preco; se nao
+        # nomear produto, o do ultimo orcamento do cliente e o que se oferece
+        # outra vez ao dono — e um orcamento ja enviado abre pedido novo.
+        if not botao and pediu_uma_conta(texto_do_turno):
+            delta: dict[str, Any] = {"intent": "preco_stock"}
+            anterior = await _ultimo_sob_consulta(deps, estado)
+            if anterior is not None:
+                delta["orcamento"] = dict(anterior, negociacao=True)
+            return delta
 
         texto = texto_do_turno
         if estado.get("degradado"):
@@ -1442,6 +1504,21 @@ def retrieve(deps: Dependencias):
         resultado = await _invocar(
             deps, estado, "search_catalog", {"query": _query_de(_texto_do_cliente(estado))}
         )
+        anterior = estado.get("orcamento")
+        if (
+            isinstance(anterior, Mapping)
+            and anterior.get("negociacao")
+            and not _ha_candidatos(deps, resultado)
+        ):
+            # KAM-220: «e com dez por cento de desconto?» nao nomeia produto. O
+            # do ultimo orcamento volta como oferta, e o `tools_read` completa-o
+            # pelo `get_price_stock` — o nome e o modo vem do catalogo, e nao
+            # daqui.
+            return {
+                "ofertas": (
+                    {"sku": str(anterior["sku"]), "nome": "", "preco_tipo": "sob_consulta"},
+                )
+            }
         pergunta = resultado.data.get("pergunta") if resultado.ok else None
         acima = [
             candidato
@@ -1471,6 +1548,15 @@ def retrieve(deps: Dependencias):
         return {"ofertas": tuple(_oferta_crua(c) for c in acima)}
 
     return no
+
+
+def _ha_candidatos(deps: Dependencias, resultado: Any) -> bool:
+    if not resultado.ok:
+        return False
+    return any(
+        float(c.get("score", 0)) >= deps.limiar_idx
+        for c in resultado.data.get("candidatos") or ()
+    )
 
 
 def tools_read(deps: Dependencias):
@@ -1588,6 +1674,17 @@ def confirm_gate(deps: Dependencias):
         )
         if no_estagio and cita_o_carrinho and esta_valido:
             return {}
+        # KAM-220. O botao `confirm:{sku}` do orcamento oferecido no turno
+        # anterior: as mesmas duas perguntas — cita-o, e esta dentro da validade.
+        # O contacto e o turno sao os do `Confirmation` que o `quote_request`
+        # constroi, e o passo 4 confronta-os.
+        oferecido = estado.get("orcamento_oferecido")
+        if (
+            isinstance(oferecido, Mapping)
+            and botao == f"{PREFIXO_DE_CONFIRMACAO}{oferecido.get('sku')}"
+            and float(oferecido.get("expira_at", 0)) > deps.relogio()
+        ):
+            return {"orcamento_oferecido": dict(oferecido, tocado_em=estado["turn_id"])}
         # O `stage` volta a `browsing`: sem isso, um segundo toque encontrava
         # `awaiting_confirm` outra vez e o unico obstaculo passava a ser o
         # `cart_id` — e dois toques no **mesmo** botao citam o mesmo carrinho.
@@ -1658,6 +1755,44 @@ def create_order(deps: Dependencias):
             "cart": {**carrinho, "draft_gasto": True},
             "draft": {"dados": dict(resultado.data)},
         }
+
+    return no
+
+
+def quote_request(deps: Dependencias):
+    """Arestas 46 e 47 (KAM-220): o `request_quote`, com o botao que o cliente tocou.
+
+    **O botao do turno, e nao um reconstruido do `sku`**, pela razao do
+    `create_order`: reconstrui-lo fazia o passo 4 comparar o `sku` consigo
+    mesmo. O pedido e idempotente na base (dez minutos, por contacto e `sku`), e
+    por isso um segundo toque devolve o mesmo pedido e a mesma frase.
+
+    **Nenhum caminho daqui diz um valor**: o aviso e o de «pedi ao dono», ou o de
+    «nao consegui», e o preco chega numa proposta a parte.
+    """
+
+    async def no(estado: dict[str, Any]) -> dict[str, Any]:
+        oferecido = dict(estado.get("orcamento_oferecido") or {})
+        confirmacao = Confirmation(
+            botao=_botao_do_turno(estado),
+            contact_id=estado["contact_id"],
+            turn_id=estado["turn_id"],
+        )
+        argumentos: dict[str, Any] = {"sku": str(oferecido.get("sku") or "")}
+        if oferecido.get("quantidade") is not None:
+            argumentos["quantidade"] = oferecido["quantidade"]
+        resultado = await _com_retry(
+            lambda: _invocar(
+                deps,
+                estado,
+                "request_quote",
+                argumentos,
+                confirmacao=confirmacao,
+                chave=chave_do_turno(estado),
+            )
+        )
+        aviso = ORCAMENTO_PEDIDO if resultado.ok else ORCAMENTO_INDISPONIVEL
+        return {"avisos": _avisos_com(estado, aviso)}
 
     return no
 
@@ -1835,6 +1970,18 @@ def compose(deps: Dependencias):
 
         blocos.extend(_blocos_dos_dados(estado))
 
+        delta: dict[str, Any] = {}
+        oferta = _oferta_de_orcamento(deps, estado, ofertas, blocos)
+        if oferta is not None:
+            blocos.append({"type": "text", "text": MSG_ORCAMENTO_OFERTA})
+            blocos.append(
+                {
+                    "type": "buttons",
+                    "ids": [f"{PREFIXO_DE_CONFIRMACAO}{oferta['sku']}", BOTAO_HUMANO],
+                }
+            )
+            delta["orcamento_oferecido"] = oferta
+
         if not blocos:
             blocos.append({"type": "text", "text": MSG_NAO_ENTENDI})
         # **Preserva o rascunho em vez de o substituir.** Um `dict` novo
@@ -1844,9 +1991,41 @@ def compose(deps: Dependencias):
         # produzia «Nao encontrei nada no catalogo» — um bloco que **passa** o
         # validador e **e enviado**, pelo que uma falha de citacao degradava
         # numa resposta errada e plausivel em vez de ir a *handoff*.
-        return {"draft": dict(rascunho, blocos=tuple(blocos))}
+        delta["draft"] = dict(rascunho, blocos=tuple(blocos))
+        return delta
 
     return no
+
+
+def _oferta_de_orcamento(
+    deps: Dependencias,
+    estado: Mapping[str, Any],
+    ofertas: tuple[Any, ...],
+    blocos: list[dict[str, Any]],
+) -> dict[str, Any] | None:
+    """O orcamento a oferecer neste turno, ou `None` (KAM-220, criterio 2).
+
+    **Um** por turno, o do primeiro `sob_consulta` das ofertas, e so numa
+    pergunta de produto ou de preco: o botao e o consentimento para gastar um
+    `orcamentos_mes` (opcao C do fundador, 2026-11-19), e mais de um botao
+    `confirm:*` na mesma mensagem era pedir ao cliente que adivinhasse qual.
+    Nada se oferece se o turno ja leva botoes (o carrinho) ou se a vertical nao
+    tem o `request_quote` na lista de permitidas.
+    """
+    if "request_quote" not in tuple(deps.tools_permitidas):
+        return None
+    if estado.get("intent") not in ("produto", "preco_stock"):
+        return None
+    if any(b.get("type") == "buttons" for b in blocos):
+        return None
+    for oferta in ofertas:
+        if oferta.get("preco_tipo") == "sob_consulta":
+            return {
+                "sku": str(oferta["sku"]),
+                "quantidade": quantidade_reclamada(_texto_do_cliente(estado)),
+                "expira_at": deps.relogio() + deps.ttl_do_carrinho_s,
+            }
+    return None
 
 
 def _blocos_dos_dados(estado: Mapping[str, Any]) -> list[dict[str, Any]]:
@@ -2440,6 +2619,7 @@ NOS_DO_GRAFO: Final = {
     "cart_build": cart_build,
     "confirm_gate": confirm_gate,
     "create_order": create_order,
+    "quote_request": quote_request,
     "order_status": order_status,
     "tools_info": tools_info,
     "compose": compose,

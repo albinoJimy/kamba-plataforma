@@ -135,7 +135,9 @@ class TestEstadoInicial(unittest.TestCase):
         a resposta ao cliente perdia o telefone que ele proprio tinha dado.
         """
         estado = estado_inicial(ler_invocacao(invocacao_crua()))
-        fora = {"turn_seq", "slots", "stage", "pii_map", "guard_contadores"}
+        # O `orcamento_oferecido` (KAM-220) e a sexta, pela razao do `stage`: o
+        # botao `confirm:{sku}` chega no turno seguinte ao da oferta.
+        fora = {"turn_seq", "slots", "stage", "pii_map", "guard_contadores", "orcamento_oferecido"}
         for chave in fora:
             self.assertNotIn(chave, estado, chave)
             self.assertIn(chave, ConversaState.__annotations__, chave)

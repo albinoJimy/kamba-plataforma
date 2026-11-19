@@ -539,3 +539,44 @@ class TestIsolamento(ComOrcamento):
         outro_cliente = factories.contacto(self.semente, self.tenant)
         factories.contexto(self.semente, None)
         self.assertIsNone(rep.ultimo_do_cliente(self.app, self.tenant, outro_cliente))
+        self.assertIsNone(rep.ultimo_pedido(self.app, self.tenant, outro_cliente))
+
+    def test_o_ultimo_pedido_de_a_nao_se_le_no_contexto_de_b(self) -> None:
+        """A RLS `FORCE`: com o tenant de B, o cliente de A nao tem pedido nenhum."""
+        self._pedir()
+        outra = self.criar_conversa()
+        factories.contexto(self.semente, None)
+        self.assertIsNone(rep.ultimo_pedido(self.app, outra.tenant_id, self.cliente))
+
+
+class TestOAceito(ComOrcamento):
+    """KAM-220: o que o «aceito» le da base, pelo caminho real do pedido e do envio."""
+
+    def test_um_enviado_aceita_se_e_o_contexto_nao_leva_o_valor(self) -> None:
+        pedido = self._pedir()
+        resposta = self._responder(pedido.quote_id)
+        self.assertEqual(self._tocar(resposta.action_id, Saida("livre")).desfecho, rep.ENVIADO)
+        ultimo = rep.ultimo_pedido(self.app, self.tenant, self.cliente)
+        self.assertEqual((ultimo.quote_id, ultimo.estado, ultimo.sku), (pedido.quote_id, "enviado", SKU))
+        self.assertEqual(ultimo.validade_ate, resposta.validade_ate)
+        self.assertTrue(ultimo.aceitavel(_agora()))
+        self.assertEqual(ultimo.referencia, regras.referencia_interna(pedido.quote_id))
+        # O «aceito» nao cria pedido: ler o ultimo nao escreve nada.
+        self.assertEqual(len(self._linhas()), 1)
+        self.assertEqual(len(self._eventos(rep.EVENTO_PEDIDO)), 1)
+
+    def test_um_enviado_vencido_ou_um_cancelado_nao_se_aceitam(self) -> None:
+        pedido = self._pedir()
+        resposta = self._responder(pedido.quote_id)
+        self._tocar(resposta.action_id, Saida("livre"))
+        depois = _agora() + datetime.timedelta(days=9)
+        ultimo = rep.ultimo_pedido(self.app, self.tenant, self.cliente)
+        self.assertFalse(ultimo.aceitavel(depois))
+        self.assertTrue(ultimo.fechado(depois))
+        outro = rep.pedir(self.app, self.tenant, self.cliente, self.conversa.conversation_id,
+                          "SKU-301", None, _agora())
+        rep.cancelar(self.app, self.tenant, self.dono, outro.quote_id)
+        ultimo = rep.ultimo_pedido(self.app, self.tenant, self.cliente)
+        self.assertEqual((ultimo.quote_id, ultimo.estado), (outro.quote_id, "cancelado"))
+        self.assertTrue(ultimo.fechado(_agora()))
+        self.assertFalse(ultimo.aceitavel(_agora()))

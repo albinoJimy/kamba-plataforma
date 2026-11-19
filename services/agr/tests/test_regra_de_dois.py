@@ -219,7 +219,8 @@ class TestCriterioAAsDuasNoMesmoRuntime(unittest.TestCase):
         `invoke` para qualquer vertical. E a forma do ADR-012: configuracao.
         """
         self.assertEqual(len(nos_de_servicos.TOOLS_DE_SERVICOS), 6)
-        self.assertEqual(len(nos_do_vendedor.TOOLS_DO_VENDEDOR), 6)
+        # Sete desde o KAM-220: o `request_quote` do Orcamento expresso.
+        self.assertEqual(len(nos_do_vendedor.TOOLS_DO_VENDEDOR), 7)
         self.assertEqual(
             set(nos_de_servicos.TOOLS_DE_SERVICOS)
             & set(nos_do_vendedor.TOOLS_DO_VENDEDOR),

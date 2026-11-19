@@ -697,12 +697,18 @@ class TestContratoDoSubGrafo(unittest.TestCase):
         self.assertEqual(len(tabela.do_concierge()), 4)
         self.assertEqual(
             len(tabela.ARESTAS),
-            len(tabela.do_73()) + len(tabela.do_concierge()) + len(tabela.do_degradado()),
+            len(tabela.do_73())
+            + len(tabela.do_concierge())
+            + len(tabela.do_degradado())
+            + len(tabela.do_orcamento()),
         )
 
     def test_o_semver_do_grafo_subiu_no_minor(self) -> None:
-        """Um nó entrou: sobe no *minor*. É a metade do eval-gate que se entrega."""
-        self.assertEqual(tabela.VERSAO_DO_GRAFO, "1.2.0")
+        """Um nó entrou: sobe no *minor*. É a metade do eval-gate que se entrega.
+
+        O KAM-220 acrescentou o `quote_request` e subiu-o outra vez, a 1.3.0.
+        """
+        self.assertEqual(tabela.VERSAO_DO_GRAFO, "1.3.0")
 
     def test_o_grafo_compilado_tem_as_arestas_novas(self) -> None:
         grafo, _, _, _, _ = montar()

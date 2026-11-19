@@ -117,8 +117,23 @@ NOS_REUTILIZADOS: Final = (
 #: `orcamento`  os pedidos de orcamento que esperam o dono (KAM-220). Vai ao
 #:              `compose`, que os lista. Pelas palavras, ou sozinha na primeira
 #:              mensagem do dono quando ha pendentes (criterio 2 do KAM-123);
+#: `responder_orcamento`
+#:              o dono escreve o valor de um pedido (KAM-220). Vai ao `confirm`,
+#:              que chama o `submit_quote` e devolve o eco e o botao
+#:              `confirm:{action_id}` **sem** passar pelo `validate`: a
+#:              pre-visualizacao ja foi validada pelo validador do KAM-032 com o
+#:              *fact* `quote_price`, e e o mesmo caminho directo ao `send` das
+#:              frases do botao;
 #: `outro`      tudo o resto, ao `safe_reply`.
-INTENCOES: Final = ("modulos", "info_loja", "humano", "confirmar", "orcamento", "outro")
+INTENCOES: Final = (
+    "modulos",
+    "info_loja",
+    "humano",
+    "confirmar",
+    "orcamento",
+    "responder_orcamento",
+    "outro",
+)
 
 
 #: As arestas, pela ordem do esqueleto.
@@ -138,6 +153,7 @@ ARESTAS: Final = (
     Aresta(13, "classify", "handoff_prepare", "human", "pedir humano", fonte=FONTE_DO_DONO),
     Aresta(14, "classify", "safe_reply", "other", "outro", fonte=FONTE_DO_DONO),
     Aresta(35, "classify", "compose", "orcamento", "pedidos de orcamento pendentes", fonte=FONTE_DO_ORCAMENTO),
+    Aresta(36, "classify", "confirm", "resposta", "o valor de um orcamento, por texto", fonte=FONTE_DO_ORCAMENTO),
     Aresta(33, "classify", "confirm", "confirm", "botao confirm:{action_id}", fonte=FONTE_DO_BOTAO),
     Aresta(34, "confirm", "send", None, "sempre (texto estatico)", fonte=FONTE_DO_BOTAO),
     Aresta(15, "tools_info", "compose", None, "sempre", fonte=FONTE_DO_ESQUELETO),

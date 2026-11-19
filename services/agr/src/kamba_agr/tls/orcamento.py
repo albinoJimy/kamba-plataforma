@@ -270,6 +270,8 @@ class Resposta:
     action_id: str
     #: A pre-visualizacao: o texto exacto que o cliente vai ler.
     previsao: str
+    #: O `sku` do pedido, para os *facts* da `tool_audit` (KAM-220).
+    sku: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -475,6 +477,7 @@ def responder(
         condicoes=limpas,
         action_id=action_id,
         previsao=previsao,
+        sku=sku,
     )
 
 

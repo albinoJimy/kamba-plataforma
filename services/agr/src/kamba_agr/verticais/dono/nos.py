@@ -35,13 +35,21 @@ turno de texto do dono cai em `outro` pela mesma razao que o de um cliente.
 
 from __future__ import annotations
 
+import re
 import unicodedata
 from collections.abc import Mapping
 from typing import Any, Final
 
 from ...dono import accoes
 from ...tls import orcamento as orcamento_repo
-from ...tls.erros import LIMIT_EXCEEDED, UPSTREAM_DOWN, UPSTREAM_TIMEOUT
+from ...tls.erros import (
+    ENTITLEMENT_DENIED,
+    LIMIT_EXCEEDED,
+    NOT_FOUND,
+    UPSTREAM_DOWN,
+    UPSTREAM_TIMEOUT,
+    VALIDATION_ERROR,
+)
 from ..vendedor.nos import (
     BOTAO_HUMANO,
     Dependencias,
@@ -63,10 +71,12 @@ from ..vendedor.nos import (
 from ..vendedor.nos import (
     MOTIVO_PEDIDO,
     _blocos_dos_dados,
+    _invocar,
     _primeiro_turno,
     _resposta_estatica,
     _texto_do_cliente,
 )
+from ...orcamento import regras
 from ...orcamento.regras import NOME_NEUTRO
 from .arestas import INTENCOES
 
@@ -79,6 +89,7 @@ TOOLS_DO_DONO: Final = (
     "ask_missing_fields",
     "publish_product",
     "get_catalog_status",
+    "submit_quote",
 )
 
 #: As palavras que decidem cada intencao, **pela ordem em que correm**: «quero
@@ -155,6 +166,11 @@ def classify(deps: Dependencias):
         if botao == BOTAO_HUMANO:
             return {"intent": "humano", "handoff_motivo": MOTIVO_PEDIDO}
         texto = _texto_do_cliente(estado)
+        if e_resposta_de_orcamento(texto):
+            # KAM-220. **Antes das palavras e do modelo**: um valor escrito pelo
+            # dono e a resposta a um pedido, e um classificador aqui era um
+            # modelo a decidir se um numero e um preco.
+            return {"intent": "responder_orcamento"}
         intencao = intencao_por_regras(texto)
         if intencao is None and deps.classificador is not None:
             escolhida = deps.classificador(texto)
@@ -174,6 +190,111 @@ def classify(deps: Dependencias):
         return delta
 
     return no
+
+
+#: Uma referencia `ORC-…` no texto do dono: oito das dezasseis letras do
+#: `regras.referencia_interna`, sem distinguir maiusculas.
+_REFERENCIA_NO_TEXTO: Final = re.compile(r"\bORC-([A-Za-z]{8})\b")
+
+#: As palavras de ligacao que o dono escreve a volta do valor e que o *parser*
+#: do KAM-123 nao tem de ler: «120 mil para o ORC-…», «ORC-…: 120 mil».
+_LIGACAO: Final = re.compile(r"\b(?:para|pro|o|do|ao|pedido|referencia|ref)\b|[:;,\-]", re.IGNORECASE)
+
+
+def _partes_da_resposta(texto: str) -> tuple[str | None, str]:
+    """`(referencia, texto_do_valor)`: a referencia tirada, e o resto limpo."""
+    achada = _REFERENCIA_NO_TEXTO.search(texto)
+    referencia = f"ORC-{achada.group(1).upper()}" if achada else None
+    resto = _REFERENCIA_NO_TEXTO.sub(" ", texto)
+    resto = " ".join(_LIGACAO.sub(" ", resto).split())
+    return referencia, resto
+
+
+def e_resposta_de_orcamento(texto: str) -> bool:
+    """Se o texto do dono e a resposta a um pedido: uma referencia, ou um valor so.
+
+    **Um valor so**: o mesmo *parser* deterministico que o `submit_quote` usa, e
+    nao uma pergunta ao modelo. «120 mil» e uma resposta; «quanto vendi hoje?»
+    nao e, e segue o caminho de sempre.
+    """
+    referencia, resto = _partes_da_resposta(texto)
+    if referencia is not None:
+        return True
+    try:
+        regras.ler_valor_do_dono(resto)
+    except regras.ValorRecusadoError:
+        return False
+    return True
+
+
+async def _qual_pedido(deps: Dependencias, estado: Mapping[str, Any], referencia: str | None) -> str | None:
+    """O `quote_id` a que a resposta se refere, ou `None` se nao der para saber.
+
+    Com referencia, o pedido aberto dela **deste** tenant (`por_referencia`).
+    Sem ela, **so** se houver um pedido a espera e um so: com dois, a resposta ia
+    para o cliente errado, e o dono escolhe pela referencia.
+    """
+    porta = deps.orcamentos
+    tenant_id = estado["tenant_id"]
+    if referencia is not None:
+        ler = getattr(porta, "por_referencia", None)
+        return None if ler is None else await ler(tenant_id, referencia)
+    ler = getattr(porta, "pendentes", None)
+    if ler is None:
+        return None
+    abertos = [
+        p for p in await ler(tenant_id, limite=2) if p.estado in (regras.PEDIDO, regras.RESPONDIDO)
+    ]
+    return abertos[0].quote_id if len(abertos) == 1 else None
+
+
+async def _responder_orcamento(deps: Dependencias, estado: Mapping[str, Any]) -> dict[str, Any]:
+    """O texto do dono ao `submit_quote`, e o eco com o botao (KAM-220, criterio 3).
+
+    **Pela ToolLayer**, com os oito passos do §6.1: o entitlement `orcamento`, os
+    argumentos sem o tenant nem o contacto, a `tool_audit` com o *fact*
+    `quote_price`. O passo 4 esta dispensado para esta tool (decisao do fundador
+    de 2026-11-19, opcao C): ela **so grava**, e o que envia e o botao
+    `confirm:{action_id}` que este eco leva.
+
+    O sistema nao le o valor aqui: passa o **texto** a tool, e e o *parser* do
+    KAM-123 quem o le ou o recusa.
+    """
+    referencia, resto = _partes_da_resposta(_texto_do_cliente(estado))
+    try:
+        quote_id = await _qual_pedido(deps, estado, referencia)
+    except Exception:  # noqa: BLE001 — a base em baixo diz-se, e nao rebenta
+        return _resposta_estatica(MSG_PENDENTES_INDISPONIVEIS)
+    if quote_id is None:
+        return _resposta_estatica(MSG_QUAL_PEDIDO)
+    if not resto:
+        return _resposta_estatica(MSG_VALOR_POR_REESCREVER)
+    resultado = await _invocar(
+        deps, estado, "submit_quote", {"quote_id": quote_id, "valor": resto}
+    )
+    if not resultado.ok:
+        return _resposta_estatica(_frase_da_recusa(resultado.error))
+    resposta = _resposta_estatica(
+        "\n".join((MSG_ECO, str(resultado.data["previsao"]), MSG_ECO_BOTAO))
+    )
+    resposta["draft"]["botoes"] = (f"confirm:{resultado.data['action_id']}",)
+    return resposta
+
+
+def _frase_da_recusa(erro: Any) -> str:
+    codigo = getattr(erro, "codigo", "")
+    detalhe = getattr(erro, "detalhe", "")
+    if codigo == VALIDATION_ERROR and detalhe in regras.RECUSAS_DO_VALOR:
+        return MSG_VALOR_POR_REESCREVER
+    if codigo == VALIDATION_ERROR and detalhe in regras.RECUSAS_DAS_CONDICOES:
+        return MSG_VALOR_POR_REESCREVER
+    if codigo == VALIDATION_ERROR and detalhe == orcamento_repo.FECHADO:
+        return MSG_PEDIDO_FECHADO
+    if codigo == NOT_FOUND:
+        return MSG_PEDIDO_NAO_ENCONTRADO
+    if codigo == ENTITLEMENT_DENIED:
+        return MSG_SEM_MODULO_DE_ORCAMENTO
+    return MSG_NAO_CONSEGUI
 
 
 async def _ha_pendentes(deps: Dependencias, estado: Mapping[str, Any]) -> bool:
@@ -243,6 +364,11 @@ def confirm(deps: Dependencias):
     """
 
     async def no(estado: dict[str, Any]) -> dict[str, Any]:
+        if estado.get("intent") == "responder_orcamento":
+            # KAM-220, aresta 36: o texto do dono com o valor de um pedido. E o
+            # outro lado do mesmo botao — o eco que este ramo devolve e o botao
+            # que o ramo de baixo confirma.
+            return await _responder_orcamento(deps, estado)
         porta = deps.accoes_do_dono
         if porta is None:
             return _resposta_estatica(MSG_CONFIRMACAO_INDISPONIVEL)
@@ -381,6 +507,19 @@ MSG_SEM_PENDENTES: Final = "Nao tem pedidos de orcamento a espera de resposta."
 MSG_PENDENTES_INDISPONIVEIS: Final = (
     "Nao consigo ver os pedidos de orcamento neste momento. Tente outra vez daqui a pouco."
 )
+#: O eco da resposta do dono (KAM-220, criterio 3). Antes e depois da
+#: pre-visualizacao, que e o texto exacto que o cliente vai ler.
+MSG_ECO: Final = "O cliente vai receber esta proposta:"
+MSG_ECO_BOTAO: Final = "Se estiver certa, confirme no botao para a enviar."
+MSG_VALOR_POR_REESCREVER: Final = (
+    "Nao percebi o valor sem duvidas. Escreva so o valor final em kwanzas, sem "
+    "contas, e a referencia do pedido."
+)
+MSG_QUAL_PEDIDO: Final = (
+    "Nao sei a que pedido se refere. Escreva o valor com a referencia ORC do pedido."
+)
+MSG_PEDIDO_FECHADO: Final = "Esse pedido ja esta fechado e nao se responde."
+MSG_SEM_MODULO_DE_ORCAMENTO: Final = "O Orcamento expresso nao esta activo para a sua loja."
 MSG_COMO_RESPONDER: Final = (
     "Para responder, escreva o valor final e a referencia do pedido. O valor so "
     "segue ao cliente depois de o confirmar no botao."

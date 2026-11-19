@@ -83,6 +83,12 @@ class PortaDeOrcamento:
             self._com_ligacao, repositorio.ultimo_pedido, tenant_id, contact_id
         )
 
+    async def por_referencia(self, tenant_id: str, referencia: str) -> str | None:
+        """O `quote_id` de um `ORC-…` aberto deste tenant, ou `None` (o dono escolhe)."""
+        return await asyncio.to_thread(
+            self._com_ligacao, repositorio.por_referencia, tenant_id, referencia
+        )
+
     def agora(self) -> datetime.datetime:
         """O relogio da porta, para o grafo julgar a validade com o mesmo instante."""
         return self._relogio()
