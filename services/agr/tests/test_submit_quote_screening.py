@@ -21,8 +21,9 @@ criterio 1 descreve: o AGR espera o COM, e o COM espera o `/internal/screening`
 do mesmo AGR. Se o executor corresse no ciclo, o COM nao tinha quem lhe
 respondesse, e as condicoes recusavam. O canario
 (`test_com_o_ciclo_preso_as_condicoes_recusam`) corre o executor no ciclo e
-exige a recusa: sem ele, um ensaio verde nao distinguia «corre numa *thread*» de
-«o COM de ensaio nao chama ninguem».
+exige a recusa **e** que o COM tenha chamado o AGR, chegando tarde: um COM de
+ensaio que nao chamasse ninguem deixava o canario vermelho (achado 4 da revisao
+adversarial, medido por mutacao).
 """
 
 from __future__ import annotations
@@ -79,6 +80,9 @@ class _AgrNoCiclo:
 
     def __init__(self) -> None:
         self.chamadas = 0
+        #: As ligacoes aceites, contadas a entrada: uma que chegue tarde, ja
+        #: abandonada pelo COM, conta aqui e nao em `chamadas`.
+        self.ligacoes = 0
         self.url = ""
         self._servidor: asyncio.base_events.Server | None = None
 
@@ -94,7 +98,12 @@ class _AgrNoCiclo:
         await self._servidor.wait_closed()
 
     async def _atender(self, leitor: asyncio.StreamReader, escritor: asyncio.StreamWriter) -> None:
-        cabecalho = await leitor.readuntil(b"\r\n\r\n")
+        self.ligacoes += 1
+        try:
+            cabecalho = await leitor.readuntil(b"\r\n\r\n")
+        except (asyncio.IncompleteReadError, ConnectionError):
+            escritor.close()
+            return
         tamanho = 0
         for linha in cabecalho.decode("latin-1").split("\r\n"):
             nome, _, valor = linha.partition(":")
@@ -295,12 +304,18 @@ class TestASegue(_Montagem):
                     pedido = Pedido(ctx=contexto(vertical="dono"), args=modelo, timeout_ms=8_000, ligacao=_Ligacao())
                     with self.assertRaises(ErroDeBackend) as caso:
                         no_ciclo(pedido)  # sem `to_thread`: o ciclo fica preso
-                return caso.exception, agr.chamadas
+                    # O ciclo volta: a ligacao que o COM abriu durante o `screen`
+                    # e aceite agora, ja abandonada.
+                    await asyncio.sleep(0.3)
+                return caso.exception, agr.ligacoes, agr.chamadas
 
-        erro, chamadas_ao_agr = asyncio.run(turno())
+        erro, ligacoes, chamadas_ao_agr = asyncio.run(turno())
         self.assertEqual((erro.codigo, erro.detalhe), (VALIDATION_ERROR, regras.CONDICOES_RECUSADAS))
-        # O AGR nao respondeu a tempo: o pedido do COM chegou-lhe so depois.
-        self.assertLessEqual(chamadas_ao_agr, 1)
+        # O COM chamou o AGR, e o AGR so o viu depois de o executor recusar. Um
+        # COM que nao chamasse ninguem dava zero aqui. (As `chamadas` podem ser
+        # 0 ou 1: o pedido tardio ainda se le inteiro do *buffer*.)
+        self.assertEqual(ligacoes, 1)
+        del chamadas_ao_agr
 
     def test_sem_condicoes_nao_vai_ao_com(self) -> None:
         self._sem_base()
@@ -320,10 +335,15 @@ class TestASegue(_Montagem):
 class TestRecusa(_Montagem):
     """Os casos adversariais: o `responder` real, que recusa antes da base."""
 
-    def test_cerveja_recusa_com_condicoes_recusadas(self) -> None:
+    def test_cerveja_recusa_pela_guarda_antes_do_com(self) -> None:
+        """«Cerveja» recusa com `condicoes_recusadas`, e pela guarda do KAM-033: o COM nao a ve.
+
+        A recusa que vem do `screen` e o caso «brinde» do ensaio seguinte.
+        """
         with _ComDeEnsaio() as com:
             resultado = asyncio.run(self._invocar(self._camada(_cliente(com.base)), "entrega com cerveja gelada"))
         self._assert_recusa(resultado)
+        self.assertEqual(com.pedidos, [])
 
     def test_uma_regra_da_politica_recusa_sem_o_texto_em_registo_nenhum(self) -> None:
         saida, erros = io.StringIO(), io.StringIO()
@@ -359,7 +379,9 @@ class TestRecusa(_Montagem):
                     with fabrica() as com:
                         resultado = asyncio.run(self._invocar(self._camada(_cliente(com.base))))
                 self._assert_recusa(resultado)
-                self.assertLess(time.monotonic() - inicio, 3.0)
+                # Abaixo do tecto de uma `write` (8 s): o turno nao fica preso.
+                # Folgado de proposito: no Windows, uma ligacao recusada leva ~2 s.
+                self.assertLess(time.monotonic() - inicio, 6.0)
 
     def test_agr_em_baixo_durante_o_screen_recusa(self) -> None:
         """O COM responde, mas o classificador nao: `condicional`, e recusa."""
@@ -372,8 +394,9 @@ class TestRecusa(_Montagem):
         """O `screen` corta no tecto do executor menos a reserva, e nao nos 20 s.
 
         Com o tecto de escrita a 2,5 s, o `screen` tem ~1 s; o COM dorme 4 s. A
-        recusa chega antes do tecto da ToolLayer, e e `condicoes_recusadas`, e
-        nao um `UPSTREAM_TIMEOUT` com a *thread* ainda a correr.
+        recusa e `condicoes_recusadas`, e nao o `UPSTREAM_TIMEOUT` que a ToolLayer
+        da aos 3 s (2,5 s mais a margem) com a *thread* ainda a correr: e o codigo
+        que o prova, e o tempo e so a cota.
         """
         with mock.patch.dict(os.environ, {VARIAVEL_DE_TIMEOUT_ESCRITA: "2500"}):
             with _ComDeEnsaio(modo="lento", atraso_s=4.0) as com:
@@ -382,7 +405,7 @@ class TestRecusa(_Montagem):
                 resultado = asyncio.run(self._invocar(camada))
                 decorrido = time.monotonic() - inicio
         self._assert_recusa(resultado)
-        self.assertLess(decorrido, 2.5)
+        self.assertLess(decorrido, 3.5)
 
 
 # ------------------------------------------------------------------ a porta
@@ -432,7 +455,10 @@ class TestOArranque(unittest.TestCase):
         """A ligacao, e nao so a funcao: um `executores()` sem o cliente passava tudo o resto."""
         texto = (RAIZ / "services/agr/src/kamba_agr/__main__.py").read_text(encoding="utf-8")
         self.assertIn("orcamento_tools.executores(cliente_do_com=cliente_do_com)", texto)
-        self.assertIn("executores_do_com(cliente_do_com)", texto)
+        self.assertIn("_executores_do_comercio(cliente_do_com)", texto)
+        # E o cliente liga as tools de comercio; sem ele, nenhuma.
+        self.assertEqual(arranque._executores_do_comercio(None), {})
+        self.assertTrue(arranque._executores_do_comercio(_cliente("http://com:3002")))
 
 
 if __name__ == "__main__":

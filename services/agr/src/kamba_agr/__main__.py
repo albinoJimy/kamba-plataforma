@@ -183,6 +183,11 @@ def _cliente_do_com(log: Logger, credencial: CredencialDoCom) -> ClienteDoCom | 
         return None
     return ClienteDoCom(base=base, credencial=credencial)
 
+
+def _executores_do_comercio(cliente: ClienteDoCom | None) -> dict[str, Any]:
+    """Os executores das tools de comercio, se houver COM com quem falar."""
+    return executores_do_com(cliente) if cliente is not None else {}
+
 #: Codigo de saida de uma guarda do ADR-002 violada. Distinto do `2` do KAM-001
 #: (configuracao invalida), para que os dois se distingam num painel.
 SAIDA_GUARDA_ADR002 = 3
@@ -401,7 +406,7 @@ def main() -> int:
     cliente_do_com = _cliente_do_com(log, credencial_do_com)
     catalogo = catalogo_do_piloto(
         {
-            **(executores_do_com(cliente_do_com) if cliente_do_com is not None else {}),
+            **_executores_do_comercio(cliente_do_com),
             **executores_do_idx(ligacao_vectorial),
             # KAM-220. As duas do Orcamento expresso escrevem na nossa base, como
             # a `get_store_info` le dela: ligam-se sempre.

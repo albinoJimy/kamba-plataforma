@@ -4,7 +4,7 @@
 |---|---|
 | Produto | KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para Angola |
 | Documento | Epic — Onboarding e Governação |
-| Versão | 1.36 |
+| Versão | 1.37 |
 | Data | Outubro de 2026 |
 | Classificação | Documento de Referência — Interno |
 | Documento-fonte | `../docs/tecnica/10_Onboarding_Governanca.md`, `../docs/tecnica/00_Arquitectura_Solucao.md` (ADR-019) |
@@ -2867,7 +2867,9 @@ que já era dele: preparar o pedido sem dados pessoais e ler o veredicto contra 
 - **Quem chama a rota em produção ainda não existe.** Nenhum serviço liga hoje o classificador do
   `screen` — o `catalogo_minimo` e a re-análise recebem-no por injecção, e quem os monta passa `null`.
   Ligar o `classificadorPeloAgr` num serviço do GOV é o dia em que a `agr_screening_token` passa a
-  obrigatória e entra nos três *compose*; não há serviço que o faça neste ticket.
+  obrigatória e entra nos três *compose*; não há serviço que o faça neste ticket. **Revisto pelo KAM-228:** o
+  COM liga-o desde o KAM-222, para as condições de um orçamento, e os três *compose* dão-lhe o `KAMBA_AGR_URL` e
+  a `agr_screening_token` desde o KAM-228; um serviço do GOV continua sem o ligar.
 
 ### Verificação dos Critérios de Aceitação
 
@@ -4222,3 +4224,4 @@ Testes: a ligação directa com o alerta, e o controlo.
 | 1.34 | Novembro 2026 | **KAM-203 entregue**: o recálculo da confiança corre no processo de lote — todos os dias, depois de cada `order.delivered` consumido pelo `trust`, depois de cada aprovação pela porta, e numa varredura das descidas a cada volta do processo, que leva a sanção à base sem esperar pelo dia seguinte. Secção de verificação no bloco: seis caixas marcadas e a do alerta (critério 7) vazia, com a razão medida. As caixas 2, 4 e 5 do KAM-096 fecham com essa evidência; a 7 e o item 1 da DoD dele mudam de credor. **KAM-219** acrescentado, credor do alerta da escrita recusada em `trust_level`: depende do KAM-203 e entra no `Bloqueia` dele. **O número é provisório**, dado pela coordenação do lote 11, e foi **KAM-218** até à integração com o #219, que fundiu primeiro com esse número. | Equipa KAMBÁ |
 | 1.35 | Novembro 2026 | **KAM-207 entregue**: religar o número de um tenant activo cujo canal caiu, a partir do painel. As cinco caixas e as duas da DoD marcadas, com a secção de verificação no bloco. A ponte `GET /painel/ligar` abre ao caso `activo` com o canal `desligado` e não restrito, o guia reabre o passo do ES pelo `desligado` sem mudar a fase do caso, e o GWY religa o número sem criar canal. A verificação do KAM-099 (critério 7) e a do KAM-190 (critério 2 e DoD) dizem-no. Dicionário emenda 1.115. **Sem revisão de base de dados.** O número desta linha é provisório e acerta-se na integração do lote 12. | Equipa KAMBÁ |
 | 1.36 | Novembro 2026 | **KAM-219 entregue**: a recusa `42501` da base sobre `platform.trust_level` passa a ver-se do lado de quem recebe o erro — o `catch` do `comTenant` e do `comBatch` conta-a em `tenant_guard_tecto_recusado_total` (módulo novo `../packages/core-ts/src/tenant_guard/metricas.ts`, servido pelo `onboarding-lote`, pelo `com` e pelo `worker-canal-entrada`) —, e a regra `confianca_tecto_escrita_recusada` dispara na primeira, com o runbook no `trust-e-safety.md` §5. Secção de verificação no bloco: os critérios 2 e 3 marcados e o 1 **parcial**, porque uma ligação directa, um processo Python, uma transacção aberta à mão (o `consumir` dos eventos, entre outras) ou uma consulta solta num *pool* não chegam ao contador. A revisão adversarial mudou três coisas: a regra ganhou o ramo da recusa anterior ao primeiro *scrape*, o caso do recálculo com o papel errado passou a dizer que mede uma leitura recusada (a escrita mede-se no caso do `comTenant`, com o `SQL_DEFINIR_NIVEL`), e a afirmação de que toda a transacção passa pelos *helpers* saiu. A caixa 7 do KAM-096 e a do KAM-203 revistas com a evidência, as duas ainda parciais, e o item 1 da DoD de cada um. **KAM-225** acrescentado, credor desse resto: depende do KAM-219 e entra no `Bloqueia` dele. O número é o que a coordenação do lote 12 lhe deu na fila de fusão: os cinco abaixo dele são dos credores do KAM-123 e do KAM-217, já fundidos, e a gama é contígua. | Equipa KAMBÁ |
+| 1.37 | Novembro 2026 | KAM-228 (EPIC-11): a nota do KAM-195 sobre quem chama a rota do classificador em produção revista — o COM, desde o KAM-222, ligado nos *compose* desde o KAM-228. Nenhuma caixa deste epic muda. | Equipa KAMBÁ |

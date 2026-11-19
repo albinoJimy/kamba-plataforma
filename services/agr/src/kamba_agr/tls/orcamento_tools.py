@@ -51,8 +51,9 @@ de comercio. Sem COM com quem falar nao ha porta, e o `responder` usa a
 `asyncio.to_thread` (`camada.py`, `invoke`), e e isso que deixa o ciclo de
 eventos do AGR livre para servir o `POST /internal/screening` que o COM chama
 durante o `screen`. Com o ciclo preso, o classificador saia por tempo e as
-condicoes recusavam sempre. O `test_o_screen_corre_fora_do_ciclo_de_eventos` mede
-isto pela ToolLayer, com uma porta que so responde pelo ciclo.
+condicoes recusavam sempre. O `test_condicoes_limpas_seguem_pelo_com_e_pelo_classificador`
+mede isto pela ToolLayer, com um COM que chama o AGR do ciclo do ensaio, e o
+`test_com_o_ciclo_preso_as_condicoes_recusam` e o canario.
 
 **O `screen` cabe no tecto do executor**, e nao nos 20 s do adaptador. A
 ToolLayer corta um `write` aos 8 s (mais a margem): um `screen` de 20 s dava ao
