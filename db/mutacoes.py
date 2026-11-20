@@ -7533,6 +7533,22 @@ MUTACOES = [
     # A re-analise lia a categoria que o dono ja trocou. O
     # `test_o_lote_ve_os_publicados_sem_decisao_com_a_categoria_mais_recente`
     # tem de a matar.
+    ('screening: a re-analise deixa de comparar o conteudo decidido', SCREENING_SQL,
+     "AND d.conteudo_sha256 = sha256(convert_to(",
+     "AND d.conteudo_sha256 = d.conteudo_sha256 OR NULL = sha256(convert_to(",
+     "tests"),
+    # KAM-119: uma decisao sobre outro texto voltava a esconder o publicado da
+    # re-analise (achado 1 da revisao adversarial do KAM-222). O
+    # `test_uma_decisao_sobre_outro_conteudo_nao_esconde_o_publicado` tem de a
+    # matar.
+    ('screening: o resumo da re-analise escreve o JSON com espaco', SCREENING_SQL,
+     "|| ',[' || to_json(p.nome)::text ||",
+     "|| ', [' || to_json(p.nome)::text ||",
+     "tests"),
+    # KAM-119: o separador do `json_build_array` (`", "`) em vez do do
+    # `JSON.stringify`. Nenhum resumo casava, e todo o publicado voltava a ser
+    # analisado em cada execucao. O
+    # `test_o_resumo_da_base_e_o_do_motor_octeto_a_octeto` tem de a matar.
 
     # ------------------------------------------- KAM-089 (revisao `0048`)
     #

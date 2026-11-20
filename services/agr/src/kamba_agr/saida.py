@@ -115,6 +115,18 @@ TITULOS: Final = {
 PREFIXO_DE_CONFIRMACAO: Final = "confirm:"
 TITULO_DE_CONFIRMACAO: Final = "Confirmar"
 
+#: Os botoes do catalogo do dono (KAM-119) levam a ingestao no `id` (e o valor,
+#: no do preco), pela razao do `confirm:`; o titulo e um por prefixo. Os
+#: prefixos sao os de `catalogo/regras.py`, e um ensaio confronta-os.
+TITULOS_POR_PREFIXO: Final = {
+    "preco:": "Sim, esta certo",
+    "preco_corrigir:": "Corrigir",
+    "stock:": "Sim, esta certo",
+    "stock_corrigir:": "Corrigir",
+    "mesmo_produto:": "Sim, e o mesmo",
+    "outro_produto:": "Nao, e outro",
+}
+
 
 def titulo_do_botao(identificador: str) -> str:
     """O titulo de um botao. Um `id` que a tabela nao tem **levanta**.
@@ -131,6 +143,9 @@ def titulo_do_botao(identificador: str) -> str:
         PREFIXO_DE_CONFIRMACAO
     ):
         return TITULO_DE_CONFIRMACAO
+    for prefixo, titulo_do_prefixo in TITULOS_POR_PREFIXO.items():
+        if identificador.startswith(prefixo) and len(identificador) > len(prefixo):
+            return titulo_do_prefixo
     titulo = TITULOS.get(identificador)
     if titulo is None:
         raise RespostaInvalidaError(f"botao sem titulo: {identificador[:40]!r}")

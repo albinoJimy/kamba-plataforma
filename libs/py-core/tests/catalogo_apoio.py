@@ -201,13 +201,17 @@ class ScreeningFake:
     decisao_forcada: ResultadoDoScreen | None = None
     falhar: bool = False
 
-    def screen(self, tenant_id: str, sujeito_ref: str, categoria_declarada: str, textos: Sequence[str]) -> ResultadoDoScreen:
-        self.pedidos.append((tenant_id, sujeito_ref, categoria_declarada, tuple(textos)))
+    def screen(
+        self, tenant_id: str, sujeito_ref: str, categoria_declarada: str | None, textos: Sequence[str]
+    ) -> ResultadoDoScreen:
+        # `None` e «a categoria do tenant» (KAM-222): o screening da publicacao
+        # (KAM-119) chama assim, com o `sku` e o `nome`.
+        self.pedidos.append((tenant_id, sujeito_ref, categoria_declarada or "", tuple(textos)))
         if self.falhar:
             raise RuntimeError("motor em baixo")
         if self.decisao_forcada is not None:
             return self.decisao_forcada
-        if any("cerveja" in t.lower() for t in (*textos, categoria_declarada)):
+        if any("cerveja" in t.lower() for t in (*textos, categoria_declarada or "")):
             return ResultadoDoScreen("bloqueada", ("alcool",), "1.0.0+m.2", 1.0)
         return ResultadoDoScreen("permitida", (), "1.0.0+m.2", 0.99)
 
