@@ -129,7 +129,7 @@ test("a operacao: le a encomenda, audita na transaccao da identidade antes de de
   const resultado = await contactoDaEncomenda(m, CTX_DONO, ORDEM);
   assert.deepEqual(resultado, { tipo: "ok", valor: { orderId: ORDEM, telefoneMascarado: "••• ••• 789" } });
   assert.deepEqual(r.passos, [`ler:${TENANT}:${ORDEM}`, `identidade:${TENANT}:${CONTACTO}`, "auditar", "decifrar"]);
-  assert.deepEqual(r.auditorias, [[TENANT, "caso-a", ORDEM, textoDaAuditoria(ORDEM, "paga")]]);
+  assert.deepEqual(r.auditorias, [[TENANT, "caso-a", ORDEM, Buffer.from(textoDaAuditoria(ORDEM, "paga"), "utf8")]]);
   assert.equal(textoDaAuditoria(ORDEM, "paga"), `order.contact_view\x1f${ORDEM}\x1fpaga`);
   // Adversarial: nem o telefone em claro, nem os seus digitos de cabeca, saem da operacao.
   assert.doesNotMatch(JSON.stringify(resultado), /244|999 000/);

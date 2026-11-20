@@ -713,8 +713,11 @@ export function rotasDoPainel(opcoes: OpcoesDoPainel): Hono {
   // **O contacto do cliente, pelo botão** (KAM-206). Um `POST` e não um `GET`:
   // é uma acção do dono que fica no `audit_log`, e uma ligação que se abre por
   // engano, ou que um navegador pré-carrega, não a pode fazer. O cookie é
-  // `SameSite=Lax`, que não vai num `POST` de outra origem, e a CSP tem
-  // `form-action 'self'`. A encomenda lê-se primeiro (sem auditoria), e só
+  // `SameSite=Lax`, que não vai num `POST` de outro **sítio** — mas um sítio é
+  // mais largo do que uma origem, e por isso o `Sec-Fetch-Site` que o navegador
+  // põe tem de ser `same-origin` (ou faltar, num cliente que não é navegador):
+  // um formulário de outra origem do mesmo sítio não escreve uma linha de
+  // `audit_log` em nome do dono. A encomenda lê-se primeiro (sem auditoria), e só
   // depois o contacto: uma encomenda que não existe não chega ao COM do
   // contacto. Fora da regra, ou de outro tenant, é o mesmo 404.
   app.post("/painel/encomendas/:id/contacto", async (c) => {
@@ -724,6 +727,11 @@ export function rotasDoPainel(opcoes: OpcoesDoPainel): Hono {
     if (sessao === null) {
       falhou("contacto", "sem_sessao");
       return html(paginaSemSessao(n), 401, n);
+    }
+    const sitio = c.req.header("sec-fetch-site");
+    if (sitio !== undefined && sitio !== "same-origin") {
+      falhou("contacto", "invalido");
+      return html(paginaNaoEncontrada(n), 403, n, sessao.renovar);
     }
     const id = c.req.param("id").toLowerCase();
     const lida = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(id)

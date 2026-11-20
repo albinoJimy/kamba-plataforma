@@ -1345,6 +1345,70 @@ describe("KAM-206 — o antes do lerEndpoints: a auditoria na transacção da de
     }
   });
 
+  /** Uma identidade cujas chaves registam cada decifra de DEK, para medir a ordem. */
+  async function identidadeEspia(passos: string[]): Promise<Identidade> {
+    const provedor = chaves.provedor();
+    const original = provedor.unwrapDek.bind(provedor);
+    provedor.unwrapDek = async (...argumentos: Parameters<typeof original>) => {
+      passos.push("decifrar");
+      return original(...argumentos);
+    };
+    return Identidade.arrancar({ chaves: provedor, env: chaves.env });
+  }
+
+  test("a ordem: a linha de auditoria escreve-se antes de qualquer decifra, medida nas chaves", async () => {
+    const tenant = await novoTenant("kam206-ordem");
+    const { contactId } = await identidade.resolveContact(id, {
+      tenantId: tenant,
+      bsuid: bsuidDeEnsaio(),
+      telefone: telefoneDeEnsaio(),
+      guardarTelefone: { finalidade: "contacto_pedido", expiraAt: daquiAUmAno() },
+    });
+    const passos: string[] = [];
+    const espia = await identidadeEspia(passos);
+    try {
+      const lidos = await espia.lerEndpoints(id, tenant, contactId, {
+        soTelefones: true,
+        finalidades: ["contacto_pedido", "entrega"],
+        antes: async (cliente) => {
+          passos.push("auditar");
+          await cliente.query(AUDITAR, [tenant, "caso-a", "0000000a-0000-4000-8000-0000000002a8", Buffer.from("x")]);
+        },
+      });
+      assert.equal(lidos.telefones.length, 1);
+      assert.deepEqual(passos, ["auditar", "decifrar"]);
+    } finally {
+      await limparAuditoria(tenant);
+    }
+  });
+
+  test("so um telefone de pagamento_express: nada se decifra e nao fica linha de auditoria", async () => {
+    const tenant = await novoTenant("kam206-sem-telefone");
+    const { contactId } = await identidade.resolveContact(id, {
+      tenantId: tenant,
+      bsuid: bsuidDeEnsaio(),
+      telefone: telefoneDeEnsaio(),
+      guardarTelefone: { finalidade: "pagamento_express", expiraAt: daquiAUmAno() },
+    });
+    const passos: string[] = [];
+    const espia = await identidadeEspia(passos);
+    try {
+      const lidos = await espia.lerEndpoints(id, tenant, contactId, {
+        soTelefones: true,
+        finalidades: ["contacto_pedido", "entrega"],
+        antes: async (cliente) => {
+          passos.push("auditar");
+          await cliente.query(AUDITAR, [tenant, "caso-a", "0000000a-0000-4000-8000-0000000002a9", Buffer.from("x")]);
+        },
+      });
+      assert.deepEqual([lidos.bsuids, lidos.telefones], [[], []]);
+      assert.deepEqual(passos, [], "decifrou ou auditou sem nada a mostrar");
+      assert.equal(await linhasDeAuditoria(tenant), 0);
+    } finally {
+      await limparAuditoria(tenant);
+    }
+  });
+
   test("se o antes falha nada se decifra, e se a decifra falha a linha desfaz-se", async () => {
     const tenant = await novoTenant("kam206-desfaz");
     const { contactId } = await identidade.resolveContact(id, {

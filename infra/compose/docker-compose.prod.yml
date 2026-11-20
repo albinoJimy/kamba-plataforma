@@ -708,6 +708,9 @@ services:
       # `kamba_identity` (decisao do fundador de 2026-11-20, opcao A). O deploy
       # passa a cadeia do papel; sem ela o contacto responde UPSTREAM_DOWN e o
       # resto do COM serve igual, e com ela a KEK e obrigatoria no arranque.
+      # **Em prod o contacto ainda nao serve**: o Identidade.arrancar recusa as
+      # chaves de ambiente ate ao cofre de prod (ADR-L002, KAM-227), e o COM
+      # arranca na mesma, com o contacto em UPSTREAM_DOWN e uma linha de log.
       KAMBA_COM_IDENTITY_DB_URL: ${KAMBA_COM_IDENTITY_DB_URL:-}
       KAMBA_SECRET_KEK_CONTACT_DEK: ${KAMBA_SECRET_KEK_CONTACT_DEK:-}
       KAMBA_SECRET_KEK_CONTACT_DEK_ANTERIOR: ${KAMBA_SECRET_KEK_CONTACT_DEK_ANTERIOR:-}

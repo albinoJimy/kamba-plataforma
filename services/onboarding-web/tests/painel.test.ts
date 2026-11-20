@@ -858,6 +858,30 @@ test("KAM-206: adversarial - um COM que devolva o telefone em claro e recusado, 
   assert.match(m.metricas.exposicao(), /painel_erros_total\{rota="contacto",motivo="indisponivel"\} 1/);
 });
 
+test("KAM-206: um POST de outra origem do mesmo sitio e recusado antes de pedir o contacto", async () => {
+  const m = montar();
+  m.comercio.semear(TENANT_A, [], [encomenda(ORDEM_A, { estado: "paga" })]);
+  m.comercio.mascaras.set(ORDEM_A, "••• ••• 789");
+  for (const sitio of ["same-site", "cross-site"]) {
+    const r = await m.app.fetch(
+      new Request(`http://127.0.0.1/painel/encomendas/${ORDEM_A}/contacto`, {
+        method: "POST",
+        headers: { cookie: cookieDe(sessaoA()), "sec-fetch-site": sitio },
+      }),
+    );
+    assert.equal(r.status, 403, sitio);
+    assert.doesNotMatch(await r.text(), /789/);
+  }
+  assert.equal(m.comercio.contactosPedidos.length, 0);
+  const daMesma = await m.app.fetch(
+    new Request(`http://127.0.0.1/painel/encomendas/${ORDEM_A}/contacto`, {
+      method: "POST",
+      headers: { cookie: cookieDe(sessaoA()), "sec-fetch-site": "same-origin" },
+    }),
+  );
+  assert.equal(daMesma.status, 200);
+});
+
 test("KAM-206: os estados do botao sao os da regra do COM, confrontados com o texto de la", () => {
   const regra = readFileSync(new URL("../../com/src/orders/contacto.ts", import.meta.url), "utf8");
   const bloco = /export const ESTADOS_COM_CONTACTO = \[([\s\S]*?)\] as const;/.exec(regra)?.[1] ?? "";

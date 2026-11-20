@@ -25,7 +25,7 @@ import {
   type Identidade,
 } from "@kamba/core-ts/identity";
 
-import type { LeitorDeContactos, TelefoneDoContacto } from "./contacto.ts";
+import { FINALIDADES_DA_ENCOMENDA, type LeitorDeContactos, type TelefoneDoContacto } from "./contacto.ts";
 
 /** Uma ligação tomada a um *pool* do `pg`: o `query` e o `release`. */
 export interface LigacaoDaIdentidade extends ClienteDeIdentidade {
@@ -47,6 +47,7 @@ export function leitorPelaIdentidade(opcoes: {
       try {
         const lidos = await opcoes.identidade.lerEndpoints(ligacao, tenantId, contactId, {
           soTelefones: true,
+          finalidades: FINALIDADES_DA_ENCOMENDA,
           antes: (cliente) => antes(cliente),
         });
         return lidos.telefones;

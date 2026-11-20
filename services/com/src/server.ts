@@ -246,7 +246,18 @@ async function montarContactos(): Promise<LeitorDeContactos | null> {
     log.info({ outcome: "contacto_da_encomenda_desligado" });
     return null;
   }
-  const identidade = await Identidade.arrancar({ chaves: new EnvKeyProvider({ ambiente }) });
+  let identidade: Identidade;
+  try {
+    identidade = await Identidade.arrancar({ chaves: new EnvKeyProvider({ ambiente }) });
+  } catch (erro) {
+    // **O contacto cai, e o COM não.** Em `prod` o `Identidade.arrancar` recusa
+    // as chaves de ambiente (`exigirKeyProviderDeCofre`, critério 9 do
+    // KAM-008) até o cofre de `prod` existir (ADR-L002, KAM-227): sair aqui
+    // derrubava a saga do dinheiro por causa de uma rota de leitura do painel.
+    // Fica registado, e o contacto responde `UPSTREAM_DOWN`.
+    log.excepcao(erro, "contacto_da_encomenda_sem_chaves");
+    return null;
+  }
   const poolDaIdentidade = new Pool({
     connectionString: urlDaIdentidade,
     max: LIGACOES_DA_IDENTIDADE,
@@ -263,13 +274,7 @@ async function montarContactos(): Promise<LeitorDeContactos | null> {
   return leitorPelaIdentidade({ pool: poolDaIdentidade as unknown as PoolDaIdentidade, identidade });
 }
 
-let contactos: LeitorDeContactos | null;
-try {
-  contactos = await montarContactos();
-} catch (erro) {
-  log.excepcao(erro, "identidade_indisponivel");
-  process.exit(2);
-}
+const contactos = await montarContactos();
 
 const operacoes = operacoesDoCom({
   comTenant: transaccaoDeTenant,

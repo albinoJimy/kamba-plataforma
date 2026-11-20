@@ -934,6 +934,8 @@ ROTAS_DO_PAINEL = (
     "rota:onboarding-web:painel/rotas:actor:POST:/painel/conversa",
     # KAM-206: a pagina de um produto, com o formulario que saiu da lista.
     "rota:onboarding-web:painel/rotas:actor:GET:/painel/produtos/:id",
+    # KAM-206: o contacto do cliente de uma encomenda, mascarado, pelo botao.
+    "rota:onboarding-web:painel/rotas:actor:POST:/painel/encomendas/:id/contacto",
 )
 
 #: Os estados de cada rota, quando nao sao os do `RECUSAS_ACEITAVEIS`. As listas
@@ -968,6 +970,9 @@ ACEITAVEIS_DO_PAINEL: dict[str, tuple[int, ...]] = {
     # KAM-206. A pagina do `sku` de B com a sessao de A responde **so** 404,
     # pela razao do `PATCH`: o criterio 8 do KAM-099 escreve «404, nao 403».
     "rota:onboarding-web:painel/rotas:actor:GET:/painel/produtos/:id": (404,),
+    # KAM-206. O contacto da encomenda de B com a sessao de A: **so** 404, igual
+    # ao de uma encomenda que nao existe e ao de uma fora da regra.
+    "rota:onboarding-web:painel/rotas:actor:POST:/painel/encomendas/:id/contacto": (404,),
 }
 
 #: Ataques por rota do painel.

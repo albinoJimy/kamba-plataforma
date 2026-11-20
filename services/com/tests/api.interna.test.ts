@@ -31,6 +31,8 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { createApp } from "../src/app.ts";
+import { Logger } from "@kamba/core-ts/logger";
+import { contactoDaEncomenda, type MontagemDoContacto } from "../src/orders/contacto.ts";
 import { FiltroEmFaltaError, repoBase } from "../src/repo-base/index.ts";
 import {
   CABECALHO_INTERNO,
@@ -1148,4 +1150,56 @@ test("KAM-206: o order-contact leva o tenant do cabecalho e o actor do corpo, e 
   const semId = await aplicacao.fetch(pedido("/internal/order-contact", { ...CTX_DO_CORPO }, BONS));
   assert.equal(semId.status, 400);
   assert.equal(chamadas.contagem.get("contactoDaEncomenda"), 1);
+});
+
+test("KAM-206: adversarial - o telefone em claro nao sai na resposta, nos logs nem no /metrics", async (t) => {
+  const consola: unknown[][] = [];
+  for (const metodo of ["error", "log", "warn", "info"] as const) {
+    t.mock.method(console, metodo, (...argumentos: unknown[]) => {
+      consola.push(argumentos);
+    });
+  }
+  let escrito = "";
+  const log = new Logger("com", {
+    destino: { write: (pedaco: string) => (escrito += pedaco) },
+    relogio: () => new Date("2026-01-01T00:00:00.000Z"),
+    estrito: true,
+  });
+  const TELEFONE = "+244 999 000 789";
+  const montagem = (falhar: boolean): MontagemDoContacto => ({
+    async lerEncomenda(_ctx, orderId) {
+      return { tipo: "ok", valor: { orderId, estado: "paga", contactId: CONTACTO } };
+    },
+    contactos: {
+      async telefones(_t, _c, antes) {
+        await antes({ async query() { return { rows: [] }; } });
+        if (falhar) throw new Error(`a decifra falhou para ${TELEFONE}`);
+        return [{ finalidade: "contacto_pedido", telefone: TELEFONE, expiraAt: new Date("2099-01-01T00:00:00.000Z") }];
+      },
+    },
+    agora: () => new Date("2026-11-20T10:00:00.000Z"),
+  });
+  const { operacoes } = operacoesDeEnsaio();
+  for (const falhar of [false, true]) {
+    const aplicacao = createApp(log, {
+      operacoes: { ...operacoes, contactoDaEncomenda: (ctx, id) => contactoDaEncomenda(montagem(falhar), ctx, id) },
+      credencial: CREDENCIAL,
+      log,
+    });
+    const r = await aplicacao.fetch(
+      pedido("/internal/order-contact", { ...CTX_DO_CORPO, actor: { kind: "dono", id: "caso-a" }, order_id: ORDER }, BONS),
+    );
+    const corpo = await r.text();
+    if (falhar) {
+      assert.equal(r.status, 500);
+    } else {
+      assert.equal(r.status, 200);
+      assert.match(corpo, /••• ••• 789/);
+    }
+    assert.doesNotMatch(corpo, /999|244/);
+    const metricas = await (await aplicacao.fetch(new Request("http://127.0.0.1/metrics"))).text();
+    assert.doesNotMatch(metricas, /999 000|244999|caso-a/);
+  }
+  assert.doesNotMatch(escrito, /999|789/, escrito);
+  assert.doesNotMatch(JSON.stringify(consola), /999|789/);
 });

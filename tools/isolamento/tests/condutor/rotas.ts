@@ -2752,6 +2752,8 @@ const ITENS_DO_PAINEL = [
   "rota:onboarding-web:painel/rotas:actor:POST:/painel/conversa",
   // KAM-206: a pagina de um produto, com o formulario que saiu da lista.
   "rota:onboarding-web:painel/rotas:actor:GET:/painel/produtos/:id",
+  // KAM-206: o contacto do cliente de uma encomenda, mascarado, pelo botao.
+  "rota:onboarding-web:painel/rotas:actor:POST:/painel/encomendas/:id/contacto",
 ] as const;
 
 /** Os telefones da reentrada (KAM-190). Ficticios, com 999. */
@@ -2768,6 +2770,9 @@ const CASO_DE_B_NO_PAINEL = "0000000b-0000-4000-8000-0000000000c1";
 const CASO_ACTIVO_DE_A_NO_PAINEL = "0000000a-0000-4000-8000-0000000000c2";
 const ORDEM_DE_A_NO_PAINEL = "0000000a-0000-4000-8000-0000000000d1";
 const ORDEM_DE_B_NO_PAINEL = "0000000b-0000-4000-8000-0000000000d1";
+/** KAM-206: uma encomenda **paga** de cada tenant, no estado em que o contacto se mostra. */
+const ORDEM_PAGA_DE_A_NO_PAINEL = "0000000a-0000-4000-8000-0000000000d2";
+const ORDEM_PAGA_DE_B_NO_PAINEL = "0000000b-0000-4000-8000-0000000000d2";
 
 /** O marcador de A: o que tem de **chegar** a resposta das listas. */
 const MARCADOR_DE_A = "marcador-de-a-no-painel";
@@ -2847,8 +2852,17 @@ async function grupoDoPainel(relatorio: Relatorio): Promise<void> {
     })();
     comercio.semear(TENANT_DE_A_NO_PAINEL, [oferta("arroz-de-a", MARCADOR_DE_A)], [
       encomenda(ORDEM_DE_A_NO_PAINEL, MARCADOR_DE_A),
+      { ...encomenda(ORDEM_PAGA_DE_A_NO_PAINEL, MARCADOR_DE_A), estado: "paga" },
     ]);
-    comercio.semear(TENANT_DE_B_NO_PAINEL, [oferta(canario, canario)], [encomenda(ORDEM_DE_B_NO_PAINEL, canario)]);
+    comercio.semear(TENANT_DE_B_NO_PAINEL, [oferta(canario, canario)], [
+      encomenda(ORDEM_DE_B_NO_PAINEL, canario),
+      { ...encomenda(ORDEM_PAGA_DE_B_NO_PAINEL, canario), estado: "paga" },
+    ]);
+    // KAM-206: a mascara de B leva o canario. Um contacto de B servido a A
+    // punha-o na resposta, e o oraculo apanhava-o.
+    const mascaras = (comercio as unknown as { mascaras: Map<string, string> }).mascaras;
+    mascaras.set(ORDEM_PAGA_DE_A_NO_PAINEL, "••• ••• 101");
+    mascaras.set(ORDEM_PAGA_DE_B_NO_PAINEL, canario);
 
     const canal = new (canalModulo["CanalEmMemoria"] as new () => { vistas: Map<string, unknown> })();
     const vazia = { restrito: false, escalao: null, nivel: 1, tectoPedidoMinor: 5_000_000n };
@@ -3401,6 +3415,26 @@ async function grupoDoPainel(relatorio: Relatorio): Promise<void> {
     }
     const produtoDeA = await app.request("/painel/produtos/arroz-de-a", { headers: { cookie: cookieDeA } });
     marcarEm(17, produtoDeA.status === 200 && (await produtoDeA.text()).includes(MARCADOR_DE_A) ? "sonda=viva" : "sonda=morta");
+
+    // ---- POST /painel/encomendas/:id/contacto (KAM-206): a encomenda **paga** de
+    // B (no estado em que o contacto se mostra, e com o canario na mascara), com
+    // a sessao de A e o tenant de B na consulta e no cabecalho: 404 uniforme e
+    // nada de B. A sonda e o contacto da encomenda paga de A, fora das entradas.
+    for (let vez = 0; vez < 3; vez += 1) {
+      const [c, headers] = comTenantDeB(`/painel/encomendas/${ORDEM_PAGA_DE_B_NO_PAINEL}/contacto`, vez);
+      await empurrar(ITENS_DO_PAINEL[18], "POST", c, { method: "POST", headers }, () => "");
+    }
+    const contactoDeA = await app.request(`/painel/encomendas/${ORDEM_PAGA_DE_A_NO_PAINEL}/contacto`, {
+      method: "POST",
+      headers: { cookie: cookieDeA },
+    });
+    const corpoDoContactoDeA = await contactoDeA.text();
+    marcarEm(
+      18,
+      contactoDeA.status === 200 && corpoDoContactoDeA.includes(MARCADOR_DE_A) && corpoDoContactoDeA.includes("••• ••• 101")
+        ? "sonda=viva"
+        : "sonda=morta",
+    );
   } catch (erro) {
     falhar(`a montagem do painel levantou: ${razao(erro)}`);
   }

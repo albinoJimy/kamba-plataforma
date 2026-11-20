@@ -346,6 +346,8 @@ export interface OpcoesDaLeitura {
   readonly antes?: (cliente: ClienteDeIdentidade) => Promise<void>;
   /** Só os telefones: as linhas de BSUID não se decifram. */
   readonly soTelefones?: boolean;
+  /** Só os telefones destas finalidades; os outros, e os BSUID, não se decifram. */
+  readonly finalidades?: readonly Finalidade[];
 }
 
 export interface OpcoesDeRotacao {
@@ -631,8 +633,10 @@ export class Identidade {
    * de qualquer decifra**. É onde quem lê para mostrar escreve a linha de
    * `audit_log`: se o `antes` levanta, a transacção desfaz-se e nada se decifra;
    * se a decifra levanta, a linha desfaz-se com ela. **O `soTelefones`** salta as
-   * linhas de BSUID sem as decifrar: quem só precisa do telefone não abre mais
-   * do que ele.
+   * linhas de BSUID sem as decifrar, e **o `finalidades`** os telefones de outra
+   * finalidade: quem só precisa de um telefone não abre mais do que ele. **E o
+   * `antes` só corre se ficar alguma linha para decifrar**: uma auditoria de
+   * «viu o contacto» sobre nada a mostrar dizia que se viu o que não se viu.
    *
    * @throws {ContactoApagadoError} se o contacto foi apagado.
    * @throws {DekDestruidaError} se há cifra mas a chave de dados já não existe.
@@ -648,10 +652,15 @@ export class Identidade {
     const lidos = await comTenant(cliente, tenant, async () => {
       const alvo = await this.#seguirFusoes(cliente, tenant, pedido);
       const todas = await consultar(cliente, SQL.ENDPOINTS_DO_CONTACTO, [tenant, alvo.id]);
-      const linhas = opcoes.soTelefones === true ? todas.filter((l) => l.tipo !== "bsuid") : todas;
+      const linhas = todas.filter(
+        (l) =>
+          (opcoes.soTelefones !== true || l.tipo !== "bsuid") &&
+          (opcoes.finalidades === undefined ||
+            (l.tipo !== "bsuid" && (opcoes.finalidades as readonly unknown[]).includes(l.finalidade))),
+      );
       if (linhas.some((linha) => linha.wrapped_dek === null)) throw new DekDestruidaError();
       if (alvo.erasedAt !== null) throw new ContactoApagadoError();
-      if (opcoes.antes !== undefined) await opcoes.antes(cliente);
+      if (opcoes.antes !== undefined && linhas.length > 0) await opcoes.antes(cliente);
 
       const deks = new Map<string, Uint8Array>();
       const bsuids: string[] = [];

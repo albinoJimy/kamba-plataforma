@@ -133,7 +133,9 @@ export interface ClienteDoContacto {
 
 /**
  * Quem lê os telefones do contacto: a identidade do KAM-008, como
- * `kamba_identity`. O `antes` corre na transacção dela, antes da decifra.
+ * `kamba_identity`. O `antes` corre na transacção dela, antes da decifra, e
+ * **só se houver um telefone da encomenda para decifrar**: sem ele não há linha
+ * de auditoria, porque o dono não viu nada.
  * Devolve `null` quando o contacto foi apagado ou a chave de dados destruída —
  * não há telefone a mostrar, e a transacção desfez-se com a linha de auditoria.
  */
@@ -207,7 +209,9 @@ export async function contactoDaEncomenda(
       validado.tenantId,
       validado.actor.id,
       encomenda.orderId,
-      textoDaAuditoria(encomenda.orderId, encomenda.estado),
+      // Octetos e não texto: é o `bytea` que o `sha256` resume, e um texto
+      // passava pela entrada `escape` do PostgreSQL, que lê as barras.
+      Buffer.from(textoDaAuditoria(encomenda.orderId, encomenda.estado), "utf8"),
     ]);
   });
   const telefone = telefones === null ? null : telefoneDaEncomenda(telefones, m.agora());
