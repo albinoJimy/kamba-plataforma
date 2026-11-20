@@ -208,7 +208,7 @@ CREDOR_DO_SOCIAL: Final = "KAM-121"
 MODULO_DO_SOCIAL: Final = "social"
 
 #: As quatro do Social AI, pela ordem do §21.3, com a `update_brand_profile`
-#: (decisao 2 do bloco do KAM-121) a seguir a leitura do perfil. As duas que
+#: (decisao 2 do fundador de 2026-11-20, bloco do KAM-121) a seguir a leitura do perfil. As duas que
 #: faltam ao §21.3 (`generate_art`, `request_approval`) sao do KAM-122, que as
 #: declara e liga. **Nenhuma publica nem envia** (D13): o dono publica a mao.
 _AS_QUATRO_DO_SOCIAL: Final = (

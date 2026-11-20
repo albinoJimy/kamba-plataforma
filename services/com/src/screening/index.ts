@@ -106,8 +106,9 @@ export const SUJEITO_DAS_CONDICOES = "condicoes";
 export const SUJEITO_DO_PRODUTO = "produto";
 
 /**
- * O sujeito do conteúdo do módulo social (KAM-121): os temas de um calendário
- * ou a legenda de um item, com o `id` de um ou de outro por referência. Nem a
+ * O sujeito do conteúdo do módulo social (KAM-121, decisão 1 do fundador de
+ * 2026-11-20): o tema ou a legenda de um item, com o `content_item_id` por
+ * referência. Nem a
  * re-análise nem o `assertPublishable` o leem: é um rascunho do dono, e o que
  * se entrega é do KAM-122.
  */

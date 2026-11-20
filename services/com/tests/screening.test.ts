@@ -323,8 +323,8 @@ test("KAM-119: uma permitida nova sobre uma condicional anterior do mesmo conteu
 });
 
 test("KAM-121, criterio 5: os cem primeiros casos canonicos de categoria bloqueada, como conteudo social, saem todos bloqueados", async () => {
-  // O corpus do KAM-088, escrito por quem nao leu o motor. Os temas de um
-  // calendario vao a rota com o sujeito `conteudo` e o `id` do calendario; a
+  // O corpus do KAM-088, escrito por quem nao leu o motor. Cada tema vai a
+  // rota com o sujeito `conteudo` e o `content_item_id` do item; a
   // categoria e a do tenant («moda», uma permitida), e o `screen` corre a
   // politica real. O AGR so cria itens com uma decisao que nao seja
   // `bloqueada` (`social_tools.generate_calendar`): cem bloqueadas sao zero itens.

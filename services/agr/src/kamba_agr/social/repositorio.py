@@ -18,7 +18,7 @@ unica via de escrita dos agentes no `platform` (§6.1, ADR-015, `lint_arch`).
 ## O consumo de `posts_mes` vai com a legenda
 
 `gravar_legenda` consome **um** `posts_mes` na mesma transaccao em que grava, com
-a chave `social:{content_item_id}` (decisao 3 do bloco): regerar a legenda do
+a chave `social:{content_item_id}` (decisao 3 do fundador, 2026-11-20): regerar a legenda do
 mesmo item nao conta outra vez, e um limite esgotado nao grava nada.
 """
 

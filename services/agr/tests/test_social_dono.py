@@ -69,16 +69,19 @@ class ScreeningDuplo:
 
     nome = "screening-duplo"
 
-    def __init__(self, decisao: str = "permitida", *, falha: bool = False) -> None:
+    def __init__(self, decisao: str = "permitida", *, falha: bool = False, por_texto: dict[str, str] | None = None) -> None:
         self.decisao = decisao
         self.falha = falha
+        #: Uma decisao por palavra do texto, para os ensaios de um so tema bloqueado.
+        self.por_texto = por_texto or {}
         self.chamadas: list[tuple[str, str, str | None, tuple[str, ...]]] = []
 
     def screen(self, tenant_id: str, sujeito_ref: str, categoria: str | None, textos: Any) -> ResultadoDoScreen:
         self.chamadas.append((tenant_id, sujeito_ref, categoria, tuple(textos)))
         if self.falha:
             raise RuntimeError("em baixo")
-        return ResultadoDoScreen(self.decisao, ("regra_x",), "1.0.0+m.2", 1.0)
+        decisao = next((d for palavra, d in self.por_texto.items() if any(palavra in x for x in textos)), self.decisao)
+        return ResultadoDoScreen(decisao, ("regra_x",), "1.0.0+m.2", 1.0)
 
 
 class GeradorDuplo:
@@ -579,7 +582,7 @@ class TestAsTools(unittest.TestCase):
         dois = mundo.invocar("generate_calendar", {})
         self.assertFalse(dois.data["novo"])
         self.assertEqual(dois.data["itens"], um.data["itens"])
-        self.assertEqual(len(mundo.screening.chamadas), 1, "o segundo nao volta ao screening")
+        self.assertEqual(len(mundo.screening.chamadas), len(um.data["itens"]), "um por tema, e o segundo nao volta")
         nova = mundo.invocar("generate_calendar", {"nova": True})
         self.assertTrue(nova.data["novo"])
         self.assertEqual(nova.data["geracao"], 2)
@@ -615,9 +618,12 @@ class TestAsTools(unittest.TestCase):
         mundo = Mundo()
         mundo.com_perfil()
         r = mundo.invocar("generate_calendar", {})
-        tenant, sujeito, categoria, textos = mundo.screening.chamadas[0]
-        self.assertEqual((tenant, sujeito, categoria), (A, r.data["calendar_id"], None))
-        self.assertEqual(list(textos), [i["tema"] for i in r.data["itens"]])
+        # Um screen por tema, com o `content_item_id` como sujeito (decisao 1 do
+        # fundador) e a categoria do tenant (`None`), nunca a do perfil.
+        self.assertEqual(
+            [(t, s, c, x) for t, s, c, x in mundo.screening.chamadas],
+            [(A, i["content_item_id"], None, (i["tema"],)) for i in r.data["itens"]],
+        )
 
     def test_categoria_bloqueada_da_zero_itens_e_condicional_marca_revisao_reforcada(self) -> None:
         bloqueada = Mundo(screening=ScreeningDuplo("bloqueada"))
@@ -629,6 +635,17 @@ class TestAsTools(unittest.TestCase):
         r = condicional.invocar("generate_calendar", {})
         self.assertTrue(r.data["itens"])
         self.assertTrue(all(i["revisao_reforcada"] for i in r.data["itens"]))
+
+    def test_so_o_tema_bloqueado_fica_de_fora_e_so_o_condicional_e_reforcado(self) -> None:
+        mundo = Mundo(screening=ScreeningDuplo(por_texto={"Um dia normal": "bloqueada", "Um erro comum": "condicional"}))
+        mundo.com_perfil()
+        r = mundo.invocar("generate_calendar", {})
+        tipos = {i["tipo"]: i for i in r.data["itens"]}
+        self.assertNotIn("bastidores", tipos)
+        self.assertTrue(tipos["dica"]["revisao_reforcada"])
+        self.assertFalse(tipos["produto"]["revisao_reforcada"])
+        self.assertEqual(r.data["decisao"], "bloqueada", "a do calendario e a mais restritiva")
+        self.assertEqual(len(mundo.screening.chamadas), 3, "os tres temas foram ao screening")
 
     def test_screening_em_baixo_nao_grava_nada(self) -> None:
         mundo = Mundo(screening=ScreeningDuplo(falha=True))

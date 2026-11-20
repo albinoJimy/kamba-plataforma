@@ -15457,7 +15457,6 @@ entradas:
       - "condicoes"
       - "conteudo"
       - "sujeito_ref"
-      - "calendar_id"
       - "content_item_id"
       - "categoria"
       - "produto"
@@ -21194,6 +21193,8 @@ entradas:
       - "substituido"
       - "AAAA"
       - "Www"
+      - "decisao"
+      - "versao_politica"
     variantes_literais: []
   - seccao: "3.81"
     conceito: "Estado de um calendário"
@@ -21356,6 +21357,8 @@ entradas:
       - "generate_calendar"
     nomes_nota:
       - "write"
+      - "content_item_id"
+      - "bloqueada"
     variantes_literais: []
   - seccao: "3.81"
     conceito: "Tool da legenda"
@@ -21403,7 +21406,6 @@ entradas:
       - "screening_decision.sujeito_tipo"
     nomes_nota:
       - "sujeito_ref"
-      - "calendar_id"
       - "content_item_id"
       - "assertPublishable"
       - "condicional"

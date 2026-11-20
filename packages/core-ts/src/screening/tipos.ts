@@ -17,7 +17,8 @@ export type Origem = (typeof ORIGENS)[number];
 /**
  * O que se avalia — o `CHECK` de `screening_decision.sujeito_tipo`. O `conteudo`
  * é o do módulo social (KAM-121): os temas de um calendário e a legenda de um
- * item, com o `id` do calendário ou do item como `sujeitoRef`.
+ * item, com o `content_item_id` como `sujeitoRef` (decisão 1 do fundador de
+ * 2026-11-20, bloco do KAM-121).
  */
 export const SUJEITOS = ["categoria", "produto", "condicoes", "conteudo"] as const;
 export type SujeitoTipo = (typeof SUJEITOS)[number];

@@ -3,7 +3,7 @@
 | Tool | Classe | O que faz |
 |---|---|---|
 | `get_brand_profile` | `read` | o perfil, se esta completo, e a proxima pergunta |
-| `update_brand_profile` | `write`, passo 4 dispensado | uma resposta do dono a uma pergunta do perfil (decisao 2 do bloco) |
+| `update_brand_profile` | `write`, passo 4 dispensado | uma resposta do dono a uma pergunta do perfil (decisao 2 do fundador, 2026-11-20) |
 | `generate_calendar` | `write`, passo 4 dispensado | o calendario da semana seguinte, 3 a 7 itens; «NOVA» regenera |
 | `generate_caption` | `write`, passo 4 dispensado | a legenda de um item, pelas quatro barreiras e pelo screening |
 
@@ -71,6 +71,8 @@ from .especificacoes import ErroDeBackend, Executor, Pedido, Resposta
 
 BLOQUEADA: Final = "bloqueada"
 CONDICIONAL: Final = "condicional"
+#: As decisoes por ordem de restricao (a do `DECISOES` do KAM-088).
+_RESTRICAO: Final = (PERMITIDA, CONDICIONAL, BLOQUEADA)
 
 
 # Sem *docstrings*: a de um modelo Pydantic vai ao esquema e, por ele, ao modelo.
@@ -235,28 +237,35 @@ def executores(
         geracao = activo.geracao + 1 if activo is not None else 1
         temas = regras.temas(perfil, semana, geracao)
         calendar_id = str(uuid.uuid4())
-        # **Um screen por calendario**, com os temas todos: o tecto de uma
-        # `write` (8 s, §6.5) nao cabe sete chamadas ao classificador. A decisao
-        # vale para todos os itens, e uma restritiva nao gera nenhum (criterio 5).
-        decisao = _screen(portas, tenant, calendar_id, [t.tema for t in temas])
-        if decisao.decisao == BLOQUEADA:
-            novos: list[ItemNovo] = []
-        else:
-            reforcada = decisao.decisao != PERMITIDA
-            novos = [
+        # **Um screen por tema**, com o `content_item_id` como sujeito (decisao 1
+        # do fundador, 2026-11-20): um tema `bloqueada` nao gera o item, e uma
+        # `condicional` marca-o com revisao reforcada (criterio 5). Se um screen
+        # falha, nada se grava. O tecto de uma `write` (8 s, §6.5) e mais curto
+        # do que varios screens com o classificador: um calendario que o passe
+        # acaba na *thread*, e o «IDEIAS» seguinte le-o (a limitacao do KAM-119).
+        novos: list[ItemNovo] = []
+        decisoes: list[str] = []
+        versao_politica = ""
+        for tema in temas:
+            content_item_id = str(uuid.uuid4())
+            decisao = _screen(portas, tenant, content_item_id, [tema.tema])
+            decisoes.append(decisao.decisao)
+            versao_politica = decisao.versao_politica
+            if decisao.decisao == BLOQUEADA:
+                continue
+            novos.append(
                 ItemNovo(
-                    content_item_id=str(uuid.uuid4()),
-                    tipo=t.tipo,
-                    tema=t.tema,
-                    agendado_at=t.agendado_at,
-                    revisao_reforcada=reforcada,
+                    content_item_id=content_item_id,
+                    tipo=tema.tipo,
+                    tema=tema.tema,
+                    agendado_at=tema.agendado_at,
+                    revisao_reforcada=decisao.decisao != PERMITIDA,
                     versao_politica=decisao.versao_politica,
                 )
-                for t in temas
-            ]
-        calendario, novo = repositorio.abrir(
-            tenant, semana, calendar_id, geracao, decisao.decisao, decisao.versao_politica, novos
-        )
+            )
+        # A decisao do calendario e a mais restritiva dos temas.
+        pior = max(decisoes, key=_RESTRICAO.index) if decisoes else PERMITIDA
+        calendario, novo = repositorio.abrir(tenant, semana, calendar_id, geracao, pior, versao_politica, novos)
         return Resposta(data=vista_do_calendario(calendario, novo=novo))
 
     def generate_caption(pedido: Pedido) -> Resposta:

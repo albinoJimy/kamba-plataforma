@@ -49,14 +49,14 @@ ROTA: Final = "/internal/screen"
 
 #: Os sujeitos que o COM aceita na rota (`SUJEITOS_DA_ROTA`): o das condicoes
 #: (KAM-222), o `produto` (KAM-119) e o `conteudo` do modulo social (KAM-121,
-#: decisao 1 do bloco). Nunca a `categoria`, que e do onboarding.
+#: decisao 1 do fundador de 2026-11-20). Nunca a `categoria`, que e do onboarding.
 SUJEITOS: Final = ("condicoes", "produto", "conteudo")
 
 #: O sujeito das condicoes de um orcamento, e o de um produto do Catalogo AI.
 SUJEITO_DAS_CONDICOES: Final = "condicoes"
 SUJEITO_DO_PRODUTO: Final = "produto"
-#: O de um calendario (os temas) ou de um item (a legenda) do social, com o `id`
-#: do calendario ou do item como `sujeito_ref`.
+#: O de um item do social, o tema e depois a legenda, com o `content_item_id`
+#: como `sujeito_ref` (decisao 1 do fundador de 2026-11-20).
 SUJEITO_DO_CONTEUDO: Final = "conteudo"
 
 #: O tecto de uma chamada. O classificador do `screen` tem 15 s
