@@ -36,8 +36,8 @@ fechada (`destinos.FINALIDADES_ESCOLHIVEIS`), e nenhuma cai na outra.
 de uma tool `write` da ToolLayer. Um classificador que tomasse os 12 s do
 transporte respondia a ninguem — o AGR ja tinha recusado as condicoes, e o COM
 gravava uma decisao sobre uma resposta que ninguem leu (achado 2 da revisao do
-KAM-228). A rota so chama o modelo se o que sobra cobrir **uma** tentativa do
-proxy (`minimo_s`), e corta o transporte ao que sobra.
+KAM-228). A rota so chama o modelo se o que sobra passar do minimo
+(`minimo_s`), e corta o transporte ao que sobra.
 
 Nao faz: ler o veredicto. O `lerVeredicto` do TypeScript e o unico leitor, e a
 falha dele e `condicional` (KAM-088, criterio 2). Duas leituras do mesmo
@@ -193,17 +193,27 @@ def tecto_s(alias: Alias) -> float:
     return alias.timeout * TENTATIVAS + MARGEM_SEGUNDOS
 
 
-def minimo_s(alias: Alias) -> float:
-    """O menor prazo com que a rota ainda chama o modelo: uma tentativa do proxy.
+#: O menor prazo com que a rota ainda chama o modelo, em segundos (KAM-230).
+#: *Proposta*: e o que se espera de uma resposta do `screening-nano`, e nao o
+#: `timeout` do alias, que e o tecto de uma tentativa **lenta** (5 s). A primeira
+#: versao exigia o `timeout` inteiro, e com os 8 s de uma `write` sobravam
+#: ~0,6 s para os passos da ToolLayer, o COM e a fila: medido contra o COM a
+#: correr, as condicoes limpas recusaram em duas de quatro corridas, com a rota
+#: a responder `sem_tempo` sem chamar o *gate*.
+MINIMO_PARA_CHAMAR_S: Final = 3.0
 
-    Abaixo disto, nem a primeira tentativa cabe no que sobra a quem chama, e
-    chamar era pagar uma resposta que ninguem le (KAM-230). **Nao cobre a
-    segunda**: com o prazo do `submit_quote`, uma primeira tentativa que falhe
-    perto do `timeout` do alias deixa a segunda cortada pelo transporte, e o
-    que o proxy faz depois de o cliente desistir nao esta medido
-    (**NAO VERIFICADO**).
+
+def minimo_s(alias: Alias) -> float:
+    """O menor prazo com que a rota ainda chama o modelo (`MINIMO_PARA_CHAMAR_S`).
+
+    Abaixo disto a resposta ja nao chega a tempo de ninguem a ler, e chamar era
+    pagar por nada. **O que fica, e diz-se:** com o prazo do `submit_quote`, uma
+    resposta mais lenta do que o que sobra e cortada pelo transporte, e uma
+    segunda tentativa do proxy nao cabe; o que o proxy faz depois de o cliente
+    desistir, e se a cobra, nao esta medido (**NAO VERIFICADO**). Nunca acima do
+    `timeout` do alias.
     """
-    return float(alias.timeout)
+    return min(MINIMO_PARA_CHAMAR_S, float(alias.timeout))
 
 
 def folga_de_fila_s(alias: Alias) -> float:
@@ -371,7 +381,7 @@ def rotas(
     | sem credencial, credencial errada, ou credencial por configurar | 401 |
     | classificador por ligar | 503 `classificador_por_ligar` |
     | esperou pela *thread* mais do que a folga | 503 `sem_tempo`, sem chamada |
-    | o prazo de quem chama ja nao cobre uma tentativa | 503 `sem_tempo`, sem chamada |
+    | o prazo de quem chama ja esta abaixo do minimo | 503 `sem_tempo`, sem chamada |
     | o `chamar` levantou (`destino_negado`, `timeout`, ...) | 503 com o `resultado` |
     | o modelo respondeu sem texto | 503 `sem_conteudo` (a linha ja esta escrita) |
     """

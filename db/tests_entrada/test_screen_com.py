@@ -192,10 +192,11 @@ class TestOAgrContraOComACorrer(ComOrcamento):
     def _limpar_destinos(self) -> None:
         # Uma linha da finalidade nova deixada para tras fazia a descida da
         # `0078` recusar-se noutro ensaio da mesma base.
+        # O `dat.llm_call_log` e *append-only* e nao se apaga: as linhas ficam
+        # com o tenant, e cada ensaio le so as do seu.
         self.semente.execute(
             "DELETE FROM platform.tenant_destinations WHERE tenant_id = %s", (self.tenant,)
         )
-        self.semente.execute("DELETE FROM dat.llm_call_log WHERE tenant_id = %s", (self.tenant,))
 
     def _categoria(self, categoria: str) -> None:
         """A categoria declarada do tenant: a decisao `categoria` mais recente (KAM-222)."""
@@ -271,7 +272,15 @@ class TestOAgrContraOComACorrer(ComOrcamento):
     def test_condicoes_limpas_seguem_e_a_decisao_grava_se(self) -> None:
         self._categoria("moda")
         self._destino(FINALIDADE_CONDICOES)
-        resposta = self._submeter(LIMPAS)
+        try:
+            resposta = self._submeter(LIMPAS)
+        except ErroDeBackend as erro:
+            # O diagnostico de uma recusa: o que o COM gravou, quantas vezes o
+            # modelo foi chamado e o que o COM escreveu.
+            self.fail(
+                f"{erro}: decisoes={self._decisoes()} modelo={self._chamadas_ao_modelo()} "
+                f"proxy={self.proxy.chamadas}{self.com.diagnostico()}"
+            )
         self.assertIn(LIMPAS, resposta.data["previsao"])
         # A decisao do COM, com o sujeito das condicoes e o `quote_id`.
         self.assertEqual(self._decisoes(), [("permitida", "moda")])

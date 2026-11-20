@@ -39,7 +39,7 @@ esqueleto do serviço. Não há agente nenhum.
 | Modo determinístico e `agr_degraded_turns_total` | **KAM-037** |
 | *Compare-and-set* da retoma do *handoff* | KAM-034 |
 | As três portas `grafos` ligadas ao registo, e o `Dependencias` com as portas reais | **KAM-186** (§7-K) |
-| `POST /internal/screening`: o classificador de screening do GOV pelo *gateway* de LLM, com credencial e chave próprias ([`llm/screening.py`](../services/agr/src/kamba_agr/llm/screening.py); o desenho está no bloco do KAM-195). O COM chama-a pelo `screen` das condições de um orçamento (KAM-222), ligado nos três *compose* desde o KAM-228. **O pedido traz a finalidade e o prazo** (KAM-230): o *gate* de destino consulta a finalidade do pedido — a `classificacao_de_condicoes` para as condições, decisão do fundador de 2026-11-20 —, e a rota só chama o modelo se o prazo de quem chama cobrir uma tentativa do proxy | **KAM-195** |
+| `POST /internal/screening`: o classificador de screening do GOV pelo *gateway* de LLM, com credencial e chave próprias ([`llm/screening.py`](../services/agr/src/kamba_agr/llm/screening.py); o desenho está no bloco do KAM-195). O COM chama-a pelo `screen` das condições de um orçamento (KAM-222), ligado nos três *compose* desde o KAM-228. **O pedido traz a finalidade e o prazo** (KAM-230): o *gate* de destino consulta a finalidade do pedido — a `classificacao_de_condicoes` para as condições, decisão do fundador de 2026-11-20 —, e a rota só chama o modelo se o que sobra do prazo de quem chama passar do mínimo (`MINIMO_PARA_CHAMAR_S`, 3 s, *proposta*) | **KAM-195** |
 
 **`/internal/turn` com uma invocação válida corre o grafo da vertical desde o
 KAM-186**: a porta `grafos` resolve-a pelo registo e pelo entitlement. Com uma
@@ -748,7 +748,7 @@ Papel `kamba_app` e não `kamba_agr`: o que ela toca é do `platform`, e o
 |---|---|---|
 | `KAMBA_TLS_LIGACOES` | `4` | Quantas tomadas a camada abre. Ver «As tomadas são uma fila» |
 | `KAMBA_TLS_TIMEOUT_READ_MS` | `2000` | O tecto de uma tool `read` (§6.5). Para o backend `plataforma` é um `SET LOCAL statement_timeout`, do lado do servidor |
-| `KAMBA_TLS_TIMEOUT_ESCRITA_MS` | `8000` | O tecto de uma `write` ou `money`. Fixa também o tecto do `screen` das condições do `submit_quote` (KAM-228): o que sobra do prazo da invocação, contado do início da ToolLayer (`Pedido.prazo`, KAM-230), depois de 1 s de reserva para a transacção. Abaixo de ~7,3 s (1 s de reserva aqui, 0,3 s no COM, 1 s de margem na rota e os 5 s de uma tentativa), o que chega ao classificador já não cobre uma tentativa do `screening-nano`, e as condições recusam sempre |
+| `KAMBA_TLS_TIMEOUT_ESCRITA_MS` | `8000` | O tecto de uma `write` ou `money`. Fixa também o tecto do `screen` das condições do `submit_quote` (KAM-228): o que sobra do prazo da invocação, contado do início da ToolLayer (`Pedido.prazo`, KAM-230), depois de 1 s de reserva para a transacção. Abaixo de ~5,3 s (1 s de reserva aqui, 0,3 s no COM, 1 s de margem na rota e os 3 s do mínimo da rota), o que chega ao classificador já não passa do mínimo, e as condições recusam sempre |
 | `KAMBA_TLS_DISJUNTOR_FALHAS` | `5` | Falhas **consecutivas** por backend até abrir |
 | `KAMBA_TLS_DISJUNTOR_PAUSA_MS` | `30000` | Quanto fica aberto. Passada a pausa deixa passar **uma** tentativa |
 

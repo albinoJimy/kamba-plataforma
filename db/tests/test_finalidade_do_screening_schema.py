@@ -159,12 +159,9 @@ class TestDowngradeDaFinalidadeDoScreening(unittest.TestCase):
             for finalidade in FINALIDADES_DA_FOTO:
                 self.assertIn(f"'{finalidade}'", definicao)
             self.assertEqual(definicao.count("'::text"), 14)
-        finally:
-            alembic_ok("upgrade", "head")
-        # O que **esta** revisao escreve: sobe-se so ate ela, porque a de cima
-        # reescreve o mesmo `CHECK` (KAM-230).
-        alembic_ok("upgrade", esta)
-        try:
+            # O que **esta** revisao escreve: sobe-se so ate ela, e nao a
+            # cabeca, porque a de cima reescreve o mesmo `CHECK` (KAM-230).
+            alembic_ok("upgrade", esta)
             definicao = self._definicao()
             self.assertIn(f"'{FINALIDADE}'", definicao)
             self.assertEqual(definicao.count("'::text"), 15)

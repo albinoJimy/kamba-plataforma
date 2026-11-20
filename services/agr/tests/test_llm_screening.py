@@ -549,16 +549,20 @@ class TestOPrazoDeQuemChama(unittest.TestCase):
         self.assertEqual(transporte.chamadas[0][3], screening.tecto_s(ALIAS))
 
     def test_o_minimo_e_uma_tentativa_do_proxy(self) -> None:
-        self.assertEqual(screening.minimo_s(REAIS["screening"]), float(REAIS["screening"].timeout))
+        self.assertEqual(screening.minimo_s(REAIS["screening"]), screening.MINIMO_PARA_CHAMAR_S)
+        self.assertLessEqual(screening.minimo_s(REAIS["screening"]), float(REAIS["screening"].timeout))
 
-    def test_o_screen_das_condicoes_deixa_uma_tentativa_ao_classificador(self) -> None:
+    def test_o_screen_das_condicoes_deixa_folga_ao_classificador(self) -> None:
         """A conta do prazo, com os numeros dos tres sitios onde vivem.
 
         O tecto de uma `write` da ToolLayer, menos a reserva da transaccao do
         `submit_quote`, menos a reserva da gravacao no COM, menos a margem da
-        resposta da rota: tem de sobrar uma tentativa do `screening-nano`. Se
-        alguem subir uma reserva ou descer o tecto, as condicoes passavam a
-        recusar todas, sem erro nenhum — e este ensaio fica vermelho.
+        resposta da rota: tem de sobrar o minimo da rota e **dois segundos de
+        folga** para os passos da ToolLayer, o COM e as filas (medido: com
+        ~0,6 s de folga, as condicoes limpas recusaram em duas de quatro
+        corridas contra o COM a correr). Se alguem subir uma reserva ou descer o
+        tecto, as condicoes passavam a recusar, sem erro nenhum — e este ensaio
+        fica vermelho.
         """
         from kamba_agr.tls import camada, orcamento_tools
 
@@ -570,7 +574,7 @@ class TestOPrazoDeQuemChama(unittest.TestCase):
             - orcamento_tools.RESERVA_DA_TRANSACCAO_MS
             - int(reserva_do_com.group(1))
         ) / 1000 - screening.MARGEM_DE_RESPOSTA_S
-        self.assertGreaterEqual(sobra_s, screening.minimo_s(REAIS["screening"]))
+        self.assertGreaterEqual(sobra_s, screening.minimo_s(REAIS["screening"]) + 2.0)
 
 
 class TestALigacaoDoArranque(unittest.TestCase):

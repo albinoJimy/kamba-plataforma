@@ -107,8 +107,8 @@ FINALIDADE_DAS_CONDICOES: Final = ponte.FINALIDADE_DO_SUJEITO[SUJEITO_DAS_CONDIC
 #: O que fica do prazo da invocacao para retomar a tomada e para a transaccao,
 #: depois do `screen`. *Proposta*: a transaccao do `responder` sao tres
 #: instrucoes numa linha trancada, e nao se mediu o p99 dela em producao. Baixou
-#: de 1,5 s para 1 s com o KAM-230, para que o que sobra ao classificador cubra
-#: uma tentativa do `screening-nano` (`llm/screening.py`, `minimo_s`).
+#: de 1,5 s para 1 s com o KAM-230, para que sobre ao classificador folga acima
+#: do minimo da rota (`llm/screening.py`, `minimo_s`).
 RESERVA_DA_TRANSACCAO_MS: Final = 1_000
 
 _CODIGO_DA_RECUSA: Final = {

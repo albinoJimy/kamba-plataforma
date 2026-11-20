@@ -15613,7 +15613,7 @@ entradas:
       - "resultado"
       - "dat.llm_call_log"
       - "sem_tempo"
-      - "minimo_s"
+      - "MINIMO_PARA_CHAMAR_S"
       - "sem_conteudo"
       - "screen"
       - "condicional"
