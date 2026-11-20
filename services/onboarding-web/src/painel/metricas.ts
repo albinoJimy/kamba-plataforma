@@ -8,8 +8,8 @@
  * ```
  *
  * **Duas etiquetas, os dois domínios fechados**, e nenhuma leva tenant, `sku`,
- * `orderId`, telefone ou contacto (`OBS-I`): `rota` tem treze valores e `motivo`
- * sete, pelo que o tecto é de 13 + 91 séries. As séries aparecem sempre, mesmo a
+ * `orderId`, telefone ou contacto (`OBS-I`): `rota` tem dezoito valores e `motivo`
+ * sete, pelo que o tecto é de 18 + 126 séries. As séries aparecem sempre, mesmo a
  * zero — um painel que mostre «sem dados» não distingue «ninguém errou» de «o
  * processo não arrancou».
  *
@@ -39,6 +39,13 @@ export const ROTAS_DO_PAINEL = [
   // KAM-207: a ponte do `/painel/ligar` pedida por um caso activo cujo canal
   // caiu. Os pedidos dessa rota repartem-se entre `ligar` e `religar`.
   "religar",
+  // KAM-223: a troca com prova de posse (o estado, a conclusão depois das
+  // 72 h e o cancelamento) e a conversa do dono com o Assistente.
+  "troca_estado",
+  "troca_concluir",
+  "troca_cancelar",
+  "conversa",
+  "conversa_enviar",
 ] as const;
 export type RotaDoPainel = (typeof ROTAS_DO_PAINEL)[number];
 

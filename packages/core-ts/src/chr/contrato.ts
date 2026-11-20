@@ -218,6 +218,14 @@ export interface AgentInvocation {
    * resto. Campo aditivo e opcional da v1, como a `persona`.
    */
   readonly botao?: string;
+  /**
+   * O identificador da mensagem de texto na fonte persistida
+   * (`platform.agent_messages`, KAM-223), e **nunca** o corpo — a decisão do
+   * KAM-186 mantém-se. O AGR lê a linha por ele, com o tenant, o contacto e a
+   * conversa desta invocação. Campo aditivo e opcional da v1: sem ele, a janela
+   * nasce vazia, como até aqui.
+   */
+  readonly message_id?: string;
 }
 
 /** `thread_id` de um par (tenant, contacto). Dicionário §3.1. */

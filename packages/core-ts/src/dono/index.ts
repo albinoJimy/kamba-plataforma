@@ -12,3 +12,5 @@ export * from "./proactivas.ts";
 export * from "./provisionamento.ts";
 export * from "./troca.ts";
 export * from "./sql.ts";
+export * from "./conversa.ts";
+export * from "./conversa_sql.ts";
