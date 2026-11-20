@@ -531,6 +531,44 @@ describe("KAM-223 — a troca isola o tenant e a sessao", () => {
     assert.deepEqual(m.trocas, []);
   });
 
+  it("critério 3 do KAM-217 (reescrito a 2026-11-20): com o tenant de B, a sessão de A responde pela troca de A, uniforme, e nada de B aparece", async () => {
+    // As duas trocas pendentes, com prazos diferentes: a de B uma hora depois.
+    const m = montar();
+    const deA = cookie(TENANT_A, CASO_A, m);
+    await pendente(m, deA, NUMERO_NOVO);
+    const prazoDeA = (await m.troca.estado(TENANT_A))?.prazo;
+    avancar(m, 3_600_000);
+    const deB = cookie(TENANT_B, CASO_B, m);
+    await pendente(m, deB, NUMERO_DE_B);
+    const prazoDeB = (await m.troca.estado(TENANT_B))?.prazo;
+    assert.ok(prazoDeA instanceof Date && prazoDeB instanceof Date && prazoDeA.getTime() !== prazoDeB.getTime());
+    const deBNoPedido = { "x-kamba-tenant": TENANT_B, "x-tenant-id": TENANT_B };
+    const respostas: Response[] = [
+      await m.app.request(`/painel/telefone?tenant_id=${TENANT_B}`, { headers: { cookie: deA, ...deBNoPedido } }),
+      await post(m, `/painel/telefone/verificar?tenant_id=${TENANT_B}`, { telefone: NUMERO_DE_B, codigo: "000000", tenant_id: TENANT_B }, deA, deBNoPedido),
+      await post(m, `/painel/telefone/concluir?tenant_id=${TENANT_B}`, { tenant_id: TENANT_B }, deA, deBNoPedido),
+      await post(m, `/painel/telefone/cancelar?tenant_id=${TENANT_B}`, { tenant_id: TENANT_B }, deA, deBNoPedido),
+    ];
+    const [estado] = respostas;
+    const corpos: string[] = [];
+    for (const r of respostas) {
+      assert.ok([200, 401, 409].includes(r.status), String(r.status));
+      corpos.push(await r.text());
+    }
+    // O estado é o de A: o prazo de A, e não o de B.
+    assert.equal(estado?.status, 200);
+    assert.ok(corpos[0]?.includes(prazoDeA.toISOString()));
+    for (const corpo of corpos) {
+      assert.ok(!corpo.includes(prazoDeB.toISOString()), corpo);
+      assert.ok(!corpo.includes(TENANT_B), corpo);
+      assert.doesNotMatch(corpo, /999\s*000\s*422/);
+    }
+    // E a troca de B ficou como estava; a de A foi a única tocada (cancelada).
+    assert.equal((await m.troca.estado(TENANT_B))?.estado, "pendente");
+    assert.equal(await m.troca.estado(TENANT_A), null);
+    assert.deepEqual(m.trocas, []);
+  });
+
   it("outra sessao do mesmo tenant nao verifica o numero novo pedido pela primeira", async () => {
     const m = montar();
     const primeira = cookie(TENANT_A, CASO_A, m);
