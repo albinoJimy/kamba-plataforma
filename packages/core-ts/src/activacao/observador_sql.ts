@@ -8,14 +8,30 @@
  * guardam**: o sinal é um instante, e a conversa é a que o CHR já tinha.
  *
  * ```text
- * inbound        a conversa do tenant do caso com teste_recebido_at na janela
- *                (a mais recente); e e ela que se marca is_test
+ * inbound        a conversa do tenant do caso com teste_recebido_at na janela,
+ *                se for **uma so**; e e ela que se marca is_test
  * resposta       uma agent_replies dessa conversa, depois do teste e ate ao
  *                fim da janela, cujo texto nomeia o assistente e a loja
  * entregue       um outbound_messages dessa conversa com delivered_at nesse
  *                intervalo
- * consentimento  um consent_event aceite do contacto dessa conversa na janela
+ * consentimento  um consent_event aceite do contacto dessa conversa, ate ao fim
+ *                da janela
  * ```
+ *
+ * ## Duas conversas com o «teste» na janela: nenhuma
+ *
+ * O sinal não sabe quem é o dono: qualquer contacto que escreva a palavra o dá.
+ * Se mais de uma conversa do tenant o tiver na janela, o observador não escolhe —
+ * não há inbound, o teste falha com `sem_inbound` e **nenhuma conversa se marca**
+ * `is_test`. Escolher a mais recente marcava a conversa de um cliente que escreveu
+ * «teste» no mesmo minuto, e ela saía para sempre das queixas do `risco_ts`, do
+ * churn e da golden (achado 6 da revisão adversarial). O dono repete.
+ *
+ * ## O consentimento pode ser de antes
+ *
+ * O aviso de 1.º contacto sai uma vez por contacto: numa segunda tentativa do mesmo
+ * telefone não há `consent_event` novo. Conta o do contacto registado até ao fim da
+ * janela (achado 11).
  *
  * ## Falha fechado, e é o que se quer
  *
@@ -58,12 +74,12 @@ export const ASSISTENTE_DO_TESTE = "assistente automatico";
 export const SQL_FACTOS_DO_TESTE = `
 WITH caso AS (
   SELECT c.tenant_id FROM platform.onboarding_case c WHERE c.id = $1
-), conversa AS (
+), sinais AS (
   SELECT v.tenant_id, v.id, v.contact_id, v.teste_recebido_at
     FROM platform.conversations v JOIN caso ON v.tenant_id = caso.tenant_id
    WHERE v.teste_recebido_at >= $2 AND v.teste_recebido_at <= $3
-   ORDER BY v.teste_recebido_at DESC, v.id
-   LIMIT 1
+), conversa AS (
+  SELECT s.* FROM sinais s WHERE (SELECT count(*) FROM sinais) = 1
 )
 SELECT k.id::text AS conversation_id,
        (SELECT t.nome FROM platform.tenants t WHERE t.id = k.tenant_id) AS loja,
@@ -76,7 +92,7 @@ SELECT k.id::text AS conversation_id,
                   AND o.delivered_at >= k.teste_recebido_at AND o.delivered_at <= $3) AS entregue,
        EXISTS (SELECT 1 FROM platform.consent_event e
                 WHERE e.tenant_id = k.tenant_id AND e.contact_id = k.contact_id AND e.accepted
-                  AND e.registado_em >= $2 AND e.registado_em <= $3) AS consentimento
+                  AND e.registado_em <= $3) AS consentimento
   FROM conversa k`;
 
 export class ObservadorSql implements ObservadorDoTeste {

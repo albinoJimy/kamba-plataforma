@@ -384,8 +384,12 @@ async function actualizarTermos(
   return ok({ sku: rascunho.sku, registoId: null });
 }
 
-/** O que o módulo recusa antes de falar com a base. */
-function validarRascunho(
+/**
+ * O que o módulo recusa antes de falar com a base. **Exportada** (KAM-202): o
+ * adaptador chama-a antes do screening do nome novo, para que um rascunho
+ * inválido não grave uma decisão nem chame o classificador por nada.
+ */
+export function validarRascunho(
   rascunho: RascunhoDeProduto,
 ): "VALIDATION_ERROR" | null {
   if (rascunho.sku.trim().length === 0) return "VALIDATION_ERROR";

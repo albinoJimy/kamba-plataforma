@@ -15492,6 +15492,8 @@ entradas:
       - "kamba_app"
       - "SELECT"
       - "INSERT"
+      - "kamba_batch"
+      - "humano"
       - "UPDATE"
       - "DELETE"
       - "onboarding_case"

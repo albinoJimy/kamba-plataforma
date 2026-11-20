@@ -161,3 +161,15 @@ test("KAM-202: tirado de publicado pela base, o product_changed sai com o estado
   assert.match(doProduto[0]!, /rascunho/);
   assert.doesNotMatch(doProduto[0]!, /publicado/);
 });
+
+test("KAM-202: um rascunho que o modulo recusa nao passa pelo screen nem grava decisao", async () => {
+  const b = base();
+  const invalido = {
+    sku: SKU,
+    nome: NOVO,
+    atributos: { preco_tipo: "sob_consulta", preco_minor: "100000" },
+  } as unknown as ProductDraft;
+  const r = await operacoesDoCom({ comTenant: b.comTenant, anel: ANEL }).porta.upsertProductDraft(CTX, invalido);
+  assert.deepEqual(r, { tipo: "erro", erro: "VALIDATION_ERROR" });
+  assert.deepEqual(b.gravadas, []);
+});

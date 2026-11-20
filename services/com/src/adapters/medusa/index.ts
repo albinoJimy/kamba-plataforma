@@ -160,6 +160,7 @@ import {
   obterOferta as obterOfertaDoModulo,
   publishProduct as publishProductDoModulo,
   upsertProductDraft as upsertProductDraftDoModulo,
+  validarRascunho,
   type AlteracaoDeOferta,
   type ListaDoPainel,
   type OfertaDoPainel,
@@ -554,8 +555,13 @@ export function adaptadorMedusa(
         exigirCtx(ctx);
         return erro("VALIDATION_ERROR");
       }
-      const recusa = await conferirNomeNovo(ctx, rascunho.sku, rascunho.nome);
-      if (recusa !== null) return recusa;
+      // A validação do módulo primeiro: um rascunho que ele recusa não grava
+      // uma decisão de screening nem chama o classificador (achado 10 da
+      // revisão adversarial). O módulo repete-a por dentro.
+      if (validarRascunho(rascunho) === null) {
+        const recusa = await conferirNomeNovo(ctx, rascunho.sku, rascunho.nome);
+        if (recusa !== null) return recusa;
+      }
       return comRegisto(deps, ctx, (r) =>
         upsertProductDraftDoModulo(r, rascunho),
       );

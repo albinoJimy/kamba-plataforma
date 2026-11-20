@@ -91,11 +91,11 @@ def sha(cursor, categoria: str, nome: str) -> bytes:
 
 
 def decidir(cursor, tenant: str, sujeito_tipo: str, ref: str, decisao: str, *,
-            origem: str = "regra", conteudo: bytes | None = None) -> None:
+            origem: str = "regra", conteudo: bytes | None = None, versao: str = VERSAO) -> None:
     cursor.execute(
         f"INSERT INTO {DECISAO} (tenant_id, sujeito_tipo, sujeito_ref, decisao, regras, "
         "versao_politica, origem, conteudo_sha256) VALUES (%s, %s, %s, %s, ARRAY[]::text[], %s, %s, %s)",
-        (tenant, sujeito_tipo, ref, decisao, VERSAO, origem,
+        (tenant, sujeito_tipo, ref, decisao, versao, origem,
          conteudo if conteudo is not None else hashlib.sha256(ref.encode()).digest()),
     )
 
@@ -214,6 +214,40 @@ class TestPublicacao(_Oferta):
         sku = self.produto("permitida")
         decidir(self.admin, self.tenant, "categoria", "bebidas", "permitida")
         self.assertEqual(com(self.como("kamba_app"), "SQL_PUBLICAR", self.tenant, sku), 0)
+
+    def test_uma_humana_numa_versao_antiga_nao_levanta_a_bloqueada_da_versao_do_motor(self) -> None:
+        """Achado 2: a versao e a da decisao mais recente do motor, e nao a da linha mais recente.
+
+        Em v1 o produto ficou `condicional` e foi a fila; em v2 o motor bloqueou-o; a
+        T&S aprovou depois o caso antigo, com a versao dele. O `assertPublishable`
+        em v2 da `bloqueada`, e a base tambem.
+        """
+        conteudo = sha(self.admin, "moda", "Camisola de malha")
+        sku = self.produto(None)
+        decidir(self.admin, self.tenant, "produto", sku, "condicional", conteudo=conteudo, versao="1.0.0+m.1")
+        decidir(self.admin, self.tenant, "produto", sku, "bloqueada", conteudo=conteudo, versao="1.0.0+m.2")
+        decidir(self.admin, self.tenant, "produto", sku, "permitida", origem="humano", conteudo=conteudo,
+                versao="1.0.0+m.1")
+        self.admin.execute("SELECT platform.oferta_publicavel(%s, %s, %s)", (self.tenant, sku, "Camisola de malha"))
+        self.assertEqual(self.admin.fetchone()[0], "bloqueada")
+        self.assertEqual(com(self.como("kamba_app"), "SQL_PUBLICAR", self.tenant, sku), 0)
+
+    def test_o_lote_que_ignora_a_rls_nao_le_a_decisao_nem_a_categoria_de_outro_tenant(self) -> None:
+        """Achado 4: o `kamba_batch` tem `BYPASSRLS`, e ai o predicado de tenant e a unica barreira."""
+        sku = self.produto(None)
+        outro = factories.tenant(self.admin)
+        decidir(self.admin, outro, "produto", sku, "permitida",
+                conteudo=sha(self.admin, "moda", "Camisola de malha"))
+        lote = self.como("kamba_batch")
+        self.assertEqual(com(lote, "SQL_PUBLICAR", self.tenant, sku), 0, "a decisao de outro tenant nao serve")
+        self.admin.execute("RESET ROLE")
+        # A categoria tambem e a do tenant: uma decisao de categoria mais recente
+        # noutro tenant nao muda o conteudo deste.
+        decidir(self.admin, self.tenant, "produto", sku, "permitida",
+                conteudo=sha(self.admin, "moda", "Camisola de malha"))
+        decidir(self.admin, outro, "categoria", "bebidas", "permitida")
+        lote = self.como("kamba_batch")
+        self.assertEqual(com(lote, "SQL_PUBLICAR", self.tenant, sku), 1)
 
     def test_republicar_um_publicado_com_o_mesmo_nome_passa(self) -> None:
         sku = self.produto(None, estado="publicado")
@@ -358,10 +392,33 @@ class TestSinalDoTeste(_Conversa):
         self.assertEqual(len(correr(app, OBSERVADOR, "SQL_FACTOS_DO_TESTE", onb, AGORA + D, AGORA + 2 * D).fetchall()), 0)
 
     def test_o_observador_nao_ve_a_conversa_de_outro_tenant(self) -> None:
-        onb, tenant = caso(self.admin)
+        """Como administrador, que ignora a RLS: o predicado do tenant do caso e que decide."""
+        onb, _tenant = caso(self.admin)
         self.conversa(inbound=AGORA, recebido=AGORA)  # do tenant da classe, nao do caso
+        self.assertEqual(len(correr(self.admin, OBSERVADOR, "SQL_FACTOS_DO_TESTE", onb, AGORA - D, AGORA + D).fetchall()), 0)
+
+    def test_duas_conversas_com_o_teste_na_janela_nao_dao_nenhuma(self) -> None:
+        """Achado 6: um cliente que escreve «teste» no mesmo minuto nao e marcado de teste."""
+        onb, tenant = caso(self.admin)
+        factories.tenant(self.admin, id=tenant)
+        self.conversa(inbound=AGORA, recebido=AGORA, tenant=tenant)
+        self.conversa(inbound=AGORA, recebido=AGORA + timedelta(seconds=3), tenant=tenant)
         app = self.como("kamba_app", tenant)
         self.assertEqual(len(correr(app, OBSERVADOR, "SQL_FACTOS_DO_TESTE", onb, AGORA - D, AGORA + D).fetchall()), 0)
+
+    def test_o_consentimento_de_antes_da_janela_conta(self) -> None:
+        """Achado 11: o aviso de 1.o contacto sai uma vez por contacto, e a repeticao nao tem outro."""
+        onb, tenant = caso(self.admin)
+        factories.tenant(self.admin, id=tenant)
+        _, contacto = self.conversa(inbound=AGORA, recebido=AGORA, tenant=tenant)
+        self.admin.execute(
+            "INSERT INTO platform.consent_event (tenant_id, contact_id, purpose, text_version, accepted, canal, "
+            "evidence_hash, registado_em) VALUES (%s, %s, 'atendimento', 'v1', true, 'whatsapp', %s, %s)",
+            (tenant, contacto, hashlib.sha256(uuid.uuid4().bytes).digest(), AGORA - 30 * D))
+        app = self.como("kamba_app", tenant)
+        linhas = correr(app, OBSERVADOR, "SQL_FACTOS_DO_TESTE", onb, AGORA - D, AGORA + D).fetchall()
+        colunas = [d[0] for d in app.description]
+        self.assertIs(dict(zip(colunas, linhas[0]))["consentimento"], True)
 
 
 class TestHumanoSoDoLote(_Oferta):
