@@ -140,11 +140,45 @@ class TestALigacaoQueVolta(unittest.TestCase):
             return len(vagas)
 
         asyncio.run(correr())
-        # Nenhuma ligacao foi usada por duas invocacoes ao mesmo tempo, e pelo
-        # menos uma invocacao voltou com outra ligacao (a largada estava noutra).
+        # Nenhuma ligacao foi usada por duas invocacoes ao mesmo tempo. (Se
+        # houve troca depende da ordem das *threads*; a troca garantida mede-se
+        # no ensaio seguinte.)
         self.assertTrue(abertas)
         self.assertEqual(max(lig.maximo_em_uso for lig in abertas), 1)
-        self.assertIn(True, trocas)
+        del trocas
+
+    def test_a_retoma_traz_a_outra_vaga_e_e_essa_que_volta_a_fila(self) -> None:
+        """Deterministico: duas vagas, uma invocacao.
+
+        A fila e FIFO: a ligacao largada vai para o fim, e a retoma apanha a
+        outra vaga (vazia, logo uma ligacao nova). Os dois mutantes do achado 5
+        — devolver a largada no `_largar_tomada`, ou a original no `_correr` —
+        poem aqui a mesma ligacao duas vezes.
+        """
+        abertas: list[_Ligacao] = []
+        vistas: list[tuple[Any, Any, Any]] = []
+
+        def passo(inv):  # noqa: ANN001, ANN202
+            antes = inv.ligacao
+            _resultado, depois = inv.camada._largar_tomada(inv, lambda: None)
+            vistas.append((antes, depois, inv.ligacao))
+            return ToolResult(ok=True, data={})
+
+        async def correr() -> list[Any]:
+            camada = _camada(passo, 2, abertas)
+            resultado = await _invocar(camada)
+            self.assertTrue(resultado.ok)
+            vagas = []
+            while not camada._tomadas.empty():
+                vagas.append(camada._tomadas.get_nowait())
+            return vagas
+
+        vagas = asyncio.run(correr())
+        ((antes, depois, agora),) = vistas
+        self.assertIsNot(depois, antes)
+        self.assertIs(depois, agora)
+        self.assertEqual(len(abertas), 2)
+        self.assertEqual({id(v) for v in vagas}, {id(antes), id(depois)})
 
     def test_um_trabalho_que_levanta_retoma_e_nao_perde_vagas(self) -> None:
         def passo(inv):  # noqa: ANN001, ANN202
