@@ -108,17 +108,6 @@ const VARIAVEL_DA_IDENTIDADE = "ONBOARDING_IDENTITY_DB_URL";
 const URL_DA_IDENTIDADE = (process.env[VARIAVEL_DA_IDENTIDADE] ?? "").trim();
 
 /**
- * A ligação à base do `kamba_app` (KAM-202, critério 2): a página do dono abre
- * a tentativa do teste ponta a ponta por ela. **Opcional, como a da
- * identidade**: sem ela, o `POST /painel/teste` responde 503 e o resto do painel
- * serve igual. Este processo continua a recusar `prod` pelos repositórios em
- * memória (credor no bloco do KAM-202), e a rota fica provada contra a base em
- * `packages/core-ts/tests_bd/activacao.bd.test.ts`.
- */
-const VARIAVEL_DA_APP = "ONBOARDING_APP_DB_URL";
-const URL_DA_APP = (process.env[VARIAVEL_DA_APP] ?? "").trim();
-
-/**
  * As chaves do contacto que o `resolveContact` usa: o *pepper* do HMAC e a KEK
  * das DEK. **Obrigatórias só com a troca ligada**, e verificadas no arranque:
  * o `Identidade.arrancar` confere o `KAMBA_ENV` e não lê chave nenhuma, pelo que
@@ -367,7 +356,7 @@ function montarGuia(): OpcoesDoGuia | undefined {
 const LIGACOES_DA_IDENTIDADE = 4;
 
 /** As ligações do teste do painel (KAM-202): um clique por dono, e curto. *Proposta*. */
-const LIGACOES_DA_APP = 2;
+const LIGACOES_DO_TESTE = 2;
 
 /**
  * O registo de um aviso da troca (ganchos `DESTINOS_DO_AVISO` do KAM-118). **Não
@@ -531,27 +520,21 @@ async function montarPainel(guia: PassoGuiado | undefined): Promise<OpcoesDoPain
   };
 }
 
-/** O teste ponta a ponta do painel (KAM-202), **só com a ligação da aplicação**. */
+/**
+ * O teste ponta a ponta do painel (KAM-202, critério 2), **só com a ligação
+ * `kamba_app`** (a `ONBOARDING_APP_DB_URL` da conversa do KAM-223), num conjunto
+ * próprio e pequeno: a página do dono abre a tentativa por ela. Sem ela, o
+ * `POST /painel/teste` responde 503 e o resto do painel serve igual. Este processo
+ * continua a recusar `prod` pelos repositórios em memória (credor no bloco do
+ * KAM-202), e a rota fica provada contra a base em
+ * `packages/core-ts/tests_bd/activacao.bd.test.ts`.
+ */
 function montarTeste(): TesteDoPainel | undefined {
   if (URL_DA_APP === "") {
     log.info({ outcome: "painel_teste_desligado" });
     return undefined;
   }
-  const pool = new pg.Pool({
-    connectionString: URL_DA_APP,
-    max: LIGACOES_DA_APP,
-    // ***Proposta***, como a da identidade: uma base que não responde dá erro
-    // ao fim de 5 s, e o pedido recebe 503 em vez de ficar pendurado.
-    connectionTimeoutMillis: 5_000,
-    application_name: "onboarding-web:teste",
-  });
-  // Pela razão da ligação da identidade: uma ligação que cai não derruba o
-  // processo, inactiva ou emprestada.
-  pool.on("error", (erro) => log.excepcao(erro, "teste_bd_falhou"));
-  pool.on("connect", (cliente) => {
-    cliente.on("error", (erro) => log.excepcao(erro, "teste_bd_falhou"));
-  });
-  return testeDaActivacao(pool);
+  return testeDaActivacao(poolDe(URL_DA_APP, "teste", LIGACOES_DO_TESTE));
 }
 
 // **A política de comunicação verifica-se no arranque**, e não só por resposta:
