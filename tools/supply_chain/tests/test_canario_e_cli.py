@@ -142,7 +142,12 @@ class TestRepositorioReal(unittest.TestCase):
         # igualdade nos dois sentidos — um destino que um servico declare e o
         # proxy nao sirva, e um que o proxy sirva e nenhum servico declare, sao
         # os dois achado.
-        self.assertEqual(resumo["destinos"], 8)
+        # **KAM-227: de 8 para 9.** O `worker-canal-consumidor` corre o
+        # `outbound`, que envia pelo `Saida` e por isso declara
+        # `graph.facebook.com`; o ADR-001 faz do GWY o unico endpoint de
+        # *webhook*, e nao o unico servico que fala com a Meta. O proxy nao
+        # muda: e o mesmo destino, com um segundo declarante.
+        self.assertEqual(resumo["destinos"], 9)
 
         _, resumo = licencas.verificar(ROOT)
         self.assertEqual(resumo["estados"]["pendente_de_decisao"], 2)  # redis e valkey: D12

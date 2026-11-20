@@ -256,6 +256,10 @@ MARCADORES = {
     # KAM-198: as duas ligacoes do processo de lote do onboarding. Mesma razao.
     "KAMBA_LOTE_DB_URL": "postgresql://marcador@marcador.invalid:5432/marcador",
     "KAMBA_LOTE_APP_DB_URL": "postgresql://marcador@marcador.invalid:5432/marcador",
+    # KAM-227: o consumidor `outbound` exige a ligacao de identidade e a KEK
+    # dos tokens de cliente. Mesma razao.
+    "KAMBA_CONSUMIDOR_IDENTITY_DB_URL": "postgresql://marcador@marcador.invalid:5432/marcador",
+    "KAMBA_SECRET_KEK_TOKEN_CLIENTE": "marcador",
 }
 
 
