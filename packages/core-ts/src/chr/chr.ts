@@ -485,7 +485,10 @@ export class Chr {
     motivo: MotivoDoChr,
     contexto: ChannelContext | null,
   ): Promise<ResultadoDoChr> {
-    await this.#quarentena(evento, motivo);
+    // KAM-232: o texto do cliente não vai à quarentena, seja qual for o
+    // adaptador. O de produção já só copia campos nomeados; este é o segundo.
+    const { texto: _texto, ...semTexto } = evento;
+    await this.#quarentena(semTexto, motivo);
     this.#metricas.contar(METRICA_EM_QUARENTENA, motivo);
     this.#metricas.contar(METRICA_RESOLUCOES, "em_quarentena");
     // O que este módulo escreve é o `outcome` e um `error_code` da sua própria

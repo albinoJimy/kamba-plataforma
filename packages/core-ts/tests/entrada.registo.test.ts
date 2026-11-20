@@ -19,6 +19,7 @@
 
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { describe, it } from "node:test";
 
 import { ESCADA_DO_CONSUMIDOR } from "../src/eventos/consumo.ts";
@@ -661,5 +662,16 @@ describe("KAM-232 — o prazo do corpo da `wa-inbound`", () => {
       });
     }
     assert.deepEqual(Object.keys(PRAZO_POR_FILA), [FILA_ENTRADA]);
+  });
+
+  it("o `addLote` pede-o ao BullMQ: a ligacao, lida da fonte", () => {
+    // A funcao acima pode estar certa e desligada. O `addLote` constroi a
+    // `Queue` por dentro, e sem Redis no *gate* 4 a ligacao le-se do texto,
+    // como o `db/tests/test_consumo_contrato.py` le o mesmo ficheiro. A medicao
+    // contra um Valkey a correr esta no bloco do KAM-232.
+    const fonte = readFileSync(new URL("../src/eventos/filas_bullmq.ts", import.meta.url), "utf8");
+    const corpo = fonte.slice(fonte.indexOf("async addLote("), fonte.indexOf("async profundidade("));
+    assert.match(corpo, /opts: \{[\s\S]*?\.\.\.retencaoDoJob\(nome\),\s*\},\s*\}\)\)/);
+    assert.doesNotMatch(corpo, /removeOn(Complete|Fail):/);
   });
 });

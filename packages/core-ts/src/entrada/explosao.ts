@@ -58,9 +58,13 @@ export const EVENT_KEY_MAXIMO = 256;
 /** Tecto dos identificadores da Meta. O mesmo do `CHECK` da revisão `0008`. */
 export const ID_META_MAXIMO = 64;
 /**
- * Tecto do texto de uma mensagem `text` (KAM-232). O de um texto da Cloud API,
- * e o `CHECK` `agent_messages_texto_ck` da revisão `0077`: um texto acima dele
- * não entra na fonte persistida, e a mensagem segue sem texto, como até aqui.
+ * Tecto do texto de uma mensagem `text` que entra na fonte persistida
+ * (KAM-232), em pontos de código: o `CHECK` `agent_messages_texto_ck` da revisão
+ * `0077` (`char_length`). **Não é o tecto do que um cliente pode escrever**: o
+ * 4096 é o do texto que a Cloud API *envia*, e o de uma mensagem recebida é
+ * maior (**INDÍCIO**, não lido em fonte primária). Um texto acima dele é
+ * **cortado** aqui, e não largado: o AGR lê os primeiros 4096 pontos, em vez de
+ * correr o turno com a janela vazia.
  */
 export const TEXTO_MAXIMO = 4096;
 
@@ -228,14 +232,20 @@ export function resumoCanonico(...partes: readonly unknown[]): string {
 }
 
 /**
- * O `text.body` de uma mensagem `text`, aparado, ou `null` (KAM-232). O tipo é
- * que manda: um `text` colado a uma mensagem de outro tipo não conta.
+ * O `text.body` de uma mensagem `text`, ou `null` (KAM-232). O tipo é que
+ * manda: um `text` colado a uma mensagem de outro tipo não conta.
+ *
+ * Sem `U+0000` (o PostgreSQL recusa-o num `text`, e a recusa repetia o *job*
+ * até o esgotar, com a mensagem perdida), aparado, e cortado a `TEXTO_MAXIMO`
+ * pontos de código — e não unidades UTF-16, que contavam um emoji por dois.
  */
 function textoDaMensagem(mensagem: Record<string, unknown>): string | null {
   if (mensagem.type !== "text") return null;
   const corpo = objecto(mensagem.text)?.body;
   if (typeof corpo !== "string") return null;
-  return texto(corpo.trim(), TEXTO_MAXIMO);
+  const pontos = Array.from(corpo.replaceAll("\u0000", "").trim());
+  if (pontos.length === 0) return null;
+  return pontos.slice(0, TEXTO_MAXIMO).join("").trimEnd();
 }
 
 /** O texto, se for texto não vazio dentro do tecto; senão `null`. */

@@ -162,8 +162,8 @@ function chr(canal: Readonly<Record<string, unknown>> = {}) {
     },
     metricas: new MetricasDoChr(),
     registar: (campos) => registos.push(campos),
-    comTenant: async (_tenant, trabalho) => {
-      ordem.push("tx");
+    comTenant: async (tenant, trabalho) => {
+      ordem.push(`tx:${tenant}`);
       return trabalho(base);
     },
   });
@@ -179,8 +179,21 @@ describe("KAM-232 — o `text.body` sai da explosao", () => {
     assert.equal(evento(texto("x".repeat(TEXTO_MAXIMO))).texto, "x".repeat(TEXTO_MAXIMO));
   });
 
-  it("vazio, so espacos, acima do tecto ou fora de forma: sem texto, e a mensagem segue", () => {
-    for (const body of ["", "   \n\t", "x".repeat(TEXTO_MAXIMO + 1), 7, null, ["a"], { body: "a" }]) {
+  it("acima do tecto e cortado, em pontos de codigo, e nao largado", () => {
+    assert.equal(evento(texto("x".repeat(TEXTO_MAXIMO + 1))).texto, "x".repeat(TEXTO_MAXIMO));
+    // Um emoji sao duas unidades UTF-16 e um ponto de codigo, como o `char_length`.
+    const emoji = "\u{1F600}";
+    assert.equal(evento(texto(emoji.repeat(TEXTO_MAXIMO))).texto, emoji.repeat(TEXTO_MAXIMO));
+    assert.equal(Array.from(evento(texto(emoji.repeat(TEXTO_MAXIMO + 5))).texto ?? "").length, TEXTO_MAXIMO);
+  });
+
+  it("o U+0000 sai, porque a base o recusa num `text`", () => {
+    assert.equal(evento(texto("o\u0000la")).texto, "ola");
+    assert.equal("texto" in evento(texto("\u0000 \u0000")), false);
+  });
+
+  it("vazio, so espacos ou fora de forma: sem texto, e a mensagem segue", () => {
+    for (const body of ["", "   \n\t", 7, null, ["a"], { body: "a" }]) {
       const e = evento(texto(body));
       assert.equal(e.waType, "text");
       assert.equal("texto" in e, false, `body ${JSON.stringify(body).slice(0, 40)}`);
@@ -284,7 +297,8 @@ describe("KAM-232 — webhook → explosao → CHR → `agent_messages` e `agent
   it("grava antes de entregar, na transaccao do tenant do canal", async () => {
     const { instancia, ordem } = chr();
     await instancia.tratar(evento(texto(TEXTO)));
-    assert.deepEqual(ordem, ["tx", "tx", "agr"]);
+    const tx = `tx:${String(ALVO["tenant_id"])}`;
+    assert.deepEqual(ordem, [tx, tx, "agr"]);
   });
 
   it("a reentrega 3x: o mesmo `message_id`, uma linha, e tres invocacoes iguais (a fila deduplica)", async () => {
@@ -315,7 +329,7 @@ describe("KAM-232 — webhook → explosao → CHR → `agent_messages` e `agent
     assert.notEqual(entrega.aoAgr[0]?.message_id, entrega.aoAgr[1]?.message_id);
   });
 
-  it("o texto nao vai ao registo, a quarentena nem as metricas", async () => {
+  it("o texto nao vai ao registo nem a quarentena num turno encaminhado", async () => {
     const { instancia, registos, quarentena } = chr();
     await instancia.tratar(evento(texto(TEXTO)));
     const visto = JSON.stringify({ registos, quarentena });
@@ -331,6 +345,9 @@ describe("KAM-232 — webhook → explosao → CHR → `agent_messages` e `agent
     assert.equal(resultado.desfecho, "em_quarentena");
     assert.equal(base.gravacoes.length, 0);
     assert.equal(quarentena.length, 1);
+    // O evento que chega a porta da quarentena ja nao tem o texto.
+    assert.ok(!JSON.stringify(quarentena).includes(PAN));
+    assert.ok(!JSON.stringify(quarentena).includes("cartao"));
   });
 });
 

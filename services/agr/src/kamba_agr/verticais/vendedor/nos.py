@@ -32,14 +32,16 @@ dinheiro, e a intencao esta no identificador do botao, nao no texto.
 
 ## De onde vem o texto do cliente, e o que isso deixa em divida
 
-O contrato `agent_invocation` (§3.13) tem **nove** campos fechados e nenhum
-deles e o corpo da mensagem: o AGR recebe identificadores. O grafo le o texto da
-janela `messages` do estado, que e o que o §12 manda guardar, e **quem a enche
-e quem invoca o grafo**. Desde o KAM-186 o processo invoca-o — a porta `grafos`
-esta ligada (`kamba_agr/grafos.py`) —, mas a janela chega **vazia**: o texto do
-cliente nao tem caminho ate ao AGR, e as duas rotas que o dariam mudam o canon.
-A decisao esta devolvida ao fundador no criterio 1 do KAM-186, e ate la nenhum
-turno de producao tem texto para classificar.
+O contrato `agent_invocation` (§3.13) nao leva o corpo da mensagem: o AGR
+recebe identificadores. O grafo le o texto da janela `messages` do estado, que e
+o que o §12 manda guardar, e **quem a enche e quem invoca o grafo**. Desde o
+KAM-186 o processo invoca-o (`kamba_agr/grafos.py`). A janela chegava vazia ate
+a decisao 1 do fundador de 2026-11-19 (bloco do KAM-217): o texto fica numa
+fonte persistida (`platform.agent_messages`), a invocacao leva o `message_id`, e
+o executor poe o texto na janela pela via unica, redigido, antes do `ainvoke`.
+Grava-o o painel desde o KAM-223 e o CHR, para uma mensagem `text` do WhatsApp,
+desde o KAM-232. Um turno sem `message_id` (uma foto, um audio, um toque) chega
+sem texto.
 """
 
 from __future__ import annotations
@@ -504,8 +506,8 @@ def _botao_do_turno(estado: Mapping[str, Any]) -> str:
     """O identificador do botao tocado, quando a entrada e interactiva.
 
     **Primeiro o `botao` da invocacao** (`agent_invocation.botao`, KAM-211), que
-    e o que o processo enche: a janela `messages` nasce vazia em cada turno
-    (decisao do KAM-186), e sem esta leitura nenhum botao do Vendedor — o
+    e o que o processo enche: num toque a janela `messages` nasce vazia (so uma
+    `text` traz `message_id`, KAM-232), e sem esta leitura nenhum botao do Vendedor — o
     «Pedir orcamento» e o «Aceito» do KAM-220, e o `confirm:{cart_id}` — chegava
     ao grafo no processo. **Depois a janela**, que e como as baterias o poem.
     """
