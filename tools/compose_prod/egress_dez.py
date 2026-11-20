@@ -260,6 +260,9 @@ MARCADORES = {
     # dos tokens de cliente. Mesma razao.
     "KAMBA_CONSUMIDOR_IDENTITY_DB_URL": "postgresql://marcador@marcador.invalid:5432/marcador",
     "KAMBA_SECRET_KEK_TOKEN_CLIENTE": "marcador",
+    # KAM-228: a credencial da rota do classificador, que o AGR verifica e o COM
+    # apresenta. Mesma razao e mesmo sintoma.
+    "KAMBA_SECRET_AGR_SCREENING_TOKEN": "marcador",
 }
 
 

@@ -13,15 +13,15 @@ escreveu: doze nos recebem aquele tipo, e um tipo proprio era um adaptador por
 no. O que muda por persona — a `persona` e a `tools_permitidas` — sao campos,
 vindos do `registry/dono.yaml` pelo `grafos.compilar`, como nas verticais.
 
-## O que o grafo diz hoje, e porque e honesto
+## O catalogo (KAM-119)
 
-As quatro tools do modulo `catalogo` estao `declaradas` (credor KAM-119): a
-ToolLayer recusa-as a todos. Por isso o `classify` **nao** as chama — uma
-chamada que se sabe recusada era uma linha de `tool_audit` por turno a dizer
-`TOOL_NOT_ALLOWED` ao proprio dono — e o `compose` diz-lhe que os modulos ainda
-nao estao activos. O que responde e a `get_store_info`, pelo `tools_info`
-reutilizado. **Nenhum texto deste ficheiro leva digitos** (o `_resposta_estatica`
-nao passa pelo validador), e ha ensaio que o mede.
+As quatro tools do modulo `catalogo` estao ligadas, e a conversa delas e o
+`catalogo.py` deste pacote: o `classify` da as intencoes `modulos` (palavras do
+catalogo) e `catalogo` (um botao do catalogo, uma foto, uma referencia `PRD-…`,
+ou uma resposta a um rascunho a espera), e as duas vao ao `confirm`, como a
+resposta a um orcamento. Num tenant sem o modulo, as tools recusam no passo 2 e
+o dono e avisado. **Nenhum texto deste ficheiro leva digitos** (o
+`_resposta_estatica` nao passa pelo validador), e ha ensaio que o mede.
 
 ## O botao chega; o texto ainda nao
 
@@ -78,6 +78,7 @@ from ..vendedor.nos import (
 )
 from ...orcamento import regras
 from ...orcamento.regras import NOME_NEUTRO
+from . import catalogo
 from .arestas import INTENCOES
 
 #: As tools do Assistente do Dono, pela ordem do `registry/dono.yaml`. So para
@@ -150,10 +151,10 @@ def _botao_do_turno(estado: Mapping[str, Any]) -> str:
 def classify(deps: Dependencias):
     """Transicoes 11 a 14: a intencao. Regras primeiro, modelo so se preciso.
 
-    **Nenhuma intencao chama uma tool de escrita**, e nao e prudencia: as quatro
-    do catalogo estao declaradas e um texto («sim», «confirmo, podes publicar»)
-    nunca confirma nada — so o botao `confirm:{action_id}` do mesmo contacto, e
-    isso e o `dono/accoes.py`, fora do grafo.
+    **Nenhuma intencao chama uma tool de escrita**: um texto («sim», «confirmo,
+    podes publicar») nunca confirma nada — so o botao `confirm:{action_id}` do
+    mesmo contacto, e isso e o `dono/accoes.py`, fora do grafo. As leituras
+    do catalogo (KAM-119) decidem so se ha um rascunho a espera de resposta.
     """
 
     async def no(estado: dict[str, Any]) -> dict[str, Any]:
@@ -166,10 +167,24 @@ def classify(deps: Dependencias):
         if botao == BOTAO_HUMANO:
             return {"intent": "humano", "handoff_motivo": MOTIVO_PEDIDO}
         texto = _texto_do_cliente(estado)
+        if catalogo.e_do_catalogo(estado, texto):
+            # KAM-119: um botao do catalogo, uma foto, ou uma referencia `PRD-…`.
+            return {"intent": "catalogo"}
         if e_resposta_de_orcamento(texto):
             # KAM-220. **Antes das palavras e do modelo**: um valor escrito pelo
             # dono e a resposta a um pedido, e um classificador aqui era um
             # modelo a decidir se um numero e um preco.
+            #
+            # KAM-119: **sem referencia `ORC-…`, sem pedido de orcamento a
+            # espera e com um rascunho do catalogo a espera de resposta**, o
+            # valor e o preco desse rascunho — vai ao eco, e nao se grava.
+            referencia, _resto = _partes_da_resposta(texto)
+            if (
+                referencia is None
+                and not await _ha_pendentes(deps, estado)
+                and await catalogo.ha_resposta_a_dar(deps, estado)
+            ):
+                return {"intent": "catalogo"}
             return {"intent": "responder_orcamento"}
         intencao = intencao_por_regras(texto)
         if intencao is None and deps.classificador is not None:
@@ -184,6 +199,18 @@ def classify(deps: Dependencias):
             # So no lugar do `outro`: um pedido de humano, de informacao ou do
             # catalogo continua a ser respondido pelo que e.
             resolvida = "orcamento"
+        if (
+            resolvida == "outro"
+            and catalogo.regras.parece_resposta(texto)
+            and await catalogo.ha_resposta_a_dar(deps, estado)
+        ):
+            # KAM-119: o dono a responder as perguntas de um rascunho («camisa
+            # polo», «azul») nao tem palavra que o diga. So no lugar do `outro`,
+            # e **nunca** um cumprimento ou uma pergunta (achado 3 da revisao):
+            # «bom dia» ia parar a `entrega`. A leitura custa uma linha de
+            # `tool_audit` por turno destes, e num tenant sem o modulo e um
+            # `ENTITLEMENT_DENIED` — o preco de nao guardar estado proprio.
+            resolvida = "catalogo"
         delta: dict[str, Any] = {"intent": resolvida}
         if resolvida == "humano":
             delta["handoff_motivo"] = MOTIVO_PEDIDO
@@ -383,6 +410,9 @@ def confirm(deps: Dependencias):
             # outro lado do mesmo botao — o eco que este ramo devolve e o botao
             # que o ramo de baixo confirma.
             return await _responder_orcamento(deps, estado)
+        if estado.get("intent") in ("modulos", "catalogo"):
+            # KAM-119, arestas 11 e 37: a conversa do catalogo (`catalogo.py`).
+            return await catalogo.tratar(deps, estado)
         porta = deps.accoes_do_dono
         if porta is None:
             return _resposta_estatica(MSG_CONFIRMACAO_INDISPONIVEL)
@@ -399,6 +429,14 @@ def confirm(deps: Dependencias):
             envio = await _enviar_orcamento(deps, estado, botao)
             if envio is not None:
                 return _resposta_estatica(FRASE_DO_ENVIO.get(envio, MSG_CONFIRMADA))
+            # KAM-119: nao e uma proposta; se for um produto, publica-se. Tambem
+            # num `ja_confirmada`, pela razao do envio: uma publicacao que o
+            # Registo nao recebeu repete-se com o mesmo botao, e e idempotente.
+            action_id = accoes.accao_do_botao(botao)
+            if action_id is not None:
+                frase = await catalogo.publicar(deps, estado, botao, action_id)
+                if frase is not None:
+                    return _resposta_estatica(frase)
         return _resposta_estatica(FRASE_DA_CONFIRMACAO.get(desfecho, MSG_PEDIDO_NAO_ENCONTRADO))
 
     return no
@@ -417,9 +455,10 @@ async def _enviar_orcamento(deps: Dependencias, estado: Mapping[str, Any], botao
     try:
         envio = await porta.enviar(estado["tenant_id"], estado["contact_id"], action_id)
     except Exception:  # noqa: BLE001 — o turno do dono nao rebenta por isto
-        # A base ou o Outbound falharam a meio. Nada mudou no pedido (o envio
-        # corre numa transaccao), e o mesmo botao tenta outra vez; a frase nao
-        # diz que a proposta saiu, e serve a qualquer tipo de accao.
+        # A base ou o Outbound falharam a meio. O pedido so muda depois de o
+        # Outbound responder (KAM-221: o registo e outra transaccao), e o mesmo
+        # botao tenta outra vez com a mesma chave; a frase nao diz que a
+        # proposta saiu, e serve a qualquer tipo de accao.
         return FALHA_DO_ENVIO
     if envio.desfecho == orcamento_repo.NAO_E_ORCAMENTO:
         return None
@@ -470,8 +509,6 @@ def compose(deps: Dependencias):
         for aviso in tuple(estado.get("avisos") or ()):
             blocos.append({"type": "text", "text": FRASE_DO_AVISO.get(aviso, MSG_NAO_CONSEGUI)})
         delta: dict[str, Any] = {}
-        if estado.get("intent") == "modulos":
-            blocos.append({"type": "text", "text": MSG_MODULOS_INACTIVOS})
         if estado.get("intent") == "orcamento":
             # KAM-220. As ofertas vao ao estado porque o `validate` reutilizado
             # so deixa citar um `sku` que esteja nelas.
@@ -495,13 +532,6 @@ def compose(deps: Dependencias):
 # `send` sem passar pelo validador, e os do `compose` sao blocos `text`, que o
 # *renderer* recusa com digitos.
 
-#: O que se diz a um pedido sobre o catalogo enquanto o KAM-119 nao liga as
-#: tools. **E a verdade e nao uma evasiva**: as quatro estao declaradas e a
-#: ToolLayer recusa-as.
-MSG_MODULOS_INACTIVOS: Final = (
-    "Os modulos do catalogo ainda nao estao activos para a sua loja. Quando "
-    "estiverem, trato daqui dos produtos e da publicacao."
-)
 MSG_FORA_DE_AMBITO: Final = (
     "Por aqui trato da sua loja: o catalogo e a informacao da loja. Prefere "
     "falar com uma pessoa?"
@@ -510,8 +540,8 @@ MSG_REPETIR: Final = (
     "Nao consegui ouvir bem a nota de voz. Pode escrever o que precisa?"
 )
 MSG_NAO_ENTENDI: Final = (
-    "Nao percebi o que precisa. Posso dar a informacao da loja, e os modulos do "
-    "catalogo ainda nao estao activos."
+    "Nao percebi o que precisa. Posso dar a informacao da loja e tratar do "
+    "catalogo: para um produto novo, mande uma foto dele."
 )
 MSG_NAO_CONSEGUI: Final = "Nao consegui tratar esse pedido por aqui."
 

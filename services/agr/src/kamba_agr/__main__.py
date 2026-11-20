@@ -58,7 +58,7 @@ from kamba_core.secrets import AMBIENTES, EnvSecretProvider, Secrets
 
 from . import egresso, eventos as evt, registo
 from .admissao import Admissao, Tectos
-from .api_interna import SEGREDO_DA_API, rotas
+from .api_interna import SEGREDO_DA_API, SEGREDO_DO_PAINEL, rotas
 from .app import create_app
 from .checkpointer import CheckpointerDoAgr
 from .conversa import leitor, leitor_de_contacto, leitor_de_papel
@@ -81,7 +81,9 @@ from .handoff.servico import ServicoDeHandoff
 from .concierge.substituicao import Substituidor
 from .handoff.retoma import Retomador
 from .orcamento.porta import PortaDeOrcamento
-from .saida import SaidaPorEvento
+from .eventos.pela_resposta import NotificacaoPelaResposta
+from .mensagens import LeitorDeMensagens
+from .saida import SaidaPorEvento, canal_do_turno
 from .metricas import METRICAS
 from .ligacao import (
     ligar_para_accoes,
@@ -92,6 +94,7 @@ from .ligacao import (
     ligar_para_handoff,
     ligar_para_leitura,
     ligar_para_llm,
+    ligar_para_mensagens,
     ligar_para_tools,
     ligar_para_tranca,
 )
@@ -105,6 +108,7 @@ from .llm import registo as llm_registo
 from .llm import screening as llm_screening
 from .llm.cliente import ClienteDeLlm, PROXY_POR_OMISSAO, REF_CHAVE_VIRTUAL, VARIAVEL_DO_PROXY
 from .tls.catalogo import catalogo_do_piloto
+from .tls import catalogo_tools
 from .tls import orcamento_tools
 from .tls.embeddings import consulta_vectorial
 from .tls.idx import LIMIAR_DO_RRF, LigacaoVectorial, executores_do_idx
@@ -163,10 +167,8 @@ class CredencialDoCom:
         return self._ler()
 
 
-def _executores_do_comercio(
-    log: Logger, credencial: CredencialDoCom
-) -> dict[str, Any]:
-    """Os executores das tools de comercio, se houver COM com quem falar.
+def _cliente_do_com(log: Logger, credencial: CredencialDoCom) -> ClienteDoCom | None:
+    """O cliente da API interna do COM, se houver COM com quem falar.
 
     **Sem `KAMBA_COM_URL` nao se liga nada**, e isso nao e uma falha: as cinco
     entradas do Vendedor ficam `declaradas` com o credor que ja tinham, e o
@@ -174,12 +176,50 @@ def _executores_do_comercio(
     endereco por omissao era um AGR a tentar falar com um COM que ninguem
     configurou — e a falhar no primeiro turno de um cliente em vez de no
     arranque.
+
+    E o mesmo cliente para as tools de comercio e para a porta do *screening*
+    das condicoes do `submit_quote` (KAM-228): sem ele, as condicoes de uma
+    resposta do dono recusam, e a resposta sem condicoes segue.
     """
     base = os.environ.get(VARIAVEL_DO_COM, "").strip()
     if not base:
         log.warn(outcome="com_sem_endereco")
-        return {}
-    return executores_do_com(ClienteDoCom(base=base, credencial=credencial))
+        return None
+    return ClienteDoCom(base=base, credencial=credencial)
+
+
+def _executores_do_comercio(cliente: ClienteDoCom | None) -> dict[str, Any]:
+    """Os executores das tools de comercio, se houver COM com quem falar."""
+    return executores_do_com(cliente) if cliente is not None else {}
+
+
+def _executores_do_catalogo(credencial: CredencialDoCom) -> dict[str, Any]:
+    """As quatro tools do catalogo do dono (KAM-119). **Ligam-se sempre.**
+
+    Escrevem na nossa base (`catalog_ingestions`), como as do orcamento. O
+    screening do KAM-088 e o Registo sao do COM: com `KAMBA_COM_URL`, pela
+    ponte (`ScreeningPeloCom` com o sujeito `produto`, `RegistoPeloCom`); sem
+    ele, pelas portas por ligar, que levantam — uma ingestao fica
+    `bloqueada_categoria` com `screening_indisponivel` e nada se publica. A
+    entrada da foto (fonte, descodificador, visao) fica por ligar nas duas, com
+    o credor escrito em `catalogo/montagem.py`.
+    """
+    from kamba_core.catalogo.screening import ScreeningPorLigar
+
+    from .catalogo.montagem import PortasDoCatalogo
+    from .tls.registo_com import RegistoPeloCom, RegistoPorLigar
+    from .tls.screening import SUJEITO_DO_PRODUTO, ScreeningPeloCom
+
+    base = os.environ.get(VARIAVEL_DO_COM, "").strip()
+    if not base:
+        portas = PortasDoCatalogo(screening=ScreeningPorLigar(), registo=RegistoPorLigar())
+    else:
+        cliente = ClienteDoCom(base=base, credencial=credencial)
+        portas = PortasDoCatalogo(
+            screening=ScreeningPeloCom(cliente=cliente, sujeito_tipo=SUJEITO_DO_PRODUTO, vertical="dono"),
+            registo=RegistoPeloCom(cliente=cliente),
+        )
+    return catalogo_tools.executores(portas)
 
 #: Codigo de saida de uma guarda do ADR-002 violada. Distinto do `2` do KAM-001
 #: (configuracao invalida), para que os dois se distingam num painel.
@@ -396,13 +436,17 @@ def main() -> int:
     # O vector da pergunta (KAM-063) liga-se mais abaixo, com o cliente do
     # gateway; ate la, e sem modelo escolhido, a pesquisa e lexical.
     ligacao_vectorial = LigacaoVectorial()
+    cliente_do_com = _cliente_do_com(log, credencial_do_com)
     catalogo = catalogo_do_piloto(
         {
-            **_executores_do_comercio(log, credencial_do_com),
+            **_executores_do_comercio(cliente_do_com),
             **executores_do_idx(ligacao_vectorial),
             # KAM-220. As duas do Orcamento expresso escrevem na nossa base, como
             # a `get_store_info` le dela: ligam-se sempre.
-            **orcamento_tools.executores(),
+            # KAM-228: a porta do `screen` das condicoes, pelo mesmo cliente.
+            **orcamento_tools.executores(cliente_do_com=cliente_do_com),
+            # KAM-119. As quatro do catalogo do dono: ver o `_executores_do_catalogo`.
+            **_executores_do_catalogo(credencial_do_com),
         }
     )
     # **A validacao (3) corre a serio desde o KAM-186**: o `construir_grafo`
@@ -705,6 +749,9 @@ def main() -> int:
         # fundador de 2026-11-19, bloco do KAM-217).
         "saida": SaidaPorEvento(
             ligar_para_saida,
+            # KAM-223: o canal da resposta e o da mensagem que o turno leu
+            # (`painel` ou `whatsapp`), que o executor poe no `CANAL_DO_TURNO`.
+            canal_de=canal_do_turno,
             aviso=lambda motivo: log.info(outcome="saida", error_code=motivo),
         ),
         "hnd": ServicoDeHandoff(metricas=METRICAS),
@@ -725,9 +772,12 @@ def main() -> int:
         # com nome proprio porque escreve.
         "accoes_do_dono": PortaDeConfirmacao(ligar_para_accoes),
         # KAM-123: o envio da proposta de orcamento depois do botao, pela mesma
-        # ligacao das accoes (escreve). O Outbound e o `OutboundPorLigar` por
-        # omissao: hoje a proposta nao sai e o dono e avisado.
-        "orcamentos": PortaDeOrcamento(ligar_para_accoes),
+        # ligacao das accoes (escreve). KAM-221: a proposta sai pela resposta do
+        # KAM-224 (`agent_replies` e `agent.replied`), numa ligacao da saida;
+        # com a janela fechada ainda nada sai, ate a revisao do `template_nome`.
+        "orcamentos": PortaDeOrcamento(
+            ligar_para_accoes, saida=NotificacaoPelaResposta(ligar_para_saida)
+        ),
         # O limiar do `retrieve` e o do pontuador que o `search_catalog` usa.
         # Ligado o indice real (KAM-061), e o `LIMIAR_DO_RRF` de `tls/idx.py`, e
         # nao o `LIMIAR_IDX` do duplo — que comparado com um RRF mandava toda a
@@ -837,6 +887,12 @@ def main() -> int:
         # pendente. Esta ligado **agora** — nao depende do AgentRegistry, porque
         # o gatilho esta no `Palavra.do_humano` e nao no grafo.
         substituir_rascunhos=substituidor_de_rascunhos.substituir,
+        # KAM-223: o texto do turno, lido pelo `message_id` da
+        # `platform.agent_messages`, com uma ligacao `kamba_app` por leitura.
+        ler_mensagem=LeitorDeMensagens(ligar_para_mensagens).ler,
+        # KAM-221, criterio 2: a mensagem de um cliente liberta as propostas
+        # dele em `aguarda_janela`, pela mesma porta do envio.
+        ao_cliente_escrever=portas_do_grafo["orcamentos"].libertar,
     )
     aplicacao = create_app(
         rotas_internas=[
@@ -866,6 +922,11 @@ def main() -> int:
                 # marcava o rascunho como tratado, nenhuma mensagem saia e nem um
                 # `expirado` ficava registado.
                 decidir=decisor_de_rascunhos.decidir,
+                # KAM-223. A credencial propria do `onboarding-web`, so para o
+                # `/internal/turn` e so para o turno do dono com `message_id`.
+                # Nao e obrigatoria no arranque: lida a cada pedido, e sem ela no
+                # cofre o painel leva 401 — fecha, nunca abre.
+                credencial_do_painel=lambda: segredos.get(SEGREDO_DO_PAINEL),  # kamba:secrets-inventory dinamico a constante SEGREDO_DO_PAINEL do api_interna.py e o dono do nome em codigo
             ),
             # A quinta rota (KAM-195), com credencial propria: ver a nota do
             # `llm/screening.py`. Sem a credencial no cofre, responde 401.

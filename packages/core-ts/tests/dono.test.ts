@@ -17,27 +17,34 @@ import { describe, it } from "node:test";
 import {
   CONSUMIDOR_DO_DONO,
   canalDoDono,
+  canalNoPainel,
   decidirProactiva,
   MOTIVOS_DE_SUPRESSAO,
-  DESTINOS_DO_AVISO,
   efeitoDoProvisionamento,
+  chaveDoDesafio,
+  ESPERA_DA_TROCA_MS,
+  type AlvoDoDesafio,
   type OtpDaTroca,
   PAPEIS,
   PERSONAS,
   personaDe,
+  PRAZO_DO_PEDIDO_MS,
   TelefoneDoCasoIndisponivelError,
   TrocaDeTelefone,
+  TrocasEmMemoria,
   VersaoDoProvisionamentoError,
 } from "../src/dono/index.ts";
 import type { Envelope } from "../src/eventos/envelope.ts";
 import { Telefone } from "../src/inscricao/identificadores.ts";
-import type { Veredicto } from "../src/inscricao/otp.ts";
+import type { ResultadoDeEnvio, Veredicto } from "../src/inscricao/otp.ts";
 
 const PEPPER = Buffer.alloc(32, 0x5a);
 const DONO = "+244 999 000 101";
 const OUTRO = "+244 999 000 102";
 const TENANT_A = "11111111-1111-4111-8111-111111111111";
 const TENANT_B = "22222222-2222-4222-8222-222222222222";
+/** O HMAC do numero da loja: o do telefone do caso, que e o do dono que se registou. */
+const LOJA = new Telefone(DONO, PEPPER).hmac;
 
 describe("KAM-118 criterio 1 — a persona e funcao do papel, e de mais nada", () => {
   it("so o valor exacto `dono` da a persona `dono`", () => {
@@ -53,34 +60,92 @@ describe("KAM-118 criterio 1 — a persona e funcao do papel, e de mais nada", (
   });
 });
 
-describe("KAM-118 criterio 7 — o canal do dono", () => {
-  const hmacDoDono = new Telefone(DONO, PEPPER).hmac;
+describe("KAM-216 — o canal do dono actual (decisao do fundador de 2026-11-19)", () => {
+  // O HMAC do numero da loja e o do telefone do caso: o KAM-093 obriga-os a
+  // coincidir. Aqui e o `hmac` de um `Telefone` da inscricao, como o do caso.
+  const PEPPER_NOVO = Buffer.alloc(32, 0x6b);
 
-  it("telefone do dono igual ao numero da loja: so o painel", () => {
+  it("o dono com o telefone do numero da loja: so o painel", () => {
     for (const forma of ["+244 999 000 101", "244 999 000 101", "999 000 101"]) {
       assert.deepEqual(
-        canalDoDono({ numeroDaLoja: forma, telefoneHmacDoDono: hmacDoDono, anelDoPepper: [PEPPER, null] }),
+        canalDoDono({ telefoneDoDono: new Telefone(forma, [PEPPER, null]), hmacDoNumeroDaLoja: LOJA }),
         { owner_channel_wa: false, canal: "painel" },
         forma,
       );
     }
   });
 
-  it("telefone diferente do numero da loja: o canal WhatsApp fica activo", () => {
+  it("o dono com outro telefone (depois de uma troca): o canal WhatsApp fica activo", () => {
     assert.deepEqual(
-      canalDoDono({ numeroDaLoja: OUTRO, telefoneHmacDoDono: hmacDoDono, anelDoPepper: [PEPPER, null] }),
+      canalDoDono({ telefoneDoDono: new Telefone(OUTRO, [PEPPER, null]), hmacDoNumeroDaLoja: LOJA }),
       { owner_channel_wa: true, canal: "whatsapp" },
     );
   });
 
-  it("sem numero da loja, ou ilegivel, painel — falha fechada", () => {
-    for (const numero of [null, undefined, "", "   ", "abc", 999000101]) {
+  it("uma rotacao do pepper entre o registo e a troca nao faz o mesmo numero parecer outro", () => {
+    // O caso cunhou-se com o PEPPER; a troca corre com o anel ja rodado.
+    const anelRodado = [PEPPER_NOVO, PEPPER];
+    assert.deepEqual(
+      canalDoDono({ telefoneDoDono: new Telefone(DONO, anelRodado), hmacDoNumeroDaLoja: LOJA }),
+      { owner_channel_wa: false, canal: "painel" },
+    );
+    assert.deepEqual(
+      canalDoDono({ telefoneDoDono: new Telefone(OUTRO, anelRodado), hmacDoNumeroDaLoja: LOJA }),
+      { owner_channel_wa: true, canal: "whatsapp" },
+    );
+  });
+
+  it("sem HMAC da loja, ou ilegivel, painel — falha fechada", () => {
+    for (const hmac of [null, undefined, "", "abc", LOJA.toUpperCase(), `${LOJA}0`, 1, {}]) {
       assert.deepEqual(
-        canalDoDono({ numeroDaLoja: numero, telefoneHmacDoDono: hmacDoDono, anelDoPepper: [PEPPER, null] }),
+        canalDoDono({ telefoneDoDono: new Telefone(OUTRO, PEPPER), hmacDoNumeroDaLoja: hmac }),
         { owner_channel_wa: false, canal: "painel" },
-        String(numero),
+        String(hmac),
       );
     }
+  });
+
+  it("o painel so abre o WhatsApp com o `true` exacto da coluna e o canal `ativo`", () => {
+    for (const guardado of [true, false, null, undefined, "true", 1]) {
+      for (const estado of ["ativo", "a_sincronizar", "desligado", "sem_canal"]) {
+        const esperado = guardado === true && estado === "ativo";
+        assert.deepEqual(
+          canalNoPainel(guardado, estado),
+          esperado ? { owner_channel_wa: true, canal: "whatsapp" } : { owner_channel_wa: false, canal: "painel" },
+          `${String(guardado)} ${estado}`,
+        );
+      }
+    }
+  });
+
+  it("a troca entrega a porta o canal do numero novo, e `null` da loja da painel", async () => {
+    // Revisto no KAM-223: o canal calcula-se no pedido e guarda-se na troca, e
+    // a porta recebe-o quando a troca se faz (aqui, ao fim das 72 h).
+    for (const [numero, loja, esperado] of [
+      [OUTRO, LOJA, true],
+      ["+244 999 000 103", LOJA, true],
+      [OUTRO, null, false],
+    ] as const) {
+      const m = trocaFalsa();
+      const telefone = new Telefone(numero, PEPPER);
+      await m.troca.pedir("p1", TENANT_A, telefone, loja);
+      await m.troca.verificar("p1", TENANT_A, telefone, "123456");
+      m.relogio.agora = new Date(INICIO.getTime() + 72 * HORA);
+      assert.equal((await m.troca.concluir(TENANT_A)).estado, "feita");
+      assert.deepEqual(m.canais, [{ tenantId: TENANT_A, contactId: m.contactoDe(telefone), ownerChannelWa: esperado }]);
+    }
+  });
+
+  it("o numero da loja como numero novo da painel", async () => {
+    // O dono que volta ao numero da loja: a troca passa a painel. O dono de
+    // partida e outro numero, para que a troca mude alguma coisa.
+    const m = trocaFalsa();
+    m.donos.set(TENANT_A, m.contactoDe(novo()));
+    await m.troca.pedir("p1", TENANT_A, antigo(), LOJA);
+    await m.troca.verificar("p1", TENANT_A, antigo(), "123456");
+    m.relogio.agora = new Date(INICIO.getTime() + 72 * HORA);
+    assert.equal((await m.troca.concluir(TENANT_A)).estado, "feita");
+    assert.deepEqual(m.canais.map((c) => c.ownerChannelWa), [false]);
   });
 });
 
@@ -116,102 +181,268 @@ describe("KAM-118 criterio 8 — as mensagens ao dono no Piloto (decisao de 2026
   });
 });
 
-/** Um OTP falso: acerta com o codigo certo, e conta o que lhe pediram. */
+/**
+ * Um OTP falso, fiel a base: **um** desafio por troca, guardado com a chave, e
+ * um codigo so verifica a chave guardada. Um envio recusado nao grava nada, como
+ * o `Otp` real (que recusa antes do `guardar`).
+ */
 class OtpFalso implements OtpDaTroca {
   readonly enviados: string[] = [];
+  readonly #desafios = new Map<string, string>();
   codigo = "123456";
   respostaAoErro: Veredicto = "errou";
+  recusar = false;
 
-  async enviar(chave: string): Promise<{ readonly enviado: true; readonly expiraEm: Date }> {
-    this.enviados.push(chave);
-    // Longe no futuro: desde o KAM-211 a troca esquece os pedidos expirados.
+  async enviar(alvo: AlvoDoDesafio): Promise<ResultadoDeEnvio> {
+    if (this.recusar) return { enviado: false, recusa: "intervalo" };
+    this.enviados.push(chaveDoDesafio(alvo));
+    this.#desafios.set(alvo.changeId, chaveDoDesafio(alvo));
     return { enviado: true, expiraEm: new Date("2999-01-01T00:00:00.000Z") };
   }
 
-  async verificar(_chave: string, codigo: string): Promise<Veredicto> {
+  async verificar(alvo: AlvoDoDesafio, codigo: string): Promise<Veredicto> {
+    if (this.#desafios.get(alvo.changeId) !== chaveDoDesafio(alvo)) return "sem_desafio";
     return codigo === this.codigo ? "acertou" : this.respostaAoErro;
   }
 }
 
+const TERCEIRO = "+244 999 000 103";
+const INICIO = new Date("2026-11-19T10:00:00.000Z");
+const HORA = 3_600_000;
+
+/**
+ * A troca com o repositorio em memoria e um papel por tenant. O contacto de um
+ * numero e o seu HMAC, e o dono de cada tenant comeca por ser o `DONO`.
+ */
 function trocaFalsa() {
   const otp = new OtpFalso();
-  const trocas: { tenantId: string; contactId: string }[] = [];
-  const avisos: { tenantId: string; destino: string }[] = [];
-  const troca = new TrocaDeTelefone({
-    otp,
-    contacto: async ({ tenantId }) => ({ contactId: `${tenantId}:novo` }),
-    trocar: async (pedido) => {
-      trocas.push(pedido);
-      return { anterior: `${pedido.tenantId}:antigo` };
-    },
-    avisar: async (pedido) => {
-      avisos.push(pedido);
-    },
+  const contactoDe = (t: Telefone): string => `c-${t.hmac.slice(0, 12)}`;
+  const donos = new Map<string, string>([
+    [TENANT_A, contactoDe(new Telefone(DONO, PEPPER))],
+    [TENANT_B, contactoDe(new Telefone(DONO, PEPPER))],
+  ]);
+  const avisos: { tenantId: string; destino: string; momento: string }[] = [];
+  const relogio = { agora: INICIO };
+  const canais: { tenantId: string; contactId: string; ownerChannelWa: boolean }[] = [];
+  const repositorio = new TrocasEmMemoria(async (pedido) => {
+    const { tenantId, contactId } = pedido;
+    canais.push(pedido);
+    const anterior = donos.get(tenantId) ?? null;
+    donos.set(tenantId, contactId);
+    return { anterior: anterior === contactId ? null : anterior };
   });
-  return { otp, troca, trocas, avisos };
+  const nova = (): TrocaDeTelefone =>
+    new TrocaDeTelefone({
+      otp,
+      repositorio,
+      relogio: () => relogio.agora,
+      contacto: async ({ telefone }) => ({ contactId: contactoDe(telefone) }),
+      avisar: async (pedido) => {
+        avisos.push(pedido);
+      },
+    });
+  return { otp, troca: nova(), nova, donos, avisos, relogio, repositorio, contactoDe, canais };
 }
 
-describe("KAM-118 criterio 4 — a mudanca de telefone do dono", () => {
-  it("ate o OTP acertar, nada muda: o numero novo e cliente e o antigo mantem o papel", async () => {
+const novo = (): Telefone => new Telefone(OUTRO, PEPPER);
+const antigo = (): Telefone => new Telefone(DONO, PEPPER);
+
+describe("KAM-223 — a troca com prova de posse (decisao 3 do fundador, opcao C)", () => {
+  it("ate o OTP do numero novo acertar, nada muda e ninguem e avisado", async () => {
     const m = trocaFalsa();
-    await m.troca.pedir("p1", TENANT_A, new Telefone(OUTRO, PEPPER));
-    assert.equal(m.otp.enviados.length, 1);
-    assert.deepEqual(await m.troca.verificar("p1", TENANT_A, "000000"), {
-      trocado: false,
+    assert.deepEqual(await m.troca.pedir("p1", TENANT_A, novo(), LOJA), {
+      enviado: true,
+      expiraEm: new Date("2999-01-01T00:00:00.000Z"),
+    });
+    assert.deepEqual(await m.troca.verificar("p1", TENANT_A, novo(), "000000"), {
+      estado: "recusada",
       veredicto: "errou",
     });
-    assert.deepEqual(m.trocas, []);
+    assert.equal(m.donos.get(TENANT_A), m.contactoDe(antigo()));
     assert.deepEqual(m.avisos, []);
   });
 
-  it("o OTP certo move o papel e avisa o numero antigo e o e-mail", async () => {
+  it("o OTP do numero novo poe a troca pendente 72 h e avisa, e o papel NAO muda", async () => {
     const m = trocaFalsa();
-    await m.troca.pedir("p1", TENANT_A, new Telefone(OUTRO, PEPPER));
-    const desfecho = await m.troca.verificar("p1", TENANT_A, "123456");
-    assert.deepEqual(desfecho, {
-      trocado: true,
-      contactId: `${TENANT_A}:novo`,
-      anterior: `${TENANT_A}:antigo`,
-    });
-    assert.deepEqual(m.trocas, [{ tenantId: TENANT_A, contactId: `${TENANT_A}:novo` }]);
+    await m.troca.pedir("p1", TENANT_A, novo(), LOJA);
+    const desfecho = await m.troca.verificar("p1", TENANT_A, novo(), "123456");
+    assert.deepEqual(desfecho, { estado: "pendente", prazo: new Date(INICIO.getTime() + 72 * HORA) });
+    assert.equal(ESPERA_DA_TROCA_MS, 72 * HORA);
+    assert.equal(m.donos.get(TENANT_A), m.contactoDe(antigo()));
     assert.deepEqual(
-      m.avisos.map((a) => a.destino),
-      [...DESTINOS_DO_AVISO],
+      m.avisos.map((a) => `${a.destino}:${a.momento}`),
+      ["numero_antigo:pendente", "email:pendente"],
     );
-    // Os avisos nao levam numero nenhum: so o tenant e o destino.
-    assert.deepEqual(Object.keys(m.avisos[0] ?? {}).sort(), ["destino", "tenantId"]);
+    // Os avisos nao levam numero nenhum: o tenant, o destino e o momento.
+    assert.deepEqual(Object.keys(m.avisos[0] ?? {}).sort(), ["destino", "momento", "tenantId"]);
+    assert.deepEqual(await m.troca.estado(TENANT_A), { estado: "pendente", prazo: new Date(INICIO.getTime() + 72 * HORA) });
   });
 
-  it("o pedido gasta-se: o mesmo codigo outra vez nao troca segunda vez", async () => {
+  it("um cookie roubado sem o OTP do antigo nao troca antes das 72 h, e troca depois", async () => {
     const m = trocaFalsa();
-    await m.troca.pedir("p1", TENANT_A, new Telefone(OUTRO, PEPPER));
-    await m.troca.verificar("p1", TENANT_A, "123456");
-    assert.deepEqual(await m.troca.verificar("p1", TENANT_A, "123456"), {
-      trocado: false,
-      veredicto: "sem_pedido",
+    await m.troca.pedir("p1", TENANT_A, novo(), LOJA);
+    await m.troca.verificar("p1", TENANT_A, novo(), "123456");
+    m.relogio.agora = new Date(INICIO.getTime() + 72 * HORA - 1);
+    assert.deepEqual(await m.troca.concluir(TENANT_A), { estado: "recusada", veredicto: "cedo" });
+    assert.equal(m.donos.get(TENANT_A), m.contactoDe(antigo()));
+    m.relogio.agora = new Date(INICIO.getTime() + 72 * HORA);
+    assert.deepEqual(await m.troca.concluir(TENANT_A), {
+      estado: "feita",
+      contactId: m.contactoDe(novo()),
+      anterior: m.contactoDe(antigo()),
     });
-    assert.equal(m.trocas.length, 1);
+    assert.equal(m.donos.get(TENANT_A), m.contactoDe(novo()));
+    assert.deepEqual(m.avisos.slice(2).map((a) => a.momento), ["feita", "feita"]);
+    // Gasta-se: a segunda conclusao nao troca outra vez.
+    assert.deepEqual(await m.troca.concluir(TENANT_A), { estado: "recusada", veredicto: "sem_pedido" });
   });
 
-  it("o pedido de um tenant nao se verifica a partir de outro", async () => {
+  it("com o OTP do numero antigo a troca e imediata", async () => {
     const m = trocaFalsa();
-    await m.troca.pedir("p1", TENANT_A, new Telefone(OUTRO, PEPPER));
-    assert.deepEqual(await m.troca.verificar("p1", TENANT_B, "123456"), {
-      trocado: false,
-      veredicto: "sem_pedido",
+    await m.troca.pedir("p1", TENANT_A, novo(), LOJA);
+    await m.troca.verificar("p1", TENANT_A, novo(), "123456");
+    assert.equal((await m.troca.pedir("p1", TENANT_A, antigo(), LOJA, "antigo")).enviado, true);
+    assert.deepEqual(await m.troca.verificar("p1", TENANT_A, antigo(), "123456", "antigo"), {
+      estado: "feita",
+      contactId: m.contactoDe(novo()),
+      anterior: m.contactoDe(antigo()),
     });
-    assert.deepEqual(m.trocas, []);
+    assert.equal(m.donos.get(TENANT_A), m.contactoDe(novo()));
+    assert.equal(await m.troca.estado(TENANT_A), null);
   });
 
-  it("um OTP esgotado destroi o pedido", async () => {
+  it("o codigo certo de um numero que NAO e o do dono nao troca, e desfaz-se tudo", async () => {
+    // Quem tem o cookie e o seu proprio segundo numero nao prova o antigo.
+    const m = trocaFalsa();
+    await m.troca.pedir("p1", TENANT_A, novo(), LOJA);
+    await m.troca.verificar("p1", TENANT_A, novo(), "123456");
+    const outro = new Telefone(TERCEIRO, PEPPER);
+    await m.troca.pedir("p1", TENANT_A, outro, LOJA, "antigo");
+    assert.deepEqual(await m.troca.verificar("p1", TENANT_A, outro, "123456", "antigo"), {
+      estado: "recusada",
+      veredicto: "antigo_diferente",
+    });
+    assert.equal(m.donos.get(TENANT_A), m.contactoDe(antigo()));
+    assert.equal((await m.troca.estado(TENANT_A))?.estado, "pendente");
+  });
+
+  it("o numero antigo nao pode ser o novo", async () => {
+    const m = trocaFalsa();
+    await m.troca.pedir("p1", TENANT_A, novo(), LOJA);
+    await m.troca.verificar("p1", TENANT_A, novo(), "123456");
+    assert.deepEqual(await m.troca.pedir("p1", TENANT_A, novo(), LOJA, "antigo"), { enviado: false, recusa: "numero" });
+  });
+
+  it("o codigo do antigo so vale para o numero a que foi enviado", async () => {
+    const m = trocaFalsa();
+    await m.troca.pedir("p1", TENANT_A, novo(), LOJA);
+    await m.troca.verificar("p1", TENANT_A, novo(), "123456");
+    await m.troca.pedir("p1", TENANT_A, new Telefone(TERCEIRO, PEPPER), LOJA, "antigo");
+    assert.deepEqual(await m.troca.verificar("p1", TENANT_A, antigo(), "123456", "antigo"), {
+      estado: "recusada",
+      veredicto: "numero",
+    });
+  });
+
+  it("qualquer sessao do tenant cancela, e a troca cancelada ja nao se conclui", async () => {
+    const m = trocaFalsa();
+    await m.troca.pedir("p1", TENANT_A, novo(), LOJA);
+    await m.troca.verificar("p1", TENANT_A, novo(), "123456");
+    assert.equal(await m.troca.cancelar(TENANT_B), false);
+    assert.equal(await m.troca.cancelar(TENANT_A), true);
+    m.relogio.agora = new Date(INICIO.getTime() + 100 * HORA);
+    assert.deepEqual(await m.troca.concluir(TENANT_A), { estado: "recusada", veredicto: "sem_pedido" });
+    assert.equal(m.donos.get(TENANT_A), m.contactoDe(antigo()));
+    assert.deepEqual(m.avisos.slice(2).map((a) => a.momento), ["cancelada", "cancelada"]);
+  });
+
+  it("o numero novo so o verifica a sessao que o pediu, e so no seu tenant", async () => {
+    const m = trocaFalsa();
+    await m.troca.pedir("p1", TENANT_A, novo(), LOJA);
+    for (const [pedido, tenant] of [["p2", TENANT_A], ["p1", TENANT_B]] as const) {
+      assert.deepEqual(await m.troca.verificar(pedido, tenant, novo(), "123456"), {
+        estado: "recusada",
+        veredicto: "sem_pedido",
+      });
+    }
+    assert.deepEqual(await m.troca.verificar("p1", TENANT_A, new Telefone(TERCEIRO, PEPPER), "123456"), {
+      estado: "recusada",
+      veredicto: "numero",
+    });
+    assert.deepEqual(m.avisos, []);
+  });
+
+  it("uma troca viva por tenant; a mesma sessao pode pedir outra vez", async () => {
+    const m = trocaFalsa();
+    await m.troca.pedir("p1", TENANT_A, novo(), LOJA);
+    assert.deepEqual(await m.troca.pedir("p2", TENANT_A, novo(), LOJA), { enviado: false, recusa: "ocupado" });
+    assert.equal((await m.troca.pedir("p1", TENANT_A, new Telefone(TERCEIRO, PEPPER), LOJA)).enviado, true);
+    // O tenant B nao e afectado pela troca de A.
+    assert.equal((await m.troca.pedir("p9", TENANT_B, novo(), LOJA)).enviado, true);
+    // Uma `pedida` vencida deixa de contar.
+    m.relogio.agora = new Date(INICIO.getTime() + PRAZO_DO_PEDIDO_MS);
+    assert.equal((await m.troca.pedir("p2", TENANT_A, novo(), LOJA)).enviado, true);
+  });
+
+  it("a chave do desafio leva a troca, o numero e o HMAC do telefone", async () => {
+    const m = trocaFalsa();
+    await m.troca.pedir("p1", TENANT_A, novo(), LOJA);
+    await m.troca.verificar("p1", TENANT_A, novo(), "123456");
+    await m.troca.pedir("p1", TENANT_A, antigo(), LOJA, "antigo");
+    const [chaveNova, chaveAntiga] = m.otp.enviados;
+    assert.equal(chaveNova, `troca:${chaveNova?.split(":")[1]}:novo:${novo().hmac.slice(0, 16)}`);
+    assert.equal(chaveAntiga, `troca:${chaveNova?.split(":")[1]}:antigo:${antigo().hmac.slice(0, 16)}`);
+  });
+
+  it("achado 1: o codigo do segundo numero do atacante nao verifica o numero do dono, nem com o envio a este recusado", async () => {
+    // O cookie roubado: o numero novo e o do atacante, e ele pede o «antigo» ao
+    // seu segundo numero (recebe o codigo), e logo a seguir ao do dono, cujo envio
+    // recusa por intervalo. O HMAC do antigo fica o do dono; o desafio, o do
+    // segundo numero.
+    const m = trocaFalsa();
+    await m.troca.pedir("p1", TENANT_A, novo(), LOJA);
+    await m.troca.verificar("p1", TENANT_A, novo(), "123456");
+    const segundo = new Telefone(TERCEIRO, PEPPER);
+    assert.equal((await m.troca.pedir("p1", TENANT_A, segundo, LOJA, "antigo")).enviado, true);
+    m.otp.recusar = true;
+    assert.deepEqual(await m.troca.pedir("p1", TENANT_A, antigo(), LOJA, "antigo"), { enviado: false, recusa: "intervalo" });
+    assert.deepEqual(await m.troca.verificar("p1", TENANT_A, antigo(), "123456", "antigo"), {
+      estado: "recusada",
+      veredicto: "sem_desafio",
+    });
+    assert.equal(m.donos.get(TENANT_A), m.contactoDe(antigo()));
+    assert.equal((await m.troca.estado(TENANT_A))?.estado, "pendente");
+  });
+
+  it("um OTP esgotado desiste do pedido", async () => {
     const m = trocaFalsa();
     m.otp.respostaAoErro = "tentativas";
-    await m.troca.pedir("p1", TENANT_A, new Telefone(OUTRO, PEPPER));
-    assert.equal((await m.troca.verificar("p1", TENANT_A, "000000")).trocado, false);
-    assert.deepEqual(await m.troca.verificar("p1", TENANT_A, "123456"), {
-      trocado: false,
+    await m.troca.pedir("p1", TENANT_A, novo(), LOJA);
+    await m.troca.verificar("p1", TENANT_A, novo(), "000000");
+    assert.deepEqual(await m.troca.verificar("p1", TENANT_A, novo(), "123456"), {
+      estado: "recusada",
       veredicto: "sem_pedido",
     });
+    assert.equal(await m.troca.estado(TENANT_A), null);
+  });
+
+  it("um processo novo sobre o mesmo repositorio continua a troca (o reinicio contra a base esta no tests_bd)", async () => {
+    const m = trocaFalsa();
+    await m.troca.pedir("p1", TENANT_A, novo(), LOJA);
+    await m.troca.verificar("p1", TENANT_A, novo(), "123456");
+    const depois = m.nova();
+    m.relogio.agora = new Date(INICIO.getTime() + 72 * HORA);
+    assert.equal((await depois.concluir(TENANT_A)).estado, "feita");
+    assert.equal(m.donos.get(TENANT_A), m.contactoDe(novo()));
+  });
+
+  it("duas conclusoes concorrentes dao uma troca e uma recusa", async () => {
+    const m = trocaFalsa();
+    await m.troca.pedir("p1", TENANT_A, novo(), LOJA);
+    await m.troca.verificar("p1", TENANT_A, novo(), "123456");
+    m.relogio.agora = new Date(INICIO.getTime() + 72 * HORA);
+    const [a, b] = await Promise.all([m.troca.concluir(TENANT_A), m.nova().concluir(TENANT_A)]);
+    assert.deepEqual([a.estado, b.estado].sort(), ["feita", "recusada"]);
   });
 });
 
@@ -234,74 +465,6 @@ function envelope(troca: Partial<Envelope> = {}): Envelope {
     ...troca,
   } as Envelope;
 }
-
-describe("KAM-211 — o mapa de pedidos da troca", () => {
-  it("dois `pedir` concorrentes do mesmo pedido: o segundo recusa, e o telefone fica o do primeiro", async () => {
-    // Um OTP lento, que grava o desafio antes de esperar pelo fornecedor, como o
-    // real: sem a exclusao, o segundo sobrescrevia o desafio e o registo do
-    // primeiro chegava por ultimo (achado 8 da revisao).
-    let soltar: () => void = () => {};
-    const parado = new Promise<void>((r) => {
-      soltar = r;
-    });
-    const desafios: string[] = [];
-    const trocas: { tenantId: string; contactId: string }[] = [];
-    const contactos: string[] = [];
-    const troca = new TrocaDeTelefone({
-      otp: {
-        async enviar(_chave: string, telefone: Telefone) {
-          desafios.push(telefone.hmac);
-          if (desafios.length === 1) await parado;
-          return { enviado: true, expiraEm: new Date("2999-01-01T00:00:00.000Z") };
-        },
-        async verificar() {
-          return "acertou";
-        },
-      },
-      contacto: async ({ telefone }) => {
-        contactos.push(telefone.hmac);
-        return { contactId: "novo" };
-      },
-      trocar: async (pedido) => {
-        trocas.push(pedido);
-        return { anterior: null };
-      },
-      avisar: async () => {},
-    });
-    const x = new Telefone(OUTRO, PEPPER);
-    const primeiro = troca.pedir("p1", TENANT_A, x);
-    const segundo = await troca.pedir("p1", TENANT_A, new Telefone("+244 999 000 777", PEPPER));
-    assert.deepEqual(segundo, { enviado: false, recusa: "intervalo" });
-    soltar();
-    assert.equal((await primeiro).enviado, true);
-    assert.equal(desafios.length, 1);
-    await troca.verificar("p1", TENANT_A, "123456");
-    assert.deepEqual(contactos, [x.hmac]);
-  });
-
-  it("um pedido cujo desafio expirou sai do mapa no `pedir` seguinte", async () => {
-    let agora = new Date("2026-11-18T10:00:00.000Z");
-    const troca = new TrocaDeTelefone({
-      relogio: () => agora,
-      otp: {
-        async enviar() {
-          return { enviado: true, expiraEm: new Date(agora.getTime() + 300_000) };
-        },
-        async verificar() {
-          return "errou";
-        },
-      },
-      contacto: async () => ({ contactId: "x" }),
-      trocar: async () => ({ anterior: null }),
-      avisar: async () => {},
-    });
-    for (const id of ["p1", "p2", "p3"]) await troca.pedir(id, TENANT_A, new Telefone(OUTRO, PEPPER));
-    assert.equal(troca.pedidosGuardados, 3);
-    agora = new Date(agora.getTime() + 300_001);
-    await troca.pedir("p4", TENANT_A, new Telefone(OUTRO, PEPPER));
-    assert.equal(troca.pedidosGuardados, 1);
-  });
-});
 
 describe("KAM-118 criterio 3 — o dono nasce do `tenant.provisioned`", () => {
   function montar(telefone: Telefone | null = new Telefone(DONO, PEPPER)) {

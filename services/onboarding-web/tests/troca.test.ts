@@ -1,32 +1,39 @@
 /**
  * A troca de telefone do dono pelo painel (KAM-211, critério «Troca de
- * telefone»), pela superfície HTTP.
+ * telefone»), com a prova de posse do KAM-223 (decisão 3 do fundador, opção C),
+ * pela superfície HTTP.
  *
  * O `Otp` é o **real** do KAM-086 (com o repositório em memória e o SMS falso do
- * KAM-116) e a `TrocaDeTelefone` é a **real** do KAM-118; falsas são só as três
- * portas de base — o contacto do número, a `definir_dono` e os avisos —, que
- * registam o que lhes pedem. O papel move-se na base pela porta, e isso mede-se
- * contra o PostgreSQL em `packages/core-ts/tests_bd/dono.bd.test.ts`.
+ * KAM-116) e a `TrocaDeTelefone` é a **real** do KAM-118; o repositório da troca
+ * é o `TrocasEmMemoria`, com as mesmas transições condicionais da base. Falsas
+ * são só as portas de base — o contacto do número, a `definir_dono` e os avisos
+ * —, que registam o que lhes pedem. O estado e o papel na base medem-se contra o
+ * PostgreSQL em `packages/core-ts/tests_bd/dono.bd.test.ts`.
  *
- * O que aqui se prova é a ligação: o código vai ao número novo, só o código
- * certo chama a porta, o tenant é o da sessão, e uma sessão não verifica o
- * pedido de outra.
+ * Os números são fictícios, com 999, e escritos com espaços.
  */
 
 import assert from "node:assert/strict";
 import { beforeEach, describe, it } from "node:test";
 
-import { TrocaDeTelefone, type DestinoDoAviso } from "@kamba/core-ts/dono";
+import {
+  ESPERA_DA_TROCA_MS,
+  TrocaDeTelefone,
+  TrocasEmMemoria,
+  otpDaTrocaPorChave,
+  type DestinoDoAviso,
+  type MomentoDoAviso,
+} from "@kamba/core-ts/dono";
 import {
   ContadoresEmMemoria,
   Otp,
   OtpEmMemoria,
   OtpPorSmsLocal,
-  type Telefone,
+  Telefone,
 } from "@kamba/core-ts/inscricao";
 import { FakeSmsProvider } from "@kamba/core-ts/sms";
 
-import { CanalEmMemoria } from "../src/painel/canal.ts";
+import { CanalEmMemoria, SEM_CANAL } from "../src/painel/canal.ts";
 import { ComercioEmMemoria } from "../src/painel/comercio.ts";
 import { MetricasDoPainel } from "../src/painel/metricas.ts";
 import { FASE_DA_TROCA, LIMITE_POR_REDE, pedidoDaTroca, rotasDoPainel } from "../src/painel/rotas.ts";
@@ -41,31 +48,58 @@ const PEPPER = Buffer.alloc(32, 0x5a);
 const PEPPER_DO_DESTINO = Buffer.alloc(32, 0x71);
 const INICIO = new Date("2026-11-18T09:00:00.000Z");
 
-/** Números fictícios, com 999. */
+/** Números fictícios, com 999. O antigo é o do dono de cada tenant. */
 const NUMERO_NOVO = "+244 999 000 411";
+const NUMERO_ANTIGO = "+244 999 000 400";
 const NUMERO_DE_B = "+244 999 000 422";
+const NUMERO_ALHEIO = "+244 999 000 433";
+/** Os números das lojas, que são os telefones dos casos (KAM-093). */
+const LOJA_A = "+244 999 000 401";
+const LOJA_B = "+244 999 000 402";
 
 interface Montagem {
   app: ReturnType<typeof rotasDoPainel>;
   contadores: ContadoresEmMemoria;
   troca: TrocaDeTelefone;
-  casos: Map<string, { tenantId: string; fase: string }>;
+  casos: Map<string, { tenantId: string; fase: string; telefoneHmac?: string }>;
+  canal: CanalEmMemoria;
+  /** O canal do dono que a porta recebeu, troca a troca (KAM-216). */
+  canais: boolean[];
+  /** Os tenants que o `GET /painel/canal` pediu ao COM. */
+  lidos: string[];
+  /** Se o guia confirmou o número da loja, por caso (KAM-216). Omissão: sim. */
+  naoConfirmados: Set<string>;
+  /** Os casos que a troca perguntou ao guia. */
+  perguntadosAoGuia: string[];
   sms: FakeSmsProvider;
   metricas: MetricasDoPainel;
   /** O que a `definir_dono` recebeu: `(tenant, contacto)`. */
   trocas: { tenantId: string; contactId: string }[];
-  /** Os contactos pedidos ao `resolveContact`: `(tenant, numero)`. */
-  contactos: { tenantId: string; numero: string }[];
-  avisos: { tenantId: string; destino: DestinoDoAviso }[];
+  /** O dono de cada tenant, como a porta o deixa. */
+  donos: Map<string, string>;
+  avisos: { tenantId: string; destino: DestinoDoAviso; momento: MomentoDoAviso }[];
   agora: Date;
+}
+
+/** O contacto de um número: o «antigo» é o dono, o resto é pelo HMAC. */
+function contactoDe(tenantId: string, telefone: Telefone, antigoHmac: string): string {
+  const quem = telefone.hmac === antigoHmac ? "dono-antigo" : `contacto-${telefone.hmac.slice(0, 8)}`;
+  return `${quem}-de-${tenantId.slice(0, 8)}`;
 }
 
 function montar(opcoes: { readonly avisoFalha?: boolean } = {}): Montagem {
   const m = {
     agora: INICIO,
     trocas: [],
-    contactos: [],
     avisos: [],
+    donos: new Map([
+      [TENANT_A, "dono-antigo-de-aaaaaaaa"],
+      [TENANT_B, "dono-antigo-de-bbbbbbbb"],
+    ]),
+    canais: [],
+    lidos: [],
+    naoConfirmados: new Set(),
+    perguntadosAoGuia: [],
   } as unknown as Montagem;
   const relogio = (): Date => m.agora;
   m.contadores = new ContadoresEmMemoria();
@@ -78,40 +112,60 @@ function montar(opcoes: { readonly avisoFalha?: boolean } = {}): Montagem {
     chave: PEPPER,
     relogio,
   });
-  const troca = new TrocaDeTelefone({
+  m.troca = new TrocaDeTelefone({
     relogio,
-    otp,
-    contacto: async ({ tenantId, telefone }: { tenantId: string; telefone: Telefone }) => {
-      m.contactos.push({ tenantId, numero: telefone.hmac });
-      return { contactId: `contacto-novo-de-${tenantId.slice(0, 8)}` };
-    },
-    trocar: async ({ tenantId, contactId }) => {
+    otp: otpDaTrocaPorChave(otp),
+    repositorio: new TrocasEmMemoria(async ({ tenantId, contactId, ownerChannelWa }) => {
       m.trocas.push({ tenantId, contactId });
-      return { anterior: `dono-antigo-de-${tenantId.slice(0, 8)}` };
-    },
-    avisar: async ({ tenantId, destino }) => {
-      m.avisos.push({ tenantId, destino });
+      m.canais.push(ownerChannelWa);
+      // A porta escreve o `tenants.owner_channel_wa`, e o COM devolve-o na vista.
+      const vista = (await m.canal.ler(tenantId)) ?? SEM_CANAL;
+      m.canal.vistas.set(tenantId, { ...vista, ownerChannelWa });
+      const anterior = m.donos.get(tenantId) ?? null;
+      m.donos.set(tenantId, contactId);
+      return { anterior };
+    }),
+    contacto: async ({ tenantId, telefone }) => ({ contactId: contactoDe(tenantId, telefone, HMAC_ANTIGO) }),
+    avisar: async (aviso) => {
+      m.avisos.push(aviso);
       if (opcoes.avisoFalha === true) throw new Error("aviso_em_baixo");
     },
   });
-  m.troca = troca;
-  const casos = new Map([
-    [CASO_A, { tenantId: TENANT_A, fase: "activo" }],
-    [CASO_B, { tenantId: TENANT_B, fase: "activo" }],
+  const casos = new Map<string, { tenantId: string; fase: string; telefoneHmac?: string }>([
+    [CASO_A, { tenantId: TENANT_A, fase: "activo", telefoneHmac: new Telefone(LOJA_A, PEPPER).hmac }],
+    [CASO_B, { tenantId: TENANT_B, fase: "activo", telefoneHmac: new Telefone(LOJA_B, PEPPER).hmac }],
   ]);
   m.casos = casos;
+  m.canal = new CanalEmMemoria();
+  const canalEspiao = {
+    ler: async (tenantId: string) => {
+      m.lidos.push(tenantId);
+      return m.canal.ler(tenantId);
+    },
+  };
   m.app = rotasDoPainel({
     comercio: new ComercioEmMemoria(),
-    canal: new CanalEmMemoria(),
+    canal: canalEspiao,
     revogacoes: new RevogacoesEmMemoria(),
     metricas: m.metricas,
     casos: { porId: async (id) => casos.get(id) ?? null },
     anelDaAssinatura: [CHAVE, null],
     relogio,
-    troca: { troca, anelDoPepper: [PEPPER, null], contadores: m.contadores },
+    troca: {
+      troca: m.troca,
+      anelDoPepper: [PEPPER, null],
+      contadores: m.contadores,
+      numeroDaLojaConfirmado: async (casoId) => {
+        m.perguntadosAoGuia.push(casoId);
+        return !m.naoConfirmados.has(casoId);
+      },
+    },
   });
   return m;
 }
+
+/** O HMAC do número antigo, com o *pepper* das rotas, para o contacto falso o reconhecer. */
+const HMAC_ANTIGO = new Telefone(NUMERO_ANTIGO, [PEPPER, null]).hmac;
 
 /** Uma sessao nova do painel: cada chamada da um `sid` novo. */
 function cookie(tenant: string, caso: string, m: Montagem): string {
@@ -130,13 +184,33 @@ function post(m: Montagem, caminho: string, corpo: unknown, cabecalhoDoCookie?: 
   });
 }
 
+function get(m: Montagem, caminho: string, cabecalhoDoCookie?: string) {
+  return m.app.request(caminho, { headers: cabecalhoDoCookie === undefined ? {} : { cookie: cabecalhoDoCookie } });
+}
+
 function ultimoCodigo(m: Montagem): string {
   const codigo = /([0-9]{6})/.exec(m.sms.enviados.at(-1)?.corpo ?? "")?.[1] ?? "";
   assert.match(codigo, /^[0-9]{6}$/);
   return codigo;
 }
 
-describe("KAM-211 — a troca de telefone pelo painel", () => {
+/** O número novo pedido e provado: a troca fica pendente. */
+async function pendente(m: Montagem, sessao: string, numero = NUMERO_NOVO): Promise<Response> {
+  assert.equal((await post(m, "/painel/telefone", { telefone: numero }, sessao)).status, 200);
+  return post(m, "/painel/telefone/verificar", { telefone: numero, codigo: ultimoCodigo(m) }, sessao);
+}
+
+/** O estado da troca viva, pelo `GET /painel/telefone`. */
+async function estadoDaTroca(m: Montagem, sessao: string): Promise<string | null> {
+  const corpo = (await (await get(m, "/painel/telefone", sessao)).json()) as { troca: { estado: string } | null };
+  return corpo.troca?.estado ?? null;
+}
+
+const avancar = (m: Montagem, ms: number): void => {
+  m.agora = new Date(m.agora.getTime() + ms);
+};
+
+describe("KAM-223 — a troca com prova de posse pelo painel", () => {
   let m: Montagem;
   let deA: string;
 
@@ -149,63 +223,165 @@ describe("KAM-211 — a troca de telefone pelo painel", () => {
     const r = await post(m, "/painel/telefone", { telefone: NUMERO_NOVO }, deA);
     assert.equal(r.status, 200);
     assert.equal(m.sms.enviados.length, 1);
-    // Ate ao codigo certo: nem contacto resolvido, nem porta, nem aviso.
-    assert.deepEqual([m.contactos, m.trocas, m.avisos], [[], [], []]);
+    assert.deepEqual([m.trocas, m.avisos], [[], []]);
   });
 
-  it("o codigo certo chama a porta com o tenant da sessao e avisa os dois destinos", async () => {
-    await post(m, "/painel/telefone", { telefone: NUMERO_NOVO }, deA);
-    const r = await post(m, "/painel/telefone/verificar", { codigo: ultimoCodigo(m) }, deA);
+  it("o codigo certo do numero novo poe a troca pendente 72 h, avisa, e o papel nao muda", async () => {
+    const r = await pendente(m, deA);
     assert.equal(r.status, 200);
-    assert.deepEqual(m.trocas, [{ tenantId: TENANT_A, contactId: "contacto-novo-de-aaaaaaaa" }]);
-    assert.equal(m.contactos.length, 1);
+    assert.deepEqual(await r.json(), {
+      estado: "pendente",
+      prazo: new Date(INICIO.getTime() + ESPERA_DA_TROCA_MS).toISOString(),
+    });
+    assert.deepEqual(m.trocas, []);
     assert.deepEqual(
-      m.avisos.map((a) => a.destino),
-      ["numero_antigo", "email"],
+      m.avisos.map((a) => `${a.destino}:${a.momento}`),
+      ["numero_antigo:pendente", "email:pendente"],
     );
-    assert.ok(m.avisos.every((a) => a.tenantId === TENANT_A));
+    const estado = await get(m, "/painel/telefone", deA);
+    assert.equal(estado.status, 200);
+    const corpo = await estado.text();
+    assert.deepEqual(JSON.parse(corpo), {
+      troca: { estado: "pendente", prazo: new Date(INICIO.getTime() + ESPERA_DA_TROCA_MS).toISOString() },
+    });
+    // Sem numero nenhum na resposta: nem o novo, nem os digitos dele.
+    assert.ok(!corpo.includes("411") && !corpo.includes("999"));
   });
 
-  it("um codigo errado da 401 e nao toca na porta; o pedido continua vivo", async () => {
+  it("um cookie roubado sem o OTP do antigo nao troca antes das 72 h", async () => {
+    await pendente(m, deA);
+    avancar(m, ESPERA_DA_TROCA_MS - 1);
+    const cedo = await post(m, "/painel/telefone/concluir", {}, deA);
+    assert.equal(cedo.status, 409);
+    assert.deepEqual(await cedo.json(), { erro: "cedo" });
+    assert.equal(m.trocas.length, 0);
+    avancar(m, 1);
+    const feita = await post(m, "/painel/telefone/concluir", {}, deA);
+    assert.equal(feita.status, 200);
+    assert.deepEqual(await feita.json(), { estado: "feita" });
+    assert.deepEqual(m.trocas.map((t) => t.tenantId), [TENANT_A]);
+  });
+
+  it("com o OTP do numero antigo, a troca e imediata", async () => {
+    await pendente(m, deA);
+    assert.equal(
+      (await post(m, "/painel/telefone", { telefone: NUMERO_ANTIGO, numero: "antigo" }, deA)).status,
+      200,
+    );
+    const r = await post(
+      m,
+      "/painel/telefone/verificar",
+      { telefone: NUMERO_ANTIGO, codigo: ultimoCodigo(m), numero: "antigo" },
+      deA,
+    );
+    assert.equal(r.status, 200);
+    assert.deepEqual(await r.json(), { estado: "feita" });
+    assert.equal(m.donos.get(TENANT_A), contactoDe(TENANT_A, new Telefone(NUMERO_NOVO, [PEPPER, null]), HMAC_ANTIGO));
+    assert.deepEqual(await (await get(m, "/painel/telefone", deA)).json(), { troca: null });
+  });
+
+  it("o codigo certo de um numero que nao e o do dono da 401 e nao troca", async () => {
+    await pendente(m, deA);
+    await post(m, "/painel/telefone", { telefone: NUMERO_ALHEIO, numero: "antigo" }, deA);
+    const r = await post(
+      m,
+      "/painel/telefone/verificar",
+      { telefone: NUMERO_ALHEIO, codigo: ultimoCodigo(m), numero: "antigo" },
+      deA,
+    );
+    assert.equal(r.status, 401);
+    assert.deepEqual(await r.json(), { erro: "codigo" });
+    assert.equal(m.donos.get(TENANT_A), "dono-antigo-de-aaaaaaaa");
+    assert.equal(await estadoDaTroca(m, deA), "pendente");
+  });
+
+  it("achado 1: o cookie roubado nao passa o codigo do seu segundo numero pelo numero do dono", async () => {
+    // Com o `Otp` real: o «antigo» pedido ao numero do dono (o codigo vai ao
+    // dono), depois ao segundo numero do atacante (o codigo chega-lhe), e outra
+    // vez ao do dono, que o intervalo de 60 s recusa — o HMAC do antigo fica o do
+    // dono, e o desafio o do segundo numero. O codigo do segundo nao verifica o dono.
+    await pendente(m, deA);
+    assert.equal((await post(m, "/painel/telefone", { telefone: NUMERO_ANTIGO, numero: "antigo" }, deA)).status, 200);
+    assert.equal((await post(m, "/painel/telefone", { telefone: NUMERO_ALHEIO, numero: "antigo" }, deA)).status, 200);
+    const doAtacante = ultimoCodigo(m);
+    assert.equal((await post(m, "/painel/telefone", { telefone: NUMERO_ANTIGO, numero: "antigo" }, deA)).status, 429);
+    const r = await post(
+      m,
+      "/painel/telefone/verificar",
+      { telefone: NUMERO_ANTIGO, codigo: doAtacante, numero: "antigo" },
+      deA,
+    );
+    assert.equal(r.status, 401);
+    assert.equal(m.donos.get(TENANT_A), "dono-antigo-de-aaaaaaaa");
+    assert.equal(await estadoDaTroca(m, deA), "pendente");
+  });
+
+  it("o dono legitimo, noutra sessao, ve a troca pendente e cancela-a; depois das 72 h ja nao se faz", async () => {
+    await pendente(m, deA);
+    const doDono = cookie(TENANT_A, CASO_A, m);
+    assert.equal(await estadoDaTroca(m, doDono), "pendente");
+    assert.equal((await post(m, "/painel/telefone/cancelar", {}, doDono)).status, 200);
+    avancar(m, ESPERA_DA_TROCA_MS + 1);
+    const r = await post(m, "/painel/telefone/concluir", {}, deA);
+    assert.equal(r.status, 409);
+    assert.deepEqual(await r.json(), { erro: "sem_troca" });
+    assert.deepEqual(m.trocas, []);
+    assert.deepEqual(m.avisos.slice(2).map((a) => a.momento), ["cancelada", "cancelada"]);
+  });
+
+  it("o numero vem com o codigo: outro numero com o codigo certo da 401", async () => {
+    await post(m, "/painel/telefone", { telefone: NUMERO_NOVO }, deA);
+    const r = await post(m, "/painel/telefone/verificar", { telefone: NUMERO_ALHEIO, codigo: ultimoCodigo(m) }, deA);
+    assert.equal(r.status, 401);
+    assert.deepEqual(m.avisos, []);
+  });
+
+  it("um codigo errado da 401 e nao abre a espera; o pedido continua vivo", async () => {
     await post(m, "/painel/telefone", { telefone: NUMERO_NOVO }, deA);
     const certo = ultimoCodigo(m);
     const errado = certo === "000000" ? "111111" : "000000";
-    const r = await post(m, "/painel/telefone/verificar", { codigo: errado }, deA);
+    const r = await post(m, "/painel/telefone/verificar", { telefone: NUMERO_NOVO, codigo: errado }, deA);
     assert.equal(r.status, 401);
     assert.deepEqual(await r.json(), { erro: "codigo" });
-    assert.deepEqual(m.trocas, []);
-    assert.equal((await post(m, "/painel/telefone/verificar", { codigo: certo }, deA)).status, 200);
+    assert.deepEqual(m.avisos, []);
+    assert.equal((await post(m, "/painel/telefone/verificar", { telefone: NUMERO_NOVO, codigo: certo }, deA)).status, 200);
   });
 
   it("o pedido gasta-se: o mesmo codigo outra vez da 401", async () => {
     await post(m, "/painel/telefone", { telefone: NUMERO_NOVO }, deA);
     const codigo = ultimoCodigo(m);
-    assert.equal((await post(m, "/painel/telefone/verificar", { codigo }, deA)).status, 200);
-    assert.equal((await post(m, "/painel/telefone/verificar", { codigo }, deA)).status, 401);
-    assert.equal(m.trocas.length, 1);
+    assert.equal((await post(m, "/painel/telefone/verificar", { telefone: NUMERO_NOVO, codigo }, deA)).status, 200);
+    assert.equal((await post(m, "/painel/telefone/verificar", { telefone: NUMERO_NOVO, codigo }, deA)).status, 401);
   });
 
-  it("sem sessao e 401, e sem a troca configurada e 503", async () => {
-    assert.equal((await post(m, "/painel/telefone", { telefone: NUMERO_NOVO })).status, 401);
-    assert.equal((await post(m, "/painel/telefone/verificar", { codigo: "123456" })).status, 401);
-    assert.equal(m.sms.enviados.length, 0);
-    const sem = rotasDoPainel({
-      comercio: new ComercioEmMemoria(),
-      canal: new CanalEmMemoria(),
-      revogacoes: new RevogacoesEmMemoria(),
-      casos: { porId: async () => ({ tenantId: TENANT_A, fase: "activo" }) },
-      anelDaAssinatura: [CHAVE, null],
-      relogio: () => m.agora,
-    });
-    const r = await sem.request("/painel/telefone", {
-      method: "POST",
-      headers: { "content-type": "application/json", cookie: deA },
-      body: JSON.stringify({ telefone: NUMERO_NOVO }),
-    });
-    assert.equal(r.status, 503);
+  it("uma troca viva por tenant: outra sessao recebe 409; a mesma sessao pede outra vez e o primeiro codigo deixa de valer", async () => {
+    await post(m, "/painel/telefone", { telefone: NUMERO_NOVO }, deA);
+    const primeiro = ultimoCodigo(m);
+    const outra = await post(m, "/painel/telefone", { telefone: NUMERO_ALHEIO }, cookie(TENANT_A, CASO_A, m));
+    assert.equal(outra.status, 409);
+    assert.deepEqual(await outra.json(), { erro: "ocupado" });
+    avancar(m, 61_000);
+    assert.equal((await post(m, "/painel/telefone", { telefone: NUMERO_ALHEIO }, deA)).status, 200);
+    assert.equal(
+      (await post(m, "/painel/telefone/verificar", { telefone: NUMERO_NOVO, codigo: primeiro }, deA)).status,
+      401,
+    );
+    assert.equal(
+      (await post(m, "/painel/telefone/verificar", { telefone: NUMERO_ALHEIO, codigo: ultimoCodigo(m) }, deA)).status,
+      200,
+    );
   });
 
-  it("um telefone ilegivel e um corpo que nao e JSON dao 400 e nao enviam nada", async () => {
+  it("o numero antigo sem troca pendente da 409, e o mesmo numero do novo da 400", async () => {
+    const sem = await post(m, "/painel/telefone", { telefone: NUMERO_ANTIGO, numero: "antigo" }, deA);
+    assert.equal(sem.status, 409);
+    assert.deepEqual(await sem.json(), { erro: "sem_troca" });
+    await pendente(m, deA);
+    assert.equal((await post(m, "/painel/telefone", { telefone: NUMERO_NOVO, numero: "antigo" }, deA)).status, 400);
+  });
+
+  it("um `numero` fora dos dois, um telefone ilegivel e um corpo que nao e JSON dao 400", async () => {
+    assert.equal((await post(m, "/painel/telefone", { telefone: NUMERO_NOVO, numero: "outro" }, deA)).status, 400);
     for (const telefone of ["", "nao e telefone", 999, null]) {
       assert.equal((await post(m, "/painel/telefone", { telefone }, deA)).status, 400);
     }
@@ -215,62 +391,70 @@ describe("KAM-211 — a troca de telefone pelo painel", () => {
       body: NUMERO_NOVO,
     });
     assert.equal(r.status, 400);
-    assert.equal((await post(m, "/painel/telefone/verificar", { codigo: 123456 }, deA)).status, 400);
+    assert.equal((await post(m, "/painel/telefone/verificar", { telefone: NUMERO_NOVO, codigo: 123456 }, deA)).status, 400);
+    assert.equal((await post(m, "/painel/telefone/verificar", { codigo: "123456" }, deA)).status, 400);
     assert.equal(m.sms.enviados.length, 0);
   });
 
-  it("o recusado pelo OTP (intervalo) da 429", async () => {
-    assert.equal((await post(m, "/painel/telefone", { telefone: NUMERO_NOVO }, deA)).status, 200);
-    assert.equal((await post(m, "/painel/telefone", { telefone: NUMERO_NOVO }, deA)).status, 429);
-    assert.equal(m.sms.enviados.length, 1);
-  });
-
-  it("um aviso que falha sobe depois da troca, e a troca nao se desfaz", async () => {
-    const falhado = montar({ avisoFalha: true });
-    const sessao = cookie(TENANT_A, CASO_A, falhado);
-    await post(falhado, "/painel/telefone", { telefone: NUMERO_NOVO }, sessao);
-    const r = await post(falhado, "/painel/telefone/verificar", { codigo: ultimoCodigo(falhado) }, sessao);
-    assert.equal(r.status, 500);
-    assert.equal(falhado.trocas.length, 1);
-  });
-
-  it("antes de `activo` a troca recusa com 409 e nao manda codigo (achado 4)", async () => {
-    for (const fase of ["aguarda_es", "lista_espera", "aguarda_catalogo", "aguarda_teste"]) {
-      m.casos.set(CASO_A, { tenantId: TENANT_A, fase });
-      const r = await post(m, "/painel/telefone", { telefone: NUMERO_NOVO }, deA);
-      assert.equal(r.status, 409, fase);
-      assert.equal((await post(m, "/painel/telefone/verificar", { codigo: "123456" }, deA)).status, 409, fase);
+  it("sem sessao e 401, e sem a troca configurada e 503, nas cinco rotas", async () => {
+    for (const [metodo, caminho] of [
+      ["POST", "/painel/telefone"],
+      ["POST", "/painel/telefone/verificar"],
+      ["GET", "/painel/telefone"],
+      ["POST", "/painel/telefone/concluir"],
+      ["POST", "/painel/telefone/cancelar"],
+    ] as const) {
+      const r = metodo === "GET" ? await get(m, caminho) : await post(m, caminho, {});
+      assert.equal(r.status, 401, caminho);
     }
     assert.equal(m.sms.enviados.length, 0);
-    assert.deepEqual(m.trocas, []);
+    const sem = rotasDoPainel({
+      comercio: new ComercioEmMemoria(),
+      canal: new CanalEmMemoria(),
+      revogacoes: new RevogacoesEmMemoria(),
+      casos: { porId: async () => ({ tenantId: TENANT_A, fase: "activo" }) },
+      anelDaAssinatura: [CHAVE, null],
+      relogio: () => m.agora,
+    });
+    for (const caminho of ["/painel/telefone/concluir", "/painel/telefone/cancelar"]) {
+      const r = await sem.request(caminho, { method: "POST", headers: { "content-type": "application/json", cookie: deA }, body: "{}" });
+      assert.equal(r.status, 503, caminho);
+    }
+    assert.equal((await sem.request("/painel/telefone", { headers: { cookie: deA } })).status, 503);
+  });
+
+  it("um aviso que falha sobe depois de gravar, e a troca fica pendente", async () => {
+    const falhado = montar({ avisoFalha: true });
+    const sessao = cookie(TENANT_A, CASO_A, falhado);
+    const r = await pendente(falhado, sessao);
+    assert.equal(r.status, 500);
+    assert.equal((await falhado.troca.estado(TENANT_A))?.estado, "pendente");
+  });
+
+  it("antes de `activo` as rotas da troca recusam com 409 e nao mandam codigo (achado 4 do KAM-211)", async () => {
+    for (const fase of ["aguarda_es", "lista_espera", "aguarda_catalogo", "aguarda_teste"]) {
+      m.casos.set(CASO_A, { tenantId: TENANT_A, fase });
+      assert.equal((await post(m, "/painel/telefone", { telefone: NUMERO_NOVO }, deA)).status, 409, fase);
+      assert.equal((await post(m, "/painel/telefone/verificar", { telefone: NUMERO_NOVO, codigo: "123456" }, deA)).status, 409, fase);
+      assert.equal((await get(m, "/painel/telefone", deA)).status, 409, fase);
+      assert.equal((await post(m, "/painel/telefone/concluir", {}, deA)).status, 409, fase);
+      assert.equal((await post(m, "/painel/telefone/cancelar", {}, deA)).status, 409, fase);
+    }
+    assert.equal(m.sms.enviados.length, 0);
     assert.equal(FASE_DA_TROCA, "activo");
   });
 
-  it("ha limite por rede, como na reentrada: o seguinte ao limite da 429 e nao envia (achado 3)", async () => {
+  it("ha limite por rede: o seguinte ao limite da 429 e nao envia (achado 3 do KAM-211)", async () => {
     for (let n = 0; n < LIMITE_POR_REDE; n += 1) {
       const numero = `+244 999 000 ${String(500 + n)}`;
-      assert.equal((await post(m, "/painel/telefone", { telefone: numero }, cookie(TENANT_A, CASO_A, m))).status, 200, numero);
+      // Uma sessao nova de cada vez, e a anterior cancela: uma troca viva por tenant.
+      const sessao = cookie(TENANT_A, CASO_A, m);
+      assert.equal((await post(m, "/painel/telefone", { telefone: numero }, sessao)).status, 200, numero);
+      await m.troca.cancelar(TENANT_A);
     }
     const r = await post(m, "/painel/telefone", { telefone: "+244 999 000 599" }, cookie(TENANT_A, CASO_A, m));
     assert.equal(r.status, 429);
     assert.equal(m.sms.enviados.length, LIMITE_POR_REDE);
-  });
-
-  it("dois pedidos concorrentes da mesma sessao: so um envia (achado 8)", async () => {
-    const [um, dois] = await Promise.all([
-      post(m, "/painel/telefone", { telefone: NUMERO_NOVO }, deA),
-      post(m, "/painel/telefone", { telefone: "+244 999 000 499" }, deA),
-    ]);
-    assert.deepEqual([um.status, dois.status].sort(), [200, 429]);
-    assert.equal(m.sms.enviados.length, 1);
-  });
-
-  it("um pedido expirado sai do mapa no pedido seguinte (achado 9)", async () => {
-    await post(m, "/painel/telefone", { telefone: NUMERO_NOVO }, deA);
-    assert.equal(m.troca.pedidosGuardados, 1);
-    m.agora = new Date(m.agora.getTime() + 3_600_000);
-    await post(m, "/painel/telefone", { telefone: "+244 999 000 499" }, cookie(TENANT_A, CASO_A, m));
-    assert.equal(m.troca.pedidosGuardados, 1);
   });
 
   it("a chave do pedido e a sessao, com o prefixo da troca", () => {
@@ -279,55 +463,120 @@ describe("KAM-211 — a troca de telefone pelo painel", () => {
     assert.notEqual(pedidoDaTroca(s), CASO_A);
   });
 
-  it("as duas rotas contam-se nas metricas do painel", async () => {
+  it("as rotas contam-se nas metricas do painel", async () => {
     await post(m, "/painel/telefone", { telefone: NUMERO_NOVO });
     await post(m, "/painel/telefone/verificar", { codigo: "x" }, deA);
+    await post(m, "/painel/telefone/concluir", {}, deA);
+    await post(m, "/painel/telefone/cancelar", {}, deA);
+    await get(m, "/painel/telefone", deA);
     assert.equal(m.metricas.valor("troca"), 1);
     assert.equal(m.metricas.valor("troca", "sem_sessao"), 1);
     assert.equal(m.metricas.valor("troca_verificar", "invalido"), 1);
+    assert.equal(m.metricas.valor("troca_concluir", "conflito"), 1);
+    assert.equal(m.metricas.valor("troca_cancelar", "conflito"), 1);
+    assert.equal(m.metricas.valor("troca_estado"), 1);
   });
 });
 
-describe("KAM-211 — a troca isola o tenant e a sessao", () => {
-  it("o tenant de B no corpo, na consulta ou num cabecalho nao muda nada: a porta recebe A", async () => {
-    const m = montar();
+describe("KAM-223 — a troca isola o tenant e a sessao", () => {
+  it("o tenant de B no corpo, na consulta ou num cabecalho nao muda nada: a troca e de A", async () => {
     for (const [caminho, extra, corpoExtra] of [
       ["/painel/telefone", {}, { tenant_id: TENANT_B }],
       [`/painel/telefone?tenant_id=${TENANT_B}`, {}, {}],
       ["/painel/telefone", { "x-kamba-tenant": TENANT_B }, {}],
     ] as const) {
+      const m = montar();
       const sessao = cookie(TENANT_A, CASO_A, m);
       await post(m, caminho, { telefone: NUMERO_NOVO, ...corpoExtra }, sessao, extra);
-      m.agora = new Date(m.agora.getTime() + 61_000);
       const codigo = ultimoCodigo(m);
-      await post(m, `/painel/telefone/verificar?tenant_id=${TENANT_B}`, { codigo, tenant_id: TENANT_B }, sessao, extra);
+      const r = await post(
+        m,
+        `/painel/telefone/verificar?tenant_id=${TENANT_B}`,
+        { telefone: NUMERO_NOVO, codigo, tenant_id: TENANT_B },
+        sessao,
+        extra,
+      );
+      assert.equal(r.status, 200);
+      assert.equal((await m.troca.estado(TENANT_A))?.estado, "pendente");
+      assert.equal(await m.troca.estado(TENANT_B), null);
+      avancar(m, ESPERA_DA_TROCA_MS);
+      await post(m, `/painel/telefone/concluir?tenant_id=${TENANT_B}`, { tenant_id: TENANT_B }, sessao, extra);
+      assert.ok(m.trocas.length === 1 && m.trocas.every((t) => t.tenantId === TENANT_A));
     }
-    assert.equal(m.trocas.length, 3);
-    assert.ok(m.trocas.every((t) => t.tenantId === TENANT_A));
   });
 
-  it("a sessao de A nao verifica o pedido de B, nem com o codigo certo de B", async () => {
+  it("a sessao de A nao verifica o pedido de B, nem com o numero e o codigo certos de B", async () => {
     const m = montar();
     const deB = cookie(TENANT_B, CASO_B, m);
     await post(m, "/painel/telefone", { telefone: NUMERO_DE_B }, deB);
     const codigoDeB = ultimoCodigo(m);
     const deA = cookie(TENANT_A, CASO_A, m);
-    const r = await post(m, "/painel/telefone/verificar", { codigo: codigoDeB, tenant_id: TENANT_B }, deA);
+    const r = await post(m, "/painel/telefone/verificar", { telefone: NUMERO_DE_B, codigo: codigoDeB, tenant_id: TENANT_B }, deA);
     assert.equal(r.status, 401);
-    assert.deepEqual(m.trocas, []);
+    assert.equal(await m.troca.estado(TENANT_A), null);
     // E o de B continua vivo para B.
-    assert.equal((await post(m, "/painel/telefone/verificar", { codigo: codigoDeB }, deB)).status, 200);
-    assert.deepEqual(m.trocas, [{ tenantId: TENANT_B, contactId: "contacto-novo-de-bbbbbbbb" }]);
+    assert.equal((await post(m, "/painel/telefone/verificar", { telefone: NUMERO_DE_B, codigo: codigoDeB }, deB)).status, 200);
   });
 
-  it("outra sessao do mesmo tenant tambem nao verifica o pedido", async () => {
+  it("a sessao de A nao ve, nao conclui e nao cancela a troca pendente de B", async () => {
+    const m = montar();
+    const deB = cookie(TENANT_B, CASO_B, m);
+    await pendente(m, deB, NUMERO_DE_B);
+    const deA = cookie(TENANT_A, CASO_A, m);
+    assert.deepEqual(await (await get(m, `/painel/telefone?tenant_id=${TENANT_B}`, deA)).json(), { troca: null });
+    assert.equal((await post(m, "/painel/telefone/cancelar", { tenant_id: TENANT_B }, deA)).status, 409);
+    avancar(m, ESPERA_DA_TROCA_MS);
+    assert.equal((await post(m, "/painel/telefone/concluir", { tenant_id: TENANT_B }, deA)).status, 409);
+    assert.equal((await m.troca.estado(TENANT_B))?.estado, "pendente");
+    assert.deepEqual(m.trocas, []);
+  });
+
+  it("critério 3 do KAM-217 (reescrito a 2026-11-20): com o tenant de B, a sessão de A responde pela troca de A, uniforme, e nada de B aparece", async () => {
+    // As duas trocas pendentes, com prazos diferentes: a de B uma hora depois.
+    const m = montar();
+    const deA = cookie(TENANT_A, CASO_A, m);
+    await pendente(m, deA, NUMERO_NOVO);
+    const prazoDeA = (await m.troca.estado(TENANT_A))?.prazo;
+    avancar(m, 3_600_000);
+    const deB = cookie(TENANT_B, CASO_B, m);
+    await pendente(m, deB, NUMERO_DE_B);
+    const prazoDeB = (await m.troca.estado(TENANT_B))?.prazo;
+    assert.ok(prazoDeA instanceof Date && prazoDeB instanceof Date && prazoDeA.getTime() !== prazoDeB.getTime());
+    const deBNoPedido = { "x-kamba-tenant": TENANT_B, "x-tenant-id": TENANT_B };
+    const respostas: Response[] = [
+      await m.app.request(`/painel/telefone?tenant_id=${TENANT_B}`, { headers: { cookie: deA, ...deBNoPedido } }),
+      await post(m, `/painel/telefone/verificar?tenant_id=${TENANT_B}`, { telefone: NUMERO_DE_B, codigo: "000000", tenant_id: TENANT_B }, deA, deBNoPedido),
+      await post(m, `/painel/telefone/concluir?tenant_id=${TENANT_B}`, { tenant_id: TENANT_B }, deA, deBNoPedido),
+      await post(m, `/painel/telefone/cancelar?tenant_id=${TENANT_B}`, { tenant_id: TENANT_B }, deA, deBNoPedido),
+    ];
+    const [estado] = respostas;
+    const corpos: string[] = [];
+    for (const r of respostas) {
+      assert.ok([200, 401, 409].includes(r.status), String(r.status));
+      corpos.push(await r.text());
+    }
+    // O estado é o de A: o prazo de A, e não o de B.
+    assert.equal(estado?.status, 200);
+    assert.ok(corpos[0]?.includes(prazoDeA.toISOString()));
+    for (const corpo of corpos) {
+      assert.ok(!corpo.includes(prazoDeB.toISOString()), corpo);
+      assert.ok(!corpo.includes(TENANT_B), corpo);
+      assert.doesNotMatch(corpo, /999\s*000\s*422/);
+    }
+    // E a troca de B ficou como estava; a de A foi a única tocada (cancelada).
+    assert.equal((await m.troca.estado(TENANT_B))?.estado, "pendente");
+    assert.equal(await m.troca.estado(TENANT_A), null);
+    assert.deepEqual(m.trocas, []);
+  });
+
+  it("outra sessao do mesmo tenant nao verifica o numero novo pedido pela primeira", async () => {
     const m = montar();
     const primeira = cookie(TENANT_A, CASO_A, m);
     await post(m, "/painel/telefone", { telefone: NUMERO_NOVO }, primeira);
     const codigo = ultimoCodigo(m);
     const segunda = cookie(TENANT_A, CASO_A, m);
-    assert.equal((await post(m, "/painel/telefone/verificar", { codigo }, segunda)).status, 401);
-    assert.deepEqual(m.trocas, []);
+    assert.equal((await post(m, "/painel/telefone/verificar", { telefone: NUMERO_NOVO, codigo }, segunda)).status, 401);
+    assert.equal((await m.troca.estado(TENANT_A))?.estado, "pedida");
   });
 
   it("uma sessao forjada com o sid de B nao passa a assinatura", async () => {
@@ -335,5 +584,138 @@ describe("KAM-211 — a troca isola o tenant e a sessao", () => {
     const forjada = `kamba_painel=${cunharSessao(novaSessao(TENANT_B, CASO_B, INICIO), new Uint8Array(32).fill(9))}`;
     assert.equal((await post(m, "/painel/telefone", { telefone: NUMERO_NOVO }, forjada)).status, 401);
     assert.equal(m.sms.enviados.length, 0);
+  });
+});
+
+describe("KAM-216 — o canal do dono: a troca guarda-o e o painel mostra-o", () => {
+  let m: Montagem;
+  let deA: string;
+
+  beforeEach(() => {
+    m = montar();
+    deA = cookie(TENANT_A, CASO_A, m);
+    for (const tenant of [TENANT_A, TENANT_B]) m.canal.vistas.set(tenant, { ...SEM_CANAL, estado: "ativo" });
+  });
+
+  /**
+   * Revisto no KAM-223: o número novo provado deixa a troca pendente, e ela
+   * faz-se ao fim das 72 h pelo `concluir` — é aí que a porta recebe o canal.
+   */
+  async function trocarPara(numero: string, sessao = deA): Promise<void> {
+    // Um quarto de hora entre trocas: o `Otp` tem intervalo entre envios.
+    m.agora = new Date(m.agora.getTime() + 15 * 60_000);
+    assert.equal((await pendente(m, sessao, numero)).status, 200);
+    m.agora = new Date(m.agora.getTime() + ESPERA_DA_TROCA_MS);
+    assert.equal((await post(m, "/painel/telefone/concluir", {}, sessao)).status, 200);
+  }
+
+  async function canalNaPagina(sessao = deA): Promise<string | undefined> {
+    const r = await m.app.request("/painel/canal", { headers: { cookie: sessao } });
+    assert.equal(r.status, 200);
+    return /data-canal-do-dono="([a-z]+)"/.exec(await r.text())?.[1];
+  }
+
+  it("antes de qualquer troca, o dono e o telefone do caso, que e o da loja: painel", async () => {
+    assert.equal(await canalNaPagina(), "painel");
+    assert.deepEqual(m.lidos, [TENANT_A]);
+  });
+
+  it("telefone diferente: a troca guarda WhatsApp, e o painel mostra-o", async () => {
+    await trocarPara(NUMERO_NOVO);
+    assert.deepEqual(m.canais, [true]);
+    assert.equal(await canalNaPagina(), "whatsapp");
+  });
+
+  it("telefone igual ao da loja (o dono volta ao numero do registo): painel", async () => {
+    await trocarPara(NUMERO_NOVO);
+    await trocarPara(LOJA_A.replace("+244 ", ""));
+    assert.deepEqual(m.canais, [true, false]);
+    assert.equal(await canalNaPagina(), "painel");
+  });
+
+  it("o numero da loja de outro tenant nao conta: o HMAC e o do caso da sessao", async () => {
+    // O dono de A troca para o numero da loja de B: e diferente do da loja de A.
+    await trocarPara(LOJA_B);
+    assert.deepEqual(m.canais, [true]);
+  });
+
+  it("isolamento: o canal de B nao aparece na sessao de A, nem com o tenant de B no pedido", async () => {
+    m.canal.vistas.set(TENANT_B, { ...SEM_CANAL, estado: "ativo", ownerChannelWa: true });
+    const r = await m.app.request(`/painel/canal?tenant_id=${TENANT_B}`, {
+      headers: { cookie: deA, "x-kamba-tenant": TENANT_B, "x-tenant-id": TENANT_B },
+    });
+    assert.equal(r.status, 200);
+    assert.match(await r.text(), /data-canal-do-dono="painel"/);
+    assert.deepEqual(m.lidos, [TENANT_A]);
+  });
+
+  it("sem o guia a confirmar o numero da loja, a troca guarda painel, e o guia pergunta-se pelo caso da sessao", async () => {
+    m.naoConfirmados.add(CASO_A);
+    await trocarPara(NUMERO_NOVO);
+    assert.deepEqual(m.canais, [false]);
+    assert.deepEqual(m.perguntadosAoGuia, [CASO_A]);
+    assert.equal(await canalNaPagina(), "painel");
+  });
+
+  it("sem a porta do guia montada, a troca guarda painel", async () => {
+    const semGuia = rotasDoPainel({
+      comercio: new ComercioEmMemoria(),
+      canal: m.canal,
+      revogacoes: new RevogacoesEmMemoria(),
+      casos: { porId: async (id) => m.casos.get(id) ?? null },
+      anelDaAssinatura: [CHAVE, null],
+      relogio: () => m.agora,
+      troca: { troca: m.troca, anelDoPepper: [PEPPER, null], contadores: m.contadores },
+    });
+    m.agora = new Date(m.agora.getTime() + 15 * 60_000);
+    const sessao = cookie(TENANT_A, CASO_A, m);
+    const pedir = await semGuia.request("/painel/telefone", {
+      method: "POST",
+      headers: { "content-type": "application/json", cookie: sessao },
+      body: JSON.stringify({ telefone: NUMERO_NOVO }),
+    });
+    assert.equal(pedir.status, 200);
+    const verificar = await semGuia.request("/painel/telefone/verificar", {
+      method: "POST",
+      headers: { "content-type": "application/json", cookie: sessao },
+      body: JSON.stringify({ telefone: NUMERO_NOVO, codigo: ultimoCodigo(m) }),
+    });
+    assert.equal(verificar.status, 200);
+    m.agora = new Date(m.agora.getTime() + ESPERA_DA_TROCA_MS);
+    const concluir = await semGuia.request("/painel/telefone/concluir", {
+      method: "POST",
+      headers: { "content-type": "application/json", cookie: sessao },
+      body: "{}",
+    });
+    assert.equal(concluir.status, 200);
+    assert.deepEqual(m.canais, [false]);
+  });
+
+  it("um caso sem HMAC de telefone guarda painel", async () => {
+    m.casos.set(CASO_A, { tenantId: TENANT_A, fase: "activo" });
+    await trocarPara(NUMERO_NOVO);
+    assert.deepEqual(m.canais, [false]);
+  });
+
+  it("um valor guardado ausente da painel, e o estado do canal continua a sair", async () => {
+    m.canal.vistas.set(TENANT_A, { ...SEM_CANAL, estado: "ativo", ownerChannelWa: null });
+    const r = await m.app.request("/painel/canal", { headers: { cookie: deA } });
+    assert.equal(r.status, 200);
+    const corpo = await r.text();
+    assert.match(corpo, /data-canal-do-dono="painel"/);
+    assert.match(corpo, /Activo/);
+  });
+
+  it("com o canal da loja por ligar ou desligado, o WhatsApp guardado nao abre", async () => {
+    for (const estado of ["sem_canal", "desligado", "a_sincronizar"] as const) {
+      m.canal.vistas.set(TENANT_A, { ...SEM_CANAL, estado, ownerChannelWa: true });
+      assert.equal(await canalNaPagina(), "painel", estado);
+    }
+  });
+
+  it("a pagina diz o canal e nao mostra numero nenhum", async () => {
+    await trocarPara(NUMERO_NOVO);
+    const corpo = await (await m.app.request("/painel/canal", { headers: { cookie: deA } })).text();
+    assert.doesNotMatch(corpo, /999\s*000\s*4\d\d/);
   });
 });

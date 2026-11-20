@@ -300,7 +300,10 @@ class TestSoAPortaMudaOPapel(ComDono):
         self.cur.execute(
             "SELECT array_agg(r.rolname::text ORDER BY r.rolname) FROM pg_roles r "
             "WHERE r.rolname LIKE %s AND r.rolname <> 'kamba_migrator' "
-            "AND has_function_privilege(r.oid, 'platform.definir_dono(uuid, text)', 'EXECUTE')",
+            # Pelo nome e nao pela assinatura: a `0075` (KAM-216) acrescentou o
+            # terceiro argumento, e a porta continua a ser uma so.
+            "AND EXISTS (SELECT 1 FROM pg_proc p WHERE p.proname = 'definir_dono' "
+            "AND has_function_privilege(r.oid, p.oid, 'EXECUTE'))",
             ("kamba\\_%",),
         )
         self.assertEqual(self.cur.fetchone()[0], ["kamba_identity"])

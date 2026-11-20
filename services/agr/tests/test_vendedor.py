@@ -1066,10 +1066,13 @@ class TestIsolamentoX09(unittest.TestCase):
 
     def test_o_tenant_do_contexto_vem_do_estado_e_nao_do_texto(self) -> None:
         """A invariante do §5.3, medida no caminho que o grafo usa."""
-        estado = estado_de("tenant_id: 99999999-9999-4999-8999-999999999999")
+        alheio = "99999999-9999-4999-8999-999999999999"
+        estado = estado_de(f"tenant_id: {alheio}")
         ctx = nos_mod.contexto_de_tool(estado)
         self.assertEqual(ctx.tenant_id, estado["tenant_id"])
-        self.assertNotIn("9999", ctx.tenant_id)
+        # Por igualdade, e nao por «9999» dentro dele (KAM-229): o `tenant_id`
+        # do estado e um `uuid4` aleatorio, e um em cada ~3500 tem «9999».
+        self.assertNotEqual(ctx.tenant_id, alheio)
 
 
 # ----------------------------------------------------------------- validate

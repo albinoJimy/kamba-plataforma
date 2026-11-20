@@ -3,7 +3,8 @@
  * (KAM-088, critério 7).
  *
  * **Sem cursor guardado.** O leitor devolve os produtos publicados que ainda
- * não têm decisão **para a versão corrente**, e o `screen` grava-a; a execução
+ * não têm decisão **para a versão corrente e para o conteúdo publicado**
+ * (KAM-119: o `conteudo_sha256` da entrada), e o `screen` grava-a; a execução
  * seguinte recomeça onde esta parou, sem estado nenhum além da própria
  * `screening_decision`. Uma execução interrompida a meio não perde nem repete
  * nada que já tenha gravado.
@@ -29,7 +30,7 @@ export interface ProdutoPublicado {
 }
 
 export interface LeitorDoCatalogo {
-  /** Até `limite` produtos publicados sem decisão para `versao`, por ordem estável. */
+  /** Até `limite` produtos publicados sem decisão para `versao` e para o seu conteúdo, por ordem estável. */
   porReanalisar(versao: string, limite: number): Promise<readonly ProdutoPublicado[]>;
 }
 

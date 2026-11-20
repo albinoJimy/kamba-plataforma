@@ -623,7 +623,12 @@ AG_VAL_VER = "services/agr/src/kamba_agr/validador/veredicto.py"
 #: KAM-123: o Orcamento expresso.
 AG_ORC_REGRAS = "services/agr/src/kamba_agr/orcamento/regras.py"
 AG_TLS_ORC = "services/agr/src/kamba_agr/tls/orcamento.py"
+AG_ORC_PORTA = "services/agr/src/kamba_agr/orcamento/porta.py"
 AG_DONO_NOS = "services/agr/src/kamba_agr/verticais/dono/nos.py"
+#: KAM-221: a notificacao ao cliente pela resposta do KAM-224.
+AG_PELA_RESPOSTA = "services/agr/src/kamba_agr/eventos/pela_resposta.py"
+#: KAM-221: as duas colunas do *template* na `agent_replies`.
+REV76 = "db/migrations/versions/0076_template_da_resposta.py"
 #: KAM-224: a saida do AGR pelo evento de resposta.
 AG_SAIDA = "services/agr/src/kamba_agr/saida.py"
 AG_TURNO = "services/agr/src/kamba_agr/turno.py"
@@ -5024,6 +5029,133 @@ MUTACOES = [
      '            raise OrcamentoRecusadoError(FORA_DO_CATALOGO)',
      '            pass',
      "tests_agr"),
+    # ---- KAM-221 (o envio do Orcamento expresso). As cinco primeiras sao do
+    # SQL na ToolLayer e morrem no `db/tests_agr/test_quote_requests.py`; as
+    # quatro seguintes sao da ligacao, e morrem no `services/agr/tests/
+    # test_orcamento.py`; as tres seguintes sao do envio pela resposta, e morrem
+    # no `services/agr/tests/test_pela_resposta.py`; as seis ultimas sao do
+    # *template* da revisao `0076` e da corrida da margem, e morrem no
+    # `test_pela_resposta.py`, no `db/tests_agr/` e no `resposta.test.ts`. O `_registar` continua a reler a linha, e ja nao ha
+    # ensaio que o distinga: a tranca do envio impede a mudanca que ele apanhava.
+    #
+    # O Outbound volta para dentro da transaccao: outra sessao ja nao tranca a
+    # linha com `NOWAIT` (`test_no_instante_do_envio_a_linha_nao_esta_trancada`).
+    ('orc: o outbound volta a correr dentro da transaccao', AG_TLS_ORC,
+     '            preparado = _preparar(quote_id, linha, agora)\n'
+     '        desfecho = _notificar(porta, tenant_id, preparado, f"orcamento:{quote_id}:{preparado.marca}")',
+     '            preparado = _preparar(quote_id, linha, agora)\n'
+     '            desfecho = _notificar(porta, tenant_id, preparado, f"orcamento:{quote_id}:{preparado.marca}")',
+     "tests_agr"),
+    # Um cancelamento deixa de esperar pela proposta que esta a sair, e o
+    # pedido fica `cancelado` com a proposta no cliente (achado 1 da revisao):
+    # `test_um_cancelamento_durante_o_envio_espera_e_nao_cancela`.
+    ('orc: o cancelamento deixa de esperar pelo envio', AG_TLS_ORC,
+     '        cursor.execute(SQL_ESPERAR_PELO_ENVIO, (_chave_do_envio(quote_id),))\n'
+     '        cursor.execute(SQL_CANCELAR',
+     '        cursor.execute(SQL_CANCELAR',
+     "tests_agr"),
+    # Uma correccao deixa de esperar, e muda a resposta que esta a sair:
+    # `test_uma_correccao_durante_o_envio_espera_e_encontra_fechado`.
+    ('orc: a correccao deixa de esperar pelo envio', AG_TLS_ORC,
+     '        cursor.execute(SQL_ESPERAR_PELO_ENVIO, (_chave_do_envio(quote_id),))\n'
+     '        cursor.execute(SQL_TRANCAR_PEDIDO',
+     '        cursor.execute(SQL_TRANCAR_PEDIDO',
+     "tests_agr"),
+    # A expiracao da janela volta a ser do tenant inteiro:
+    # `test_a_mensagem_de_um_cliente_nao_expira_as_de_outro`.
+    ('orc: a janela expira as propostas de todos os clientes', AG_TLS_ORC,
+     'cursor.execute(SQL_EXPIRAR_DO_CONTACTO, (tenant_id, contact_id, hoje))',
+     'cursor.execute(SQL_EXPIRAR, (tenant_id, hoje))',
+     "tests_agr"),
+    # A mensagem das 24 h ganha uma chave por volta, e sai em cada uma:
+    # `test_a_volta_seguinte_repete_a_mesma_chave`.
+    ('orc: a mensagem das 24 h muda de chave em cada volta', AG_TLS_ORC,
+     'chave=f"orcamento:{qid}:sem_resposta",',
+     'chave=f"orcamento:{qid}:sem_resposta:{agora.isoformat()}",',
+     "tests_agr"),
+    # O `__main__` deixa de ligar a libertacao ao turno:
+    # `test_o_executor_recebe_o_libertar_da_mesma_porta_do_envio`.
+    ('orc: o __main__ deixa de libertar a janela', AG_MAIN,
+     '        ao_cliente_escrever=portas_do_grafo["orcamentos"].libertar,\n',
+     '',
+     AGR_UNIT),
+    # O turno deixa de chamar a libertacao:
+    # `test_a_mensagem_liberta_dentro_da_tranca_e_antes_do_grafo`.
+    ('orc: o turno deixa de libertar a janela', AG_TURNO,
+     '                    await self._cliente_escreveu(base)\n'
+     '                    estado = estado_inicial(base)',
+     '                    estado = estado_inicial(base)',
+     AGR_UNIT),
+    # A libertacao perde o prazo, e um Outbound pendurado prende o turno:
+    # `test_uma_libertacao_pendurada_nao_prende_o_turno`.
+    ('orc: a libertacao perde o prazo', AG_TURNO,
+     '            await asyncio.wait_for(\n'
+     '                self._ao_cliente_escrever(invocacao), PRAZO_DA_LIBERTACAO_S\n'
+     '            )',
+     '            await self._ao_cliente_escrever(invocacao)',
+     AGR_UNIT),
+    # Uma mensagem do dono abre uma ligacao e liberta:
+    # `test_o_dono_nao_abre_ligacao_e_o_cliente_abre_e_fecha_uma`.
+    ('orc: a porta liberta pela mensagem do dono', AG_ORC_PORTA,
+     'if getattr(invocacao, "persona", None) != PERSONA_CLIENTE:',
+     'if False:',
+     AGR_UNIT),
+    # O envio real pela resposta do KAM-224 (`eventos/pela_resposta.py`). Sem a
+    # margem, uma janela que fecha daqui a quatro minutos manda texto livre que o
+    # `worker-canal` ja pode recusar: `test_a_janela_dentro_da_margem_conta_como_fechada`.
+    ('orc: a escolha da janela perde a margem', AG_PELA_RESPOSTA,
+     '    return expira - margem > agora',
+     '    return expira > agora',
+     AGR_UNIT),
+    # Sem o modo, a proposta vai a uma conversa com um humano e o `PreSendGuard`
+    # recusa-a depois de o pedido ficar `enviado`:
+    # `test_uma_conversa_fora_do_modo_bot_nao_envia`.
+    ('orc: a escolha da janela ignora o modo', AG_PELA_RESPOSTA,
+     '            if linha is None or linha[1] != MODO_DO_BOT:',
+     '            if linha is None:',
+     AGR_UNIT),
+    # O `main()` volta ao `OutboundPorLigar`, e nenhuma proposta sai:
+    # `test_a_porta_dos_orcamentos_sai_pela_resposta`.
+    ('orc: o __main__ deixa a proposta por ligar', AG_MAIN,
+     '            ligar_para_accoes, saida=NotificacaoPelaResposta(ligar_para_saida)\n',
+     '            ligar_para_accoes\n',
+     AGR_UNIT),
+    # Com a janela fechada, a porta grava texto livre que o `Saida` recusa:
+    # `test_a_janela_fechada_ou_nunca_aberta_grava_o_template_com_os_valores`.
+    ('orc: a janela fechada grava texto livre', AG_PELA_RESPOSTA,
+     '                template=notificacao.template,\n'
+     '                parametros=notificacao.parametros,\n',
+     '',
+     AGR_UNIT),
+    # O consumidor deixa de montar o corpo de *template*, e a proposta sai como
+    # texto com a janela fechada: «uma resposta de template sai como template».
+    ('resposta: o template sai como texto', RESPOSTA_EFEITO,
+     '    r.template !== null\n',
+     '    false\n',
+     SAIDA),
+    # A reemissao com a janela aberta: o texto ainda pode sair, e o cliente
+    # recebe os dois (`test_uma_proposta_entregue_recente_ou_com_a_janela_aberta_nao_se_reemite`).
+    ('orc: a reemissao ignora a janela aberta', AG_TLS_ORC,
+     '"AND c.mode = %s AND (c.window_expires_at IS NULL OR c.window_expires_at <= %s) "',
+     '"AND c.mode = %s AND (true OR c.window_expires_at <= %s) "',
+     "tests_agr"),
+    # A reemissao em cada volta: `test_a_corrida_da_margem_reemite_com_o_template_uma_vez`.
+    ('orc: a reemissao repete-se em cada volta', AG_TLS_ORC,
+     '"WHERE t.tenant_id = r.tenant_id AND t.chave = r.chave || \':template\') "',
+     '"WHERE false) "',
+     "tests_agr"),
+    # A libertacao esquece as reemitidas, e o valor nunca sai:
+    # `test_depois_da_reemissao_o_valor_sai_quando_o_cliente_escreve_uma_vez`.
+    ('orc: a libertacao esquece as reemitidas', AG_TLS_ORC,
+     '    for quote_id, chave in reemitidas:\n',
+     '    for quote_id, chave in ():\n',
+     "tests_agr"),
+    # Parametros sem *template*, e o consumidor nao sabe montar o corpo:
+    # `test_as_tres_restricoes_recusam`.
+    ('rev0076: parametros sem template', REV76,
+     'CHECK (template_nome IS NOT NULL OR cardinality(template_parametros) = 0)',
+     'CHECK (true)',
+     "tests_agr"),
     # ---- KAM-224 (a saida do AGR). As duas primeiras sao do produtor, e quem as
     # mata e a `agr_unit` (`services/agr/tests/test_saida.py`); a terceira e do
     # SQL contra a base (`db/tests_agr/test_agent_replies.py`); as tres ultimas
@@ -7432,6 +7564,22 @@ MUTACOES = [
     # A re-analise lia a categoria que o dono ja trocou. O
     # `test_o_lote_ve_os_publicados_sem_decisao_com_a_categoria_mais_recente`
     # tem de a matar.
+    ('screening: a re-analise deixa de comparar o conteudo decidido', SCREENING_SQL,
+     "AND d.conteudo_sha256 = sha256(convert_to(",
+     "AND d.conteudo_sha256 = d.conteudo_sha256 OR NULL = sha256(convert_to(",
+     "tests"),
+    # KAM-119: uma decisao sobre outro texto voltava a esconder o publicado da
+    # re-analise (achado 1 da revisao adversarial do KAM-222). O
+    # `test_uma_decisao_sobre_outro_conteudo_nao_esconde_o_publicado` tem de a
+    # matar.
+    ('screening: o resumo da re-analise escreve o JSON com espaco', SCREENING_SQL,
+     "|| ',[' || to_json(p.nome)::text ||",
+     "|| ', [' || to_json(p.nome)::text ||",
+     "tests"),
+    # KAM-119: o separador do `json_build_array` (`", "`) em vez do do
+    # `JSON.stringify`. Nenhum resumo casava, e todo o publicado voltava a ser
+    # analisado em cada execucao. O
+    # `test_o_resumo_da_base_e_o_do_motor_octeto_a_octeto` tem de a matar.
 
     # ------------------------------------------- KAM-089 (revisao `0048`)
     #

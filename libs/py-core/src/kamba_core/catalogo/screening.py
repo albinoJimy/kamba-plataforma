@@ -98,12 +98,33 @@ class ScreeningPorLigar:
         )
 
 
+#: As regras sinteticas que o `screen` **acrescenta no fim** da lista quando o
+#: classificador desce uma `permitida` das regras (`motor.ts`). Iguais as
+#: `REGRA_CLASSIFICADOR*` de la; o ensaio compara-as.
+REGRAS_DO_CLASSIFICADOR: Final = ("classificador_indisponivel", "classificador_parcial", "classificador")
+
+#: A regra que a ponte do COM acrescenta quando a decisao nova e `permitida` mas
+#: o `assertPublishable` do mesmo conteudo recusa (uma `condicional` anterior a
+#: espera de humano, achado F03 do KAM-088). E a razao, e vai no fim (KAM-119).
+REGRA_REVISAO_PENDENTE: Final = "revisao_pendente"
+
+
 def categoria_restrita(resultado: ResultadoDoScreen | None) -> str | None:
-    """`None` se publica; senao o valor de `catalog_ingestions.categoria_restrita`."""
+    """`None` se publica; senao o valor de `catalog_ingestions.categoria_restrita`.
+
+    **Uma `permitida` das regras que o classificador desceu** tem na lista a
+    categoria que passou (`moda`) e, no fim, a regra sintetica do motor. A razao
+    da recusa e essa regra, e nao a primeira com forma de categoria: a primeira
+    versao devolvia `moda`, a categoria que **passou** (achado do KAM-222, credor
+    KAM-119). Fora desse caso a lista so tem regras restritivas, e qualquer uma
+    e uma razao.
+    """
     if resultado is None or resultado.decisao not in DECISOES:
         return SCREENING_INDISPONIVEL
     if resultado.decisao == PERMITIDA:
         return None
+    if resultado.regras and resultado.regras[-1] in (*REGRAS_DO_CLASSIFICADOR, REGRA_REVISAO_PENDENTE):
+        return resultado.regras[-1]
     for regra in resultado.regras:
         if FORMA_DA_CATEGORIA.fullmatch(regra):
             return regra

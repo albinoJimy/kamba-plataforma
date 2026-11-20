@@ -682,10 +682,14 @@ class TestGrafoDoDono(unittest.TestCase):
         asyncio.run(grafo.ainvoke(_estado_com_texto(invocacao, texto), _config(invocacao)))
         return [t for t, _, _ in saida.enviadas]
 
-    def test_um_pedido_do_catalogo_diz_que_os_modulos_nao_estao_activos(self) -> None:
+    def test_um_pedido_do_catalogo_com_as_tools_declaradas_diz_que_o_modulo_nao_esta_activo(self) -> None:
+        # KAM-119: o catalogo real deste ensaio nao traz executores, e as quatro
+        # ficam declaradas; a ToolLayer recusa-as e o dono e avisado.
+        from kamba_agr.verticais.dono import catalogo as catalogo_do_dono
+
         enviados = self._turno("quero publicar um produto novo no catalogo")
         self.assertEqual(len(enviados), 1)
-        self.assertIn(nos_do_dono.MSG_MODULOS_INACTIVOS, enviados[0])
+        self.assertIn(catalogo_do_dono.MSG_CATALOGO_INACTIVO, enviados[0])
 
     def test_um_sim_por_texto_nao_chama_tool_nenhuma(self) -> None:
         import test_grafos
@@ -1070,10 +1074,11 @@ class TestBotaoNaInvocacao(unittest.TestCase):
     def test_o_tecto_do_botao_e_o_da_cloud_api(self) -> None:
         self.assertEqual(_inv(type="interactive", botao="a" * 256).botao, "a" * 256)
 
-    def test_o_campo_e_o_unico_opcional_alem_da_persona(self) -> None:
+    def test_os_opcionais_sao_a_persona_o_botao_e_o_message_id(self) -> None:
+        # KAM-223 acrescentou o `message_id`, aditivo como os outros dois.
         from kamba_agr.contexto import CAMPOS_OPCIONAIS
 
-        self.assertEqual(CAMPOS_OPCIONAIS, ("persona", "botao"))
+        self.assertEqual(CAMPOS_OPCIONAIS, ("persona", "botao", "message_id"))
         self.assertNotIn("botao", CAMPOS)
 
 

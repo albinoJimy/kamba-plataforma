@@ -203,7 +203,7 @@ class TestMoeda(unittest.TestCase):
         KAM-031 (divida 105), e este teste existe para que a afirmacao nao se
         leia como mais forte do que e.
         """
-        self.assertEqual(KINDS, ("price", "stock", "total", "datetime", "quote_price"))
+        self.assertEqual(KINDS, ("price", "stock", "total", "datetime", "quote_price", "count"))
         self.assertNotIn("currency", KINDS)
         self.assertNotIn("discount", KINDS)
 

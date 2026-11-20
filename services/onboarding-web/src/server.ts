@@ -40,7 +40,14 @@
 import { serve } from "@hono/node-server";
 import pg from "pg";
 import { port } from "@kamba/core-ts";
-import { trocaPeloPool, type DestinoDoAviso } from "@kamba/core-ts/dono";
+import {
+  ConversaDoDono,
+  conversaPeloPool,
+  invocadorPorHttp,
+  trocaPeloPool,
+  type DestinoDoAviso,
+  type MomentoDoAviso,
+} from "@kamba/core-ts/dono";
 import { EnvKeyProvider, Identidade } from "@kamba/core-ts/identity";
 import { AvisosDaListaEmMemoria, ListaDeEspera, ListaEmMemoria, MetricasDaLista } from "@kamba/core-ts/capacidade";
 import {
@@ -78,7 +85,7 @@ import type { OpcoesDoGuia } from "./guia.ts";
 import { LigadorPorHttp } from "./ligador.ts";
 import { CanalPeloCom } from "./painel/canal.ts";
 import { ComercioPorHttp } from "./painel/comercio.ts";
-import type { OpcoesDaTroca, OpcoesDoPainel } from "./painel/rotas.ts";
+import type { OpcoesDaConversa, OpcoesDaTroca, OpcoesDoPainel } from "./painel/rotas.ts";
 import { RevogacoesEmMemoria } from "./painel/sessao.ts";
 import { precoMaximoKz } from "./painel/validacao.ts";
 import { DEFAULT_PORT, SERVICE } from "./meta.ts";
@@ -107,6 +114,39 @@ const URL_DA_IDENTIDADE = (process.env[VARIAVEL_DA_IDENTIDADE] ?? "").trim();
  * recebia um 500 (achado 5 da revisão adversarial do KAM-217).
  */
 const CHAVES_DA_TROCA = ["pepper_contact_hmac", "kek_contact_dek"] as const;
+
+/**
+ * A conversa do dono com o Assistente (KAM-223): a ligação `kamba_app` e o AGR.
+ * **Opcionais, e só as duas juntas a montam**: sem elas, as duas rotas da
+ * conversa respondem 503 e o resto do painel serve igual. Com elas, a
+ * credencial `agr_painel_token` é obrigatória no arranque.
+ *
+ * A ligação é a segunda deste processo, e é de outro papel: o `kamba_identity`
+ * não lê `tenants` nem `tenant_channels` (invariante do KAM-008), e a conversa
+ * precisa do `owner_contact_id` e do canal (decisão 1 do fundador, bloco do
+ * KAM-217).
+ */
+const VARIAVEL_DA_APP = "ONBOARDING_APP_DB_URL";
+const URL_DA_APP = (process.env[VARIAVEL_DA_APP] ?? "").trim();
+const URL_DO_AGR = (process.env["KAMBA_AGR_URL"] ?? "").trim();
+
+/**
+ * O COM interno do painel (KAM-099). **Sem ele o painel não monta**, e com ele
+ * nem a troca nem a conversa: as chaves que só elas usam não se exigem no
+ * arranque. Até ao KAM-223 a troca exigia as chaves do contacto com a cadeia do
+ * `kamba_identity` só, e em `dev` a cadeia está sempre definida — pelo que o
+ * serviço do compose não subia sem uma KEK que nenhuma rota montada usava.
+ */
+const URL_DO_COM = (process.env["ONBOARDING_COM_INTERNO_URL"] ?? "").trim();
+const TROCA_MONTA = URL_DO_COM !== "" && URL_DA_IDENTIDADE !== "";
+const CONVERSA_MONTA = URL_DO_COM !== "" && URL_DA_APP !== "" && URL_DO_AGR !== "";
+
+/**
+ * A credencial **do painel** no AGR, e não a do *shim*: quem tem o
+ * `agr_internal_token` corre o turno de qualquer contacto, e o AGR só aceita
+ * esta num turno do dono com `message_id`. Uma credencial por chamador.
+ */
+const SEGREDO_DO_AGR = "agr_painel_token";
 const VARIAVEL_DOS_PROXIES = "ONBOARDING_PROXIES_DE_CONFIANCA";
 
 /**
@@ -182,7 +222,12 @@ const secrets = await Secrets.arrancar({
   // nao ha como cunhar um `Destino` — isto e, nao ha OTP. O inventario declara-o
   // com `obrigatorio_em: []` porque nenhum **outro** servico o pede; a lista de
   // arranque de quem o usa e que o torna obrigatorio aqui.
-  obrigatorios: [...REFERENCIAS, REF_PEPPER_DO_SMS, ...(URL_DA_IDENTIDADE === "" ? [] : CHAVES_DA_TROCA)],
+  obrigatorios: [
+    ...REFERENCIAS,
+    REF_PEPPER_DO_SMS,
+    ...(TROCA_MONTA ? CHAVES_DA_TROCA : []),
+    ...(CONVERSA_MONTA ? [SEGREDO_DO_AGR] : []),
+  ],
 });
 
 const [pepper, pepperAnterior] = await anelDoPepper(secrets);
@@ -200,15 +245,17 @@ const [pepperDoDestino] = await anelDoPepperDoSms(provider);
 const casos = new CasosEmMemoria();
 const contadores = new ContadoresEmMemoria();
 const antiabuso = new AntiAbuso({ contadores, chave: pepper });
+// O `FakeSmsProvider` é o que `staging` usa, por decisão do critério 8 do
+// KAM-116: **não há agregador escolhido** e escrever um adaptador para um
+// agregador hipotético era inventar a API dele.
+const provedorDoOtp = new OtpPorSmsLocal({ sms: new FakeSmsProvider(), pepperDoDestino });
+const alertaDoOtp = (motivo: string): void => log.error({ outcome: motivo, error_code: motivo });
 const otp = new Otp({
   repositorio: new OtpEmMemoria(),
   contadores,
-  // O `FakeSmsProvider` é o que `staging` usa, por decisão do critério 8 do
-  // KAM-116: **não há agregador escolhido** e escrever um adaptador para um
-  // agregador hipotético era inventar a API dele.
-  provedor: new OtpPorSmsLocal({ sms: new FakeSmsProvider(), pepperDoDestino }),
+  provedor: provedorDoOtp,
   chave: pepper,
-  alerta: (motivo) => log.error({ outcome: motivo, error_code: motivo }),
+  alerta: alertaDoOtp,
 });
 const registo = new Registo({
   repositorio: casos,
@@ -237,6 +284,12 @@ const actividade = new Actividade({ repositorio: casos, contadores });
  * CONFIRMADA** de que a Graph diga se o WABA tem cartão antes do primeiro envio
  * (credor: KAM-023 / ext:KAM-102).
  */
+/**
+ * O estado do guia, partilhado com a troca de telefone (KAM-216): o
+ * `numeroConfirmado` é o que diz que o número da loja é o telefone do caso.
+ */
+const repositorioDoGuia = new GuiaEmMemoria();
+
 function montarGuia(): OpcoesDoGuia | undefined {
   const valores = Object.fromEntries(
     Object.entries(VARIAVEIS_DO_GUIA).map(([chave, nome]) => [chave, (process.env[nome] ?? "").trim()]),
@@ -258,7 +311,7 @@ function montarGuia(): OpcoesDoGuia | undefined {
   });
   const guia = new PassoGuiado({
     casos,
-    repositorio: new GuiaEmMemoria(),
+    repositorio: repositorioDoGuia,
     capacidade: lista,
     ligador: new LigadorPorHttp(valores.gwy),
     gates: new GatesEmMemoria(),
@@ -313,6 +366,39 @@ const AVISO_POR_ENTREGAR: Record<DestinoDoAviso, string> = {
 };
 
 /**
+ * O momento do aviso vai no `error_code`, que a *allowlist* aceita como
+ * identificador: `pendente` (a espera das 72 h abriu), `feita` ou `cancelada`.
+ */
+const MOMENTO_DO_AVISO: Record<MomentoDoAviso, string> = {
+  pendente: "troca_pendente",
+  feita: "troca_feita",
+  cancelada: "troca_cancelada",
+};
+
+/** Um *pool* `pg` com os dois ouvintes de `error` (ver o `montarTroca`). */
+function poolDe(url: string, nome: string, ligacoes: number): pg.Pool {
+  const pool = new pg.Pool({
+    connectionString: url,
+    max: ligacoes,
+    // ***Proposta***: uma base que não responde dá erro ao fim de 5 s, e o
+    // pedido recebe-o, em vez de ficar pendurado à espera de ligação.
+    connectionTimeoutMillis: 5_000,
+    application_name: `onboarding-web:${nome}`,
+  });
+  // Uma ligação que cai não pode derrubar o processo, e há dois sítios onde
+  // ela cai. **Inactiva**: o `pg` emite `error` no *pool*. **Emprestada**: o
+  // *pool* tira o seu ouvinte enquanto a empresta, e o `error` sai do cliente;
+  // sem ouvinte, é uma excepção por tratar e o processo sai — e com ele os casos
+  // em memória. O ouvinte de cada cliente põe-se quando ele nasce (achado 7 da
+  // revisão adversarial do KAM-217); a instrução em curso falha na mesma.
+  pool.on("error", (erro) => log.excepcao(erro, `${nome}_bd_falhou`));
+  pool.on("connect", (cliente) => {
+    cliente.on("error", (erro) => log.excepcao(erro, `${nome}_bd_falhou`));
+  });
+  return pool;
+}
+
+/**
  * A troca de telefone do dono (KAM-211), **só se a ligação do `kamba_identity`
  * estiver configurada**.
  *
@@ -324,46 +410,61 @@ const AVISO_POR_ENTREGAR: Record<DestinoDoAviso, string> = {
  * `EnvKeyProvider`, como no CHR,
  * e o `Identidade.arrancar` recusa-as se o `KAMBA_ENV` não for este ambiente.
  *
- * **O que fica em memória, e tem credor** (KAM-223): o desafio do OTP e os
- * pedidos de troca em curso. Um reinício obriga o dono a pedir outro código, que
- * é o lado seguro; persisti-los é uma tabela nova.
+ * **O estado da troca vive na base** (KAM-223, revisão `0077`): a troca, o
+ * prazo das 72 h e o desafio do OTP de cada número, na `owner_phone_changes`.
+ * O `Otp` de cada operação é montado sobre o desafio dessa troca, com os
+ * contadores, o fornecedor e a chave deste processo — os limites por destino e o
+ * orçamento diário são os mesmos do registo. Os contadores continuam em memória
+ * por processo, e é dito: duas réplicas têm dois orçamentos.
  */
-async function montarTroca(): Promise<OpcoesDaTroca | undefined> {
+async function montarTroca(guiaMontado: boolean): Promise<OpcoesDaTroca | undefined> {
   if (URL_DA_IDENTIDADE === "") {
     log.info({ outcome: "painel_troca_desligada" });
     return undefined;
   }
   const identidade = await Identidade.arrancar({ chaves: new EnvKeyProvider({ ambiente: env }) });
-  const pool = new pg.Pool({
-    connectionString: URL_DA_IDENTIDADE,
-    max: LIGACOES_DA_IDENTIDADE,
-    // ***Proposta***: uma base que não responde dá erro ao fim de 5 s, e o
-    // pedido da troca recebe-o, em vez de ficar pendurado à espera de ligação.
-    connectionTimeoutMillis: 5_000,
-    application_name: "onboarding-web:identidade",
-  });
-  // Uma ligação que cai não pode derrubar o processo, e há dois sítios onde
-  // ela cai. **Inactiva**: o `pg` emite `error` no *pool*. **Emprestada**: o
-  // *pool* tira o seu ouvinte enquanto a empresta, e o `error` sai do cliente;
-  // sem ouvinte, é uma excepção por tratar e o processo sai — e com ele os casos
-  // em memória. O ouvinte de cada cliente põe-se quando ele nasce (achado 7 da
-  // revisão adversarial); a instrução em curso falha na mesma, e o pedido dá 500.
-  pool.on("error", (erro) => log.excepcao(erro, "identidade_bd_falhou"));
-  pool.on("connect", (cliente) => {
-    cliente.on("error", (erro) => log.excepcao(erro, "identidade_bd_falhou"));
-  });
+  const pool = poolDe(URL_DA_IDENTIDADE, "identidade", LIGACOES_DA_IDENTIDADE);
   return {
     troca: trocaPeloPool({
       pool,
       identidade,
-      otp,
-      avisar: async ({ destino }) => {
-        log.info({ outcome: AVISO_POR_ENTREGAR[destino] });
+      otp: (repositorio) =>
+        new Otp({ repositorio, contadores, provedor: provedorDoOtp, chave: pepper, alerta: alertaDoOtp }),
+      // **Não entrega nada** (KAM-115 sem canal): a espera das 72 h não avisa
+      // ninguém até lá, e o bloco do KAM-223 di-lo.
+      avisar: async ({ destino, momento }) => {
+        log.info({ outcome: AVISO_POR_ENTREGAR[destino], error_code: MOMENTO_DO_AVISO[momento] });
       },
     }),
     anelDoPepper: [pepper, pepperAnterior],
     contadores,
     proxiesDeConfianca: proxiesDeConfianca(),
+    // Sem o guia montado, nenhum número da loja foi confirmado: a troca guarda o
+    // painel (KAM-216).
+    numeroDaLojaConfirmado: guiaMontado
+      ? async (casoId) => (await repositorioDoGuia.ler(casoId))?.numeroConfirmado === true
+      : undefined,
+  };
+}
+
+/** Quantas ligações do `kamba_app` a conversa abre. ***Proposta***, pela razão da identidade. */
+const LIGACOES_DA_APP = 4;
+
+/**
+ * A conversa do dono com o Assistente (KAM-223), **só com a ligação `kamba_app`
+ * e o endereço do AGR**. A credencial lê-se a cada pedido, porque roda.
+ */
+async function montarConversa(): Promise<OpcoesDaConversa | undefined> {
+  if (URL_DA_APP === "" || URL_DO_AGR === "") {
+    log.info({ outcome: "painel_conversa_desligada" });
+    return undefined;
+  }
+  const pool = poolDe(URL_DA_APP, "app", LIGACOES_DA_APP);
+  return {
+    conversa: new ConversaDoDono({
+      ...conversaPeloPool(pool),
+      invocar: invocadorPorHttp({ agr: URL_DO_AGR, credencial: () => secrets.get("agr_painel_token") }),
+    }),
   };
 }
 
@@ -376,8 +477,10 @@ async function montarTroca(): Promise<OpcoesDaTroca | undefined> {
  * (o `get` do cofre lança), em vez de subir um painel que responde 503 a tudo.
  *
  * O estado do canal vem do COM (`CanalPeloCom`, KAM-190), pela mesma credencial:
- * a única ligação deste processo à base é a do `kamba_identity`, e só a troca de
- * telefone a usa (`montarTroca`, KAM-217). A reentrada por código usa o
+ * as ligações deste processo à base são duas, cada uma só para a sua rota: a do
+ * `kamba_identity` para a troca de telefone (`montarTroca`, KAM-217) e a do
+ * `kamba_app` para a conversa do dono (`montarConversa`, KAM-223). O canal do dono
+ * que a troca guarda (KAM-216) volta pelo `channel-view`, na linha do canal. A reentrada por código usa o
  * mesmo `Otp`, os mesmos casos e os mesmos contadores do registo — um telefone
  * esgotado no registo está esgotado aqui.
  *
@@ -385,7 +488,7 @@ async function montarTroca(): Promise<OpcoesDaTroca | undefined> {
  * painel não a oferece e o caso activo tem o 409 de antes.
  */
 async function montarPainel(guia: PassoGuiado | undefined): Promise<OpcoesDoPainel | undefined> {
-  const com = (process.env["ONBOARDING_COM_INTERNO_URL"] ?? "").trim();
+  const com = URL_DO_COM;
   if (com === "") {
     log.info({ outcome: "painel_desligado" });
     return undefined;
@@ -407,7 +510,8 @@ async function montarPainel(guia: PassoGuiado | undefined): Promise<OpcoesDoPain
       proxiesDeConfianca: proxiesDeConfianca(),
       religar: guia === undefined ? undefined : (id) => guia.religar(id),
     },
-    troca: await montarTroca(),
+    troca: await montarTroca(guia !== undefined),
+    conversa: await montarConversa(),
   };
 }
 

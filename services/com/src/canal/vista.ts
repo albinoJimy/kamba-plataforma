@@ -2,7 +2,8 @@
  * O estado do canal que o painel do dono mostra (KAM-190, critério 7 do KAM-099).
  *
  * ```text
- * vistaDoCanal(r)   SQL_CANAL_DO_PAINEL         platform.tenant_channels
+ * vistaDoCanal(r)   SQL_CANAL_DO_PAINEL         platform.tenant_channels, e o
+ *                                               tenants.owner_channel_wa (KAM-216)
  *                   SQL_SINCRONIZACAO_DO_CANAL  platform.channel_coexistence (uma por canal)
  *                   SQL_NIVEL_DO_TENANT         platform.trust_level   (KAM-096)
  *                   ServicoDeTrust.avisosDoPainel                      (KAM-097)
@@ -77,6 +78,13 @@ export interface VistaDoCanal {
   readonly currency: string | null;
   /** Os códigos públicos das sanções em vigor, do mais recente para o mais antigo (KAM-097). */
   readonly avisos: readonly string[];
+  /**
+   * O canal do dono que a troca de telefone guardou (`tenants.owner_channel_wa`,
+   * KAM-216): `true`, `false`, ou `null` sem canal ou sem valor. **Não decide**:
+   * quem decide é o `canalNoPainel` do `onboarding-web`, que só abre o WhatsApp
+   * com o `true` exacto e o canal `ativo`. É um booleano e não um telefone.
+   */
+  readonly ownerChannelWa: boolean | null;
 }
 
 /**
@@ -84,18 +92,26 @@ export interface VistaDoCanal {
  * ligado primeiro, e o `id` a desempatar, para a resposta não depender do plano.
  * Os de `origem = 'plataforma'` não entram: são o Fluxo B, que o ADR-011 recusa
  * em produção, e não são o número do dono.
+ *
+ * **Com o canal do dono do tenant na mesma linha** (KAM-216): o
+ * `tenants.owner_channel_wa`, pelo `JOIN` na chave. A `tenants` não tem
+ * `tenant_id`, e o repo-base só aceita uma consulta com `tenant_id = $1`; o
+ * filtro é o do canal, e a RLS das duas tabelas é a do contexto. Sem canal não
+ * há linha, e sem canal o dono tem o painel de qualquer modo.
  */
 export const SQL_CANAL_DO_PAINEL = `
-  SELECT id::text AS channel_id, estado, quality_rating, messaging_limit
-    FROM platform.tenant_channels
-   WHERE tenant_id = $1 AND origem = 'pme'
-   ORDER BY CASE estado
+  SELECT c.id::text AS channel_id, c.estado, c.quality_rating, c.messaging_limit,
+         t.owner_channel_wa
+    FROM platform.tenant_channels c
+    JOIN platform.tenants t ON t.id = c.tenant_id
+   WHERE c.tenant_id = $1 AND c.origem = 'pme'
+   ORDER BY CASE c.estado
               WHEN 'ativo' THEN 0
               WHEN 'restrito' THEN 1
               WHEN 'pendente' THEN 2
               ELSE 3
             END,
-            id
+            c.id
    LIMIT 1
 `;
 
@@ -167,5 +183,6 @@ export async function vistaDoCanal(r: Pick<Registo, "repo">): Promise<Resultado<
     tectoPedidoMinor: nivel === undefined ? null : BigInt(String(nivel["tecto_pedido_minor"])),
     currency: texto(nivel?.["currency"]),
     avisos,
+    ownerChannelWa: typeof canal?.["owner_channel_wa"] === "boolean" ? canal["owner_channel_wa"] : null,
   });
 }

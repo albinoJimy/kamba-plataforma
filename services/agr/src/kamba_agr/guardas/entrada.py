@@ -15,12 +15,13 @@ aparece no *saver*; o mesmo PAN por esta funcao, nao.
 
 Logo ha duas barreiras e nao uma:
 
-1. **Esta funcao**, que quem enche a janela tem de usar. Hoje ninguem a enche
-   em producao — o `turno.py` passa o `estado_inicial` sem texto, porque o
-   `agent_invocation` nao traz o corpo (ver o cabecalho do
-   `verticais/vendedor/nos.py`) —, pelo que a convencao nasce aqui e **e
-   imposta por maquina**: o `test_guardas.py::TestUmaSoVia` recusa uma
-   mensagem `user` construida em `src/` fora deste modulo.
+1. **Esta funcao**, que quem enche a janela tem de usar. O `agent_invocation`
+   nao traz o corpo (ver o cabecalho do `verticais/vendedor/nos.py`); desde o
+   KAM-223 traz o `message_id` de uma fonte persistida, e o `turno.py` le o
+   texto por ele (`mensagens.py`) e pu-lo na janela **por aqui**, antes do
+   `ainvoke`. A convencao **e imposta por maquina**: o
+   `test_guardas.py::TestUmaSoVia` recusa uma mensagem `user` construida em
+   `src/` fora deste modulo.
 2. **O `guard_in`**, que substitui a mensagem na janela (pelo `id`, que e o
    que o redutor `add_messages` entende) quando ela chega crua. Protege todos
    os *checkpoints* depois dele, e **nao** o de entrada — por isso e a segunda.
@@ -40,9 +41,20 @@ def texto_seguro(texto: str) -> str:
     return MARCA_SENSIVEL if e_sensivel(redigido) else redigido
 
 
-def mensagem_do_cliente(texto: str) -> dict[str, str]:
-    """A mensagem do cliente para a janela `messages`. A unica via."""
-    return {"role": "user", "content": texto_seguro(texto)}
+def mensagem_do_cliente(texto: str, identificador: str | None = None) -> dict[str, str]:
+    """A mensagem do cliente para a janela `messages`. A unica via.
+
+    O `identificador` e opcional (KAM-223), e vai para o `id` da mensagem: o
+    executor passa o `message_id` da
+    `platform.agent_messages`, e e por ele que o redutor `add_messages`
+    **substitui** em vez de acrescentar — um turno repetido sobre o mesmo
+    *checkpoint* nao poe a mesma mensagem duas vezes na janela, e o
+    `substituicao_na_janela` tem por onde a trocar.
+    """
+    mensagem = {"role": "user", "content": texto_seguro(texto)}
+    if identificador is not None:
+        mensagem["id"] = identificador
+    return mensagem
 
 
 def substituicao_na_janela(estado: Mapping[str, Any]) -> list[Any]:

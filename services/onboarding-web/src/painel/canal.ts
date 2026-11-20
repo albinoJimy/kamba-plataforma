@@ -49,6 +49,11 @@ export interface VistaDoCanal {
   readonly tectoPedidoMinor: bigint | null;
   /** Os códigos dos avisos de T&S em vigor (KAM-097), do mais recente ao mais antigo. */
   readonly avisos: readonly string[];
+  /**
+   * O canal do dono que a troca guardou (`tenants.owner_channel_wa`, KAM-216):
+   * `true`, `false` ou `null`. Quem decide é o `canalNoPainel`.
+   */
+  readonly ownerChannelWa: boolean | null;
 }
 
 export interface LeitorDoCanal {
@@ -65,6 +70,7 @@ export const SEM_CANAL: VistaDoCanal = {
   nivel: null,
   tectoPedidoMinor: null,
   avisos: [],
+  ownerChannelWa: null,
 };
 
 /** O duplo: por tenant, e `sem_canal` para quem não está no mapa. */

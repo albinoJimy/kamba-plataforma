@@ -485,6 +485,18 @@ services:
       # verifica-a: tem de ser o mesmo valor, e e obrigatoria ao arranque dos dois.
       KAMBA_SECRET_COM_INTERNAL_TOKEN: ${KAMBA_SECRET_COM_INTERNAL_TOKEN:?o cofre entrega a credencial da API interna do COM}
       KAMBA_COM_URL: ${KAMBA_COM_URL:-http://com:3002}
+      # KAM-223. O AGR verifica a credencial do painel do dono no `/internal/turn`,
+      # so num turno do dono com `message_id`; lida a cada pedido, e em falta a
+      # rota recusa. O `onboarding-web` apresenta-a.
+      KAMBA_SECRET_AGR_PAINEL_TOKEN: ${KAMBA_SECRET_AGR_PAINEL_TOKEN:-}
+      # KAM-228. O AGR verifica a credencial do `POST /internal/screening`, que o
+      # classificador do `screen` do COM apresenta. Tem de ser o mesmo valor.
+      KAMBA_SECRET_AGR_SCREENING_TOKEN: ${KAMBA_SECRET_AGR_SCREENING_TOKEN:?o cofre entrega a credencial da rota do classificador do AGR}
+      # A chave virtual da plataforma para o `screening-nano` (KAM-195), com que o
+      # AGR chama o LiteLLM do classificador. **Opcional**, como o inventario a
+      # declara: sem ela o `chamar` falha, o COM le `condicional`, e as condicoes
+      # recusam. Fecha, e nao abre.
+      KAMBA_SECRET_LITELLM_SCREENING_KEY: ${KAMBA_SECRET_LITELLM_SCREENING_KEY:-}
     deploy:
       replicas: 2
     networks:
@@ -589,6 +601,11 @@ services:
       KAMBA_SECRET_SEGREDO_INTENTS: ${KAMBA_SECRET_SEGREDO_INTENTS:?o cofre entrega o segredo das intencoes}
       KAMBA_SECRET_SEGREDO_INTENTS_ANTERIOR: ${KAMBA_SECRET_SEGREDO_INTENTS_ANTERIOR:-}
       KAMBA_COM_DB_URL: ${KAMBA_COM_DB_URL:?o deploy passa a cadeia de ligacao do kamba_app}
+      # KAM-228. O classificador do `screen` (KAM-222): com o `KAMBA_AGR_URL`, o
+      # COM apresenta a `agr_screening_token` ao AGR e exige-a no arranque. O
+      # `agr` esta no `NO_PROXY`: a chamada fica na rede `app`.
+      KAMBA_AGR_URL: http://agr:8000
+      KAMBA_SECRET_AGR_SCREENING_TOKEN: ${KAMBA_SECRET_AGR_SCREENING_TOKEN:?o cofre entrega a credencial da rota do classificador do AGR}
     networks:
       - app
       - data
@@ -621,6 +638,22 @@ services:
     environment:
       <<: [*node-env, *saida]
       PORT: "3003"
+      # KAM-223: o ambiente do cofre e os tres segredos da inscricao, sem os quais
+      # o `server.ts` sai no arranque. **Obrigatorios**: um registo sem a chave
+      # de assinatura nao serve pedidos (a regra 1 do `Secrets.arrancar`).
+      KAMBA_AMBIENTE: staging
+      KAMBA_SECRET_PEPPER_ONBOARDING_IDENT: ${KAMBA_SECRET_PEPPER_ONBOARDING_IDENT:?o cofre entrega o pepper dos identificadores do onboarding}
+      KAMBA_SECRET_PEPPER_ONBOARDING_IDENT_ANTERIOR: ${KAMBA_SECRET_PEPPER_ONBOARDING_IDENT_ANTERIOR:-}
+      KAMBA_SECRET_SEGREDO_ONBOARDING_ASSINATURA: ${KAMBA_SECRET_SEGREDO_ONBOARDING_ASSINATURA:?o cofre entrega a chave de assinatura do onboarding}
+      KAMBA_SECRET_SEGREDO_ONBOARDING_ASSINATURA_ANTERIOR: ${KAMBA_SECRET_SEGREDO_ONBOARDING_ASSINATURA_ANTERIOR:-}
+      KAMBA_SECRET_PEPPER_SMS_DESTINO: ${KAMBA_SECRET_PEPPER_SMS_DESTINO:?o cofre entrega o pepper do destino do SMS}
+      KAMBA_SECRET_PEPPER_SMS_DESTINO_ANTERIOR: ${KAMBA_SECRET_PEPPER_SMS_DESTINO_ANTERIOR:-}
+      # KAM-223: a conversa do dono com o Assistente. **Opcional**, como a troca:
+      # so monta com o painel, com esta cadeia (`kamba_app`) e com o AGR, e entao
+      # a credencial do painel passa a obrigatoria no arranque.
+      ONBOARDING_APP_DB_URL: ${ONBOARDING_APP_DB_URL:-}
+      KAMBA_AGR_URL: ${ONBOARDING_AGR_URL:-}
+      KAMBA_SECRET_AGR_PAINEL_TOKEN: ${KAMBA_SECRET_AGR_PAINEL_TOKEN:-}
       # KAM-217: a troca de telefone do dono, como `kamba_identity`. **Opcional**:
       # o processo so a monta com o painel (`ONBOARDING_COM_INTERNO_URL`) e com
       # esta cadeia, e sem ela as duas rotas da troca respondem 503. O compose

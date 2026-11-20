@@ -11,7 +11,9 @@ aqui fica e o esqueleto do Vendedor tal como esta, com o meio trocado:
 * as transicoes do esqueleto — entrada, voz, guarda, validador, guarda de
   saida, envio e *handoff* — sao as do §7.3 palavra por palavra, e levam
   `FONTE_DO_ESQUELETO`;
-* as quatro saidas do `classify` sao deste ticket (`FONTE_DO_DONO`);
+* tres das saidas do `classify` sao deste ticket (`FONTE_DO_DONO`); a do
+  catalogo (11) passou ao `confirm` e a 37 e nova com o KAM-119
+  (`FONTE_DO_CATALOGO`), e as do botao e do orcamento dizem os seus;
 * as quatro do concierge sao as do KAM-114 (`FONTE_DO_CONCIERGE`).
 
 ## Porque e que o concierge esta aqui, e nao estava no desenho
@@ -61,6 +63,9 @@ FONTE_DO_CONCIERGE: Final = "KAM-114 (ADR-L005)"
 #: no**: os pendentes dizem-se no `compose` que ja existe, e um no proprio a
 #: mais punha o reaproveitamento abaixo do piso do §21.4 (12 de 18).
 FONTE_DO_ORCAMENTO: Final = "KAM-220"
+#: As arestas da conversa do catalogo (KAM-119): a 11 passa do `compose` ao
+#: `confirm`, e a 37 e nova.
+FONTE_DO_CATALOGO: Final = "KAM-119"
 
 #: O piso do criterio 10 do KAM-118: reutilizados / total.
 REAPROVEITAMENTO_MINIMO: Final = 0.70
@@ -132,6 +137,7 @@ INTENCOES: Final = (
     "confirmar",
     "orcamento",
     "responder_orcamento",
+    "catalogo",
     "outro",
 )
 
@@ -148,13 +154,21 @@ ARESTAS: Final = (
     Aresta(8, "guard_in", "classify", "ok", "ok", fonte=FONTE_DO_ESQUELETO),
     Aresta(9, "guard_in", "safe_reply", "safe", "nao ok", fonte=FONTE_DO_ESQUELETO),
     Aresta(10, "guard_in", "handoff_prepare", "human", "assunto sensivel", fonte=FONTE_DO_ESQUELETO),
-    Aresta(11, "classify", "compose", "modulos", "pedido sobre o catalogo", fonte=FONTE_DO_DONO),
+    Aresta(11, "classify", "confirm", "modulos", "pedido sobre o catalogo", fonte=FONTE_DO_CATALOGO),
     Aresta(12, "classify", "tools_info", "info", "horario e morada", fonte=FONTE_DO_DONO),
     Aresta(13, "classify", "handoff_prepare", "human", "pedir humano", fonte=FONTE_DO_DONO),
     Aresta(14, "classify", "safe_reply", "other", "outro", fonte=FONTE_DO_DONO),
     Aresta(35, "classify", "compose", "orcamento", "pedidos de orcamento pendentes", fonte=FONTE_DO_ORCAMENTO),
     Aresta(36, "classify", "confirm", "resposta", "o valor de um orcamento, por texto", fonte=FONTE_DO_ORCAMENTO),
     Aresta(33, "classify", "confirm", "confirm", "botao confirm:{action_id}", fonte=FONTE_DO_BOTAO),
+    Aresta(
+        37,
+        "classify",
+        "confirm",
+        "catalogo",
+        "botao, foto, PRD ou resposta a um rascunho do catalogo",
+        fonte=FONTE_DO_CATALOGO,
+    ),
     Aresta(34, "confirm", "send", None, "sempre (texto estatico)", fonte=FONTE_DO_BOTAO),
     Aresta(15, "tools_info", "compose", None, "sempre", fonte=FONTE_DO_ESQUELETO),
     Aresta(16, "compose", "validate", None, "sempre", fonte=FONTE_DO_ESQUELETO),
