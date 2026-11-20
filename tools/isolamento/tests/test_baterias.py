@@ -143,6 +143,8 @@ class TestAsListasCoincidemComAEnumeracao(unittest.TestCase):
             # de TypeScript que ninguem declarou.
             - set(x01_rotas.ROTA_INTERNA_DO_IDX)
             - set(x01_rotas.SONDAS_DO_IDX)
+            # KAM-218: a sonda do processo dos dados do off-boarding, idem.
+            - set(x01_rotas.SONDA_DO_OFFBOARDING)
         )
         self.assertEqual(set(declaradas), enumeradas)
 
@@ -152,11 +154,27 @@ class TestAsListasCoincidemComAEnumeracao(unittest.TestCase):
         Literais pela doutrina do `x01_rotas`: uma quarta rota no `processo.py`
         aparece aqui como item que ninguem declarou.
         """
-        do_idx = {item for item in self.itens if item.startswith("rota:py-core:")}
+        do_idx = {item for item in self.itens if item.startswith("rota:py-core:kamba_core/idx/")}
         self.assertEqual(
             do_idx, set(x01_rotas.ROTA_INTERNA_DO_IDX) | set(x01_rotas.SONDAS_DO_IDX)
         )
         self.assertEqual(len(do_idx), 3)
+
+    def test_a_sonda_do_processo_dos_dados(self) -> None:
+        """KAM-218: o `servico.py` do off-boarding da **exactamente** uma rota, a sonda.
+
+        Uma segunda rota no `servidor` aparece aqui como item que ninguem declarou.
+        """
+        do_offboarding = {
+            item for item in self.itens if item.startswith("rota:py-core:kamba_core/offboarding/")
+        }
+        self.assertEqual(do_offboarding, set(x01_rotas.SONDA_DO_OFFBOARDING))
+        # E as rotas Python da biblioteca padrao sao so estas quatro.
+        self.assertEqual(
+            {item for item in self.itens if item.startswith("rota:py-core:")},
+            set(x01_rotas.ROTA_INTERNA_DO_IDX) | set(x01_rotas.SONDAS_DO_IDX)
+            | set(x01_rotas.SONDA_DO_OFFBOARDING),
+        )
 
     def test_as_dezasseis_superficies_da_api_interna_do_com(self) -> None:
         """As dezasseis (KAM-178, KAM-099, KAM-190, KAM-222 e KAM-119) sao **exactamente** as que a enumeracao da ao COM.

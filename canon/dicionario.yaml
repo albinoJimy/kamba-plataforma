@@ -12,7 +12,7 @@
 
 version: 1
 fonte: "specs/02_Dicionario_de_Dados_Canonico.md"
-versao_dicionario: "1.127"
+versao_dicionario: "1.128"
 entradas:
   - seccao: "3.1"
     conceito: "Contacto"
@@ -19992,10 +19992,10 @@ entradas:
     variantes_literais: []
   - seccao: "3.77"
     conceito: "O pacote do titular"
-    canonico: "manifesto com VERSAO_DO_MANIFESTO = 1.0.0, num ZIP reproduzível na classe dsar do STO"
+    canonico: "manifesto com VERSAO_DO_MANIFESTO = 1.2.0, num ZIP reproduzível na classe dsar do STO"
     literais:
       - "VERSAO_DO_MANIFESTO"
-      - "1.0.0"
+      - "1.2.0"
       - "dsar"
     nomes:
       - "VERSAO_DO_MANIFESTO"
@@ -20003,6 +20003,12 @@ entradas:
     nomes_nota:
       - "sha256"
       - "audit_log"
+      - "ofertas"
+      - "offer_terms"
+      - "aceites"
+      - "contract_acceptance"
+      - "catalogo"
+      - "indisponivel"
     variantes_literais: []
   - seccao: "3.77"
     conceito: "A ligação de 24 h"
@@ -20048,6 +20054,105 @@ entradas:
       - "kid"
     nomes_nota:
       - "purge_log"
+    variantes_literais: []
+  - seccao: "3.77"
+    conceito: "Processo das fases de dados"
+    canonico: "python -m kamba_core.offboarding, serviço offboarding-dados, porta OFFBOARDING_DADOS_PORT (8062)"
+    literais:
+      - "offboarding-dados"
+      - "OFFBOARDING_DADOS_PORT"
+    nomes:
+      - "offboarding"
+      - "dados"
+      - "OFFBOARDING_DADOS_PORT"
+    nomes_nota:
+      - "kamba_batch"
+      - "kamba_app"
+      - "kamba_identity"
+      - "prod"
+    variantes_literais: []
+  - seccao: "3.77"
+    conceito: "Configuração do processo dos dados"
+    canonico: "KAMBA_OFFBOARDING_INTERVALO_S (900 por omissão), KAMBA_OFFBOARDING_COPIAS_DIAS (obrigatória)"
+    literais:
+      - "KAMBA_OFFBOARDING_INTERVALO_S"
+      - "KAMBA_OFFBOARDING_COPIAS_DIAS"
+    nomes:
+      - "KAMBA_OFFBOARDING_INTERVALO_S"
+      - "KAMBA_OFFBOARDING_COPIAS_DIAS"
+    nomes_nota:
+      - "retencao_dias"
+    variantes_literais: []
+  - seccao: "3.77"
+    conceito: "Chave do certificado"
+    canonico: "offboarding_certificate_key, na forma <kid>:<base64 de 32 octetos>"
+    literais:
+      - "offboarding_certificate_key"
+      - "<kid>:<base64 de 32 octetos>"
+    nomes:
+      - "offboarding_certificate_key"
+      - "kid"
+      - "base64"
+      - "de"
+      - "octetos"
+    nomes_nota:
+      - "kid"
+      - "true"
+    variantes_literais: []
+  - seccao: "3.77"
+    conceito: "Os contactos pelo cofre"
+    canonico: "apagar_contactos_pelo_cofre, a porta ApagarContactos da purga"
+    literais:
+      - "apagar_contactos_pelo_cofre"
+      - "ApagarContactos"
+    nomes:
+      - "apagar_contactos_pelo_cofre"
+      - "ApagarContactos"
+    nomes_nota:
+      - "purge_log"
+      - "erased_at"
+      - "kamba_identity"
+    variantes_literais: []
+  - seccao: "3.77"
+    conceito: "O token de cada WABA"
+    canonico: "tokenDoWabaPeloCofre, WabaSemTokenError com o motivo ∈ {sem_canal, ambiguo, sem_segredo, nao_abre}"
+    literais:
+      - "tokenDoWabaPeloCofre"
+      - "WabaSemTokenError"
+      - "sem_canal"
+      - "ambiguo"
+      - "sem_segredo"
+      - "nao_abre"
+    nomes:
+      - "tokenDoWabaPeloCofre"
+      - "WabaSemTokenError"
+      - "sem_canal"
+      - "ambiguo"
+      - "sem_segredo"
+      - "nao_abre"
+    nomes_nota:
+      - "token_ref"
+      - "tenant_channels"
+      - "encerrado"
+      - "kamba_batch"
+      - "kek_token_cliente"
+      - "ambiguo"
+      - "portasDoOffboarding"
+    variantes_literais: []
+  - seccao: "3.77"
+    conceito: "Revogação da chave do LiteLLM"
+    canonico: "o comando revogar do ../infra/llm/chaves.py, pelo alias tenant-<uuid>"
+    literais:
+      - "revogar"
+      - "tenant-<uuid>"
+    nomes:
+      - "revogar"
+      - "tenant"
+      - "uuid"
+    nomes_nota:
+      - "provisionar"
+      - "revogada"
+      - "inexistente"
     variantes_literais: []
   - seccao: "3.78"
     conceito: "Papel do contacto"
