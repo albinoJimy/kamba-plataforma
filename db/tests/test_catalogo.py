@@ -66,6 +66,11 @@ COLUNAS_DE_TELEFONE_ACEITES = {
     # e em HMAC para o indice. Nenhuma guarda o numero em claro.
     ("onboarding_case", "phone_enc"),
     ("onboarding_case", "phone_hmac"),
+    # KAM-223, revisao do canal do dono pelo painel: o HMAC do numero novo de
+    # uma troca de telefone do dono, com o *pepper* da inscricao, como o
+    # `phone_hmac` do caso. O `CHECK` exige a forma de um HMAC-SHA-256 em
+    # hexadecimal, e nenhuma coluna da tabela guarda o numero em claro.
+    ("owner_phone_changes", "telefone_hmac"),
 }
 FRAGMENTOS_DE_TELEFONE = ("msisdn", "telefone", "phone")
 
@@ -530,6 +535,10 @@ class TestConvencoes(ComBase):
                 # (`reply_id`): e o identificador que o evento leva, e um
                 # sequencial deixava medir quantas respostas a plataforma da.
                 # A primeira da lista («ag» < «au»).
+                # KAM-223 (revisao do canal do dono pelo painel): a mensagem
+                # que entra no AGR, `uuid` gerado pela regra geral: e o
+                # identificador que a invocacao leva («agent_m» < «agent_r»).
+                ("agent_messages", "message_id", "uuid", "gen_random_uuid()"),
                 ("agent_replies", "reply_id", "uuid", "gen_random_uuid()"),
                 ("audit_heads", "chave", "uuid",
                  "COALESCE(tenant_id, '00000000-0000-0000-0000-000000000000'::uuid)"),
@@ -825,6 +834,8 @@ class TestConvencoes(ComBase):
                 ("owner_actions", "action_id", "uuid", "gen_random_uuid()"),
                 ("owner_contacts", "id", "uuid", "gen_random_uuid()"),
                 ("owner_notices", "id", "uuid", "gen_random_uuid()"),
+                # KAM-223: a troca de telefone do dono («owner_n» < «owner_p»).
+                ("owner_phone_changes", "change_id", "uuid", "gen_random_uuid()"),
                 # KAM-052: a chave e um `uuid` gerado, e a chave de negocio
                 # esta ao lado, no indice unico parcial
                 # `payment_accounts_um_ativo` sobre `(tenant_id, provider)`.
@@ -1504,7 +1515,13 @@ class TestConvencoes(ComBase):
              # (tenant_id, chave)`, que e a idempotencia do produtor, e pelo
              # `agent_replies_conversa_idx`. **Com** FK para `tenants` e as
              # compostas para o contacto e a conversa.
-             "agent_replies"},
+             "agent_replies",
+             # KAM-223 (revisao do canal do dono pelo painel). A mensagem pelo
+             # `agent_messages_conversa_idx (tenant_id, conversation_id,
+             # criado_at)`, e a troca pelo `owner_phone_changes_viva_uq
+             # (tenant_id)`. **Com** FK para `tenants` e as compostas.
+             "agent_messages",
+             "owner_phone_changes"},
         )
         for tabela, anulavel in com_tenant:
             with self.subTest(tabela=tabela):
@@ -2200,7 +2217,12 @@ class TestConvencoes(ComBase):
         # `agent_replies_tenant_fk`, simples, e as compostas
         # `agent_replies_contact_fk` e `agent_replies_conversation_fk`: uma
         # resposta de um tenant nao aponta para a conversa de outro.
-        self.assertEqual(len(linhas), 113)
+        #
+        # **118** desde a revisao do canal do dono pelo painel (KAM-223): as
+        # tres da `agent_messages` (o tenant, e as compostas do contacto e da
+        # conversa) e as duas da `owner_phone_changes` (o tenant e a
+        # composta do contacto novo).
+        self.assertEqual(len(linhas), 118)
         for nome, alvo in linhas:
             with self.subTest(fk=nome):
                 self.assertTrue(alvo.startswith("platform."), alvo)

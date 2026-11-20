@@ -1035,6 +1035,40 @@ def _midia(cursor, tenant_id: str, canario: str) -> None:
     )
 
 
+def _mensagem_do_agr(cursor, tenant_id: str, canario: str) -> None:
+    """Uma mensagem que entra no AGR (KAM-223). O canario vai no `texto`.
+
+    Ninguem muda uma mensagem depois de escrita: a receita nao tem coluna
+    alteravel, e a escrita cruzada prova que o `UPDATE` nem existe. Semeia o
+    administrador, pela razao do pedido de orcamento.
+    """
+    cursor.execute(
+        "INSERT INTO platform.agent_messages "
+        "(tenant_id, contact_id, conversation_id, canal, texto) "
+        f"VALUES (%s, {_UM_CONTACTO}, {_UMA_CONVERSA}, 'painel', %s)",
+        (tenant_id, tenant_id, tenant_id, canario),
+    )
+
+
+def _troca_do_dono(cursor, tenant_id: str, canario: str) -> None:
+    """Uma troca de telefone do dono pedida (KAM-223). O canario vai no `pedido`.
+
+    O HMAC e um valor fixo com a forma do `CHECK`, e nao o de um numero: a
+    semente nao precisa de telefone nenhum. **So as colunas do `INSERT` por
+    coluna** do `kamba_identity`: o X-03/X-04 corre esta receita com o papel, e
+    uma coluna a mais (o `estado`) dava a recusa do privilegio em vez da da
+    politica. A troca nasce `pedida`, e e a unica viva do tenant
+    (`owner_phone_changes_viva_uq`): uma semente por tenant, e as intrusas
+    desfazem-se. A coluna alteravel e o `prazo`, do `GRANT UPDATE` por coluna.
+    """
+    cursor.execute(
+        "INSERT INTO platform.owner_phone_changes "
+        "(tenant_id, pedido, telefone_hmac, owner_channel_wa, prazo) "
+        "VALUES (%s, %s, repeat('a', 64), false, now())",
+        (tenant_id, canario),
+    )
+
+
 def _resposta_do_agr(cursor, tenant_id: str, canario: str) -> None:
     """Uma resposta do AGR do tenant (KAM-224). O canario vai no `texto`.
 
@@ -1873,6 +1907,17 @@ RECEITAS: dict[tuple[str, str], Receita] = {
     ("platform", "agent_replies"): Receita(
         _resposta_do_agr, "texto", "entregue_at", "2099-01-01T00:00:00+00:00", semeador="admin",
     ),
+    # KAM-223: a mensagem que entra no AGR. O canario vai no `texto`; nenhuma
+    # coluna se altera, e a escrita cruzada prova que o `UPDATE` nem existe.
+    ("platform", "agent_messages"): Receita(
+        _mensagem_do_agr, "texto", None, None, semeador="admin",
+    ),
+    # KAM-223: a troca de telefone do dono, do `kamba_identity`. O canario vai
+    # no `pedido`; a coluna alteravel e o `prazo`, do `GRANT UPDATE` por coluna.
+    ("platform", "owner_phone_changes"): Receita(
+        _troca_do_dono, "pedido", "prazo", "2099-01-01T00:00:00+00:00",
+        papel="identity", semeador="admin",
+    ),
     ("platform", "events_outbox"): Receita(
         _evento_no_outbox, "agregado_id", None, None, semeador="admin"
     ),
@@ -2424,6 +2469,10 @@ ORDEM = (
     # KAM-224: a resposta do AGR aponta o contacto e a conversa, pelo que vem
     # depois dos dois; ninguem a aponta.
     ("platform", "agent_replies"),
+    # KAM-223: a mensagem aponta o contacto e a conversa, e a troca o
+    # contacto, pelo que vem depois deles; ninguem as aponta.
+    ("platform", "agent_messages"),
+    ("platform", "owner_phone_changes"),
     # KAM-009: as duas so tem FK para `tenants`, e por isso ficam no fim.
     ("platform", "tenant_usage"),
     ("platform", "usage_ledger"),

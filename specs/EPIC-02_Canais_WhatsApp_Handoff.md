@@ -110,7 +110,7 @@ constante interpolada no nome, e não como texto literal.
 | KAM-023 | Monitorização do free tier de service messages e do método de pagamento da PME | feature | S | P0 | KAM-015 |
 | KAM-024 | Simulador de webhooks Meta e testes de contrato com número de teste | chore | M | P0 | KAM-013 |
 | KAM-115 | Aviso ao dono por canal alternativo (e-mail ou push) | feature | S | P1 | KAM-017, KAM-021, KAM-023, KAM-116 |
-| KAM-232 | Os factos do teste ponta a ponta em produção: os *statuses* escrevem o `delivered_at` e a apresentação do vendedor nomeia a loja | feature | M | P1 | KAM-202 |
+| KAM-233 | Os factos do teste ponta a ponta em produção: os *statuses* escrevem o `delivered_at` e a apresentação do vendedor nomeia a loja | feature | M | P1 | KAM-202 |
 
 ---
 
@@ -3692,7 +3692,7 @@ um `--suite tests` de dois minutos teria dito.
 
 ---
 
-## KAM-232 — Os factos do teste ponta a ponta em produção: os *statuses* escrevem o `delivered_at` e a apresentação do vendedor nomeia a loja
+## KAM-233 — Os factos do teste ponta a ponta em produção: os *statuses* escrevem o `delivered_at` e a apresentação do vendedor nomeia a loja
 
 | Campo | Valor |
 |---|---|
@@ -3704,7 +3704,7 @@ um `--suite tests` de dois minutos teria dito.
 | Dependências | KAM-202 |
 | Bloqueia | — |
 | Responsável sugerido | Engenheiro de Canais com Engenheiro de Runtime/IA |
-| Documentos de referência | `EPIC-04_Core_Comercio.md` (bloco KAM-202), `EPIC-08_Topologia_Operacao.md` (KAM-080, critério 7), `02_Dicionario_de_Dados_Canonico.md` (§3.74, emenda 1.125), `../packages/core-ts/src/activacao/observador_sql.ts`, `../registry/vendedor.yaml` |
+| Documentos de referência | `EPIC-04_Core_Comercio.md` (bloco KAM-202), `EPIC-08_Topologia_Operacao.md` (KAM-080, critério 7), `02_Dicionario_de_Dados_Canonico.md` (§3.74, emenda 1.126), `../packages/core-ts/src/activacao/observador_sql.ts`, `../registry/vendedor.yaml` |
 
 ### Contexto
 
@@ -3757,7 +3757,7 @@ texto nem telefone.
 ### Handoff para Claude Code
 
 ```text
-És o executor do ticket KAM-232 da KAMBÁ (os factos do teste em produção).
+És o executor do ticket KAM-233 da KAMBÁ (os factos do teste em produção).
 Lê specs/EPIC-04_Core_Comercio.md (bloco KAM-202), packages/core-ts/src/activacao/observador_sql.ts,
 packages/core-ts/src/outbound/adapter.ts (Saida.ingerir) e services/agr/src/kamba_agr/verticais/vendedor/nos.py.
 Objectivo: os statuses escrevem o delivered_at, e a apresentação do vendedor nomeia a loja.
@@ -3825,4 +3825,4 @@ Regras: sem texto nem telefone guardados; idempotente por wamid:estado; falha fe
 | 1.19 | Novembro 2026 | KAM-118: a decisão 1 da verificação do KAM-014 deixa de dizer que o `contacts.papel` não existe — a revisão `0070` cria-o, e a persona viaja na invocação e não no `ChannelContext` (dicionário §3.78). Nenhuma caixa muda. | Equipa KAMBÁ |
 | 1.20 | Novembro 2026 | **Aresta recíproca, sem alteração de conteúdo: o `Bloqueia` do KAM-019 ganha o KAM-213** (EPIC-01), que torna determinístico o ensaio «duas chamadas concorrentes: o ON CONFLICT da conta» do `handoff.bd.test.ts` — uma barreira no provedor falso força as duas chamadas a passarem a leitura antes do `INSERT`, em vez de o deixar ao `Promise.all`. | Equipa KAMBÁ |
 | 1.21 | Novembro 2026 | **Aresta recíproca, sem alteração de conteúdo:** o `Bloqueia` do KAM-020 ganha o **KAM-231** (EPIC-11), aberto no PR do KAM-119: a foto do dono chega ao catálogo pelo MED. | Equipa KAMBÁ |
-| 1.22 | Novembro 2026 | **KAM-232 acrescentado**, no PR do **KAM-202** (EPIC-04), que o abre e não o implementa: o credor dos factos do teste ponta a ponta que em produção ninguém escreve — o `delivered_at` dos *statuses* e o nome da loja na apresentação do vendedor. Decisão do fundador de 2026-11-20, no bloco do KAM-202. Provisório: o número dá-o a integração. | Equipa KAMBÁ |
+| 1.22 | Novembro 2026 | **KAM-233 acrescentado**, no PR do **KAM-202** (EPIC-04), que o abre e não o implementa: o credor dos factos do teste ponta a ponta que em produção ninguém escreve — o `delivered_at` dos *statuses* e o nome da loja na apresentação do vendedor. Decisão do fundador de 2026-11-20, no bloco do KAM-202. Escrito como KAM-232 e renumerado na integração, depois do KAM-223, que tomou o 232. | Equipa KAMBÁ |
