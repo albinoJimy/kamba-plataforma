@@ -13,7 +13,9 @@ O que so uma base prova, e por isso este ficheiro existe:
    outro, o resumo de 32 octetos, a versao com o metadado do motor.
 5. **O SQL do modulo de TypeScript**, executado tal como esta escrito: gravar,
    ler as decisoes de uma chave pela ordem, e os produtos por re-analisar com a
-   categoria declarada mais recente.
+   categoria declarada mais recente. Desde o KAM-119, a re-analise so salta um
+   produto com decisao **para o conteudo publicado**: o resumo calcula-se em SQL
+   e tem de ser o do `conteudoSha256` do motor, octeto a octeto.
 6. **RLS pela ligacao da aplicacao**: um tenant nao ve nem escreve o de outro.
 7. **O `downgrade`**, o da `0044` e o da revisao do sujeito das condicoes
    (KAM-222), que apaga as decisoes `condicoes` e repoe o dominio de dois.
@@ -85,6 +87,39 @@ def _dominio(cursor, restricao: str) -> tuple[str, ...]:
 
 def _sha(texto: str) -> bytes:
     return hashlib.sha256(texto.encode("utf-8")).digest()
+
+
+def _conteudo(categoria: str, nome: str) -> bytes:
+    """O `conteudoSha256` do `motor.ts` para a entrada da re-analise.
+
+    `sha256(UTF-8(JSON.stringify([categoria, [nome]])))`. O `json.dumps` sem
+    ASCII e sem espacos escreve o mesmo que o `JSON.stringify` para cadeias que
+    uma coluna `text` guarda; os `VECTORES_DO_CONTEUDO` prendem-no a valores
+    fixos, que o `packages/core-ts/tests/screening.test.ts` prende ao motor.
+    """
+    canonico = json.dumps([categoria, [nome]], ensure_ascii=False, separators=(",", ":"))
+    return hashlib.sha256(canonico.encode("utf-8")).digest()
+
+
+#: Os vectores do KAM-119: `(categoria, nome, resumo em hexadecimal)`. **Os
+#: mesmos** do `VECTORES_DO_CONTEUDO` do `packages/core-ts/tests/screening.test.ts`,
+#: que mede que o motor os da. Aqui mede-se que a base os da tambem.
+VECTORES_DO_CONTEUDO = (
+    ("", 'aspas "duplas" e \\ barra',
+     "d8a5a8eba51cee92339949d93e4fb50e81bd7f3df171eeb8d12235b59db717d0"),
+    ("moda", "linha\nnova\ttab\rret\bback\fform",
+     "8beb049b9060e19be5ba4ded949edb60ad5d1b0864ea8594128106410b547baa"),
+    ("moda", "controlo \u0001 \u001f \u007f fim",
+     "e8e12562e1e21be269ba0573b6d0afc7e4f2579757425f60ba10f7be993b67dc"),
+    ("electr\u00f3nica", "A\u00e7\u00facar 1 kg \u2014 p\u00e3o",
+     "9d57a13426830fe6b79a3462bf655db52a58cd84f2a4f0541284fb4464b31f5a"),
+    ("moda", "emoji \U0001F457\U0001F1E6\U0001F1F4",
+     "ff7cfce5772746ddbceb0b8594266dba6e8e637c9c4f567eb0decf1de4a09fab"),
+    ("moda", "separador \u2028 e \u2029",
+     "7e56873203e9a64d935751e554e7a0ae995b69ea9c5867262e7c4a599e95ecdc"),
+    ("moda", "</script><b>&amp;</b> / \\u0041",
+     "db5ba7de56672efc8405bb35167e754c26ac94629cb5f8dae4fa3b06c4dad616"),
+)
 
 
 def gravar(cursor, tenant_id: str, **campos) -> None:
@@ -246,9 +281,12 @@ class TestReanalise(ComBase):
                 "VALUES (%s, %s, %s, 'fixo', 100, %s)",
                 (tenant, sku, f"produto {sku}", estado),
             )
-        gravar(admin, tenant, sujeito_ref="ja-decidido")
         gravar(admin, tenant, sujeito_tipo="categoria", sujeito_ref="moda")
         gravar(admin, tenant, sujeito_tipo="categoria", sujeito_ref="electronica")
+        # A decisao do `ja-decidido` e sobre o conteudo que a re-analise lhe da:
+        # a categoria mais recente e o nome publicado (KAM-119).
+        gravar(admin, tenant, sujeito_ref="ja-decidido",
+               conteudo_sha256=_conteudo("electronica", "produto ja-decidido"))
         q = ConsultaDoTypeScript("SQL_POR_REANALISAR", SQL_TS)
         admin.execute(q.sql, q.args(VERSAO, 100))
         linhas = [tuple(l) for l in admin.fetchall() if l[0] == tenant]
@@ -257,6 +295,74 @@ class TestReanalise(ComBase):
         admin.execute(q.sql, q.args("1.1.0+m.2", 100))
         skus = sorted(l[1] for l in admin.fetchall() if l[0] == tenant)
         self.assertEqual(skus, ["ja-decidido", "por-decidir"])
+
+    def _publicado(self, admin, tenant: str, sku: str, nome: str) -> None:
+        admin.execute(
+            "INSERT INTO platform.offer_terms (tenant_id, sku, nome, preco_tipo, preco_minor, estado) "
+            "VALUES (%s, %s, %s, 'fixo', 100, 'publicado')",
+            (tenant, sku, nome),
+        )
+
+    def _por_reanalisar(self, admin, tenant: str) -> list[str]:
+        q = ConsultaDoTypeScript("SQL_POR_REANALISAR", SQL_TS)
+        admin.execute(q.sql, q.args(VERSAO, 1000))
+        return sorted(l[1] for l in admin.fetchall() if l[0] == tenant)
+
+    def test_o_resumo_da_base_e_o_do_motor_octeto_a_octeto(self) -> None:
+        """KAM-119: o `sha256` do SQL e o `conteudoSha256`, nos vectores fixados.
+
+        Cada vector num tenant seu, com a categoria dele (nenhuma decisao de
+        categoria quando e vazia, que e o `coalesce` do SQL), um produto
+        publicado com o nome dele e uma decisao com o resumo **fixado** — o
+        que o motor da. O produto sai da re-analise se e so se a base calcular
+        o mesmo resumo. Um segundo produto com uma decisao sobre outro nome fica
+        nela, para que o caso nao passe por o SQL ter deixado de devolver
+        linhas.
+        """
+        admin = self.ligar("admin").cursor()
+        for categoria, nome, esperado in VECTORES_DO_CONTEUDO:
+            with self.subTest(nome=nome):
+                # O oraculo desta suite concorda com os vectores, que sao os do motor.
+                self.assertEqual(_conteudo(categoria, nome).hex(), esperado)
+                tenant = factories.tenant(admin)
+                if categoria:
+                    gravar(admin, tenant, sujeito_tipo="categoria", sujeito_ref=categoria)
+                self._publicado(admin, tenant, "decidido", nome)
+                self._publicado(admin, tenant, "outro-texto", nome)
+                gravar(admin, tenant, sujeito_ref="decidido", conteudo_sha256=bytes.fromhex(esperado))
+                gravar(admin, tenant, sujeito_ref="outro-texto",
+                       conteudo_sha256=_conteudo(categoria, nome + " antigo"))
+                self.assertEqual(self._por_reanalisar(admin, tenant), ["outro-texto"])
+
+    def test_uma_decisao_sobre_outro_conteudo_nao_esconde_o_publicado(self) -> None:
+        """KAM-119: o achado 1 da revisao adversarial do KAM-222.
+
+        Uma decisao do mesmo `sku` e da mesma versao, mas sobre outro nome ou
+        outra categoria, ja nao faz a re-analise saltar o produto; a do mesmo
+        conteudo continua a faze-lo. E mudar a categoria do tenant torna a pedir
+        decisao ao que estava decidido com a antiga.
+        """
+        admin = self.ligar("admin").cursor()
+        tenant = factories.tenant(admin)
+        gravar(admin, tenant, sujeito_tipo="categoria", sujeito_ref="moda")
+        self._publicado(admin, tenant, "mesmo-conteudo", "vestido de festa")
+        self._publicado(admin, tenant, "nome-antigo", "vestido de festa")
+        self._publicado(admin, tenant, "outra-categoria", "vestido de festa")
+        gravar(admin, tenant, sujeito_ref="mesmo-conteudo",
+               conteudo_sha256=_conteudo("moda", "vestido de festa"))
+        gravar(admin, tenant, sujeito_ref="nome-antigo",
+               conteudo_sha256=_conteudo("moda", "vestido"))
+        gravar(admin, tenant, sujeito_ref="outra-categoria",
+               conteudo_sha256=_conteudo("electronica", "vestido de festa"))
+        self.assertEqual(self._por_reanalisar(admin, tenant), ["nome-antigo", "outra-categoria"])
+        # Uma decisao `bloqueada` sobre outro texto tambem nao esconde nada: a
+        # decisao que conta e a do conteudo, seja ela qual for.
+        gravar(admin, tenant, sujeito_ref="nome-antigo", decisao="bloqueada",
+               conteudo_sha256=_conteudo("moda", "outro texto"))
+        self.assertEqual(self._por_reanalisar(admin, tenant), ["nome-antigo", "outra-categoria"])
+        # O dono troca de categoria: o que estava decidido com a antiga volta.
+        gravar(admin, tenant, sujeito_tipo="categoria", sujeito_ref="electronica")
+        self.assertEqual(self._por_reanalisar(admin, tenant), ["mesmo-conteudo", "nome-antigo"])
 
 
 class TestCategoriaDoTenantDoCom(ComBase):

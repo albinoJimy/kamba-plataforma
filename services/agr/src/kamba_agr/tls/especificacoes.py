@@ -98,7 +98,12 @@ NOME_DE_TOOL: Final = re.compile(r"^[a-z][a-z0-9_]{1,62}$")
 #: * `submit_quote` — o dono fixa o valor de um orcamento. **So grava** a resposta
 #:   e propoe o botao `confirm:{action_id}` da `owner_actions`; nada sai para o
 #:   cliente sem esse botao, que e a confirmacao que o §21.3 pede ao envio.
-DISPENSAS_DO_PASSO_4: Final = ("submit_quote",)
+#: * `create_product_draft` (KAM-119) — o dono manda uma foto ou responde a uma
+#:   pergunta. **So grava** o rascunho na `platform.catalog_ingestions` e o do
+#:   Registo, que nasce inactivo (`upsertProductDraft` nunca publica); o preco
+#:   so entra pelo botao do eco, e publicar e o `publish_product`, com o botao
+#:   `confirm:{action_id}`. O §21.3 da-lhe a classe `write` sem confirmacao.
+DISPENSAS_DO_PASSO_4: Final = ("submit_quote", "create_product_draft")
 
 #: A forma de um credor: um ticket do backlog mestre. O *gate* 3 (referencias
 #: cruzadas) le os `KAM-NNN` deste ficheiro como le os de qualquer outro, pelo
