@@ -8,8 +8,8 @@
  * ```
  *
  * **Duas etiquetas, os dois domínios fechados**, e nenhuma leva tenant, `sku`,
- * `orderId`, telefone ou contacto (`OBS-I`): `rota` tem dezoito valores e `motivo`
- * sete, pelo que o tecto é de 18 + 126 séries. As séries aparecem sempre, mesmo a
+ * `orderId`, telefone ou contacto (`OBS-I`): `rota` tem dezanove valores e `motivo`
+ * sete, pelo que o tecto é de 19 + 133 séries. As séries aparecem sempre, mesmo a
  * zero — um painel que mostre «sem dados» não distingue «ninguém errou» de «o
  * processo não arrancou».
  *
@@ -46,6 +46,8 @@ export const ROTAS_DO_PAINEL = [
   "troca_cancelar",
   "conversa",
   "conversa_enviar",
+  // KAM-206: a página de um produto, com o formulário que saiu da lista.
+  "produto",
 ] as const;
 export type RotaDoPainel = (typeof ROTAS_DO_PAINEL)[number];
 

@@ -4,7 +4,8 @@
  *     GET   /painel/entrar          a sessão do registo (KAM-086) troca-se pela
  *                                   sessão do painel; 401 sem ela
  *     POST  /painel/sair            revoga a sessão do painel
- *     GET   /painel/produtos        a lista, com o formulário (critério 2)
+ *     GET   /painel/produtos        a lista, sem formulários (KAM-206)
+ *     GET   /painel/produtos/:id    um produto, com o formulário (critério 2)
  *     PATCH /painel/produtos/:id    o preço, com `Idempotency-Key` e versão; o
  *                                   stock recusa-se — ver `./validacao.ts`
  *     GET   /painel/encomendas      só leitura, por estado e data (critério 6)
@@ -151,6 +152,7 @@ import {
   paginaDaEncomenda,
   paginaDeEncomendas,
   paginaDeProdutos,
+  paginaDoProduto,
   paginaDaLigacaoFechada,
   paginaDoCanal,
   paginaDoCodigoDaLigacao,
@@ -535,6 +537,25 @@ export function rotasDoPainel(opcoes: OpcoesDoPainel): Hono {
       return html(paginaNaoEncontrada(n), 503, n, sessao.renovar);
     }
     return html(paginaDeProdutos(n, r.valor.itens, r.valor.truncada), 200, n, sessao.renovar);
+  });
+
+  // **Um produto, pelo `get-offer`** (KAM-206): o formulário do preço saiu da
+  // lista, que era pesada de mais para um telemóvel em 3G. O `sku` procura-se no
+  // tenant da sessão, e um `sku` de outro tenant é o mesmo 404 de um que não
+  // existe (critério 8 do KAM-099).
+  app.get("/painel/produtos/:id", async (c) => {
+    metricas.pedido("produto");
+    const n = nonce();
+    const sessao = await sessaoDe(c.req.header("cookie"));
+    if (sessao === null) {
+      falhou("produto", "sem_sessao");
+      return html(paginaSemSessao(n), 401, n);
+    }
+    const r = await comercio.obterOferta(sessao.s.tenantId, actor(sessao.s), c.req.param("id"));
+    if (r.tipo === "ok") return html(paginaDoProduto(n, r.valor), 200, n, sessao.renovar);
+    const indisponivel = r.tipo !== "erro" || (r.erro !== "NOT_FOUND" && r.erro !== "VALIDATION_ERROR");
+    falhou("produto", indisponivel ? "indisponivel" : "nao_encontrado");
+    return html(paginaNaoEncontrada(n), indisponivel ? 503 : 404, n, sessao.renovar);
   });
 
   app.patch("/painel/produtos/:id", async (c) => {

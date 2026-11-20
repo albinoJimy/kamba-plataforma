@@ -211,7 +211,7 @@ test("criterio 1: uma sessao com o tenant trocado ou assinada por outra chave e 
 test("criterio 8: a lista de produtos so mostra os do tenant da sessao", async () => {
   const m = montar();
   const corpo = await (await m.app.fetch(get("/painel/produtos", cookieDe(sessaoA())))).text();
-  assert.match(corpo, /data-sku="arroz"/);
+  assert.match(corpo, /href="\/painel\/produtos\/arroz"/);
   assert.doesNotMatch(corpo, /so-de-b/);
 });
 
@@ -521,13 +521,17 @@ test("renovacao: uma sessao expirada (30 dias sem uso) nao se renova, e o tecto 
 
 // ----------------------------------------------------------- páginas
 
-test("adversarial: XSS no nome do produto sai escapado", async () => {
+test("adversarial: XSS no nome do produto sai escapado, na lista e na pagina do produto", async () => {
   const m = montar();
-  m.comercio.semear(TENANT_A, [oferta("x\"'><svg>", { nome: "<script>alert(1)</script>" })]);
+  const sku = "x\"'><svg>";
+  m.comercio.semear(TENANT_A, [oferta(sku, { nome: "<script>alert(1)</script>" })]);
   const corpo = await (await m.app.fetch(get("/painel/produtos", cookieDe(sessaoA())))).text();
   assert.doesNotMatch(corpo, /<script>alert/);
   assert.match(corpo, /&lt;script&gt;alert\(1\)&lt;\/script&gt;/);
-  assert.match(corpo, /data-sku="x&quot;&#39;&gt;&lt;svg&gt;"/);
+  assert.doesNotMatch(corpo, /<svg>/);
+  const produto = await (await m.app.fetch(get(`/painel/produtos/${encodeURIComponent(sku)}`, cookieDe(sessaoA())))).text();
+  assert.doesNotMatch(produto, /<script>alert/);
+  assert.match(produto, /data-sku="x&quot;&#39;&gt;&lt;svg&gt;"/);
 });
 
 test("criterio 9: a pagina dos produtos cabe em 200 KB comprimida, e nao tem scripts de terceiros", async () => {
@@ -624,7 +628,8 @@ test("o painel nao grava stock: um stock no corpo e 400 stock_por_ligar, e nada 
   assert.equal(r.status, 400);
   assert.deepEqual(await r.json(), { erro: "campo", campo: "stock_por_ligar" });
   assert.equal(m.comercio.gravacoes.length, 0);
-  const pagina = await (await m.app.fetch(get("/painel/produtos", cookieDe(sessaoA())))).text();
+  const pagina = await (await m.app.fetch(get("/painel/produtos/arroz", cookieDe(sessaoA())))).text();
+  assert.match(pagina, /name="preco_kz"/);
   assert.doesNotMatch(pagina, /name="stock"/);
 });
 
@@ -714,10 +719,56 @@ test("renovacao: uma sessao com a renovacao no futuro e recusada", () => {
 test("um preco com centimos nao se pre-preenche, para nao se perder numa gravacao", async () => {
   const m = montar();
   m.comercio.semear(TENANT_A, [oferta("arroz", { precoMinor: 1_250_050n })]);
-  const corpo = await (await m.app.fetch(get("/painel/produtos", cookieDe(sessaoA())))).text();
+  const corpo = await (await m.app.fetch(get("/painel/produtos/arroz", cookieDe(sessaoA())))).text();
   assert.match(corpo, /name="preco_kz" inputmode="numeric" pattern="\[0-9\]\*" value=""/);
   assert.match(corpo, /data-kz=""/);
   assert.match(corpo, /12 500,50 Kz/);
+});
+
+// ------------------------------------------------------------------ KAM-206
+
+test("KAM-206: a lista de produtos nao tem formularios nem guiao, e liga a pagina de cada produto", async () => {
+  const m = montar();
+  m.comercio.semear(TENANT_A, Array.from({ length: 200 }, (_, i) => oferta(`sku-${i}`, { nome: `Produto ${i}` })));
+  const r = await m.app.fetch(get("/painel/produtos", cookieDe(sessaoA())));
+  assert.equal(r.status, 200);
+  const corpo = await r.text();
+  assert.doesNotMatch(corpo, /<form class="oferta|<select|name="preco_kz"/);
+  assert.doesNotMatch(corpo, /<script/);
+  assert.equal((corpo.match(/<a href="\/painel\/produtos\/sku-\d+">/g) ?? []).length, 200);
+  // So o formulario de sair, na barra: nenhum por produto.
+  assert.equal((corpo.match(/<form/g) ?? []).length, 1);
+});
+
+test("KAM-206: a pagina de um produto tem o formulario e o guiao, com a versao da oferta", async () => {
+  const m = montar();
+  const r = await m.app.fetch(get("/painel/produtos/arroz", cookieDe(sessaoA())));
+  assert.equal(r.status, 200);
+  const corpo = await r.text();
+  assert.match(corpo, /<form class="oferta cartao" data-sku="arroz" data-versao="2026-11-02T11:00:00.000001Z"/);
+  assert.match(corpo, /<script nonce="[^"]+">/);
+  assert.match(corpo, /<title>Produto arroz/);
+});
+
+test("KAM-206: isolamento - a pagina de um produto de B com a sessao de A e 404, igual a de um que nao existe", async () => {
+  const m = montar();
+  const deB = await m.app.fetch(get("/painel/produtos/so-de-b", cookieDe(sessaoA())));
+  const inexistente = await m.app.fetch(get("/painel/produtos/nao-existe", cookieDe(sessaoA())));
+  assert.equal(deB.status, 404);
+  assert.equal(inexistente.status, 404);
+  const corpoDeB = await deB.text();
+  assert.doesNotMatch(corpoDeB, /so-de-b|Produto so-de-b/);
+  assert.equal(corpoDeB.replace(/nonce="[^"]+"/g, ""), (await inexistente.text()).replace(/nonce="[^"]+"/g, ""));
+  const tenantNaConsulta = await m.app.fetch(get(`/painel/produtos/so-de-b?tenant_id=${TENANT_B}`, cookieDe(sessaoA())));
+  assert.equal(tenantNaConsulta.status, 404);
+  assert.equal((await m.app.fetch(get("/painel/produtos/arroz", ""))).status, 401);
+});
+
+test("KAM-206: o COM em baixo na pagina de um produto e 503, e conta indisponivel", async () => {
+  const m = montar();
+  m.comercio.obterOferta = async () => ({ tipo: "erro", erro: "UPSTREAM_DOWN" });
+  assert.equal((await m.app.fetch(get("/painel/produtos/arroz", cookieDe(sessaoA())))).status, 503);
+  assert.match(m.metricas.exposicao(), /painel_erros_total\{rota="produto",motivo="indisponivel"\} 1/);
 });
 
 // ------------------------------------------------------------------ KAM-190

@@ -2744,6 +2744,8 @@ const ITENS_DO_PAINEL = [
   "rota:onboarding-web:painel/rotas:actor:POST:/painel/telefone/cancelar",
   "rota:onboarding-web:painel/rotas:actor:GET:/painel/conversa",
   "rota:onboarding-web:painel/rotas:actor:POST:/painel/conversa",
+  // KAM-206: a pagina de um produto, com o formulario que saiu da lista.
+  "rota:onboarding-web:painel/rotas:actor:GET:/painel/produtos/:id",
 ] as const;
 
 /** Os telefones da reentrada (KAM-190). Ficticios, com 999. */
@@ -3383,6 +3385,16 @@ async function grupoDoPainel(relatorio: Relatorio): Promise<void> {
           !("botao" in i),
       );
     marcarEm(16, conversaDeA ? "conversa=a" : "conversa=alheia");
+
+    // ---- GET /painel/produtos/:id (KAM-206): o `sku` de B, com a sessao de A e
+    // o tenant de B na consulta e no cabecalho: 404 uniforme e nada de B. A
+    // sonda e a pagina do `sku` de A, fora das entradas.
+    for (let vez = 0; vez < 3; vez += 1) {
+      const [c, headers] = comTenantDeB(`/painel/produtos/${encodeURIComponent(canario)}`, vez);
+      await empurrar(ITENS_DO_PAINEL[17], "GET", c, { headers }, () => "");
+    }
+    const produtoDeA = await app.request("/painel/produtos/arroz-de-a", { headers: { cookie: cookieDeA } });
+    marcarEm(17, produtoDeA.status === 200 && (await produtoDeA.text()).includes(MARCADOR_DE_A) ? "sonda=viva" : "sonda=morta");
   } catch (erro) {
     falhar(`a montagem do painel levantou: ${razao(erro)}`);
   }
