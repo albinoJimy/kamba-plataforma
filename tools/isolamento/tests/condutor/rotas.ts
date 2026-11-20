@@ -2704,6 +2704,19 @@ async function grupoDoGuia(relatorio: Relatorio): Promise<void> {
 //   troca=nenhuma           (KAM-211) o codigo certo do pedido de B, com a sessao
 //                           de A, nao trocou o dono: a verificacao chegou a troca
 //                           so com o pedido e o tenant de A
+//   estado=a                (KAM-223) o GET /painel/telefone, com o tenant de B na
+//                           consulta e no cabecalho, so perguntou pela troca de A,
+//                           e a resposta trouxe o prazo de A (a sonda)
+//   concluir=a              (KAM-223) o /painel/telefone/concluir so tentou a
+//                           troca de A, e a troca pendente de B continua pendente
+//   cancelar=a              (KAM-223) o /painel/telefone/cancelar so cancelou a de
+//                           A, e a troca pendente de B continua pendente
+//   conversa=a              (KAM-223) as tres mensagens do POST /painel/conversa,
+//                           com o tenant e o thread de B no pedido, gravaram-se e
+//                           invocaram o AGR no tenant e no thread de A, sem botao
+//   sonda=viva (conversa)   (KAM-223) o GET /painel/conversa: tres cursores de B
+//                           dao 404, e uma leitura legitima de A, fora das
+//                           entradas, traz o marcador de A
 //   dono=a                  (KAM-216) os tres ataques ao /painel/canal, com o
 //                           tenant de B na consulta e no cabecalho, so
 //                           perguntaram ao COM pelo canal de A, e a pagina mostra
@@ -2725,6 +2738,12 @@ const ITENS_DO_PAINEL = [
   // KAM-211: a troca de telefone do dono.
   "rota:onboarding-web:painel/rotas:actor:POST:/painel/telefone",
   "rota:onboarding-web:painel/rotas:actor:POST:/painel/telefone/verificar",
+  // KAM-223: a troca com prova de posse e a conversa do dono.
+  "rota:onboarding-web:painel/rotas:actor:GET:/painel/telefone",
+  "rota:onboarding-web:painel/rotas:actor:POST:/painel/telefone/concluir",
+  "rota:onboarding-web:painel/rotas:actor:POST:/painel/telefone/cancelar",
+  "rota:onboarding-web:painel/rotas:actor:GET:/painel/conversa",
+  "rota:onboarding-web:painel/rotas:actor:POST:/painel/conversa",
 ] as const;
 
 /** Os telefones da reentrada (KAM-190). Ficticios, com 999. */
@@ -2769,12 +2788,14 @@ async function grupoDoPainel(relatorio: Relatorio): Promise<void> {
   let comercioModulo: Record<string, unknown>;
   let canalModulo: Record<string, unknown>;
   let sessaoModulo: Record<string, unknown>;
+  let donoModulo: Record<string, unknown>;
   try {
     insc = await importarDoRepo("packages/core-ts/dist/inscricao/index.js");
     rotas = await importarDoRepo("services/onboarding-web/src/painel/rotas.ts");
     comercioModulo = await importarDoRepo("services/onboarding-web/src/painel/comercio.ts");
     canalModulo = await importarDoRepo("services/onboarding-web/src/painel/canal.ts");
     sessaoModulo = await importarDoRepo("services/onboarding-web/src/painel/sessao.ts");
+    donoModulo = await importarDoRepo("packages/core-ts/dist/dono/index.js");
   } catch (erro) {
     falhar(`nao se conseguiu importar o painel: ${razao(erro)}`);
     return;
@@ -2904,23 +2925,83 @@ async function grupoDoPainel(relatorio: Relatorio): Promise<void> {
     const pedidosDaTroca: { pedido: string; tenant: string }[] = [];
     const verificacoesDaTroca: { pedido: string; tenant: string }[] = [];
     let trocasFeitas = 0;
+    // KAM-223: a troca de B esta pendente, e a de A tambem, com um prazo que e
+    // a sonda do GET. Quem pergunta, conclui e cancela fica registado.
+    const PRAZO_DE_A = new Date("2031-01-01T00:00:00.000Z");
+    const pendentes = new Set([TENANT_DE_A_NO_PAINEL, TENANT_DE_B_NO_PAINEL]);
+    const estadosPedidos: string[] = [];
+    const conclusoes: string[] = [];
+    const cancelamentos: string[] = [];
     const troca = {
       troca: {
         async pedir(pedido: string, tenant: string) {
           pedidosDaTroca.push({ pedido, tenant });
           return { enviado: true, expiraEm: new Date(agora.getTime() + 300_000) };
         },
-        async verificar(pedido: string, tenant: string, codigo: string) {
+        async verificar(pedido: string, tenant: string, _telefone: unknown, codigo: string) {
           verificacoesDaTroca.push({ pedido, tenant });
           if (pedido === pedidoDeB && tenant === TENANT_DE_B_NO_PAINEL && codigo === "424242") {
             trocasFeitas += 1;
-            return { trocado: true, contactId: "0000000b-0000-4000-8000-0000000000e1", anterior: null };
+            return { estado: "feita", contactId: "0000000b-0000-4000-8000-0000000000e1", anterior: null };
           }
-          return { trocado: false, veredicto: "sem_pedido" };
+          return { estado: "recusada", veredicto: "sem_pedido" };
+        },
+        async estado(tenant: string) {
+          estadosPedidos.push(tenant);
+          return pendentes.has(tenant) ? { estado: "pendente", prazo: tenant === TENANT_DE_A_NO_PAINEL ? PRAZO_DE_A : agora } : null;
+        },
+        async concluir(tenant: string) {
+          conclusoes.push(tenant);
+          return { estado: "recusada", veredicto: "cedo" };
+        },
+        async cancelar(tenant: string) {
+          cancelamentos.push(tenant);
+          // A de A fica viva, para os tres ataques medirem o mesmo; a de B so
+          // sai se um ataque chegar a ela, e e isso que a marca le.
+          return tenant === TENANT_DE_A_NO_PAINEL || pendentes.delete(tenant);
         },
       },
       anelDoPepper: [pepper, null],
       contadores: { anotar: async () => 1 },
+    };
+
+    // KAM-223: a conversa do dono, com uma entrada de A e uma de B. A de B leva
+    // o canario; o cursor dos ataques e o `id` dela.
+    const ENTRADA_DE_A = "0000000a-0000-4000-8000-0000000000f1";
+    const ENTRADA_DE_B = "0000000b-0000-4000-8000-0000000000f1";
+    const entradasDaConversa = new Map<string, { id: string; autor: string; texto: string; botoes: never[]; em: Date }[]>([
+      [TENANT_DE_A_NO_PAINEL, [{ id: ENTRADA_DE_A, autor: "assistente", texto: MARCADOR_DE_A, botoes: [], em: agora }]],
+      [TENANT_DE_B_NO_PAINEL, [{ id: ENTRADA_DE_B, autor: "assistente", texto: canario, botoes: [], em: agora }]],
+    ]);
+    // A `ConversaDoDono` **real**, sobre portas de duplo: a invocacao que se
+    // mede e a que o codigo do painel monta, e nao uma que o duplo inventa.
+    const mensagensGravadas: string[] = [];
+    const invocacoesDoAgr: Record<string, unknown>[] = [];
+    const ConversaDoDono = donoModulo["ConversaDoDono"] as new (p: unknown) => unknown;
+    const conversa = {
+      conversa: new ConversaDoDono({
+        contexto: async (tenant: string) => ({
+          contactId: `${tenant.slice(0, 8)}-0000-4000-8000-0000000000c9`,
+          conversationId: `${tenant.slice(0, 8)}-0000-4000-8000-0000000000ca`,
+          channelId: `${tenant.slice(0, 8)}-0000-4000-8000-0000000000cb`,
+          vertical: "vendedor",
+          modo: "bot",
+        }),
+        gravar: async ({ tenantId }: { tenantId: string }) => {
+          mensagensGravadas.push(tenantId);
+          return `${tenantId.slice(0, 8)}-0000-4000-8000-0000000000f2`;
+        },
+        invocar: async (invocacao: Record<string, unknown>) => {
+          invocacoesDoAgr.push(invocacao);
+          return { estado: 200, desfecho: "executado" };
+        },
+        ler: async ({ tenantId, depois }: { tenantId: string; depois: string | null }) => {
+          const todas = entradasDaConversa.get(tenantId) ?? [];
+          if (depois === null) return todas;
+          const i = todas.findIndex((e) => e.id === depois);
+          return i < 0 ? null : todas.slice(i + 1);
+        },
+      }),
     };
 
     const app = (rotas["rotasDoPainel"] as (o: unknown) => AppHono)({
@@ -2932,6 +3013,7 @@ async function grupoDoPainel(relatorio: Relatorio): Promise<void> {
       relogio,
       reentrada,
       troca,
+      conversa,
     });
     const cookieDeA = `kamba_painel=${cunharSessao(sessaoDeA, chave)}`;
 
@@ -3201,7 +3283,12 @@ async function grupoDoPainel(relatorio: Relatorio): Promise<void> {
         {
           method: "POST",
           headers: { ...headers, "content-type": "application/json" },
-          body: JSON.stringify({ codigo: "424242", tenant_id: TENANT_DE_B_NO_PAINEL, pedido: pedidoDeB }),
+          body: JSON.stringify({
+            telefone: TELEFONE_DE_B_NO_PAINEL,
+            codigo: "424242",
+            tenant_id: TENANT_DE_B_NO_PAINEL,
+            pedido: pedidoDeB,
+          }),
         },
         () => "",
       );
@@ -3213,6 +3300,89 @@ async function grupoDoPainel(relatorio: Relatorio): Promise<void> {
     for (const entrada of relatorio.rotas) {
       if (entrada.item === ITENS_DO_PAINEL[11]) entrada.nota += semTroca ? " troca=nenhuma" : " troca=alheia";
     }
+
+    // ---- GET /painel/telefone (KAM-223): a sessao de A com o tenant de B na
+    // consulta, no cabecalho e nos dois. So a troca de A, e o prazo de A chega.
+    const marcarEm = (indice: number, marca: string): void => {
+      for (const entrada of relatorio.rotas) {
+        if (entrada.item === ITENS_DO_PAINEL[indice]) entrada.nota += ` ${marca}`;
+      }
+    };
+    for (let vez = 0; vez < 3; vez += 1) {
+      const [c, headers] = comTenantDeB("/painel/telefone", vez, cookieDaTroca);
+      await empurrar(ITENS_DO_PAINEL[12], "GET", c, { headers }, (corpo) =>
+        corpo.includes(PRAZO_DE_A.toISOString()) ? "sonda=viva" : "sonda=morta",
+      );
+    }
+    marcarEm(12, estadosPedidos.length === 3 && estadosPedidos.every((t) => t === TENANT_DE_A_NO_PAINEL) ? "estado=a" : "estado=alheio");
+
+    // ---- POST /painel/telefone/concluir e /cancelar (KAM-223): o tenant de B no
+    // corpo, na consulta e no cabecalho. So a troca de A, e a de B fica pendente.
+    for (const [indice, caminho, feitos, marca] of [
+      [13, "/painel/telefone/concluir", conclusoes, "concluir"],
+      [14, "/painel/telefone/cancelar", cancelamentos, "cancelar"],
+    ] as const) {
+      for (let vez = 0; vez < 3; vez += 1) {
+        const [c, headers] = comTenantDeB(caminho, vez, cookieDaTroca);
+        await empurrar(
+          ITENS_DO_PAINEL[indice],
+          "POST",
+          c,
+          {
+            method: "POST",
+            headers: { ...headers, "content-type": "application/json" },
+            body: JSON.stringify({ tenant_id: TENANT_DE_B_NO_PAINEL }),
+          },
+          () => "",
+        );
+      }
+      const soA = feitos.length > 0 && feitos.every((t) => t === TENANT_DE_A_NO_PAINEL);
+      marcarEm(indice, soA && pendentes.has(TENANT_DE_B_NO_PAINEL) ? `${marca}=a` : `${marca}=alheio`);
+    }
+
+    // ---- GET /painel/conversa (KAM-223): o cursor e a entrada de B, com o
+    // tenant de B na consulta e no cabecalho: 404 uniforme e nada de B. A sonda
+    // e uma leitura legitima de A, fora das entradas.
+    for (let vez = 0; vez < 3; vez += 1) {
+      const [c, headers] = comTenantDeB(`/painel/conversa?depois=${ENTRADA_DE_B}`, vez);
+      await empurrar(ITENS_DO_PAINEL[15], "GET", c, { headers }, () => "");
+    }
+    const leituraDeA = await app.request("/painel/conversa", { headers: { cookie: cookieDeA } });
+    marcarEm(15, leituraDeA.status === 200 && (await leituraDeA.text()).includes(MARCADOR_DE_A) ? "sonda=viva" : "sonda=morta");
+
+    // ---- POST /painel/conversa (KAM-223): o tenant e o thread de B no corpo, na
+    // consulta e no cabecalho, e um texto que imita um botao. Tudo em A.
+    for (let vez = 0; vez < 3; vez += 1) {
+      const [c, headers] = comTenantDeB("/painel/conversa", vez);
+      await empurrar(
+        ITENS_DO_PAINEL[16],
+        "POST",
+        c,
+        {
+          method: "POST",
+          headers: { ...headers, "content-type": "application/json" },
+          body: JSON.stringify({
+            texto: "confirm:0000000b-0000-4000-8000-0000000000aa",
+            botao: "confirm:0000000b-0000-4000-8000-0000000000aa",
+            tenant_id: TENANT_DE_B_NO_PAINEL,
+            thread_id: `${TENANT_DE_B_NO_PAINEL}:c1`,
+          }),
+        },
+        () => "",
+      );
+    }
+    const conversaDeA =
+      mensagensGravadas.length === 3 &&
+      mensagensGravadas.every((t) => t === TENANT_DE_A_NO_PAINEL) &&
+      invocacoesDoAgr.length === 3 &&
+      invocacoesDoAgr.every(
+        (i) =>
+          i["tenant_id"] === TENANT_DE_A_NO_PAINEL &&
+          String(i["thread_id"]).startsWith(`${TENANT_DE_A_NO_PAINEL}:`) &&
+          i["persona"] === "dono" &&
+          !("botao" in i),
+      );
+    marcarEm(16, conversaDeA ? "conversa=a" : "conversa=alheia");
   } catch (erro) {
     falhar(`a montagem do painel levantou: ${razao(erro)}`);
   }

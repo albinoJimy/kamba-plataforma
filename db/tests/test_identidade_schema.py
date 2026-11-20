@@ -900,7 +900,14 @@ class TestDowngradeDa0003(unittest.TestCase):
         # `contact_id`, `tenant_id` e `criado_at` (24 -> 27). O `kamba_app` passa
         # a ler o `papel` e o `papel_mudou_at` (6 -> 8). Nada disto e da `0003`:
         # em baixo, depois da descida dela, as contagens sao as mesmas.
-        self.assertEqual(em_head["identidade"], (True, 11, 27, 8))
+        #
+        # **(12, 40, 8) e nao (11, 27, 8) desde o KAM-223.** A revisao do canal
+        # do dono pelo painel da ao `kamba_identity` a troca de telefone
+        # persistida (`owner_phone_changes`): `SELECT` de tabela (11 -> 12), e
+        # `INSERT` e `UPDATE` por coluna — cinco colunas no `INSERT`, nove no
+        # `UPDATE`, com o `prazo` nos dois: treze colunas com ACL (27 -> 40).
+        # Nada disto e da `0003`, e a descida da `0077` larga-o com a tabela.
+        self.assertEqual(em_head["identidade"], (True, 12, 40, 8))
         self.assertEqual(
             em_head["politicas"],
             [

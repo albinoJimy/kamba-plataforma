@@ -208,6 +208,9 @@ POLITICA: Final[tuple[Classe, ...]] = (
             # `conversations`; sai com a classe, pelo caminho que o KAM-098 tem
             # por escrever para as outras.
             _t("platform.agent_replies", pendencia=_CONVERSAS_PENDENTE),
+            # KAM-223: a mensagem que entra no AGR (o texto do dono pelo painel)
+            # e conteudo da conversa pela mesma razao, com as mesmas FK.
+            _t("platform.agent_messages", pendencia=_CONVERSAS_PENDENTE),
             _t("platform.tool_idempotency", pendencia=_CONVERSAS_PENDENTE),
             _t("platform.inbound_events", pendencia=_CONVERSAS_PENDENTE),
         ),
@@ -466,6 +469,12 @@ POLITICA: Final[tuple[Classe, ...]] = (
             # 15 min de vida (*proposta*), mas a linha fecha-se pelo `estado` e
             # nao se apaga: e a prova de que a confirmacao foi pedida e por quem.
             _t("platform.owner_actions", pendencia=_RELACAO),
+            # KAM-223 (revisao do canal do dono pelo painel). As trocas de
+            # telefone do dono: o HMAC dos numeros, nunca o numero, e o estado.
+            # Vivem com o contacto dono, que apontam por FK composta, e uma
+            # troca decidida nao se apaga: e a prova de quem pediu, por que
+            # numero e como acabou. Saem no encerramento.
+            _t("platform.owner_phone_changes", pendencia=_RELACAO),
             # KAM-123 (revisao do Orcamento expresso). Os pedidos de
             # orcamento: conversa comercial do tenant com o cliente, sem
             # numeracao fiscal (nao e factura). Vivem com a relacao e saem no
