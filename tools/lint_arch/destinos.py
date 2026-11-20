@@ -145,8 +145,16 @@ CLIENTES_DE_SAIDA: dict[str, ClienteDeSaida] = {
     "services/agr/src/kamba_agr/llm/cliente.py": ClienteDeSaida(
         # A `classificacao_de_catalogo` e a do papel `screening` (KAM-195): o
         # classificador de screening do GOV chama pela rota do AGR, que passa
-        # pelo mesmo `.autorizar(` deste ficheiro.
-        finalidades=("classificacao_de_catalogo", "conversa", "embeddings", "visao"),
+        # pelo mesmo `.autorizar(` deste ficheiro. A `classificacao_de_condicoes`
+        # e a do mesmo papel quando le as condicoes de um orcamento (KAM-230,
+        # decisao do fundador de 2026-11-20): quem a escolhe e o pedido.
+        finalidades=(
+            "classificacao_de_catalogo",
+            "classificacao_de_condicoes",
+            "conversa",
+            "embeddings",
+            "visao",
+        ),
         consulta_o_gate=True,
         credor="",
         razao=(

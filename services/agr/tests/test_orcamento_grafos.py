@@ -719,7 +719,9 @@ class TestARespostaDoDono(unittest.TestCase):
     def setUp(self) -> None:
         self.respostas: list[tuple] = []
 
-        def responder(_ligacao, tenant, contacto, quote_id, valor_minor, validade, condicoes, agora, *, screening=None):
+        # O `gravar_resposta`, e nao o `responder`: desde o KAM-230 o executor
+        # confere as condicoes sem a tomada e so depois grava.
+        def responder(_ligacao, tenant, contacto, quote_id, valor_minor, validade, condicoes, agora):
             self.respostas.append((tenant, contacto, quote_id, valor_minor))
             validade = validade or regras.validade_por_omissao(agora)
             previsao = rep.texto_da_proposta(quote_id, "SKU-300", valor_minor, validade, condicoes, agora)
@@ -728,7 +730,7 @@ class TestARespostaDoDono(unittest.TestCase):
 
         self.por_ref: dict[str, str] = {}
         for alvo, substituto in (
-            ("responder", responder),
+            ("gravar_resposta", responder),
             ("por_referencia", lambda _l, _t, referencia: self.por_ref.get(referencia)),
         ):
             remendo = mock.patch.object(rep, alvo, substituto)

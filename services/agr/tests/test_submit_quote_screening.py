@@ -31,7 +31,7 @@ As condicoes tem finalidade de transferencia propria, a
 `classificacao_de_condicoes`. O `TestAFinalidade` mede-a a sair do AGR no corpo
 do COM e a chegar ao classificador pelo COM de ensaio; o *gate* de destino que
 a consulta e o `test_llm_screening.py`, e os dois processos juntos, com a base,
-o `db/tests_screen_com/`.
+o `db/tests_entrada/test_screen_com.py`.
 
 ## O prazo e a tomada (achados 2, 3 e 9 da revisao do KAM-228; KAM-230)
 
@@ -438,7 +438,7 @@ class TestAFinalidade(_Montagem):
     KAM-228, que media a porta fechada: aqui a finalidade sai do AGR no corpo do
     COM e chega ao classificador. O *gate* que a consulta — e que recusa as
     condicoes a um tenant so com o destino do catalogo — e o
-    `test_llm_screening.py`; os dois processos com a base, o `db/tests_screen_com/`.
+    `test_llm_screening.py`; os dois processos com a base, o `db/tests_entrada/test_screen_com.py`.
     """
 
     def test_a_finalidade_e_propria_e_esta_no_dominio(self) -> None:

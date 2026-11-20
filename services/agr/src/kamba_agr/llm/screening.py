@@ -392,7 +392,18 @@ def rotas(
         restante = prazo - decorrido - MARGEM_DE_RESPOSTA_S
         if restante < minimo_s:
             return None
-        return classificar(dataclasses.replace(corpo, prazo_s=restante))  # type: ignore[misc]
+        # Um pedido novo, campo a campo, e nao um `dataclasses.replace`: a
+        # guarda da minimizacao recusa-o em toda a fonte do AGR (KAM-112).
+        return classificar(  # type: ignore[misc]
+            PedidoDeScreening(
+                corpo.tenant_id,
+                corpo.trace_id,
+                corpo.categoria_declarada,
+                corpo.textos,
+                corpo.finalidade,
+                restante,
+            )
+        )
 
     async def screening(pedido: Request) -> JSONResponse:
         chegada = time.monotonic()
