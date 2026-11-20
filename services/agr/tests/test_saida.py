@@ -16,6 +16,7 @@ from __future__ import annotations
 import asyncio
 import datetime
 import json
+import threading
 import re
 import unittest
 import uuid
@@ -329,20 +330,23 @@ class TestSaidaPorEvento(unittest.TestCase):
             aviso=self.avisos.append,
         )
 
+    def enviar(self, porta: SaidaPorEvento | None = None, *, chave: str = "k:0") -> None:
+        asyncio.run((porta or self.porta).enfileirar(estado(), "ola", chave=chave))
+
     def test_abre_e_fecha_uma_ligacao_por_envio(self) -> None:
-        self.porta.enfileirar(estado(), "ola", chave="k:0")
-        self.porta.enfileirar(estado(), "ola", chave="k:1")
+        self.enviar(chave="k:0")
+        self.enviar(chave="k:1")
         self.assertEqual(self.base.fechadas, 2)
         self.assertEqual(len(self.base.eventos), 2)
 
     def test_a_repeticao_avisa_e_nao_levanta(self) -> None:
-        self.porta.enfileirar(estado(), "ola", chave="k:0")
-        self.porta.enfileirar(estado(), "ola", chave="k:0")
+        self.enviar()
+        self.enviar()
         self.assertEqual(self.avisos, ["resposta_repetida"])
         self.assertEqual(len(self.base.eventos), 1)
 
     def test_fora_de_um_turno_o_inicio_e_o_instante_do_envio(self) -> None:
-        self.porta.enfileirar(estado(), "ola", chave="k:0")
+        self.enviar()
         self.assertEqual(
             self.base.respostas[0]["inicio"],
             datetime.datetime(2026, 11, 19, 12, 0, tzinfo=datetime.UTC),
@@ -354,7 +358,7 @@ class TestSaidaPorEvento(unittest.TestCase):
         async def no() -> None:
             # Uma tarefa nova, como as do LangGraph: herda o contexto.
             await asyncio.create_task(asyncio.to_thread(lambda: None))
-            self.porta.enfileirar(estado(), "ola", chave="k:0")
+            await self.porta.enfileirar(estado(), "ola", chave="k:0")
 
         async def turno() -> None:
             marca = INICIO_DO_TURNO.set(inicio)
@@ -368,12 +372,87 @@ class TestSaidaPorEvento(unittest.TestCase):
 
     def test_o_canal_e_o_da_funcao_dada(self) -> None:
         porta = SaidaPorEvento(lambda: Ligacao(self.base), canal_de=lambda _e: CANAL_PAINEL)
-        porta.enfileirar(estado(), "ola", chave="k:0")
+        self.enviar(porta)
         self.assertEqual(self.base.respostas[0]["canal"], "painel")
 
     def test_por_omissao_o_canal_e_o_whatsapp(self) -> None:
-        self.porta.enfileirar(estado(), "ola", chave="k:0")
+        self.enviar()
         self.assertEqual(self.base.respostas[0]["canal"], "whatsapp")
+
+
+class TestUmaBaseLenta(unittest.TestCase):
+    """KAM-227: a ida a base do envio sai da *event loop*.
+
+    **A base so responde quando o outro turno tiver andado.** O `INSERT` do
+    duplo espera por um `threading.Event` que so o outro turno — uma corrotina
+    na mesma *event loop* — pode soltar, depois de `PASSOS` voltas. Se o envio
+    corresse na *event loop*, o outro turno nao andava, e a base so se soltava
+    pelo prazo: o ensaio distingue «soltou-a o outro turno» de «soltou-a o
+    relogio», e nao depende de quantas voltas cabem num intervalo.
+
+    O controlo corre o mesmo corpo **na** *event loop* — a forma anterior ao
+    KAM-227 — e mostra que ai o outro turno nao da volta nenhuma. Sem ele, um
+    duplo que nunca esperasse deixava o primeiro ensaio verde por vacuidade.
+    """
+
+    PASSOS = 5
+
+    def correr(self, enviar: Any, *, prazo: float) -> tuple[bool, int, Base]:
+        base = Base()
+        solta = threading.Event()
+        visto: dict[str, bool] = {}
+
+        class CursorLento(Cursor):
+            def execute(self, sql: str, p: tuple = ()) -> None:
+                if sql is saida.SQL_INSERIR:
+                    visto["pelo_outro_turno"] = solta.wait(prazo)
+                super().execute(sql, p)
+
+        class LigacaoLenta(Ligacao):
+            def cursor(self) -> Cursor:
+                return CursorLento(self.base)
+
+        passos = 0
+
+        async def outro_turno() -> None:
+            nonlocal passos
+            while passos < self.PASSOS:
+                await asyncio.sleep(0.01)
+                passos += 1
+            solta.set()
+
+        async def principal() -> int:
+            outro = asyncio.create_task(outro_turno())
+            await asyncio.sleep(0)  # o outro turno arranca e fica no primeiro sleep
+            await enviar(lambda: LigacaoLenta(base))
+            durante = passos
+            await outro
+            return durante
+
+        durante = asyncio.run(principal())
+        return visto["pelo_outro_turno"], durante, base
+
+    def test_uma_base_lenta_nao_para_os_outros_turnos(self) -> None:
+        async def pela_porta(abrir: Any) -> None:
+            await SaidaPorEvento(abrir).enfileirar(estado(), "ola", chave="k:0")
+
+        pelo_outro_turno, durante, base = self.correr(pela_porta, prazo=5.0)
+        self.assertTrue(pelo_outro_turno, "a base soltou-se pelo prazo: o outro turno parou")
+        self.assertGreaterEqual(durante, self.PASSOS)
+        self.assertEqual((len(base.respostas), len(base.eventos), base.fechadas), (1, 1, 1))
+
+    def test_o_controlo_na_event_loop_para_os_outros_turnos(self) -> None:
+        async def na_event_loop(abrir: Any) -> None:
+            ligacao = abrir()
+            try:
+                emitir_resposta(ligacao, estado(), "ola", chave="k:0")
+            finally:
+                ligacao.close()
+
+        pelo_outro_turno, durante, base = self.correr(na_event_loop, prazo=0.3)
+        self.assertFalse(pelo_outro_turno)
+        self.assertEqual(durante, 0)
+        self.assertEqual(len(base.eventos), 1)
 
 
 class TestOTurnoPoeOInicio(unittest.TestCase):

@@ -147,13 +147,20 @@ cujo pseudónimo já não se calcula: o módulo dá erro, não inventa uma chave
 1. `KAMBA_ENV` em falta ou fora de `dev`/`staging`/`prod` — uma variável
    esquecida não vale como «não é produção»;
 2. `KAMBA_ENV` diferente do ambiente para que o provedor está configurado;
-3. `KAMBA_ENV=prod` com um provedor de ambiente — o critério 9 do ticket.
+3. `KAMBA_ENV=prod` sem uma chave que o processo usa: a KEK (sempre) e a chave
+   de pesquisa (salvo num processo que só lê endpoints, que o declara com
+   `soLeEndpoints`), ausente, vazia ou mal formada — o critério 9 do ticket,
+   emendado.
 
-**A terceira recusa é pelo que o provedor diz de si.** «De ambiente» é o
-`SecretsKeyProvider` cujo provedor de segredos se chama `env`. Um provedor de
-segredos que leia do ambiente com outro nome, ou o cofre de imitação dos testes
-(`OpenBaoFakeProvider`), arranca em `prod` (reproduzido na revisão). O critério
-cumpre-se à letra; não é uma garantia de que as chaves vêm de um cofre.
+**Em `prod` as chaves vêm do ambiente que o lançador do cofre enche**, como os
+outros segredos (ADR-L002). É a decisão do fundador de 2026-11-20, no KAM-227,
+que emendou o critério 9: até ali a terceira recusa era a do provedor de
+ambiente em `prod`, e o módulo não arrancava (§8, linha 2). A recusa nova lê as
+chaves pela mesma leitura das operações (`exigirChavesNoArranque`), junta as
+falhas numa só, e vale para qualquer provedor — o cofre de imitação sem a KEK
+também não arranca. **O que não recusa:** um ambiente cheio à mão, e não pelo
+lançador. De dentro do processo não se distingue, porque as variáveis são as
+mesmas; um marcador do lançador seria outra variável que se escreve à mão.
 
 ---
 
@@ -333,13 +340,13 @@ invertida, é uma revisão nova que move três colunas.
 | # | Questão | Estado |
 |---|---|---|
 | 1 | **O *crypto-shredding* não chega às cópias de segurança.** O `docs/tecnica/06` §7.6 diz que apagar a DEK torna os dados ilegíveis «incluindo nos *backups* e arquivos WAL». Com a DEK embrulhada **na base**, uma cópia anterior ao apagamento tem a cifra **e** a DEK embrulhada, e a KEK continua no cofre: quem tiver a cópia e a KEK lê. Só passa a ser verdade quando a KEK rodar (e a antiga for destruída) ou a cópia expirar | Sem ticket. Decide-se com a retenção das cópias (KAM-071, KAM-079) ou movendo as DEK para o cofre |
-| 2 | **Não há `KeyProvider` de cofre para `prod`.** O critério 9 recusa o de ambiente em `prod`. Mas o `docs/adr/ADR-L002` diz que no Piloto o processo lê segredos **do ambiente**, que o lançador do cofre enche — ou seja, em `prod` a porta de segredos é a de ambiente. Os dois não se cumprem ao mesmo tempo: ou o módulo de identidade fala com o cofre directamente (o `DopplerSecretProvider` do KAM-010 serve), ou o critério muda | Contradição entre o ticket e o ADR-L002; devolvida |
+| 2 | **Não há `KeyProvider` de cofre para `prod`.** O critério 9 recusava o de ambiente em `prod`. Mas o `docs/adr/ADR-L002` diz que no Piloto o processo lê segredos **do ambiente**, que o lançador do cofre enche — ou seja, em `prod` a porta de segredos é a de ambiente. Os dois não se cumpriam ao mesmo tempo: ou o módulo de identidade falava com o cofre directamente (o `DopplerSecretProvider` do KAM-010 serve), ou o critério mudava | **Resolvida a 2026-11-20**: o fundador decidiu pelo ADR-L002, no KAM-227. O critério 9 foi emendado — em `prod` o arranque recusa sem as chaves, e não pelo provedor (§3, «Produção») |
 | 3 | **Quem cria a chave de cada mês e quem a destrói** ao fim da retenção (12 meses, *proposta*, `docs/tecnica/06` §7.2) | Sem ticket |
 | 4 | **Auditoria das leituras do cofre.** O `docs/tecnica/08` §7.2 pede que «o acesso à função HMAC» seja auditado. `lerEndpoints` incrementa um contador em memória e mais nada | KAM-012 (`audit_log`) |
 | 5 | **A purga por `expira_at`** tem de apagar, com o endpoint de telefone, o `phone_hmac` do contacto — ou não, e aí o número continua a ser reconhecido depois de a cifra expirar. A coluna existe; nada a lê | KAM-071 |
 | 6 | **Os privilégios de `kamba_batch` sobre o cofre.** Hoje nenhum. A purga e a rotação vão precisar de alguns, e dar `BYPASSRLS` sobre BSUID e telefones cifrados de todos os tenants é uma decisão, não um pormenor | KAM-071, KAM-072 |
 | 7 | **Só há fusão quando um pedido traz BSUID e telefone.** Um contacto só-BSUID e um só-telefone da mesma pessoa não se ligam enquanto nenhuma mensagem trouxer os dois. O critério do KAM-014 («mensagem com apenas `wa_id` e mensagem com apenas BSUID do mesmo cliente convergem») não se cumpre com o que a Meta manda | KAM-014 |
-| 8 | **Chaves em memória.** O `SecretsKeyProvider` pede a chave ao provedor de segredos em cada operação, sem janela de tolerância; com um cofre remoto é uma ida à rede por resolução | Decide-se com o ponto 2 |
+| 8 | **Chaves em memória.** O `SecretsKeyProvider` pede a chave ao provedor de segredos em cada operação, sem janela de tolerância; com um cofre remoto é uma ida à rede por resolução | Sem efeito desde a decisão do ponto 2: o provedor de `prod` é o de ambiente, e cada leitura é da memória do processo. Reabre se a porta passar a um cofre remoto (ADR-L002 §6) |
 | 9 | **A base legal de guardar `phone_hmac` sem finalidade declarada** — fica sempre que um telefone é visto, para reconhecer o contacto | (a confirmar por parecer) |
 | 10 | **«Telefone com outro BSUID é outra pessoa».** A regra de não fundir (§4) é *proposta* e assenta numa premissa — um BSUID por pessoa e por tenant, estável — que a evidência não confirma fora de «um tenant, um portfólio» | Devolvida ao fundador; rever antes do Fluxo B (ADR-011) ou de qualquer mudança de portfólio |
 | 11 | **Não há reembrulho das DEK quando a KEK roda.** O anel guarda duas versões da KEK; à segunda rotação sem reembrulhar, as DEK embrulhadas com a mais antiga deixam de abrir e os endpoints desses contactos ficam ilegíveis (reproduzido na revisão). O módulo não tem a função, e nenhum ticket a tem | Sem ticket; tem de existir antes da **primeira** rotação da KEK (365 dias, *proposta*) |
@@ -410,3 +417,4 @@ if (evento !== null) await emitir(evento);
 | Versão | Data | Alteração | Autor |
 |---|---|---|---|
 | 1.0 | Outubro 2026 | Emissão (KAM-008): as quatro tabelas, o papel `kamba_identity`, as chaves, resolver, rodar, apagar, e o que fica por decidir. | Equipa KAMBÁ |
+| 1.1 | Novembro 2026 | KAM-227: a contradição 2 do §8 resolvida pela decisão do fundador de 2026-11-20 (as chaves de `prod` vêm do ambiente do lançador, ADR-L002); a terceira recusa do §3 passa a ser a das chaves em falta, e o ponto 8 fica sem efeito. | Equipa KAMBÁ |
