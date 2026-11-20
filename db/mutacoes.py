@@ -5072,9 +5072,9 @@ MUTACOES = [
     # O turno deixa de chamar a libertacao:
     # `test_a_mensagem_liberta_dentro_da_tranca_e_antes_do_grafo`.
     ('orc: o turno deixa de libertar a janela', AG_TURNO,
-     '                    await self._cliente_escreveu(primeira)\n'
-     '                    estado = estado_inicial(primeira)',
-     '                    estado = estado_inicial(primeira)',
+     '                    await self._cliente_escreveu(base)\n'
+     '                    estado = estado_inicial(base)',
+     '                    estado = estado_inicial(base)',
      AGR_UNIT),
     # A libertacao perde o prazo, e um Outbound pendurado prende o turno:
     # `test_uma_libertacao_pendurada_nao_prende_o_turno`.

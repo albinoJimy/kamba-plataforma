@@ -2850,6 +2850,41 @@ INVENTARIO["agent_replies"] = {
     ),
 }
 
+#: A mensagem que entra no AGR (KAM-223, revisao do canal do dono pelo
+#: painel). O contacto e a conversa sao referencias opacas (ADR-010). O `texto`
+#: e o que o dono escreveu no painel: e conteudo, e por isso **nunca** vai na
+#: invocacao, que leva so o `message_id`.
+INVENTARIO["agent_messages"] = {
+    "message_id": ("uuid", NAO, "gen_random_uuid()", "nao — o identificador que a invocacao leva"),
+    "tenant_id": ("uuid", NAO, None, "nao"),
+    "contact_id": ("uuid", NAO, None, "referencia opaca a contacts (KAM-008, ADR-010)"),
+    "conversation_id": ("uuid", NAO, None, "referencia opaca a conversations (ADR-010)"),
+    "canal": ("text", NAO, None, "nao — lista fechada de dois"),
+    "texto": ("text", NAO, None, "texto livre do dono; nunca na invocacao nem no registo"),
+    "criado_at": ("timestamp with time zone", NAO, "now()", "nao"),
+}
+
+#: A troca de telefone do dono (KAM-223). **Sem telefone em claro**: os dois
+#: numeros vao pelo HMAC com o *pepper* da inscricao (ADR-010), e o desafio
+#: do OTP guarda o HMAC do codigo, nunca o codigo.
+INVENTARIO["owner_phone_changes"] = {
+    "change_id": ("uuid", NAO, "gen_random_uuid()", "nao"),
+    "tenant_id": ("uuid", NAO, None, "nao"),
+    "pedido": ("text", NAO, None, "nao — o identificador da sessao do painel que pediu"),
+    "telefone_hmac": ("text", NAO, None, "HMAC do numero novo (ADR-010); nunca o numero"),
+    "owner_channel_wa": ("boolean", NAO, None, "nao — o canal do dono novo (KAM-216)"),
+    "estado": ("text", NAO, "'pedida'::text", "nao — lista fechada de cinco"),
+    "prazo": ("timestamp with time zone", NAO, None, "nao"),
+    "contact_id": ("uuid", SIM, None, "referencia opaca a contacts (KAM-008, ADR-010)"),
+    "antigo_hmac": ("text", SIM, None, "HMAC do numero que o dono diz ser o antigo; nunca o numero"),
+    "desafio_chave": ("text", SIM, None, "nao — leva 16 hexadecimais do HMAC, nunca o numero"),
+    "desafio_hmac": ("text", SIM, None, "HMAC do codigo do OTP; nunca o codigo"),
+    "desafio_expira_em": ("timestamp with time zone", SIM, None, "nao"),
+    "desafio_tentativas": ("integer", SIM, None, "nao"),
+    "criado_at": ("timestamp with time zone", NAO, "now()", "nao"),
+    "decidido_at": ("timestamp with time zone", SIM, None, "nao"),
+}
+
 #: Os pedidos de orcamento (KAM-123, revisao do Orcamento expresso). O cliente
 #: e a conversa sao referencias opacas (ADR-010); o `valor_minor` e o que o
 #: dono digitou, e as `condicoes` sao texto do dono **sem numeros**, passado
@@ -3819,6 +3854,15 @@ class TestInventario(ComBase):
                         "agent_replies_tenant_fk",
                         "agent_replies_contact_fk",
                         "agent_replies_conversation_fk",
+                        # KAM-223 (revisao do canal do dono pelo painel): a
+                        # mensagem aponta o tenant e, pelos pares, o contacto
+                        # e a conversa; a troca aponta o tenant e, pelo par, o
+                        # contacto novo. Sem cascata.
+                        "agent_messages_tenant_fk",
+                        "agent_messages_contact_fk",
+                        "agent_messages_conversation_fk",
+                        "owner_phone_changes_tenant_fk",
+                        "owner_phone_changes_contact_fk",
                         "refund_cases_tenant_fk",
                         "refund_cases_charge_fk",
                         "fraud_signals_tenant_fk",
@@ -4144,6 +4188,10 @@ class TestInventario(ComBase):
             # considera dois NULL iguais. E o comportamento certo, e fica dito
             # para nao parecer descuido.
             "payment_accounts_um_ativo": True,
+            # KAM-223: **uma troca viva por tenant** (`pedida` ou `pendente`).
+            # Perde-lo deixava duas replicas abrirem duas trocas, e a segunda
+            # conclusao movia o papel outra vez.
+            "owner_phone_changes_viva_uq": True,
             # KAM-043: os dois da revisao `0028`, parciais e **nao** unicos.
             # O `offer_terms_tenant_estado_idx` cobre so o que nao esta
             # apagado (`deleted_at IS NULL`), que e a leitura do catalogo; o
@@ -4723,6 +4771,25 @@ class TestInventario(ComBase):
                     "agent_replies_template_nome_ck",
                     "agent_replies_template_parametros_ck",
                     "agent_replies_texto_ck",
+                    # ---------- KAM-223 (revisao do canal do dono pelo painel)
+                    #
+                    # A mensagem: a chave e os dominios do `canal` e do
+                    # `texto`. A troca: a chave, a forma do pedido, dos
+                    # tres HMAC e das tentativas, o estado, o desafio que
+                    # anda junto e o contacto de uma troca pendente ou
+                    # feita. A troca viva unica e um indice, e nao aparece.
+                    "agent_messages_canal_ck",
+                    "agent_messages_pkey",
+                    "agent_messages_texto_ck",
+                    "owner_phone_changes_antigo_hmac_ck",
+                    "owner_phone_changes_contacto_ck",
+                    "owner_phone_changes_desafio_ck",
+                    "owner_phone_changes_desafio_hmac_ck",
+                    "owner_phone_changes_desafio_tentativas_ck",
+                    "owner_phone_changes_estado_ck",
+                    "owner_phone_changes_pedido_ck",
+                    "owner_phone_changes_pkey",
+                    "owner_phone_changes_telefone_hmac_ck",
                     "purge_log_classe_ck",
                     "purge_log_linhas_ck",
                     "purge_log_modo_ck",

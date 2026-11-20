@@ -470,6 +470,11 @@ services:
       # KAM-178. O AGR **apresenta** a credencial da API interna do COM; o COM
       # verifica-a. E obrigatoria ao arranque dos dois, e tem de ser o mesmo valor.
       KAMBA_SECRET_COM_INTERNAL_TOKEN: ${KAMBA_SECRET_COM_INTERNAL_TOKEN:?defina-o no .env}
+      # KAM-223. O AGR **verifica** a credencial do painel do dono no
+      # `/internal/turn`, so num turno do dono com `message_id`. Lida a cada
+      # pedido; em falta, a rota recusa (401) e nunca abre. O `onboarding-web`
+      # apresenta-a, e tem de ser o mesmo valor.
+      KAMBA_SECRET_AGR_PAINEL_TOKEN: ${KAMBA_SECRET_AGR_PAINEL_TOKEN:-}
       # Sem este endereco os executores das tools de comercio **nao ligam** e as
       # cinco entradas do Vendedor ficam `declaradas` — visivel na linha
       # `toollayer_pronta` do arranque (`ligadas_N_de_11`) e nao em silencio.
@@ -684,6 +689,23 @@ services:
     environment:
       <<: *service-env
       PORT: "3003"
+      # KAM-223: o ambiente do cofre e os tres segredos da inscricao, sem os quais
+      # o `server.ts` sai no arranque (o `exigir` do `KAMBA_AMBIENTE` e o
+      # `Secrets.arrancar`). Ate aqui o servico nao subia pelo compose. Os dois
+      # *pepper* e a assinatura sao `base64` de 32 octetos (`openssl rand
+      # -base64 32`), e um valor mal formado faz o processo sair e nomear o
+      # segredo.
+      KAMBA_AMBIENTE: dev
+      KAMBA_SECRET_PEPPER_ONBOARDING_IDENT: ${KAMBA_SECRET_PEPPER_ONBOARDING_IDENT:?defina-o no .env}
+      KAMBA_SECRET_SEGREDO_ONBOARDING_ASSINATURA: ${KAMBA_SECRET_SEGREDO_ONBOARDING_ASSINATURA:?defina-o no .env}
+      KAMBA_SECRET_PEPPER_SMS_DESTINO: ${KAMBA_SECRET_PEPPER_SMS_DESTINO:?defina-o no .env}
+      # KAM-223: a conversa do dono com o Assistente. A segunda ligacao, como
+      # `kamba_app` (o `kamba_identity` nao le `tenants` nem `tenant_channels`), e
+      # o AGR com a credencial **do painel**, que nao e a do shim. Como a troca, so
+      # se usa com o painel montado (`ONBOARDING_COM_INTERNO_URL`).
+      ONBOARDING_APP_DB_URL: postgresql://kamba_app:${KAMBA_SECRET_DB_APP_PASSWORD:-}@postgres:5432/${KAMBA_DB_NAME:-kamba_platform}
+      KAMBA_AGR_URL: ${KAMBA_AGR_URL:-http://agr:8000}
+      KAMBA_SECRET_AGR_PAINEL_TOKEN: ${KAMBA_SECRET_AGR_PAINEL_TOKEN:-}
       # KAM-217: a troca de telefone do dono, como `kamba_identity` (o papel que
       # executa a `platform.definir_dono` e le o cofre de contacto). So se usa
       # com o painel montado (`ONBOARDING_COM_INTERNO_URL`); as chaves do
