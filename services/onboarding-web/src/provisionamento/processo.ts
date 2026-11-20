@@ -36,7 +36,7 @@
  * ## O que não arranca em `prod`, e porquê
  *
  * O `Identidade.arrancar` recusa o `EnvKeyProvider` com `KAMBA_ENV=prod`
- * (`docs/identidade.md` §8, contradição 2) — a mesma recusa que o
+ * (`docs/identidade.md` §8, ponto 2) — a mesma recusa que o
  * `worker-canal-entrada` tem. A leitura das chaves do contacto do cofre em
  * `prod` é decisão do fundador de 2026-11-20 (ADR-L002, bloco do KAM-227) e não
  * deste ticket: este processo segue-a quando ela aterrar no `identity/`.

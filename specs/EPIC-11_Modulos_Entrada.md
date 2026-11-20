@@ -1453,7 +1453,17 @@ O contacto `dono` nasce em produção do `tenant.provisioned`, de forma idempote
 ### Detalhes Técnicos
 
 - **Esquema:** leva uma revisão de dados (a subscrição) e, se o desenho o pedir, as concessões ao `kamba_identity`. Vaga de migração a pedir à coordenação.
-- **Decisão por tomar:** o formato de cifra e a KEK do `phone_enc` são do Responsável de Segurança e do fundador; o KAM-086 deixou a cifra ao adaptador.
+- **Decisão por tomar:** o formato de cifra e a KEK do `phone_enc` são do Responsável de Segurança e do fundador; o KAM-086 deixou a cifra ao adaptador. **Decidida — ver «Decisão do fundador» abaixo.**
+
+### Decisão do fundador
+
+**Data: 2026-11-20. Autor: o fundador (decisão transmitida pela coordenação do lote 16). KEK própria para o `onboarding_case.phone_enc`.**
+
+- **O formato é o do resto:** AES-256-GCM em envelope por tenant, com o contexto autenticado tenant + `onboarding_id` + campo.
+- **A KEK é nova, só para este campo**, com anel de rotação (actual e anterior), e entra no `ops/secrets-inventory.yaml` (`kek_telefone_do_caso`).
+- **Só a recebem** o `onboarding-web`, que escreve, e o processo do consumidor `dono`, que lê.
+- **Recusadas:** a KEK do onboarding (`../packages/core-ts/src/onboarding/cifra.ts`, a dos *tokens* da Meta, `kek_token_cliente`) e a da identidade (`kek_contact_dek`).
+- **O que se ensaia:** um `phone_enc` copiado para outro caso não decifra.
 
 ### Testes Requeridos
 
@@ -1476,6 +1486,15 @@ Objectivo: o caso chega a es_concluido em produção, o phone_enc decifra-se, e 
 Regras: o papel só muda pela platform.definir_dono; tenant_id só do envelope; a cifra e a KEK decidem-se antes de escrever.
 Testes: integração contra a base, isolamento e adversarial.
 ```
+
+### Decisões do executor
+
+- **O emissor é um varrimento do processo de lote, e não a saga.** A saga do KAM-091 só se instancia em ensaios e não tem porta que mude a fase do caso; o que avança o caso é o `varrerProvisionamentos` (`../packages/core-ts/src/provisioning/avanco.ts`), o passo `provisionar` do `CicloDaFila` que o `onboarding-lote` corre a cada volta, como `kamba_batch`. Lê os factos que outros escrevem e chama a `platform.advance_case`: `saga_iniciada` quando a saga abriu um passo, `saga_concluida` quando os cinco passos antes do ES estão `concluido`, `es_concluido` com um canal vivo e só um — o predicado da própria função, letra a letra. Um caso sem esses factos não avança, que é o certo: um `tenant.provisioned` sem canal anunciava um número que não existe. **A unicidade do evento é da porta** (o `FOR UPDATE` sobre o caso), e o varrimento tranca o caso e relê a fase antes de a chamar: um candidato que outra réplica já avançou salta-se, em vez de a porta o recusar com `23514`.
+- **A cifra é a do `../packages/core-ts/src/onboarding/cifra.ts`, com outra KEK e o caso no contexto** (`../packages/core-ts/src/inscricao/telefone_do_caso.ts`). O `kid` é obrigatório nas duas posições do anel: a KEK nasce depois do KAM-205 e não tem criptogramas legados a abrir com rótulo posicional.
+- **O escritor são as duas colunas do `INSERT`** (`colunasDoTelefone`): o `kamba_app` só tem `INSERT` no `phone_enc` e no `phone_hmac`, pelo que o telefone de um caso se escreve uma vez, ao criá-lo, com o `id` e o `tenant_id` pré-alocados. **O adaptador SQL do `RepositorioDeCasos` continua por escrever** (KAM-086): o `onboarding-web` corre sobre memória e recusa `prod`, e o escritor existe para quando ele chegar — o ensaio contra a base escreve o caso por ele, como `kamba_app`.
+- **O telefone lê-se pela ligação do consumo**, e não por uma terceira: a porta `TelefoneDoCaso` recebe a ligação `kamba_app` que o `consumir` abriu com o `app.tenant_id` do envelope. Um `onboarding_id` de outro tenant dá zero linhas e vai à DLQ. O telefone decifrado é opaco (`TelefoneDoCasoEmClaro`) e não tem HMAC: o consumidor não recebe o *pepper* da inscrição, e o `resolveContact` cunha o do contacto com a chave dele.
+- **O consumidor é um processo próprio, e não o lote** (`../services/onboarding-web/src/provisionamento.ts`, `onboarding-provisionamento`): a decisão do fundador dá a KEK ao consumidor `dono`, e o lote corre como `kamba_batch`, que lia o `phone_enc` de qualquer tenant. O efeito é o `provisionamentoPelaBase` de `../packages/core-ts/src/dono/sql.ts`, a mesma montagem que o ensaio contra a base corre. O registo é o `../registry/dono_provisionamento.yaml` (quarta forma, `consumidor: dono`): o `registry/dono.yaml` é a persona.
+- **No *compose* de `dev` e de `staging`, e não no de `prod`.** Em `prod` o `Identidade.arrancar` recusa o `EnvKeyProvider` (`../docs/identidade.md` §8, ponto 2), e o processo não arrancava — a mesma recusa que o `worker-canal-entrada` tem. A leitura das chaves do contacto do cofre em `prod` é decisão do fundador de 2026-11-20 (bloco do KAM-227); o serviço entra no *compose* de `prod` quando ela aterrar no `identity/`.
 
 ---
 

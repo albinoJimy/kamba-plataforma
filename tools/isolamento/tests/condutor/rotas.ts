@@ -283,6 +283,20 @@ const SONDAS: readonly Sonda[] = [
     fabrica: "createApp",
     caminho: "/metrics",
   },
+  // KAM-215: o consumidor `dono`. A `criarApp` constroi-se sem argumentos e
+  // nao abre a base nem a fila.
+  {
+    item: "rota:onboarding-web:provisionamento/processo:criarApp:GET:/healthz",
+    modulo: "services/onboarding-web/src/provisionamento/processo.ts",
+    fabrica: "criarApp",
+    caminho: "/healthz",
+  },
+  {
+    item: "rota:onboarding-web:provisionamento/processo:criarApp:GET:/metrics",
+    modulo: "services/onboarding-web/src/provisionamento/processo.ts",
+    fabrica: "criarApp",
+    caminho: "/metrics",
+  },
   {
     item: "rota:worker-canal:agr_shim:criarApp:GET:/healthz",
     modulo: "services/worker-canal/src/agr_shim.ts",

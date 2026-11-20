@@ -138,7 +138,8 @@ TESTES_OBRIGATORIOS = (
     "isolamento: o evento de A com o tenant de B não cria dono em B nem em A",
     "adversarial: um onboarding_id de outro tenant no payload vai à DLQ e não cria dono",
     "adversarial: um phone_enc ilegível vai à DLQ e não cria dono",
-    "adversarial: um phone_enc copiado de outro caso não decifra, e vai à DLQ",
+    "adversarial: um phone_enc copiado de outro caso (de outro tenant) não decifra, e vai à DLQ",
+    "um passo da saga com o onboarding_id deste caso e o tenant de outro não avança o caso",
 )
 
 #: Os ficheiros do modulo. A cobertura mede-se em **cada um**.

@@ -53,7 +53,17 @@ before(async () => {
   batch = await ligar("batch");
   poolDoLote = poolDe("batch", 4);
   poolDaIdentidade = poolDe("identity", 4);
-  identidade = await new ChavesDeTeste("k-prov").identidade();
+  // O `kid` das outras baterias da suite: a tabela de versões de chave é global,
+  // e a versão activa que elas registam tem de existir neste cofre também.
+  identidade = await new ChavesDeTeste("k-chr").identidade();
+  // A versão activa regista-a quem chega primeiro; sozinha, esta bateria
+  // regista-a ela (e repetir é recusado, daí o `catch`).
+  const ligacao = await poolDaIdentidade.connect();
+  try {
+    await identidade.iniciarRotacao(ligacao, "k-chr").catch(() => {});
+  } finally {
+    ligacao.release();
+  }
 });
 
 after(async () => {
@@ -156,11 +166,14 @@ async function personaPeloChr(tenant: string, contacto: string): Promise<string>
   });
 }
 
-/** O contacto de um telefone, resolvido como o CHR o resolve (`kamba_identity`). */
+/**
+ * O contacto de um telefone, resolvido como o CHR o resolve (`kamba_identity`),
+ * em E.164 como chega no *webhook*.
+ */
 async function contactoDoTelefone(tenant: string, telefone: string): Promise<string> {
   const ligacao = await poolDaIdentidade.connect();
   try {
-    return (await identidade.resolveContact(ligacao, { tenantId: tenant, telefone })).contactId;
+    return (await identidade.resolveContact(ligacao, { tenantId: tenant, telefone: telefone.replaceAll(" ", "") })).contactId;
   } finally {
     ligacao.release();
   }
@@ -309,7 +322,7 @@ describe("KAM-215 — o dono nasce do provisionamento, contra a base", () => {
     assert.deepEqual(await donos(tenant), { contactos: 0, donos: [], owner: null });
   });
 
-  it("adversarial: um phone_enc copiado de outro caso não decifra, e vai à DLQ", async () => {
+  it("adversarial: um phone_enc copiado de outro caso (de outro tenant) não decifra, e vai à DLQ", async () => {
     const origem = await casoAprovado();
     const alvo = await casoAprovado();
     // A cópia é do administrador: o `kamba_app` não tem `UPDATE` na coluna.
@@ -324,6 +337,19 @@ describe("KAM-215 — o dono nasce do provisionamento, contra a base", () => {
     assert.ok(envelope !== undefined);
     await vaiADlq(envelope);
     assert.deepEqual(await donos(alvo.tenant), { contactos: 0, donos: [], owner: null });
+  });
+
+  it("um passo da saga com o onboarding_id deste caso e o tenant de outro não avança o caso", async () => {
+    const vitima = await casoAprovado();
+    const outroTenant = await casoAprovado();
+    // Cinco passos `concluido` com o caso da vítima e o tenant de outro: o
+    // `kamba_app` de outro tenant pode inseri-los no seu, e a tabela não tem FK
+    // para o caso. O `kamba_batch` não tem RLS: só a amarra do predicado os separa.
+    await sagaFeita(vitima.caso, outroTenant.tenant);
+    await criarCanal(admin, vitima.tenant);
+    await varrer();
+    assert.equal(await fase(vitima.caso), "aprovado", "a saga de outro tenant não é a deste caso");
+    assert.equal((await provisionados(vitima.tenant)).length, 0);
   });
 
   it("o kamba_app não reescreve o phone_enc de um caso", async () => {

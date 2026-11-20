@@ -352,19 +352,21 @@ export function hmacDe(chave: Uint8Array, dominio: Dominio | string, valor: stri
  * O valor em claro sai por `revelar()`, e esse é o único caminho — ver
  * `../sms/opaco.ts`.
  *
- * **Há DOIS sítios de chamada do `revelar()` em todo o módulo, e são estes:**
+ * **Há TRÊS sítios de chamada do `revelar()` em todo o módulo, e são estes:**
  * o `./provedores.ts`, que entrega o número ao `cunharDestino` da porta de
- * SMS, e o `./otp.ts`, que entrega o código ao HMAC que fica guardado. Um
- * terceiro é um achado de revisão — e a primeira versão desta nota nomeava um
- * ficheiro que **não existe** (`sms_local.ts`) e um que ainda não existe (o
- * adaptador SQL), omitindo os dois reais. Apanhou-o a revisão adversarial, com
- * um `grep`. Quando o adaptador SQL existir, ele é o terceiro, e esta conta
- * muda com ele.
+ * SMS; o `./otp.ts`, que entrega o código ao HMAC que fica guardado; e, desde o
+ * KAM-215, o `cifrarTelefoneDoCaso` de `./telefone_do_caso.ts`, que entrega o
+ * número à cifra do `phone_enc` — é o escritor que esta nota esperava do
+ * adaptador SQL, e o adaptador, quando existir, chama-o em vez de chamar o
+ * `revelar()`. Um quarto é um achado de revisão — e a primeira versão desta nota
+ * nomeava um ficheiro que **não existe** (`sms_local.ts`), omitindo os reais.
+ * Apanhou-o a revisão adversarial, com um `grep`, e apanhou o terceiro outra
+ * vez no KAM-215.
  *
  * **Fora do módulo há um, e é do KAM-211:** o `contactoDoNumero` de
- * `../dono/sql.ts`, que entrega o número que o OTP da troca de telefone
- * verificou ao `resolveContact` do KAM-008 — que o cunha com a chave **dele**,
- * noutro espaço que o deste módulo.
+ * `../dono/sql.ts`, que entrega ao `resolveContact` do KAM-008 o número que o
+ * OTP da troca de telefone verificou e, desde o KAM-215, o telefone decifrado
+ * do caso — que o cunha com a chave **dele**, noutro espaço que o deste módulo.
  */
 abstract class ComHmac extends Opaco {
   /**

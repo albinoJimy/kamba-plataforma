@@ -59,7 +59,14 @@ export const PASSOS_ANTES_DO_ES: readonly string[] = PASSOS.filter(
 
 /**
  * Os casos que um facto já deixa avançar, com o evento. `kamba_batch`, sem
- * contexto: atravessa tenants. `$1` são os passos antes do ES, `$2` o limite.
+ * contexto: atravessa tenants. `$1` são os passos antes do ES, `$2` o limite,
+ * `$3` um caso só (ou nulo, para todos).
+ *
+ * **Os passos da saga amarram o tenant do caso** (`p.tenant_id = c.tenant_id`),
+ * como o canal amarra. O `kamba_batch` não tem RLS, e a `provisioning_step` não
+ * tem FK para o caso: sem a amarra, uma linha com o `onboarding_id` de outro
+ * tenant (o `kamba_app` insere-a no seu) contava como a saga deste caso, e
+ * avançava-o sem a saga dele ter corrido (achado 1 da revisão adversarial).
  */
 export const SQL_CASOS_POR_AVANCAR = `
 SELECT c.id::text AS onboarding_id, c.tenant_id::text AS tenant_id, c.fase, e.evento
@@ -67,11 +74,12 @@ SELECT c.id::text AS onboarding_id, c.tenant_id::text AS tenant_id, c.fase, e.ev
  CROSS JOIN LATERAL (
    SELECT CASE
      WHEN c.fase = 'aprovado'
-      AND EXISTS (SELECT 1 FROM platform.provisioning_step p WHERE p.onboarding_id = c.id)
+      AND EXISTS (SELECT 1 FROM platform.provisioning_step p
+                   WHERE p.onboarding_id = c.id AND p.tenant_id = c.tenant_id)
        THEN 'saga_iniciada'
      WHEN c.fase = 'provisionando'
       AND (SELECT count(DISTINCT p.step) FROM platform.provisioning_step p
-            WHERE p.onboarding_id = c.id AND p.status = 'concluido'
+            WHERE p.onboarding_id = c.id AND p.tenant_id = c.tenant_id AND p.status = 'concluido'
               AND p.step = ANY ($1::text[])) = cardinality($1::text[])
        THEN 'saga_concluida'
      WHEN c.fase = 'aguarda_es'
@@ -82,12 +90,14 @@ SELECT c.id::text AS onboarding_id, c.tenant_id::text AS tenant_id, c.fase, e.ev
    END AS evento) e
  WHERE c.fase IN ('aprovado', 'provisionando', 'aguarda_es')
    AND e.evento IS NOT NULL
+   AND ($3::uuid IS NULL OR c.id = $3::uuid)
  ORDER BY c.fase_at, c.id
  LIMIT $2`;
 
 /**
- * Tranca o caso e relê a fase, **dentro** da transacção do avanço e antes da
- * porta, pela mesma ordem que ela tranca. Ver a nota do `varrerProvisionamentos`.
+ * Tranca o caso, **dentro** da transacção do avanço e antes da porta, pela
+ * mesma ordem que ela tranca. Depois da tranca, o predicado inteiro relê-se só
+ * para este caso. Ver a nota do `varrerProvisionamentos`.
  */
 export const SQL_TRANCAR_CASO = "SELECT fase FROM platform.onboarding_case WHERE id = $1 FOR UPDATE";
 
@@ -130,9 +140,12 @@ interface Candidato {
  * processo (ou uma volta que se sobrepôs) avançou o caso entre a leitura e a
  * transacção. A porta reconhece a repetição do **mesmo** evento, mas não a de
  * um evento anterior — um `saga_iniciada` sobre um caso já em `aguarda_es` é
- * recusado com `23514`. Por isso a transacção tranca o caso e relê a fase antes
- * de chamar a porta, e um caso que já não está onde foi lido salta-se: não é
- * falha, é trabalho que outro fez.
+ * recusado com `23514`. Por isso a transacção tranca o caso e relê **o
+ * predicado inteiro** — a fase e os factos — antes de chamar a porta: a porta
+ * não confere os passos da saga, e um passo que passou a `compensado` entre a
+ * leitura e a tranca não pode deixar o caso avançar (achado 7). Um caso cujo
+ * evento já não é o lido salta-se: não é falha, é trabalho que outro fez, ou um
+ * facto que deixou de o ser.
  */
 export async function varrerProvisionamentos(o: { readonly lote: ConjuntoDoLote; readonly limite: number }): Promise<number> {
   let avancados = 0;
@@ -141,7 +154,7 @@ export async function varrerProvisionamentos(o: { readonly lote: ConjuntoDoLote;
   // a volta seguinte repete.
   const falhou = new Set<string>();
   for (let passagem = 0; passagem < PASSAGENS_POR_VOLTA; passagem++) {
-    const resposta = (await o.lote.query(SQL_CASOS_POR_AVANCAR, [PASSOS_ANTES_DO_ES, o.limite])) as {
+    const resposta = (await o.lote.query(SQL_CASOS_POR_AVANCAR, [PASSOS_ANTES_DO_ES, o.limite, null])) as {
       readonly rows: readonly Candidato[];
     };
     const candidatos = resposta.rows.filter((c) => !falhou.has(c.onboarding_id));
@@ -151,8 +164,12 @@ export async function varrerProvisionamentos(o: { readonly lote: ConjuntoDoLote;
       let estragada = false;
       try {
         const avancou = await comTenant(ligacao, c.tenant_id, async (tx) => {
-          const lida = (await tx.query(SQL_TRANCAR_CASO, [c.onboarding_id])) as { readonly rows: readonly { fase?: unknown }[] };
-          if (lida.rows[0]?.fase !== c.fase) return false;
+          await tx.query(SQL_TRANCAR_CASO, [c.onboarding_id]);
+          const relido = (await tx.query(SQL_CASOS_POR_AVANCAR, [PASSOS_ANTES_DO_ES, 1, c.onboarding_id])) as {
+            readonly rows: readonly Candidato[];
+          };
+          const agora = relido.rows[0];
+          if (agora === undefined || agora.fase !== c.fase || agora.evento !== c.evento) return false;
           await tx.query(SQL_AVANCAR_CASO, [c.onboarding_id, c.evento, ACTOR_DO_AVANCO]);
           return true;
         });

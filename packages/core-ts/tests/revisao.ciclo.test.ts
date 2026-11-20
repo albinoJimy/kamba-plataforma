@@ -27,6 +27,8 @@ import {
   varrerAprovacoes,
 } from "../src/revisao/index.ts";
 
+import { AvancoComFalhasError } from "../src/provisioning/index.ts";
+
 import { SEXTA, montarRevisao, revisor } from "./apoio/revisao.ts";
 
 const H = 3_600_000;
@@ -435,6 +437,52 @@ describe("o varrimento das aprovações (KAM-201)", () => {
     assert.deepEqual(ordem, ["reaplicar:c1", "aprovar:9"]);
     assert.equal(r.aprovados, 3);
     assert.deepEqual(r.falhas, ["aprovar"]);
+  });
+
+  it("o ciclo corre o provisionamento depois das aprovações, e conta os avanços (KAM-215)", async () => {
+    const m = montarRevisao({ agora: SEXTA });
+    const ordem: string[] = [];
+    const ciclo = new CicloDaFila({
+      servico: delegado(m),
+      leitor: leitorDaMemoria(m),
+      aprovar: async (limite) => {
+        ordem.push(`aprovar:${limite}`);
+        return 1;
+      },
+      provisionar: async (limite) => {
+        ordem.push(`provisionar:${limite}`);
+        return 2;
+      },
+      limite: 7,
+    });
+    const r = await ciclo.correr();
+    assert.deepEqual(ordem, ["aprovar:7", "provisionar:7"]);
+    assert.equal(r.provisionados, 2);
+    assert.deepEqual(r.falhas, []);
+  });
+
+  it("uma falha do provisionamento diz-se pelo nome, e os avanços feitos contam (KAM-215)", async () => {
+    const m = montarRevisao({ agora: SEXTA });
+    const ciclo = new CicloDaFila({
+      servico: delegado(m),
+      leitor: leitorDaMemoria(m),
+      provisionar: async () => {
+        throw new AvancoComFalhasError(4, 1);
+      },
+    });
+    const r = await ciclo.correr();
+    assert.equal(r.provisionados, 4);
+    assert.deepEqual(r.falhas, ["provisionar"]);
+    const outra = new CicloDaFila({
+      servico: delegado(m),
+      leitor: leitorDaMemoria(m),
+      provisionar: async () => {
+        throw new Error("a base caiu");
+      },
+    });
+    const r2 = await outra.correr();
+    assert.equal(r2.provisionados, 0);
+    assert.deepEqual(r2.falhas, ["provisionar"]);
   });
 
   it("uma aprovação em falta na reaplicação sai da lista em vez de se repetir para sempre", async () => {

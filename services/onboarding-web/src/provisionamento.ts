@@ -56,6 +56,9 @@ async function principal(): Promise<void> {
   let arrancou = false;
   try {
     await verificarPapeis(app, identidadeBd);
+    // A do `kamba_app` só servia a verificação: o consumo abre as suas, uma por
+    // fila, com a mesma cadeia.
+    await app.end();
     const secrets = await Secrets.arrancar({
       servico: SERVICE,
       provider: new EnvSecretProvider({ ambiente: config.ambiente }),

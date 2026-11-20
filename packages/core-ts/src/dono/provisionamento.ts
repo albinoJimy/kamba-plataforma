@@ -15,10 +15,10 @@
  * (critério 2). Três entregas dão um contacto e um dono, porque as duas portas
  * o garantem e este código não guarda estado nenhum entre entregas.
  *
- * ## Ligado pelo KAM-215
+ * ## O que o KAM-215 entregou, e o que continua a faltar a montante
  *
- * O KAM-118 entregou o efeito sem nada que o fizesse correr. O KAM-215 liga as
- * três peças em falta:
+ * O KAM-118 entregou o efeito sem nada que o fizesse correr. O KAM-215 entrega
+ * as três peças em falta deste lado:
  *
  * * **o emissor** — o varrimento do processo de lote do onboarding
  *   (`../provisioning/avanco.ts`) avança o caso até `es_concluido` pela
@@ -31,6 +31,13 @@
  *   dados) e o `registry/dono_provisionamento.yaml`, e o processo
  *   `services/onboarding-web/src/provisionamento.ts`, com a ligação `kamba_app`
  *   para o `consumir` e a `kamba_identity` para o contacto e a porta.
+ *
+ * **O que continua a faltar está a montante, e não aqui:** nenhum serviço
+ * corre a saga do KAM-091 (ninguém escreve `provisioning_step`), e nenhum
+ * escreve o `onboarding_case` em produção (o `onboarding-web` corre sobre
+ * memória; o adaptador SQL do `RepositorioDeCasos` é do KAM-086). Sem eles,
+ * nenhum caso chega a `provisionando` em produção, e o varrimento não tem o que
+ * avançar — que é o certo, e não uma falha dele.
  *
  * **O telefone lê-se pela ligação do consumo**, e não por uma ligação própria:
  * é `kamba_app` com o `app.tenant_id` do **envelope** já posto pelo `consumir`,
