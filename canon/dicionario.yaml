@@ -12,7 +12,7 @@
 
 version: 1
 fonte: "specs/02_Dicionario_de_Dados_Canonico.md"
-versao_dicionario: "1.125"
+versao_dicionario: "1.126"
 entradas:
   - seccao: "3.1"
     conceito: "Contacto"
@@ -14737,7 +14737,7 @@ entradas:
     variantes_literais: []
   - seccao: "3.56"
     conceito: "As rotas do painel"
-    canonico: "GET /painel/entrar, POST /painel/sair, GET /painel/produtos, PATCH /painel/produtos/:id, GET /painel/encomendas, GET /painel/encomendas/:id, GET /painel/canal"
+    canonico: "GET /painel/entrar, POST /painel/sair, GET /painel/produtos, GET /painel/produtos/:id, PATCH /painel/produtos/:id, GET /painel/encomendas, GET /painel/encomendas/:id, GET /painel/canal"
     literais: []
     nomes: []
     nomes_nota:
@@ -14870,6 +14870,7 @@ entradas:
       - "troca_cancelar"
       - "conversa"
       - "conversa_enviar"
+      - "produto"
       - "motivo"
       - "sem_sessao"
       - "nao_encontrado"
