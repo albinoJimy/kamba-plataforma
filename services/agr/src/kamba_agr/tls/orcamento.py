@@ -25,7 +25,8 @@ ToolLayer». As regras puras ficam em `kamba_agr/orcamento/regras.py`.
   `tenant|contacto|sku`: duas mensagens concorrentes serializam-se ali, e a
   segunda le a linha que a primeira deixou. O evento `quote.requested` e o
   consumo de `orcamentos_mes` vao na **mesma** transaccao que a linha — um
-  pedido repetido nao emite nem consome.
+  pedido repetido nao emite nem consome. O aviso ao dono tambem (KAM-226), e so
+  com a janela dele aberta: ver o `_avisar_o_dono`.
 * **Enviar duas vezes envia uma** (criterio 5). O botao passa primeiro pelo
   `confirmar` do KAM-118, que e um *compare-and-set*; e o envio tranca a linha
   (`FOR UPDATE`) e so anda de `respondido`. O Outbound recebe a chave
@@ -68,8 +69,9 @@ from kamba_core.ten.entitlements import Resultado, check_entitlement, consume_li
 
 from ..dono import accoes
 from ..eventos.notificacao import Notificacao
-from ..eventos.pela_resposta import MARGEM_DA_JANELA, MODO_DO_BOT
+from ..eventos.pela_resposta import MARGEM_DA_JANELA, MODO_DO_BOT, janela_aberta
 from ..orcamento import regras
+from ..saida import gravar_resposta
 from ..validador.render import PRECO_SOB_CONSULTA, Oferta
 from ..validador.veredicto import Policy, validar
 from .erros import Fact
@@ -325,6 +327,24 @@ SQL_CANCELAR: Final = (
     "AND estado IN ('pedido', 'respondido', 'aguarda_janela') RETURNING quote_id"
 )
 
+#: A conversa do dono do tenant, para o aviso proactivo (KAM-226): a do contacto
+#: `papel='dono'` vivo, **em modo do bot**, com a janela que acaba mais tarde. O
+#: modo filtra antes da escolha (achado 5 da revisao): com dois canais, uma
+#: conversa entregue a um humano nao esconde a outra. O `janela_aberta` volta a
+#: ler o modo e a margem. Um dono que so fala pelo painel nao tem conversa aqui,
+#: e nao recebe aviso: o pedido fica nos pendentes, que e o que o criterio diz
+#: para a janela fechada.
+SQL_CONVERSA_DO_DONO: Final = (
+    "SELECT c.id, c.contact_id, c.window_expires_at, c.mode FROM platform.conversations c "
+    "JOIN platform.contacts k ON k.tenant_id = c.tenant_id AND k.contact_id = c.contact_id "
+    "WHERE c.tenant_id = %s AND k.papel = 'dono' AND c.mode = %s "
+    "AND k.erased_at IS NULL AND k.merged_into IS NULL "
+    "ORDER BY c.window_expires_at DESC NULLS LAST LIMIT 1"
+)
+
+#: O sufixo da chave do aviso ao dono, na `agent_replies` (`orcamento:{quote_id}:…`).
+SUFIXO_DO_AVISO_AO_DONO: Final = ":aviso_ao_dono"
+
 #: A accao confirmada do dono: o tipo e o `ref` dizem que pedido e que resposta.
 SQL_ACCAO_CONFIRMADA: Final = (
     "SELECT tipo, ref FROM platform.owner_actions "
@@ -337,6 +357,16 @@ SQL_ACCAO_CONFIRMADA: Final = (
 SQL_ULTIMO_DO_CLIENTE: Final = (
     "SELECT quote_id, estado, sku, validade_ate FROM platform.quote_requests "
     "WHERE tenant_id = %s AND contact_id = %s ORDER BY criado_at DESC LIMIT 1"
+)
+
+#: O pedido **deste cliente** cuja referencia o botao «Aceito» cita (KAM-226,
+#: decisao do fundador de 2026-11-20, opcao B). Em todos os estados: um
+#: `expirado` ou `cancelado` responde «ja nao esta valido», e nao «nao sei».
+#: Sem `LIMIT 1` a cortar: dois pedidos do mesmo cliente com os mesmos trinta e
+#: dois bits nao decidem nenhum.
+SQL_DO_CLIENTE_POR_REFERENCIA: Final = (
+    "SELECT quote_id, estado, sku, validade_ate FROM platform.quote_requests "
+    "WHERE tenant_id = %s AND contact_id = %s AND quote_id::text LIKE %s LIMIT 2"
 )
 
 
@@ -488,7 +518,50 @@ def pedir(
         if quantidade is not None:
             payload["quantidade"] = quantidade
         _emitir(cursor, EVENTO_PEDIDO, tenant_id, quote_id, payload)
+        _avisar_o_dono(cursor, tenant_id, quote_id, agora)
         return Pedido(quote_id=quote_id, novo=True)
+
+
+def _avisar_o_dono(cursor: Any, tenant_id: str, quote_id: str, agora: datetime.datetime) -> str | None:
+    """O aviso proactivo ao dono de um pedido novo (KAM-226). Devolve o `reply_id`, ou `None`.
+
+    **Na transaccao do `quote.requested`**, e nao num consumidor dele: o aviso
+    nasce com o evento ou nao nasce, e um pedido repetido (o mesmo `quote_id`,
+    `novo=False`) nao chega aqui. Um consumidor pedia uma subscricao nova e a
+    linha dela na `evt_subscricoes` (uma revisao de dados, como a `0052`), e
+    entre o `COMMIT` do pedido e o aviso nada se perde que a reentrega tivesse
+    de repor. A chave `orcamento:{quote_id}:aviso_ao_dono` e o `UNIQUE` da
+    `agent_replies` sao a segunda barreira.
+
+    **So com a janela do dono aberta**, pela regra do `decidirProactiva` do
+    KAM-118 (criterio 8): so uma janela que se le aberta deixa sair, e tudo o
+    resto suprime — uma conversa que nao existe, uma janela nula, uma conversa
+    fora do modo `bot`. A leitura e a do `janela_aberta` da porta pela resposta,
+    com a mesma margem: uma janela que fecha antes de o `worker-canal` enviar
+    conta como fechada. Fora da janela nada se escreve, e o pedido continua nos
+    pendentes, que o dono ve na primeira mensagem dele. **Nunca *template***:
+    nem *push* fora da janela nem a categoria `marketing`.
+    """
+    cursor.execute(SQL_CONVERSA_DO_DONO, (tenant_id, MODO_DO_BOT))
+    linha = cursor.fetchone()
+    if linha is None:
+        return None
+    conversa, dono, expira, modo = linha
+    if not janela_aberta((expira, modo), agora):
+        return None
+    dono = _texto(dono)
+    return gravar_resposta(
+        cursor,
+        {
+            "tenant_id": tenant_id,
+            "contact_id": dono,
+            "conversation_id": _texto(conversa),
+            "thread_id": f"{tenant_id}:{dono}",
+        },
+        regras.texto_do_aviso_ao_dono(quote_id),
+        chave=f"orcamento:{quote_id}{SUFIXO_DO_AVISO_AO_DONO}",
+        turno_iniciado_em=agora,
+    )
 
 
 def pendentes(ligacao: Any, tenant_id: str, limite: int = 20) -> list[Pendente]:
@@ -784,6 +857,9 @@ def _notificar(porta: Any, tenant_id: str, preparado: _Preparado, chave: str) ->
             texto=preparado.texto,
             template=TEMPLATE_ORCAMENTO_PRONTO,
             parametros=parametros_do_template(preparado.quote_id),
+            # KAM-226: o «Aceito» vai com o texto da proposta; o *template* nao
+            # o leva, e o valor e o botao saem juntos quando a janela abrir.
+            botoes=(regras.botao_aceitar(preparado.quote_id),),
         ),
         chave=chave,
     )
@@ -1030,6 +1106,9 @@ def reemitir_pela_janela(
                     texto=texto,
                     template=TEMPLATE_ORCAMENTO_PRONTO,
                     parametros=parametros_do_template(qid),
+                    # Sem botoes: a reemissao so escolhe propostas com a janela
+                    # fechada, e sai sempre como *template*. O botao vai com o
+                    # valor, pelo `_libertar_reemitida`, quando o cliente escreve.
                 ),
                 chave=chave + SUFIXO_DA_REEMISSAO,
             )
@@ -1193,6 +1272,29 @@ def ultimo_pedido(ligacao: Any, tenant_id: str, contact_id: str) -> UltimoPedido
     )
 
 
+def pedido_por_referencia(
+    ligacao: Any, tenant_id: str, contact_id: str, referencia: str
+) -> UltimoPedido | None:
+    """O pedido deste cliente com a referencia `ORC-…` do botao, ou `None` (KAM-226).
+
+    Do contacto que toca, e so dele: o botao de outro cliente nunca encontra a
+    proposta alheia. Uma referencia que nao se le, nenhum pedido ou mais de um
+    dao `None`, e o grafo nao aceita nada.
+    """
+    prefixo = regras.prefixo_da_referencia(referencia)
+    if prefixo is None:
+        return None
+    with tenant_guard.tx(ligacao, tenant_id) as cursor:
+        cursor.execute(SQL_DO_CLIENTE_POR_REFERENCIA, (tenant_id, contact_id, prefixo + "%"))
+        linhas = cursor.fetchall()
+    if len(linhas) != 1:
+        return None
+    linha = linhas[0]
+    return UltimoPedido(
+        quote_id=_texto(linha[0]), estado=linha[1], sku=linha[2], validade_ate=linha[3]
+    )
+
+
 __all__ = [
     "CHAVE_DE_LIMITE",
     "DESFECHOS_DO_ENVIO",
@@ -1215,6 +1317,7 @@ __all__ = [
     "facts_da_proposta",
     "libertar_da_janela",
     "parametros_do_template",
+    "pedido_por_referencia",
     "pedir",
     "reemitir_pela_janela",
     "pendentes",

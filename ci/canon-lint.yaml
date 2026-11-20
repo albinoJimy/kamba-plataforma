@@ -635,7 +635,7 @@ dominios_historicos:
       classificacao_de_condicoes, a finalidade do classificador de screening
       quando le as condicoes de um orcamento, por DROP CONSTRAINT mais ADD
       CONSTRAINT com o mesmo nome, e o dicionario §3.49 passa a declarar
-      dezasseis (emenda 1.126). O upgrade escreve as dezasseis e o downgrade
+      dezasseis (emenda 1.127). O upgrade escreve as dezasseis e o downgrade
       repoe as quinze da finalidade_do_screening; esta entrada cobre a segunda.
       O passo de descida recusa-se se houver destinos com essa finalidade.
       Renumerar a revisao e mudar tambem o caminho desta entrada.

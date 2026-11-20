@@ -91,6 +91,18 @@ class PortaDeOrcamento:
             self._com_ligacao, repositorio.ultimo_pedido, tenant_id, contact_id
         )
 
+    async def pedido_por_referencia(
+        self, tenant_id: str, contact_id: str, referencia: str
+    ) -> repositorio.UltimoPedido | None:
+        """O pedido deste cliente que o botao «Aceito» cita (KAM-226, opcao B)."""
+        return await asyncio.to_thread(
+            self._com_ligacao,
+            repositorio.pedido_por_referencia,
+            tenant_id,
+            contact_id,
+            referencia,
+        )
+
     async def activo(self, tenant_id: str) -> bool:
         """Se o tenant tem o modulo `orcamento` (o passo 2, perguntado antes)."""
         return await asyncio.to_thread(self._com_ligacao, repositorio.modulo_activo, tenant_id)
