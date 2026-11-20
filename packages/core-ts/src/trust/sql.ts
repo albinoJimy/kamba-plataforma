@@ -273,12 +273,16 @@ export const SQL_PEDIDOS_MANUAIS = `
  * `query.handoff` de motivo `reclamacao_grave` (o contacto é o da conversa do
  * agregado) e cada passagem de uma encomenda a `em_disputa`. Mais os
  * compradores pagos do tenant, que são os únicos cujas queixas contam.
+ *
+ * **Sem a conversa de teste** (KAM-202, decisão do fundador de 2026-11-20): uma
+ * queixa na conversa do «teste» da activação é o dono a experimentar a loja.
  */
 export const SQL_QUEIXAS = `
   SELECT cv.contact_id::text AS contact_id, l.ocorrido_em AS em
     FROM platform.events_log l
     JOIN platform.conversations cv ON cv.tenant_id = l.tenant_id AND cv.id::text = l.agregado_id
    WHERE l.tenant_id = $1 AND l.tipo = 'query.handoff' AND l.ocorrido_em >= $2
+     AND NOT cv.is_test
      AND l.envelope -> 'payload' ->> 'motivo' = 'reclamacao_grave'
   UNION ALL
   SELECT o.contact_id::text AS contact_id, s.em

@@ -312,7 +312,7 @@ describe("o processo de lote contra a base", () => {
     assert.deepEqual(await efeitos.pendentes(10), [decidido], "o aviso falhou: o efeito fica");
   });
 
-  it("o screening de um caso de catálogo grava como kamba_app no tenant do caso, uma vez, e resolve", async () => {
+  it("o screening de um caso de catálogo grava como kamba_batch no tenant do caso, uma vez, e resolve", async () => {
     const tenantC = randomUUID();
     const chave = {
       sujeitoTipo: "produto",
@@ -350,16 +350,25 @@ describe("o processo de lote contra a base", () => {
     await p.ciclo.correr();
     assert.equal((await linhas()).length, 1);
 
-    // O `kamba_batch` sozinho não a podia ter gravado: é por isso que há duas ligações.
-    await assert.rejects(
-      lote.query(
-        `INSERT INTO platform.screening_decision
-           (tenant_id, sujeito_tipo, sujeito_ref, decisao, regras, versao_politica, origem, conteudo_sha256)
-         VALUES ($1, 'produto', 'x', 'permitida', '{}', '1.0.0+ensaio', 'humano', $2)`,
-        [tenantC, randomBytes(32)],
-      ),
-      /permission denied/,
-    );
+    // KAM-202, critério 6: a decisão humana grava-a o lote, e só ele. A
+    // aplicação, com o contexto do tenant, é recusada pela base.
+    const c = await app.connect();
+    try {
+      await c.query("BEGIN");
+      await c.query("SELECT set_config('app.tenant_id', $1, true)", [tenantC]);
+      await assert.rejects(
+        c.query(
+          `INSERT INTO platform.screening_decision
+             (tenant_id, sujeito_tipo, sujeito_ref, decisao, regras, versao_politica, origem, conteudo_sha256)
+           VALUES ($1, 'produto', 'x', 'permitida', '{}', '1.0.0+ensaio', 'humano', $2)`,
+          [tenantC, randomBytes(32)],
+        ),
+        /processo de lote/,
+      );
+    } finally {
+      await c.query("ROLLBACK");
+      c.release();
+    }
   });
 
   it("a quota de uma origem aguenta vinte processos a abrir ao mesmo tempo; sem o trinco, não", async (t) => {

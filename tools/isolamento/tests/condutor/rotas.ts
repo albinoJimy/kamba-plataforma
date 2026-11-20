@@ -2725,6 +2725,8 @@ const ITENS_DO_PAINEL = [
   // KAM-211: a troca de telefone do dono.
   "rota:onboarding-web:painel/rotas:actor:POST:/painel/telefone",
   "rota:onboarding-web:painel/rotas:actor:POST:/painel/telefone/verificar",
+  // KAM-202: o inicio do teste ponta a ponta.
+  "rota:onboarding-web:painel/rotas:actor:POST:/painel/teste",
 ] as const;
 
 /** Os telefones da reentrada (KAM-190). Ficticios, com 999. */
@@ -2739,6 +2741,8 @@ const CASO_DE_A_NO_PAINEL = "0000000a-0000-4000-8000-0000000000c1";
 const CASO_DE_B_NO_PAINEL = "0000000b-0000-4000-8000-0000000000c1";
 /** O caso `activo` de A: a troca de telefone (KAM-211) so abre nessa fase. */
 const CASO_ACTIVO_DE_A_NO_PAINEL = "0000000a-0000-4000-8000-0000000000c2";
+/** O caso de A em `aguarda_teste`: o teste ponta a ponta (KAM-202) so abre nessa fase. */
+const CASO_EM_TESTE_DE_A_NO_PAINEL = "0000000a-0000-4000-8000-0000000000c3";
 const ORDEM_DE_A_NO_PAINEL = "0000000a-0000-4000-8000-0000000000d1";
 const ORDEM_DE_B_NO_PAINEL = "0000000b-0000-4000-8000-0000000000d1";
 
@@ -2885,6 +2889,7 @@ async function grupoDoPainel(relatorio: Relatorio): Promise<void> {
       [CASO_DE_A_NO_PAINEL, { tenantId: TENANT_DE_A_NO_PAINEL, fase: "aguarda_es" }],
       [CASO_DE_B_NO_PAINEL, { tenantId: TENANT_DE_B_NO_PAINEL, fase: "activo" }],
       [CASO_ACTIVO_DE_A_NO_PAINEL, { tenantId: TENANT_DE_A_NO_PAINEL, fase: "activo" }],
+      [CASO_EM_TESTE_DE_A_NO_PAINEL, { tenantId: TENANT_DE_A_NO_PAINEL, fase: "aguarda_teste" }],
     ]);
     const novaSessao = sessaoModulo["novaSessao"] as (t: string, d: string, a: Date) => Record<string, unknown>;
     const cunharSessao = sessaoModulo["cunharSessao"] as (s: unknown, c: Uint8Array) => string;
@@ -2923,6 +2928,16 @@ async function grupoDoPainel(relatorio: Relatorio): Promise<void> {
       contadores: { anotar: async () => 1 },
     };
 
+    // O teste ponta a ponta (KAM-202): um `TesteDoPainel` de duplo que regista o
+    // caso e o tenant de cada inicio.
+    const iniciados: { onboardingId: string; tenantId: string }[] = [];
+    const teste = {
+      async iniciar(onboardingId: string, tenantId: string) {
+        iniciados.push({ onboardingId, tenantId });
+        return { instrucoes: "envie a palavra", expiraEm: new Date(agora.getTime() + 60_000) };
+      },
+    };
+
     const app = (rotas["rotasDoPainel"] as (o: unknown) => AppHono)({
       comercio,
       canal: canalEspiao,
@@ -2932,6 +2947,7 @@ async function grupoDoPainel(relatorio: Relatorio): Promise<void> {
       relogio,
       reentrada,
       troca,
+      teste,
     });
     const cookieDeA = `kamba_painel=${cunharSessao(sessaoDeA, chave)}`;
 
@@ -3212,6 +3228,32 @@ async function grupoDoPainel(relatorio: Relatorio): Promise<void> {
       verificacoesDaTroca.every((v) => v.pedido === pedidoDeA && v.tenant === TENANT_DE_A_NO_PAINEL);
     for (const entrada of relatorio.rotas) {
       if (entrada.item === ITENS_DO_PAINEL[11]) entrada.nota += semTroca ? " troca=nenhuma" : " troca=alheia";
+    }
+
+    // ---- POST /painel/teste (KAM-202): a sessao de A com o caso e o tenant de B
+    // no corpo, na consulta e no cabecalho. A tentativa abre-se so no caso e no
+    // tenant da sessao de A.
+    const sessaoEmTesteDeA = novaSessao(TENANT_DE_A_NO_PAINEL, CASO_EM_TESTE_DE_A_NO_PAINEL, agora);
+    const cookieDoTeste = `kamba_painel=${cunharSessao(sessaoEmTesteDeA, chave)}`;
+    for (let vez = 0; vez < 3; vez += 1) {
+      const [c, headers] = comTenantDeB("/painel/teste", vez, cookieDoTeste);
+      await empurrar(
+        ITENS_DO_PAINEL[12],
+        "POST",
+        c,
+        {
+          method: "POST",
+          headers: { ...headers, "content-type": "application/json" },
+          body: JSON.stringify({ onboarding_id: CASO_DE_B_NO_PAINEL, tenant_id: TENANT_DE_B_NO_PAINEL }),
+        },
+        () => "",
+      );
+    }
+    const soOCasoDeA =
+      iniciados.length === 3 &&
+      iniciados.every((i) => i.onboardingId === CASO_EM_TESTE_DE_A_NO_PAINEL && i.tenantId === TENANT_DE_A_NO_PAINEL);
+    for (const entrada of relatorio.rotas) {
+      if (entrada.item === ITENS_DO_PAINEL[12]) entrada.nota += soOCasoDeA ? " teste=a" : " teste=alheio";
     }
   } catch (erro) {
     falhar(`a montagem do painel levantou: ${razao(erro)}`);

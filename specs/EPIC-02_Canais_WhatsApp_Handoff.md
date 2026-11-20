@@ -4,7 +4,7 @@
 |---|---|
 | Produto | KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para Angola |
 | Documento | Epic — Canais WhatsApp e Handoff |
-| Versão | 1.21 |
+| Versão | 1.22 |
 | Data | Outubro de 2026 |
 | Classificação | Documento de Referência — Interno |
 | Documento-fonte | `../docs/tecnica/00_Arquitectura_Solucao.md`, `../docs/tecnica/01_Canais_WhatsApp_Fluxo_Dual.md`, `../docs/tecnica/06_Dados_Eventos_Analytics.md`, `../docs/tecnica/08_Seguranca_Conformidade.md`, `../docs/tecnica/10_Onboarding_Governanca.md` (§6–§7), `../docs/tecnica/evidencia/E1_Meta_WhatsApp.md` |
@@ -110,6 +110,7 @@ constante interpolada no nome, e não como texto literal.
 | KAM-023 | Monitorização do free tier de service messages e do método de pagamento da PME | feature | S | P0 | KAM-015 |
 | KAM-024 | Simulador de webhooks Meta e testes de contrato com número de teste | chore | M | P0 | KAM-013 |
 | KAM-115 | Aviso ao dono por canal alternativo (e-mail ou push) | feature | S | P1 | KAM-017, KAM-021, KAM-023, KAM-116 |
+| KAM-232 | Os factos do teste ponta a ponta em produção: os *statuses* escrevem o `delivered_at` e a apresentação do vendedor nomeia a loja | feature | M | P1 | KAM-202 |
 
 ---
 
@@ -3691,6 +3692,80 @@ um `--suite tests` de dois minutos teria dito.
 
 ---
 
+## KAM-232 — Os factos do teste ponta a ponta em produção: os *statuses* escrevem o `delivered_at` e a apresentação do vendedor nomeia a loja
+
+| Campo | Valor |
+|---|---|
+| Epic | EPIC-02 — Canais WhatsApp e Handoff |
+| Fase | 1 |
+| Tipo | feature |
+| Prioridade | P1 |
+| Estimativa | M |
+| Dependências | KAM-202 |
+| Bloqueia | — |
+| Responsável sugerido | Engenheiro de Canais com Engenheiro de Runtime/IA |
+| Documentos de referência | `EPIC-04_Core_Comercio.md` (bloco KAM-202), `EPIC-08_Topologia_Operacao.md` (KAM-080, critério 7), `02_Dicionario_de_Dados_Canonico.md` (§3.74, emenda 1.125), `../packages/core-ts/src/activacao/observador_sql.ts`, `../registry/vendedor.yaml` |
+
+### Contexto
+
+Credor do KAM-202, aberto no PR dele por decisão do fundador de 2026-11-20. O observador de produção do
+teste (`ObservadorSql`) lê quatro factos, e em produção dois deles não se cumprem:
+
+- **a entrega.** O braço `outbound` do `worker-canal` só conta os *statuses*: nenhum serviço chama o
+  `Saida.ingerir`, e o `outbound_messages.delivered_at` nunca se escreve. É também a ligação que o
+  critério 7 do KAM-080 deixou ao «ticket que ligar o estágio de saída»;
+- **a identificação da loja.** A `apresentacao` do vendedor é «Sou o assistente automatico de {loja}», mas
+  a persona não tem o nome da loja, e a frase cai para «desta loja»: a resposta nunca nomeia a loja, e o
+  teste dá `sem_resposta`.
+
+O terceiro facto, o `consent_event` do aviso de 1.º contacto, depende do `ConsentGate` montado, e esse tem
+o seu caminho escrito (EPIC-02, KAM-022, linha 9b: o parecer, a versão do texto do KAM-104 e o `Saida` no
+*worker*). Não é deste ticket. **Até os três estarem ligados, o teste falha fechado**, e nenhuma loja se
+activa: é o lado seguro, e é a decisão do fundador.
+
+### Objectivo
+
+Que o teste ponta a ponta de uma loja passe em produção com os quatro factos verdadeiros, sem guardar
+texto nem telefone.
+
+### Critérios de Aceitação
+
+- [ ] Os *statuses* `delivered` e `read` da Meta, pelo braço `outbound` do `worker-canal`, escrevem o
+  `outbound_messages.delivered_at` da mensagem pelo `wamid` (o `Saida.ingerir`), idempotentes por
+  `wamid:estado`.
+- [ ] A apresentação do vendedor nomeia a loja (o `tenants.nome` na persona do turno), e o observador
+  confere-a.
+- [ ] Um teste ponta a ponta com o simulador de webhooks passa no observador de produção quando o
+  `ConsentGate` está montado, e dá a causa certa quando não está.
+
+### Detalhes Técnicos
+
+- **Sem esquema novo** previsto: o `delivered_at` existe desde a `0010`.
+- O nome de uma loja com dígitos não cabe num bloco `text` do renderer (nota do `_apresentacao` do
+  vendedor): decidir isso é parte do ticket.
+
+### Testes Requeridos
+
+- Integração: *status* `delivered` do simulador → `delivered_at` escrito; o observador dá `entregue`.
+- Contrato: a apresentação de uma loja sem e com dígitos.
+
+### Definition of Done
+
+- [ ] Critérios de Aceitação satisfeitos; a caixa do critério 1 do KAM-202 revista com a evidência.
+- [ ] Nenhum texto de mensagem nem telefone guardados.
+
+### Handoff para Claude Code
+
+```text
+És o executor do ticket KAM-232 da KAMBÁ (os factos do teste em produção).
+Lê specs/EPIC-04_Core_Comercio.md (bloco KAM-202), packages/core-ts/src/activacao/observador_sql.ts,
+packages/core-ts/src/outbound/adapter.ts (Saida.ingerir) e services/agr/src/kamba_agr/verticais/vendedor/nos.py.
+Objectivo: os statuses escrevem o delivered_at, e a apresentação do vendedor nomeia a loja.
+Regras: sem texto nem telefone guardados; idempotente por wamid:estado; falha fechada.
+```
+
+---
+
 ## Riscos do Epic e itens NÃO VERIFICADOS
 
 | # | Risco / item | Estado | Decisão ligada | Mitigação / critério de saída |
@@ -3750,3 +3825,4 @@ um `--suite tests` de dois minutos teria dito.
 | 1.19 | Novembro 2026 | KAM-118: a decisão 1 da verificação do KAM-014 deixa de dizer que o `contacts.papel` não existe — a revisão `0070` cria-o, e a persona viaja na invocação e não no `ChannelContext` (dicionário §3.78). Nenhuma caixa muda. | Equipa KAMBÁ |
 | 1.20 | Novembro 2026 | **Aresta recíproca, sem alteração de conteúdo: o `Bloqueia` do KAM-019 ganha o KAM-213** (EPIC-01), que torna determinístico o ensaio «duas chamadas concorrentes: o ON CONFLICT da conta» do `handoff.bd.test.ts` — uma barreira no provedor falso força as duas chamadas a passarem a leitura antes do `INSERT`, em vez de o deixar ao `Promise.all`. | Equipa KAMBÁ |
 | 1.21 | Novembro 2026 | **Aresta recíproca, sem alteração de conteúdo:** o `Bloqueia` do KAM-020 ganha o **KAM-231** (EPIC-11), aberto no PR do KAM-119: a foto do dono chega ao catálogo pelo MED. | Equipa KAMBÁ |
+| 1.22 | Novembro 2026 | **KAM-232 acrescentado**, no PR do **KAM-202** (EPIC-04), que o abre e não o implementa: o credor dos factos do teste ponta a ponta que em produção ninguém escreve — o `delivered_at` dos *statuses* e o nome da loja na apresentação do vendedor. Decisão do fundador de 2026-11-20, no bloco do KAM-202. Provisório: o número dá-o a integração. | Equipa KAMBÁ |

@@ -150,6 +150,9 @@ SQL_CANDIDATOS: Final = """
          round(d.razao_edicao, 1) AS razao_edicao
     FROM platform.draft_decisions d
    WHERE d.decisao IN ('editado', 'rejeitado')
+     AND NOT EXISTS (SELECT 1 FROM platform.conversations cv
+                      WHERE cv.tenant_id = d.tenant_id AND cv.is_test
+                        AND d.thread_id = cv.tenant_id::text || ':' || cv.contact_id::text)
    ORDER BY d.criado_at
    LIMIT %s
 """

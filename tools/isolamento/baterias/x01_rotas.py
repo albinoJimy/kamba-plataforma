@@ -889,6 +889,10 @@ registar_caso(
 #     telefone/verificar      a sessao de A com o codigo certo do pedido de B, o
 #       (KAM-211)             tenant de B e o pedido de B no corpo: 401 uniforme,
 #                             e a troca de B nao acontece
+#     teste (KAM-202)         a sessao de A (caso em `aguarda_teste`) com o caso
+#                             e o tenant de B no corpo, na consulta e no
+#                             cabecalho: 200, e a tentativa abre-se so no caso e
+#                             no tenant da sessao de A
 #
 # **O 200 das listas entra por item e nao no global**, pela razao do `/metrics`
 # do COM: a afirmacao delas e «o tenant e o da sessao», e essa mede-se a ver os
@@ -909,6 +913,8 @@ ROTAS_DO_PAINEL = (
     # KAM-211: a troca de telefone do dono.
     "rota:onboarding-web:painel/rotas:actor:POST:/painel/telefone",
     "rota:onboarding-web:painel/rotas:actor:POST:/painel/telefone/verificar",
+    # KAM-202: o inicio do teste ponta a ponta.
+    "rota:onboarding-web:painel/rotas:actor:POST:/painel/teste",
 )
 
 #: Os estados de cada rota, quando nao sao os do `RECUSAS_ACEITAVEIS`. As listas
@@ -932,6 +938,8 @@ ACEITAVEIS_DO_PAINEL: dict[str, tuple[int, ...]] = {
     # verificacao responde **so** 401 a um codigo que nao e o do pedido dela.
     "rota:onboarding-web:painel/rotas:actor:POST:/painel/telefone": (200,),
     "rota:onboarding-web:painel/rotas:actor:POST:/painel/telefone/verificar": (401,),
+    # KAM-202. O inicio do teste responde 200 com a sessao de A, sempre no caso dela.
+    "rota:onboarding-web:painel/rotas:actor:POST:/painel/teste": (200,),
 }
 
 #: Ataques por rota do painel.
@@ -967,6 +975,7 @@ def _afirmacoes_do_painel(item: str, entradas: list[dict]) -> list[str]:
             "/painel/verificar",
             "/painel/telefone",
             "/painel/telefone/verificar",
+            "/painel/teste",
         )
     ):
         achados.extend(
@@ -1059,6 +1068,18 @@ def _afirmacoes_do_painel(item: str, entradas: list[dict]) -> list[str]:
                 "O `/painel/telefone` registou um pedido de troca noutro tenant ou "
                 "noutra sessao que nao a de A: o pedido escolheu o tenant, e o "
                 "dono de A podia mudar o telefone do dono de B.",
+            )
+        )
+    if item.endswith("POST:/painel/teste"):
+        achados.extend(
+            _exigir_marca(
+                item,
+                entradas,
+                "teste",
+                "a",
+                "O `/painel/teste` abriu a tentativa noutro caso ou noutro tenant que "
+                "nao os da sessao de A: o pedido escolheu o caso, e o dono de A podia "
+                "fechar o teste da loja de B.",
             )
         )
     if item.endswith("POST:/painel/telefone/verificar"):

@@ -2997,7 +2997,7 @@ execução; nenhuma caixa é marcada por memória do trabalho feito.
 | Prioridade | P1 |
 | Estimativa | L |
 | Dependências | KAM-094, KAM-119, KAM-198 |
-| Bloqueia | — |
+| Bloqueia | KAM-232, KAM-233 |
 | Responsável sugerido | Engenheiro de Comércio com Engenheiro de Plataforma (TEN) |
 | Documentos de referência | `EPIC-09_Onboarding_Governanca.md` (blocos KAM-094 e KAM-198), `EPIC-11_Modulos_Entrada.md` (bloco KAM-119), `../specs/02_Dicionario_de_Dados_Canonico.md` (§3.40, §3.58, §3.74), `../db/migrations/versions/0028_offer_terms_e_price_quotes.py`, `../docs/tecnica/10_Onboarding_Governanca.md` (§4.1 passos 8–10), ADR-015 |
 
@@ -3091,6 +3091,44 @@ produto imposta pela base.
 - [ ] Critérios de Aceitação satisfeitos; as caixas que o KAM-094 deixou com este credor marcadas
   com a evidência deste ticket.
 - [ ] Migração reversível; nenhuma suite de outro ticket vermelha; documentação actualizada.
+
+### Decisões do fundador (2026-11-20)
+
+Quatro perguntas levadas ao fundador pela sessão coordenadora, com as opções e a recomendação; a
+**A** nas quatro. As recusadas ficam escritas para não voltarem.
+
+1. **O observador de produção (critério 1).** Em produção, hoje, nenhum serviço chama o
+   `Saida.ingerir` (os *statuses* não escrevem o `delivered_at`), o `ConsentGate` não está montado
+   (nada grava o `consent_event` do aviso de 1.º contacto) e o envio da resposta é do KAM-227.
+   **Decidido:** o observador SQL e o sinal do «teste» no `worker-canal` fazem-se aqui, como um
+   booleano sem texto nem telefone, e o observador **falha fechado** — o teste dá `sem_entrega` ou
+   `sem_consentimento` até esses factos se ligarem. O critério fica parcial, com um credor novo para
+   os *statuses* → `delivered_at`. Recusadas: ligar os *statuses* aqui (pisava o KAM-227) e um ticket
+   novo para o observador inteiro.
+2. **A página do dono (critério 2).** O `onboarding-web` recusa `prod` e não tinha ligação ao
+   `kamba_app`. **Decidido:** só a rota do início, com a ligação do `kamba_app` opcional e provada
+   contra a base; o critério fica parcial, com um credor para o `onboarding-web` em produção.
+   Recusada: o `onboarding-web` inteiro em `prod` neste ticket.
+3. **Os leitores de `is_test` (critério 3).** O bloco e o §3.74 não os nomeavam. **Decidido:**
+   filtram a conversa de teste o `churn_sinais` (o `cliente_at`), o `SQL_CLIENTES_NA_JANELA`, a
+   `v_draft_metrics`, os candidatos a golden e as queixas do `risco_ts`; **não** a filtram o custo e o
+   H6, o *metering* e a qualidade, porque a Meta factura a conversa de teste. Fica escrito que os
+   contadores Prometheus em memória não filtram (o `is_test` marca-se depois), que o Score não existe
+   (D11), e que a `conversations` é única por contacto e canal — a marca fica para sempre na conversa
+   do telefone do teste com a loja. Recusada: outra lista.
+4. **As decisões que a aplicação pode gravar (critério 6).** O `humano` era gravado pelo lote do
+   KAM-198 pela ligação do `kamba_app`. **Decidido:** um *trigger* na `screening_decision` aceita a
+   `origem = 'humano'` só do `kamba_batch`, e o escritor do lote passa à ligação do lote. A
+   `permitida` de `regra` e `llm` que a aplicação grava fica aceite, com a razão escrita: o COM é o
+   único motor do `screen`, e a barreira da base é contra defeitos e contra o que contorna o COM, não
+   contra uma aplicação comprometida. Recusadas: aceitar as duas só por escrito, e um papel próprio
+   para o escritor do `screen`.
+
+**E uma que era do ticket, e não do fundador** (os Detalhes Técnicos: «decidir se isto chega é parte
+do ticket»): a versão da política. A base lê a versão **mais recente que tem decisões** para o
+conteúdo de agora, e chega: a base apanha o que contorna o COM, o COM exige a versão corrente no
+`assertPublishable` antes de publicar, e um publicado com a decisão numa versão antiga é o caso da
+re-análise do KAM-088, que o vê e grava a nova.
 
 ### Handoff para Claude Code
 
