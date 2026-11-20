@@ -56,6 +56,7 @@ from __future__ import annotations
 import contextvars
 import datetime
 import json
+import re
 from collections.abc import Callable, Mapping, Sequence
 from typing import Any, Final
 
@@ -142,6 +143,30 @@ SQL_INSERIR: Final = (
     "ON CONFLICT (tenant_id, chave) DO NOTHING RETURNING reply_id"
 )
 
+#: A mesma linha **com** o *template* (KAM-221, revisao `0076`). Instrucao a
+#: parte, e nao duas colunas a mais no `SQL_INSERIR`: a resposta de texto livre
+#: de um turno continua a escrever exactamente o que escrevia, e as colunas do
+#: *template* so aparecem quando quem notifica as escolheu.
+SQL_INSERIR_COM_TEMPLATE: Final = (
+    "INSERT INTO platform.agent_replies "
+    "(tenant_id, chave, contact_id, conversation_id, canal, texto, botoes, turno_iniciado_em, "
+    "template_nome, template_parametros) "
+    "VALUES (%s, %s, %s, %s, %s, %s, %s::jsonb, %s, %s, %s::text[]) "
+    "ON CONFLICT (tenant_id, chave) DO NOTHING "
+    "RETURNING reply_id"
+)
+
+#: A forma de um nome de *template* da Meta: minusculas, algarismos e `_`. A
+#: mesma do `agent_replies_template_nome_ck` da `0076`.
+FORMA_DO_TEMPLATE: Final = re.compile(r"[a-z0-9_]{1,512}")
+
+#: Quantos parametros um *template* desta casa leva, no maximo (*proposta*).
+MAXIMO_DE_PARAMETROS: Final = 10
+
+#: O tamanho de um parametro (*proposta*). A Meta recusa um parametro vazio, e
+#: recusa uma quebra de linha ou um tab dentro dele.
+MAXIMO_DO_PARAMETRO: Final = 1024
+
 #: O `evt_emitir` da `0004`, com classe `P0` e finalidade `atendimento`: o
 #: *payload* leva identificadores, nunca o texto nem o telefone.
 SQL_EMITIR: Final = (
@@ -202,6 +227,32 @@ def canal_do_turno(estado: Mapping[str, Any]) -> str:
     return canal_por_omissao(estado)
 
 
+def _parametros_do_template(
+    template: str | None, parametros: Sequence[str], botoes: Sequence[str]
+) -> list[str]:
+    """Os parametros validados, em lista; levanta antes da base."""
+    parametros = list(parametros)
+    if template is None:
+        if parametros:
+            raise RespostaInvalidaError("parametros sem template")
+        return parametros
+    if not isinstance(template, str) or FORMA_DO_TEMPLATE.fullmatch(template) is None:
+        raise RespostaInvalidaError("o nome do template nao tem a forma da Meta")
+    if botoes:
+        raise RespostaInvalidaError("um template nao leva botoes")
+    if len(parametros) > MAXIMO_DE_PARAMETROS:
+        raise RespostaInvalidaError("demasiados parametros no template")
+    for valor in parametros:
+        if (
+            not isinstance(valor, str)
+            or not 1 <= len(valor) <= MAXIMO_DO_PARAMETRO
+            or "\n" in valor
+            or "\t" in valor
+        ):
+            raise RespostaInvalidaError("um parametro do template sem a forma da Meta")
+    return parametros
+
+
 def emitir_resposta(
     ligacao: Any,
     estado: Mapping[str, Any],
@@ -211,12 +262,20 @@ def emitir_resposta(
     botoes: Sequence[str] = (),
     canal: str = CANAL_WHATSAPP,
     turno_iniciado_em: datetime.datetime | None = None,
+    template: str | None = None,
+    parametros: Sequence[str] = (),
 ) -> str | None:
     """Grava a resposta e emite o `agent.replied`. Devolve o `reply_id`, ou `None`.
 
     `None` e a repeticao: a chave ja tinha uma resposta deste tenant, e nao se
     emite nada. Os identificadores vem **todos** do estado do turno, que os
     tirou da invocacao (`estado_inicial`): nenhum vem do texto.
+
+    Com `template` (KAM-221), a resposta sai como esse *template*, com os
+    `parametros` pela ordem: **valores** ja resolvidos, que o consumidor poe no
+    corpo sem os ler. O `texto` continua obrigatorio: e o que a notificacao
+    diria com a janela aberta, e o consumidor do WhatsApp nao o envia com o
+    *template*. Um *template* nao leva botoes.
     """
     if canal not in CANAIS:
         raise RespostaInvalidaError(f"canal fora de {CANAIS}: {canal!r}")
@@ -228,25 +287,27 @@ def emitir_resposta(
     if len(botoes) > MAXIMO_DE_BOTOES or not all(isinstance(b, str) and b for b in botoes):
         raise RespostaInvalidaError("no maximo tres botoes, cada um um identificador")
     pares = [{"id": b, "titulo": titulo_do_botao(b)} for b in botoes]
+    parametros = _parametros_do_template(template, parametros, botoes)
 
     tenant_id = estado["tenant_id"]
     contact_id = estado["contact_id"]
     conversation_id = estado["conversation_id"]
     thread_id = estado["thread_id"]
     with tenant_guard.tx(ligacao, tenant_id) as cursor:
-        cursor.execute(
-            SQL_INSERIR,
-            (
-                tenant_id,
-                chave,
-                contact_id,
-                conversation_id,
-                canal,
-                texto,
-                json.dumps(pares, ensure_ascii=False),
-                turno_iniciado_em,
-            ),
+        linha_nova = (
+            tenant_id,
+            chave,
+            contact_id,
+            conversation_id,
+            canal,
+            texto,
+            json.dumps(pares, ensure_ascii=False),
+            turno_iniciado_em,
         )
+        if template is None:
+            cursor.execute(SQL_INSERIR, linha_nova)
+        else:
+            cursor.execute(SQL_INSERIR_COM_TEMPLATE, (*linha_nova, template, parametros))
         linha = cursor.fetchone()
         if linha is None:
             return None
@@ -332,7 +393,10 @@ __all__ = [
     "CANAL_DO_TURNO",
     "CANAL_WHATSAPP",
     "FINALIDADE",
+    "FORMA_DO_TEMPLATE",
     "INICIO_DO_TURNO",
+    "MAXIMO_DE_PARAMETROS",
+    "MAXIMO_DO_PARAMETRO",
     "RespostaInvalidaError",
     "SaidaPorEvento",
     "TIPO",

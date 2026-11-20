@@ -81,6 +81,7 @@ from .handoff.servico import ServicoDeHandoff
 from .concierge.substituicao import Substituidor
 from .handoff.retoma import Retomador
 from .orcamento.porta import PortaDeOrcamento
+from .eventos.pela_resposta import NotificacaoPelaResposta
 from .mensagens import LeitorDeMensagens
 from .saida import SaidaPorEvento, canal_do_turno
 from .metricas import METRICAS
@@ -165,10 +166,8 @@ class CredencialDoCom:
         return self._ler()
 
 
-def _executores_do_comercio(
-    log: Logger, credencial: CredencialDoCom
-) -> dict[str, Any]:
-    """Os executores das tools de comercio, se houver COM com quem falar.
+def _cliente_do_com(log: Logger, credencial: CredencialDoCom) -> ClienteDoCom | None:
+    """O cliente da API interna do COM, se houver COM com quem falar.
 
     **Sem `KAMBA_COM_URL` nao se liga nada**, e isso nao e uma falha: as cinco
     entradas do Vendedor ficam `declaradas` com o credor que ja tinham, e o
@@ -176,12 +175,21 @@ def _executores_do_comercio(
     endereco por omissao era um AGR a tentar falar com um COM que ninguem
     configurou — e a falhar no primeiro turno de um cliente em vez de no
     arranque.
+
+    E o mesmo cliente para as tools de comercio e para a porta do *screening*
+    das condicoes do `submit_quote` (KAM-228): sem ele, as condicoes de uma
+    resposta do dono recusam, e a resposta sem condicoes segue.
     """
     base = os.environ.get(VARIAVEL_DO_COM, "").strip()
     if not base:
         log.warn(outcome="com_sem_endereco")
-        return {}
-    return executores_do_com(ClienteDoCom(base=base, credencial=credencial))
+        return None
+    return ClienteDoCom(base=base, credencial=credencial)
+
+
+def _executores_do_comercio(cliente: ClienteDoCom | None) -> dict[str, Any]:
+    """Os executores das tools de comercio, se houver COM com quem falar."""
+    return executores_do_com(cliente) if cliente is not None else {}
 
 #: Codigo de saida de uma guarda do ADR-002 violada. Distinto do `2` do KAM-001
 #: (configuracao invalida), para que os dois se distingam num painel.
@@ -398,13 +406,15 @@ def main() -> int:
     # O vector da pergunta (KAM-063) liga-se mais abaixo, com o cliente do
     # gateway; ate la, e sem modelo escolhido, a pesquisa e lexical.
     ligacao_vectorial = LigacaoVectorial()
+    cliente_do_com = _cliente_do_com(log, credencial_do_com)
     catalogo = catalogo_do_piloto(
         {
-            **_executores_do_comercio(log, credencial_do_com),
+            **_executores_do_comercio(cliente_do_com),
             **executores_do_idx(ligacao_vectorial),
             # KAM-220. As duas do Orcamento expresso escrevem na nossa base, como
             # a `get_store_info` le dela: ligam-se sempre.
-            **orcamento_tools.executores(),
+            # KAM-228: a porta do `screen` das condicoes, pelo mesmo cliente.
+            **orcamento_tools.executores(cliente_do_com=cliente_do_com),
         }
     )
     # **A validacao (3) corre a serio desde o KAM-186**: o `construir_grafo`
@@ -730,9 +740,12 @@ def main() -> int:
         # com nome proprio porque escreve.
         "accoes_do_dono": PortaDeConfirmacao(ligar_para_accoes),
         # KAM-123: o envio da proposta de orcamento depois do botao, pela mesma
-        # ligacao das accoes (escreve). O Outbound e o `OutboundPorLigar` por
-        # omissao: hoje a proposta nao sai e o dono e avisado.
-        "orcamentos": PortaDeOrcamento(ligar_para_accoes),
+        # ligacao das accoes (escreve). KAM-221: a proposta sai pela resposta do
+        # KAM-224 (`agent_replies` e `agent.replied`), numa ligacao da saida;
+        # com a janela fechada ainda nada sai, ate a revisao do `template_nome`.
+        "orcamentos": PortaDeOrcamento(
+            ligar_para_accoes, saida=NotificacaoPelaResposta(ligar_para_saida)
+        ),
         # O limiar do `retrieve` e o do pontuador que o `search_catalog` usa.
         # Ligado o indice real (KAM-061), e o `LIMIAR_DO_RRF` de `tls/idx.py`, e
         # nao o `LIMIAR_IDX` do duplo — que comparado com um RRF mandava toda a
@@ -845,6 +858,9 @@ def main() -> int:
         # KAM-223: o texto do turno, lido pelo `message_id` da
         # `platform.agent_messages`, com uma ligacao `kamba_app` por leitura.
         ler_mensagem=LeitorDeMensagens(ligar_para_mensagens).ler,
+        # KAM-221, criterio 2: a mensagem de um cliente liberta as propostas
+        # dele em `aguarda_janela`, pela mesma porta do envio.
+        ao_cliente_escrever=portas_do_grafo["orcamentos"].libertar,
     )
     aplicacao = create_app(
         rotas_internas=[

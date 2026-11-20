@@ -70,8 +70,10 @@ class Cursor:
         if sql.startswith("SELECT set_config"):
             self.tenant = p[0]
             self.linhas = [(p[0],)]
-        elif sql is saida.SQL_INSERIR:
-            tenant, chave, contacto, conversa, canal, texto, botoes, inicio = p
+        elif sql is saida.SQL_INSERIR or sql is saida.SQL_INSERIR_COM_TEMPLATE:
+            # A do *template* (KAM-221) leva o nome e os valores no fim; o
+            # resto da semantica e a mesma.
+            tenant, chave, contacto, conversa, canal, texto, botoes, inicio = p[:8]
             # A RLS, pelo lado do duplo: o `WITH CHECK` recusa outro tenant.
             assert tenant == self.tenant, "tenant fora do contexto"
             unica = "ON CONFLICT (tenant_id, chave) DO NOTHING" in sql
@@ -150,6 +152,26 @@ class TestEmitirResposta(unittest.TestCase):
                 "canal": "whatsapp",
             },
         )
+
+    def test_com_template_o_payload_fica_nas_cinco_chaves(self) -> None:
+        """O *template* e os valores ficam na linha, e o evento nao muda (KAM-221).
+
+        O ADR-010 e a decisao B do KAM-224: o `agent.replied` leva so
+        identificadores, e os consumidores leem o resto por referencia.
+        """
+        reply_id = self.emitir(template="orcamento_pronto", parametros=("ORC-ABCDEFGH",))
+        _tipo, _tenant, _agregado, payload = self.base.eventos[0]
+        self.assertEqual(
+            json.loads(payload),
+            {
+                "reply_id": reply_id,
+                "thread_id": f"{TENANT}:{CONTACTO}",
+                "conversation_id": CONVERSA,
+                "contact_id": CONTACTO,
+                "canal": "whatsapp",
+            },
+        )
+        self.assertNotIn("ORC-ABCDEFGH", payload)
 
     def test_o_payload_nao_leva_o_texto_nem_os_botoes(self) -> None:
         self.emitir(texto="Ola Maria, temos em stock.", botoes=("falar_com_humano",))

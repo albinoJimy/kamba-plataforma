@@ -12,7 +12,7 @@
 
 version: 1
 fonte: "specs/02_Dicionario_de_Dados_Canonico.md"
-versao_dicionario: "1.121"
+versao_dicionario: "1.124"
 entradas:
   - seccao: "3.1"
     conceito: "Contacto"
@@ -5585,6 +5585,7 @@ entradas:
       - "KAMBA_AGR_URL"
       - "AGR_SHIM_PORT"
     nomes_nota:
+      - "KAMBA_AGR_URL"
       - "KAMBA_DB_HOST"
       - "KAMBA_DB_PORT"
       - "KAMBA_DB_NAME"
@@ -15607,6 +15608,7 @@ entradas:
     nomes_nota:
       - "agr_internal_token"
       - "obrigatorio_em"
+      - "KAMBA_AGR_URL"
     variantes_literais: []
   - seccao: "3.58"
     conceito: "Chave virtual do classificador"
@@ -20057,14 +20059,15 @@ entradas:
     variantes_literais: []
   - seccao: "3.78"
     conceito: "A escritora do papel"
-    canonico: "platform.definir_dono(p_contact_id, p_origem), SECURITY DEFINER"
+    canonico: "platform.definir_dono(p_contact_id, p_origem, p_owner_channel_wa), SECURITY DEFINER"
     literais:
-      - "platform.definir_dono(p_contact_id, p_origem)"
+      - "platform.definir_dono(p_contact_id, p_origem, p_owner_channel_wa)"
       - "SECURITY DEFINER"
     nomes:
       - "platform.definir_dono"
       - "p_contact_id"
       - "p_origem"
+      - "p_owner_channel_wa"
       - "SECURITY"
       - "DEFINER"
     nomes_nota:
@@ -20073,6 +20076,7 @@ entradas:
       - "troca_de_telefone"
       - "app.tenant_id"
       - "cliente"
+      - "p_owner_channel_wa"
       - "EXECUTE"
       - "kamba_identity"
     variantes_literais: []
@@ -20182,18 +20186,29 @@ entradas:
     variantes_literais: []
   - seccao: "3.78"
     conceito: "Canal do dono"
-    canonico: "owner_channel_wa, no CanalDoDono de canalDoDono"
+    canonico: "tenants.owner_channel_wa (booleano, nulo), e o owner_channel_wa do CanalDoDono de canalDoDono e canalNoPainel"
     literais:
+      - "tenants.owner_channel_wa"
       - "owner_channel_wa"
       - "CanalDoDono"
       - "canalDoDono"
+      - "canalNoPainel"
     nomes:
+      - "tenants.owner_channel_wa"
       - "owner_channel_wa"
       - "CanalDoDono"
       - "canalDoDono"
+      - "canalNoPainel"
     nomes_nota:
       - "false"
-      - "numeroCoincide"
+      - "onboarding"
+      - "web"
+      - "phone_hmac"
+      - "numeroConfirmado"
+      - "definir_dono"
+      - "kamba_batch"
+      - "UPDATE"
+      - "ativo"
     variantes_literais: []
   - seccao: "3.78"
     conceito: "Política de proactivas"
@@ -20495,6 +20510,28 @@ entradas:
       - "resolveContact"
     variantes_literais: []
   - seccao: "3.78"
+    conceito: "A leitura do canal do dono"
+    canonico: "VistaDoCanal.ownerChannelWa, no SQL_CANAL_DO_PAINEL do COM; numeroDaLojaConfirmado das OpcoesDaTroca"
+    literais:
+      - "VistaDoCanal.ownerChannelWa"
+      - "SQL_CANAL_DO_PAINEL"
+      - "numeroDaLojaConfirmado"
+      - "OpcoesDaTroca"
+    nomes:
+      - "VistaDoCanal.ownerChannelWa"
+      - "SQL_CANAL_DO_PAINEL"
+      - "numeroDaLojaConfirmado"
+      - "OpcoesDaTroca"
+    nomes_nota:
+      - "channel"
+      - "view"
+      - "kamba_app"
+      - "JOIN"
+      - "kamba_identity"
+      - "tenants"
+      - "numeroDaLojaConfirmado"
+    variantes_literais: []
+  - seccao: "3.78"
     conceito: "A troca montada pelo processo"
     canonico: "ONBOARDING_IDENTITY_DB_URL, trocaPeloPool, numaLigacao, PoolDeIdentidade, LigacaoDoPool"
     literais:
@@ -20646,6 +20683,118 @@ entradas:
       - "orcamento_pronto"
     nomes_nota:
       - "utility"
+      - "orcamento"
+      - "mensagem"
+    variantes_literais: []
+  - seccao: "3.79"
+    conceito: "Template da mensagem neutra das 24 h"
+    canonico: "orcamento_em_espera"
+    literais:
+      - "orcamento_em_espera"
+    nomes:
+      - "orcamento_em_espera"
+    nomes_nota:
+      - "ORC"
+      - "orcamento"
+    variantes_literais: []
+  - seccao: "3.79"
+    conceito: "Espera do dono antes da mensagem neutra"
+    canonico: "vinte e quatro horas desde o pedido, com um horizonte de mais vinte e quatro"
+    literais: []
+    nomes: []
+    nomes_nota:
+      - "pedido"
+      - "respondido"
+      - "orcamento"
+      - "quote_id"
+      - "sem_resposta"
+    variantes_literais: []
+  - seccao: "3.79"
+    conceito: "Notificação ao cliente pela resposta do AGR"
+    canonico: "NotificacaoPelaResposta"
+    literais:
+      - "NotificacaoPelaResposta"
+    nomes:
+      - "NotificacaoPelaResposta"
+    nomes_nota:
+      - "PortaDeNotificacao"
+      - "agent_replies"
+      - "window_expires_at"
+      - "mode"
+      - "bot"
+      - "agent.replied"
+      - "livre"
+      - "template_nome"
+      - "template_parametros"
+      - "template"
+      - "sem_template"
+      - "orcamentos"
+    variantes_literais: []
+  - seccao: "3.79"
+    conceito: "Template de uma resposta do AGR"
+    canonico: "template_nome"
+    literais:
+      - "template_nome"
+    nomes:
+      - "template_nome"
+    nomes_nota:
+      - "agent_replies"
+      - "_"
+      - "agent_replies_template_nome_ck"
+      - "window_expires_at"
+    variantes_literais: []
+  - seccao: "3.79"
+    conceito: "Parâmetros do template de uma resposta"
+    canonico: "template_parametros"
+    literais:
+      - "template_parametros"
+    nomes:
+      - "template_parametros"
+    nomes_nota:
+      - "template_nome"
+      - "agent_replies_template_ck"
+      - "agent_replies_template_parametros_ck"
+      - "ORC"
+    variantes_literais: []
+  - seccao: "3.79"
+    conceito: "Reemissão de uma proposta pela janela"
+    canonico: "reemitir_pela_janela"
+    literais:
+      - "reemitir_pela_janela"
+    nomes:
+      - "reemitir_pela_janela"
+    nomes_nota:
+      - "Saida"
+      - "entregue_at"
+      - "agr_orcamento_sem_resposta"
+      - "orcamento_pronto"
+      - "enviado"
+      - "libertar_da_janela"
+      - "quote.sent"
+    variantes_literais: []
+  - seccao: "3.79"
+    conceito: "Trabalho de lote da mensagem das 24 h"
+    canonico: "agr_orcamento_sem_resposta"
+    literais:
+      - "agr_orcamento_sem_resposta"
+    nomes:
+      - "agr_orcamento_sem_resposta"
+    nomes_nota:
+      - "tx_batch"
+      - "kamba_batch"
+      - "quote_requests"
+      - "kamba_app"
+      - "agr_handoff_prazos"
+    variantes_literais: []
+  - seccao: "3.79"
+    conceito: "Trabalho de lote da expiração"
+    canonico: "agr_orcamento_expirar"
+    literais:
+      - "agr_orcamento_expirar"
+    nomes:
+      - "agr_orcamento_expirar"
+    nomes_nota:
+      - "expirado"
     variantes_literais: []
   - seccao: "3.79"
     conceito: "Desfecho de um envio"
@@ -20841,9 +20990,9 @@ entradas:
     variantes_literais: []
   - seccao: "3.80"
     conceito: "Resposta de um turno"
-    canonico: "platform.agent_replies(reply_id, tenant_id, chave, contact_id, conversation_id, canal, texto, botoes, turno_iniciado_em, criado_at, entregue_at)"
+    canonico: "platform.agent_replies(reply_id, tenant_id, chave, contact_id, conversation_id, canal, texto, botoes, turno_iniciado_em, criado_at, entregue_at, template_nome, template_parametros)"
     literais:
-      - "platform.agent_replies(reply_id, tenant_id, chave, contact_id, conversation_id, canal, texto, botoes, turno_iniciado_em, criado_at, entregue_at)"
+      - "platform.agent_replies(reply_id, tenant_id, chave, contact_id, conversation_id, canal, texto, botoes, turno_iniciado_em, criado_at, entregue_at, template_nome, template_parametros)"
     nomes:
       - "platform.agent_replies"
       - "reply_id"
@@ -20857,6 +21006,8 @@ entradas:
       - "turno_iniciado_em"
       - "criado_at"
       - "entregue_at"
+      - "template_nome"
+      - "template_parametros"
     nomes_nota:
       - "FORCE"
       - "kamba_app"
@@ -21100,15 +21251,16 @@ entradas:
       - "agr_internal_token"
   - seccao: "3.81"
     conceito: "Troca de telefone persistida"
-    canonico: "platform.owner_phone_changes(change_id, tenant_id, pedido, telefone_hmac, estado, prazo, contact_id, antigo_hmac, desafio_chave, desafio_hmac, desafio_expira_em, desafio_tentativas, criado_at, decidido_at)"
+    canonico: "platform.owner_phone_changes(change_id, tenant_id, pedido, telefone_hmac, owner_channel_wa, estado, prazo, contact_id, antigo_hmac, desafio_chave, desafio_hmac, desafio_expira_em, desafio_tentativas, criado_at, decidido_at)"
     literais:
-      - "platform.owner_phone_changes(change_id, tenant_id, pedido, telefone_hmac, estado, prazo, contact_id, antigo_hmac, desafio_chave, desafio_hmac, desafio_expira_em, desafio_tentativas, criado_at, decidido_at)"
+      - "platform.owner_phone_changes(change_id, tenant_id, pedido, telefone_hmac, owner_channel_wa, estado, prazo, contact_id, antigo_hmac, desafio_chave, desafio_hmac, desafio_expira_em, desafio_tentativas, criado_at, decidido_at)"
     nomes:
       - "platform.owner_phone_changes"
       - "change_id"
       - "tenant_id"
       - "pedido"
       - "telefone_hmac"
+      - "owner_channel_wa"
       - "estado"
       - "prazo"
       - "contact_id"
@@ -21124,6 +21276,9 @@ entradas:
       - "kamba_identity"
       - "definir_dono"
       - "desafio_"
+      - "owner_channel_wa"
+      - "canalDoDono"
+      - "concluir"
     variantes_literais: []
   - seccao: "3.81"
     conceito: "Estado de uma troca"
@@ -22662,8 +22817,9 @@ tabelas:
     colunas:
       - "p_contact_id"
       - "p_origem"
+      - "p_owner_channel_wa"
     aberta: false
-    assinatura: "platform.definir_dono(p_contact_id, p_origem)"
+    assinatura: "platform.definir_dono(p_contact_id, p_origem, p_owner_channel_wa)"
     seccao: "3.78"
     conceito: "A escritora do papel"
   - nome: "owner_actions"
@@ -22717,8 +22873,10 @@ tabelas:
       - "turno_iniciado_em"
       - "criado_at"
       - "entregue_at"
+      - "template_nome"
+      - "template_parametros"
     aberta: false
-    assinatura: "platform.agent_replies(reply_id, tenant_id, chave, contact_id, conversation_id, canal, texto, botoes, turno_iniciado_em, criado_at, entregue_at)"
+    assinatura: "platform.agent_replies(reply_id, tenant_id, chave, contact_id, conversation_id, canal, texto, botoes, turno_iniciado_em, criado_at, entregue_at, template_nome, template_parametros)"
     seccao: "3.80"
     conceito: "Resposta de um turno"
   - nome: "agent_messages"
@@ -22742,6 +22900,7 @@ tabelas:
       - "tenant_id"
       - "pedido"
       - "telefone_hmac"
+      - "owner_channel_wa"
       - "estado"
       - "prazo"
       - "contact_id"
@@ -22753,7 +22912,7 @@ tabelas:
       - "criado_at"
       - "decidido_at"
     aberta: false
-    assinatura: "platform.owner_phone_changes(change_id, tenant_id, pedido, telefone_hmac, estado, prazo, contact_id, antigo_hmac, desafio_chave, desafio_hmac, desafio_expira_em, desafio_tentativas, criado_at, decidido_at)"
+    assinatura: "platform.owner_phone_changes(change_id, tenant_id, pedido, telefone_hmac, owner_channel_wa, estado, prazo, contact_id, antigo_hmac, desafio_chave, desafio_hmac, desafio_expira_em, desafio_tentativas, criado_at, decidido_at)"
     seccao: "3.81"
     conceito: "Troca de telefone persistida"
 

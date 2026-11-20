@@ -66,6 +66,7 @@ import { randomUUID } from "node:crypto";
 
 import type { Telefone } from "../inscricao/identificadores.ts";
 import type { RecusaDeEnvio, ResultadoDeEnvio, Veredicto } from "../inscricao/otp.ts";
+import { canalDoDono } from "./persona.ts";
 
 /**
  * Quanto tempo a troca fica pendente sem o OTP do número antigo. ***Proposta***
@@ -135,7 +136,11 @@ export interface ContactoDoNumero {
  * que faz a mesma chamada na transacção da troca.
  */
 export interface TrocaNaBase {
-  (pedido: { readonly tenantId: string; readonly contactId: string }): Promise<{
+  (pedido: {
+    readonly tenantId: string;
+    readonly contactId: string;
+    readonly ownerChannelWa: boolean;
+  }): Promise<{
     readonly anterior: string | null;
   }>;
 }
@@ -172,6 +177,13 @@ export interface TrocaGuardada {
   readonly contactId: string | null;
   /** O HMAC do número que o dono disse ser o antigo, enquanto o código dele corre. */
   readonly antigoHmac: string | null;
+  /**
+   * O canal do dono novo (`canalDoDono`, KAM-216), que o `concluir` escreve em
+   * `tenants.owner_channel_wa` com o papel. Calcula-se no `pedir`, que é onde
+   * o número está em claro com os HMAC do anel inteiro; o número que o código
+   * prova é esse, porque a chave do desafio leva o HMAC dele.
+   */
+  readonly ownerChannelWa: boolean;
 }
 
 /** O que a troca tem de saber sobre o dono que perde o papel. */
@@ -197,6 +209,7 @@ export interface RepositorioDaTroca {
     readonly tenantId: string;
     readonly pedido: string;
     readonly telefoneHmac: string;
+    readonly ownerChannelWa: boolean;
     readonly prazo: Date;
     readonly agora: Date;
   }): Promise<string | null>;
@@ -295,9 +308,17 @@ export class TrocaDeTelefone {
    * só numa troca `pendente`, e manda-o ao número que o dono diz ser o seu — se
    * não for, o código chega a quem tem esse número e a verificação recusa.
    *
-   * **O `tenantId` vem da sessão do painel**, nunca do pedido.
+   * **O `tenantId` vem da sessão do painel**, nunca do pedido. O
+   * `hmacDoNumeroDaLoja` também: é o `phone_hmac` do caso da sessão, e `null`
+   * dá painel (KAM-216). Só conta no `novo`.
    */
-  async pedir(pedido: string, tenantId: string, telefone: Telefone, numero: NumeroDaTroca = "novo"): Promise<ResultadoDoPedido> {
+  async pedir(
+    pedido: string,
+    tenantId: string,
+    telefone: Telefone,
+    hmacDoNumeroDaLoja: string | null,
+    numero: NumeroDaTroca = "novo",
+  ): Promise<ResultadoDoPedido> {
     const agora = this.#relogio();
     if (numero === "antigo") {
       const viva = await this.#repositorio.viva(tenantId, agora);
@@ -314,6 +335,7 @@ export class TrocaDeTelefone {
       tenantId,
       pedido,
       telefoneHmac: telefone.hmac,
+      ownerChannelWa: canalDoDono({ telefoneDoDono: telefone, hmacDoNumeroDaLoja }).owner_channel_wa,
       prazo: new Date(agora.getTime() + PRAZO_DO_PEDIDO_MS),
       agora,
     });
@@ -471,6 +493,7 @@ export class TrocasEmMemoria implements RepositorioDaTroca {
       prazo: p.prazo,
       contactId: null,
       antigoHmac: null,
+      ownerChannelWa: p.ownerChannelWa,
     });
     return changeId;
   }
@@ -501,9 +524,13 @@ export class TrocasEmMemoria implements RepositorioDaTroca {
     // recusa desfaz as duas — aqui à mão, porque em memória não há transacção.
     if (!this.#mudar(p.changeId, ["pendente"], { estado: "feita" })) return null;
     try {
-      const { anterior } = await this.#definirDono({ tenantId: p.tenantId, contactId: t.contactId });
+      const { tenantId } = p;
+      const { contactId, ownerChannelWa } = t;
+      const { anterior } = await this.#definirDono({ tenantId, contactId, ownerChannelWa });
       if (p.exigirAnterior !== undefined && anterior !== p.exigirAnterior) {
-        if (anterior !== null) await this.#definirDono({ tenantId: p.tenantId, contactId: anterior });
+        // Em memória o canal antigo não se repõe: a porta dos ensaios só
+        // regista o papel, e a base desfaz os dois com a transacção.
+        if (anterior !== null) await this.#definirDono({ tenantId, contactId: anterior, ownerChannelWa });
         throw new AnteriorDiferenteError();
       }
       return { contactId: t.contactId, anterior };

@@ -323,9 +323,10 @@ def rotas(
     async def screening(pedido: Request) -> JSONResponse:
         chegada = time.monotonic()
         # **Uma credencial que nao se le e uma recusa**, e nao um 500: a
-        # `agr_screening_token` nao e obrigatoria no arranque (nenhum servico
-        # chama esta rota ainda), e uma referencia em falta no cofre tem de
-        # fechar a porta, nunca abri-la.
+        # `agr_screening_token` le-se a cada pedido e nao no arranque (o COM
+        # chama esta rota desde o KAM-222, e os compose ligam-no desde o
+        # KAM-228), e uma referencia em falta no cofre tem de fechar a porta,
+        # nunca abri-la.
         try:
             dentro = autenticado(pedido, credencial)
         except Exception:  # noqa: BLE001 — falha fechada, a razao nao sai

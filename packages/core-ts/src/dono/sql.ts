@@ -44,10 +44,15 @@ import {
 export const ORIGEM_DA_TROCA = "troca_de_telefone";
 
 /**
- * A única escrita do papel. O `::uuid` é explícito: o parâmetro chega como texto
- * e a função só tem a assinatura `(uuid, text)`.
+ * A única escrita do papel. Os *casts* são explícitos: os parâmetros chegam como
+ * texto, e a função tem a assinatura `(uuid, text, boolean)` desde a `0075`.
+ *
+ * O terceiro é o canal do dono novo, que a função escreve em
+ * `tenants.owner_channel_wa` quando o dono muda (KAM-216). O provisionamento
+ * manda `NULL`: o dono do provisionamento é o telefone do caso, que é o número da
+ * loja, e `NULL` dá painel (`canalNoPainel`).
  */
-export const SQL_DEFINIR_DONO = "SELECT platform.definir_dono($1::uuid, $2) AS anterior";
+export const SQL_DEFINIR_DONO = "SELECT platform.definir_dono($1::uuid, $2, $3::boolean) AS anterior";
 
 /** O resolver devolveu uma fusão onde não pode haver nenhuma. */
 export class FusaoNaTrocaError extends Error {
@@ -64,11 +69,12 @@ async function definir(
   tenantId: string,
   contactId: string,
   origem: string,
+  ownerChannelWa: boolean | null,
 ): Promise<string | null> {
   return comTenant(cliente, tenantId, async (bd) => {
     // O `ClienteSql` do `tenant_guard` devolve `unknown`: a forma e a do `pg`,
     // e le-se sem confiar nela.
-    const resposta = (await bd.query(SQL_DEFINIR_DONO, [contactId, origem])) as {
+    const resposta = (await bd.query(SQL_DEFINIR_DONO, [contactId, origem, ownerChannelWa])) as {
       readonly rows?: readonly { readonly anterior?: unknown }[];
     };
     const anterior = resposta.rows?.[0]?.anterior;
@@ -82,8 +88,8 @@ async function definir(
  * ser, ou `null` se não havia nenhum (ou se o contacto já era o dono).
  */
 export function trocaNaBase(identidade: ClienteSql): TrocaNaBase {
-  return async ({ tenantId, contactId }) => ({
-    anterior: await definir(identidade, tenantId, contactId, ORIGEM_DA_TROCA),
+  return async ({ tenantId, contactId, ownerChannelWa }) => ({
+    anterior: await definir(identidade, tenantId, contactId, ORIGEM_DA_TROCA, ownerChannelWa),
   });
 }
 
@@ -95,7 +101,7 @@ export function trocaNaBase(identidade: ClienteSql): TrocaNaBase {
  */
 export function definirDonoNaBase(identidade: ClienteSql): DefinirDono {
   return async ({ tenantId, contactId }) => {
-    await definir(identidade, tenantId, contactId, ORIGEM_DO_PROVISIONAMENTO);
+    await definir(identidade, tenantId, contactId, ORIGEM_DO_PROVISIONAMENTO, null);
   };
 }
 
@@ -156,14 +162,14 @@ export const SQL_EXPIRAR_PEDIDAS = `
  * faz a segunda réplica não inserir, e o `RETURNING` vazio diz-lho.
  */
 export const SQL_ABRIR_TROCA = `
-  INSERT INTO ${TROCAS} (tenant_id, pedido, telefone_hmac, prazo)
-  VALUES ($1, $2, $3, $4)
+  INSERT INTO ${TROCAS} (tenant_id, pedido, telefone_hmac, owner_channel_wa, prazo)
+  VALUES ($1, $2, $3, $4, $5)
   ON CONFLICT (tenant_id) WHERE estado IN ('pedida', 'pendente') DO NOTHING
   RETURNING change_id::text AS change_id`;
 
 export const SQL_TROCA_VIVA = `
   SELECT change_id::text AS change_id, pedido, telefone_hmac, estado, prazo,
-         contact_id::text AS contact_id, antigo_hmac
+         contact_id::text AS contact_id, antigo_hmac, owner_channel_wa
     FROM ${TROCAS}
    WHERE tenant_id = $1 AND (estado = 'pendente' OR (estado = 'pedida' AND prazo > $2))`;
 
@@ -193,7 +199,7 @@ export const SQL_CONCLUIR_TROCA = `
   UPDATE ${TROCAS} SET estado = 'feita', decidido_at = $3
    WHERE tenant_id = $1 AND change_id = $2 AND estado = 'pendente'
      AND ($4::boolean OR prazo <= $3)
-  RETURNING contact_id::text AS contact_id`;
+  RETURNING contact_id::text AS contact_id, owner_channel_wa`;
 
 export const SQL_CANCELAR_TROCA = `
   UPDATE ${TROCAS} SET estado = 'cancelada', decidido_at = $2
@@ -243,10 +249,10 @@ function naTroca<T>(pool: PoolDeIdentidade, tenantId: string, trabalho: (tx: Cli
 /** O `RepositorioDaTroca` sobre a `owner_phone_changes`, como `kamba_identity`. */
 export function trocasNaBase(pool: PoolDeIdentidade): RepositorioDaTroca {
   return {
-    abrir: ({ tenantId, pedido, telefoneHmac, prazo, agora }) =>
+    abrir: ({ tenantId, pedido, telefoneHmac, ownerChannelWa, prazo, agora }) =>
       naTroca(pool, tenantId, async (tx) => {
         await tx.query(SQL_EXPIRAR_PEDIDAS, [tenantId, pedido, agora]);
-        const [linha] = await linhas(tx, SQL_ABRIR_TROCA, [tenantId, pedido, telefoneHmac, prazo]);
+        const [linha] = await linhas(tx, SQL_ABRIR_TROCA, [tenantId, pedido, telefoneHmac, ownerChannelWa, prazo]);
         return opcional(linha?.["change_id"]);
       }),
     viva: (tenantId, agora) =>
@@ -262,6 +268,7 @@ export function trocasNaBase(pool: PoolDeIdentidade): RepositorioDaTroca {
           prazo: instante(l["prazo"]),
           contactId: opcional(l["contact_id"]),
           antigoHmac: opcional(l["antigo_hmac"]),
+          ownerChannelWa: l["owner_channel_wa"] === true,
         };
         return troca;
       }),
@@ -278,7 +285,7 @@ export function trocasNaBase(pool: PoolDeIdentidade): RepositorioDaTroca {
         const [feita] = await linhas(tx, SQL_CONCLUIR_TROCA, [tenantId, changeId, agora, exigirAnterior !== undefined]);
         const contactId = opcional(feita?.["contact_id"]);
         if (contactId === null) return null;
-        const [porta] = await linhas(tx, SQL_DEFINIR_DONO, [contactId, ORIGEM_DA_TROCA]);
+        const [porta] = await linhas(tx, SQL_DEFINIR_DONO, [contactId, ORIGEM_DA_TROCA, feita?.["owner_channel_wa"] === true]);
         const anterior = opcional(porta?.["anterior"]);
         // Lançar dentro do `comTenant` desfaz a troca de estado e a porta: o
         // número provado não era o do dono, e nada mudou.

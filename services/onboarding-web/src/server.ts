@@ -284,6 +284,12 @@ const actividade = new Actividade({ repositorio: casos, contadores });
  * CONFIRMADA** de que a Graph diga se o WABA tem cartão antes do primeiro envio
  * (credor: KAM-023 / ext:KAM-102).
  */
+/**
+ * O estado do guia, partilhado com a troca de telefone (KAM-216): o
+ * `numeroConfirmado` é o que diz que o número da loja é o telefone do caso.
+ */
+const repositorioDoGuia = new GuiaEmMemoria();
+
 function montarGuia(): OpcoesDoGuia | undefined {
   const valores = Object.fromEntries(
     Object.entries(VARIAVEIS_DO_GUIA).map(([chave, nome]) => [chave, (process.env[nome] ?? "").trim()]),
@@ -305,7 +311,7 @@ function montarGuia(): OpcoesDoGuia | undefined {
   });
   const guia = new PassoGuiado({
     casos,
-    repositorio: new GuiaEmMemoria(),
+    repositorio: repositorioDoGuia,
     capacidade: lista,
     ligador: new LigadorPorHttp(valores.gwy),
     gates: new GatesEmMemoria(),
@@ -411,7 +417,7 @@ function poolDe(url: string, nome: string, ligacoes: number): pg.Pool {
  * orçamento diário são os mesmos do registo. Os contadores continuam em memória
  * por processo, e é dito: duas réplicas têm dois orçamentos.
  */
-async function montarTroca(): Promise<OpcoesDaTroca | undefined> {
+async function montarTroca(guiaMontado: boolean): Promise<OpcoesDaTroca | undefined> {
   if (URL_DA_IDENTIDADE === "") {
     log.info({ outcome: "painel_troca_desligada" });
     return undefined;
@@ -433,6 +439,11 @@ async function montarTroca(): Promise<OpcoesDaTroca | undefined> {
     anelDoPepper: [pepper, pepperAnterior],
     contadores,
     proxiesDeConfianca: proxiesDeConfianca(),
+    // Sem o guia montado, nenhum número da loja foi confirmado: a troca guarda o
+    // painel (KAM-216).
+    numeroDaLojaConfirmado: guiaMontado
+      ? async (casoId) => (await repositorioDoGuia.ler(casoId))?.numeroConfirmado === true
+      : undefined,
   };
 }
 
@@ -468,7 +479,8 @@ async function montarConversa(): Promise<OpcoesDaConversa | undefined> {
  * O estado do canal vem do COM (`CanalPeloCom`, KAM-190), pela mesma credencial:
  * as ligações deste processo à base são duas, cada uma só para a sua rota: a do
  * `kamba_identity` para a troca de telefone (`montarTroca`, KAM-217) e a do
- * `kamba_app` para a conversa do dono (`montarConversa`, KAM-223). A reentrada por código usa o
+ * `kamba_app` para a conversa do dono (`montarConversa`, KAM-223). O canal do dono
+ * que a troca guarda (KAM-216) volta pelo `channel-view`, na linha do canal. A reentrada por código usa o
  * mesmo `Otp`, os mesmos casos e os mesmos contadores do registo — um telefone
  * esgotado no registo está esgotado aqui.
  *
@@ -498,7 +510,7 @@ async function montarPainel(guia: PassoGuiado | undefined): Promise<OpcoesDoPain
       proxiesDeConfianca: proxiesDeConfianca(),
       religar: guia === undefined ? undefined : (id) => guia.religar(id),
     },
-    troca: await montarTroca(),
+    troca: await montarTroca(guia !== undefined),
     conversa: await montarConversa(),
   };
 }

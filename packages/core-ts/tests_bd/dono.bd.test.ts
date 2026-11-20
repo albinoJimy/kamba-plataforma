@@ -28,6 +28,7 @@ import { SQL_PAPEL } from "../src/chr/consultas.ts";
 import {
   ConversaDoDono,
   ESPERA_DA_TROCA_MS,
+  canalNoPainel,
   contactoDoNumero,
   conversaPeloPool,
   definirDonoNaBase,
@@ -60,6 +61,12 @@ const NUMERO_ALHEIO = "+244 999 000 504";
 const NUMERO_DA_REPLICA = "+244 999 000 505";
 
 const PEPPER = Buffer.alloc(32, 0x5a);
+/**
+ * O HMAC do número da loja (KAM-216): o do telefone do caso, que nestes ensaios
+ * é o do dono do provisionamento. O KAM-093 obriga os dois a coincidir.
+ */
+const LOJA_ANTIGA = new Telefone(NUMERO_ANTIGO, [PEPPER]).hmac;
+const LOJA_DE_B = new Telefone(NUMERO_DE_B, [PEPPER]).hmac;
 const PEPPER_DO_DESTINO = Buffer.alloc(32, 0x71);
 const INICIO = new Date("2026-11-19T10:00:00.000Z");
 
@@ -174,7 +181,7 @@ describe("KAM-223 — a troca com prova de posse, contra a base", () => {
   it("o codigo do numero novo poe a troca pendente e NAO move o papel; passadas as 72 h, move", async () => {
     const { tenant, dono } = await tenantComDono("pendente", NUMERO_ANTIGO);
     const m = montar();
-    await m.troca.pedir("troca:sessao-1", tenant, novo());
+    await m.troca.pedir("troca:sessao-1", tenant, novo(), LOJA_ANTIGA);
     const errado = m.codigo() === "000000" ? "111111" : "000000";
     assert.equal((await m.troca.verificar("troca:sessao-1", tenant, novo(), errado)).estado, "recusada");
 
@@ -205,9 +212,9 @@ describe("KAM-223 — a troca com prova de posse, contra a base", () => {
   it("com o codigo do numero antigo a troca e imediata", async () => {
     const { tenant, dono } = await tenantComDono("imediata", NUMERO_ANTIGO);
     const m = montar();
-    await m.troca.pedir("troca:sessao-1", tenant, novo());
+    await m.troca.pedir("troca:sessao-1", tenant, novo(), LOJA_ANTIGA);
     await m.troca.verificar("troca:sessao-1", tenant, novo(), m.codigo());
-    assert.equal((await m.troca.pedir("troca:sessao-1", tenant, antigo(), "antigo")).enviado, true);
+    assert.equal((await m.troca.pedir("troca:sessao-1", tenant, antigo(), LOJA_ANTIGA, "antigo")).enviado, true);
     const feita = await m.troca.verificar("troca:sessao-1", tenant, antigo(), m.codigo(), "antigo");
     assert.equal(feita.estado, "feita");
     assert.notEqual(await donoDoTenant(tenant), dono);
@@ -217,10 +224,10 @@ describe("KAM-223 — a troca com prova de posse, contra a base", () => {
   it("o codigo certo de um numero que nao e o do dono desfaz a transaccao: papel e troca como estavam", async () => {
     const { tenant, dono } = await tenantComDono("alheio", NUMERO_ANTIGO);
     const m = montar();
-    await m.troca.pedir("troca:sessao-1", tenant, novo());
+    await m.troca.pedir("troca:sessao-1", tenant, novo(), LOJA_ANTIGA);
     await m.troca.verificar("troca:sessao-1", tenant, novo(), m.codigo());
     const alheio = new Telefone(NUMERO_ALHEIO, [PEPPER]);
-    await m.troca.pedir("troca:sessao-1", tenant, alheio, "antigo");
+    await m.troca.pedir("troca:sessao-1", tenant, alheio, LOJA_ANTIGA, "antigo");
     assert.deepEqual(await m.troca.verificar("troca:sessao-1", tenant, alheio, m.codigo(), "antigo"), {
       estado: "recusada",
       veredicto: "antigo_diferente",
@@ -233,7 +240,7 @@ describe("KAM-223 — a troca com prova de posse, contra a base", () => {
   it("um processo novo a meio continua: o codigo do numero novo e a troca pendente estao na base", async () => {
     const { tenant, dono } = await tenantComDono("reinicio", NUMERO_ANTIGO);
     const m = montar();
-    await m.troca.pedir("troca:sessao-1", tenant, novo());
+    await m.troca.pedir("troca:sessao-1", tenant, novo(), LOJA_ANTIGA);
     // O processo reinicia entre o pedido e o codigo: outra replica, outra memoria.
     const depoisDoReinicio = m.outra();
     assert.equal((await depoisDoReinicio.verificar("troca:sessao-1", tenant, novo(), m.codigo())).estado, "pendente");
@@ -246,7 +253,7 @@ describe("KAM-223 — a troca com prova de posse, contra a base", () => {
   it("o mesmo pedido em duas replicas: uma troca, uma recusa, e um dono so", async () => {
     const { tenant } = await tenantComDono("replicas", NUMERO_ANTIGO);
     const m = montar();
-    await m.troca.pedir("troca:sessao-1", tenant, novo());
+    await m.troca.pedir("troca:sessao-1", tenant, novo(), LOJA_ANTIGA);
     await m.troca.verificar("troca:sessao-1", tenant, novo(), m.codigo());
     m.relogio.agora = new Date(INICIO.getTime() + ESPERA_DA_TROCA_MS);
     const desfechos = await Promise.all([m.troca.concluir(tenant), m.outra().concluir(tenant)]);
@@ -255,8 +262,8 @@ describe("KAM-223 — a troca com prova de posse, contra a base", () => {
     // E duas sessoes a abrir ao mesmo tempo noutro tenant: uma troca viva.
     const outro = await tenantComDono("replicas-abrir", NUMERO_DE_B);
     const pedidos = await Promise.all([
-      m.troca.pedir("troca:sessao-x", outro.tenant, new Telefone(NUMERO_DA_REPLICA, [PEPPER])),
-      m.outra().pedir("troca:sessao-y", outro.tenant, new Telefone(NUMERO_ALHEIO, [PEPPER])),
+      m.troca.pedir("troca:sessao-x", outro.tenant, new Telefone(NUMERO_DA_REPLICA, [PEPPER]), LOJA_ANTIGA),
+      m.outra().pedir("troca:sessao-y", outro.tenant, new Telefone(NUMERO_ALHEIO, [PEPPER]), LOJA_ANTIGA),
     ]);
     assert.deepEqual(pedidos.map((p) => p.enviado).sort(), [false, true]);
     assert.equal((await trocasDe(outro.tenant)).filter((t) => t.estado === "pedida").length, 1);
@@ -266,7 +273,7 @@ describe("KAM-223 — a troca com prova de posse, contra a base", () => {
     const a = await tenantComDono("cruzado-a", NUMERO_ANTIGO);
     const b = await tenantComDono("cruzado-b", NUMERO_DE_B);
     const m = montar();
-    await m.troca.pedir("troca:sessao-de-b", b.tenant, novo());
+    await m.troca.pedir("troca:sessao-de-b", b.tenant, novo(), LOJA_ANTIGA);
     const codigoDeB = m.codigo();
     assert.deepEqual(await m.troca.verificar("troca:sessao-de-b", a.tenant, novo(), codigoDeB), {
       estado: "recusada",
@@ -284,7 +291,7 @@ describe("KAM-223 — a troca com prova de posse, contra a base", () => {
   it("cancelar a troca pendente impede a conclusao depois do prazo", async () => {
     const { tenant, dono } = await tenantComDono("cancelada", NUMERO_ANTIGO);
     const m = montar();
-    await m.troca.pedir("troca:sessao-1", tenant, novo());
+    await m.troca.pedir("troca:sessao-1", tenant, novo(), LOJA_ANTIGA);
     await m.troca.verificar("troca:sessao-1", tenant, novo(), m.codigo());
     assert.equal(await m.outra().cancelar(tenant), true);
     m.relogio.agora = new Date(INICIO.getTime() + ESPERA_DA_TROCA_MS + 1);
@@ -306,16 +313,16 @@ describe("KAM-211/217 — a porta do dono, contra a base", () => {
     const a = await tenantComDono("contexto-a", NUMERO_ANTIGO);
     const b = await tenantComDono("contexto-b", NUMERO_DE_B);
     await assert.rejects(
-      trocaNaBase(identidadeBd)({ tenantId: b.tenant, contactId: a.dono }),
+      trocaNaBase(identidadeBd)({ tenantId: b.tenant, contactId: a.dono, ownerChannelWa: true }),
       (erro: { code?: string }) => erro.code === "23503",
     );
     assert.equal(await donoDoTenant(b.tenant), b.dono);
   });
 
-  it("com o papel da aplicacao, a porta nao executa", async () => {
+  it("com o papel da aplicação, a porta não executa", async () => {
     const { tenant, dono } = await tenantComDono("app", NUMERO_ANTIGO);
     await assert.rejects(
-      trocaNaBase(app)({ tenantId: tenant, contactId: dono }),
+      trocaNaBase(app)({ tenantId: tenant, contactId: dono, ownerChannelWa: true }),
       (erro: { code?: string }) => erro.code === "42501",
     );
   });
@@ -331,6 +338,53 @@ describe("KAM-211/217 — a porta do dono, contra a base", () => {
       (erro: { code?: string }) => erro.code === "23505",
     );
     assert.equal([...(await papeis(tenant)).values()].filter((p) => p.papel === "dono").length, 1);
+  });
+
+  it("cinco pares de trocas concorrentes em dois tenants acabam cada uma no seu tenant", async () => {
+    // Revisto no KAM-223: a troca faz-se pelo código do número antigo (regra
+    // C), e são essas conclusões — as que movem o papel na base — que correm
+    // todas ao mesmo tempo. Um número por dono e por pedido: o `Otp` limita os
+    // envios por destino.
+    const pares: { a: { tenant: string; dono: string }; b: { tenant: string; dono: string } }[] = [];
+    const numeros = new Map<string, string>();
+    for (let i = 0; i < 5; i += 1) {
+      const deA = `+244 999 002 1${i}0`;
+      const deB = `+244 999 002 2${i}0`;
+      const par = { a: await tenantComDono(`pool-a-${i}`, deA), b: await tenantComDono(`pool-b-${i}`, deB) };
+      numeros.set(par.a.tenant, deA);
+      numeros.set(par.b.tenant, deB);
+      pares.push(par);
+    }
+    const m = montar();
+    const conclusoes: { pedido: string; tenant: string; antigo: Telefone; codigo: string }[] = [];
+    for (const [i, par] of pares.entries()) {
+      for (const [lado, tenant] of [["a", par.a.tenant], ["b", par.b.tenant]] as const) {
+        const pedido = `troca:sessao-${lado}-${i}`;
+        const novo = new Telefone(`+244 999 001 6${lado === "a" ? "0" : "5"}${i}`, [PEPPER]);
+        const antigo = new Telefone(numeros.get(tenant) ?? "", [PEPPER]);
+        assert.equal((await m.troca.pedir(pedido, tenant, novo, LOJA_ANTIGA)).enviado, true);
+        assert.equal((await m.troca.verificar(pedido, tenant, novo, m.codigo())).estado, "pendente");
+        assert.equal((await m.troca.pedir(pedido, tenant, antigo, LOJA_ANTIGA, "antigo")).enviado, true);
+        conclusoes.push({ pedido, tenant, antigo, codigo: m.codigo() });
+      }
+    }
+    const desfechos = await Promise.all(
+      conclusoes.map((c) => m.troca.verificar(c.pedido, c.tenant, c.antigo, c.codigo, "antigo")),
+    );
+    assert.deepEqual(
+      desfechos.map((d) => d.estado),
+      conclusoes.map(() => "feita"),
+    );
+    for (const par of pares) {
+      for (const { tenant, dono } of [par.a, par.b]) {
+        const lidos = await papeis(tenant);
+        const novo = await donoDoTenant(tenant);
+        assert.notEqual(novo, dono, "o dono do tenant nao mudou");
+        assert.equal(lidos.get(novo ?? "")?.papel, "dono");
+        assert.equal(lidos.get(dono)?.papel, "cliente");
+        assert.equal([...lidos.values()].filter((p) => p.papel === "dono").length, 1);
+      }
+    }
   });
 
   it("uma operacao que falha destroi a ligacao do pool, e uma que acerta devolve-a", async () => {
@@ -349,7 +403,7 @@ describe("KAM-211/217 — a porta do dono, contra a base", () => {
       },
     };
     await assert.rejects(
-      numaLigacao(espiao, (ligacao) => trocaNaBase(ligacao)({ tenantId: b.tenant, contactId: a.dono })),
+      numaLigacao(espiao, (ligacao) => trocaNaBase(ligacao)({ tenantId: b.tenant, contactId: a.dono, ownerChannelWa: true })),
       (erro: { code?: string }) => erro.code === "23503",
     );
     assert.deepEqual(await numaLigacao(espiao, async () => "ok"), "ok");
@@ -461,5 +515,89 @@ describe("KAM-223 — a conversa do dono pelo painel, contra a base", () => {
       comTenant(identidadeBd, t.tenant, (bd) => bd.query("SELECT 1 FROM platform.agent_messages")),
       (erro: { code?: string }) => erro.code === "42501",
     );
+  });
+});
+
+/**
+ * O canal do dono guardado (KAM-216, decisão do fundador de 2026-11-19): a troca
+ * escreve o `tenants.owner_channel_wa` pela `definir_dono`, na transacção que
+ * move o papel. Os dois cenários do critério 3 — telefone igual e diferente do
+ * número da loja — e o número ausente, pelo caminho real. A leitura do painel é a
+ * do COM, como `kamba_app`, e mede-se em `db/tests/test_canal_do_painel.py`.
+ */
+describe("KAM-216 — o canal do dono guardado, contra a base", () => {
+  async function guardado(tenant: string): Promise<boolean | null> {
+    const { rows } = await admin.query<{ v: boolean | null }>(
+      "SELECT owner_channel_wa AS v FROM platform.tenants WHERE id = $1",
+      [tenant],
+    );
+    return rows[0]?.v ?? null;
+  }
+
+  /**
+   * Revisto no KAM-223: a troca faz-se já com o código do número novo **e** o
+   * do número do dono actual (a regra C); o canal vai com o papel, no `concluir`.
+   */
+  async function trocar(tenant: string, numero: string, actual: string, loja: string | null): Promise<void> {
+    const m = montar();
+    const pedido = `troca:canal-${numero.replace(/\D/g, "")}`;
+    const novo = new Telefone(numero, [PEPPER]);
+    const antigo = new Telefone(actual, [PEPPER]);
+    await m.troca.pedir(pedido, tenant, novo, loja);
+    assert.equal((await m.troca.verificar(pedido, tenant, novo, m.codigo())).estado, "pendente");
+    assert.equal((await m.troca.pedir(pedido, tenant, antigo, loja, "antigo")).enviado, true);
+    assert.equal((await m.troca.verificar(pedido, tenant, antigo, m.codigo(), "antigo")).estado, "feita");
+  }
+
+  it("número ausente: o provisionamento deixa a coluna nula, e o painel mostra o painel", async () => {
+    const { tenant } = await tenantComDono("canal-nulo", NUMERO_ANTIGO);
+    assert.equal(await guardado(tenant), null);
+    assert.equal(canalNoPainel(await guardado(tenant), "ativo").canal, "painel");
+  });
+
+  it("telefone diferente do número da loja: a troca guarda o WhatsApp, e o painel lê-o", async () => {
+    const { tenant } = await tenantComDono("canal-diferente", NUMERO_ANTIGO);
+    await trocar(tenant, NUMERO_NOVO, NUMERO_ANTIGO, LOJA_ANTIGA);
+    assert.equal(await guardado(tenant), true);
+    assert.equal(canalNoPainel(await guardado(tenant), "ativo").canal, "whatsapp");
+  });
+
+  it("telefone igual ao número da loja: o dono que volta ao número do registo tem o painel", async () => {
+    const { tenant } = await tenantComDono("canal-igual", NUMERO_ANTIGO);
+    await trocar(tenant, NUMERO_NOVO, NUMERO_ANTIGO, LOJA_ANTIGA);
+    await trocar(tenant, NUMERO_ANTIGO, NUMERO_NOVO, LOJA_ANTIGA);
+    assert.equal(await guardado(tenant), false);
+    assert.equal(canalNoPainel(await guardado(tenant), "ativo").canal, "painel");
+  });
+
+  it("uma reentrega do provisionamento depois da troca não apaga o canal", async () => {
+    const { tenant } = await tenantComDono("canal-reentrega", NUMERO_ANTIGO);
+    await trocar(tenant, NUMERO_NOVO, NUMERO_ANTIGO, LOJA_ANTIGA);
+    const novo = await donoDoTenant(tenant);
+    assert.ok(novo);
+    // A reentrega com o dono de agora é idempotente; com o antigo, recusa.
+    await definirDonoNaBase(identidadeBd)({ tenantId: tenant, contactId: novo, origem: "provisionamento" });
+    assert.equal(await guardado(tenant), true);
+  });
+
+  it("isolamento: a troca de B não escreve o canal de A", async () => {
+    const a = await tenantComDono("canal-iso-a", NUMERO_ANTIGO);
+    const b = await tenantComDono("canal-iso-b", NUMERO_DE_B);
+    await trocar(b.tenant, NUMERO_NOVO, NUMERO_DE_B, LOJA_DE_B);
+    assert.equal(await guardado(a.tenant), null);
+    assert.equal(await guardado(b.tenant), true);
+  });
+
+  it("ninguém escreve a coluna por fora da porta: o kamba_identity e o kamba_app recebem 42501", async () => {
+    const { tenant } = await tenantComDono("canal-escrita", NUMERO_ANTIGO);
+    for (const cliente of [identidadeBd, app]) {
+      await assert.rejects(
+        comTenant(cliente, tenant, (bd) =>
+          bd.query("UPDATE platform.tenants SET owner_channel_wa = true WHERE id = $1::uuid", [tenant]),
+        ),
+        (erro: { code?: string }) => erro.code === "42501",
+      );
+    }
+    assert.equal(await guardado(tenant), null);
   });
 });

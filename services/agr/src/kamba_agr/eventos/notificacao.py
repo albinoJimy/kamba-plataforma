@@ -135,6 +135,9 @@ class Notificacao:
     conversation_id: str
     texto: str
     template: str
+    #: Os **valores** dos parametros do *template*, pela ordem (KAM-221). Ja
+    #: resolvidos por quem notifica: quem envia nao resolve nada.
+    parametros: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         if not self.template:

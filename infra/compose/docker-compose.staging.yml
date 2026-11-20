@@ -477,6 +477,14 @@ services:
       # so num turno do dono com `message_id`; lida a cada pedido, e em falta a
       # rota recusa. O `onboarding-web` apresenta-a.
       KAMBA_SECRET_AGR_PAINEL_TOKEN: ${KAMBA_SECRET_AGR_PAINEL_TOKEN:-}
+      # KAM-228. O AGR verifica a credencial do `POST /internal/screening`, que o
+      # classificador do `screen` do COM apresenta. Tem de ser o mesmo valor.
+      KAMBA_SECRET_AGR_SCREENING_TOKEN: ${KAMBA_SECRET_AGR_SCREENING_TOKEN:?o cofre entrega a credencial da rota do classificador do AGR}
+      # A chave virtual da plataforma para o `screening-nano` (KAM-195), com que o
+      # AGR chama o LiteLLM do classificador. **Opcional**, como o inventario a
+      # declara: sem ela o `chamar` falha, o COM le `condicional`, e as condicoes
+      # recusam. Fecha, e nao abre.
+      KAMBA_SECRET_LITELLM_SCREENING_KEY: ${KAMBA_SECRET_LITELLM_SCREENING_KEY:-}
     deploy:
       replicas: 2
     networks:
@@ -581,6 +589,11 @@ services:
       KAMBA_SECRET_SEGREDO_INTENTS: ${KAMBA_SECRET_SEGREDO_INTENTS:?o cofre entrega o segredo das intencoes}
       KAMBA_SECRET_SEGREDO_INTENTS_ANTERIOR: ${KAMBA_SECRET_SEGREDO_INTENTS_ANTERIOR:-}
       KAMBA_COM_DB_URL: ${KAMBA_COM_DB_URL:?o deploy passa a cadeia de ligacao do kamba_app}
+      # KAM-228. O classificador do `screen` (KAM-222): com o `KAMBA_AGR_URL`, o
+      # COM apresenta a `agr_screening_token` ao AGR e exige-a no arranque. O
+      # `agr` esta no `NO_PROXY`: a chamada fica na rede `app`.
+      KAMBA_AGR_URL: http://agr:8000
+      KAMBA_SECRET_AGR_SCREENING_TOKEN: ${KAMBA_SECRET_AGR_SCREENING_TOKEN:?o cofre entrega a credencial da rota do classificador do AGR}
     networks:
       - app
       - data
