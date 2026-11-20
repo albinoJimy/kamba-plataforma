@@ -24,6 +24,14 @@ respondesse, e as condicoes recusavam. O canario
 exige a recusa **e** que o COM tenha chamado o AGR, chegando tarde: um COM de
 ensaio que nao chamasse ninguem deixava o canario vermelho (achado 4 da revisao
 adversarial, medido por mutacao).
+
+## A porta fechada (decisao B do fundador, 2026-11-20)
+
+As condicoes tem finalidade de transferencia propria, e ela ainda nao existe
+(`FINALIDADE_DAS_CONDICOES`, credor **KAM-230**): em producao a porta esta
+fechada, e o `TestADecisaoB` mede-o sem remendo. Os outros ensaios abrem-na com
+uma finalidade de ensaio (`_abrir_a_porta`) para medir a montagem que o KAM-230
+liga.
 """
 
 from __future__ import annotations
@@ -233,13 +241,30 @@ def _responder_sem_base(_ligacao, tenant, contacto, quote_id, valor_minor, valid
                         previsao, sku="SKU-300")
 
 
+def _abrir_a_porta(caso: unittest.TestCase) -> None:
+    """Da as condicoes uma finalidade de ensaio, como o KAM-230 lhes dara a real.
+
+    A porta esta fechada em producao (decisao B do fundador, 2026-11-20); estes
+    ensaios medem a montagem que o KAM-230 liga, e o fecho mede-se a parte
+    (`TestADecisaoB`), sem remendo.
+    """
+    remendo = mock.patch.object(orcamento_tools, "FINALIDADE_DAS_CONDICOES", "finalidade_de_ensaio")
+    remendo.start()
+    caso.addCleanup(remendo.stop)
+
+
 class _Montagem(unittest.TestCase):
     """O `submit_quote` ligado como o `__main__` o liga, pela ToolLayer."""
+
+    #: Abre a porta por remendo; o `TestADecisaoB` mede-a fechada.
+    PORTA_ABERTA = True
 
     def setUp(self) -> None:
         remendo = mock.patch.object(rep, "por_referencia", lambda _l, _t, referencia: QID if referencia == REFERENCIA else None)
         remendo.start()
         self.addCleanup(remendo.stop)
+        if self.PORTA_ABERTA:
+            _abrir_a_porta(self)
 
     def _camada(self, cliente: ClienteDoCom | None) -> ToolLayer:
         especificacao = catalogo_do_piloto(
@@ -408,10 +433,51 @@ class TestRecusa(_Montagem):
         self.assertLess(decorrido, 3.5)
 
 
+class TestADecisaoB(_Montagem):
+    """A decisao do fundador de 2026-11-20 (opcao B): sem finalidade propria, fecha.
+
+    Sem remendo nenhum na porta: e o modulo como corre em producao. Com o COM e
+    o AGR a responder, as condicoes recusam e o texto nao chega a nenhum dos dois
+    — nao vai ao modelo com a `classificacao_de_catalogo`. O KAM-230, ao dar a
+    finalidade, substitui este ensaio pelo que a faz viajar ate ao classificador.
+    """
+
+    PORTA_ABERTA = False
+
+    def test_sem_finalidade_as_condicoes_recusam_sem_ir_ao_com(self) -> None:
+        self._sem_base()
+        self.assertIsNone(orcamento_tools.FINALIDADE_DAS_CONDICOES)
+
+        async def turno():
+            async with _AgrNoCiclo() as agr:
+                with _ComDeEnsaio(agr.url) as com:
+                    camada = self._camada(_cliente(com.base))
+                    com_condicoes = await self._invocar(camada)
+                    sem_condicoes = await self._invocar(camada, condicoes=None)
+                return com_condicoes, sem_condicoes, com.pedidos, agr.ligacoes
+
+        com_condicoes, sem_condicoes, pedidos, ligacoes = asyncio.run(turno())
+        self._assert_recusa(com_condicoes)
+        self.assertEqual((pedidos, ligacoes), ([], 0))
+        # Uma resposta sem condicoes segue: o dono envia o orcamento sem elas.
+        self.assertTrue(sem_condicoes.ok, sem_condicoes.error)
+
+    def test_sem_finalidade_nao_ha_porta(self) -> None:
+        pedido = Pedido(
+            ctx=contexto(vertical="dono"),
+            args=orcamento_tools.ArgumentosDeSubmitQuote(referencia=REFERENCIA, valor="120 mil"),
+            timeout_ms=8_000,
+        )
+        self.assertIsNone(orcamento_tools.porta_das_condicoes(_cliente("http://com:3002"), pedido, 0))
+
+
 # ------------------------------------------------------------------ a porta
 
 
 class TestAPortaDasCondicoes(unittest.TestCase):
+    def setUp(self) -> None:
+        _abrir_a_porta(self)
+
     def _pedido(self, timeout_ms: int = 8_000) -> Pedido:
         modelo = orcamento_tools.ArgumentosDeSubmitQuote(referencia=REFERENCIA, valor="120 mil")
         return Pedido(ctx=contexto(vertical="dono"), args=modelo, timeout_ms=timeout_ms)

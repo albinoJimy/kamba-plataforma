@@ -47,6 +47,12 @@ condicoes, sobre o `ClienteDoCom` do `KAMBA_COM_URL` — o mesmo cliente das too
 de comercio. Sem COM com quem falar nao ha porta, e o `responder` usa a
 `ScreeningPorLigar`, que recusa: umas condicoes nao passam sem ponte.
 
+**Hoje a porta esta fechada**, por decisao do fundador de 2026-11-20 (opcao B):
+as condicoes tem finalidade de transferencia propria, e ela ainda nao existe
+(`FINALIDADE_DAS_CONDICOES`, credor **KAM-230**). Ate la as condicoes recusam
+todas sem sair do processo (`test_sem_finalidade_as_condicoes_recusam_sem_ir_ao_com`),
+e os ensaios da montagem abrem-na por remendo, para medir o que o KAM-230 liga.
+
 **O executor ja corre numa *thread*.** A ToolLayer corre todo o executor em
 `asyncio.to_thread` (`camada.py`, `invoke`), e e isso que deixa o ciclo de
 eventos do AGR livre para servir o `POST /internal/screening` que o COM chama
@@ -83,6 +89,16 @@ from .especificacoes import ErroDeBackend, Executor, Pedido, Resposta
 
 #: O sujeito da `screening_decision` das condicoes (revisao `0074`, KAM-222).
 SUJEITO_DAS_CONDICOES: Final = "condicoes"
+
+#: A finalidade de transferencia das condicoes (ADR-008). **Decisao do fundador
+#: de 2026-11-20, opcao B** (bloco do KAM-228): as condicoes ganham finalidade
+#: propria, e **nao** vao ao modelo com a `classificacao_de_catalogo`, que e a do
+#: papel `screening` na rota do classificador. Ate a finalidade existir — o valor
+#: no dicionario e no ADR-008, a revisao `0078`, e o classificador a escolhe-la
+#: pelo sujeito, tudo no **KAM-230** — e `None`, e sem ela nao ha porta: as
+#: condicoes recusam todas, e o texto nao sai do processo. Dar-lhe um valor sem
+#: o fazer viajar ate ao classificador e voltar a opcao A, que o fundador recusou.
+FINALIDADE_DAS_CONDICOES: Final[str | None] = None
 
 #: O que fica do tecto do executor para a transaccao, depois do `screen`.
 #: *Proposta*: a transaccao do `responder` sao tres instrucoes numa linha
@@ -133,12 +149,13 @@ def porta_das_condicoes(
 ) -> PortaDeScreening | None:
     """A porta do `screen` para as condicoes deste pedido, ou `None` (fecha).
 
-    `None` sem cliente, e `None` quando o tecto do executor ja nao deixa tempo ao
+    `None` enquanto as condicoes nao tiverem finalidade de transferencia
+    (`FINALIDADE_DAS_CONDICOES`, decisao B do fundador), `None` sem cliente, e `None` quando o tecto do executor ja nao deixa tempo ao
     `screen` depois da reserva da transaccao: o `responder` usa entao a
     `ScreeningPorLigar`, e as condicoes recusam com `screening_indisponivel`.
     A vertical do `actor` e a do turno, e nao uma fixa.
     """
-    if cliente is None:
+    if FINALIDADE_DAS_CONDICOES is None or cliente is None:
         return None
     tecto = int(min(ponte.TEMPO_MAXIMO_MS, pedido.timeout_ms - decorrido_ms - RESERVA_DA_TRANSACCAO_MS))
     if tecto <= 0:
