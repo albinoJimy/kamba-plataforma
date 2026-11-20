@@ -11,6 +11,7 @@ cada conversa: uma instrucao que ele nao conheca levanta.
 from __future__ import annotations
 
 import datetime
+import json
 import unittest
 from typing import Any
 
@@ -162,6 +163,41 @@ class TestEscolhaDaJanela(unittest.TestCase):
         self.notificar(base, CHAVE)
         self.notificar(base, CHAVE + ":janela")
         self.assertEqual([r["chave"] for r in base.respostas], [CHAVE, CHAVE + ":janela"])
+
+
+class TestBotoesDaNotificacao(unittest.TestCase):
+    """KAM-226: o «Aceito» sai com o texto da proposta, e o *template* nao o leva."""
+
+    def notificar(self, base: Base) -> str:
+        nota = Notificacao(
+            contact_id=CONTACTO,
+            conversation_id=CONVERSA,
+            texto="Orcamento - nao e factura",
+            template="orcamento_pronto",
+            parametros=PARAMETROS,
+            botoes=("aceitar_orcamento",),
+        )
+        porta = NotificacaoPelaResposta(lambda: Ligacao(base), relogio=lambda: AGORA)
+        return porta.notificar(tenant_id=TENANT, notificacao=nota, chave=CHAVE)
+
+    def test_o_texto_livre_leva_o_botao_com_o_titulo(self) -> None:
+        base = Base(AGORA + datetime.timedelta(hours=3))
+        self.assertEqual(self.notificar(base), LIVRE)
+        self.assertEqual(
+            json.loads(base.respostas[0]["botoes"]), [{"id": "aceitar_orcamento", "titulo": "Aceito"}]
+        )
+
+    def test_o_template_deixa_cair_o_botao(self) -> None:
+        base = Base(AGORA - datetime.timedelta(hours=1))
+        self.assertEqual(self.notificar(base), TEMPLATE)
+        self.assertEqual(json.loads(base.respostas[0]["botoes"]), [])
+
+    def test_sem_botoes_a_notificacao_continua_sem_eles(self) -> None:
+        base = Base(AGORA + datetime.timedelta(hours=3))
+        NotificacaoPelaResposta(lambda: Ligacao(base), relogio=lambda: AGORA).notificar(
+            tenant_id=TENANT, notificacao=notificacao(), chave=CHAVE
+        )
+        self.assertEqual(json.loads(base.respostas[0]["botoes"]), [])
 
 
 class TestFalhas(unittest.TestCase):

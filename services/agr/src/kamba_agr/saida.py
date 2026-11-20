@@ -108,6 +108,8 @@ TITULOS: Final = {
     "menu:pedido": "O meu pedido",
     "menu:loja": "Horario e morada",
     "menu:humano": "Falar com um colega",
+    # KAM-226: o botao da proposta do Orcamento expresso (`regras.BOTAO_ACEITAR`).
+    "aceitar_orcamento": "Aceito",
 }
 
 #: Os botoes de confirmacao levam a referencia no `id` (`confirm:{cart_id}`,
@@ -225,6 +227,29 @@ def _parametros_do_template(
     return parametros
 
 
+def _forma(
+    texto: str,
+    *,
+    chave: str,
+    botoes: Sequence[str],
+    canal: str,
+    template: str | None,
+    parametros: Sequence[str],
+) -> tuple[list[dict[str, str]], list[str]]:
+    """Os pares `{id, titulo}` e os parametros validados; levanta antes da base."""
+    if canal not in CANAIS:
+        raise RespostaInvalidaError(f"canal fora de {CANAIS}: {canal!r}")
+    if not isinstance(texto, str) or not 1 <= len(texto) <= MAXIMO_DO_TEXTO:
+        raise RespostaInvalidaError("o texto tem de ter entre 1 e 4096 caracteres")
+    if not isinstance(chave, str) or not 1 <= len(chave) <= MAXIMO_DA_CHAVE:
+        raise RespostaInvalidaError("a chave tem de ter entre 1 e 300 caracteres")
+    botoes = tuple(botoes)
+    if len(botoes) > MAXIMO_DE_BOTOES or not all(isinstance(b, str) and b for b in botoes):
+        raise RespostaInvalidaError("no maximo tres botoes, cada um um identificador")
+    pares = [{"id": b, "titulo": titulo_do_botao(b)} for b in botoes]
+    return pares, _parametros_do_template(template, parametros, botoes)
+
+
 def emitir_resposta(
     ligacao: Any,
     estado: Mapping[str, Any],
@@ -249,53 +274,79 @@ def emitir_resposta(
     diria com a janela aberta, e o consumidor do WhatsApp nao o envia com o
     *template*. Um *template* nao leva botoes.
     """
-    if canal not in CANAIS:
-        raise RespostaInvalidaError(f"canal fora de {CANAIS}: {canal!r}")
-    if not isinstance(texto, str) or not 1 <= len(texto) <= MAXIMO_DO_TEXTO:
-        raise RespostaInvalidaError("o texto tem de ter entre 1 e 4096 caracteres")
-    if not isinstance(chave, str) or not 1 <= len(chave) <= MAXIMO_DA_CHAVE:
-        raise RespostaInvalidaError("a chave tem de ter entre 1 e 300 caracteres")
-    botoes = tuple(botoes)
-    if len(botoes) > MAXIMO_DE_BOTOES or not all(isinstance(b, str) and b for b in botoes):
-        raise RespostaInvalidaError("no maximo tres botoes, cada um um identificador")
-    pares = [{"id": b, "titulo": titulo_do_botao(b)} for b in botoes]
-    parametros = _parametros_do_template(template, parametros, botoes)
+    # A forma valida-se antes de abrir a transaccao, e outra vez no
+    # `gravar_resposta`: o custo e nada, e a base nao ve uma resposta sem forma.
+    _forma(texto, chave=chave, botoes=botoes, canal=canal, template=template, parametros=parametros)
+    with tenant_guard.tx(ligacao, estado["tenant_id"]) as cursor:
+        return gravar_resposta(
+            cursor,
+            estado,
+            texto,
+            chave=chave,
+            botoes=botoes,
+            canal=canal,
+            turno_iniciado_em=turno_iniciado_em,
+            template=template,
+            parametros=parametros,
+        )
 
+
+def gravar_resposta(
+    cursor: Any,
+    estado: Mapping[str, Any],
+    texto: str,
+    *,
+    chave: str,
+    botoes: Sequence[str] = (),
+    canal: str = CANAL_WHATSAPP,
+    turno_iniciado_em: datetime.datetime | None = None,
+    template: str | None = None,
+    parametros: Sequence[str] = (),
+) -> str | None:
+    """O `emitir_resposta` sobre um cursor **ja** dentro do `tenant_guard.tx`.
+
+    Para quem escreve a resposta na transaccao de outra coisa (KAM-226): o
+    aviso ao dono nasce na transaccao do `quote.requested`, e o `tenant_guard`
+    recusa uma segunda transaccao na mesma ligacao. A forma valida-se antes do
+    `INSERT`, e quem chama leva o `ROLLBACK` se ela levantar.
+    """
+    pares, parametros = _forma(
+        texto, chave=chave, botoes=botoes, canal=canal, template=template, parametros=parametros
+    )
     tenant_id = estado["tenant_id"]
     contact_id = estado["contact_id"]
     conversation_id = estado["conversation_id"]
     thread_id = estado["thread_id"]
-    with tenant_guard.tx(ligacao, tenant_id) as cursor:
-        linha_nova = (
-            tenant_id,
-            chave,
-            contact_id,
-            conversation_id,
-            canal,
-            texto,
-            json.dumps(pares, ensure_ascii=False),
-            turno_iniciado_em,
-        )
-        if template is None:
-            cursor.execute(SQL_INSERIR, linha_nova)
-        else:
-            cursor.execute(SQL_INSERIR_COM_TEMPLATE, (*linha_nova, template, parametros))
-        linha = cursor.fetchone()
-        if linha is None:
-            return None
-        reply_id = str(linha[0])
-        payload = {
-            "reply_id": reply_id,
-            "thread_id": thread_id,
-            "conversation_id": str(conversation_id),
-            "contact_id": str(contact_id),
-            "canal": canal,
-        }
-        cursor.execute(
-            SQL_EMITIR,
-            (TIPO, tenant_id, str(conversation_id), json.dumps(payload, sort_keys=True)),
-        )
-        cursor.fetchone()
+    linha_nova = (
+        tenant_id,
+        chave,
+        contact_id,
+        conversation_id,
+        canal,
+        texto,
+        json.dumps(pares, ensure_ascii=False),
+        turno_iniciado_em,
+    )
+    if template is None:
+        cursor.execute(SQL_INSERIR, linha_nova)
+    else:
+        cursor.execute(SQL_INSERIR_COM_TEMPLATE, (*linha_nova, template, parametros))
+    linha = cursor.fetchone()
+    if linha is None:
+        return None
+    reply_id = str(linha[0])
+    payload = {
+        "reply_id": reply_id,
+        "thread_id": thread_id,
+        "conversation_id": str(conversation_id),
+        "contact_id": str(contact_id),
+        "canal": canal,
+    }
+    cursor.execute(
+        SQL_EMITIR,
+        (TIPO, tenant_id, str(conversation_id), json.dumps(payload, sort_keys=True)),
+    )
+    cursor.fetchone()
     return reply_id
 
 
@@ -375,5 +426,6 @@ __all__ = [
     "TITULOS",
     "canal_por_omissao",
     "emitir_resposta",
+    "gravar_resposta",
     "titulo_do_botao",
 ]

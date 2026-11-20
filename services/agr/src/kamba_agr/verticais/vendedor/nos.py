@@ -63,6 +63,7 @@ from ...guardas import contadores as contadores_mod
 from ...guardas.classificador import VEREDICTOS_DO_CLASSIFICADOR
 from ...guardas.entrada import substituicao_na_janela
 from ...llm.erros import ErroDeLlm
+from ...orcamento.regras import BOTAO_ACEITAR
 from ...concierge.portas import ConciergeSemServicoError
 from ...handoff.portas import HandoffIndisponivel
 from ...tls.contexto import PREFIXO_DE_CONFIRMACAO, Confirmation, ToolContext
@@ -889,11 +890,12 @@ def pediu_cancelamento(texto: str) -> bool:
 _ACEITO: Final = re.compile(r"\b(?:aceito|aceitamos|aceite|esta aceite)\b")
 _NAO_ACEITO: Final = re.compile(r"\bnao\s+(?:\w+\s+)?aceit")
 
-#: O botao «Aceito» de uma proposta. **Nenhuma proposta o leva ainda**: a
-#: proposta sai pela `PortaDeNotificacao`, que so leva texto, e o botao nela e do
-#: credor do envio real (bloco do KAM-220). O grafo reconhece-o ja, pela razao
-#: do `menu:*` do KAM-037: um identificador nosso decide antes do texto.
-BOTAO_ACEITAR_ORCAMENTO: Final = "aceitar_orcamento"
+#: O botao «Aceito» de uma proposta. A proposta de texto leva-o desde o
+#: KAM-226 (`_notificar` do `tls/orcamento.py`); o *template* da janela fechada
+#: nao leva botoes. O grafo reconhece-o pela razao do `menu:*` do KAM-037: um
+#: identificador nosso decide antes do texto. A constante e a do `regras.py`,
+#: que e quem a poe na proposta.
+BOTAO_ACEITAR_ORCAMENTO: Final = BOTAO_ACEITAR
 
 
 def pediu_para_aceitar(texto: str, botao: str = "") -> bool:

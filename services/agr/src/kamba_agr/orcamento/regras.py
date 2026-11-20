@@ -487,6 +487,31 @@ def texto_sem_resposta(quote_id: str) -> str:
 PALAVRA_DE_HUMANO: Final = "atendente"
 
 
+#: O botao «Aceito» da proposta (KAM-226; dicionario §3.79). **Sem referencia
+#: no identificador**, que e a forma do dicionario: o grafo do Vendedor decide
+#: pelo ultimo pedido **de quem toca** (`ultimo_pedido`, pelo `contact_id` da
+#: invocacao), e nunca por um `quote_id` vindo do botao. Vive aqui, e nao no
+#: grafo, porque a ToolLayer o poe na proposta e nao importa das verticais.
+BOTAO_ACEITAR: Final = "aceitar_orcamento"
+
+
+def texto_do_aviso_ao_dono(quote_id: str) -> str:
+    """O aviso proactivo ao dono de um pedido novo (KAM-226).
+
+    **Sem numero nenhum**, nem o `sku` nem a quantidade: o aviso diz que ha um
+    pedido e qual e a referencia, e a lista dos pendentes (o `orcamento` do grafo
+    do dono, pela palavra «pendentes») mostra o resto pela forma que o validador
+    deixa citar. A referencia e so letras. Sem acentos, como os textos do grafo
+    do dono.
+    """
+    return "\n".join(
+        (
+            f"Tem um pedido de orcamento novo: {referencia_interna(quote_id)}.",
+            "Escreva «pendentes» para ver os pedidos em aberto.",
+        )
+    )
+
+
 def preencher(modelo: str, facts: tuple[Any, ...]) -> str:
     """O *renderer* por referencia da proposta: cada `{{…}}` pelo seu *fact*.
 

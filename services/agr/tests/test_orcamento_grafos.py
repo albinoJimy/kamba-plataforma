@@ -893,5 +893,68 @@ class TestOBotaoDaInvocacao(unittest.TestCase):
         self.assertEqual([r["motivo"] for r in hnd.recebido], [nos_mod.MOTIVO_ORCAMENTO_ACEITE])
 
 
+class PortaPorContacto(PortaEmMemoria):
+    """O ultimo pedido **de cada contacto**, como o `SQL_ULTIMO_DO_CLIENTE` le."""
+
+    def __init__(self, por_contacto: dict[str, rep.UltimoPedido]) -> None:
+        super().__init__()
+        self.por_contacto = por_contacto
+
+    async def ultimo_pedido(self, tenant_id: str, contact_id: str):
+        self.leituras.append(("ultimo", tenant_id, contact_id))
+        return self.por_contacto.get(contact_id)
+
+
+class TestOBotaoDaPropostaAdversarial(unittest.TestCase):
+    """KAM-226: o botao «Aceito» de uma proposta vencida, ou tocado por outro cliente.
+
+    O botao e o identificador sem referencia do dicionario (§3.79), e chega pelo
+    `agent_invocation.botao` com a janela vazia, como no processo. Quem decide e
+    o ultimo pedido **de quem toca**, e nunca um `quote_id` vindo de fora.
+    """
+
+    def _tocar(self, porta: PortaEmMemoria, **troca: Any):
+        hnd = Handoff()
+        grafo, _deps, backend, saida, _ = montar(hnd=hnd, checkpointer=InMemorySaver(), orcamentos=porta)
+        estado = estado_de("", tipo="interactive", botao=regras.BOTAO_ACEITAR, **troca)
+        self.assertEqual(estado["messages"], [])
+        asyncio.run(grafo.ainvoke(estado, {"configurable": {"thread_id": str(uuid.uuid4())}}))
+        return hnd, saida, backend
+
+    def test_o_botao_de_uma_proposta_vencida_nao_aceita(self) -> None:
+        ontem = HOJE - datetime.timedelta(days=1)
+        for nome, ultimo in {
+            "enviado e vencido": _ultimo(regras.ENVIADO, validade=ontem),
+            "expirado": _ultimo(regras.EXPIRADO),
+            "cancelado": _ultimo(regras.CANCELADO),
+        }.items():
+            with self.subTest(caso=nome):
+                hnd, saida, backend = self._tocar(PortaEmMemoria(ultimo))
+                self.assertEqual(hnd.recebido, [])
+                self.assertEqual(len(saida.textos), 1)
+                self.assertIn(nos_mod.FRASE_DO_AVISO[tabela.ORCAMENTO_FECHADO], saida.textos[0])
+                # Nem pedido nem pesquisa: o «aceito» nunca cria nada.
+                self.assertEqual(backend.chamadas, {})
+
+    def test_o_botao_tocado_por_outro_cliente_nao_aceita_a_proposta_alheia(self) -> None:
+        dono_da_proposta = str(uuid.uuid4())
+        intruso = str(uuid.uuid4())
+        porta = PortaPorContacto({dono_da_proposta: _ultimo(regras.ENVIADO)})
+        hnd, _saida, backend = self._tocar(porta, contact_id=intruso)
+        self.assertEqual(hnd.recebido, [])
+        self.assertEqual(backend.chamadas, {})
+        # Leu-se o ultimo pedido de quem tocou, e so esse.
+        self.assertEqual([l[2] for l in porta.leituras if l[0] == "ultimo"], [intruso])
+
+    def test_o_mesmo_botao_do_cliente_certo_aceita(self) -> None:
+        cliente = str(uuid.uuid4())
+        porta = PortaPorContacto({cliente: _ultimo(regras.ENVIADO)})
+        hnd, _saida, _backend = self._tocar(porta, contact_id=cliente)
+        self.assertEqual([r["motivo"] for r in hnd.recebido], [nos_mod.MOTIVO_ORCAMENTO_ACEITE])
+
+    def test_a_constante_do_grafo_e_a_que_a_proposta_leva(self) -> None:
+        self.assertEqual(nos_mod.BOTAO_ACEITAR_ORCAMENTO, regras.BOTAO_ACEITAR)
+
+
 if __name__ == "__main__":
     unittest.main()

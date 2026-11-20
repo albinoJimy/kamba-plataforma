@@ -266,6 +266,8 @@ class TestTitulosDosBotoes(unittest.TestCase):
             vendedor.BOTAO_HUMANO,
             vendedor.BOTAO_CANCELAR,
             vendedor.BOTAO_CONFIRMAR.format(cart_id="c1"),
+            # KAM-226: o «Aceito» que a proposta leva.
+            vendedor.BOTAO_ACEITAR_ORCAMENTO,
             servicos.BOTAO_HUMANO,
             servicos.BOTAO_CANCELAR,
             f"{servicos.PREFIXO_DE_CONFIRMACAO}r1",
