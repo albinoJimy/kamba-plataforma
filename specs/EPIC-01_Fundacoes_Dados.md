@@ -4,7 +4,7 @@
 |---|---|
 | Produto | KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para Angola |
 | Documento | Epic — Fundações e Dados |
-| Versão | 1.60 |
+| Versão | 1.61 |
 | Data | Outubro de 2026 |
 | Classificação | Documento de Referência — Interno |
 | Documento-fonte | `../docs/tecnica/00_Arquitectura_Solucao.md`, `../docs/tecnica/03_Core_Comercio_Medusa.md`, `../docs/tecnica/06_Dados_Eventos_Analytics.md`, `../docs/tecnica/08_Seguranca_Conformidade.md`, `../docs/tecnica/09_Topologia_Operacao_Escala.md` |
@@ -122,6 +122,7 @@ KAM-144.
 | [KAM-185](tickets/KAM-185.md) | A escolha do lote e a ordem de fecho fazem-se à mão, e as três superfícies que serializam a fusão atravessam os epics | feature | M | P1 | — |
 | [KAM-194](tickets/KAM-194.md) | Ponte fila → consumidor Python: casca BullMQ → HTTP e registo de subscrições | feature | L | P1 | KAM-061, KAM-062, KAM-193 |
 | [KAM-213](tickets/KAM-213.md) | Dois ensaios de base de dados do `core-ts` ficam vermelhos ao acaso: uma ordem ao milissegundo e uma corrida que o ensaio não forçava | fix | S | P1 | KAM-019, KAM-198 |
+| [KAM-229](tickets/KAM-229.md) | A asserção de privacidade do `agent.replied` procura «999» num envelope de UUID, e o gate 8 cai em ~3% das corridas | fix | S | P1 | KAM-224 |
 
 ---
 
@@ -215,3 +216,4 @@ KAM-144.
 | 1.58 | Novembro 2026 | **KAM-185** acrescentado **e entregue no mesmo PR**. O bloco vive em `tickets/KAM-185.md`, pela convenção do KAM-155. Automatiza a escolha do lote e a ordem de fecho que a *skill* mandava fazer à mão: o `lote.py` e o `fila.py`, com o `vagas.py` a passar a ler a `publico/main`. **Sem portão, sem *job* novo, `.github/` intocado.** | Equipa KAMBÁ |
 | 1.59 | Novembro 2026 | **KAM-194** acrescentado, e **não entregue no mesmo PR**: abre-o o KAM-193 (EPIC-06), que lhe devolve o processo do consumidor do índice. O bloco vive em `tickets/KAM-194.md`, pela convenção do KAM-155. É deste epic porque o que falta é do EVT: a casca BullMQ → HTTP para consumidores Python, as linhas de `platform.evt_subscricoes` e a forma do `registry/` para um consumidor que não é vertical. **Recebe duas dívidas sem dono:** a casca do `/internal/event` do AGR e as linhas de subscrição dele, cujos credores eram o KAM-005 e o KAM-006, fechados com este epic. | Equipa KAMBÁ |
 | 1.60 | Novembro 2026 | **KAM-213** acrescentado **e entregue no mesmo PR**. O bloco vive em `tickets/KAM-213.md`, pela convenção do KAM-155. Dois ensaios de base de dados do `core-ts` que avermelhavam o CI ao acaso: o «reaplicar um pedir_info» do `lote.bd.test.ts` (o «antes» e o «depois» no mesmo milissegundo) e o «ON CONFLICT da conta» do `handoff.bd.test.ts` (uma corrida que o `Promise.all` não forçava). Os dois corrigem-se no ensaio, sem tocar no produto, e as mutações que eles prendem continuam a pô-los vermelhos; o «sobrevive a um reinício» do lote, exposto ao mesmo desempate, leva a mesma espera. | Equipa KAMBÁ |
+| 1.61 | Novembro 2026 | **KAM-229** acrescentado **e entregue no mesmo PR**. O bloco vive em `tickets/KAM-229.md`, pela convenção do KAM-155. A terceira instância da classe do KAM-166: a asserção de privacidade do `agent.replied` procurava «999» num envelope de UUID aleatórios, e o gate 8 caía ao acaso. E a quarta, no Vendedor, com «9999» num `uuid4` | Equipa KAMBÁ No mesmo PR, uma terceira fonte de intermitência, no gate 4 e a mais frequente (~15% das corridas, no #232 e no #233): o `_Conversa` do `test_orcamento_grafos` (KAM-220) punha o toque na janela, onde a guarda de entrada redigia como PAN ou IBAN o identificador hexadecimal da oferta. O toque passa a ir pelo `botao` da invocação, como no processo, que não tinha o defeito. |

@@ -23,6 +23,7 @@ import type pg from "pg";
 
 import { SQL_PAPEL } from "../src/chr/consultas.ts";
 import {
+  canalNoPainel,
   contactoDoNumero,
   definirDonoNaBase,
   numaLigacao,
@@ -45,6 +46,12 @@ const NUMERO_NOVO = "+244 999 000 502";
 const NUMERO_DE_B = "+244 999 000 503";
 
 const PEPPER = Buffer.alloc(32, 0x5a);
+/**
+ * O HMAC do número da loja (KAM-216): o do telefone do caso, que nestes ensaios
+ * é o do dono do provisionamento. O KAM-093 obriga os dois a coincidir.
+ */
+const LOJA_ANTIGA = new Telefone(NUMERO_ANTIGO, [PEPPER]).hmac;
+const LOJA_DE_B = new Telefone(NUMERO_DE_B, [PEPPER]).hmac;
 const PEPPER_DO_DESTINO = Buffer.alloc(32, 0x71);
 
 let admin: pg.Client;
@@ -135,7 +142,7 @@ describe("KAM-211 — a troca de telefone pelo caminho real", () => {
     const { troca, codigo, avisos } = montarTroca();
     const pedido = "troca:sessao-de-ensaio-1";
 
-    await troca.pedir(pedido, tenant, new Telefone(NUMERO_NOVO, [PEPPER]));
+    await troca.pedir(pedido, tenant, new Telefone(NUMERO_NOVO, [PEPPER]), LOJA_ANTIGA);
     // A troca de SIM simulada: uma mensagem do número novo antes do código
     // resolve o contacto como qualquer desconhecido — `cliente`.
     const { contactId: novo } = await contactoDoNumero(identidade, identidadeBd)({
@@ -176,7 +183,7 @@ describe("KAM-211 — a troca de telefone pelo caminho real", () => {
     const a = await tenantComDono("troca-a", NUMERO_ANTIGO);
     const b = await tenantComDono("troca-b", NUMERO_DE_B);
     const { troca, codigo } = montarTroca();
-    await troca.pedir("troca:sessao-de-a", a.tenant, new Telefone(NUMERO_NOVO, [PEPPER]));
+    await troca.pedir("troca:sessao-de-a", a.tenant, new Telefone(NUMERO_NOVO, [PEPPER]), LOJA_ANTIGA);
     const desfecho = await troca.verificar("troca:sessao-de-a", b.tenant, codigo());
     assert.deepEqual(desfecho, { trocado: false, veredicto: "sem_pedido" });
     assert.equal(await donoDoTenant(a.tenant), a.dono);
@@ -187,7 +194,7 @@ describe("KAM-211 — a troca de telefone pelo caminho real", () => {
     const a = await tenantComDono("contexto-a", NUMERO_ANTIGO);
     const b = await tenantComDono("contexto-b", NUMERO_DE_B);
     await assert.rejects(
-      trocaNaBase(identidadeBd)({ tenantId: b.tenant, contactId: a.dono }),
+      trocaNaBase(identidadeBd)({ tenantId: b.tenant, contactId: a.dono, ownerChannelWa: true }),
       (erro: { code?: string }) => erro.code === "23503",
     );
     assert.equal(await donoDoTenant(b.tenant), b.dono);
@@ -196,7 +203,7 @@ describe("KAM-211 — a troca de telefone pelo caminho real", () => {
   it("com o papel da aplicação, a porta não executa", async () => {
     const { tenant, dono } = await tenantComDono("app", NUMERO_ANTIGO);
     await assert.rejects(
-      trocaNaBase(app)({ tenantId: tenant, contactId: dono }),
+      trocaNaBase(app)({ tenantId: tenant, contactId: dono, ownerChannelWa: true }),
       (erro: { code?: string }) => erro.code === "42501",
     );
   });
@@ -280,7 +287,7 @@ describe("KAM-217 — a troca montada pelo processo, sobre o pool", () => {
       for (const [lado, tenant] of [["a", par.a.tenant], ["b", par.b.tenant]] as const) {
         const pedido = `troca:sessao-${lado}-${i}`;
         const numero = `+244 999 001 6${lado === "a" ? "0" : "5"}${i}`;
-        const envio = await troca.pedir(pedido, tenant, new Telefone(numero, [PEPPER]));
+        const envio = await troca.pedir(pedido, tenant, new Telefone(numero, [PEPPER]), lado === "a" ? LOJA_ANTIGA : LOJA_DE_B);
         assert.equal(envio.enviado, true);
         verificacoes.push({ pedido, tenant, codigo: ultimoCodigo() });
       }
@@ -323,13 +330,13 @@ describe("KAM-217 — a troca montada pelo processo, sobre o pool", () => {
     };
     // O contacto de A no contexto de B: `23503`, dentro de uma ligação do pool.
     await assert.rejects(
-      numaLigacao(espiao, (ligacao) => trocaNaBase(ligacao)({ tenantId: b.tenant, contactId: a.dono })),
+      numaLigacao(espiao, (ligacao) => trocaNaBase(ligacao)({ tenantId: b.tenant, contactId: a.dono, ownerChannelWa: true })),
       (erro: { code?: string }) => erro.code === "23503",
     );
     assert.deepEqual(await numaLigacao(espiao, async () => "ok"), "ok");
     assert.deepEqual(libertacoes, [true, false]);
     const { troca, ultimoCodigo } = montarPeloPool();
-    await troca.pedir("troca:depois-da-falha", b.tenant, new Telefone(NUMERO_NOVO, [PEPPER]));
+    await troca.pedir("troca:depois-da-falha", b.tenant, new Telefone(NUMERO_NOVO, [PEPPER]), LOJA_DE_B);
     const desfecho = await troca.verificar("troca:depois-da-falha", b.tenant, ultimoCodigo());
     assert.equal(desfecho.trocado, true);
     assert.equal(await donoDoTenant(a.tenant), a.dono);
@@ -340,10 +347,86 @@ describe("KAM-217 — a troca montada pelo processo, sobre o pool", () => {
     const a = await tenantComDono("pool-cruzado-a", NUMERO_ANTIGO);
     const b = await tenantComDono("pool-cruzado-b", NUMERO_DE_B);
     const { troca, ultimoCodigo } = montarPeloPool();
-    await troca.pedir("troca:sessao-de-a", a.tenant, new Telefone(NUMERO_NOVO, [PEPPER]));
+    await troca.pedir("troca:sessao-de-a", a.tenant, new Telefone(NUMERO_NOVO, [PEPPER]), LOJA_ANTIGA);
     const desfecho = await troca.verificar("troca:sessao-de-a", b.tenant, ultimoCodigo());
     assert.deepEqual(desfecho, { trocado: false, veredicto: "sem_pedido" });
     assert.equal(await donoDoTenant(a.tenant), a.dono);
     assert.equal(await donoDoTenant(b.tenant), b.dono);
+  });
+});
+
+/**
+ * O canal do dono guardado (KAM-216, decisão do fundador de 2026-11-19): a troca
+ * escreve o `tenants.owner_channel_wa` pela `definir_dono`, na transacção que
+ * move o papel. Os dois cenários do critério 3 — telefone igual e diferente do
+ * número da loja — e o número ausente, pelo caminho real. A leitura do painel é a
+ * do COM, como `kamba_app`, e mede-se em `db/tests/test_canal_do_painel.py`.
+ */
+describe("KAM-216 — o canal do dono guardado, contra a base", () => {
+  async function guardado(tenant: string): Promise<boolean | null> {
+    const { rows } = await admin.query<{ v: boolean | null }>(
+      "SELECT owner_channel_wa AS v FROM platform.tenants WHERE id = $1",
+      [tenant],
+    );
+    return rows[0]?.v ?? null;
+  }
+
+  async function trocar(tenant: string, numero: string, loja: string | null): Promise<void> {
+    const { troca, codigo } = montarTroca();
+    const pedido = `troca:canal-${numero.replace(/\D/g, "")}`;
+    await troca.pedir(pedido, tenant, new Telefone(numero, [PEPPER]), loja);
+    assert.equal((await troca.verificar(pedido, tenant, codigo())).trocado, true);
+  }
+
+  it("número ausente: o provisionamento deixa a coluna nula, e o painel mostra o painel", async () => {
+    const { tenant } = await tenantComDono("canal-nulo", NUMERO_ANTIGO);
+    assert.equal(await guardado(tenant), null);
+    assert.equal(canalNoPainel(await guardado(tenant), "ativo").canal, "painel");
+  });
+
+  it("telefone diferente do número da loja: a troca guarda o WhatsApp, e o painel lê-o", async () => {
+    const { tenant } = await tenantComDono("canal-diferente", NUMERO_ANTIGO);
+    await trocar(tenant, NUMERO_NOVO, LOJA_ANTIGA);
+    assert.equal(await guardado(tenant), true);
+    assert.equal(canalNoPainel(await guardado(tenant), "ativo").canal, "whatsapp");
+  });
+
+  it("telefone igual ao número da loja: o dono que volta ao número do registo tem o painel", async () => {
+    const { tenant } = await tenantComDono("canal-igual", NUMERO_ANTIGO);
+    await trocar(tenant, NUMERO_NOVO, LOJA_ANTIGA);
+    await trocar(tenant, NUMERO_ANTIGO, LOJA_ANTIGA);
+    assert.equal(await guardado(tenant), false);
+    assert.equal(canalNoPainel(await guardado(tenant), "ativo").canal, "painel");
+  });
+
+  it("uma reentrega do provisionamento depois da troca não apaga o canal", async () => {
+    const { tenant } = await tenantComDono("canal-reentrega", NUMERO_ANTIGO);
+    await trocar(tenant, NUMERO_NOVO, LOJA_ANTIGA);
+    const novo = await donoDoTenant(tenant);
+    assert.ok(novo);
+    // A reentrega com o dono de agora é idempotente; com o antigo, recusa.
+    await definirDonoNaBase(identidadeBd)({ tenantId: tenant, contactId: novo, origem: "provisionamento" });
+    assert.equal(await guardado(tenant), true);
+  });
+
+  it("isolamento: a troca de B não escreve o canal de A", async () => {
+    const a = await tenantComDono("canal-iso-a", NUMERO_ANTIGO);
+    const b = await tenantComDono("canal-iso-b", NUMERO_DE_B);
+    await trocar(b.tenant, NUMERO_NOVO, LOJA_DE_B);
+    assert.equal(await guardado(a.tenant), null);
+    assert.equal(await guardado(b.tenant), true);
+  });
+
+  it("ninguém escreve a coluna por fora da porta: o kamba_identity e o kamba_app recebem 42501", async () => {
+    const { tenant } = await tenantComDono("canal-escrita", NUMERO_ANTIGO);
+    for (const cliente of [identidadeBd, app]) {
+      await assert.rejects(
+        comTenant(cliente, tenant, (bd) =>
+          bd.query("UPDATE platform.tenants SET owner_channel_wa = true WHERE id = $1::uuid", [tenant]),
+        ),
+        (erro: { code?: string }) => erro.code === "42501",
+      );
+    }
+    assert.equal(await guardado(tenant), null);
   });
 });

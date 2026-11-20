@@ -987,6 +987,17 @@ def _afirmacoes_do_painel(item: str, entradas: list[dict]) -> list[str]:
                 "IDOR de escrita que o criterio 8 proibe.",
             )
         )
+    if item.endswith("GET:/painel/canal"):
+        achados.extend(
+            _exigir_marca(
+                item,
+                entradas,
+                "dono",
+                "a",
+                "O canal do dono (KAM-216) leu-se de outro tenant, ou a pagina de A "
+                "mostrou o canal guardado de B: o tenant tem de ser o da sessao.",
+            )
+        )
     if item.endswith("POST:/painel/sair"):
         achados.extend(
             _exigir_marca(

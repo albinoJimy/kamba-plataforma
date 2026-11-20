@@ -261,6 +261,8 @@ export class ComercioPorHttp implements Comercio {
         nivel: v["nivel"] === null || v["nivel"] === undefined ? null : Number(v["nivel"]),
         tectoPedidoMinor: minor(v["tectoPedidoMinor"]),
         avisos: Array.isArray(v["avisos"]) ? (v["avisos"] as unknown[]).map(String) : [],
+        // Só um booleano passa; o resto é «não se sabe», que dá painel (KAM-216).
+        ownerChannelWa: typeof v["ownerChannelWa"] === "boolean" ? v["ownerChannelWa"] : null,
       },
     };
   }

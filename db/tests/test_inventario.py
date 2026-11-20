@@ -51,6 +51,10 @@ INVENTARIO = {
         # KAM-090 (0040): a primeira entrada em `ativo`, que so o *trigger* do
         # gate escreve. E o que distingue uma activacao nova de uma reactivacao.
         "primeira_activacao_at": ("timestamp with time zone", SIM, None, "nao"),
+        # KAM-216 (0075): o canal do dono, um booleano. **Nao e o numero da
+        # loja**: por decisao do fundador de 2026-11-19 (opcao C) o numero nao se
+        # guarda; guarda-se so se o telefone do dono e ou nao o da loja.
+        "owner_channel_wa": ("boolean", SIM, None, "nao; um booleano, nao o numero"),
     },
     "tenant_channels": {
         "id": ("uuid", NAO, "gen_random_uuid()", "nao"),
