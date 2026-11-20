@@ -36,7 +36,7 @@ from .regras import PALAVRAS_DE_PROMOCAO
 
 #: Uma sequencia de algarismos com os separadores de um numero: «.», «,», «:»,
 #: «/» e «-» entre algarismos, e o espaco **so** antes de um grupo de tres
-#: («45 000», «923 456 789»). «1, 2 e 3» sao tres numeros, e nao «12».
+#: («45 000», «999 456 789»). «1, 2 e 3» sao tres numeros, e nao «12».
 _ALGARISMOS: Final = re.compile(r"\d+(?:(?:[.,:/-]|\s(?=\d{3}\b))\d+)*")
 
 #: Os numeros por extenso que contam. Sem acentos.

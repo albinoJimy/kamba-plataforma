@@ -332,8 +332,7 @@ test("KAM-121, criterio 5: os cem primeiros casos canonicos de categoria bloquea
     join(import.meta.dirname, "..", "..", "..", "policy", "categorias", "casos", "canonico.jsonl"),
     "utf-8",
   )
-    .split("
-")
+    .split("\n")
     .filter((l) => l.trim().length > 0)
     .map((l) => JSON.parse(l) as { id: string; textos: string[] });
   assert.ok(linhas.length >= 100);
