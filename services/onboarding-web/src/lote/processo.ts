@@ -76,12 +76,14 @@
  * dados correm pelo `correr_volta` do `kamba_core.offboarding.processo`, que
  * ainda não tem processo que o chame (credor KAM-218).
  *
- * **As portas para fora montam-se sem adaptador** (`CANAL_SEM_ADAPTADOR`,
- * `REVOGACAO_SEM_ADAPTADOR`): o adaptador da Meta existe (`CanalDaMetaPelaGraph`)
- * mas precisa do *token* de cada WABA, e o cofre não tem leitor neste processo;
- * o LiteLLM, a Medusa e o Chatwoot não têm cliente nenhum. Uma fase que precise
- * de uma delas falha pelo nome e fica parada, com alerta — nunca «feita» sem o
- * lado de fora saber. Credor: **KAM-218**.
+ * **A Meta está ligada desde o KAM-218** (`portasDoOffboarding`): o
+ * `CanalDaMetaPelaGraph` com o *token* de cada WABA lido do cofre
+ * (`tokenDoWabaPeloCofre`, a `kek_token_cliente` e o ambiente que o lançador
+ * do cofre enche, ADR-L002), pelo `proxy-saida`. **A revogação continua sem
+ * adaptador** (`REVOGACAO_SEM_ADAPTADOR`): o LiteLLM, a Medusa e o Chatwoot não
+ * têm cliente que a saga use, pelo que nenhum tenant tem o recurso e o passo é
+ * `sem_recurso`. Uma fase que precise de uma porta sem adaptador falha pelo
+ * nome e fica parada, com alerta — nunca «feita» sem o lado de fora saber.
  *
  * ## O aviso ao dono não sai deste processo, e é de propósito
  *
@@ -144,13 +146,19 @@ import { isAmbiente } from "@kamba/core-ts/secrets";
 import { METRICAS_DA_GUARDA, comTenant } from "@kamba/core-ts/tenant_guard";
 import {
   CANAL_SEM_ADAPTADOR,
+  CanalDaMetaPelaGraph,
   CicloDoOffboarding,
   INTERVALO_DO_OFFBOARDING_POR_OMISSAO_MS,
   MetricasDoOffboarding,
   REVOGACAO_SEM_ADAPTADOR,
+  tokenDoWabaPeloCofre,
+  type CofreDoToken,
   type PortasDoCiclo,
   type ResultadoDoCicloDoOffboarding,
 } from "@kamba/core-ts/offboarding";
+import { GraphHttp, versaoDaGraph } from "@kamba/core-ts/onboarding";
+import { ANFITRIAO_DA_GRAPH } from "@kamba/core-ts/outbound";
+import { EnvSecretProvider } from "@kamba/core-ts/secrets";
 import {
   AvisoDeSancaoSemDestinoError,
   CONSUMIDOR_DE_TRUST,
@@ -311,6 +319,40 @@ export function lerConfiguracao(env: Ambiente): ConfiguracaoDoLote {
     urlDaFila,
     intervaloDoTrustMs,
     intervaloDoOffboardingMs,
+  };
+}
+
+/**
+ * As portas do off-boarding deste processo (KAM-218, critério 3): a Meta ligada,
+ * a revogação ainda sem adaptador.
+ *
+ * O *token* de cada WABA lê-se do cofre a cada fase (`tokenDoWabaPeloCofre`),
+ * pela ligação do lote — a leitura da `tenant_channels` não tem tenant do
+ * pedido, e o leitor recusa um WABA de dois tenants. A Graph é a do KAM-016
+ * (`GraphHttp`), só com as duas operações que o adaptador usa: o `app_id` e o
+ * `app_secret` servem a troca do *code*, que não corre neste processo, e por isso
+ * vão vazios — o tipo `Pick` impede de a chamar.
+ */
+export function portasDoOffboarding(o: {
+  readonly lote: ConjuntoSql;
+  readonly ambiente: "dev" | "staging" | "prod";
+  readonly env: Ambiente;
+  /** O cofre. Por omissão, o do ambiente do processo (ADR-L002). */
+  readonly cofre?: CofreDoToken;
+  /** O `fetch` da Graph. Porta para os ensaios. */
+  readonly buscar?: typeof fetch;
+}): PortasDoCiclo {
+  const graph: Pick<GraphHttp, "subscrever" | "anularSubscricao"> = new GraphHttp({
+    base: ANFITRIAO_DA_GRAPH,
+    versao: versaoDaGraph(o.env),
+    appId: "",
+    appSecret: "",
+    ...(o.buscar === undefined ? {} : { buscar: o.buscar }),
+  });
+  const cofre = o.cofre ?? new EnvSecretProvider({ ambiente: o.ambiente, env: o.env as NodeJS.ProcessEnv });
+  return {
+    canal: new CanalDaMetaPelaGraph(graph, tokenDoWabaPeloCofre({ bd: o.lote, cofre })),
+    revogacao: REVOGACAO_SEM_ADAPTADOR,
   };
 }
 
@@ -882,6 +924,8 @@ export async function arrancar(o: {
   readonly app: ConjuntoSql;
   readonly log: Pick<Logger, "warn">;
   readonly inicioDaAmostragem: Date | null;
+  /** As portas do off-boarding (KAM-218). Por omissão, as sem adaptador. */
+  readonly portasDoOffboarding?: PortasDoCiclo;
 }): Promise<Arranque> {
   await verificarPapeis(o.lote, o.app);
   const processo = montarProcesso({
@@ -890,6 +934,7 @@ export async function arrancar(o: {
     efeitos: efeitosDoLote(o.lote),
     log: o.log,
     inicioDaAmostragem: o.inicioDaAmostragem,
+    ...(o.portasDoOffboarding === undefined ? {} : { portasDoOffboarding: o.portasDoOffboarding }),
   });
   return {
     processo,

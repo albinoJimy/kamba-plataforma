@@ -482,6 +482,33 @@ registar_caso(
     origens=("corpo", "cabecalhos", "logs"),
 )
 
+# ------------------------------- o processo dos dados do off-boarding (KAM-218)
+#
+# Uma rota so, a sonda do `python -m kamba_core.offboarding`, num
+# `BaseHTTPRequestHandler` como o do IDX. O ataque esta em `_offboarding.py`.
+
+#: A sonda do processo dos dados. Sem identificadores a entrada.
+SONDA_DO_OFFBOARDING = (
+    "rota:py-core:kamba_core/offboarding/servico:servidor:GET:/healthz",
+)
+
+
+def _conduzir_sonda_do_offboarding(ctx) -> list[str]:  # noqa: ANN001
+    from ._offboarding import atacar_sonda  # noqa: PLC0415
+
+    return atacar_sonda(ctx)
+
+
+registar_caso(
+    id="X-01/offboarding/sonda",
+    bateria="X-01",
+    camada="rotas",
+    enumeravel=SONDA_DO_OFFBOARDING,
+    fn=_conduzir_sonda_do_offboarding,
+    precisa="postgres",
+    origens=("corpo", "cabecalhos"),
+)
+
 registar_caso(
     id="X-01/ts/sondas",
     bateria="X-01",
