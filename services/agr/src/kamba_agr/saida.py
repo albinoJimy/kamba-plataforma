@@ -108,14 +108,18 @@ TITULOS: Final = {
     "menu:pedido": "O meu pedido",
     "menu:loja": "Horario e morada",
     "menu:humano": "Falar com um colega",
-    # KAM-226: o botao da proposta do Orcamento expresso (`regras.BOTAO_ACEITAR`).
-    "aceitar_orcamento": "Aceito",
 }
 
 #: Os botoes de confirmacao levam a referencia no `id` (`confirm:{cart_id}`,
 #: `confirm:{action_id}`, §3.31), e o titulo e um so.
 PREFIXO_DE_CONFIRMACAO: Final = "confirm:"
 TITULO_DE_CONFIRMACAO: Final = "Confirmar"
+
+#: O botao «Aceito» da proposta do Orcamento expresso leva a referencia da
+#: proposta no `id` (`aceitar_orcamento:ORC-…`; decisao do fundador de
+#: 2026-11-20, opcao B do KAM-226), e o titulo e um so, como o da confirmacao.
+PREFIXO_DO_ACEITO: Final = "aceitar_orcamento:"
+TITULO_DO_ACEITO: Final = "Aceito"
 
 
 def titulo_do_botao(identificador: str) -> str:
@@ -133,6 +137,8 @@ def titulo_do_botao(identificador: str) -> str:
         PREFIXO_DE_CONFIRMACAO
     ):
         return TITULO_DE_CONFIRMACAO
+    if identificador.startswith(PREFIXO_DO_ACEITO) and len(identificador) > len(PREFIXO_DO_ACEITO):
+        return TITULO_DO_ACEITO
     titulo = TITULOS.get(identificador)
     if titulo is None:
         raise RespostaInvalidaError(f"botao sem titulo: {identificador[:40]!r}")
@@ -276,6 +282,10 @@ def emitir_resposta(
     """
     # A forma valida-se antes de abrir a transaccao, e outra vez no
     # `gravar_resposta`: o custo e nada, e a base nao ve uma resposta sem forma.
+    # **Materializa-se uma vez**: um gerador passado aos dois chegava vazio ao
+    # segundo, e a linha gravava-se sem botoes nem parametros (achado 3 da
+    # revisao do KAM-226).
+    botoes, parametros = tuple(botoes), tuple(parametros)
     _forma(texto, chave=chave, botoes=botoes, canal=canal, template=template, parametros=parametros)
     with tenant_guard.tx(ligacao, estado["tenant_id"]) as cursor:
         return gravar_resposta(
@@ -423,6 +433,7 @@ __all__ = [
     "SaidaPorEvento",
     "TIPO",
     "VERSAO",
+    "PREFIXO_DO_ACEITO",
     "TITULOS",
     "canal_por_omissao",
     "emitir_resposta",

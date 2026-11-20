@@ -175,7 +175,7 @@ class TestBotoesDaNotificacao(unittest.TestCase):
             texto="Orcamento - nao e factura",
             template="orcamento_pronto",
             parametros=PARAMETROS,
-            botoes=("aceitar_orcamento",),
+            botoes=("aceitar_orcamento:ORC-ABCDEFGH",),
         )
         porta = NotificacaoPelaResposta(lambda: Ligacao(base), relogio=lambda: AGORA)
         return porta.notificar(tenant_id=TENANT, notificacao=nota, chave=CHAVE)
@@ -184,7 +184,7 @@ class TestBotoesDaNotificacao(unittest.TestCase):
         base = Base(AGORA + datetime.timedelta(hours=3))
         self.assertEqual(self.notificar(base), LIVRE)
         self.assertEqual(
-            json.loads(base.respostas[0]["botoes"]), [{"id": "aceitar_orcamento", "titulo": "Aceito"}]
+            json.loads(base.respostas[0]["botoes"]), [{"id": "aceitar_orcamento:ORC-ABCDEFGH", "titulo": "Aceito"}]
         )
 
     def test_o_template_deixa_cair_o_botao(self) -> None:

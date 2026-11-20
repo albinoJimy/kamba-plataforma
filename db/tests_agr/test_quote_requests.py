@@ -1601,6 +1601,62 @@ class TestAvisoAoDono(ComOrcamento):
         self.assertEqual(len(self._avisos()), 1)
         self.assertEqual(self._avisos(outra.tenant_id), [])
 
+    def test_o_evento_leva_o_thread_id_do_dono_que_o_consumidor_exige(self) -> None:
+        """Achado 2 da revisao: o consumidor TS recusa um `thread_id` que nao seja `tenant:contacto`."""
+        self._pedir()
+        [envelope] = self._eventos(TIPO_DA_RESPOSTA)
+        payload = envelope["payload"]
+        self.assertEqual(payload["thread_id"], f"{self.tenant}:{self.dono}")
+        self.assertEqual(
+            (payload["contact_id"], payload["conversation_id"], payload["canal"]),
+            (self.dono, self.conversa_do_dono, "whatsapp"),
+        )
+        self.assertEqual(envelope["agregado"]["id"], self.conversa_do_dono)
+
+    def test_um_dono_apagado_ou_fundido_nao_e_avisado(self) -> None:
+        outro = factories.contacto(self.semente, self.tenant)
+        factories.contexto(self.semente, None)
+        casos = {
+            "apagado": (
+                "UPDATE platform.contacts SET erased_at = now(), phone_hmac = NULL "
+                "WHERE tenant_id = %s AND contact_id = %s",
+                (self.tenant, self.dono),
+            ),
+            "fundido": (
+                "UPDATE platform.contacts SET merged_into = %s, merged_at = now(), phone_hmac = NULL "
+                "WHERE tenant_id = %s AND contact_id = %s",
+                (outro, self.tenant, self.dono),
+            ),
+        }
+        for nome, (sql, args) in casos.items():
+            with self.subTest(caso=nome):
+                self._limpar_orcamentos()
+                self._oferta(self.tenant, SKU)
+                factories.entitlement(self.semente, self.tenant, modulo="orcamento",
+                                      limites={"orcamentos_mes": 500})
+                self.semente.execute(
+                    "UPDATE platform.contacts SET erased_at = NULL, merged_into = NULL, merged_at = NULL "
+                    "WHERE tenant_id = %s AND contact_id = %s",
+                    (self.tenant, self.dono),
+                )
+                self.semente.execute(sql, args)
+                self._pedir()
+                self.assertEqual(self._avisos(), [])
+
+    def test_com_dois_canais_a_conversa_do_humano_nao_esconde_a_do_bot(self) -> None:
+        """Achado 5: a janela mais tardia esta com um humano, e a outra conversa do dono e do bot."""
+        self._janela_do_dono("20 hours", "humano")
+        outro_canal = factories.canal(self.semente, self.tenant)
+        factories.contexto(self.semente, None)
+        conversa_bot = self._conversa_do_dono(self.tenant, self.dono, outro_canal)
+        self.semente.execute(
+            "UPDATE platform.conversations SET window_expires_at = now() + interval '3 hours', "
+            "last_inbound_at = now() - interval '21 hours' WHERE tenant_id = %s AND id = %s",
+            (self.tenant, conversa_bot),
+        )
+        self._pedir()
+        self.assertEqual([a[4] for a in self._avisos()], [conversa_bot])
+
     def test_um_cliente_nao_e_tomado_pelo_dono(self) -> None:
         """So o contacto `papel='dono'`: a conversa do cliente com a janela aberta nao conta."""
         self.semente.execute(
@@ -1612,9 +1668,11 @@ class TestAvisoAoDono(ComOrcamento):
 
 
 class TestBotaoNaProposta(ComOrcamento):
-    """KAM-226, criterio 2: a proposta de texto leva o `aceitar_orcamento`, e o *template* nao."""
+    """KAM-226, criterio 2: a proposta de texto leva o `aceitar_orcamento:ORC-…` dela, e o *template* nao."""
 
-    ACEITO = [{"id": regras.BOTAO_ACEITAR, "titulo": "Aceito"}]
+    @staticmethod
+    def aceito(quote_id: str) -> list[dict[str, str]]:
+        return [{"id": regras.botao_aceitar(quote_id), "titulo": "Aceito"}]
 
     def _porta(self) -> NotificacaoPelaResposta:
         return NotificacaoPelaResposta(lambda: ligacao_bd.ligar("app"))
@@ -1643,7 +1701,7 @@ class TestBotaoNaProposta(ComOrcamento):
         [(chave, botoes, template)] = self._botoes()
         self.assertTrue(chave.startswith(f"orcamento:{pedido.quote_id}:"))
         self.assertIsNone(template)
-        self.assertEqual(botoes, self.ACEITO)
+        self.assertEqual(botoes, self.aceito(pedido.quote_id))
 
     def test_o_template_nao_leva_o_botao_e_o_valor_sai_depois_com_ele(self) -> None:
         self._janela("3 minutes")
@@ -1658,7 +1716,7 @@ class TestBotaoNaProposta(ComOrcamento):
         self.assertEqual([e.desfecho for e in envios], [rep.ENVIADO])
         chave, botoes, template = self._botoes()[1]
         self.assertTrue(chave.endswith(":janela"))
-        self.assertEqual((template, botoes), (None, self.ACEITO))
+        self.assertEqual((template, botoes), (None, self.aceito(pedido.quote_id)))
 
     def test_a_mensagem_das_24_h_nao_leva_o_botao(self) -> None:
         """So a proposta: a mensagem neutra nao tem nada para aceitar."""
@@ -1672,6 +1730,66 @@ class TestBotaoNaProposta(ComOrcamento):
         [(chave, botoes, _template)] = self._botoes()
         self.assertTrue(chave.endswith(":sem_resposta"))
         self.assertEqual(botoes, [])
+
+
+class TestPedidoPelaReferenciaDoBotao(ComOrcamento):
+    """KAM-226, decisao do fundador de 2026-11-20 (opcao B): o botao decide o pedido que cita.
+
+    Os dois casos do achado 1 da revisao, contra a base: com o ultimo pedido do
+    cliente, o (a) nao se aceitava e o (b) aceitava a proposta errada.
+    """
+
+    def _enviado(self, sku: str, validade: datetime.date | None = None) -> str:
+        pedido = rep.pedir(self.app, self.tenant, self.cliente, self.conversa.conversation_id, sku, None, _agora())
+        resposta = self._responder(pedido.quote_id, validade=validade)
+        self.assertEqual(self._tocar(resposta.action_id, Saida("livre")).desfecho, rep.ENVIADO)
+        return pedido.quote_id
+
+    def _pela_referencia(self, quote_id: str, contacto: str | None = None):
+        return rep.pedido_por_referencia(
+            self.app, self.tenant, contacto or self.cliente, regras.referencia_interna(quote_id)
+        )
+
+    def test_caso_a_a_proposta_valida_le_se_com_um_pedido_mais_novo_em_curso(self) -> None:
+        q1 = self._enviado(SKU)
+        q2 = rep.pedir(self.app, self.tenant, self.cliente, self.conversa.conversation_id, "SKU-301", None,
+                       _agora()).quote_id
+        self.assertEqual(rep.ultimo_pedido(self.app, self.tenant, self.cliente).quote_id, q2)
+        lido = self._pela_referencia(q1)
+        self.assertEqual((lido.quote_id, lido.estado), (q1, "enviado"))
+        self.assertTrue(lido.aceitavel(_agora()))
+
+    def test_caso_b_a_proposta_vencida_nao_se_aceita_mesmo_com_uma_mais_nova_enviada(self) -> None:
+        # Q1 com a validade por omissao (sete dias), Q2 com trinta: daqui a nove
+        # dias, Q1 esta vencida e Q2 continua valida. O `enviado` e final, e o
+        # tempo anda pelo relogio, como no `test_um_enviado_vencido_ou_um_cancelado_nao_se_aceitam`.
+        q1 = self._enviado(SKU)
+        q2 = self._enviado("SKU-301", validade=regras.hoje_em_luanda(_agora()) + datetime.timedelta(days=30))
+        depois = _agora() + datetime.timedelta(days=9)
+        self.assertTrue(rep.ultimo_pedido(self.app, self.tenant, self.cliente).aceitavel(depois))
+        lido = self._pela_referencia(q1)
+        self.assertEqual((lido.quote_id, lido.estado), (q1, "enviado"))
+        self.assertFalse(lido.aceitavel(depois))
+        self.assertTrue(lido.fechado(depois))
+        self.assertNotEqual(lido.quote_id, q2)
+
+    def test_a_referencia_de_outro_cliente_nao_se_le(self) -> None:
+        q1 = self._enviado(SKU)
+        intruso = factories.contacto(self.semente, self.tenant)
+        factories.contexto(self.semente, None)
+        self.assertIsNone(self._pela_referencia(q1, intruso))
+
+    def test_a_referencia_de_outro_tenant_nao_se_le(self) -> None:
+        q1 = self._enviado(SKU)
+        outra = self.criar_conversa()
+        self.assertIsNone(
+            rep.pedido_por_referencia(self.app, outra.tenant_id, self.cliente, regras.referencia_interna(q1))
+        )
+
+    def test_uma_referencia_que_nao_se_le_nao_vai_a_base(self) -> None:
+        for referencia in ("", "ORC-12345678", "ORC-ABC", "nada"):
+            with self.subTest(referencia=referencia):
+                self.assertIsNone(rep.pedido_por_referencia(self.app, self.tenant, self.cliente, referencia))
 
 
 def varredura_sql(nome: str) -> str:
