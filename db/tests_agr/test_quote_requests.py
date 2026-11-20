@@ -1254,11 +1254,23 @@ class TestEnvioPelaResposta(ComOrcamento):
         )
         return [tuple(linha) for linha in self.semente.fetchall()]
 
+    def _templates(self) -> list[tuple]:
+        self.semente.execute(
+            "SELECT chave, template_nome, template_parametros FROM platform.agent_replies "
+            "WHERE tenant_id = %s ORDER BY criado_at",
+            (self.tenant,),
+        )
+        return [(c, n, list(p)) for (c, n, p) in self.semente.fetchall()]
+
     def _janela(self, expira: str, modo: str = "bot") -> None:
         self.semente.execute(
-            "UPDATE platform.conversations SET window_expires_at = now() + %s::interval, mode = %s "
+            # A ultima mensagem do cliente vinte e quatro horas antes do fim: o
+            # `conversations_janela_ck` exige-a antes, e uma janela no passado
+            # tem de ter uma mensagem mais antiga.
+            "UPDATE platform.conversations SET window_expires_at = now() + %s::interval, "
+            "last_inbound_at = now() + %s::interval - interval '24 hours', mode = %s "
             "WHERE tenant_id = %s AND id = %s",
-            (expira, modo, self.tenant, self.conversa.conversation_id),
+            (expira, expira, modo, self.tenant, self.conversa.conversation_id),
         )
 
     def test_o_toque_grava_a_proposta_e_emite_a_resposta_e_o_quote_sent(self) -> None:
@@ -1290,18 +1302,44 @@ class TestEnvioPelaResposta(ComOrcamento):
         self.assertEqual(len(self._eventos(TIPO_DA_RESPOSTA)), 1)
         self.assertEqual(len(self._eventos(rep.EVENTO_ENVIADO)), 1)
 
-    def test_a_janela_dentro_da_margem_nao_grava_e_o_pedido_fica(self) -> None:
-        """Opcao A: tres minutos de janela contam como fechada, e sem a revisao do
-        `template_nome` nada sai."""
+    def test_a_janela_dentro_da_margem_grava_o_template_e_o_pedido_aguarda(self) -> None:
+        """Opcao A: tres minutos de janela contam como fechada, e sai o *template*."""
         self._janela("3 minutes")
         pedido = self._pedir()
         resposta = self._responder(pedido.quote_id)
         envio = self._tocar(resposta.action_id, self._porta())
-        self.assertEqual(envio.desfecho, rep.NAO_ENVIADO)
-        self.assertEqual(self._respostas(), [])
-        self.assertEqual(self._eventos(TIPO_DA_RESPOSTA), [])
+        self.assertEqual(envio.desfecho, rep.AGUARDA_JANELA)
+        templates = self._templates()
+        self.assertEqual(len(templates), 1)
+        chave, nome, parametros = templates[0]
+        self.assertTrue(chave.startswith(f"orcamento:{pedido.quote_id}:"))
+        # Os **valores**: so a referencia, e nenhum numero (criterio 8 do KAM-123).
+        self.assertEqual(
+            (nome, parametros),
+            (rep.TEMPLATE_ORCAMENTO_PRONTO, [regras.referencia_interna(pedido.quote_id)]),
+        )
+        self.assertFalse(any(c.isdigit() for c in parametros[0]))
+        self.assertEqual(len(self._eventos(TIPO_DA_RESPOSTA)), 1)
         self.assertEqual(self._eventos(rep.EVENTO_ENVIADO), [])
-        self.assertEqual(self._linhas()[0][1], "respondido")
+        self.assertEqual(self._linhas()[0][1], "aguarda_janela")
+
+    def test_com_o_template_o_valor_sai_quando_o_cliente_escreve(self) -> None:
+        self._janela("-1 hour")
+        pedido = self._pedir()
+        resposta = self._responder(pedido.quote_id)
+        porta = self._porta()
+        self.assertEqual(self._tocar(resposta.action_id, porta).desfecho, rep.AGUARDA_JANELA)
+        # O cliente responde: a janela abre, e o valor sai pela chave `:janela`.
+        self._janela("23 hours")
+        for _ in range(2):
+            rep.libertar_da_janela(self.app, self.tenant, self.cliente, porta, _agora())
+        templates = self._templates()
+        self.assertEqual([n for _c, n, _p in templates], [rep.TEMPLATE_ORCAMENTO_PRONTO, None])
+        self.assertTrue(templates[1][0].endswith(":janela"))
+        self.assertEqual(self._respostas()[1][2], resposta.previsao)
+        self.assertEqual(len(self._eventos(TIPO_DA_RESPOSTA)), 2)
+        self.assertEqual(len(self._eventos(rep.EVENTO_ENVIADO)), 1)
+        self.assertEqual(self._linhas()[0][1], "enviado")
 
     def test_uma_conversa_com_um_humano_nao_recebe_a_proposta_do_bot(self) -> None:
         self._janela("3 hours", modo="humano")
@@ -1326,6 +1364,99 @@ class TestEnvioPelaResposta(ComOrcamento):
         self.assertEqual(respostas[0][2], regras.texto_sem_resposta(pedido.quote_id))
         self.assertEqual(len(self._eventos(TIPO_DA_RESPOSTA)), 1)
         self.assertEqual(self._linhas()[0][1], "pedido")
+
+    def test_a_mensagem_das_24_h_com_a_janela_fechada_sai_como_template(self) -> None:
+        self._janela("-2 hours")
+        pedido = self._pedir()
+        self.semente.execute(
+            "UPDATE platform.quote_requests SET criado_at = now() - interval '25 hours' WHERE quote_id = %s",
+            (pedido.quote_id,),
+        )
+        contagem = rep.avisar_sem_resposta(self.app, self.tenant, self._porta(), _agora())
+        self.assertEqual(contagem["template"], 1)
+        self.assertEqual(
+            self._templates(),
+            [(
+                f"orcamento:{pedido.quote_id}:sem_resposta",
+                rep.TEMPLATE_ORCAMENTO_EM_ESPERA,
+                [regras.referencia_interna(pedido.quote_id)],
+            )],
+        )
+
+    # ----------------------------------------------- a corrida da margem
+
+    def _enviado_e_recusado(self) -> tuple[rep.Pedido, rep.Resposta]:
+        """Uma proposta de texto escolhida com a janela aberta, que nao chegou.
+
+        O `Saida` recusou-a com `WINDOW_CLOSED` (o efeito do KAM-224 regista
+        `recusada` e deixa a linha sem `entregue_at`); aqui a janela fecha e a
+        linha envelhece para la da margem.
+        """
+        pedido = self._pedir()
+        resposta = self._responder(pedido.quote_id)
+        self.assertEqual(self._tocar(resposta.action_id, self._porta()).desfecho, rep.ENVIADO)
+        self._janela("-1 minute")
+        self.semente.execute(
+            "UPDATE platform.agent_replies SET criado_at = now() - interval '10 minutes' "
+            "WHERE tenant_id = %s",
+            (self.tenant,),
+        )
+        return pedido, resposta
+
+    def test_a_corrida_da_margem_reemite_com_o_template_uma_vez(self) -> None:
+        pedido, _resposta = self._enviado_e_recusado()
+        porta = self._porta()
+        contagens = [rep.reemitir_pela_janela(self.app, self.tenant, porta, _agora()) for _ in range(3)]
+        self.assertEqual([c["template"] for c in contagens], [1, 0, 0])
+        templates = self._templates()
+        self.assertEqual(len(templates), 2)
+        texto, reemitida = templates
+        self.assertIsNone(texto[1])
+        self.assertEqual(reemitida[0], texto[0] + ":template")
+        self.assertEqual(
+            reemitida[1:],
+            (rep.TEMPLATE_ORCAMENTO_PRONTO, [regras.referencia_interna(pedido.quote_id)]),
+        )
+        self.assertEqual(len(self._eventos(TIPO_DA_RESPOSTA)), 2)
+        # O pedido nao muda, e o `quote.sent` nao se repete.
+        self.assertEqual(self._linhas()[0][1], "enviado")
+        self.assertEqual(len(self._eventos(rep.EVENTO_ENVIADO)), 1)
+
+    def test_depois_da_reemissao_o_valor_sai_quando_o_cliente_escreve_uma_vez(self) -> None:
+        _pedido, resposta = self._enviado_e_recusado()
+        porta = self._porta()
+        rep.reemitir_pela_janela(self.app, self.tenant, porta, _agora())
+        self._janela("23 hours")
+        envios = [rep.libertar_da_janela(self.app, self.tenant, self.cliente, porta, _agora()) for _ in range(2)]
+        self.assertEqual([[e.desfecho for e in lista] for lista in envios], [[rep.ENVIADO], []])
+        chaves = [c for c, _n, _p in self._templates()]
+        self.assertEqual(len(chaves), 3)
+        self.assertEqual(chaves[2], chaves[0] + ":janela")
+        self.assertEqual(self._respostas()[2][2], resposta.previsao)
+        self.assertEqual(len(self._eventos(rep.EVENTO_ENVIADO)), 1)
+
+    def test_uma_proposta_entregue_recente_ou_com_a_janela_aberta_nao_se_reemite(self) -> None:
+        casos = {
+            "entregue": "UPDATE platform.agent_replies SET entregue_at = now() WHERE tenant_id = %s",
+            "recente": "UPDATE platform.agent_replies SET criado_at = now() WHERE tenant_id = %s",
+            "aberta": (
+                "UPDATE platform.conversations SET window_expires_at = now() + interval '2 hours' "
+                "WHERE tenant_id = %s"
+            ),
+            "humano": "UPDATE platform.conversations SET mode = 'humano' WHERE tenant_id = %s",
+        }
+        for caso, sql in casos.items():
+            with self.subTest(caso=caso):
+                self._limpar_orcamentos()
+                self._oferta(self.tenant, SKU)
+                factories.entitlement(self.semente, self.tenant, modulo="orcamento",
+                                      limites={"orcamentos_mes": 500})
+                self._janela("3 hours")
+                self._enviado_e_recusado()
+                self.semente.execute(sql, (self.tenant,))
+                contagem = rep.reemitir_pela_janela(self.app, self.tenant, self._porta(), _agora())
+                self.assertEqual(sum(contagem.values()), 0)
+                self.assertEqual(len(self._templates()), 1)
 
     def test_a_resposta_de_a_nao_se_le_no_tenant_b(self) -> None:
         pedido = self._pedir()

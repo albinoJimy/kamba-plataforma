@@ -16,26 +16,29 @@ porta le a `conversations.window_expires_at` e escolhe aqui, com uma margem de
 cinco minutos (*proposta*): uma janela que fecha antes disso conta como fechada.
 O consumidor obedece e **nunca troca sozinho**.
 
-Se o `Saida` ainda assim recusar o texto por janela fechada — a corrida da
-margem —, o `efeitoDoOutbound` regista a resposta como `recusada` e a linha
-fica sem `entregue_at`. Voltar a emitir essa resposta com o *template* e da
-revisao deste ticket sobre a `agent_replies` (`template_nome`,
-`template_parametros`), que espera pela fila das migracoes do lote.
+Com a janela fechada (ou perto disso) a porta grava a resposta **com o
+*template*** da notificacao e os seus parametros (`template_nome`,
+`template_parametros`, revisao `0076`) e devolve `template`; o
+`efeitoDoOutbound` monta entao um corpo de *template*. Se o `Saida` ainda assim
+recusar o texto por janela fechada — a corrida da margem —, o efeito regista a
+resposta como `recusada` e a linha fica sem `entregue_at`; quem a volta a
+emitir com o *template* e a volta seguinte do *job* (`reemitir_pela_janela`
+do `tls/orcamento.py`).
 
-## Sem essa revisao, a janela fechada nao envia nada
+## Fora do modo `bot` nao sai nada
 
-A `agent_replies` do KAM-224 so leva texto livre. Com a janela fechada (ou
-perto disso) esta porta devolve `sem_template`, que e o desfecho do
+Numa conversa com um humano ou com o dono, o `PreSendGuard` do KAM-018
+recusava o envio do bot, de texto ou de *template*, e a proposta ficava
+`enviado` sem ter saido. A porta devolve `sem_template`, que e o desfecho do
 `OutboundPorLigar` e o do criterio 6 do KAM-038: nao envia, e o pedido fica
-como estava. E o mesmo para uma conversa fora do modo `bot`: o `PreSendGuard`
-do KAM-018 recusava o envio do bot, e a proposta ficava `enviado` sem ter
-saido.
+como estava. O mesmo para uma conversa que nao existe.
 
 ## A repeticao
 
 A chave da notificacao e a `agent_replies.chave`, e o `UNIQUE (tenant_id,
 chave)` faz o segundo `INSERT` nao inserir nem emitir. Uma chave que ja tinha
-resposta devolve `livre`: hoje so ha respostas de texto livre.
+resposta devolve o desfecho que a janela de agora escolhe, e nao o da linha que
+ficou: quem chama da a mesma chave so a mesma mensagem.
 """
 
 from __future__ import annotations
@@ -65,6 +68,7 @@ SQL_JANELA_DA_CONVERSA: Final = (
 )
 
 LIVRE: Final = "livre"
+TEMPLATE: Final = "template"
 SEM_TEMPLATE: Final = "sem_template"
 
 
@@ -122,10 +126,7 @@ class NotificacaoPelaResposta:
             with tenant_guard.tx(ligacao, tenant_id) as cursor:
                 cursor.execute(SQL_JANELA_DA_CONVERSA, (tenant_id, notificacao.conversation_id))
                 linha = cursor.fetchone()
-            if not janela_aberta(linha, agora, self._margem):
-                # shortcut: o *template* com a janela fechada espera pela revisao
-                # do KAM-221 sobre a `agent_replies` (`template_nome`); ate la
-                # nada sai, como com o `OutboundPorLigar`.
+            if linha is None or linha[1] != MODO_DO_BOT:
                 return SEM_TEMPLATE
             estado = {
                 "tenant_id": tenant_id,
@@ -133,10 +134,21 @@ class NotificacaoPelaResposta:
                 "conversation_id": notificacao.conversation_id,
                 "thread_id": f"{tenant_id}:{notificacao.contact_id}",
             }
+            if janela_aberta(linha, agora, self._margem):
+                emitir_resposta(
+                    ligacao, estado, notificacao.texto, chave=chave, turno_iniciado_em=agora
+                )
+                return LIVRE
             emitir_resposta(
-                ligacao, estado, notificacao.texto, chave=chave, turno_iniciado_em=agora
+                ligacao,
+                estado,
+                notificacao.texto,
+                chave=chave,
+                turno_iniciado_em=agora,
+                template=notificacao.template,
+                parametros=notificacao.parametros,
             )
-            return LIVRE
+            return TEMPLATE
         except (NotificacaoIndisponivel, RespostaInvalidaError):
             # Uma resposta sem a forma da tabela e defeito de quem chama, e nao
             # uma base em baixo: sobe com o nome dela.
@@ -157,5 +169,6 @@ __all__ = [
     "NotificacaoPelaResposta",
     "SEM_TEMPLATE",
     "SQL_JANELA_DA_CONVERSA",
+    "TEMPLATE",
     "janela_aberta",
 ]

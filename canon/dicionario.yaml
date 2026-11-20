@@ -20717,8 +20717,10 @@ entradas:
       - "bot"
       - "agent.replied"
       - "livre"
-      - "sem_template"
       - "template_nome"
+      - "template_parametros"
+      - "template"
+      - "sem_template"
       - "orcamentos"
     variantes_literais: []
   - seccao: "3.79"
@@ -20730,6 +20732,8 @@ entradas:
       - "template_nome"
     nomes_nota:
       - "agent_replies"
+      - "_"
+      - "agent_replies_template_nome_ck"
       - "window_expires_at"
     variantes_literais: []
   - seccao: "3.79"
@@ -20741,6 +20745,25 @@ entradas:
       - "template_parametros"
     nomes_nota:
       - "template_nome"
+      - "agent_replies_template_ck"
+      - "agent_replies_template_parametros_ck"
+      - "ORC"
+    variantes_literais: []
+  - seccao: "3.79"
+    conceito: "Reemissão de uma proposta pela janela"
+    canonico: "reemitir_pela_janela"
+    literais:
+      - "reemitir_pela_janela"
+    nomes:
+      - "reemitir_pela_janela"
+    nomes_nota:
+      - "Saida"
+      - "entregue_at"
+      - "agr_orcamento_sem_resposta"
+      - "orcamento_pronto"
+      - "enviado"
+      - "libertar_da_janela"
+      - "quote.sent"
     variantes_literais: []
   - seccao: "3.79"
     conceito: "Trabalho de lote da mensagem das 24 h"
@@ -20960,9 +20983,9 @@ entradas:
     variantes_literais: []
   - seccao: "3.80"
     conceito: "Resposta de um turno"
-    canonico: "platform.agent_replies(reply_id, tenant_id, chave, contact_id, conversation_id, canal, texto, botoes, turno_iniciado_em, criado_at, entregue_at)"
+    canonico: "platform.agent_replies(reply_id, tenant_id, chave, contact_id, conversation_id, canal, texto, botoes, turno_iniciado_em, criado_at, entregue_at, template_nome, template_parametros)"
     literais:
-      - "platform.agent_replies(reply_id, tenant_id, chave, contact_id, conversation_id, canal, texto, botoes, turno_iniciado_em, criado_at, entregue_at)"
+      - "platform.agent_replies(reply_id, tenant_id, chave, contact_id, conversation_id, canal, texto, botoes, turno_iniciado_em, criado_at, entregue_at, template_nome, template_parametros)"
     nomes:
       - "platform.agent_replies"
       - "reply_id"
@@ -20976,6 +20999,8 @@ entradas:
       - "turno_iniciado_em"
       - "criado_at"
       - "entregue_at"
+      - "template_nome"
+      - "template_parametros"
     nomes_nota:
       - "FORCE"
       - "kamba_app"
@@ -22526,8 +22551,10 @@ tabelas:
       - "turno_iniciado_em"
       - "criado_at"
       - "entregue_at"
+      - "template_nome"
+      - "template_parametros"
     aberta: false
-    assinatura: "platform.agent_replies(reply_id, tenant_id, chave, contact_id, conversation_id, canal, texto, botoes, turno_iniciado_em, criado_at, entregue_at)"
+    assinatura: "platform.agent_replies(reply_id, tenant_id, chave, contact_id, conversation_id, canal, texto, botoes, turno_iniciado_em, criado_at, entregue_at, template_nome, template_parametros)"
     seccao: "3.80"
     conceito: "Resposta de um turno"
 

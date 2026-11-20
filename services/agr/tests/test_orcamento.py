@@ -818,14 +818,31 @@ class TestVarreduraSemBase(unittest.TestCase):
                 raise RuntimeError("base em baixo")
             return {"livre": 2, "template": 1, "sem_template": 0, "falhou": 0}
 
-        original = rep.avisar_sem_resposta
+        reemitidos: list[str] = []
+
+        def reemitir(_ligacao, tenant_id, _porta, agora):
+            reemitidos.append(tenant_id)
+            self.assertEqual(agora, AGORA)
+            return {"livre": 0, "template": 3, "sem_template": 1, "falhou": 0}
+
+        originais = (rep.avisar_sem_resposta, rep.reemitir_pela_janela)
         try:
             rep.avisar_sem_resposta = avisar  # type: ignore[assignment]
+            rep.reemitir_pela_janela = reemitir  # type: ignore[assignment]
             contagem = self._varredura(["a", "b"]).sem_resposta()
         finally:
-            rep.avisar_sem_resposta = original  # type: ignore[assignment]
+            rep.avisar_sem_resposta, rep.reemitir_pela_janela = originais  # type: ignore[assignment]
         self.assertEqual(chamados, ["a", "b"])
-        self.assertEqual(contagem, {"falhou": 1, "livre": 2, "template": 1, "sem_template": 0})
+        # A reemissao corre na mesma volta, depois do aviso, e conta a parte.
+        self.assertEqual(reemitidos, ["b"])
+        self.assertEqual(
+            contagem,
+            {
+                "falhou": 1, "livre": 2, "template": 1, "sem_template": 0,
+                "reemitida_livre": 0, "reemitida_template": 3,
+                "reemitida_sem_template": 1, "reemitida_falhou": 0,
+            },
+        )
         self.assertEqual(self.lote, [varredura.SQL_TENANTS_ACTIVOS, "close"])
         self.assertEqual(self.app, ["close"])
 

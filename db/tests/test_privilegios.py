@@ -2520,9 +2520,11 @@ COLUNAS_POR_PAPEL = {
     # conteudo da resposta, sem o `reply_id` nem o `criado_at`, que vem do
     # `DEFAULT`, e sem o `entregue_at`, que nasce vazio. O `UPDATE` e **so** o
     # `entregue_at`: uma resposta emitida nao muda de texto nem de canal.
+    # KAM-221 (0076): o *template* e os valores dos parametros entram no
+    # `INSERT`, ao lado do texto; o `UPDATE` continua so o `entregue_at`.
     ("kamba_app", "agent_replies", "INSERT"): {
         "tenant_id", "chave", "contact_id", "conversation_id", "canal", "texto",
-        "botoes", "turno_iniciado_em",
+        "botoes", "turno_iniciado_em", "template_nome", "template_parametros",
     },
     ("kamba_app", "agent_replies", "UPDATE"): {"entregue_at"},
     ("kamba_app", "quote_requests", "INSERT"): {

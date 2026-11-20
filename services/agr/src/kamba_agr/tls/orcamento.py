@@ -68,6 +68,7 @@ from kamba_core.ten.entitlements import Resultado, check_entitlement, consume_li
 
 from ..dono import accoes
 from ..eventos.notificacao import Notificacao
+from ..eventos.pela_resposta import MARGEM_DA_JANELA, MODO_DO_BOT
 from ..orcamento import regras
 from ..validador.render import PRECO_SOB_CONSULTA, Oferta
 from ..validador.veredicto import Policy, validar
@@ -272,6 +273,51 @@ SQL_SEM_RESPOSTA: Final = (
     "AND criado_at <= %s AND criado_at > %s "
     "ORDER BY criado_at DESC LIMIT %s"
 )
+
+#: As propostas de texto que nao chegaram ao cliente e ja nao chegam: a corrida
+#: da margem (KAM-221). A janela parecia aberta quando o AGR escolheu o texto,
+#: o `Saida` recusou-o com `WINDOW_CLOSED`, e a linha ficou sem `entregue_at`.
+#: So a proposta (a chave `orcamento:{quote_id}:{marca}`, sem sufixo), so de
+#: texto, criada ha mais do que a margem, de um pedido `enviado` ainda valido,
+#: numa conversa do bot com a janela fechada **agora**, e sem *template* ja
+#: reemitido. O `quote_id` sai da chave por texto, e nao por *cast*: o
+#: PostgreSQL nao promete a ordem do `WHERE`, e um `::uuid` sobre a chave de um
+#: turno levantava.
+SQL_RECUSADAS_PELA_JANELA: Final = (
+    "SELECT r.chave, r.contact_id, r.conversation_id, r.texto, q.quote_id, q.respondido_at "
+    "FROM platform.agent_replies r "
+    "JOIN platform.quote_requests q "
+    "ON q.tenant_id = r.tenant_id AND q.quote_id::text = split_part(r.chave, ':', 2) "
+    "JOIN platform.conversations c "
+    "ON c.tenant_id = r.tenant_id AND c.id = r.conversation_id "
+    "WHERE r.tenant_id = %s AND r.chave ~ '^orcamento:[0-9a-f-]{36}:[0-9]+$' "
+    "AND r.template_nome IS NULL AND r.entregue_at IS NULL AND r.criado_at <= %s "
+    "AND q.estado = 'enviado' AND q.validade_ate >= %s "
+    "AND c.mode = %s AND (c.window_expires_at IS NULL OR c.window_expires_at <= %s) "
+    "AND NOT EXISTS (SELECT 1 FROM platform.agent_replies t "
+    "WHERE t.tenant_id = r.tenant_id AND t.chave = r.chave || ':template') "
+    "ORDER BY r.criado_at DESC LIMIT %s"
+)
+
+#: As propostas deste cliente que sairam pela reemissao com o *template* e cujo
+#: valor ainda nao saiu (a chave `…:janela`). Sao o par da `aguarda_janela`
+#: para um pedido que ja esta `enviado`.
+SQL_REEMITIDAS_DO_CONTACTO: Final = (
+    "SELECT q.quote_id, t.chave FROM platform.agent_replies t "
+    "JOIN platform.quote_requests q "
+    "ON q.tenant_id = t.tenant_id AND q.quote_id::text = split_part(t.chave, ':', 2) "
+    "WHERE t.tenant_id = %s AND t.contact_id = %s "
+    "AND t.chave ~ '^orcamento:[0-9a-f-]{36}:[0-9]+:template$' "
+    "AND t.template_nome IS NOT NULL "
+    "AND q.estado = 'enviado' AND q.validade_ate >= %s "
+    "AND NOT EXISTS (SELECT 1 FROM platform.agent_replies j "
+    "WHERE j.tenant_id = t.tenant_id "
+    "AND j.chave = left(t.chave, -length(':template')) || ':janela') "
+    "ORDER BY t.criado_at"
+)
+
+#: O sufixo da chave do *template* reemitido.
+SUFIXO_DA_REEMISSAO: Final = ":template"
 
 SQL_CANCELAR: Final = (
     "UPDATE platform.quote_requests SET estado = 'cancelado' "
@@ -692,6 +738,16 @@ def _preparar(quote_id: str, linha: tuple, agora: datetime.datetime) -> _Prepara
     )
 
 
+def parametros_do_template(quote_id: str) -> tuple[str, ...]:
+    """Os **valores** dos parametros dos dois *templates*: so a referencia.
+
+    `orcamento_pronto` e `orcamento_em_espera` nao levam numero (criterio 8 do
+    KAM-123): o valor so sai quando o cliente responde. A referencia `ORC-…` e
+    so letras, e e o que deixa o cliente e a loja falarem do mesmo pedido.
+    """
+    return (regras.referencia_interna(quote_id),)
+
+
 def _notificar(porta: Any, tenant_id: str, preparado: _Preparado, chave: str) -> str:
     return porta.notificar(
         tenant_id=tenant_id,
@@ -700,6 +756,7 @@ def _notificar(porta: Any, tenant_id: str, preparado: _Preparado, chave: str) ->
             conversation_id=preparado.conversation_id,
             texto=preparado.texto,
             template=TEMPLATE_ORCAMENTO_PRONTO,
+            parametros=parametros_do_template(preparado.quote_id),
         ),
         chave=chave,
     )
@@ -823,11 +880,20 @@ def libertar_da_janela(
         cursor.execute(SQL_EXPIRAR_DO_CONTACTO, (tenant_id, contact_id, hoje))
         cursor.execute(SQL_A_ESPERA_DA_JANELA, (tenant_id, contact_id, hoje))
         ids = [_texto(q) for (q,) in cursor.fetchall()]
+        cursor.execute(SQL_REEMITIDAS_DO_CONTACTO, (tenant_id, contact_id, hoje))
+        reemitidas = [(_texto(q), c) for (q, c) in cursor.fetchall()]
     envios: list[Envio] = []
     for quote_id in ids:
         try:
             envio = _libertar_um(ligacao, tenant_id, quote_id, porta, agora)
         except Exception:  # noqa: BLE001 — ver a docstring; o estado nao mudou
+            envio = Envio(AGUARDA_JANELA, quote_id)
+        if envio is not None:
+            envios.append(envio)
+    for quote_id, chave in reemitidas:
+        try:
+            envio = _libertar_reemitida(ligacao, tenant_id, quote_id, chave, porta, agora)
+        except Exception:  # noqa: BLE001 — a mensagem seguinte tenta outra vez
             envio = Envio(AGUARDA_JANELA, quote_id)
         if envio is not None:
             envios.append(envio)
@@ -854,6 +920,97 @@ def _libertar_um(
             # fica a espera, e a mensagem seguinte do cliente tenta outra vez.
             return Envio(AGUARDA_JANELA, quote_id)
         return Envio(_registar(ligacao, tenant_id, preparado, desfecho, agora), quote_id)
+
+
+def _libertar_reemitida(
+    ligacao: Any,
+    tenant_id: str,
+    quote_id: str,
+    chave_do_template: str,
+    porta: Any,
+    agora: datetime.datetime,
+) -> Envio | None:
+    """O valor de uma proposta reemitida com o *template*, quando o cliente escreve.
+
+    O pedido ja esta `enviado` (o `quote.sent` saiu quando o AGR escolheu o
+    texto), e por isso **nada se escreve** no pedido nem se emite: so sai o
+    valor, pela chave `…:janela` da proposta, que e a mesma em todas as
+    mensagens do cliente. A proposta e a de agora, lida e trancada, e so se a
+    marca for a da chave: uma resposta corrigida tem outra.
+    """
+    base = chave_do_template[: -len(SUFIXO_DA_REEMISSAO)]
+    with _envio_exclusivo(ligacao, quote_id):
+        with tenant_guard.tx(ligacao, tenant_id) as cursor:
+            cursor.execute(SQL_TRANCAR_PEDIDO, (tenant_id, quote_id))
+            linha = cursor.fetchone()
+            if linha is None or linha[0] != regras.ENVIADO:
+                return None
+            preparado = _preparar(quote_id, linha, agora)
+        if base != f"orcamento:{quote_id}:{preparado.marca}":
+            return None
+        desfecho = _notificar(porta, tenant_id, preparado, f"{base}:janela")
+    return Envio(ENVIADO if desfecho == _LIVRE else AGUARDA_JANELA, quote_id)
+
+
+def reemitir_pela_janela(
+    ligacao: Any,
+    tenant_id: str,
+    porta: Any,
+    agora: datetime.datetime,
+    tecto: int = TECTO_DO_AVISO,
+) -> dict[str, int]:
+    """A corrida da margem: a proposta de texto recusada volta como *template*.
+
+    Pela opcao A da coordenacao do lote 13 (2026-11-19), quem escolhe entre o
+    texto e o *template* e o AGR, e o consumidor **nunca troca sozinho**. Se a
+    janela fechou entre a escolha e o `Saida` — dentro da margem de cinco
+    minutos, ou com a fila atrasada —, o `efeitoDoOutbound` regista a resposta
+    como `recusada` e ela fica sem `entregue_at`. Esta volta encontra-a e emite
+    o `orcamento_pronto` com a chave `…:template`, pela mesma porta, que volta a
+    ler a janela. Quando o cliente responde, o `libertar_da_janela` manda o
+    valor pela chave `…:janela`.
+
+    A resposta tem de ter mais do que a margem: uma mais nova pode estar so na
+    fila do consumidor. Devolve a contagem por desfecho da porta, e `falhou`.
+    """
+    hoje = regras.hoje_em_luanda(agora)
+    with tenant_guard.tx(ligacao, tenant_id) as cursor:
+        cursor.execute(
+            SQL_RECUSADAS_PELA_JANELA,
+            (
+                tenant_id,
+                agora - MARGEM_DA_JANELA,
+                hoje,
+                MODO_DO_BOT,
+                agora + MARGEM_DA_JANELA,
+                tecto,
+            ),
+        )
+        linhas = cursor.fetchall()
+    contagem = {_LIVRE: 0, _TEMPLATE: 0, _SEM_TEMPLATE: 0, "falhou": 0}
+    for chave, contacto, conversa, texto, quote_id, respondido_at in linhas:
+        qid = _texto(quote_id)
+        if chave != f"orcamento:{qid}:{_marca(respondido_at)}":
+            # Uma resposta de uma marca antiga: o dono corrigiu depois, e a
+            # proposta que vale e outra.
+            continue
+        try:
+            desfecho = porta.notificar(
+                tenant_id=tenant_id,
+                notificacao=Notificacao(
+                    contact_id=_texto(contacto),
+                    conversation_id=_texto(conversa),
+                    texto=texto,
+                    template=TEMPLATE_ORCAMENTO_PRONTO,
+                    parametros=parametros_do_template(qid),
+                ),
+                chave=chave + SUFIXO_DA_REEMISSAO,
+            )
+        except Exception:  # noqa: BLE001 — uma porta que levanta nao para as outras
+            contagem["falhou"] += 1
+            continue
+        contagem[desfecho if desfecho in contagem else "falhou"] += 1
+    return contagem
 
 
 # ------------------------------------------- a mensagem neutra das 24 horas
@@ -899,6 +1056,7 @@ def avisar_sem_resposta(
                     conversation_id=_texto(conversa),
                     texto=regras.texto_sem_resposta(qid),
                     template=TEMPLATE_ORCAMENTO_EM_ESPERA,
+                    parametros=parametros_do_template(qid),
                 ),
                 chave=f"orcamento:{qid}:sem_resposta",
             )
@@ -1029,7 +1187,9 @@ __all__ = [
     "expirar_vencidos",
     "facts_da_proposta",
     "libertar_da_janela",
+    "parametros_do_template",
     "pedir",
+    "reemitir_pela_janela",
     "pendentes",
     "por_referencia",
     "ref_da_resposta",

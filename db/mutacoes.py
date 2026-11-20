@@ -627,6 +627,8 @@ AG_ORC_PORTA = "services/agr/src/kamba_agr/orcamento/porta.py"
 AG_DONO_NOS = "services/agr/src/kamba_agr/verticais/dono/nos.py"
 #: KAM-221: a notificacao ao cliente pela resposta do KAM-224.
 AG_PELA_RESPOSTA = "services/agr/src/kamba_agr/eventos/pela_resposta.py"
+#: KAM-221: as duas colunas do *template* na `agent_replies`.
+REV76 = "db/migrations/versions/0076_template_da_resposta.py"
 #: KAM-224: a saida do AGR pelo evento de resposta.
 AG_SAIDA = "services/agr/src/kamba_agr/saida.py"
 AG_TURNO = "services/agr/src/kamba_agr/turno.py"
@@ -5020,8 +5022,10 @@ MUTACOES = [
     # ---- KAM-221 (o envio do Orcamento expresso). As cinco primeiras sao do
     # SQL na ToolLayer e morrem no `db/tests_agr/test_quote_requests.py`; as
     # quatro seguintes sao da ligacao, e morrem no `services/agr/tests/
-    # test_orcamento.py`; as tres ultimas sao do envio pela resposta, e morrem
-    # no `services/agr/tests/test_pela_resposta.py`. O `_registar` continua a reler a linha, e ja nao ha
+    # test_orcamento.py`; as tres seguintes sao do envio pela resposta, e morrem
+    # no `services/agr/tests/test_pela_resposta.py`; as seis ultimas sao do
+    # *template* da revisao `0076` e da corrida da margem, e morrem no
+    # `test_pela_resposta.py`, no `db/tests_agr/` e no `resposta.test.ts`. O `_registar` continua a reler a linha, e ja nao ha
     # ensaio que o distinga: a tranca do envio impede a mudanca que ele apanhava.
     #
     # O Outbound volta para dentro da transaccao: outra sessao ja nao tranca a
@@ -5097,8 +5101,8 @@ MUTACOES = [
     # recusa-a depois de o pedido ficar `enviado`:
     # `test_uma_conversa_fora_do_modo_bot_nao_envia`.
     ('orc: a escolha da janela ignora o modo', AG_PELA_RESPOSTA,
-     '    if modo != MODO_DO_BOT or expira is None:',
-     '    if expira is None:',
+     '            if linha is None or linha[1] != MODO_DO_BOT:',
+     '            if linha is None:',
      AGR_UNIT),
     # O `main()` volta ao `OutboundPorLigar`, e nenhuma proposta sai:
     # `test_a_porta_dos_orcamentos_sai_pela_resposta`.
@@ -5106,6 +5110,42 @@ MUTACOES = [
      '            ligar_para_accoes, saida=NotificacaoPelaResposta(ligar_para_saida)\n',
      '            ligar_para_accoes\n',
      AGR_UNIT),
+    # Com a janela fechada, a porta grava texto livre que o `Saida` recusa:
+    # `test_a_janela_fechada_ou_nunca_aberta_grava_o_template_com_os_valores`.
+    ('orc: a janela fechada grava texto livre', AG_PELA_RESPOSTA,
+     '                template=notificacao.template,\n'
+     '                parametros=notificacao.parametros,\n',
+     '',
+     AGR_UNIT),
+    # O consumidor deixa de montar o corpo de *template*, e a proposta sai como
+    # texto com a janela fechada: «uma resposta de template sai como template».
+    ('resposta: o template sai como texto', RESPOSTA_EFEITO,
+     '    r.template !== null\n',
+     '    false\n',
+     SAIDA),
+    # A reemissao com a janela aberta: o texto ainda pode sair, e o cliente
+    # recebe os dois (`test_uma_proposta_entregue_recente_ou_com_a_janela_aberta_nao_se_reemite`).
+    ('orc: a reemissao ignora a janela aberta', AG_TLS_ORC,
+     '"AND c.mode = %s AND (c.window_expires_at IS NULL OR c.window_expires_at <= %s) "',
+     '"AND c.mode = %s AND (true OR c.window_expires_at <= %s) "',
+     "tests_agr"),
+    # A reemissao em cada volta: `test_a_corrida_da_margem_reemite_com_o_template_uma_vez`.
+    ('orc: a reemissao repete-se em cada volta', AG_TLS_ORC,
+     '"WHERE t.tenant_id = r.tenant_id AND t.chave = r.chave || \':template\') "',
+     '"WHERE false) "',
+     "tests_agr"),
+    # A libertacao esquece as reemitidas, e o valor nunca sai:
+    # `test_depois_da_reemissao_o_valor_sai_quando_o_cliente_escreve_uma_vez`.
+    ('orc: a libertacao esquece as reemitidas', AG_TLS_ORC,
+     '    for quote_id, chave in reemitidas:\n',
+     '    for quote_id, chave in ():\n',
+     "tests_agr"),
+    # Parametros sem *template*, e o consumidor nao sabe montar o corpo:
+    # `test_as_tres_restricoes_recusam`.
+    ('rev0076: parametros sem template', REV76,
+     'CHECK (template_nome IS NOT NULL OR cardinality(template_parametros) = 0)',
+     'CHECK (true)',
+     "tests_agr"),
     # ---- KAM-224 (a saida do AGR). As duas primeiras sao do produtor, e quem as
     # mata e a `agr_unit` (`services/agr/tests/test_saida.py`); a terceira e do
     # SQL contra a base (`db/tests_agr/test_agent_replies.py`); as tres ultimas

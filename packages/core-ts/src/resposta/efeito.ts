@@ -39,7 +39,7 @@
 import type { Efeito } from "../eventos/consumo.ts";
 import type { Envelope } from "../eventos/envelope.ts";
 import type { ClienteSql } from "../eventos/publicador.ts";
-import type { Corpo, Pedido, Resultado } from "../outbound/contrato.ts";
+import { IDIOMA_BASE, type Corpo, type Pedido, type Resultado } from "../outbound/contrato.ts";
 import {
   CONSUMIDOR_DO_OUTBOUND,
   CONSUMIDOR_DO_PAINEL,
@@ -48,6 +48,7 @@ import {
   TIPO_DA_RESPOSTA,
   botoesDaLinha,
   lerResposta,
+  templateDaLinha,
   type PayloadDaResposta,
   type RespostaParaEnviar,
 } from "./contrato.ts";
@@ -125,17 +126,34 @@ export async function respostaParaEnviar(
     phoneNumberId: String(l["phone_number_id"]),
     texto: String(l["texto"]),
     botoes: botoesDaLinha(l["botoes"]),
+    template: templateDaLinha(l["template_nome"], l["template_parametros"]),
     turnoIniciadoEm: data(l["turno_iniciado_em"]),
     entregueEm: data(l["entregue_at"]),
   };
 }
 
-/** O `Pedido` do Outbound de uma resposta. O bot envia; a chave é a do turno. */
+/**
+ * O `Pedido` do Outbound de uma resposta. O bot envia; a chave é a do turno.
+ *
+ * **O corpo é o que a linha diz** (KAM-221, opção A da coordenação do lote
+ * 13): com `template_nome`, um corpo de *template* com os valores dos
+ * parâmetros pela ordem; sem ele, o texto ou os botões. O consumidor **nunca
+ * troca sozinho**: uma resposta de texto que o `Saida` recusa com a janela
+ * fechada sai como `recusada`, e quem a volta a emitir com o *template* é o
+ * AGR, na volta seguinte do *job* (`reemitir_pela_janela`).
+ */
 export function pedidoDaResposta(tenantId: string, r: RespostaParaEnviar): Pedido {
   const corpo: Corpo =
-    r.botoes.length === 0
-      ? { tipo: "texto", texto: r.texto }
-      : { tipo: "botoes", texto: r.texto, botoes: r.botoes };
+    r.template !== null
+      ? {
+          tipo: "template",
+          nome: r.template.nome,
+          idioma: IDIOMA_BASE,
+          parametros: r.template.parametros,
+        }
+      : r.botoes.length === 0
+        ? { tipo: "texto", texto: r.texto }
+        : { tipo: "botoes", texto: r.texto, botoes: r.botoes };
   return {
     tenantId,
     channelId: r.channelId,

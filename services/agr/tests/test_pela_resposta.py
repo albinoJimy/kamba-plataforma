@@ -24,6 +24,7 @@ from kamba_agr.eventos.pela_resposta import (
     LIVRE,
     MARGEM_DA_JANELA,
     SEM_TEMPLATE,
+    TEMPLATE,
     NotificacaoPelaResposta,
     janela_aberta,
 )
@@ -48,6 +49,15 @@ class Cursor(test_saida.Cursor):
             linha = self.base.conversas.get((tenant, conversa))
             self.linhas = [] if linha is None else [linha]
             return
+        if sql is saida.SQL_INSERIR_COM_TEMPLATE:
+            # A mesma semantica do `SQL_INSERIR`, com as duas colunas a mais.
+            *linha, nome, parametros = p
+            antes = len(self.base.respostas)
+            super().execute(saida.SQL_INSERIR, tuple(linha))
+            self.base.instrucoes[-1] = sql
+            if len(self.base.respostas) > antes:
+                self.base.respostas[-1].update(template=nome, parametros=list(parametros))
+            return
         super().execute(sql, p)
 
 
@@ -56,9 +66,18 @@ class Ligacao(test_saida.Ligacao):
         return Cursor(self.base)
 
 
-def notificacao(texto: str = "Orcamento - nao e factura") -> Notificacao:
+PARAMETROS = ("ORC-ABCDEFGH",)
+
+
+def notificacao(
+    texto: str = "Orcamento - nao e factura", parametros: tuple[str, ...] = PARAMETROS
+) -> Notificacao:
     return Notificacao(
-        contact_id=CONTACTO, conversation_id=CONVERSA, texto=texto, template="orcamento_pronto"
+        contact_id=CONTACTO,
+        conversation_id=CONVERSA,
+        texto=texto,
+        template="orcamento_pronto",
+        parametros=parametros,
     )
 
 
@@ -80,6 +99,9 @@ class TestEscolhaDaJanela(unittest.TestCase):
             (CHAVE, CONVERSA, CONTACTO, "whatsapp"),
         )
         self.assertEqual(resposta["texto"], "Orcamento - nao e factura")
+        # Texto livre: a linha sai pelo `SQL_INSERIR` do turno, sem *template*.
+        self.assertNotIn("template", resposta)
+        self.assertIn(saida.SQL_INSERIR, base.instrucoes)
         # O inicio do envio vai para o `PreSendGuard` do KAM-018 como inicio do turno.
         self.assertEqual(resposta["inicio"], AGORA)
         self.assertEqual(base.fechadas, 1)
@@ -87,27 +109,42 @@ class TestEscolhaDaJanela(unittest.TestCase):
     def test_a_janela_dentro_da_margem_conta_como_fechada(self) -> None:
         """Quatro minutos de janela: o `worker-canal` podia ja a ver fechada."""
         base = Base(AGORA + datetime.timedelta(minutes=4))
-        self.assertEqual(self.notificar(base), SEM_TEMPLATE)
-        self.assertEqual((base.respostas, base.eventos), ([], []))
+        self.assertEqual(self.notificar(base), TEMPLATE)
+        self.assertEqual(base.respostas[0]["template"], "orcamento_pronto")
 
     def test_a_janela_logo_depois_da_margem_conta_como_aberta(self) -> None:
         base = Base(AGORA + MARGEM_DA_JANELA + datetime.timedelta(seconds=1))
         self.assertEqual(self.notificar(base), LIVRE)
+        self.assertNotIn("template", base.respostas[0])
 
-    def test_a_janela_fechada_ou_nunca_aberta_nao_envia(self) -> None:
+    def test_a_janela_fechada_ou_nunca_aberta_grava_o_template_com_os_valores(self) -> None:
         for expira in (AGORA - datetime.timedelta(minutes=1), None):
             with self.subTest(expira=expira):
                 base = Base(expira)
-                self.assertEqual(self.notificar(base), SEM_TEMPLATE)
-                self.assertEqual(base.respostas, [])
+                self.assertEqual(self.notificar(base), TEMPLATE)
+                self.assertEqual((len(base.respostas), len(base.eventos)), (1, 1))
+                resposta = base.respostas[0]
+                self.assertEqual(
+                    (resposta["template"], resposta["parametros"], resposta["chave"]),
+                    ("orcamento_pronto", list(PARAMETROS), CHAVE),
+                )
+                # O texto vai na mesma linha: o que sairia com a janela aberta.
+                self.assertEqual(resposta["texto"], "Orcamento - nao e factura")
+                self.assertIn(saida.SQL_INSERIR_COM_TEMPLATE, base.instrucoes)
+
+    def test_o_template_repetido_nao_grava_nem_emite_outra_vez(self) -> None:
+        base = Base(AGORA - datetime.timedelta(hours=1))
+        self.assertEqual([self.notificar(base) for _ in range(3)], [TEMPLATE] * 3)
+        self.assertEqual((len(base.respostas), len(base.eventos)), (1, 1))
 
     def test_uma_conversa_fora_do_modo_bot_nao_envia(self) -> None:
         """O `PreSendGuard` recusava; a proposta ficava `enviado` sem ter saido."""
-        for modo in ("dono", "humano"):
-            with self.subTest(modo=modo):
-                base = Base(AGORA + datetime.timedelta(hours=3), modo=modo)
-                self.assertEqual(self.notificar(base), SEM_TEMPLATE)
-                self.assertEqual(base.respostas, [])
+        for modo in ("dono", "humano", "pausada"):
+            for expira in (AGORA + datetime.timedelta(hours=3), AGORA - datetime.timedelta(hours=3)):
+                with self.subTest(modo=modo, expira=expira):
+                    base = Base(expira, modo=modo)
+                    self.assertEqual(self.notificar(base), SEM_TEMPLATE)
+                    self.assertEqual(base.respostas, [])
 
     def test_uma_conversa_de_outro_tenant_nao_se_ve_e_nao_envia(self) -> None:
         base = Base(AGORA + datetime.timedelta(hours=3))
@@ -147,6 +184,17 @@ class TestFalhas(unittest.TestCase):
         with self.assertRaises(NotificacaoIndisponivel):
             porta.notificar(tenant_id=TENANT, notificacao=notificacao(), chave=CHAVE)
         self.assertEqual(base.fechadas, 1)
+
+    def test_um_parametro_sem_a_forma_da_meta_e_defeito(self) -> None:
+        base = Base(AGORA - datetime.timedelta(hours=1))
+        porta = NotificacaoPelaResposta(lambda: Ligacao(base), relogio=lambda: AGORA)
+        for parametros in (("",), ("ORC\nX",), ("ORC\tX",), ("x",) * 11):
+            with self.subTest(parametros=parametros):
+                with self.assertRaises(saida.RespostaInvalidaError):
+                    porta.notificar(
+                        tenant_id=TENANT, notificacao=notificacao(parametros=parametros), chave=CHAVE
+                    )
+        self.assertEqual(base.respostas, [])
 
     def test_um_texto_sem_a_forma_da_tabela_e_defeito_e_nao_indisponibilidade(self) -> None:
         base = Base(AGORA + datetime.timedelta(hours=3))

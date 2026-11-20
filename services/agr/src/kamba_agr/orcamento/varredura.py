@@ -2,7 +2,7 @@
 
 | *Job* | O que faz | Corpo |
 |---|---|---|
-| `agr_orcamento_sem_resposta` | um pedido sem resposta do dono ha 24 h recebe **uma** mensagem neutra e a oferta de humano | `tls.orcamento.avisar_sem_resposta` |
+| `agr_orcamento_sem_resposta` | um pedido sem resposta do dono ha 24 h recebe **uma** mensagem neutra e a oferta de humano; e uma proposta de texto recusada pela janela volta como *template* | `tls.orcamento.avisar_sem_resposta` e `tls.orcamento.reemitir_pela_janela` |
 | `agr_orcamento_expirar` | uma resposta cuja validade passou fecha `expirado`, sem ninguem tocar | `tls.orcamento.expirar_vencidos` |
 
 ## Porque e que a listagem e dos `tenants` e nao dos pedidos
@@ -44,6 +44,9 @@ from ..tls import orcamento as repositorio
 #: Os nomes dos dois *jobs*, para o `tx_batch`. Snake_case, que e o que ele exige.
 JOB_SEM_RESPOSTA: Final = "agr_orcamento_sem_resposta"
 JOB_EXPIRAR: Final = "agr_orcamento_expirar"
+
+#: O prefixo da contagem das propostas reemitidas com o *template*.
+PREFIXO_DA_REEMISSAO: Final = "reemitida_"
 
 #: Os *tenants* a quem a mensagem das 24 h pode sair: so os activos, a
 #: pergunta do `idx/processo.py`. Um *tenant* suspenso ou restrito nao fala com
@@ -112,15 +115,25 @@ class VarreduraDeOrcamentos:
         return agregado
 
     def sem_resposta(self) -> dict[str, int]:
-        """A volta das 24 h. Devolve a contagem por desfecho do Outbound."""
+        """A volta das 24 h. Devolve a contagem por desfecho do Outbound.
+
+        A mesma volta reemite com o *template* as propostas de texto que a
+        janela recusou (`reemitir_pela_janela`, a corrida da margem): conta-as
+        a parte, com o prefixo `reemitida_`. E "a volta seguinte do *job*" da
+        decisao da coordenacao, sem um terceiro nome para o `tx_batch`.
+        """
         agora = self._relogio()
-        return self._por_tenant(
-            JOB_SEM_RESPOSTA,
-            SQL_TENANTS_ACTIVOS,
-            lambda ligacao, tenant_id: repositorio.avisar_sem_resposta(
-                ligacao, tenant_id, self._saida, agora
-            ),
-        )
+
+        def trabalho(ligacao: Any, tenant_id: str) -> dict[str, int]:
+            contagem = dict(
+                repositorio.avisar_sem_resposta(ligacao, tenant_id, self._saida, agora)
+            )
+            reemitidas = repositorio.reemitir_pela_janela(ligacao, tenant_id, self._saida, agora)
+            for desfecho, n in reemitidas.items():
+                contagem[f"{PREFIXO_DA_REEMISSAO}{desfecho}"] = n
+            return contagem
+
+        return self._por_tenant(JOB_SEM_RESPOSTA, SQL_TENANTS_ACTIVOS, trabalho)
 
     def expirar(self) -> dict[str, int]:
         """A volta da expiracao. Devolve `{"expirados": n, "falhou": m}`."""
@@ -144,6 +157,7 @@ def _fechar(ligacao: Any) -> None:
 __all__ = [
     "JOB_EXPIRAR",
     "JOB_SEM_RESPOSTA",
+    "PREFIXO_DA_REEMISSAO",
     "SQL_TENANTS_ACTIVOS",
     "SQL_TENANTS_POR_EXPIRAR",
     "VarreduraDeOrcamentos",

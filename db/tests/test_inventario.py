@@ -2839,6 +2839,15 @@ INVENTARIO["agent_replies"] = {
     "turno_iniciado_em": ("timestamp with time zone", SIM, None, "nao"),
     "criado_at": ("timestamp with time zone", NAO, "now()", "nao"),
     "entregue_at": ("timestamp with time zone", SIM, None, "nao"),
+    # KAM-221 (0076): o *template* que o AGR escolheu com a janela fechada, e os
+    # **valores** dos seus parametros. Contam como o `texto`: conteudo para o
+    # cliente, escrito pelo AGR e nunca pelo cliente. Hoje so a referencia
+    # `ORC-…` do pedido, mas a coluna aceita qualquer valor resolvido.
+    "template_nome": ("text", SIM, None, "nao — o nome de um template da Meta"),
+    "template_parametros": (
+        "ARRAY", NAO, "'{}'::text[]",
+        "valores para o cliente, resolvidos pelo AGR; nunca do cliente",
+    ),
 }
 
 #: Os pedidos de orcamento (KAM-123, revisao do Orcamento expresso). O cliente
@@ -4708,6 +4717,11 @@ class TestInventario(ComBase):
                     "agent_replies_chave_ck",
                     "agent_replies_chave_uq",
                     "agent_replies_pkey",
+                    # KAM-221 (0076): a paridade nome/parametros, a forma do
+                    # nome da Meta e nenhum parametro nulo.
+                    "agent_replies_template_ck",
+                    "agent_replies_template_nome_ck",
+                    "agent_replies_template_parametros_ck",
                     "agent_replies_texto_ck",
                     "purge_log_classe_ck",
                     "purge_log_linhas_ck",
