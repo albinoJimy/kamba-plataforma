@@ -12,7 +12,7 @@
 
 version: 1
 fonte: "specs/02_Dicionario_de_Dados_Canonico.md"
-versao_dicionario: "1.122"
+versao_dicionario: "1.123"
 entradas:
   - seccao: "3.1"
     conceito: "Contacto"
@@ -20678,6 +20678,118 @@ entradas:
       - "orcamento_pronto"
     nomes_nota:
       - "utility"
+      - "orcamento"
+      - "mensagem"
+    variantes_literais: []
+  - seccao: "3.79"
+    conceito: "Template da mensagem neutra das 24 h"
+    canonico: "orcamento_em_espera"
+    literais:
+      - "orcamento_em_espera"
+    nomes:
+      - "orcamento_em_espera"
+    nomes_nota:
+      - "ORC"
+      - "orcamento"
+    variantes_literais: []
+  - seccao: "3.79"
+    conceito: "Espera do dono antes da mensagem neutra"
+    canonico: "vinte e quatro horas desde o pedido, com um horizonte de mais vinte e quatro"
+    literais: []
+    nomes: []
+    nomes_nota:
+      - "pedido"
+      - "respondido"
+      - "orcamento"
+      - "quote_id"
+      - "sem_resposta"
+    variantes_literais: []
+  - seccao: "3.79"
+    conceito: "Notificação ao cliente pela resposta do AGR"
+    canonico: "NotificacaoPelaResposta"
+    literais:
+      - "NotificacaoPelaResposta"
+    nomes:
+      - "NotificacaoPelaResposta"
+    nomes_nota:
+      - "PortaDeNotificacao"
+      - "agent_replies"
+      - "window_expires_at"
+      - "mode"
+      - "bot"
+      - "agent.replied"
+      - "livre"
+      - "template_nome"
+      - "template_parametros"
+      - "template"
+      - "sem_template"
+      - "orcamentos"
+    variantes_literais: []
+  - seccao: "3.79"
+    conceito: "Template de uma resposta do AGR"
+    canonico: "template_nome"
+    literais:
+      - "template_nome"
+    nomes:
+      - "template_nome"
+    nomes_nota:
+      - "agent_replies"
+      - "_"
+      - "agent_replies_template_nome_ck"
+      - "window_expires_at"
+    variantes_literais: []
+  - seccao: "3.79"
+    conceito: "Parâmetros do template de uma resposta"
+    canonico: "template_parametros"
+    literais:
+      - "template_parametros"
+    nomes:
+      - "template_parametros"
+    nomes_nota:
+      - "template_nome"
+      - "agent_replies_template_ck"
+      - "agent_replies_template_parametros_ck"
+      - "ORC"
+    variantes_literais: []
+  - seccao: "3.79"
+    conceito: "Reemissão de uma proposta pela janela"
+    canonico: "reemitir_pela_janela"
+    literais:
+      - "reemitir_pela_janela"
+    nomes:
+      - "reemitir_pela_janela"
+    nomes_nota:
+      - "Saida"
+      - "entregue_at"
+      - "agr_orcamento_sem_resposta"
+      - "orcamento_pronto"
+      - "enviado"
+      - "libertar_da_janela"
+      - "quote.sent"
+    variantes_literais: []
+  - seccao: "3.79"
+    conceito: "Trabalho de lote da mensagem das 24 h"
+    canonico: "agr_orcamento_sem_resposta"
+    literais:
+      - "agr_orcamento_sem_resposta"
+    nomes:
+      - "agr_orcamento_sem_resposta"
+    nomes_nota:
+      - "tx_batch"
+      - "kamba_batch"
+      - "quote_requests"
+      - "kamba_app"
+      - "agr_handoff_prazos"
+    variantes_literais: []
+  - seccao: "3.79"
+    conceito: "Trabalho de lote da expiração"
+    canonico: "agr_orcamento_expirar"
+    literais:
+      - "agr_orcamento_expirar"
+    nomes:
+      - "agr_orcamento_expirar"
+    nomes_nota:
+      - "expirado"
     variantes_literais: []
   - seccao: "3.79"
     conceito: "Desfecho de um envio"
@@ -20873,9 +20985,9 @@ entradas:
     variantes_literais: []
   - seccao: "3.80"
     conceito: "Resposta de um turno"
-    canonico: "platform.agent_replies(reply_id, tenant_id, chave, contact_id, conversation_id, canal, texto, botoes, turno_iniciado_em, criado_at, entregue_at)"
+    canonico: "platform.agent_replies(reply_id, tenant_id, chave, contact_id, conversation_id, canal, texto, botoes, turno_iniciado_em, criado_at, entregue_at, template_nome, template_parametros)"
     literais:
-      - "platform.agent_replies(reply_id, tenant_id, chave, contact_id, conversation_id, canal, texto, botoes, turno_iniciado_em, criado_at, entregue_at)"
+      - "platform.agent_replies(reply_id, tenant_id, chave, contact_id, conversation_id, canal, texto, botoes, turno_iniciado_em, criado_at, entregue_at, template_nome, template_parametros)"
     nomes:
       - "platform.agent_replies"
       - "reply_id"
@@ -20889,6 +21001,8 @@ entradas:
       - "turno_iniciado_em"
       - "criado_at"
       - "entregue_at"
+      - "template_nome"
+      - "template_parametros"
     nomes_nota:
       - "FORCE"
       - "kamba_app"
@@ -22439,8 +22553,10 @@ tabelas:
       - "turno_iniciado_em"
       - "criado_at"
       - "entregue_at"
+      - "template_nome"
+      - "template_parametros"
     aberta: false
-    assinatura: "platform.agent_replies(reply_id, tenant_id, chave, contact_id, conversation_id, canal, texto, botoes, turno_iniciado_em, criado_at, entregue_at)"
+    assinatura: "platform.agent_replies(reply_id, tenant_id, chave, contact_id, conversation_id, canal, texto, botoes, turno_iniciado_em, criado_at, entregue_at, template_nome, template_parametros)"
     seccao: "3.80"
     conceito: "Resposta de um turno"
 

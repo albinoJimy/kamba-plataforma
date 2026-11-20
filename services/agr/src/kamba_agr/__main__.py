@@ -81,6 +81,7 @@ from .handoff.servico import ServicoDeHandoff
 from .concierge.substituicao import Substituidor
 from .handoff.retoma import Retomador
 from .orcamento.porta import PortaDeOrcamento
+from .eventos.pela_resposta import NotificacaoPelaResposta
 from .saida import SaidaPorEvento
 from .metricas import METRICAS
 from .ligacao import (
@@ -734,9 +735,12 @@ def main() -> int:
         # com nome proprio porque escreve.
         "accoes_do_dono": PortaDeConfirmacao(ligar_para_accoes),
         # KAM-123: o envio da proposta de orcamento depois do botao, pela mesma
-        # ligacao das accoes (escreve). O Outbound e o `OutboundPorLigar` por
-        # omissao: hoje a proposta nao sai e o dono e avisado.
-        "orcamentos": PortaDeOrcamento(ligar_para_accoes),
+        # ligacao das accoes (escreve). KAM-221: a proposta sai pela resposta do
+        # KAM-224 (`agent_replies` e `agent.replied`), numa ligacao da saida;
+        # com a janela fechada ainda nada sai, ate a revisao do `template_nome`.
+        "orcamentos": PortaDeOrcamento(
+            ligar_para_accoes, saida=NotificacaoPelaResposta(ligar_para_saida)
+        ),
         # O limiar do `retrieve` e o do pontuador que o `search_catalog` usa.
         # Ligado o indice real (KAM-061), e o `LIMIAR_DO_RRF` de `tls/idx.py`, e
         # nao o `LIMIAR_IDX` do duplo — que comparado com um RRF mandava toda a
@@ -846,6 +850,9 @@ def main() -> int:
         # pendente. Esta ligado **agora** — nao depende do AgentRegistry, porque
         # o gatilho esta no `Palavra.do_humano` e nao no grafo.
         substituir_rascunhos=substituidor_de_rascunhos.substituir,
+        # KAM-221, criterio 2: a mensagem de um cliente liberta as propostas
+        # dele em `aguarda_janela`, pela mesma porta do envio.
+        ao_cliente_escrever=portas_do_grafo["orcamentos"].libertar,
     )
     aplicacao = create_app(
         rotas_internas=[

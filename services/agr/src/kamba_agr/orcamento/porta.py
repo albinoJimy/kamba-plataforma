@@ -9,11 +9,18 @@ por si).
 O Outbound visto daqui e a `PortaDeNotificacao` do KAM-038, e nao a
 `PortaDeSaida` do grafo: a proposta vai a **outra** conversa (a do cliente), e
 pode encontrar a janela fechada — que e o caso do *template*. Por omissao e o
-`OutboundPorLigar`, que devolve `sem_template`: hoje nada sai, e o dono e
-avisado de que a proposta nao seguiu (credor do Outbound no bloco).
+`OutboundPorLigar`, que devolve `sem_template`; no processo e a
+`NotificacaoPelaResposta` (KAM-221), que grava a proposta na `agent_replies` do
+KAM-224 e emite o `agent.replied` com a janela aberta, e com ela fechada ainda
+nao envia nada (o *template* espera pela revisao do `template_nome`).
 
 Uma ligacao por envio, aberta e fechada aqui, pela razao da
 `PortaDeConfirmacao`: e raro, e uma tomada guardada pedia um trinco para nada.
+
+**A libertacao da janela tambem passa aqui** (KAM-221): o `libertar` e o
+`ao_cliente_escrever` do `ExecutorDeTurnos`, e corre em cada mensagem de um
+cliente. Uma ligacao por mensagem, como o `leitor_de_contacto` do
+`conversa.py` faz para a leitura do contacto.
 """
 
 from __future__ import annotations
@@ -23,12 +30,13 @@ import datetime
 from collections.abc import Callable
 from typing import Any
 
+from ..contexto import PERSONA_CLIENTE
 from ..eventos.notificacao import OutboundPorLigar
 from ..tls import orcamento as repositorio
 
 
 class PortaDeOrcamento:
-    """`enviar(tenant_id, contact_id, action_id) -> Envio`, assincrono."""
+    """`enviar(tenant_id, contact_id, action_id) -> Envio` e `libertar(invocacao)`, assincronos."""
 
     __slots__ = ("_abrir", "_saida", "_relogio")
 
@@ -90,3 +98,23 @@ class PortaDeOrcamento:
     def agora(self) -> datetime.datetime:
         """O relogio da porta, para o grafo julgar a validade com o mesmo instante."""
         return self._relogio()
+
+    # ------------------------------------------------------------ KAM-221
+
+    async def libertar(self, invocacao: Any) -> list[repositorio.Envio]:
+        """O `ao_cliente_escrever` do `ExecutorDeTurnos` (KAM-221, criterio 2).
+
+        Uma mensagem de um **cliente** abre-lhe a janela: as propostas dele em
+        `aguarda_janela` saem agora. Uma mensagem do dono (outra persona) nao
+        abre a janela de cliente nenhum, e nao se vai a base por ela.
+        """
+        if getattr(invocacao, "persona", None) != PERSONA_CLIENTE:
+            return []
+        return await asyncio.to_thread(
+            self._com_ligacao,
+            repositorio.libertar_da_janela,
+            invocacao.tenant_id,
+            invocacao.contact_id,
+            self._saida,
+            self._relogio(),
+        )

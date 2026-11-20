@@ -189,6 +189,12 @@ def sem_grafos(_invocacao: InvocacaoDoAgente) -> Grafo:
     raise GrafoNaoRegistadoError("grafo_nao_registado")
 
 
+#: Quanto o turno espera pela libertacao das propostas da janela (KAM-221,
+#: *proposta*). E o tecto de uma ida a base e de uma chamada ao Outbound; o
+#: turno do cliente nao fica preso a mais do que isto.
+PRAZO_DA_LIBERTACAO_S: float = 10.0
+
+
 @dataclass(frozen=True, slots=True)
 class DesfechoDoTurno:
     """O que aconteceu. O `desfecho` e um dos `DESFECHOS` de `metricas.py`."""
@@ -210,6 +216,7 @@ class ExecutorDeTurnos:
         admissao: Admissao | None = None,
         relogio: Callable[[], float] = time.monotonic,
         substituir_rascunhos: Callable[[str], Awaitable[int]] | None = None,
+        ao_cliente_escrever: Callable[[InvocacaoDoAgente], Awaitable[Any]] | None = None,
     ) -> None:
         self._trancas = trancas
         self._ler_palavra = ler_palavra
@@ -223,6 +230,10 @@ class ExecutorDeTurnos:
         # substituir. (E diferente do `deps.rascunho`, que com a politica activa
         # e uma configuracao errada e levanta.)
         self._substituir_rascunhos = substituir_rascunhos
+        # KAM-221, criterio 2: a mensagem de um cliente abre-lhe a janela, e as
+        # propostas de orcamento dele em `aguarda_janela` saem. `None` e um AGR
+        # sem orcamento ligado, que nao tem propostas a espera.
+        self._ao_cliente_escrever = ao_cliente_escrever
         # A chave e `(thread_id, conversation_id)` e nao o `thread_id`: ver a
         # *docstring* do modulo. A da tranca continua a ser o `thread_id`.
         self._pendentes: dict[tuple[str, str], list[Pendente]] = {}
@@ -241,6 +252,37 @@ class ExecutorDeTurnos:
             return
         try:
             await self._substituir_rascunhos(thread_id)
+        except asyncio.CancelledError:
+            raise
+        except BaseException:  # noqa: BLE001 — ver docstring
+            pass
+
+    async def _cliente_escreveu(self, invocacao: InvocacaoDoAgente) -> None:
+        """O criterio 2 do KAM-221: a janela do cliente abriu.
+
+        Corre **dentro da tranca da conversa e antes do grafo**, e as duas
+        coisas importam. A tranca serializa duas mensagens seguidas do mesmo
+        cliente, e a segunda ja encontra a proposta `enviado`; antes do grafo,
+        porque o cliente respondeu ao «o seu orcamento esta pronto, responda para
+        ver», e o valor tem de chegar antes da resposta do bot.
+
+        **Uma falha aqui nao impede o turno**, pela razao do
+        `_substituir_pendentes`: a proposta fica `aguarda_janela` e a mensagem
+        seguinte do cliente tenta outra vez, com a mesma chave; perder o turno
+        por isso era perder a mensagem do cliente.
+
+        **E tem prazo** (`PRAZO_DA_LIBERTACAO_S`, achado 5 da revisao): uma
+        base ou um Outbound pendurados prendiam o turno do cliente dentro da
+        tranca da conversa. Passado o prazo o turno segue; o trabalho que ja
+        estava a correr acaba noutro fio, e o que nao acabar fica para a
+        mensagem seguinte.
+        """
+        if self._ao_cliente_escrever is None:
+            return
+        try:
+            await asyncio.wait_for(
+                self._ao_cliente_escrever(invocacao), PRAZO_DA_LIBERTACAO_S
+            )
         except asyncio.CancelledError:
             raise
         except BaseException:  # noqa: BLE001 — ver docstring
@@ -384,8 +426,15 @@ class ExecutorDeTurnos:
                     # janela pelo tempo de uma chamada ao HND.
                     await self._substituir_pendentes(thread_id)
                     await self._reencaminhar(invocacoes)
+                    # KAM-221: **depois** do HND, e nao antes do `substituir`,
+                    # para nao alargar a janela do KAM-114. Um cliente que escreve
+                    # a um humano tambem abriu a janela.
+                    await self._cliente_escreveu(primeira)
                     desfecho = "entregue_ao_hnd"
                 else:
+                    # KAM-221: antes do grafo, para o valor chegar antes da
+                    # resposta do bot.
+                    await self._cliente_escreveu(primeira)
                     estado = estado_inicial(primeira)
                     try:
                         # A porta do processo e `async` (KAM-186): le o

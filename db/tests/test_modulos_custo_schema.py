@@ -473,6 +473,29 @@ class TestConsolidacao(_ComTransaccao):
         self._consolidar()
         self.assertEqual(len(self.linhas(self.tenant)), 4)
 
+    def test_o_template_do_orcamento_entra_na_rubrica_mensagem_como_marketing(self) -> None:
+        """KAM-221, criterio 4: pelo mapa **do repositorio**, e no pior caso.
+
+        A categoria `utility` do `orcamento_pronto` e NAO VERIFICADA; se a Meta o
+        cobrar como `marketing`, e a 0,0225 USD que ele entra, no modulo
+        `orcamento`, e nao no custo do *tenant* sem modulo.
+        """
+        sys.path.insert(0, str(_RAIZ / "tools"))
+        import kamba_yaml
+
+        documento = kamba_yaml.load((_RAIZ / "config" / "templates_por_modulo.yaml").read_text(encoding="utf-8"))
+        templates, modulos = h12.mapa_de_templates(documento)
+        self._mensagem("orcamento_pronto", "marketing")
+        self._mensagem("orcamento_em_espera", "utility")
+        self.como("kamba_batch")
+        self.cursor.execute(modulos_custo.SQL_CONSOLIDAR_MENSAGEM, (templates, modulos, "913"))
+        self.cursor.fetchall()
+        self.como("admin")
+        self.assertEqual(
+            sorted((m, r, c) for m, r, c, _, _, _ in self.linhas(self.tenant)),
+            [("orcamento", "mensagem", Decimal("0.004000")), ("orcamento", "mensagem", Decimal("0.022500"))],
+        )
+
     def test_um_custo_ja_consolidado_que_hoje_daria_outro_nao_trava_a_corrida(self) -> None:
         """Achado 1 da revisao adversarial: uma tarifa revista ou um *template*
         remapeado faziam a funcao levantar `23514` em todas as corridas.
@@ -500,7 +523,8 @@ class TestConsolidacao(_ComTransaccao):
         self.como("admin")
         self.assertEqual(codigo, h12.SAIDA_OK)
         self.assertGreaterEqual(dados["gravadas"]["imagem"], 1)
-        self.assertEqual(dados["gravadas"]["mensagem"], 0)  # o mapa do repositorio esta vazio
+        # O mapa do repositorio so tem os dois do orcamento, e o ensaio nao os envia.
+        self.assertEqual(dados["gravadas"]["mensagem"], 0)
         self.assertEqual(len(self.linhas(self.tenant)), 1)
 
 
