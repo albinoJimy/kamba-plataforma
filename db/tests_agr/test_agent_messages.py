@@ -157,3 +157,88 @@ class TestOsPrivilegios(ComMensagens):
                 self.assertEqual(sqlstate(erro.exception), VIOLACAO_DE_CHECK)
         # O tecto, exacto, entra.
         self.assertIsNotNone(self.gravar(texto="x" * 4096))
+
+
+class TestAMensagemDoWhatsApp(ComMensagens):
+    """KAM-232: o CHR grava a mensagem `text` do WhatsApp com um `message_id`
+    deterministico, e a reentrega nao grava segunda linha (revisao `0083`, so o
+    `GRANT INSERT (message_id)` ao `kamba_app`). O identificador aqui e fixo e
+    nao o do `messageIdDe`: o que se mede e a base, e o calculo e do
+    `chr.mensagem.test.ts`."""
+
+    INSERIR = (
+        "INSERT INTO platform.agent_messages "
+        "(message_id, tenant_id, contact_id, conversation_id, canal, texto) "
+        "VALUES (%s, %s, %s, %s, 'whatsapp', %s) ON CONFLICT (message_id) DO NOTHING"
+    )
+    MESSAGE_ID = "3b6879d6-7c2a-882f-9fe1-0d7bac5ff1e0"
+
+    def inserir_como_app(self, conversa, texto: str, message_id: str | None = None) -> int:
+        app = self.ligar("app")
+        with tenant_guard.tx(app, conversa.tenant_id) as cursor:
+            cursor.execute(
+                self.INSERIR,
+                (
+                    message_id or self.MESSAGE_ID,
+                    conversa.tenant_id,
+                    conversa.contact_id,
+                    conversa.conversation_id,
+                    texto,
+                ),
+            )
+            return cursor.rowcount
+
+    def do_whatsapp(self, conversa, **sobrepor) -> InvocacaoDoAgente:
+        return self.invocacao(
+            self.MESSAGE_ID,
+            conversa=conversa,
+            wamid="wamid.HBgLOTk5LkVOU0FJTw",
+            persona="cliente",
+            **sobrepor,
+        )
+
+    def test_a_reentrega_tres_vezes_grava_uma_linha(self) -> None:
+        cliente = self.criar_conversa()
+        inseridas = [self.inserir_como_app(cliente, "o meu cartao e 4111111111111111") for _ in range(3)]
+        self.assertEqual(inseridas, [1, 0, 0])
+        self.semente.execute(
+            "SELECT count(*), min(canal) FROM platform.agent_messages WHERE message_id = %s",
+            (self.MESSAGE_ID,),
+        )
+        self.assertEqual(self.semente.fetchone(), (1, "whatsapp"))
+
+    def test_le_se_na_sua_conversa_com_a_persona_do_cliente(self) -> None:
+        cliente = self.criar_conversa()
+        self.inserir_como_app(cliente, "tem a camisa azul?")
+        lida = self.ler(self.do_whatsapp(cliente))
+        self.assertEqual((lida.texto, lida.canal), ("tem a camisa azul?", "whatsapp"))
+
+    def test_um_message_id_de_outra_conversa_nao_se_le(self) -> None:
+        """O adversarial do bloco: o `message_id` de uma conversa na invocacao de
+        outra — a de outro tenant inteira, ou a deste com outro contacto ou
+        outra conversa. A mesma linha le-se na sua (controlo)."""
+        cliente = self.criar_conversa()
+        self.inserir_como_app(cliente, "so desta conversa")
+        alheia = self.criar_conversa()
+        self.assertIsNone(self.ler(self.do_whatsapp(alheia)))
+        for campo, valor in (
+            ("contact_id", alheia.contact_id),
+            ("conversation_id", alheia.conversation_id),
+        ):
+            with self.subTest(campo=campo):
+                self.assertIsNone(self.ler(self.do_whatsapp(cliente, **{campo: valor})))
+        self.assertEqual(self.ler(self.do_whatsapp(cliente)).texto, "so desta conversa")
+
+    def test_o_kamba_app_continua_sem_mudar_nem_apagar_a_linha_do_whatsapp(self) -> None:
+        cliente = self.criar_conversa()
+        self.inserir_como_app(cliente, "ola")
+        for instrucao in (
+            "UPDATE platform.agent_messages SET texto = 'outro' WHERE message_id = %s",
+            "DELETE FROM platform.agent_messages WHERE message_id = %s",
+        ):
+            with self.subTest(instrucao=instrucao.split()[0]):
+                app = self.ligar("app")
+                with self.assertRaises(Exception) as erro:
+                    with tenant_guard.tx(app, cliente.tenant_id) as cursor:
+                        cursor.execute(instrucao, (self.MESSAGE_ID,))
+                self.assertEqual(sqlstate(erro.exception), PRIVILEGIO_INSUFICIENTE)

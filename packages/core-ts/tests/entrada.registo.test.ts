@@ -23,9 +23,15 @@ import { describe, it } from "node:test";
 
 import { ESCADA_DO_CONSUMIDOR } from "../src/eventos/consumo.ts";
 import { REPETICAO } from "../src/eventos/filas.ts";
+import {
+  MANTER_CONCLUIDOS,
+  MANTER_FALHADOS,
+  PRAZO_POR_FILA,
+  retencaoDoJob,
+} from "../src/eventos/filas_bullmq.ts";
 import { sha256Hex } from "../src/entrada/assinatura.ts";
 import { AJUSTES_DO_TRABALHADOR } from "../src/entrada/trabalhador.ts";
-import type { TrabalhoDeEntrada } from "../src/entrada/contrato.ts";
+import { FILA_ENTRADA, PRAZO_DO_CORPO_S, type TrabalhoDeEntrada } from "../src/entrada/contrato.ts";
 import type { EventoDeEntrada } from "../src/entrada/explosao.ts";
 import {
   EVENTOS_MAXIMOS_POR_CORPO,
@@ -624,5 +630,36 @@ describe("os ajustes do trabalhador de entrada", () => {
     // degrau por retentativa. Os dois numeros vivem em ficheiros diferentes, e
     // e esta asercao que os prende.
     assert.equal(REPETICAO.tentativas, ESCADA_DO_CONSUMIDOR.length + 1);
+  });
+});
+
+// --- O prazo do corpo na `wa-inbound` (KAM-232) ------------------------------
+//
+// Decisao do fundador de 2026-11-20 (opcao B): o corpo de um job da
+// `wa-inbound` e o webhook bruto, com o texto do cliente, e fica no Redis no
+// maximo 24 h depois de acabar. A medicao contra um Redis a correr esta no bloco
+// do KAM-232; aqui prende-se o que o `addLote` pede ao BullMQ.
+
+describe("KAM-232 — o prazo do corpo da `wa-inbound`", () => {
+  it("e de 24 h, em segundos", () => {
+    assert.equal(PRAZO_DO_CORPO_S, 86_400);
+    assert.equal(FILA_ENTRADA, "wa-inbound");
+  });
+
+  it("a `wa-inbound` pede a contagem e o prazo, nos concluidos e nos falhados", () => {
+    assert.deepEqual(retencaoDoJob(FILA_ENTRADA), {
+      removeOnComplete: { count: MANTER_CONCLUIDOS, age: PRAZO_DO_CORPO_S },
+      removeOnFail: { count: MANTER_FALHADOS, age: PRAZO_DO_CORPO_S },
+    });
+  });
+
+  it("as outras filas ficam como estavam: so a contagem", () => {
+    for (const fila of ["agr-inbound", "evt.vendedor.p0", "outbound"]) {
+      assert.deepEqual(retencaoDoJob(fila), {
+        removeOnComplete: { count: MANTER_CONCLUIDOS },
+        removeOnFail: { count: MANTER_FALHADOS },
+      });
+    }
+    assert.deepEqual(Object.keys(PRAZO_POR_FILA), [FILA_ENTRADA]);
   });
 });

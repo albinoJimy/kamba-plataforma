@@ -208,8 +208,8 @@ def _agora() -> datetime.datetime:
 #: Posto pelo `ExecutorDeTurnos` com o `canal` da **ultima** mensagem que leu
 #: da `platform.agent_messages` no lote, e reposto no fim do turno, como o
 #: `INICIO_DO_TURNO`. Os nos herdam-no, e o `canal_do_turno` le-o. Um turno sem
-#: mensagem lida (o do WhatsApp de hoje, que nao traz `message_id`) deixa-o a
-#: `None`, e a resposta sai pelo WhatsApp.
+#: mensagem lida (uma mensagem do WhatsApp que nao e `text`, que nao traz
+#: `message_id`) deixa-o a `None`, e a resposta sai pelo WhatsApp.
 CANAL_DO_TURNO: contextvars.ContextVar[str | None] = contextvars.ContextVar(
     "kamba_agr_canal_do_turno", default=None
 )

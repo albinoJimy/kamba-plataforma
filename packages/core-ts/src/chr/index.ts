@@ -46,6 +46,7 @@ export {
   SQL_CANAL,
   SQL_CONVERSAS_A_FUNDIR,
   SQL_DOBRAR_CONVERSA,
+  SQL_GRAVAR_MENSAGEM_DO_WHATSAPP,
   SQL_GUARDA_FLUXO_B,
   SQL_REPONTAR_CONVERSA,
   SQL_VISIBILIDADE,
@@ -104,7 +105,13 @@ export {
 } from "./eventos.ts";
 export type { EventoDeFusao } from "./eventos.ts";
 
-export { InvocacaoIncompletaError, jobIdDe, montarInvocacao } from "./invocacao.ts";
+export {
+  DOMINIO_DO_MESSAGE_ID,
+  InvocacaoIncompletaError,
+  jobIdDe,
+  messageIdDe,
+  montarInvocacao,
+} from "./invocacao.ts";
 
 // A fila do AGR **nao** se re-exporta aqui: importa o `bullmq`, e quem so
 // precisa da decisao (os testes unitarios, a suite de isolamento) nao deve

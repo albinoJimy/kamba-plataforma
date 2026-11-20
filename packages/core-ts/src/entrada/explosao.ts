@@ -57,6 +57,12 @@ import {
 export const EVENT_KEY_MAXIMO = 256;
 /** Tecto dos identificadores da Meta. O mesmo do `CHECK` da revisão `0008`. */
 export const ID_META_MAXIMO = 64;
+/**
+ * Tecto do texto de uma mensagem `text` (KAM-232). O de um texto da Cloud API,
+ * e o `CHECK` `agent_messages_texto_ck` da revisão `0077`: um texto acima dele
+ * não entra na fonte persistida, e a mensagem segue sem texto, como até aqui.
+ */
+export const TEXTO_MAXIMO = 4096;
 
 /**
  * Até que profundidade o resumo canónico desce.
@@ -150,6 +156,17 @@ export interface EventoDeEntrada {
    * é texto que o cliente vê, e o `id` é o que nós emitimos.
    */
   readonly botao?: string;
+  /**
+   * O `text.body` de uma `message` de `waType` `text`, aparado, com 1 a
+   * `TEXTO_MAXIMO` caracteres (KAM-232). **Ausente** em tudo o resto.
+   *
+   * Vai ao CHR, que o grava na fonte persistida (`platform.agent_messages`) e
+   * passa ao AGR só o identificador: o `agent_invocation` nunca leva o corpo
+   * (KAM-186; decisão 1 do fundador de 2026-11-19, bloco do KAM-217). **Nunca
+   * vai ao registo, à quarentena nem a uma métrica** — o texto do cliente pode
+   * trazer um PAN, e a redacção é uma só, no AGR, antes da janela.
+   */
+  readonly texto?: string;
 }
 
 /** Um evento que não se conseguiu encaminhar, a registar em `unrouted_events`. */
@@ -208,6 +225,17 @@ export function resumoCanonico(...partes: readonly unknown[]): string {
   const texto = canonico(partes);
   const resumo = createHash("sha256").update(texto, "utf8").digest("hex");
   return `${PREFIXO_DO_RESUMO}${resumo.slice(0, 32)}`;
+}
+
+/**
+ * O `text.body` de uma mensagem `text`, aparado, ou `null` (KAM-232). O tipo é
+ * que manda: um `text` colado a uma mensagem de outro tipo não conta.
+ */
+function textoDaMensagem(mensagem: Record<string, unknown>): string | null {
+  if (mensagem.type !== "text") return null;
+  const corpo = objecto(mensagem.text)?.body;
+  if (typeof corpo !== "string") return null;
+  return texto(corpo.trim(), TEXTO_MAXIMO);
 }
 
 /** O texto, se for texto não vazio dentro do tecto; senão `null`. */
@@ -420,6 +448,7 @@ function explodirMensagens(
     if (mensagem === null) continue;
     const wamid = texto(mensagem.id, EVENT_KEY_MAXIMO);
     const botao = botaoDaResposta(mensagem);
+    const corpo = textoDaMensagem(mensagem);
     eventos.push({
       kind: "message",
       eventKey: wamid ?? resumoCanonico("message", wabaId, mensagem),
@@ -435,6 +464,7 @@ function explodirMensagens(
         telefone: texto(mensagem.from, ID_META_MAXIMO),
       },
       ...(botao === null ? {} : { botao }),
+      ...(corpo === null ? {} : { texto: corpo }),
     });
     quantos += 1;
   }
