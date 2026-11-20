@@ -3999,7 +3999,7 @@ contactos pelo cofre em [`cofre.py`](../libs/py-core/src/kamba_core/offboarding/
 montado pelo `portasDoOffboarding` do
 [`../services/onboarding-web/src/lote/processo.ts`](../services/onboarding-web/src/lote/processo.ts); a
 revogação da chave em [`../infra/llm/chaves.py`](../infra/llm/chaves.py); o *runbook* do processo no
-[`../docs/offboarding.md`](../docs/offboarding.md) §7. **Sem esquema novo**; a emenda **1.126** do
+[`../docs/offboarding.md`](../docs/offboarding.md) §7. **Sem esquema novo**; a emenda **1.127** do
 dicionário regista os nomes novos no §3.77.
 
 **Quatro decisões de desenho que os critérios não escreviam, e a razão de cada uma.**
