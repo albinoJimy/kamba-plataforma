@@ -4,7 +4,7 @@
 |---|---|
 | Produto | KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para Angola |
 | Documento | Epic — Módulos de Entrada |
-| Versão | 1.15 |
+| Versão | 1.16 |
 | Data | Novembro de 2026 |
 | Classificação | Documento de Referência — Interno |
 | Documento-fonte | `../docs/tecnica/00_Arquitectura_Solucao.md` (ADR-020, §13.3 D13), `../docs/tecnica/02_Agent_Runtime_Verticais.md` (§21), `../docs/exploracao/14-tese-minima-e-plano-de-validacao.md` (H10–H12) |
@@ -66,6 +66,7 @@ Estado da evidência (E5): **CONFIRMADO** — preços e termos publicados dos fo
 | KAM-226 | Orçamento expresso: o aviso proactivo ao dono e o botão «Aceito» na proposta | feature | S | P2 | KAM-220, KAM-221, KAM-224 |
 | KAM-227 | Saída do AGR em produção: a credencial da Meta por canal, o destinatário e o consumidor `outbound` no compose | feature | L | P1 | KAM-224 |
 | KAM-228 | Orçamento expresso: a porta do *screening* no `submit_quote` e o classificador nos *compose* | feature | S | P2 | KAM-222 |
+| KAM-232 | O id da oferta do orçamento expresso leva dígitos que a guarda de entrada redige, e o ensaio das cem frases avermelha o *gate* 4 ao acaso | fix | S | P1 | KAM-220 |
 
 ---
 
@@ -1812,7 +1813,7 @@ Uma revisão independente recebeu o diff e os requisitos, e não o raciocínio d
 | Prioridade | P1 |
 | Estimativa | M |
 | Dependências | KAM-123 |
-| Bloqueia | KAM-226 |
+| Bloqueia | KAM-226, KAM-232 |
 | Responsável sugerido | Engenheiro de Runtime/IA (AGR, TLS) com Engenheiro do painel (onboarding-web) |
 | Documentos de referência | `EPIC-11_Modulos_Entrada.md` (bloco KAM-123, critérios 1, 2, 3, 6 e 9), `02_Dicionario_de_Dados_Canonico.md` (§3.79), `../docs/tecnica/02_Agent_Runtime_Verticais.md` (§6.2, §9, §21.3) |
 
@@ -2242,6 +2243,106 @@ Testes: integração e adversarial.
 
 ---
 
+## KAM-232 — O id da oferta do orçamento expresso leva dígitos que a guarda de entrada redige, e o ensaio das cem frases avermelha o *gate* 4 ao acaso
+
+| Campo | Valor |
+|---|---|
+| Epic | EPIC-11 — Módulos de Entrada |
+| Fase | 1 |
+| Tipo | fix |
+| Prioridade | P1 |
+| Estimativa | S |
+| Dependências | KAM-220 |
+| Bloqueia | — |
+| Responsável sugerido | Engenheiro de Runtime/IA, com o dono do gate 4 |
+| Documentos de referência | `../services/agr/src/kamba_agr/verticais/vendedor/nos.py` (`_id_da_oferta`), `../services/agr/src/kamba_agr/guardas/regras.py` e `../services/agr/src/kamba_agr/guardas/entrada.py`, `../services/agr/tests/test_orcamento_grafos.py`, bloco KAM-220 |
+
+### Contexto
+
+**O `test_cem_pedidos_de_conta_dao_zero_numeros_calculados` do KAM-220 avermelhava o *gate* 4 de PRs alheios.** O #232 falhou duas vezes seguidas, e na `main` falhava cerca de uma corrida em quatro. Reproduz-se em processo, sem contentor, sobre a `publico/main` em `242e225c`: as cem frases do ensaio, em ciclo, deram **6 falhas em 25 rodadas**.
+
+**A causa é o id da oferta, e não o ensaio.** O `_id_da_oferta` devolvia `"orc-" + sha256(…).hexdigest()[:24]`. De vez em quando o hexadecimal tem uma corrida de treze ou mais dígitos que passa o Luhn, ou começa com duas letras e dois dígitos e passa o *mod 97* de um IBAN. Os ensaios põem o toque na janela `messages`, e o `guard_in` redige-a pelo `texto_seguro`. O botão chegava então como `confirm:orc-77ad6c[cartao removido]e`, não citava a oferta, e dava `STALE_CONFIRMATION`. O pedido ao dono nunca abria.
+
+**Em produção, este caminho está fechado hoje.** O botão chega pelo `agent_invocation.botao` (KAM-211), o `estado_inicial` põe-no no estado e não na janela, e o `_botao_do_turno` lê-o primeiro. O `guard_in` só redige a janela, e em produção ela nasce vazia (KAM-186). O que falha é a segunda leitura do `_botao_do_turno`, a da janela, que é a dos ensaios. O id da oferta é o único id **aleatório** que passa por ela nos ensaios. Os outros ids de botão são deterministas nos duplos.
+
+**Os ids de botão e a guarda, medidos em duzentas mil amostras** do `texto_seguro` sobre `confirm:{id}`:
+
+| Id | Forma | Sai mudado | Por |
+|---|---|---|---|
+| a oferta, antes | `orc-` e 24 hexadecimais | 1 em 593 | PAN 228, IBAN 109 |
+| a oferta, só com consoantes depois de `orc-` | `orc-` e 24 consoantes | 1 em 28 571 | o `lgbt` do léxico sensível |
+| a oferta, agora | `orc_` e 24 consoantes | 0 em 600 000 | — |
+| o `cart_id` (COM) | 26 de Crockford base32 | 1 em 1 869 | IBAN |
+| um `uuid4` (o `action_id` do `confirm:{action_id}`, o `hold_id`) | 8-4-4-4-12 hexadecimais | 1 em 305 | IBAN 371, PAN 283 |
+| o `slot_id` (COM), aproximado | 168 de base64url aleatório, `.` e 22 | 18 em 100 000 | IBAN 15, léxico sensível 3 |
+
+O hífen do `uuid` é separador no `_SEPARADOR`, e por isso um PAN atravessa os grupos. O `slot_id` real tem o corpo em JSON e não aleatório, pelo que a linha dele é só uma ordem de grandeza.
+
+### Objectivo
+
+O toque numa oferta abre o pedido ao dono para qualquer id, e o ensaio das cem frases dá o mesmo resultado em todas as corridas.
+
+### Critérios de Aceitação
+
+- [x] 1. A falha reproduz-se na `publico/main`, e a causa fica nomeada com o mecanismo e com um id que a guarda redige.
+- [x] 2. O id da oferta não tem dígitos nem fronteira de palavra depois do `orc`. Nenhuma regra da guarda de entrada o muda, nem o PAN, nem o IBAN, nem o BI, nem o léxico sensível.
+- [x] 3. Um ensaio determinista, com dois pares (tenant, contacto) cujo id antigo a guarda redigia, um por PAN e outro por IBAN, falha com a correcção revertida e passa com ela.
+- [x] 4. A guarda de entrada não muda. O texto livre do cliente continua a ser redigido como antes.
+- [x] 5. A suite `services/agr/tests` fica verde.
+
+### Detalhes Técnicos
+
+- **Onde.** `_id_da_oferta`, em `../services/agr/src/kamba_agr/verticais/vendedor/nos.py`: os mesmos 24 hexadecimais do `sha256`, traduzidos para dezasseis consoantes (`bcdfghjklmnpqrst`), colados a `orc_`. São os mesmos 96 bits. É o caminho que o `regras.referencia_interna` do KAM-123 já tinha tomado para a referência `ORC-…`, que o dono escreve.
+- **Porque não a guarda.** A outra saída era a guarda não redigir o id de um botão do sistema. Mas isso afrouxava uma barreira que existe para o texto livre do cliente. Um turno `interactive` só traz o nosso id na janela enquanto ninguém lá puser mais nada. E a impressão da política mudava, com o *golden* atrás dela. Mudar a forma do id fecha a classe para este id sem tocar na guarda.
+- **Porque `orc_` e não `orc-`.** O hífen abre uma fronteira de palavra antes das letras. Com consoantes depois de `orc-`, o `\blgbt\w*` do léxico sensível casava uma vez em ~28 mil, e o toque saía como `[assunto sensivel removido]`. O `_` conta como letra para o `\b`, e por isso a única fronteira que sobra é antes do `orc`. Só uma palavra do léxico começada por `orc` casaria.
+- **Compatibilidade.** O toque compara o botão com a oferta guardada no *checkpoint*, e não a recalcula. Uma oferta antiga, se a houver, continua a valer até expirar. O `oferta` do `request_quote` aceita até 64 caracteres, e o novo id tem 28.
+- **O que não se faz:** não se afrouxa a guarda, não se marca o ensaio como instável, e não se troca o arnês `_Conversa` para pôr o toque no `botao`. Isso escondia o defeito sem o fechar.
+- **O que fica, sem credor de produção.** O `cart_id`, os `uuid` e o `slot_id` continuam expostos à mesma redacção se alguém os puser na janela. Hoje ninguém o faz em produção, e nos ensaios os duplos dão-lhes formas fixas. O `action_id` é a chave da `owner_actions`, e o `cart_id` e o `slot_id` são do COM. Mudar-lhes a forma é outro ticket.
+
+### Testes Requeridos
+
+- Unidade: `test_o_toque_numa_oferta_que_a_guarda_redigia_pede`, com os dois pares fixos. O canário de cada um calcula o id antigo no próprio ensaio, sem passar pelo `_id_da_oferta`, e confirma que a guarda o redige.
+- Unidade: `test_o_id_da_oferta_e_uma_palavra_sem_digitos_e_passa_a_guarda`, com o caso do `lgbt` e duas mil ofertas deterministas.
+- Repetição: as cem frases em ciclo, antes e depois.
+- Suite: `services/agr/tests` inteira.
+
+### Definition of Done
+
+- [x] Critérios de Aceitação satisfeitos, com a verificação escrita neste bloco.
+- [x] Nenhuma asserção afrouxada, e a guarda de entrada intacta.
+- [x] Documentação actualizada (este bloco, o `INDICE.md` e as contagens); sem migração.
+
+### Verificação dos Critérios de Aceitação
+
+Ramo `feature/KAM-232-id-da-oferta-sem-digitos`, base `242e225c` (`publico/main`). Python 3.13 do Windows, com o `PYTHONPATH` em `tools`, `libs/py-core/src`, `services/agr/src` e `services/agr/tests`, separado por `;`.
+
+| # | Critério | Estado | O que se mediu, e com que comando |
+|---|---|---|---|
+| 1 | Reprodução e causa | satisfeito | O ensaio em ciclo, em processo, com `unittest.TextTestRunner`: **6 falhas em 25** na base. A procura de pares fixos deu `orc-77ad6c52844792157208318e` (PAN, `confirm:orc-77ad6c[cartao removido]e`) e `orc-bc445d64ba68de667b242014` (IBAN, `confirm:orc-[conta removida]`) |
+| 2 | Sem dígitos nem fronteira | satisfeito | O `texto_seguro` sobre `confirm:{id}`, com o id do `_id_da_oferta` corrigido e `thread_id` aleatórios: **0 mudados em 600 000** |
+| 3 | O ensaio morde | satisfeito | Com o `return` do `_id_da_oferta` reposto à forma antiga, os dois ensaios novos dão **3 falhas**: `[] != ['orc-77ad6c52844792157208318e']`, `[] != ['orc-bc445d64ba68de667b242014']` e a forma. Com a correcção, passam |
+| 4 | A guarda intacta | satisfeito | `git diff --stat publico/main -- services/agr/src/kamba_agr/guardas` sai vazio |
+| 5 | Suite verde | satisfeito | `python -m unittest discover -s services/agr/tests -t services/agr/tests`, no ramo: **Ran 1952 OK**. As cem frases em ciclo, depois da correcção: **0 falhas em 30** rodadas |
+
+**Portões, medidos nesta árvore.** *Gate* 3: `lint_refs`, `lint_handoff` e `lint_contagens` dão 0. *Gate* 3b: o `dict_export --check`, o `canon_lint check` e o `canon_lint canario` dão 0. O `lint_bloco check` dá 0 achados, com 157 emparelhados e o piso em 78. **O *gate* 3c dá 1, e é o buraco:** o TOTAL do §3.1 cobre o 229, o 230 e o 231, que estão em PRs por fundir. Pela mesma razão, no *gate* 4, falham o `test_o_check_passa_sobre_o_conjunto` do `lint_backlog` e o `test_kam_cobre_o_backlog_inteiro_sem_buracos` do `lint_refs`. Fecham quando o número se renumerar na integração. As mutações do `db/mutacoes.py` não tocam no `_id_da_oferta`.
+
+### Handoff para Claude Code
+
+```text
+És o executor do ticket KAM-232 da KAMBÁ (um ensaio intermitente do gate 4).
+Lê specs/EPIC-11_Modulos_Entrada.md (blocos KAM-220 e KAM-232), o _id_da_oferta em
+services/agr/src/kamba_agr/verticais/vendedor/nos.py, a guarda de entrada em
+services/agr/src/kamba_agr/guardas/ e o ensaio das cem frases em
+services/agr/tests/test_orcamento_grafos.py.
+Objectivo: o toque numa oferta abre o pedido ao dono para qualquer id, e o ensaio das
+cem frases dá o mesmo resultado em todas as corridas.
+Regras: reproduz antes de corrigir; a guarda de entrada não muda; nenhuma asserção afrouxada.
+Testes: os dois ensaios deterministas, as cem frases em ciclo, e a suite services/agr/tests.
+```
+
+
+---
+
 ## Riscos do Epic e itens NÃO VERIFICADOS
 
 | Risco / item | Estado | Impacto | Mitigação / critério de saída | Decisão |
@@ -2296,3 +2397,4 @@ Testes: integração e adversarial.
 | 1.13 | Novembro 2026 | **KAM-220 entregue em parte: o Orçamento expresso nos grafos.** Sem migração. Emenda 1.118 do dicionário, provisória. Bloco do KAM-220: a decisão do fundador de 2026-11-19 (opção C: o botão do cliente no pedido, a dispensa fechada do passo 4 na resposta do dono), as decisões do executor e a verificação (**três de cinco** critérios marcados; o texto do dono no processo fica com o **KAM-223**). As caixas 1, 2, 3, 6, 9 e 10 do KAM-123 revistas, e o 1, o 6 e o 10 marcados: seis de dez. **KAM-226** acrescentado, aberto neste PR com o número a seguir ao maior da `main`: o aviso proactivo ao dono e o botão «Aceito» na proposta (o bloco, a linha do §3 e o `Bloqueia` do KAM-220). | Equipa KAMBÁ |
 | 1.14 | Novembro 2026 | **KAM-224 entregue em parte: a saída do AGR pelo evento de resposta.** Revisão `0073` (provisória, sobre a `0072` do KAM-123), emenda 1.119 do dicionário (§3.80 e §3.5), escrita como 1.118 e renumerada na integração, depois do KAM-220. Bloco do KAM-224: as decisões do executor (o texto na `agent_replies` e o evento com o identificador; a idempotência pela tabela; a transacção do `send`; o agregado `conversation`; os títulos dos botões no AGR; o início do turno num `ContextVar`; o `Saida` numa ligação própria; o consumidor `painel` no processo de lote), **a decisão do fundador de 2026-11-19** (a opção B, com a excepção estreita no `lint_arch` do *gate* 2, e o critério 1 reescrito), a verificação dos critérios (**dois de quatro** marcados) e do DoD (**um de dois**), e a revisão adversarial. O que fica tem credor novo, aberto neste PR com o número a seguir ao KAM-226 da `main` (aberto como KAM-226 e renumerado na integração, depois do KAM-220): a credencial da Meta por canal, o destinatário de produção e o consumidor `outbound` no compose, no **KAM-227** (o bloco, a linha do §3 e o `Bloqueia` do KAM-224) | Equipa KAMBÁ |
 | 1.15 | Novembro 2026 | **KAM-222 entregue em parte: a ponte do `screen` do KAM-088 para Python.** Revisão `0074`, sobre a `0073` do KAM-224: o `sujeito_tipo` da `screening_decision` ganha `condicoes`. Emenda 1.120 do dicionário (§3.58 e §3.39), escrita como 1.118 e renumerada duas vezes na integração, depois do KAM-220 e do KAM-224; e esta linha, escrita como 1.13. Bloco do KAM-222: **duas decisões do fundador, tomadas a 2026-11-19** (o sujeito das condições na `screening_decision`, opção A; e as condições de uma loja cuja categoria não casa uma entrada `permitida`, opção A: recusam sempre), as decisões do executor (a 12.ª rota do COM, só o sujeito das condições, o `screen` por último no `conferir_condicoes`, a regra da recusa), um achado fora de âmbito com credor (o `categoria_restrita` do KAM-049, no **KAM-119**) e a verificação (**os dois critérios e as duas caixas da DoD marcados**; a montagem em produção fica com o credor). A nota do critério 4 do KAM-123 revista. **KAM-228** acrescentado, aberto neste PR com o número a seguir ao maior da `main` (escrito como KAM-227 e renumerado na integração, depois de o KAM-224 tomar o 227): a porta do `screen` no `submit_quote` e o classificador nos três *compose* (o bloco, a linha do §3 e o `Bloqueia` do KAM-222). O KAM-220 fundiu antes e não pode ser credor, e o KAM-226 não cobre o `submit_quote` | Equipa KAMBÁ |
+| 1.16 | Novembro 2026 | **KAM-232** acrescentado e entregue no mesmo PR: o `test_cem_pedidos_de_conta_dao_zero_numeros_calculados` do KAM-220 avermelhava o *gate* 4 ao acaso, cerca de uma corrida em quatro. O `_id_da_oferta` era hexadecimal, e de vez em quando levava uma corrida de dígitos que passa o Luhn, ou a forma de um IBAN; nos ensaios o toque passa pela janela, o `guard_in` redigia-o, e o pedido ao dono não abria. Passa a 24 consoantes coladas ao `orc_`, com os mesmos 96 bits, e a guarda de entrada não muda. Em produção o botão chega pelo `agent_invocation.botao`, fora da janela, e este caminho já estava fechado. O bloco mede ainda o `cart_id` e os `uuid` contra a mesma redacção. Entra no `Bloqueia` do KAM-220. **Número provisório:** o 229, o 230 e o 231 estão tomados por PRs abertos, e na integração passa ao maior da `main` mais um. | Equipa KAMBÁ |
