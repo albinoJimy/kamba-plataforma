@@ -170,6 +170,10 @@ FICHEIROS = (
     # acima para o `metering.test.ts`.
     "tests/resposta.test.ts",
     "tests_bd/resposta.bd.test.ts",
+    # KAM-227. As duas portas de producao da resposta (a credencial do canal e
+    # o destinatario) e o reenvio pela chave derivada: o de unidade pela prova
+    # por mutacao, e os da base no mesmo `resposta.bd.test.ts`.
+    "tests/resposta.producao.test.ts",
 )
 
 #: Os grupos que **tem** de aparecer na saida, um por propriedade que a suite
@@ -269,6 +273,11 @@ GRUPOS = (
     "isolamento: o tenant é o do envelope",
     "adversarial",
     "turno → evento → painel",
+    # KAM-227, dos mesmos dois ficheiros e do `tests/resposta.producao.test.ts`.
+    "no máximo uma vez, e o reenvio uma vez (KAM-015, KAM-227)",
+    "as portas de produção (KAM-227)",
+    "clienteDaGraphPorCanal (critério 1)",
+    "o destinatário de produção (critério 2)",
 )
 
 #: Testes que **tem** de ter corrido e passado, pelo nome. Lista curta, com os
@@ -491,6 +500,13 @@ TESTES_OBRIGATORIOS = (
     "o reply_id de A num envelope de B não envia nada e vai à DLQ de B",
     "**um evento com canal desconhecido vai à DLQ**, e não sai pelo WhatsApp",
     "o consumidor do painel marca a resposta uma vez, e o do WhatsApp ignora-a",
+    # KAM-227: a letra dos criterios 1, 2 e 5 e dos tres adversariais do bloco.
+    "o token do canal pelo token_ref e o BSUID pela identidade: um envio, com o token certo",
+    "**isolamento:** o token_ref de A na linha de B não abre sob B, e nada sai",
+    "**token em falta** no cofre: sem_credencial, sem linha do Outbound, e a chave fica por gastar",
+    "**destinatário sem BSUID nem telefone**: NO_RECIPIENT, e nada sai",
+    "uma linha do Outbound que ficou queued para a chave do turno reenvia uma vez, pela chave derivada",
+    "uma falha da Meta na primeira tentativa adia, e a segunda reenvia: um envio que saiu, e um só",
 )
 
 #: Os ficheiros do modulo. A cobertura mede-se em **cada um**.

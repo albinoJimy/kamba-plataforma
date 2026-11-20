@@ -27,12 +27,21 @@
  * registava e mais nada. Hoje o `KAMBA_CONSUMER` escolhe-o (`efeitoDoConsumidor`):
  *
  * - `outbound` — a resposta do AGR de canal `whatsapp` (`agent.replied`), pelo
- *   `Saida` do KAM-015 (`@kamba/core-ts/resposta`). **Não arranca sem o cliente
- *   da Meta e o destinatário**, que não têm fonte de produção neste repositório
- *   (o `tenant_channels.token_ref` sem leitor, e nenhum `ObterDestinatario`):
- *   sai com `SaidaSemPortasError` antes de levantar *workers*. O credor é o
- *   **KAM-227**. Os eventos ficam nas filas `evt.outbound.p<n>` à espera.
+ *   `Saida` do KAM-015 (`@kamba/core-ts/resposta`), com as duas portas de
+ *   produção do KAM-227 (`portasDoOutbound`): o cliente da Graph de cada canal,
+ *   pelo `token_ref` e pela `kek_token_cliente`, e o destinatário pela
+ *   identidade do KAM-008, numa terceira ligação, `kamba_identity`.
  * - qualquer outro — o esqueleto, que regista e mais nada.
+ *
+ * ## O arranque do `outbound` em `prod`, medido
+ *
+ * As portas montam-se **antes** de levantar *workers*, e cada uma recusa o que
+ * não deve servir: o `Secrets.arrancar` recusa sem a `kek_token_cliente`, e o
+ * `Identidade.arrancar` recusa, com `KAMBA_ENV=prod`, sem a KEK das DEK de
+ * contacto (`ChavesDeIdentidadeEmFaltaError`). As chaves vêm do ambiente que o
+ * lançador do cofre enche (ADR-L002): é a decisão do fundador de 2026-11-20, que
+ * fechou a contradição 2 do `docs/identidade.md` §8 e emendou o critério 9 do
+ * KAM-008. Com o cofre completo, **arranca em `prod`**.
  */
 
 import { serve } from '@hono/node-server';
@@ -57,14 +66,20 @@ import {
 import type { Efeito } from '@kamba/core-ts/eventos';
 import { FilasBullmq } from '@kamba/core-ts/eventos/filas_bullmq';
 import { criarTrabalhadores } from '@kamba/core-ts/eventos/trabalhador_bullmq';
-import type { ClienteDaMeta, ObterDestinatario } from '@kamba/core-ts/outbound';
+import { EnvKeyProvider, Identidade, type ClienteDeIdentidade } from '@kamba/core-ts/identity';
+import { REF_DA_KEK } from '@kamba/core-ts/onboarding';
+import type { ObterDestinatario } from '@kamba/core-ts/outbound';
 import {
   CONSUMIDOR_DO_OUTBOUND,
+  clienteDaGraphPorCanal,
+  destinatarioPelaIdentidade,
   efeitoDoOutbound,
   envioPeloSaida,
+  type ClienteDoCanal,
   type DesfechoDaResposta,
   type LigacaoDoEnvio,
 } from '@kamba/core-ts/resposta';
+import { EnvSecretProvider, Secrets, isAmbiente, type Ambiente } from '@kamba/core-ts/secrets';
 
 const log = instalar(SERVICE);
 
@@ -85,6 +100,16 @@ const VARIAVEL_DA_BASE = 'KAMBA_CONSUMIDOR_DB_URL';
  */
 const VARIAVEL_DA_OPERACAO = 'KAMBA_CONSUMIDOR_OPS_DB_URL';
 const VARIAVEL_DA_FILA = 'KAMBA_QUEUE_URL';
+/**
+ * A ligação da **identidade de contacto**, só do `outbound` (KAM-227).
+ *
+ * `kamba_identity` é o único papel de serviço com `SELECT` na
+ * `contact_endpoints` e na `contact_deks`: é por ela que se lê o BSUID ou o
+ * telefone de quem recebe a resposta. O consumo (`kamba_app`) não os vê.
+ */
+const VARIAVEL_DA_IDENTIDADE = 'KAMBA_CONSUMIDOR_IDENTITY_DB_URL';
+/** O ambiente do cofre e das chaves de identidade. Sem omissão para o `outbound`. */
+const VARIAVEL_DO_AMBIENTE = 'KAMBA_ENV';
 const VARIAVEL_DO_CONSUMER = 'KAMBA_CONSUMER';
 const VARIAVEL_DA_PORTA = 'CONSUMIDOR_PORT';
 
@@ -125,7 +150,9 @@ export class ArranqueRecusadoError extends Error {
  *
  * Arrancar sem eles era consumir as respostas e recusá-las todas — ou pior,
  * enviá-las sem destinatário. Sai antes de levantar *workers*, e os eventos
- * esperam nas filas (KAM-224; credor das duas portas: KAM-227).
+ * esperam nas filas (KAM-224). Desde o KAM-227 o processo monta as duas de
+ * produção (`portasDoOutbound`), e esta recusa fica como a guarda da ligação:
+ * um `outbound` montado sem elas não chega a consumir.
  */
 export class SaidaSemPortasError extends Error {
   readonly emFalta: readonly string[];
@@ -133,16 +160,16 @@ export class SaidaSemPortasError extends Error {
   constructor(emFalta: readonly string[]) {
     super(
       `o consumidor ${CONSUMIDOR_DO_OUTBOUND} precisa de ${emFalta.join(' e ')}: ` +
-        'sem eles nenhuma resposta do AGR sai pelo WhatsApp (credor KAM-227)',
+        'sem eles nenhuma resposta do AGR sai pelo WhatsApp (as de producao: portasDoOutbound, KAM-227)',
     );
     this.name = 'SaidaSemPortasError';
     this.emFalta = emFalta;
   }
 }
 
-/** As portas que o `outbound` precisa e que o processo ainda não tem. */
+/** As portas que o `outbound` precisa. Uma `null` é uma porta por ligar. */
 export interface PortasDoOutbound {
-  readonly meta: ClienteDaMeta | null;
+  readonly meta: ClienteDoCanal | null;
   readonly destinatario: ObterDestinatario | null;
   /** Toma uma ligação `kamba_app` própria para o `Saida`. */
   readonly tomar: () => Promise<LigacaoDoEnvio>;
@@ -174,6 +201,64 @@ export function efeitoDoConsumidor(consumer: string, portas: PortasDoOutbound): 
     }),
     portas.aoTratar === undefined ? {} : { aoTratar: portas.aoTratar },
   );
+}
+
+/** As duas portas de produção do `outbound`, e o que fechar no fim. */
+export interface PortasDeProducao {
+  readonly meta: ClienteDoCanal;
+  readonly destinatario: ObterDestinatario;
+}
+
+/** O que o `portasDoOutbound` pede ao processo: o ambiente e a ligação de identidade. */
+export interface ArranqueDoOutbound {
+  readonly env: Readonly<Record<string, string | undefined>>;
+  /** Toma uma ligação `kamba_identity`. Em produção, de um *pool* pequeno. */
+  readonly tomarIdentidade: () => Promise<ClienteDeIdentidade>;
+  readonly devolverIdentidade: (ligacao: ClienteDeIdentidade, erro?: unknown) => Promise<void> | void;
+}
+
+/** O ambiente declarado para o `outbound`. Um valor desconhecido não vale `dev`. */
+export function ambienteDoOutbound(env: Readonly<Record<string, string | undefined>>): Ambiente {
+  const declarado = (env[VARIAVEL_DO_AMBIENTE] ?? '').trim();
+  if (!isAmbiente(declarado)) {
+    throw new Error(`${VARIAVEL_DO_AMBIENTE} tem de ser dev, staging ou prod para o ${CONSUMIDOR_DO_OUTBOUND}`);
+  }
+  return declarado;
+}
+
+/**
+ * Monta as duas portas de produção do `outbound` (KAM-227), ou recusa.
+ *
+ * Exportada para se medir o arranque sem levantar o processo: é o critério 3, e
+ * as recusas são as do cofre e da identidade, não deste ficheiro.
+ *
+ * @throws {ArranqueAbortadoError} sem a `kek_token_cliente` no cofre.
+ * @throws {ChavesDeIdentidadeEmFaltaError} em `prod`, sem a `kek_contact_dek`.
+ */
+export async function portasDoOutbound(a: ArranqueDoOutbound): Promise<PortasDeProducao> {
+  const ambiente = ambienteDoOutbound(a.env);
+  const provider = new EnvSecretProvider({ ambiente, env: a.env });
+  const cofre = await Secrets.arrancar({
+    servico: 'worker-canal-consumidor',
+    provider,
+    // Obrigatória onde o inventário a declara obrigatória (`staging`, `prod`).
+    // Em `dev` o processo arranca sem ela, e cada envio sobe o erro do cofre.
+    obrigatorios: ambiente === 'dev' ? [] : [REF_DA_KEK],
+  });
+  const identidade = await Identidade.arrancar({
+    chaves: new EnvKeyProvider({ ambiente, env: a.env }),
+    env: a.env,
+    // Só o `lerEndpoints`: o *pepper* do HMAC não chega a este processo.
+    soLeEndpoints: true,
+  });
+  return {
+    meta: clienteDaGraphPorCanal({ cofre }),
+    destinatario: destinatarioPelaIdentidade({
+      identidade,
+      tomar: a.tomarIdentidade,
+      devolver: a.devolverIdentidade,
+    }),
+  };
 }
 
 /**
@@ -218,15 +303,30 @@ async function principal(): Promise<void> {
 
   // O `Saida` corre numa ligação própria, e não na do consumo: ver a nota do
   // `efeito.ts` de `@kamba/core-ts/resposta`. Um conjunto pequeno, tomado por
-  // envio. **As duas portas da Meta não têm fonte** (KAM-227): o `outbound`
-  // sai aqui com `SaidaSemPortasError`, antes de levantar *workers*.
+  // envio. As duas portas de produção montam-se **antes** de levantar
+  // *workers*, e recusam aqui: ver «O arranque do `outbound` em `prod`».
   const envios = new pg.Pool({ connectionString: urlDaBase, max: 4 });
   envios.on('error', () => log.warn({ outcome: 'ligacao_do_envio_caiu' }));
+  let identidades: pg.Pool | null = null;
+  let producao: PortasDeProducao | null = null;
+  if (consumer === CONSUMIDOR_DO_OUTBOUND) {
+    const pool = new pg.Pool({ connectionString: exigir(VARIAVEL_DA_IDENTIDADE), max: 2 });
+    pool.on('error', () => log.warn({ outcome: 'ligacao_da_identidade_caiu' }));
+    identidades = pool;
+    producao = await portasDoOutbound({
+      env: process.env,
+      tomarIdentidade: async () => pool.connect(),
+      devolverIdentidade: (ligacao, erro) =>
+        (ligacao as pg.PoolClient).release(erro instanceof Error ? erro : undefined),
+    });
+  }
   const efeito = efeitoDoConsumidor(consumer, {
-    meta: null,
-    destinatario: null,
+    meta: producao?.meta ?? null,
+    destinatario: producao?.destinatario ?? null,
     tomar: async () => envios.connect(),
     devolver: (ligacao, erro) => (ligacao as pg.PoolClient).release(erro instanceof Error ? erro : undefined),
+    // O motivo não vai ao registo: o `outcome` tem gramática fechada, e o
+    // desfecho chega para a métrica. O detalhe vive na `outbound_messages`.
     aoTratar: (desfecho) => log.info({ outcome: `resposta_${desfecho}` }),
   });
 
@@ -282,6 +382,7 @@ async function principal(): Promise<void> {
     await filas.fechar();
     await operacao.end().catch(() => {});
     await envios.end().catch(() => {});
+    await identidades?.end().catch(() => {});
     servidor.close();
   }
 }

@@ -74,6 +74,8 @@ class TestCanarios(unittest.TestCase):
     def test_um_efeito_antes_do_interrupt_falha(self) -> None:
         for antes in (
             'deps.saida.enfileirar(estado, "ola", chave="k")',
+            # A forma real desde o KAM-227, em que a porta e `async`.
+            'await deps.saida.enfileirar(estado, "ola", chave="k")',
             "estado[\"handoff\"] = {}",
             "contador = deps.metricas.contar('x')",
             'from langgraph.types import interrupt',
@@ -233,6 +235,15 @@ class TestAsSeisEvasoes(unittest.TestCase):
         """
         self.um_achado(
             'desfecho = interrupt(deps.saida.enfileirar(estado, "ola", chave="k"))\n'
+            "return {}",
+            politica_ast.EFEITO_NO_ARGUMENTO,
+        )
+
+    def test_a_com_await_o_efeito_no_argumento_tambem(self) -> None:
+        """A mesma evasao com a porta `async` do KAM-227: o `await` no argumento
+        corre o envio antes do `interrupt`, como a forma sincrona corria."""
+        self.um_achado(
+            'desfecho = interrupt(await deps.saida.enfileirar(estado, "ola", chave="k"))\n'
             "return {}",
             politica_ast.EFEITO_NO_ARGUMENTO,
         )

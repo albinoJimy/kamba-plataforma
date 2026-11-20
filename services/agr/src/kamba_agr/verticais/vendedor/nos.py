@@ -328,9 +328,14 @@ class PortaDeHandoff(Protocol):
 
 
 class PortaDeSaida(Protocol):
-    """O Outbound (`01` §8). O unico caminho para o cliente e o no `send`."""
+    """O Outbound (`01` §8). O unico caminho para o cliente e o no `send`.
 
-    def enfileirar(
+    **`async` desde o KAM-227**: a porta ligada vai a base, e um no que a
+    chamasse sem `await` corria essa ida na *event loop* e parava os outros
+    turnos do processo enquanto a base respondesse.
+    """
+
+    async def enfileirar(
         self,
         estado: Mapping[str, Any],
         texto: str,
@@ -2429,7 +2434,7 @@ def send(deps: Dependencias):
             # decisao que nao envia. Se um dia encaminhar, **nao sai mensagem**.
             return {}
 
-        deps.saida.enfileirar(
+        await deps.saida.enfileirar(
             estado,
             com_apresentacao(deps, estado, texto),
             chave=_chave_de_envio(estado, concierge),
@@ -2496,7 +2501,7 @@ def handoff_prepare(deps: Dependencias):
             # O §11: `HandoffUnavailable` -> `degraded` -> aresta 37 -> `send`.
             # O §14 acrescenta a conversa em `pausada`, que e do CHR e nao daqui.
             return _degradado(estado, hid)
-        deps.saida.enfileirar(
+        await deps.saida.enfileirar(
             estado,
             com_apresentacao(deps, estado, MSG_HUMANO_A_CAMINHO),
             chave=f"{hid}:msg",
@@ -2599,7 +2604,7 @@ def handoff_close(deps: Dependencias):
     async def no(estado: dict[str, Any]) -> dict[str, Any]:
         handoff = dict(estado.get("handoff") or {})
         if handoff.get("outcome") == "timeout":
-            deps.saida.enfileirar(
+            await deps.saida.enfileirar(
                 estado, MSG_ALTERNATIVAS, chave=f"{handoff.get('id')}:timeout"
             )
         return {"stage": "done"}

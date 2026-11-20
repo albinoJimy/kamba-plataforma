@@ -193,9 +193,9 @@ services:
   # pontes do KAM-194, com o `idx` mais abaixo), com a mesma imagem, o
   # mesmo `command:`, as mesmas replicas e os mesmos limites; a razao de cada
   # escolha esta escrita la e nao se repete aqui. A unica diferenca e o
-  # `KAMBA_ENV`, e e ela que faz o `entrada.ts` arrancar aqui e nao la: em
-  # `staging` o provedor de chaves de ambiente e aceite, em `prod` e recusado
-  # (criterio 9 do KAM-008).
+  # `KAMBA_ENV`. As chaves de identidade vem do ambiente nos dois; em `prod` o
+  # arranque recusa tambem sem elas (criterio 9 do KAM-008, emendado a
+  # 2026-11-20).
   worker-canal-entrada:
     <<: *node
     build:
@@ -330,12 +330,24 @@ services:
         KAMBA_COMMIT_SHA: ${KAMBA_COMMIT_SHA:?o deploy passa o SHA da release}
     command: ["node", "services/worker-canal/src/consumidor.ts"]
     environment:
-      <<: *node-env
+      # KAM-227: o `outbound`, que fala com a Graph pelo `proxy-saida`. As
+      # notas sao as do compose de producao.
+      <<: [*node-env, *saida]
       CONSUMIDOR_PORT: "3012"
+      # O `fetch` do Node 24 **ignora** o `HTTPS_PROXY` sem esta variavel (medido
+      # no KAM-227, `node:24.21.0`: sem ela o pedido vai directo e expira; com
+      # ela, vai ao proxy). Sem ela o `*saida` nao fazia nada.
+      NODE_USE_ENV_PROXY: "1"
       KAMBA_QUEUE_URL: redis://queue:6379
-      KAMBA_CONSUMER: ${KAMBA_CONSUMER:?o deploy nomeia a subscricao do consumidor}
+      KAMBA_CONSUMER: outbound
+      KAMBA_ENV: staging
       KAMBA_CONSUMIDOR_DB_URL: ${KAMBA_CONSUMIDOR_DB_URL:?o deploy passa a cadeia de ligacao do kamba_app}
       KAMBA_CONSUMIDOR_OPS_DB_URL: ${KAMBA_CONSUMIDOR_OPS_DB_URL:?o deploy passa a cadeia de ligacao do kamba_batch}
+      KAMBA_CONSUMIDOR_IDENTITY_DB_URL: ${KAMBA_CONSUMIDOR_IDENTITY_DB_URL:?o deploy passa a cadeia de ligacao do kamba_identity}
+      KAMBA_SECRET_KEK_TOKEN_CLIENTE: ${KAMBA_SECRET_KEK_TOKEN_CLIENTE:?o cofre entrega a KEK dos tokens de cliente}
+      KAMBA_SECRET_KEK_TOKEN_CLIENTE_ANTERIOR: ${KAMBA_SECRET_KEK_TOKEN_CLIENTE_ANTERIOR:-}
+      KAMBA_SECRET_KEK_CONTACT_DEK: ${KAMBA_SECRET_KEK_CONTACT_DEK:?o cofre entrega a KEK das DEK de contacto}
+      KAMBA_SECRET_KEK_CONTACT_DEK_ANTERIOR: ${KAMBA_SECRET_KEK_CONTACT_DEK_ANTERIOR:-}
     networks:
       - app
       - data
