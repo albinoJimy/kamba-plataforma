@@ -1304,6 +1304,19 @@ class TestCriterio6Notificacao(unittest.TestCase):
         O que se mede e o que **sai** do AGR: os campos da `Notificacao` sao
         cinco, nenhum e um numero de telefone, e a resolucao do destinatario e
         do Outbound (Detalhes Tecnicos do bloco).
+
+        **A `Notificacao` e interna** — o que o AGR passa a porta, dentro do
+        processo —, **e o ADR-010 vale para o *payload*** do evento: esse fica
+        nas cinco chaves de identificadores, com ou sem *template*
+        (`test_saida.TestEmitirResposta.test_com_template_o_payload_fica_nas_cinco_chaves`).
+
+        Os `parametros` (KAM-221) sao **valores** que o `efeitoDoOutbound` le da
+        `agent_replies.template_parametros`, e nunca vao no evento. Hoje so ha um
+        produtor deles, o `parametros_do_template` do Orcamento expresso, e leva
+        **so a referencia `ORC-…`**, de letras: os dois *templates* nao levam
+        numero nenhum (criterio 8 do KAM-123, o valor so sai quando o cliente
+        responde). Por isso a assercao e «sem algarismos», medida sobre os
+        valores reais, e, por cima, as guardas de telefone e de cartao.
         """
         servidor = com_conversa()
         outbound = OutboundEspiao()
@@ -1312,8 +1325,23 @@ class TestCriterio6Notificacao(unittest.TestCase):
         self.assertEqual(notificacao.contact_id, CONTACTO)
         self.assertEqual(
             set(notif.Notificacao.__slots__),
-            {"contact_id", "conversation_id", "texto", "template"},
+            {"contact_id", "conversation_id", "texto", "template", "parametros"},
         )
+        # A notificacao do KAM-038 nao leva parametros.
+        self.assertEqual(notificacao.parametros, ())
+
+        import uuid
+
+        from kamba_agr.guardas import regras as guardas
+        from kamba_agr.privacidade import detector
+        from kamba_agr.tls.orcamento import parametros_do_template
+
+        for _ in range(200):
+            for valor in parametros_do_template(str(uuid.uuid4())):
+                with self.subTest(valor=valor):
+                    self.assertNotRegex(valor, r"[0-9]")
+                    self.assertIsNone(detector.TELEFONE_PADRAO.search(valor))
+                    self.assertFalse(guardas.tem_dados_de_cartao(valor))
 
 
 # ===========================================================================
