@@ -136,9 +136,17 @@ class NotificacaoPelaResposta:
             }
             if janela_aberta(linha, agora, self._margem):
                 emitir_resposta(
-                    ligacao, estado, notificacao.texto, chave=chave, turno_iniciado_em=agora
+                    ligacao,
+                    estado,
+                    notificacao.texto,
+                    chave=chave,
+                    botoes=notificacao.botoes,
+                    turno_iniciado_em=agora,
                 )
                 return LIVRE
+            # O *template* nao leva botoes (`saida._parametros_do_template`): os
+            # da notificacao ficam, e o botao chega com o texto, quando o
+            # cliente responder e a janela abrir.
             emitir_resposta(
                 ligacao,
                 estado,

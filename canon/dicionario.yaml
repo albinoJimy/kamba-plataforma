@@ -12,7 +12,7 @@
 
 version: 1
 fonte: "specs/02_Dicionario_de_Dados_Canonico.md"
-versao_dicionario: "1.126"
+versao_dicionario: "1.127"
 entradas:
   - seccao: "3.1"
     conceito: "Contacto"
@@ -21014,13 +21014,25 @@ entradas:
     variantes_literais: []
   - seccao: "3.79"
     conceito: "Botão «Aceito» de uma proposta"
-    canonico: "aceitar_orcamento"
+    canonico: "aceitar_orcamento:{ORC-…}, com o texto «Aceito»"
     literais:
-      - "aceitar_orcamento"
+      - "aceitar_orcamento:{ORC-…}"
     nomes:
       - "aceitar_orcamento"
+      - "ORC"
     nomes_nota:
-      - "PortaDeNotificacao"
+      - "orcamento_pronto"
+    variantes_literais: []
+  - seccao: "3.79"
+    conceito: "Aviso proactivo ao dono de um pedido novo"
+    canonico: "orcamento:{quote_id}:aviso_ao_dono"
+    literais:
+      - "orcamento:{quote_id}:aviso_ao_dono"
+    nomes:
+      - "orcamento"
+      - "quote_id"
+      - "aviso_ao_dono"
+    nomes_nota: []
     variantes_literais: []
   - seccao: "3.79"
     conceito: "Avisos do orçamento"
