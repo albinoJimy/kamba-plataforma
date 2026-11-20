@@ -467,8 +467,11 @@ class GrafoQueRegista:
         self.entradas.append(json.loads(json.dumps(estado)))
         self.canais.append(CANAL_DO_TURNO.get())
         if self._ao_correr is not None:
-            # Uma tarefa nova e uma *thread*, como os nos do LangGraph.
-            await asyncio.create_task(asyncio.to_thread(self._ao_correr, estado))
+            # Uma tarefa nova, como os nos `async` do LangGraph: desde o KAM-227
+            # a `PortaDeSaida` e `async`, e o no faz `await` dela na tarefa
+            # dele. A *thread* passa a ser a do `enfileirar`, que la le o canal
+            # antes do `to_thread`.
+            await asyncio.create_task(self._ao_correr(estado))
 
 
 #: «Nao ha conversa» — distinto de passar uma `Palavra`.
@@ -680,8 +683,8 @@ class TestCanalDaResposta(unittest.TestCase):
         respostas = BaseDeRespostas()
         porta = SaidaPorEvento(lambda: LigacaoDeRespostas(respostas), canal_de=canal_do_turno)
 
-        def responder(estado: dict[str, Any]) -> None:
-            porta.enfileirar(estado, "Hoje vendeu tres.", chave=f"{estado['turn_id']}:0")
+        async def responder(estado: dict[str, Any]) -> None:
+            await porta.enfileirar(estado, "Hoje vendeu tres.", chave=f"{estado['turn_id']}:0")
 
         grafo = GrafoQueRegista(ao_correr=responder)
         if canal is None:
