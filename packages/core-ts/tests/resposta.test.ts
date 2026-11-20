@@ -28,6 +28,7 @@ import {
   SQL_RESPOSTA_DO_WHATSAPP,
   TIPO_DA_RESPOSTA,
   botoesDaLinha,
+  templateDaLinha,
   efeitoDoOutbound,
   efeitoDoPainel,
   envioPeloSaida,
@@ -49,6 +50,8 @@ interface Linha {
   chave: string;
   texto: string;
   botoes: unknown;
+  template_nome: string | null;
+  template_parametros: unknown;
   turno_iniciado_em: Date | null;
   entregue_at: Date | null;
 }
@@ -69,6 +72,8 @@ class BaseFalsa {
       chave: "wamid.ensaio:0",
       texto: "Temos em stock.",
       botoes: [],
+      template_nome: null,
+      template_parametros: [],
       turno_iniciado_em: new Date("2026-11-19T11:59:58Z"),
       entregue_at: null,
       ...sobrepor,
@@ -101,6 +106,11 @@ class BaseFalsa {
           conversation_id: l.conversa,
           texto: l.texto,
           botoes: l.botoes,
+          // So com as colunas no texto da instrucao (KAM-221): sem elas, a
+          // resposta de *template* saia como texto e o ensaio fica vermelho.
+          ...(sql.includes("r.template_nome, r.template_parametros")
+            ? { template_nome: l.template_nome, template_parametros: l.template_parametros }
+            : {}),
           turno_iniciado_em: l.turno_iniciado_em,
           entregue_at: l.entregue_at,
           channel_id: CANAL,
@@ -213,7 +223,59 @@ describe("botoesDaLinha", () => {
   });
 });
 
+describe("templateDaLinha", () => {
+  it("sem nome é texto livre; com nome leva os valores pela ordem", () => {
+    assert.equal(templateDaLinha(null, []), null);
+    assert.equal(templateDaLinha(undefined, undefined), null);
+    assert.deepEqual(templateDaLinha("orcamento_pronto", ["ORC-ABCDEFGH"]), {
+      nome: "orcamento_pronto",
+      parametros: ["ORC-ABCDEFGH"],
+    });
+  });
+
+  it("recusa parâmetros sem nome, um parâmetro que não é texto e um nome vazio", () => {
+    for (const [nome, parametros] of [
+      [null, ["x"]],
+      ["orcamento_pronto", [3]],
+      ["orcamento_pronto", "x"],
+      ["", []],
+    ] as const) {
+      assert.throws(() => templateDaLinha(nome, parametros), RespostaInvalidaError);
+    }
+  });
+});
+
 describe("efeitoDoOutbound", () => {
+  it("uma resposta de template sai como template, com os valores e o idioma base (KAM-221)", async () => {
+    const bd = new BaseFalsa();
+    const linha = bd.nova({ template_nome: "orcamento_pronto", template_parametros: ["ORC-ABCDEFGH"] });
+    const saida = outbound({ ok: true, id: "m1", wamid: "w1", kind: "utility", repetido: false });
+    const desfechos: DesfechoDaResposta[] = [];
+    await efeitoDoOutbound(saida.enviar, { aoTratar: (d) => desfechos.push(d) })(bd, envelope(payload(linha)));
+    assert.deepEqual(saida.pedidos[0]!.corpo, {
+      tipo: "template",
+      nome: "orcamento_pronto",
+      idioma: "pt_PT",
+      parametros: ["ORC-ABCDEFGH"],
+    });
+    assert.equal(saida.pedidos[0]!.idempotencyKey, linha.chave);
+    assert.notEqual(linha.entregue_at, null);
+    assert.deepEqual(desfechos, ["enviada"]);
+  });
+
+  it("o texto recusado com a janela fechada não troca para template: fica recusada (KAM-221)", async () => {
+    const bd = new BaseFalsa();
+    const linha = bd.nova({ chave: "orcamento:q1:1700000000000000" });
+    const saida = outbound({ ok: false, motivo: "WINDOW_CLOSED", codigo: null });
+    const desfechos: string[] = [];
+    await efeitoDoOutbound(saida.enviar, { aoTratar: (d, m) => desfechos.push(`${d}:${m}`) })(bd, envelope(payload(linha)));
+    // Um pedido so, e de texto: quem reemite com o *template* e o AGR.
+    assert.equal(saida.pedidos.length, 1);
+    assert.equal(saida.pedidos[0]!.corpo.tipo, "texto");
+    assert.equal(linha.entregue_at, null);
+    assert.deepEqual(desfechos, ["recusada:WINDOW_CLOSED"]);
+  });
+
   it("envia a resposta do WhatsApp uma vez, com a chave do turno, e marca-a entregue", async () => {
     const bd = new BaseFalsa();
     const linha = bd.nova({ botoes: [{ id: "falar_com_humano", titulo: "Falar com um colega" }] });
