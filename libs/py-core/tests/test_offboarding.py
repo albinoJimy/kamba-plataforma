@@ -150,7 +150,8 @@ class Cursor:
             assert "tenant_id = %s" in sql
             self.description = [("contact_id",), ("criado_at",)]
             self._linhas = list(b.linhas["clientes"]) if parametros[0] == A else []
-        elif any(f"FROM platform.{t}" in sql for t in ("orders_mirror", "conversations", "consent_actual")):
+        elif any(f"FROM platform.{t}" in sql for t in ("orders_mirror", "conversations", "consent_actual",
+                                                         "offer_terms", "contract_acceptance")):
             assert "tenant_id = %s" in sql
             self.description = [("id",)]
         else:
@@ -225,7 +226,7 @@ class TestPacote(unittest.TestCase):
         for f in manifesto["ficheiros"]:
             self.assertEqual(hashlib.sha256(ficheiros[f["nome"]]).hexdigest(), f["sha256"])
             self.assertEqual(len(ficheiros[f["nome"]]), f["bytes"])
-        self.assertEqual(manifesto["versao"], "1.1.0")
+        self.assertEqual(manifesto["versao"], "1.2.0")
         self.assertEqual(manifesto["coleccoes"], {"clientes": 1, "encomendas": 1, "ficheiros": 2})
         self.assertEqual(manifesto["indisponiveis"], [{"coleccao": "catalogo", "razao": RAZAO_SEM_CATALOGO}])
 
@@ -437,6 +438,13 @@ class TestExportacao(unittest.TestCase):
         info = sto.head(__import__("kamba_core.storage.port", fromlist=["Ctx"]).Ctx(A), r["ref"])
         self.assertEqual(info.retain_until, D0 + timedelta(days=30), "o pacote expira na purga")
         self.assertTrue(any("audit_append" in s for s, _ in base.instrucoes))
+        # KAM-218: as ofertas e a prova de aceite do KAM-090 saem sempre, lidas
+        # do tenant; o catalogo da Medusa continua indisponivel, pelo nome.
+        self.assertIn("ofertas", r["manifesto"]["coleccoes"])
+        self.assertIn("aceites", r["manifesto"]["coleccoes"])
+        lidas = [s for s, p in base.instrucoes if "offer_terms" in s or "contract_acceptance" in s]
+        self.assertEqual(len(lidas), 2)
+        self.assertEqual([c["coleccao"] for c in r["manifesto"]["indisponiveis"]], ["catalogo"])
         r2 = exportar(lambda: Ligacao(base), lambda: Ligacao(base), A, sto, D0 + timedelta(days=3),
                       fonte_do_catalogo=lambda t: [{"sku": "x"}])
         self.assertEqual(r2["geracao"], 2)
@@ -575,7 +583,7 @@ class TestExportacaoComBytes(unittest.TestCase):
         sto, refs = _sto_com_objectos((A, b"foto-de-a"), (B, b"foto-de-b"))
         base = BaseFalsa({A: fases(pendentes="concluida")})
         r = exportar(lambda: Ligacao(base), lambda: Ligacao(base), A, sto, D0 + timedelta(days=2))
-        self.assertEqual(r["manifesto"]["versao"], "1.1.0")
+        self.assertEqual(r["manifesto"]["versao"], "1.2.0")
         from kamba_core.storage.port import Ctx
 
         pacote = b"".join(sto.get(Ctx(A), r["ref"]))

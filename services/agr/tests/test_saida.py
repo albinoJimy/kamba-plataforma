@@ -242,6 +242,17 @@ class TestEmitirResposta(unittest.TestCase):
         self.assertEqual((self.base.commits, self.base.rollbacks), (0, 1))
 
 
+class TestIteraveisDeUmaPassagem(unittest.TestCase):
+    """Achado 3 da revisao do KAM-226: a forma valida-se duas vezes, e um gerador so se le uma."""
+
+    def test_um_gerador_de_botoes_grava_os_botoes(self) -> None:
+        base = Base()
+        saida.emitir_resposta(
+            Ligacao(base), estado(), "ola", chave="k:0", botoes=(b for b in ["cancelar"])
+        )
+        self.assertEqual(json.loads(base.respostas[0]["botoes"]), [{"id": "cancelar", "titulo": "Cancelar"}])
+
+
 class TestTitulosDosBotoes(unittest.TestCase):
     def test_a_confirmacao_tem_um_titulo_so_seja_qual_for_a_referencia(self) -> None:
         self.assertEqual(saida.titulo_do_botao("confirm:3f1c2a9e"), "Confirmar")
@@ -268,6 +279,8 @@ class TestTitulosDosBotoes(unittest.TestCase):
             vendedor.BOTAO_HUMANO,
             vendedor.BOTAO_CANCELAR,
             vendedor.BOTAO_CONFIRMAR.format(cart_id="c1"),
+            # KAM-226: o «Aceito» que a proposta leva, com a referencia dela.
+            f"{vendedor.PREFIXO_DO_ACEITO_ORCAMENTO}ORC-ABCDEFGH",
             servicos.BOTAO_HUMANO,
             servicos.BOTAO_CANCELAR,
             f"{servicos.PREFIXO_DE_CONFIRMACAO}r1",

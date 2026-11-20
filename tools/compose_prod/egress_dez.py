@@ -263,6 +263,21 @@ MARCADORES = {
     # KAM-228: a credencial da rota do classificador, que o AGR verifica e o COM
     # apresenta. Mesma razao e mesmo sintoma.
     "KAMBA_SECRET_AGR_SCREENING_TOKEN": "marcador",
+    # KAM-218: o processo das fases de dados do off-boarding exige a chave do
+    # certificado e o armazenamento (a D6 esta aberta, e o deploy diz onde ele
+    # e). Mesma razao e mesmo sintoma.
+    "KAMBA_SECRET_OFFBOARDING_CERTIFICATE_KEY": "marcador",
+    "KAMBA_SECRET_DB_IDENTITY_PASSWORD": "marcador",
+    # E o `onboarding-lote` passa a exigir a KEK dos tokens de cliente (a fase
+    # `canal`, com a Meta ligada).
+    "KAMBA_SECRET_KEK_TOKEN_CLIENTE": "marcador",
+    "KAMBA_SECRET_STORAGE_ACCESS_KEY_ID": "marcador",
+    "KAMBA_SECRET_STORAGE_SECRET_ACCESS_KEY": "marcador",
+    "KAMBA_STORAGE_ENDPOINT": "http://marcador.invalid:8333",
+    "KAMBA_STORAGE_BUCKET": "marcador",
+    "KAMBA_STORAGE_REGION": "marcador",
+    "KAMBA_STORAGE_DESTINO_COUNTRY": "AO",
+    "KAMBA_STORAGE_DESTINO_PROVIDER": "marcador",
 }
 
 

@@ -1302,8 +1302,8 @@ class TestCriterio6Notificacao(unittest.TestCase):
         """«Os payloads trazem `contact_id`, nunca telefone» (ADR-010).
 
         O que se mede e o que **sai** do AGR: os campos da `Notificacao` sao
-        cinco, nenhum e um numero de telefone, e a resolucao do destinatario e
-        do Outbound (Detalhes Tecnicos do bloco).
+        seis (o sexto, `botoes`, do KAM-226), nenhum e um numero de telefone,
+        e a resolucao do destinatario e do Outbound (Detalhes Tecnicos do bloco).
 
         **A `Notificacao` e interna** — o que o AGR passa a porta, dentro do
         processo —, **e o ADR-010 vale para o *payload*** do evento: esse fica
@@ -1325,19 +1325,23 @@ class TestCriterio6Notificacao(unittest.TestCase):
         self.assertEqual(notificacao.contact_id, CONTACTO)
         self.assertEqual(
             set(notif.Notificacao.__slots__),
-            {"contact_id", "conversation_id", "texto", "template", "parametros"},
+            {"contact_id", "conversation_id", "texto", "template", "parametros", "botoes"},
         )
-        # A notificacao do KAM-038 nao leva parametros.
+        # A notificacao do KAM-038 nao leva parametros nem botoes.
         self.assertEqual(notificacao.parametros, ())
+        self.assertEqual(notificacao.botoes, ())
 
         import uuid
 
         from kamba_agr.guardas import regras as guardas
         from kamba_agr.privacidade import detector
+        from kamba_agr.orcamento.regras import botao_aceitar
         from kamba_agr.tls.orcamento import parametros_do_template
 
+        # O botao do KAM-226 leva a mesma referencia, de letras.
         for _ in range(200):
-            for valor in parametros_do_template(str(uuid.uuid4())):
+            quote_id = str(uuid.uuid4())
+            for valor in (*parametros_do_template(quote_id), botao_aceitar(quote_id)):
                 with self.subTest(valor=valor):
                     self.assertNotRegex(valor, r"[0-9]")
                     self.assertIsNone(detector.TELEFONE_PADRAO.search(valor))

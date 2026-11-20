@@ -5,12 +5,22 @@
 # O `onboarding-lote` corre `services/onboarding-web/src/lote.ts` com a imagem do
 # `onboarding-web`, e o nome do servico nao e o de uma pasta de `services/`: o
 # `services/onboarding-web/egress.yaml` nao o cobre, e o `supply_chain` pede esta
-# lista. **Vazia**: o processo fala com a base e com a fila de eventos (as duas
-# em `data`; a fila desde o KAM-200, para o consumidor de T&S) e e raspado pelo
-# Prometheus (`app`), as duas redes `internal: true`, e o servico nao tem
-# `HTTPS_PROXY`.
+# lista. O processo fala com a base e com a fila de eventos (as duas em `data`;
+# a fila desde o KAM-200, para o consumidor de T&S) e e raspado pelo Prometheus
+# (`app`), as duas redes `internal: true`. **Desde o KAM-218 sai para a Graph
+# API**, pelo `proxy-saida` (`HTTPS_PROXY`): a fase `canal` do off-boarding
+# cancela a subscricao de *webhooks* do WABA, e o cancelamento do pedido
+# refa-la. Nunca apaga o WABA nem o numero (E1).
 # O aviso ao dono nao sai deste processo (nao ha agregador de SMS escolhido).
 version: 1
 servico: onboarding-lote
 por_omissao: negar
-destinos: []
+destinos:
+  - fqdn: graph.facebook.com
+    porta: 443
+    protocolo: https
+    razao: >-
+      A fase `canal` do off-boarding (KAM-098, ligada no KAM-218): o `DELETE` e
+      o `POST` do `subscribed_apps` do WABA do tenant que sai, com o *token* de
+      cliente dele. Nenhuma outra operacao da Graph corre neste processo.
+    ticket: KAM-218
