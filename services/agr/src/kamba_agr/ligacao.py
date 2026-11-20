@@ -123,6 +123,8 @@ NOME_DO_CONCIERGE: Final = "kamba-agr:concierge"
 NOME_DAS_ACCOES: Final = "kamba-agr:accoes"
 #: KAM-224: a saida do turno, que grava a resposta e emite o `agent.replied`.
 NOME_DA_SAIDA: Final = "kamba-agr:saida"
+#: A leitura da mensagem de texto de um turno (KAM-223).
+NOME_DAS_MENSAGENS: Final = "kamba-agr:mensagens"
 
 
 class ConfiguracaoEmFalta(RuntimeError):
@@ -333,3 +335,16 @@ def ligar_para_saida(ambiente: Any = None) -> Any:
     `INSERT` na `agent_replies`, e a `0004` o `EXECUTE` na `evt_emitir`.
     """
     return _ligar(ambiente, autocommit=False, nome=NOME_DA_SAIDA)
+
+
+def ligar_para_mensagens(ambiente: Any = None) -> Any:
+    """A ligacao da leitura da mensagem de um turno (KAM-223). `kamba_app`.
+
+    Transaccional, porque a leitura corre em `tenant_guard.tx` (o RLS da
+    `platform.agent_messages` le o `app.tenant_id`). Uma por leitura, pela razao
+    da `ligar_para_saida`: o `LeitorDeMensagens` abre-a e fecha-a.
+
+    Papel `kamba_app`: e a quem a revisao da `agent_messages` concede o
+    `SELECT`; o `kamba_agr` nao tem `USAGE` no `platform` (KAM-026).
+    """
+    return _ligar(ambiente, autocommit=False, nome=NOME_DAS_MENSAGENS)

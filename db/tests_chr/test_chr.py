@@ -71,10 +71,13 @@ GRUPOS = (
     "KAM-092 — o tenant.activated esquece o tenant na cache do CHR",
     # KAM-098: a suspensao (o criterio 2 do KAM-058) e o encerramento.
     "KAM-058 e KAM-098 — a suspensão e o encerramento esquecem o tenant na cache do CHR",
-    # KAM-211, criterio «Troca de telefone»: `tests_bd/dono.bd.test.ts`.
-    "KAM-211 — a troca de telefone pelo caminho real",
-    # KAM-217: a troca montada como o `onboarding-web` a monta, sobre o pool.
-    "KAM-217 — a troca montada pelo processo, sobre o pool",
+    # KAM-211 e KAM-217: a porta do dono pelo caminho real, e a troca montada
+    # como o `onboarding-web` a monta, sobre o pool. Revisto no KAM-223: a troca
+    # com prova de posse (regra C) tem grupo proprio, e a porta fica no seu.
+    "KAM-211/217 — a porta do dono, contra a base",
+    "KAM-223 — a troca com prova de posse, contra a base",
+    # KAM-223: a conversa do dono pelo painel, com a fonte persistida.
+    "KAM-223 — a conversa do dono pelo painel, contra a base",
     # KAM-216: o canal do dono guardado pela troca e lido pelo painel.
     "KAM-216 — o canal do dono guardado, contra a base",
 )
@@ -108,7 +111,13 @@ TESTES_OBRIGATORIOS = (
     "a suspensão pela régua (KAM-058, critério 2): chega ao consumidor do CHR, e a mensagem seguinte já não chega ao AGR espião",
     "o encerramento pelo off-boarding (KAM-098, critério 3): chega ao consumidor do CHR, e a mensagem seguinte já não chega ao AGR espião",
     # KAM-211: a troca pelo caminho real, e a porta fechada ao `kamba_app`.
-    "até o código acertar o número novo é cliente e o antigo é dono; depois, o contrário",
+    # Revisto no KAM-223: o codigo do numero novo ja nao move o papel (regra C);
+    # o papel muda pelo codigo do numero antigo, ou passadas as 72 h.
+    "o codigo do numero novo poe a troca pendente e NAO move o papel; passadas as 72 h, move",
+    "com o codigo do numero antigo a troca e imediata",
+    "o codigo certo de um numero que nao e o do dono desfaz a transaccao: papel e troca como estavam",
+    # KAM-223: a conversa do dono, e o cursor de outro tenant.
+    "a leitura mostra as mensagens do dono e so as respostas entregues; o cursor de B da nao_encontrado",
     "com o papel da aplicação, a porta não executa",
     # KAM-216: os dois cenarios do criterio 3, e o isolamento.
     "telefone diferente do número da loja: a troca guarda o WhatsApp, e o painel lê-o",

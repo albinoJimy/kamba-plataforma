@@ -86,6 +86,8 @@ export function montarInvocacao(pedido: {
   readonly persona: Persona;
   /** O `reply.id` de uma resposta interactiva, já com a forma conferida. */
   readonly botao?: string | null;
+  /** O identificador da mensagem na `platform.agent_messages` (KAM-223), já gravada. */
+  readonly messageId?: string | null;
 }): AgentInvocation {
   if (pedido.contactId === "") throw new InvocacaoIncompletaError("`contact_id`");
   if (pedido.conversationId === "") {
@@ -110,5 +112,7 @@ export function montarInvocacao(pedido: {
     ...(typeof pedido.botao === "string" && pedido.type === "interactive"
       ? { botao: pedido.botao }
       : {}),
+    // KAM-223. O identificador e não o texto: o corpo fica na fonte persistida.
+    ...(typeof pedido.messageId === "string" ? { message_id: pedido.messageId } : {}),
   };
 }

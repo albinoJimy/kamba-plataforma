@@ -52,7 +52,12 @@ describe("o contrato agent_invocation", () => {
     // v1: o esquema nao os exige, para que um consumidor de antes nao recuse e
     // um produtor de antes nao seja recusado. A `persona` vai sempre; o
     // `botao` so num toque, e por isso o conjunto completo mede-se num.
-    const toque = invocacao({ type: "interactive", botao: "confirm:x" });
+    // O `message_id` (KAM-223) tambem e aditivo, e vai em qualquer tipo.
+    const toque = invocacao({
+      type: "interactive",
+      botao: "confirm:x",
+      messageId: "55555555-5555-4555-8555-555555555555",
+    });
     assert.deepEqual(
       [...esquema.required].sort(),
       Object.keys(invocacao()).filter((c) => c !== "persona").sort(),
@@ -60,8 +65,18 @@ describe("o contrato agent_invocation", () => {
     assert.deepEqual(Object.keys(esquema.properties).sort(), Object.keys(toque).sort());
     assert.deepEqual(
       Object.keys(toque).filter((c) => !Object.keys(invocacao()).includes(c)),
-      ["botao"],
+      ["botao", "message_id"],
     );
+  });
+
+  it("o `message_id` e um identificador, e nunca o texto (KAM-223)", () => {
+    // A decisao do KAM-186 mantem-se: o corpo fica na fonte persistida, e o
+    // contrato so leva o identificador dela, com a forma de um uuid.
+    const propriedade = esquema.properties.message_id;
+    assert.equal(propriedade.format, "uuid");
+    assert.ok(!new RegExp(propriedade.pattern).test("ola, quero dois"));
+    assert.ok(![...esquema.required].includes("message_id"));
+    assert.equal(invocacao().message_id, undefined);
   });
 
   it("o dominio da `persona` e o de `contacts.papel`", () => {

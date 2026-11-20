@@ -80,12 +80,12 @@ MODO_DO_BOT: Final = "bot"
 #: vertical.
 VERTICAIS: Final = ("vendedor", "servicos")
 
-#: Os campos opcionais do contrato: a `persona` (KAM-118) e o `botao`
-#: (KAM-211). **Aditivos da v1**: um CHR anterior nao os escreve, e a porta le
-#: entao a omissao. Ficam fora do `CAMPOS` de proposito — o `CAMPOS` e a lista
-#: dos **obrigatorios**, e ha ensaios que a percorrem a apagar um campo de cada
-#: vez e a esperar `campo_em_falta`.
-CAMPOS_OPCIONAIS: Final = ("persona", "botao")
+#: Os campos opcionais do contrato: a `persona` (KAM-118), o `botao`
+#: (KAM-211) e o `message_id` (KAM-223). **Aditivos da v1**: um CHR anterior nao
+#: os escreve, e a porta le entao a omissao. Ficam fora do `CAMPOS` de proposito
+#: — o `CAMPOS` e a lista dos **obrigatorios**, e ha ensaios que a percorrem a
+#: apagar um campo de cada vez e a esperar `campo_em_falta`.
+CAMPOS_OPCIONAIS: Final = ("persona", "botao", "message_id")
 
 #: O `wa_type` da resposta a um botao ou a uma lista (`button_reply`,
 #: `list_reply`). So ele leva `botao`.
@@ -174,6 +174,12 @@ class InvocacaoDoAgente:
     #: num `type` `interactive`: um texto que imite um botao chega como texto, e
     #: o CHR nao lhe da `botao` nenhum.
     botao: str | None = None
+    #: KAM-223. O identificador da mensagem de texto em
+    #: `platform.agent_messages`, ou `None`. **Nunca o corpo** (decisao do
+    #: KAM-186): o executor le a linha por ele, com o tenant, o contacto e a
+    #: conversa desta invocacao, e passa o texto pelo
+    #: `guardas.mensagem_do_cliente` antes da janela (`mensagens.py`).
+    message_id: str | None = None
 
     @property
     def chave_do_registo(self) -> str:
@@ -276,7 +282,20 @@ def ler_invocacao(corpo: Any) -> InvocacaoDoAgente:
         ):
             raise InvocacaoInvalidaError("campo_invalido_botao")
 
-    return InvocacaoDoAgente(**valores, persona=persona, botao=botao)
+    # **O `message_id` e um UUID canonico, em minusculas, ou nao entra**
+    # (KAM-223). E o identificador por onde o executor vai a base, e a forma
+    # fechada e a do `tenant_id`: um valor com outra forma e um CHR (ou um
+    # painel) a escrever mal o campo, e um `null` nao e ausencia — a razao da
+    # `persona`. O codigo nunca leva o valor.
+    message_id = None
+    if "message_id" in corpo:
+        message_id = corpo["message_id"]
+        if not isinstance(message_id, str) or not _UUID.fullmatch(message_id):
+            raise InvocacaoInvalidaError("campo_invalido_message_id")
+
+    return InvocacaoDoAgente(
+        **valores, persona=persona, botao=botao, message_id=message_id
+    )
 
 
 def chave_do_registo(persona: object, vertical: object) -> str:
