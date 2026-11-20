@@ -30,6 +30,7 @@ CHAVE_DA_INTENCAO: Final = {
     "confirmar": "confirm",
     "orcamento": "orcamento",
     "responder_orcamento": "resposta",
+    "catalogo": "catalogo",
 }
 
 

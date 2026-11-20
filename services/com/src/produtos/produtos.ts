@@ -444,16 +444,37 @@ async function registarAlteracaoDePreco(
  *
  * A categoria restrita, essa, **está** no predicado — é a base que a recusa, e
  * não um `if` que o próximo chamador pode esquecer.
+ *
+ * ## `nomeEsperado`: a decisão do screening liga-se ao que se publica (KAM-119)
+ *
+ * O `/internal/publish-product` confere a decisão de screening sobre o `nome`
+ * que leu **antes** desta transacção, e passa-o aqui. Com ele, a publicação só
+ * corre se a linha **trancada** (`FOR UPDATE`) ainda tiver esse `nome`: entre a
+ * leitura e a tranca, um `upsertProductDraft` podia trocar o texto, e
+ * publicava-se um conteúdo que ninguém decidiu. A recusa é o `conflito` da
+ * porta — «relê e reavalia», que é exactamente o que o chamador tem de fazer:
+ * passar o texto novo pelo `screen` e tentar outra vez — e não um
+ * `VALIDATION_ERROR`, que lhe diria que o produto não serve.
+ *
+ * **A comparação vem antes da idempotência**, de propósito: um produto já
+ * `publicado` com outro `nome` também recusa. Devolver `ok` aí era dizer
+ * «publicado» sobre um texto que a decisão conferida não cobre. Sem
+ * `nomeEsperado` (a porta, e quem usa o módulo sem a API), nada muda.
  */
 export async function publishProduct(
   r: Registo,
   ref: ProductRef,
   confirmacao: OwnerConfirmation,
+  opcoes: { readonly nomeEsperado?: string } = {},
 ): Promise<Resultado<void>> {
   if (!confirmacaoValida(confirmacao)) return erro("VALIDATION_ERROR");
 
   const antes = await lerParaEscrita(r, ref.sku);
   if (antes === null) return erro("NOT_FOUND");
+
+  if (opcoes.nomeEsperado !== undefined && antes.nome !== opcoes.nomeEsperado) {
+    return conflito(undefined);
+  }
 
   // **Idempotência:** publicar o que já está publicado não escreve, não audita e
   // não emite. Sem isto, cada repetição emitia um `catalog.product_changed` e o

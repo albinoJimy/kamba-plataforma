@@ -344,8 +344,9 @@ class TestDispensaDoPasso4(unittest.TestCase):
         base.update(troca)
         return EspecificacaoDeTool(**base)
 
-    def test_a_lista_e_so_o_submit_quote(self) -> None:
-        self.assertEqual(DISPENSAS_DO_PASSO_4, ("submit_quote",))
+    def test_a_lista_e_a_das_decisoes_do_fundador(self) -> None:
+        # KAM-119: o `create_product_draft` so grava o rascunho (decisao do fundador).
+        self.assertEqual(DISPENSAS_DO_PASSO_4, ("submit_quote", "create_product_draft"))
 
     def test_uma_write_sem_campo_e_sem_dispensa_continua_recusada(self) -> None:
         for nome in ("submit_quote", "book_slot"):
