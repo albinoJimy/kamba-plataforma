@@ -167,11 +167,14 @@ class TestOContratoComOTypeScript(unittest.TestCase):
 
     def test_o_sujeito_do_adaptador_e_o_do_com(self) -> None:
         # KAM-119: o `produto` abriu com a re-analise a comparar o conteudo.
-        self.assertEqual(SUJEITOS, ("condicoes", "produto"))
+        # KAM-121: o `conteudo` do social (decisao 1 do bloco).
+        self.assertEqual(SUJEITOS, ("condicoes", "produto", "conteudo"))
         indice = (RAIZ / "services/com/src/screening/index.ts").read_text(encoding="utf-8")
         self.assertIn('export const SUJEITO_DAS_CONDICOES = "condicoes";', indice)
         self.assertIn('export const SUJEITO_DO_PRODUTO = "produto";', indice)
         self.assertIsNotNone(re.search(r"SUJEITOS_DA_ROTA[^;]*SUJEITO_DO_PRODUTO", indice, re.S))
+        self.assertIn('export const SUJEITO_DO_CONTEUDO = "conteudo";', indice)
+        self.assertIsNotNone(re.search(r"SUJEITOS_DA_ROTA[^;]*SUJEITO_DO_CONTEUDO", indice, re.S))
 
 
 if __name__ == "__main__":

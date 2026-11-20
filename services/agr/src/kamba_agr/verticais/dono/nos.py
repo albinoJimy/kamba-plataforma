@@ -79,6 +79,7 @@ from ..vendedor.nos import (
 from ...orcamento import regras
 from ...orcamento.regras import NOME_NEUTRO
 from . import catalogo
+from . import social
 from .arestas import INTENCOES
 
 #: As tools do Assistente do Dono, pela ordem do `registry/dono.yaml`. So para
@@ -91,6 +92,11 @@ TOOLS_DO_DONO: Final = (
     "publish_product",
     "get_catalog_status",
     "submit_quote",
+    # KAM-121: o modulo `social`.
+    "get_brand_profile",
+    "update_brand_profile",
+    "generate_calendar",
+    "generate_caption",
 )
 
 #: As palavras que decidem cada intencao, **pela ordem em que correm**: «quero
@@ -170,6 +176,11 @@ def classify(deps: Dependencias):
         if catalogo.e_do_catalogo(estado, texto):
             # KAM-119: um botao do catalogo, uma foto, ou uma referencia `PRD-…`.
             return {"intent": "catalogo"}
+        if social.e_do_social(estado, texto) and intencao_por_regras(texto) != "humano":
+            # KAM-121: um botao do social, uma referencia `SOC-…`, «NOVA», ou as
+            # palavras das redes. **Antes do `modulos`**, que tem «publica»:
+            # «publica no instagram» nao e um produto. Um pedido de humano ganha.
+            return {"intent": "social"}
         if e_resposta_de_orcamento(texto):
             # KAM-220. **Antes das palavras e do modelo**: um valor escrito pelo
             # dono e a resposta a um pedido, e um classificador aqui era um
@@ -211,6 +222,16 @@ def classify(deps: Dependencias):
             # `tool_audit` por turno destes, e num tenant sem o modulo e um
             # `ENTITLEMENT_DENIED` — o preco de nao guardar estado proprio.
             resolvida = "catalogo"
+        if (
+            resolvida == "outro"
+            and catalogo.regras.parece_resposta(texto)
+            and await social.perfil_a_meio(deps, estado)
+        ):
+            # KAM-121: o dono a responder a uma pergunta do perfil de marca
+            # («Loja da Ana», «maes jovens»). Pela regra do catalogo: so no lugar
+            # do `outro`, nunca um cumprimento, e depois do catalogo — um
+            # rascunho a espera de resposta responde-se primeiro.
+            resolvida = "social"
         delta: dict[str, Any] = {"intent": resolvida}
         if resolvida == "humano":
             delta["handoff_motivo"] = MOTIVO_PEDIDO
@@ -413,6 +434,9 @@ def confirm(deps: Dependencias):
         if estado.get("intent") in ("modulos", "catalogo"):
             # KAM-119, arestas 11 e 37: a conversa do catalogo (`catalogo.py`).
             return await catalogo.tratar(deps, estado)
+        if estado.get("intent") == "social":
+            # KAM-121, aresta 38: a conversa social (`social.py`).
+            return await social.tratar(deps, estado)
         porta = deps.accoes_do_dono
         if porta is None:
             return _resposta_estatica(MSG_CONFIRMACAO_INDISPONIVEL)

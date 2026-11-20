@@ -108,6 +108,14 @@ TITULOS: Final = {
     "menu:pedido": "O meu pedido",
     "menu:loja": "Horario e morada",
     "menu:humano": "Falar com um colega",
+    # O modulo social do dono (KAM-121, `social/regras.py`): os tres tons do
+    # perfil e as duas accoes do calendario. Os titulos dos tons sao os
+    # `TITULO_DO_TOM`, e um ensaio confronta-os.
+    "tom:proximo": "Proximo e caloroso",
+    "tom:profissional": "Profissional",
+    "tom:divertido": "Divertido",
+    "social:ideias": "Ver as ideias",
+    "social:nova": "Outras ideias",
 }
 
 #: Os botoes de confirmacao levam a referencia no `id` (`confirm:{cart_id}`,
@@ -125,6 +133,8 @@ TITULOS_POR_PREFIXO: Final = {
     "stock_corrigir:": "Corrigir",
     "mesmo_produto:": "Sim, e o mesmo",
     "outro_produto:": "Nao, e outro",
+    # KAM-121: a legenda de um item do calendario, pela referencia `SOC-…`.
+    "legenda:": "Escrever a legenda",
 }
 
 

@@ -1,0 +1,107 @@
+{"id": "aleg-001", "texto": "Este cha cura a diabetes em poucas semanas.", "factos": [], "esperado": "deny", "regra": "cura"}
+{"id": "aleg-002", "texto": "O nosso oleo trata a tensao alta naturalmente.", "factos": [], "esperado": "deny", "regra": "cura"}
+{"id": "aleg-003", "texto": "Cura garantida para as dores de cabeca.", "factos": [], "esperado": "deny", "regra": "cura"}
+{"id": "aleg-004", "texto": "Um sumo milagroso para a sua saude!", "factos": [], "esperado": "deny", "regra": "cura"}
+{"id": "aleg-005", "texto": "Com este creme elimina a infecção da pele.", "factos": [], "esperado": "deny", "regra": "cura"}
+{"id": "aleg-006", "texto": "Previne o paludismo: use todos os dias.", "factos": [], "esperado": "deny", "regra": "cura"}
+{"id": "aleg-007", "texto": "Perca 10 kg num mes com o nosso cha.", "factos": ["Cha de gengibre importado"], "esperado": "deny", "regra": "cura"}
+{"id": "aleg-008", "texto": "Combate o cancro com produtos naturais.", "factos": [], "esperado": "deny", "regra": "cura"}
+{"id": "aleg-009", "texto": "Este remédio caseiro substitui o medicamento da farmácia.", "factos": [], "esperado": "deny", "regra": "cura"}
+{"id": "aleg-010", "texto": "Emagreça 5 quilos sem dieta.", "factos": [], "esperado": "deny", "regra": "cura"}
+{"id": "aleg-011", "texto": "Acaba com a anemia em dias.", "factos": [], "esperado": "deny", "regra": "cura"}
+{"id": "aleg-012", "texto": "Produtos que curam tudo, da asma a febre.", "factos": [], "esperado": "deny", "regra": "cura"}
+{"id": "aleg-013", "texto": "Resultado 100% garantido ou o seu dinheiro de volta.", "factos": [], "esperado": "deny", "regra": "garantia_absoluta"}
+{"id": "aleg-014", "texto": "Garantia total em todos os produtos!", "factos": [], "esperado": "deny", "regra": "garantia_absoluta"}
+{"id": "aleg-015", "texto": "Resultados garantidos ja na primeira semana.", "factos": [], "esperado": "deny", "regra": "garantia_absoluta"}
+{"id": "aleg-016", "texto": "Compre sem riscos: nunca falha.", "factos": [], "esperado": "deny", "regra": "garantia_absoluta"}
+{"id": "aleg-017", "texto": "Uma tinta que funciona sempre, em qualquer parede.", "factos": [], "esperado": "deny", "regra": "garantia_absoluta"}
+{"id": "aleg-018", "texto": "O metodo infalivel para cabelos lindos.", "factos": [], "esperado": "deny", "regra": "garantia_absoluta"}
+{"id": "aleg-019", "texto": "Protecao 100% eficaz contra mosquitos.", "factos": [], "esperado": "deny", "regra": "garantia_absoluta"}
+{"id": "aleg-020", "texto": "Brinquedo 100% seguro para bebes.", "factos": ["Brinquedos de madeira"], "esperado": "deny", "regra": "garantia_absoluta"}
+{"id": "aleg-021", "texto": "Garantia absoluta de satisfacao.", "factos": [], "esperado": "deny", "regra": "garantia_absoluta"}
+{"id": "aleg-022", "texto": "Experimente sem nenhum risco.", "factos": [], "esperado": "deny", "regra": "garantia_absoluta"}
+{"id": "aleg-023", "texto": "O melhor pão de Luanda, todos os dias.", "factos": [], "esperado": "deny", "regra": "superlativo_nao_comprovado"}
+{"id": "aleg-024", "texto": "Os melhores sapatos de Angola estao aqui.", "factos": [], "esperado": "deny", "regra": "superlativo_nao_comprovado"}
+{"id": "aleg-025", "texto": "O mais barato do mercado, sem duvida.", "factos": [], "esperado": "deny", "regra": "superlativo_nao_comprovado"}
+{"id": "aleg-026", "texto": "Somos o numero 1 em entregas.", "factos": [], "esperado": "deny", "regra": "superlativo_nao_comprovado"}
+{"id": "aleg-027", "texto": "Qualidade imbatível em toda a cidade.", "factos": [], "esperado": "deny", "regra": "superlativo_nao_comprovado"}
+{"id": "aleg-028", "texto": "Um sabor inigualavel.", "factos": [], "esperado": "deny", "regra": "superlativo_nao_comprovado"}
+{"id": "aleg-029", "texto": "Lider de mercado em cosmeticos.", "factos": [], "esperado": "deny", "regra": "superlativo_nao_comprovado"}
+{"id": "aleg-030", "texto": "A unica loja que entrega em Cacuaco.", "factos": [], "esperado": "deny", "regra": "superlativo_nao_comprovado"}
+{"id": "aleg-031", "texto": "Sem concorrencia no bairro!", "factos": [], "esperado": "deny", "regra": "superlativo_nao_comprovado"}
+{"id": "aleg-032", "texto": "O melhor do mundo, feito em Angola.", "factos": ["Feito em Angola"], "esperado": "deny", "regra": "superlativo_nao_comprovado"}
+{"id": "aleg-033", "texto": "Nº 1 em satisfacao dos clientes.", "factos": [], "esperado": "deny", "regra": "superlativo_nao_comprovado"}
+{"id": "aleg-034", "texto": "A melhor de Africa para o seu cabelo.", "factos": [], "esperado": "deny", "regra": "superlativo_nao_comprovado"}
+{"id": "aleg-035", "texto": "Mais barato do que a Loja Kianda!", "factos": [], "esperado": "deny", "regra": "comparacao_com_concorrente"}
+{"id": "aleg-036", "texto": "O nosso frango e melhor que o do Kero.", "factos": [], "esperado": "deny", "regra": "comparacao_com_concorrente"}
+{"id": "aleg-037", "texto": "Entregamos mais rapido que qualquer outra loja.", "factos": [], "esperado": "deny", "regra": "comparacao_com_concorrente"}
+{"id": "aleg-038", "texto": "Ao contrario da concorrencia, nos cumprimos.", "factos": [], "esperado": "deny", "regra": "comparacao_com_concorrente"}
+{"id": "aleg-039", "texto": "Tecidos superiores aos da feira do Rocha.", "factos": [], "esperado": "deny", "regra": "comparacao_com_concorrente"}
+{"id": "aleg-040", "texto": "Pao mais fresco do que na padaria ao lado.", "factos": [], "esperado": "deny", "regra": "comparacao_com_concorrente"}
+{"id": "aleg-041", "texto": "Esqueca o concorrente: venha a nós.", "factos": [], "esperado": "deny", "regra": "comparacao_com_concorrente"}
+{"id": "aleg-042", "texto": "Roupas mais bonitas que as da Zara.", "factos": [], "esperado": "deny", "regra": "comparacao_com_concorrente"}
+{"id": "aleg-043", "texto": "Peixe mais fresco que no mercado do Kikolo.", "factos": [], "esperado": "deny", "regra": "comparacao_com_concorrente"}
+{"id": "aleg-044", "texto": "Ao contrário dos outros, temos stock.", "factos": [], "esperado": "deny", "regra": "comparacao_com_concorrente"}
+{"id": "aleg-045", "texto": "Melhores que a concorrência em tudo.", "factos": [], "esperado": "deny", "regra": "comparacao_com_concorrente"}
+{"id": "aleg-046", "texto": "Sapatos mais duradouros do que os da China.", "factos": [], "esperado": "deny", "regra": "comparacao_com_concorrente"}
+{"id": "aleg-047", "texto": "Produto certificado pela ISO 9001.", "factos": [], "esperado": "deny", "regra": "selo_ou_certificacao"}
+{"id": "aleg-048", "texto": "Mel certificado e de qualidade.", "factos": ["Mel do Huambo"], "esperado": "deny", "regra": "selo_ou_certificacao"}
+{"id": "aleg-049", "texto": "Aprovado pelo Ministério da Saúde.", "factos": [], "esperado": "deny", "regra": "selo_ou_certificacao"}
+{"id": "aleg-050", "texto": "Com selo de qualidade internacional.", "factos": [], "esperado": "deny", "regra": "selo_ou_certificacao"}
+{"id": "aleg-051", "texto": "Restaurante premiado em 2025.", "factos": [], "esperado": "deny", "regra": "selo_ou_certificacao"}
+{"id": "aleg-052", "texto": "Recomendado por medicos de todo o pais.", "factos": [], "esperado": "deny", "regra": "selo_ou_certificacao"}
+{"id": "aleg-053", "texto": "Creme testado dermatologicamente.", "factos": [], "esperado": "deny", "regra": "selo_ou_certificacao"}
+{"id": "aleg-054", "texto": "Clinicamente provado para a pele seca.", "factos": [], "esperado": "deny", "regra": "selo_ou_certificacao"}
+{"id": "aleg-055", "texto": "Carne halal, cortada todos os dias.", "factos": ["Carne fresca do talho"], "esperado": "deny", "regra": "selo_ou_certificacao"}
+{"id": "aleg-056", "texto": "Produto homologado para venda.", "factos": [], "esperado": "deny", "regra": "selo_ou_certificacao"}
+{"id": "aleg-057", "texto": "Sabao autorizado pelo INADEC.", "factos": [], "esperado": "deny", "regra": "selo_ou_certificacao"}
+{"id": "aleg-058", "texto": "Certificacao de origem garantida.", "factos": [], "esperado": "deny", "regra": "selo_ou_certificacao"}
+{"id": "aleg-059", "texto": "Recomendada por nutricionistas.", "factos": [], "esperado": "deny", "regra": "selo_ou_certificacao"}
+{"id": "aleg-060", "texto": "Novidades na loja esta semana: venha ver!", "factos": [], "esperado": "allow"}
+{"id": "aleg-061", "texto": "Camisas de algodao para o calor de Luanda.", "factos": [], "esperado": "allow"}
+{"id": "aleg-062", "texto": "Uma dica: guarde o pao num saco de pano.", "factos": [], "esperado": "allow"}
+{"id": "aleg-063", "texto": "Os bastidores da nossa cozinha, logo de manha.", "factos": [], "esperado": "allow"}
+{"id": "aleg-064", "texto": "Ja provou o nosso bolo de ginguba?", "factos": [], "esperado": "allow"}
+{"id": "aleg-065", "texto": "Vestidos para casamentos e festas de familia.", "factos": [], "esperado": "allow"}
+{"id": "aleg-066", "texto": "Entregamos em Luanda, peca pelo WhatsApp.", "factos": ["Entregamos em Luanda"], "esperado": "allow"}
+{"id": "aleg-067", "texto": "Feito a mao, com carinho, no nosso atelier.", "factos": [], "esperado": "allow"}
+{"id": "aleg-068", "texto": "A nossa melhor coleccao ate hoje.", "factos": [], "esperado": "allow"}
+{"id": "aleg-069", "texto": "Comparamos tecidos para escolher os mais frescos.", "factos": [], "esperado": "allow"}
+{"id": "aleg-070", "texto": "Queijo curado da Huila, chegou hoje.", "factos": [], "esperado": "allow"}
+{"id": "aleg-071", "texto": "Uma garantia de troca de sete dias, como sempre.", "factos": [], "esperado": "allow"}
+{"id": "aleg-072", "texto": "Bom para o dia a dia, facil de lavar.", "factos": [], "esperado": "allow"}
+{"id": "aleg-073", "texto": "Conheca a equipa que prepara as suas encomendas.", "factos": [], "esperado": "allow"}
+{"id": "aleg-074", "texto": "Um lanche rapido para a pausa do trabalho.", "factos": [], "esperado": "allow"}
+{"id": "aleg-075", "texto": "As cores da nova estacao ja estao na montra.", "factos": [], "esperado": "allow"}
+{"id": "aleg-076", "texto": "Saude e bem-estar: beba agua durante o dia.", "factos": [], "esperado": "allow"}
+{"id": "aleg-077", "texto": "Cuide do seu cabelo com produtos suaves.", "factos": [], "esperado": "allow"}
+{"id": "aleg-078", "texto": "Pergunte-nos pelos tamanhos disponiveis.", "factos": [], "esperado": "allow"}
+{"id": "aleg-079", "texto": "Sabia que o embondeiro da muitos frutos?", "factos": [], "esperado": "allow"}
+{"id": "aleg-080", "texto": "Um presente especial para o Dia da Mae.", "factos": [], "esperado": "allow"}
+{"id": "aleg-081", "texto": "Sapatos confortaveis para andar pela cidade.", "factos": [], "esperado": "allow"}
+{"id": "aleg-082", "texto": "O nosso cha de caxinde, para depois do almoco.", "factos": [], "esperado": "allow"}
+{"id": "aleg-083", "texto": "Tecidos africanos com padroes unicos.", "factos": [], "esperado": "allow"}
+{"id": "aleg-084", "texto": "A loja abre ao sabado de manha.", "factos": ["Abrimos ao sabado de manha"], "esperado": "allow"}
+{"id": "aleg-085", "texto": "Premiado na FILDA: o nosso doce de mamao.", "factos": ["Premiado na FILDA 2025"], "esperado": "allow"}
+{"id": "aleg-086", "texto": "Mel certificado pelo IANORQ, do Huambo.", "factos": ["Mel certificado pelo IANORQ"], "esperado": "allow"}
+{"id": "aleg-087", "texto": "Carne halal, cortada todos os dias.", "factos": ["Carne halal"], "esperado": "allow"}
+{"id": "aleg-088", "texto": "O melhor de Luanda segundo o concurso da radio.", "factos": ["Eleito o melhor de Luanda no concurso da radio"], "esperado": "allow"}
+{"id": "aleg-089", "texto": "Somos o numero 1 do bairro no inquerito da administracao.", "factos": ["Numero 1 do bairro no inquerito da administracao"], "esperado": "allow"}
+{"id": "aleg-090", "texto": "Creme testado dermatologicamente na Africa do Sul.", "factos": ["Creme testado dermatologicamente"], "esperado": "allow"}
+{"id": "aleg-091", "texto": "A unica loja com entrega ao domingo em Viana.", "factos": ["A unica loja com entrega ao domingo em Viana"], "esperado": "allow"}
+{"id": "aleg-092", "texto": "Aprovado pela comissao de moradores, que gostou.", "factos": ["Aprovado pela comissao de moradores"], "esperado": "allow"}
+{"id": "aleg-093", "texto": "Selo de qualidade da associacao dos pasteleiros.", "factos": ["Selo de qualidade da associacao dos pasteleiros"], "esperado": "allow"}
+{"id": "aleg-094", "texto": "Homologado para uso domestico.", "factos": ["Homologado para uso domestico"], "esperado": "allow"}
+{"id": "aleg-095", "texto": "Curativos e pensos para a caixa de primeiros socorros.", "factos": [], "esperado": "allow"}
+{"id": "aleg-096", "texto": "O processo de cura do queijo leva semanas.", "factos": [], "esperado": "allow"}
+{"id": "aleg-097", "texto": "Arroz de primeira qualidade.", "factos": [], "esperado": "allow"}
+{"id": "aleg-098", "texto": "Um sabor que lembra a infancia.", "factos": [], "esperado": "allow"}
+{"id": "aleg-099", "texto": "Melhoramos a embalagem para chegar inteira.", "factos": [], "esperado": "allow"}
+{"id": "aleg-100", "texto": "Mais fresco quando chega cedo.", "factos": [], "esperado": "allow"}
+{"id": "aleg-101", "texto": "Uma escolha segura para a familia.", "factos": [], "esperado": "allow"}
+{"id": "aleg-102", "texto": "Um bom preco para quem compra ao fim do mes.", "factos": [], "esperado": "allow"}
+{"id": "aleg-103", "texto": "Fale connosco antes de escolher.", "factos": [], "esperado": "allow"}
+{"id": "aleg-104", "texto": "Ganhamos experiencia ano apos ano.", "factos": [], "esperado": "allow"}
+{"id": "aleg-105", "texto": "As melhores ideias nascem a conversar com os clientes.", "factos": [], "esperado": "allow"}
+{"id": "aleg-106", "texto": "Comprar perto de casa poupa tempo.", "factos": [], "esperado": "allow"}
+{"id": "aleg-107", "texto": "Produtos de higiene para toda a familia.", "factos": [], "esperado": "allow"}

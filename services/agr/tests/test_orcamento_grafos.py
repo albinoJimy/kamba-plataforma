@@ -346,7 +346,11 @@ class TestDispensaDoPasso4(unittest.TestCase):
 
     def test_a_lista_e_a_das_decisoes_do_fundador(self) -> None:
         # KAM-119: o `create_product_draft` so grava o rascunho (decisao do fundador).
-        self.assertEqual(DISPENSAS_DO_PASSO_4, ("submit_quote", "create_product_draft"))
+        # KAM-121: as tres de escrita do social so gravam rascunhos (precedentes).
+        self.assertEqual(
+            DISPENSAS_DO_PASSO_4,
+            ("submit_quote", "create_product_draft", "update_brand_profile", "generate_calendar", "generate_caption"),
+        )
 
     def test_uma_write_sem_campo_e_sem_dispensa_continua_recusada(self) -> None:
         for nome in ("submit_quote", "book_slot"):

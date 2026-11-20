@@ -12,6 +12,7 @@
  * o escritor falha                      UPSTREAM_DOWN, nunca a decisao
  * sujeito categoria ou desconhecido     VALIDATION_ERROR, e nenhuma ligacao se abre
  * sujeito produto (KAM-119)             entra, com a categoria do tenant, e grava-se
+ * sujeito conteudo (KAM-121)            entra, sem `publicavel`; os cem canonicos saem bloqueados
  * o operacoesDoCom                      passa o classificador, e grava o sujeito das condicoes
  * texto de categoria restrita           bloqueada, com o id da politica
  * sem classificador                     condicional, nunca permitida
@@ -19,6 +20,8 @@
  */
 
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { test } from "node:test";
 
 import {
@@ -34,6 +37,7 @@ import {
   operacaoDeScreen,
   SQL_CATEGORIA_DO_TENANT,
   SUJEITO_DAS_CONDICOES,
+  SUJEITO_DO_CONTEUDO,
   SUJEITO_DO_PRODUTO,
   SUJEITOS_DA_ROTA,
 } from "../src/screening/index.ts";
@@ -122,11 +126,14 @@ function classificador(decisao: "permitida" | "condicional" | "bloqueada"): Clas
   return duplo as unknown as ClassificadorDeCategorias & { chamadas: number };
 }
 
-test("KAM-222 e KAM-119: entram as condicoes e o produto, nunca a categoria, e nenhuma ligacao se abre para os outros", async () => {
+test("KAM-222, KAM-119 e KAM-121: entram as condicoes, o produto e o conteudo, nunca a categoria, e nenhuma ligacao se abre para os outros", async () => {
   // A `categoria` mudava a categoria do tenant. O `produto` entrou com o
   // KAM-119, quando a re-análise passou a comparar o conteúdo (achado 1 da
-  // revisão adversarial do KAM-222).
-  assert.deepEqual([...SUJEITOS_DA_ROTA].sort(), [SUJEITO_DAS_CONDICOES, SUJEITO_DO_PRODUTO].sort());
+  // revisão adversarial do KAM-222), e o `conteudo` com o KAM-121.
+  assert.deepEqual(
+    [...SUJEITOS_DA_ROTA].sort(),
+    [SUJEITO_DAS_CONDICOES, SUJEITO_DO_PRODUTO, SUJEITO_DO_CONTEUDO].sort(),
+  );
   assert.ok(!(SUJEITOS_DA_ROTA as readonly string[]).includes("categoria"));
   const b = base();
   const operar = operacaoDeScreen({ comTenant: b.comTenant, politica: politicaCorrente(), classificador: null });
@@ -313,4 +320,46 @@ test("KAM-119: uma permitida nova sobre uma condicional anterior do mesmo conteu
   // As condicoes nao levam o campo: nao sao um produto.
   const condicoes = await com(CTX, { ...pedido, sujeitoTipo: CONDICOES, sujeitoRef: QUOTE });
   assert.equal(condicoes.tipo === "ok" && "publicavel" in condicoes.valor, false);
+});
+
+test("KAM-121, criterio 5: os cem primeiros casos canonicos de categoria bloqueada, como conteudo social, saem todos bloqueados", async () => {
+  // O corpus do KAM-088, escrito por quem nao leu o motor. Os temas de um
+  // calendario vao a rota com o sujeito `conteudo` e o `id` do calendario; a
+  // categoria e a do tenant («moda», uma permitida), e o `screen` corre a
+  // politica real. O AGR so cria itens com uma decisao que nao seja
+  // `bloqueada` (`social_tools.generate_calendar`): cem bloqueadas sao zero itens.
+  const linhas = readFileSync(
+    join(import.meta.dirname, "..", "..", "..", "policy", "categorias", "casos", "canonico.jsonl"),
+    "utf-8",
+  )
+    .split("
+")
+    .filter((l) => l.trim().length > 0)
+    .map((l) => JSON.parse(l) as { id: string; textos: string[] });
+  assert.ok(linhas.length >= 100);
+  const b = base({ categoriaDoTenant: "moda" });
+  const operar = operacaoDeScreen({
+    comTenant: b.comTenant,
+    politica: politicaCorrente(),
+    classificador: classificador("permitida"),
+  });
+  const decisoes: string[] = [];
+  for (const caso of linhas.slice(0, 100)) {
+    const r = await operar(CTX, {
+      sujeitoTipo: SUJEITO_DO_CONTEUDO,
+      sujeitoRef: "0000000c-0000-4000-8000-00000000000c",
+      categoriaDeclarada: null,
+      textos: caso.textos,
+    });
+    assert.equal(r.tipo, "ok", caso.id);
+    if (r.tipo === "ok") {
+      decisoes.push(r.valor.decisao);
+      // O conteudo nao e um produto: nao leva `publicavel`.
+      assert.equal("publicavel" in r.valor, false, caso.id);
+    }
+  }
+  assert.equal(decisoes.filter((d) => d !== "bloqueada").length, 0);
+  // Cada decisao grava-se, com o sujeito e a versao da politica.
+  assert.equal(b.gravadas.length, 100);
+  assert.ok(b.gravadas.every((g) => g.sujeitoTipo === "conteudo" && g.versaoPolitica.length > 0));
 });

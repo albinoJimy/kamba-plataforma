@@ -1,0 +1,4 @@
+# Selado pelo `selo()` de `services/agr/src/kamba_agr/social/politicas.py` (KAM-121).
+# Uma linha por versao publicada: o sha256 sela o conteudo, sem a `versao`. Nao se edita
+# a mao; o `TestPoliticasSeladas` recusa um conteudo que mude sem a versao subir.
+1.0.0 9cd13ed52a2d36abb1f2f7e249b0615e3f12df950e2ccfa415da0ca1043e471c

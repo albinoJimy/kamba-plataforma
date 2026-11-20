@@ -103,7 +103,18 @@ NOME_DE_TOOL: Final = re.compile(r"^[a-z][a-z0-9_]{1,62}$")
 #:   Registo, que nasce inactivo (`upsertProductDraft` nunca publica); o preco
 #:   so entra pelo botao do eco, e publicar e o `publish_product`, com o botao
 #:   `confirm:{action_id}`. O §21.3 da-lhe a classe `write` sem confirmacao.
-DISPENSAS_DO_PASSO_4: Final = ("submit_quote", "create_product_draft")
+#: * `update_brand_profile`, `generate_calendar` e `generate_caption` (KAM-121,
+#:   pelos mesmos precedentes) — **so gravam** o perfil de marca e os itens do
+#:   calendario em `rascunho`, no proprio tenant; nada se publica nem se envia
+#:   (nao ha tool de publicacao, D13), e a aprovacao e a entrega sao do KAM-122,
+#:   com o botao `confirm:{action_id}` da accao `aprovar_conteudo`.
+DISPENSAS_DO_PASSO_4: Final = (
+    "submit_quote",
+    "create_product_draft",
+    "update_brand_profile",
+    "generate_calendar",
+    "generate_caption",
+)
 
 #: A forma de um credor: um ticket do backlog mestre. O *gate* 3 (referencias
 #: cruzadas) le os `KAM-NNN` deste ficheiro como le os de qualquer outro, pelo
