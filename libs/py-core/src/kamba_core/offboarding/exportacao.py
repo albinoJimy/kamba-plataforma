@@ -84,7 +84,17 @@ VERSAO_DO_MANIFESTO: Final = "1.2.0"
 #: O tecto dos bytes dos objectos dentro do pacote. *Proposta*, sem medicao: o
 #: pacote monta-se em memoria no processo dos dados. Acima dele, os bytes ficam
 #: de fora e o manifesto di-lo (`RAZAO_ACIMA_DO_TECTO`).
-TECTO_DOS_BYTES: Final = 256 * 1024 * 1024
+#:
+#: **48 MiB, e nao os 256 do KAM-210** (achado 3 da revisao adversarial do
+#: KAM-218). Os bytes vivem tres vezes ao mesmo tempo — os `conteudos`, a copia
+#: no ZIP e o ZIP inteiro — e o processo tem 256 MiB no *compose*, que e o que a
+#: folga do orcamento de memoria de producao comporta (o `conjunto-reduzido`
+#: estava a 358 MiB do tecto dos 80%). Com 256 MiB de tecto, um tenant com 60 MiB
+#: de fotos matava o processo por falta de memoria em cada volta, e a exportacao
+#: nunca concluia.
+#: shortcut: os bytes acima de 48 MiB ficam fora do pacote; reve-se quando o
+#: pacote passar a escrever-se em fluxo para o STO, ou com a primeira medicao.
+TECTO_DOS_BYTES: Final = 48 * 1024 * 1024
 
 #: A razao dos bytes em falta, quando passam do tecto.
 RAZAO_ACIMA_DO_TECTO: Final = (

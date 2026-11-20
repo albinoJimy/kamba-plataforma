@@ -709,16 +709,23 @@ class TestPurgaPeloCofre(ComOffboarding):
         self.assertTrue(self.cur.fetchone()[0])
         self.cur.execute("SELECT erased_at FROM platform.contacts WHERE contact_id = %s", (cb,))
         self.assertIsNone(self.cur.fetchone()[0])
-        self.assertIn(("platform.contacts", "ok", None, 2), self.purge_log(r["execucao_id"]))
+        registos = self.purge_log(r["execucao_id"])
+        # As tres tabelas do cofre, cada uma com a sua linha: a das DEK e a prova
+        # do *crypto-shredding* (achado 1 da revisao adversarial).
+        self.assertIn(("platform.contact_endpoints", "ok", None, 2), registos)
+        self.assertIn(("platform.contact_deks", "ok", None, 1), registos)
+        self.assertIn(("platform.contacts", "ok", None, 2), registos)
 
     def test_repetir_nao_marca_nada_de_novo(self) -> None:
         a = self.tenant()
         self.contacto_com_cifra(a)
         apagar = apagar_contactos_pelo_cofre(self.cofre)
-        self.assertEqual(apagar(a), 1)
+        self.assertEqual(apagar(a), {"platform.contact_endpoints": 2, "platform.contact_deks": 1,
+                                     "platform.contacts": 1})
         self.cur.execute("SELECT erased_at FROM platform.contacts WHERE tenant_id = %s", (a,))
         antes = self.cur.fetchone()[0]
-        self.assertEqual(apagar(a), 0)
+        self.assertEqual(apagar(a), {"platform.contact_endpoints": 0, "platform.contact_deks": 0,
+                                     "platform.contacts": 0})
         self.cur.execute("SELECT erased_at FROM platform.contacts WHERE tenant_id = %s", (a,))
         self.assertEqual(self.cur.fetchone()[0], antes, "a data do apagamento nao muda")
 

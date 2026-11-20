@@ -340,6 +340,7 @@ function baseDosCanais(linhas: { tenant_id: string; token_ref: string }[]) {
     async query(sql: string, valores: readonly unknown[] = []) {
       consultas.push({ sql, valores });
       assert.ok(sql.includes("WHERE waba_id = $1 AND token_ref IS NOT NULL"), "o predicado do WABA no texto");
+      assert.ok(sql.includes("AND estado <> 'encerrado'"), "a linha de um tenant que já saiu não conta para a recusa");
       assert.ok(!/LIMIT/i.test(sql), "sem LIMIT: dois tenants tem de se ver");
       return { rows: linhas };
     },

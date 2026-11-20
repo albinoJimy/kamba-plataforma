@@ -192,6 +192,66 @@ class TestArrancaEmProd(unittest.TestCase):
         self.assertNotIn(SENHA, saida, "nenhuma credencial no registo")
 
 
+class TestOsPapeisDaBase(unittest.TestCase):
+    """Cada fabrica abre com o seu papel e a sua senha (achado 6 da revisao adversarial).
+
+    O `pg8000` falso regista os argumentos do `connect`: trocar a ordem dos
+    `ligadores`, a senha do cofre ou o papel dele fica vermelho aqui.
+    """
+
+    def setUp(self) -> None:
+        import sys
+        import types
+
+        self.ligacoes: list[dict] = []
+        dbapi = types.ModuleType("pg8000.dbapi")
+
+        class Ligacao:
+            autocommit = True
+
+        def connect(**kw):
+            self.ligacoes.append(kw)
+            return Ligacao()
+
+        dbapi.connect = connect
+        raiz = types.ModuleType("pg8000")
+        raiz.dbapi = dbapi
+        self.antes = {n: sys.modules.get(n) for n in ("pg8000", "pg8000.dbapi")}
+        sys.modules["pg8000"], sys.modules["pg8000.dbapi"] = raiz, dbapi
+
+    def tearDown(self) -> None:
+        import sys
+
+        for nome, modulo in self.antes.items():
+            if modulo is None:
+                sys.modules.pop(nome, None)
+            else:
+                sys.modules[nome] = modulo
+
+    def env(self) -> dict[str, str]:
+        return ambiente(KAMBA_SECRET_DB_APP_PASSWORD="s-app", KAMBA_SECRET_DB_BATCH_PASSWORD="s-lote",
+                        KAMBA_SECRET_DB_IDENTITY_PASSWORD="s-cofre")
+
+    def test_o_lote_a_app_e_o_cofre_cada_um_com_a_sua_senha(self) -> None:
+        from kamba_core.offboarding.servico import ligador_do_cofre, ligadores
+
+        abrir_batch, abrir_app = ligadores(self.env())
+        abrir_batch(), abrir_app(), ligador_do_cofre(self.env())()
+        self.assertEqual([(c["user"], c["password"]) for c in self.ligacoes],
+                         [("kamba_batch", "s-lote"), ("kamba_app", "s-app"), ("kamba_identity", "s-cofre")])
+
+    def test_as_portas_de_producao_apagam_os_contactos_pelo_papel_do_cofre(self) -> None:
+        from kamba_core.offboarding.servico import portas_de_producao
+
+        portas = portas_de_producao(ler_configuracao(self.env()), Segredos(f"cert-2026-11:{CHAVE}"),
+                                    ArmazenamentoPorTenant(MotorEmMemoria()), self.env())
+        self.assertIsNotNone(portas.apagar_contactos, "sem ele os contactos voltam a sem_caminho")
+        with self.assertRaises(Exception):
+            # A ligacao falsa nao tem cursor: basta ver com que papel abriu.
+            portas.apagar_contactos("11111111-1111-4111-8111-111111111111")
+        self.assertEqual([c["user"] for c in self.ligacoes], ["kamba_identity"])
+
+
 class TestCiclo(unittest.TestCase):
     def test_corre_a_volta_e_uma_que_levanta_nao_mata_o_ciclo(self) -> None:
         parar = threading.Event()

@@ -64,17 +64,26 @@ SQL_MARCAR_APAGADOS: Final = (
 
 
 def apagar_contactos_pelo_cofre(abrir_cofre: AbrirLigacao) -> ApagarContactos:
-    """A porta da purga: apaga os contactos do tenant e devolve quantos marcou."""
+    """A porta da purga: apaga os contactos do tenant e devolve as linhas por tabela.
 
-    def apagar(tenant_id: str) -> int:
+    As tres, e nao so os contactos: cada uma vai ao `purge_log`, e a das DEK e a
+    prova do *crypto-shredding* que o certificado mostra.
+    """
+
+    def apagar(tenant_id: str) -> dict[str, int]:
         tenant = tenant_guard.normalizar_tenant(tenant_id)
         ligacao = abrir_cofre()
+        linhas: dict[str, int] = {}
         try:
             with tenant_guard.tx(ligacao, tenant) as cursor:
-                cursor.execute(SQL_APAGAR_ENDPOINTS, (tenant,))
-                cursor.execute(SQL_DESTRUIR_DEKS, (tenant,))
-                cursor.execute(SQL_MARCAR_APAGADOS, (tenant,))
-                return max(int(cursor.rowcount or 0), 0)
+                for tabela, sql in (
+                    ("platform.contact_endpoints", SQL_APAGAR_ENDPOINTS),
+                    ("platform.contact_deks", SQL_DESTRUIR_DEKS),
+                    ("platform.contacts", SQL_MARCAR_APAGADOS),
+                ):
+                    cursor.execute(sql, (tenant,))
+                    linhas[tabela] = max(int(cursor.rowcount or 0), 0)
+            return linhas
         finally:
             ligacao.close()
 

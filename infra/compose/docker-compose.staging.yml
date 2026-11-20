@@ -621,10 +621,11 @@ services:
     # **Uma replica.** Duas eram duas voltas sobre as mesmas fases; a fase
     # tranca-se (`FOR UPDATE`, e a purga com `pg_try_advisory_lock`), mas a
     # segunda volta so gastava ligacoes.
-    # shortcut: 128m sem medicao; um pacote de exportacao vive em memoria ate ao
-    # tecto de 256 MiB dos bytes (*proposta*, KAM-210) — reve-se com a primeira
+    # shortcut: 256m sem medicao; o pacote de exportacao vive em memoria, os
+    # bytes ate ao tecto de 48 MiB (`TECTO_DOS_BYTES`), tres vezes no pico — e
+    # e o que a folga do orcamento de producao comporta; reve-se com a primeira
     # exportacao medida em `staging`.
-    mem_limit: 128m
+    mem_limit: 256m
     cpus: 0.25
     healthcheck:
       test:

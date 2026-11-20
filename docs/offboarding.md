@@ -23,7 +23,7 @@ uma fase que parou a meio retoma no passo seguinte.
 | `verificacao` | D0 | `abrirPedido` (TS) | Exige as **duas** confirmações do titular — o OTP ao telefone provado e a ligação ao e-mail registado —, ou, por T&S, um tenant `suspenso` e a referência da decisão. Escreve as sete fases |
 | `canal` | D1 | `desligarCanal` (TS) | Cancela a subscrição de *webhooks* de cada WABA e põe o canal `desligado`: o CHR deixa de encaminhar, e é isso que bloqueia encomendas novas. **O WABA e o número ficam do cliente** |
 | `pendentes` | D7 | `verificarPendentes` (TS) | Conta encomendas em curso, reservas activas e reembolsos abertos. Sem pendentes, conclui; uma encomenda em disputa não impede, e fica escrita para a purga |
-| `exportacao` | D7 | `exportar` (Python) | O pacote ao titular: clientes, encomendas, conversas, consentimentos e a lista de ficheiros, em JSON e CSV, com manifesto e `sha256`. Uma geração nova a cada pedido, cada uma auditada |
+| `exportacao` | D7 | `exportar` (Python) | O pacote ao titular: clientes, encomendas, conversas, consentimentos, a lista de ficheiros e (KAM-210) os bytes até ao tecto, e (KAM-218) as ofertas e a prova de aceite, em JSON e CSV, com manifesto e `sha256`. Uma geração nova a cada pedido, cada uma auditada |
 | `revogacao` | D7 | `revogar` (TS) | Só no D7 e com a exportação concluída: a chave LiteLLM, o canal Medusa, a *inbox* do Chatwoot, os entitlements a `false`, os canais `encerrado` e o tenant `encerrado`, com o evento do encerramento |
 | `purga` | D30 | `purgar` (Python) | Apaga os dados operacionais pelos caminhos medidos, com o `purge_log`. Uma disputa ou um *hold* legal suspendem-na |
 | `certificado` | D30 | `emitir_certificado` (Python) | O que saiu e o que ficou, com fundamento, assinado; entregue ao titular |
@@ -86,13 +86,23 @@ se repete sozinha. A regra `offboarding_fase_parada` dispara sobre uma fase `fal
 
 **O que está ligado.** A Meta, na fase `canal` (KAM-218): o *token* de cada WABA lê-se do cofre
 pela referência da `tenant_channels` e abre-se com a `kek_token_cliente`; um WABA de dois tenants
-recusa. O STO na exportação e na purga (KAM-210). As ofertas e a prova de aceite do KAM-090 no pacote,
-e os contactos pelo cofre na purga (KAM-218).
+recusa. **O limite que fica:** o leitor procura o criptograma no ambiente do processo
+(`KAMBA_SECRET_META_CLIENT_TOKEN__<instância>`, ADR-L002), e nenhum *compose* passa essas instâncias
+por tenant ao contentor — como chegam lá é o mecanismo do lançador do cofre, por fechar; até lá a
+fase `canal` falha com `sem_segredo` e pára com alerta. O STO na exportação e na purga (KAM-210). As
+ofertas e a prova de aceite do KAM-090 no pacote, e os contactos pelo cofre na purga (KAM-218).
 
-**O que falta** (credor **KAM-218**, com a razão de cada um no bloco): o OTP e a ligação ao e-mail do
+**O passo manual do D7: a chave do LiteLLM.** As chaves dos tenants nascem à mão
+(`python infra/llm/chaves.py provisionar <tenant> <plano>`, KAM-030) e não ficam no
+`provisioning_step`, pelo que a revogação automática as dá por `sem_recurso` — e elas continuavam
+vivas. Com a fase `revogacao` concluída, corre-se `python infra/llm/chaves.py revogar <tenant>`: apaga
+a chave `tenant-<uuid>` e confirma-o pela listagem (`revogada`, ou `inexistente` numa repetição).
+**NÃO VERIFICADO** contra a imagem fixada: a forma do corpo do `/key/delete`.
+
+**O que falta** (credor **KAM-233**, com a razão de cada um no bloco do KAM-218): o OTP e a ligação ao e-mail do
 dono, e a entrega do certificado — não há agregador de SMS nem fornecedor de e-mail escolhidos
-(fundador, KAM-116 e KAM-115); o LiteLLM, a Medusa e o Chatwoot na revogação (a saga também não tem
-adaptadores, pelo que nenhum tenant tem o recurso e o passo é `sem_recurso`); o catálogo da Medusa no
+(fundador, KAM-116 e KAM-115); a revogação automática — o LiteLLM pela saga, a Medusa e o Chatwoot (a saga também
+não tem adaptadores, pelo que o passo é `sem_recurso`) — e as sessões do painel; o catálogo da Medusa no
 pacote (a D3 por ratificar) e os telefones dos clientes decifrados com auditoria; o caminho de
 eliminação das tabelas `sem_caminho`, que é esquema; o Chatwoot, os *traces*, as *caches* e o pedido
 aos fornecedores na purga; e o simulacro em *staging*. A assinatura do certificado é HMAC, e não
@@ -123,14 +133,19 @@ com as fases que falharam no `error_code` (`listagem`, `exportacao`, `purga`, `c
 o tenant nem a mensagem. Uma `listagem` que falha é a base: o processo continua, e a volta seguinte
 tenta outra vez.
 
-**O certificado fica `em_curso` em todas as voltas** enquanto a entrega não tiver adaptador. O
-documento é o mesmo em cada tentativa; entrega-se à mão ao titular pelo contacto que o
-`platform.owner_contacts` guarda, e marca-se a entrega correndo a fase com uma `entregar` que devolve
-verdadeiro (`correr_fase`, §3 do *runbook* da fase parada). O canal do titular só sai depois disso.
+**O certificado fica `pendente` em todas as voltas** enquanto a entrega não tiver adaptador: a
+`entrega_sem_adaptador` levanta antes de qualquer gravação, e cada volta monta-o de novo (com a data
+dessa volta) sem o guardar. Entrega-se à mão, em três passos: (1) correr a fase com `correr_fase` e
+uma `entregar` que guarda os bytes num ficheiro e devolve **falso** — a fase fica `em_curso`, com o
+`sha256` e a data de emissão fixados; (2) entregar esse ficheiro ao titular pelo contacto que o
+`platform.owner_contacts` guarda; (3) correr a fase outra vez com uma `entregar` que devolve
+**verdadeiro** — o documento é o mesmo (a mesma data e o mesmo `sha256`), a fase conclui, e o canal do
+titular sai.
 
-**Rodar a chave do certificado.** Uma versão nova `<kid>:<base64>` no cofre, e a anterior em
-`…_ANTERIOR`: o processo assina com a actual, e um certificado antigo verifica-se com a versão do
-`kid` que ele traz. Reiniciar o serviço: a chave lê-se no arranque.
+**Rodar a chave do certificado.** Uma versão nova `<kid>:<base64>` no cofre, e reiniciar o serviço:
+a chave lê-se no arranque, e o processo só assina com a actual — não lê a anterior. Um certificado
+antigo verifica-se com a versão do `kid` que ele traz, e por isso o cofre guarda as versões retiradas;
+quem verifica (perante uma auditoria ou a APD) lê-as de lá, e não deste processo.
 
 **Correr à mão** uma fase de um tenant: `kamba_core.offboarding.correr_fase(abrir_batch, abrir_app,
 portas, tenant_id, fase, agora)`, com as portas que o `servico.montar_portas` monta. Correr a mais

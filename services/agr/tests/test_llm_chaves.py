@@ -353,9 +353,6 @@ class TestOComandoNaoImprimeSegredos(unittest.TestCase):
         self.assertIn("tenant-", texto)
 
 
-if __name__ == "__main__":
-    unittest.main()
-
 
 class TestARevogacao(unittest.TestCase):
     """KAM-218: a chave de um tenant encerrado, criada a mao, sai pelo alias."""
@@ -403,3 +400,7 @@ class TestARevogacao(unittest.TestCase):
             chaves._proxy_do_ambiente = original
         self.assertIn("revogada", saida.getvalue())
         self.assertNotIn("hash-a", saida.getvalue())
+
+
+if __name__ == "__main__":
+    unittest.main()

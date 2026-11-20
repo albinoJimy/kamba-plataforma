@@ -120,11 +120,17 @@ export class CanalDaMetaPelaGraph implements CanalDaMeta {
 /**
  * As referências do *token* de um WABA, com o tenant de cada uma. **Sem
  * `LIMIT`**: duas linhas de tenants diferentes têm de se ver para se recusar.
+ *
+ * **Sem os canais `encerrado`** (achado 7 da revisão adversarial): a linha de um
+ * tenant que já saiu guarda o `waba_id` e o `token_ref`, e contá-la fazia
+ * `ambiguo` para sempre o encerramento de quem ficou com o WABA. O limite que
+ * fica, escrito: um tenant com o mesmo WABA que só tenha a linha do onboarding
+ * de canal, e nenhuma na `tenant_channels`, não conta para a recusa.
  */
 export const SQL_TOKENS_DO_WABA = `
   SELECT DISTINCT tenant_id::text AS tenant_id, token_ref
     FROM platform.tenant_channels
-   WHERE waba_id = $1 AND token_ref IS NOT NULL
+   WHERE waba_id = $1 AND token_ref IS NOT NULL AND estado <> 'encerrado'
    ORDER BY 1, 2
 `;
 

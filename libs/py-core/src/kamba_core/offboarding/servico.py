@@ -30,8 +30,9 @@ continua em `exportacao.py`, `purga.py` e `certificado.py`; aqui so se liga.
 
 A entrega do certificado (`entrega_sem_adaptador`): nao ha agregador de SMS nem
 fornecedor de e-mail escolhidos (fundador, KAM-116 e KAM-115). O certificado
-fica `em_curso`, o alerta `offboarding_fase_parada` dispara passado o prazo, e o
-*runbook* diz como o entregar a mao. A fonte do catalogo da Medusa
+fica `pendente` (a entrega levanta antes de qualquer gravacao), o alerta
+`offboarding_fase_parada` dispara passado o prazo, e o *runbook*
+(`docs/offboarding.md` §7) diz como o entregar a mao. A fonte do catalogo da Medusa
 entra por argumento quando houver adaptador (a D3 por ratificar); sem ela a
 exportacao di-lo no manifesto.
 """
@@ -52,6 +53,7 @@ from ..secrets.kid import separar_kid
 from ..storage.config import StorageConfig, ler_config
 from ..storage.port import StorageProvider
 from .certificado import EntregarAoTitular
+from .cofre import PAPEL_DO_COFRE, apagar_contactos_pelo_cofre
 from .exportacao import FonteDoCatalogo
 from .processo import PortasDosDados, ResultadoDaVolta, correr_volta, entrega_sem_adaptador
 from .purga import ApagarContactos
@@ -77,7 +79,6 @@ VAR_SENHA_COFRE: Final = "KAMBA_SECRET_DB_IDENTITY_PASSWORD"
 #: da aplicacao, com o contexto do tenant (`exportacao.exportar`).
 PAPEL_DO_LOTE: Final = "kamba_batch"
 PAPEL_DA_APP: Final = "kamba_app"
-PAPEL_DO_COFRE: Final = "kamba_identity"
 
 #: A sonda. Tem de coincidir com o *compose*.
 VAR_PORTA: Final = "OFFBOARDING_DADOS_PORT"
@@ -140,7 +141,7 @@ def _inteiro(ambiente: Mapping[str, str], nome: str, omissao: int | None, minimo
 def ler_configuracao(ambiente: Mapping[str, str]) -> Configuracao:
     """A configuracao do processo, ou `ConfiguracaoEmFalta`. **Arranca em `prod`.**
 
-    Exige as duas senhas da base aqui, e nao so quando a primeira ligacao abre:
+    Exige as tres senhas da base aqui, e nao so quando a primeira ligacao abre:
     um processo que arranca verde e falha a cada volta e um processo que o
     *compose* da por saudavel.
     """
@@ -226,6 +227,24 @@ def ligador_do_cofre(ambiente: Mapping[str, str]) -> Callable[[], Any]:
     return ligador(ambiente, PAPEL_DO_COFRE, VAR_SENHA_COFRE)
 
 
+def portas_de_producao(
+    config: Configuracao,
+    segredos: Any,
+    armazenamento: StorageProvider,
+    ambiente: Mapping[str, str],
+) -> PortasDosDados:
+    """As portas que o processo monta: as de `montar_portas`, com os contactos pelo cofre.
+
+    Aqui, e nao no `__main__.py` (fora do *gate* 4), para que um ensaio veja que o
+    `apagar_contactos` vai e que abre com o papel do cofre (achado 6 da revisao
+    adversarial: tirar o argumento do `__main__` deixava todos os ensaios verdes).
+    """
+    return montar_portas(
+        config, segredos, armazenamento,
+        apagar_contactos=apagar_contactos_pelo_cofre(ligador_do_cofre(ambiente)),
+    )
+
+
 def desfecho(r: ResultadoDaVolta) -> tuple[str, str | None]:
     """O `outcome` e o `error_code` de uma volta: as fases que falharam, pelo nome."""
     if not r.falhas:
@@ -308,5 +327,6 @@ __all__ = [
     "ligador_do_cofre",
     "ligadores",
     "montar_portas",
+    "portas_de_producao",
     "servidor",
 ]

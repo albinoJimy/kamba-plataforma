@@ -24,16 +24,14 @@ from kamba_core.logger import instalar
 from kamba_core.secrets import EnvSecretProvider, Secrets
 from kamba_core.storage import criar_storage_s3
 
-from .cofre import apagar_contactos_pelo_cofre
 from .servico import (
     SEGREDOS_OBRIGATORIOS,
     SERVICO,
     Ciclo,
     desfecho,
     ler_configuracao,
-    ligador_do_cofre,
     ligadores,
-    montar_portas,
+    portas_de_producao,
     servidor,
 )
 
@@ -49,10 +47,7 @@ def main(ambiente: Any = None) -> int:
             obrigatorios=list(SEGREDOS_OBRIGATORIOS),
         )
         armazenamento = criar_storage_s3(config=config.armazenamento, secrets=segredos)
-        portas = montar_portas(
-            config, segredos, armazenamento,
-            apagar_contactos=apagar_contactos_pelo_cofre(ligador_do_cofre(ambiente)),
-        )
+        portas = portas_de_producao(config, segredos, armazenamento, ambiente)
     except Exception as exc:  # noqa: BLE001 — qualquer falha de arranque aborta
         log.excepcao(exc, "arranque_invalido")
         return 2

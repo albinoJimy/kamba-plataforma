@@ -186,13 +186,13 @@ servicos:
   - nome: offboarding-dados
     estado: presente
     rede: data
-    memoria_mib: 128
+    memoria_mib: 256
     razao: >-
       As fases de dados do off-boarding (KAM-218), `python -m kamba_core.offboarding`
       com a imagem do AGR: a exportacao, a purga e o certificado, numa volta de
-      15 min. Uma replica — duas eram duas voltas sobre as mesmas fases. 128 MiB
-      e *proposta*, sem medicao: o pacote de exportacao vive em memoria ate ao
-      tecto dos bytes.
+      15 min. Uma replica — duas eram duas voltas sobre as mesmas fases. 256 MiB
+      e *proposta*, sem medicao: o pacote de exportacao vive em memoria, os bytes
+      ate ao tecto de 48 MiB, tres vezes no pico.
 
   - nome: com
     estado: presente

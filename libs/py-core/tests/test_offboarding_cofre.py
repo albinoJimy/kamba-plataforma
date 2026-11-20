@@ -68,9 +68,11 @@ class Ligacao:
 
 class TestApagarContactosPeloCofre(unittest.TestCase):
     def test_as_tres_instrucoes_do_erase_contact_pelo_tenant_numa_transaccao(self) -> None:
-        ligacao = Ligacao({"UPDATE platform.contacts": 3})
+        ligacao = Ligacao({"DELETE platform.contact_endpoints": 4, "UPDATE platform.contact_deks": 2,
+                           "UPDATE platform.contacts": 3})
         n = apagar_contactos_pelo_cofre(lambda: ligacao)(A)
-        self.assertEqual(n, 3, "devolve os contactos marcados, e nao os endpoints")
+        self.assertEqual(n, {"platform.contact_endpoints": 4, "platform.contact_deks": 2, "platform.contacts": 3},
+                         "as linhas de cada tabela, pela sua instrucao")
         sqls = [s for s, _ in ligacao.instrucoes if "set_config" not in s]
         self.assertEqual(sqls, [SQL_APAGAR_ENDPOINTS, SQL_DESTRUIR_DEKS, SQL_MARCAR_APAGADOS])
         self.assertTrue(all(p == (A,) for s, p in ligacao.instrucoes if "set_config" not in s))
@@ -99,6 +101,50 @@ class TestApagarContactosPeloCofre(unittest.TestCase):
         with self.assertRaises(Exception):
             apagar_contactos_pelo_cofre(lambda: aberturas.append(1) or Ligacao())("nao-e-um-uuid")
         self.assertEqual(aberturas, [])
+
+
+class TestAPurgaRegistaAsTresTabelas(unittest.TestCase):
+    """A purga com o cofre escreve uma linha por tabela do cofre no `purge_log` (achado 1)."""
+
+    def test_cada_tabela_do_cofre_tem_a_sua_linha(self) -> None:
+        from datetime import datetime, timezone
+
+        from kamba_core.offboarding.purga import TABELAS_DOS_CONTACTOS, _Corrida
+
+        escritas: list = []
+
+        class Cursor:
+            def execute(self, sql, parametros=()):
+                if "INSERT INTO platform.purge_log" in sql:
+                    escritas.append(parametros)
+
+            def fetchone(self):
+                return ("",)
+
+            def close(self):
+                pass
+
+        class Lig:
+            autocommit = False
+
+            def cursor(self):
+                return Cursor()
+
+            def commit(self):
+                pass
+
+            def rollback(self):
+                pass
+
+            def close(self):
+                pass
+
+        corrida = _Corrida(lambda: Lig(), A, datetime(2026, 11, 20, tzinfo=timezone.utc), None)
+        corrida.contactos(lambda _t: {"platform.contact_endpoints": 4, "platform.contact_deks": 2,
+                                       "platform.contacts": 3})
+        self.assertEqual([(r.tabela, r.resultado, r.linhas) for r in corrida.registos],
+                         [(t, "ok", n) for t, n in zip(TABELAS_DOS_CONTACTOS, (4, 2, 3))])
+        self.assertEqual(len(escritas), 3)
 
 
 if __name__ == "__main__":

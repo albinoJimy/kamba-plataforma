@@ -19974,10 +19974,10 @@ entradas:
     variantes_literais: []
   - seccao: "3.77"
     conceito: "O pacote do titular"
-    canonico: "manifesto com VERSAO_DO_MANIFESTO = 1.0.0, num ZIP reproduzível na classe dsar do STO"
+    canonico: "manifesto com VERSAO_DO_MANIFESTO = 1.2.0, num ZIP reproduzível na classe dsar do STO"
     literais:
       - "VERSAO_DO_MANIFESTO"
-      - "1.0.0"
+      - "1.2.0"
       - "dsar"
     nomes:
       - "VERSAO_DO_MANIFESTO"
@@ -19985,6 +19985,12 @@ entradas:
     nomes_nota:
       - "sha256"
       - "audit_log"
+      - "ofertas"
+      - "offer_terms"
+      - "aceites"
+      - "contract_acceptance"
+      - "catalogo"
+      - "indisponivel"
     variantes_literais: []
   - seccao: "3.77"
     conceito: "A ligação de 24 h"
@@ -20085,6 +20091,7 @@ entradas:
       - "apagar_contactos_pelo_cofre"
       - "ApagarContactos"
     nomes_nota:
+      - "purge_log"
       - "erased_at"
       - "kamba_identity"
     variantes_literais: []
@@ -20108,27 +20115,11 @@ entradas:
     nomes_nota:
       - "token_ref"
       - "tenant_channels"
+      - "encerrado"
       - "kamba_batch"
       - "kek_token_cliente"
       - "ambiguo"
       - "portasDoOffboarding"
-    variantes_literais: []
-  - seccao: "3.77"
-    conceito: "O pacote do titular, 1.2.0"
-    canonico: "colecções ofertas (a offer_terms) e aceites (a contract_acceptance)"
-    literais:
-      - "ofertas"
-      - "offer_terms"
-      - "aceites"
-      - "contract_acceptance"
-    nomes:
-      - "ofertas"
-      - "offer_terms"
-      - "aceites"
-      - "contract_acceptance"
-    nomes_nota:
-      - "catalogo"
-      - "indisponivel"
     variantes_literais: []
   - seccao: "3.77"
     conceito: "Revogação da chave do LiteLLM"
