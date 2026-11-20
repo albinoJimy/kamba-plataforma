@@ -2195,7 +2195,7 @@ Testes: Chatwoot real em compose, concorrência, X-10, degradação. Abre PR com
 | Prioridade | P0 |
 | Estimativa | M |
 | Dependências | KAM-013, KAM-011, KAM-024 |
-| Bloqueia | KAM-036, KAM-049, KAM-071, KAM-229 |
+| Bloqueia | KAM-036, KAM-049, KAM-071, KAM-231 |
 | Responsável sugerido | Engenheiro de Canais |
 | Documentos de referência | `../docs/tecnica/01_Canais_WhatsApp_Fluxo_Dual.md` (§5.4), `../docs/tecnica/08_Seguranca_Conformidade.md` (§3.8, §7.5), `../docs/tecnica/00_Arquitectura_Solucao.md` (MED, STO), ADR-013, ADR-014 |
 
@@ -3749,4 +3749,4 @@ um `--suite tests` de dois minutos teria dito.
 | 1.18 | Novembro 2026 | **Aresta recíproca, sem alteração de conteúdo: o `Bloqueia` do KAM-013 ganha o KAM-187** (EPIC-08), que põe o `entrada.ts` deste ticket a correr no compose de produção — hoje o `CMD` do `worker-canal` é o `server.ts`, e ninguém consome a `wa-inbound`. | Equipa KAMBÁ |
 | 1.19 | Novembro 2026 | KAM-118: a decisão 1 da verificação do KAM-014 deixa de dizer que o `contacts.papel` não existe — a revisão `0070` cria-o, e a persona viaja na invocação e não no `ChannelContext` (dicionário §3.78). Nenhuma caixa muda. | Equipa KAMBÁ |
 | 1.20 | Novembro 2026 | **Aresta recíproca, sem alteração de conteúdo: o `Bloqueia` do KAM-019 ganha o KAM-213** (EPIC-01), que torna determinístico o ensaio «duas chamadas concorrentes: o ON CONFLICT da conta» do `handoff.bd.test.ts` — uma barreira no provedor falso força as duas chamadas a passarem a leitura antes do `INSERT`, em vez de o deixar ao `Promise.all`. | Equipa KAMBÁ |
-| 1.21 | Novembro 2026 | **Aresta recíproca, sem alteração de conteúdo:** o `Bloqueia` do KAM-020 ganha o **KAM-229** (EPIC-11), aberto no PR do KAM-119: a foto do dono chega ao catálogo pelo MED. | Equipa KAMBÁ |
+| 1.21 | Novembro 2026 | **Aresta recíproca, sem alteração de conteúdo:** o `Bloqueia` do KAM-020 ganha o **KAM-231** (EPIC-11), aberto no PR do KAM-119: a foto do dono chega ao catálogo pelo MED. | Equipa KAMBÁ |

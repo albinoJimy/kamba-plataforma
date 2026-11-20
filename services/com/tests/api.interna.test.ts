@@ -229,6 +229,7 @@ function operacoesDeEnsaio(): { operacoes: OperacoesDoCom; chamadas: Chamadas } 
         tectoPedidoMinor: 5_000_000n,
         currency: "AOA",
         avisos: ["conduta_em_analise"],
+        ownerChannelWa: null,
       });
     },
     async alterarOferta(_ctx: Ctx, a) {

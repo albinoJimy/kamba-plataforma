@@ -12,7 +12,7 @@
 
 version: 1
 fonte: "specs/02_Dicionario_de_Dados_Canonico.md"
-versao_dicionario: "1.121"
+versao_dicionario: "1.123"
 entradas:
   - seccao: "3.1"
     conceito: "Contacto"
@@ -5585,6 +5585,7 @@ entradas:
       - "KAMBA_AGR_URL"
       - "AGR_SHIM_PORT"
     nomes_nota:
+      - "KAMBA_AGR_URL"
       - "KAMBA_DB_HOST"
       - "KAMBA_DB_PORT"
       - "KAMBA_DB_NAME"
@@ -15612,6 +15613,7 @@ entradas:
     nomes_nota:
       - "agr_internal_token"
       - "obrigatorio_em"
+      - "KAMBA_AGR_URL"
     variantes_literais: []
   - seccao: "3.58"
     conceito: "Chave virtual do classificador"
@@ -20072,14 +20074,15 @@ entradas:
     variantes_literais: []
   - seccao: "3.78"
     conceito: "A escritora do papel"
-    canonico: "platform.definir_dono(p_contact_id, p_origem), SECURITY DEFINER"
+    canonico: "platform.definir_dono(p_contact_id, p_origem, p_owner_channel_wa), SECURITY DEFINER"
     literais:
-      - "platform.definir_dono(p_contact_id, p_origem)"
+      - "platform.definir_dono(p_contact_id, p_origem, p_owner_channel_wa)"
       - "SECURITY DEFINER"
     nomes:
       - "platform.definir_dono"
       - "p_contact_id"
       - "p_origem"
+      - "p_owner_channel_wa"
       - "SECURITY"
       - "DEFINER"
     nomes_nota:
@@ -20088,6 +20091,7 @@ entradas:
       - "troca_de_telefone"
       - "app.tenant_id"
       - "cliente"
+      - "p_owner_channel_wa"
       - "EXECUTE"
       - "kamba_identity"
     variantes_literais: []
@@ -20204,18 +20208,29 @@ entradas:
     variantes_literais: []
   - seccao: "3.78"
     conceito: "Canal do dono"
-    canonico: "owner_channel_wa, no CanalDoDono de canalDoDono"
+    canonico: "tenants.owner_channel_wa (booleano, nulo), e o owner_channel_wa do CanalDoDono de canalDoDono e canalNoPainel"
     literais:
+      - "tenants.owner_channel_wa"
       - "owner_channel_wa"
       - "CanalDoDono"
       - "canalDoDono"
+      - "canalNoPainel"
     nomes:
+      - "tenants.owner_channel_wa"
       - "owner_channel_wa"
       - "CanalDoDono"
       - "canalDoDono"
+      - "canalNoPainel"
     nomes_nota:
       - "false"
-      - "numeroCoincide"
+      - "onboarding"
+      - "web"
+      - "phone_hmac"
+      - "numeroConfirmado"
+      - "definir_dono"
+      - "kamba_batch"
+      - "UPDATE"
+      - "ativo"
     variantes_literais: []
   - seccao: "3.78"
     conceito: "Política de proactivas"
@@ -20515,6 +20530,28 @@ entradas:
       - "troca_de_telefone"
       - "provisionamento"
       - "resolveContact"
+    variantes_literais: []
+  - seccao: "3.78"
+    conceito: "A leitura do canal do dono"
+    canonico: "VistaDoCanal.ownerChannelWa, no SQL_CANAL_DO_PAINEL do COM; numeroDaLojaConfirmado das OpcoesDaTroca"
+    literais:
+      - "VistaDoCanal.ownerChannelWa"
+      - "SQL_CANAL_DO_PAINEL"
+      - "numeroDaLojaConfirmado"
+      - "OpcoesDaTroca"
+    nomes:
+      - "VistaDoCanal.ownerChannelWa"
+      - "SQL_CANAL_DO_PAINEL"
+      - "numeroDaLojaConfirmado"
+      - "OpcoesDaTroca"
+    nomes_nota:
+      - "channel"
+      - "view"
+      - "kamba_app"
+      - "JOIN"
+      - "kamba_identity"
+      - "tenants"
+      - "numeroDaLojaConfirmado"
     variantes_literais: []
   - seccao: "3.78"
     conceito: "A troca montada pelo processo"
@@ -22377,8 +22414,9 @@ tabelas:
     colunas:
       - "p_contact_id"
       - "p_origem"
+      - "p_owner_channel_wa"
     aberta: false
-    assinatura: "platform.definir_dono(p_contact_id, p_origem)"
+    assinatura: "platform.definir_dono(p_contact_id, p_origem, p_owner_channel_wa)"
     seccao: "3.78"
     conceito: "A escritora do papel"
   - nome: "owner_actions"

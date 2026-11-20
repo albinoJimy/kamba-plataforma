@@ -451,7 +451,19 @@ class _Conversa:
         self.contacto = str(uuid.uuid4())
 
     def turno(self, texto: str, *, tipo: str = "text") -> dict[str, Any]:
-        estado = estado_de(texto, tipo=tipo, tenant_id=self.tenant, contact_id=self.contacto)
+        # **Um toque vai no `botao` da invocacao, e nao na janela** (KAM-229).
+        # E assim que o processo o entrega: a janela nasce vazia (KAM-186) e o
+        # `reply.id` vem no campo `botao` (KAM-211). Posto na janela, passava
+        # pela redaccao da guarda de entrada: o `orc-` + 24 hexadecimais leva,
+        # numa oferta em ~600 (medido em 200 mil), treze ou mais algarismos
+        # seguidos com Luhn ou um troco com o *mod 97* de um IBAN, que saiam
+        # `[cartao removido]` ou `[conta removida]` — o toque deixava de
+        # citar a oferta, e o `test_cem_pedidos_…`, com cem ofertas, caia em
+        # ~15% das corridas (#232 e #233).
+        if tipo == "interactive":
+            estado = estado_de(tipo=tipo, botao=texto, tenant_id=self.tenant, contact_id=self.contacto)
+        else:
+            estado = estado_de(texto, tipo=tipo, tenant_id=self.tenant, contact_id=self.contacto)
         return asyncio.run(self.grafo.ainvoke(estado, self.config))
 
 
@@ -536,6 +548,26 @@ class TestOPedidoDoCliente(unittest.TestCase):
                 sem_pedido.append(frase)
         self.assertEqual(com_numero, [])
         self.assertEqual(sem_pedido, [])
+
+    def test_uma_oferta_com_algarismos_de_cartao_continua_a_pedir(self) -> None:
+        """KAM-229: o id opaco pode trazer um PAN com Luhn, e o toque continua a valer.
+
+        Sem sorteio: a oferta do turno troca-se por uma cujo hexadecimal leva
+        dezasseis algarismos que a guarda de entrada redige. A premissa
+        afirma-se primeiro, para o caso nao passar por a guarda ter mudado.
+        """
+        from kamba_agr.guardas import regras as guardas
+
+        forjada = "orc-ab4111111111111111cdefab"
+        self.assertNotIn(forjada, guardas.redigir_cartao(f"confirm:{forjada}"))
+        pedidos = _Pedidos()
+        grafo, saida, _ = _vendedor(pedidos)
+        conversa = _Conversa(grafo)
+        oferecido = conversa.turno("quanto custa o fato por medida?")["orcamento_oferecido"]
+        grafo.update_state(conversa.config, {"orcamento_oferecido": dict(oferecido, oferta=forjada)})
+        conversa.turno(f"confirm:{forjada}", tipo="interactive")
+        self.assertEqual([c["args"]["oferta"] for c in pedidos.chamadas], [forjada])
+        self.assertIn(nos_mod.FRASE_DO_AVISO[tabela.ORCAMENTO_PEDIDO], saida.textos[-1])
 
     def test_um_botao_forjado_ou_vencido_nao_pede(self) -> None:
         pedidos = _Pedidos()
@@ -687,7 +719,7 @@ class TestARespostaDoDono(unittest.TestCase):
     def setUp(self) -> None:
         self.respostas: list[tuple] = []
 
-        def responder(_ligacao, tenant, contacto, quote_id, valor_minor, validade, condicoes, agora):
+        def responder(_ligacao, tenant, contacto, quote_id, valor_minor, validade, condicoes, agora, *, screening=None):
             self.respostas.append((tenant, contacto, quote_id, valor_minor))
             validade = validade or regras.validade_por_omissao(agora)
             previsao = rep.texto_da_proposta(quote_id, "SKU-300", valor_minor, validade, condicoes, agora)

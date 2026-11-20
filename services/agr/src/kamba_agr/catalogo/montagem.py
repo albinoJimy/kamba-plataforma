@@ -51,7 +51,7 @@ from kamba_core.idx.normalizacao import Lexico
 from kamba_core.storage.port import StorageProvider
 
 #: O credor da entrada real da foto (fonte, descodificador e visao). Ver o bloco.
-CREDOR_DA_FOTO: Final = "KAM-229"
+CREDOR_DA_FOTO: Final = "KAM-231"
 
 
 class FotoPorLigarError(RuntimeError):

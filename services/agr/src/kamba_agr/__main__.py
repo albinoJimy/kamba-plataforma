@@ -164,10 +164,8 @@ class CredencialDoCom:
         return self._ler()
 
 
-def _executores_do_comercio(
-    log: Logger, credencial: CredencialDoCom
-) -> dict[str, Any]:
-    """Os executores das tools de comercio, se houver COM com quem falar.
+def _cliente_do_com(log: Logger, credencial: CredencialDoCom) -> ClienteDoCom | None:
+    """O cliente da API interna do COM, se houver COM com quem falar.
 
     **Sem `KAMBA_COM_URL` nao se liga nada**, e isso nao e uma falha: as cinco
     entradas do Vendedor ficam `declaradas` com o credor que ja tinham, e o
@@ -175,12 +173,21 @@ def _executores_do_comercio(
     endereco por omissao era um AGR a tentar falar com um COM que ninguem
     configurou — e a falhar no primeiro turno de um cliente em vez de no
     arranque.
+
+    E o mesmo cliente para as tools de comercio e para a porta do *screening*
+    das condicoes do `submit_quote` (KAM-228): sem ele, as condicoes de uma
+    resposta do dono recusam, e a resposta sem condicoes segue.
     """
     base = os.environ.get(VARIAVEL_DO_COM, "").strip()
     if not base:
         log.warn(outcome="com_sem_endereco")
-        return {}
-    return executores_do_com(ClienteDoCom(base=base, credencial=credencial))
+        return None
+    return ClienteDoCom(base=base, credencial=credencial)
+
+
+def _executores_do_comercio(cliente: ClienteDoCom | None) -> dict[str, Any]:
+    """Os executores das tools de comercio, se houver COM com quem falar."""
+    return executores_do_com(cliente) if cliente is not None else {}
 
 
 def _executores_do_catalogo(credencial: CredencialDoCom) -> dict[str, Any]:
@@ -426,13 +433,15 @@ def main() -> int:
     # O vector da pergunta (KAM-063) liga-se mais abaixo, com o cliente do
     # gateway; ate la, e sem modelo escolhido, a pesquisa e lexical.
     ligacao_vectorial = LigacaoVectorial()
+    cliente_do_com = _cliente_do_com(log, credencial_do_com)
     catalogo = catalogo_do_piloto(
         {
-            **_executores_do_comercio(log, credencial_do_com),
+            **_executores_do_comercio(cliente_do_com),
             **executores_do_idx(ligacao_vectorial),
             # KAM-220. As duas do Orcamento expresso escrevem na nossa base, como
             # a `get_store_info` le dela: ligam-se sempre.
-            **orcamento_tools.executores(),
+            # KAM-228: a porta do `screen` das condicoes, pelo mesmo cliente.
+            **orcamento_tools.executores(cliente_do_com=cliente_do_com),
             # KAM-119. As quatro do catalogo do dono: ver o `_executores_do_catalogo`.
             **_executores_do_catalogo(credencial_do_com),
         }
