@@ -21168,8 +21168,10 @@ entradas:
     nomes_nota:
       - "SaidaPorEvento"
       - "whatsapp"
-    variantes_literais:
       - "canal_por_omissao"
+      - "main"
+      - "canal_do_turno"
+    variantes_literais: []
   - seccao: "3.81"
     conceito: "A admissão de um turno do painel"
     canonico: "invocacao_do_painel_admitida, SEGREDO_DO_PAINEL"
@@ -24863,10 +24865,5 @@ variantes:
     seccao: "3.66"
     conceito: "Trabalho de imagem"
     canonico: "platform.image_jobs, dezoito colunas: image_job_id, tenant_id, origem_ref, versao_ref, operacao, provider, estado, motivo, idempotency_key, sintetica, gerado_por_ia, escolhida, custo_usd, latencia_ms, aviso_at, versao, criado_at, atualizado_at"
-  - nome: "canal_por_omissao"
-    tipo: "nome"
-    seccao: "3.81"
-    conceito: "O canal da resposta de um turno"
-    canonico: "CANAL_DO_TURNO, canal_do_turno"
 
 contradicoes: []
