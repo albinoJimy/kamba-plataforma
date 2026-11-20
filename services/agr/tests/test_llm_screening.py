@@ -43,7 +43,7 @@ from kamba_agr.llm import precos as precos_mod
 from kamba_agr.llm import screening
 from kamba_agr.llm.cliente import ClienteDeLlm
 from kamba_agr.llm.erros import RESULTADO_DESTINO, RESULTADO_OK, DestinoNegado
-from kamba_core.destinos import FINALIDADE_CLASSIFICACAO, FINALIDADE_CONVERSA
+from kamba_core.destinos import FINALIDADE_CLASSIFICACAO, FINALIDADE_CONDICOES, FINALIDADE_CONVERSA
 from kamba_core.destinos import PortaSobreDestinos
 from kamba_yaml import load_file
 from test_llm_cliente import _Ligacao, _Transporte
@@ -286,9 +286,11 @@ def _app(
     # Larga de proposito: a guarda da fila tem os seus ensaios, e numa maquina
     # carregada os 2 s de producao punham os outros a falhar por tempo.
     folga_s: float = 3600.0,
+    # Zero de proposito, pela razao da folga: o minimo tem os seus ensaios.
+    minimo_s: float = 0.0,
 ) -> Any:
     return create_app(
-        rotas_internas=screening.rotas(credencial, classificar, folga_s=folga_s)
+        rotas_internas=screening.rotas(credencial, classificar, folga_s=folga_s, minimo_s=minimo_s)
     )
 
 
@@ -298,6 +300,8 @@ def _corpo_valido(**sobrepor: Any) -> dict[str, Any]:
         "trace_id": TRACE,
         "categoria_declarada": "moda",
         "textos": ["camisola"],
+        "finalidade": FINALIDADE_CLASSIFICACAO,
+        "prazo_ms": 15_000,
     }
     corpo.update(sobrepor)
     return corpo
@@ -324,10 +328,17 @@ class TestARota(unittest.TestCase):
         estado, _, corpo = _pedir(_app(duplo), _corpo_valido())
         self.assertEqual(estado, 200)
         self.assertEqual(json.loads(corpo)["outcome"], "classificado")
+        (pedido,) = duplo.pedidos
         self.assertEqual(
-            duplo.pedidos,
-            [screening.PedidoDeScreening(TENANT, TRACE, "moda", ("camisola",))],
+            pedido,
+            screening.PedidoDeScreening(
+                TENANT, TRACE, "moda", ("camisola",), FINALIDADE_CLASSIFICACAO, pedido.prazo_s
+            ),
         )
+        # O que sobra dos 15 s, menos a margem da resposta (KAM-230).
+        assert pedido.prazo_s is not None
+        self.assertLessEqual(pedido.prazo_s, 15.0 - screening.MARGEM_DE_RESPOSTA_S)
+        self.assertGreater(pedido.prazo_s, 15.0 - screening.MARGEM_DE_RESPOSTA_S - 1.0)
 
     def test_sem_credencial_ou_errada_e_401_e_nao_le_o_corpo(self) -> None:
         duplo = _Registador()
@@ -358,6 +369,18 @@ class TestARota(unittest.TestCase):
             "texto_grande": _corpo_valido(textos=["x" * 1001]),
             "texto_nao_cadeia": _corpo_valido(textos=[1]),
             "lista": [],
+            # KAM-230: a finalidade e o prazo, obrigatorios e fechados.
+            "sem_finalidade": {k: v for k, v in _corpo_valido().items() if k != "finalidade"},
+            "finalidade_de_outro_papel": _corpo_valido(finalidade=FINALIDADE_CONVERSA),
+            "finalidade_inventada": _corpo_valido(finalidade="classificacao"),
+            "finalidade_nula": _corpo_valido(finalidade=None),
+            "sem_prazo": {k: v for k, v in _corpo_valido().items() if k != "prazo_ms"},
+            "prazo_zero": _corpo_valido(prazo_ms=0),
+            "prazo_negativo": _corpo_valido(prazo_ms=-1),
+            "prazo_booleano": _corpo_valido(prazo_ms=True),
+            "prazo_fraccionario": _corpo_valido(prazo_ms=1.5),
+            "prazo_em_texto": _corpo_valido(prazo_ms="5000"),
+            "prazo_acima_do_gov": _corpo_valido(prazo_ms=15_001),
         }
         for nome, corpo in casos.items():
             with self.subTest(nome=nome):
@@ -423,6 +446,131 @@ class TestARota(unittest.TestCase):
         estado, _, resposta = _pedir(_app(_Registador(devolver="")), _corpo_valido())
         self.assertEqual(estado, 503)
         self.assertEqual(json.loads(resposta), {"outcome": "sem_conteudo"})
+
+
+class TestAFinalidadeDasCondicoes(unittest.TestCase):
+    """A finalidade vem do pedido, e o *gate* consulta essa (KAM-230, decisao B do fundador).
+
+    Canario: `test_com_o_destino_das_condicoes_sai`. Sem ele, um *gate* que
+    negasse tudo passava os dois ensaios de recusa.
+    """
+
+    def _pedido(self, finalidade: str) -> screening.PedidoDeScreening:
+        return screening.PedidoDeScreening(TENANT, TRACE, "moda", ("entrega combinada",), finalidade)
+
+    def test_o_screening_admite_as_duas_e_mais_nenhuma(self) -> None:
+        self.assertEqual(destinos_mod.finalidade_de("screening", FINALIDADE_CONDICOES), FINALIDADE_CONDICOES)
+        self.assertEqual(
+            screening.FINALIDADES_DO_PEDIDO, (FINALIDADE_CLASSIFICACAO, FINALIDADE_CONDICOES)
+        )
+        for papel, finalidade in (
+            ("screening", FINALIDADE_CONVERSA),
+            ("router", FINALIDADE_CONDICOES),
+            ("chat", FINALIDADE_CLASSIFICACAO),
+        ):
+            with self.subTest(papel=papel, finalidade=finalidade):
+                with self.assertRaises(DestinoNegado):
+                    destinos_mod.finalidade_de(papel, finalidade)
+
+    def test_so_o_destino_do_catalogo_nao_cobre_as_condicoes(self) -> None:
+        transporte = _Transporte()
+        cliente, lig, met = _cliente(transporte, COM_A_CLASSIFICACAO)
+        with self.assertRaises(DestinoNegado):
+            screening.ClassificadorDeScreening(cliente, ALIAS)(self._pedido(FINALIDADE_CONDICOES))
+        self.assertEqual(transporte.chamadas, [])
+        (linha,) = lig.linhas()
+        self.assertEqual(linha["resultado"], RESULTADO_DESTINO)
+        self.assertEqual(met.ler().get(metricas_mod.METRICA_LLM_DESTINO_NEGADO), 1)
+
+    def test_so_o_destino_das_condicoes_nao_cobre_o_catalogo(self) -> None:
+        transporte = _Transporte()
+        cliente, _, _ = _cliente(transporte, SO_CONVERSA | {("anthropic", FINALIDADE_CONDICOES)})
+        with self.assertRaises(DestinoNegado):
+            screening.ClassificadorDeScreening(cliente, ALIAS)(self._pedido(FINALIDADE_CLASSIFICACAO))
+        self.assertEqual(transporte.chamadas, [])
+
+    def test_com_o_destino_das_condicoes_sai(self) -> None:
+        transporte = _Transporte((200, _resposta_do_modelo(), {}))
+        cliente, lig, _ = _cliente(transporte, SO_CONVERSA | {("anthropic", FINALIDADE_CONDICOES)})
+        screening.ClassificadorDeScreening(cliente, ALIAS)(self._pedido(FINALIDADE_CONDICOES))
+        self.assertEqual(len(transporte.chamadas), 1)
+        (linha,) = lig.linhas()
+        self.assertEqual(linha["resultado"], RESULTADO_OK)
+
+    def test_a_rota_passa_a_finalidade_do_corpo_ao_gate(self) -> None:
+        transporte = _Transporte((200, _resposta_do_modelo(), {}))
+        cliente, _, _ = _cliente(transporte, COM_A_CLASSIFICACAO)
+        app = _app(screening.ClassificadorDeScreening(cliente, ALIAS))
+        estado, _, corpo = _pedir(app, _corpo_valido(finalidade=FINALIDADE_CONDICOES))
+        self.assertEqual(estado, 503)
+        self.assertEqual(json.loads(corpo), {"outcome": RESULTADO_DESTINO})
+        # O mesmo tenant, o mesmo destino, a finalidade do catalogo: sai.
+        estado, _, _ = _pedir(app, _corpo_valido())
+        self.assertEqual(estado, 200)
+        self.assertEqual(len(transporte.chamadas), 1)
+
+
+class TestOPrazoDeQuemChama(unittest.TestCase):
+    """O prazo viaja no pedido, e a rota nao chama o que ja nao acaba (KAM-230).
+
+    Canario: `test_o_classificador_recebe_o_que_sobra`. Sem ele, uma rota que
+    respondesse sempre `sem_tempo` passava o ensaio da recusa.
+    """
+
+    def test_um_prazo_que_nao_cobre_uma_tentativa_nao_chama_o_modelo(self) -> None:
+        duplo = _Registador()
+        minimo = screening.minimo_s(REAIS["screening"])
+        prazo_ms = int((minimo + screening.MARGEM_DE_RESPOSTA_S) * 1000) - 100
+        estado, _, resposta = _pedir(_app(duplo, minimo_s=minimo), _corpo_valido(prazo_ms=prazo_ms))
+        self.assertEqual(estado, 503)
+        self.assertEqual(json.loads(resposta), {"outcome": "sem_tempo"})
+        self.assertEqual(duplo.pedidos, [])
+
+    def test_o_classificador_recebe_o_que_sobra(self) -> None:
+        duplo = _Registador()
+        minimo = screening.minimo_s(REAIS["screening"])
+        estado, _, _ = _pedir(_app(duplo, minimo_s=minimo), _corpo_valido(prazo_ms=6_500))
+        self.assertEqual(estado, 200)
+        ((pedido),) = duplo.pedidos
+        assert pedido.prazo_s is not None
+        self.assertLessEqual(pedido.prazo_s, 6.5 - screening.MARGEM_DE_RESPOSTA_S)
+        self.assertGreaterEqual(pedido.prazo_s, minimo)
+
+    def test_o_transporte_corta_ao_que_sobra(self) -> None:
+        transporte = _Transporte((200, _resposta_do_modelo(), {}))
+        cliente, _, _ = _cliente(transporte)
+        pedido = screening.PedidoDeScreening(TENANT, TRACE, "moda", ("camisola",), prazo_s=5.25)
+        screening.ClassificadorDeScreening(cliente, ALIAS)(pedido)
+        self.assertEqual(transporte.chamadas[0][3], 5.25)
+        # Sem prazo, o tecto inteiro do alias.
+        transporte = _Transporte((200, _resposta_do_modelo(), {}))
+        cliente, _, _ = _cliente(transporte)
+        screening.ClassificadorDeScreening(cliente, ALIAS)(PEDIDO)
+        self.assertEqual(transporte.chamadas[0][3], screening.tecto_s(ALIAS))
+
+    def test_o_minimo_e_uma_tentativa_do_proxy(self) -> None:
+        self.assertEqual(screening.minimo_s(REAIS["screening"]), float(REAIS["screening"].timeout))
+
+    def test_o_screen_das_condicoes_deixa_uma_tentativa_ao_classificador(self) -> None:
+        """A conta do prazo, com os numeros dos tres sitios onde vivem.
+
+        O tecto de uma `write` da ToolLayer, menos a reserva da transaccao do
+        `submit_quote`, menos a reserva da gravacao no COM, menos a margem da
+        resposta da rota: tem de sobrar uma tentativa do `screening-nano`. Se
+        alguem subir uma reserva ou descer o tecto, as condicoes passavam a
+        recusar todas, sem erro nenhum — e este ensaio fica vermelho.
+        """
+        from kamba_agr.tls import camada, orcamento_tools
+
+        com = (RAIZ / "services/com/src/screening/index.ts").read_text(encoding="utf-8")
+        reserva_do_com = re.search(r"RESERVA_DA_GRAVACAO_MS = (\d+);", com)
+        assert reserva_do_com is not None
+        sobra_s = (
+            camada.TIMEOUT_ESCRITA_POR_OMISSAO_MS
+            - orcamento_tools.RESERVA_DA_TRANSACCAO_MS
+            - int(reserva_do_com.group(1))
+        ) / 1000 - screening.MARGEM_DE_RESPOSTA_S
+        self.assertGreaterEqual(sobra_s, screening.minimo_s(REAIS["screening"]))
 
 
 class TestALigacaoDoArranque(unittest.TestCase):

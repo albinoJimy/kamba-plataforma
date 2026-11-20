@@ -552,18 +552,45 @@ def responder(
     O `screen` corre **antes** da transaccao, como o resto da validacao: dentro
     dela, a linha do pedido ficava trancada durante a chamada ao classificador.
     """
-    if not isinstance(quote_id, str) or not _UUID.fullmatch(quote_id):
-        raise OrcamentoRecusadoError(DESCONHECIDO)
-    if not isinstance(valor_minor, int) or isinstance(valor_minor, bool) or not (
-        0 < valor_minor <= regras.VALOR_MAXIMO_MINOR
-    ):
-        raise OrcamentoRecusadoError(regras.VALOR_FORA_DO_INTERVALO)
+    _conferir_pedido(quote_id, valor_minor)
     limpas = regras.conferir_condicoes(
         condicoes,
         screening=screening if screening is not None else ScreeningPorLigar(),
         tenant_id=tenant_id,
         quote_id=quote_id,
     )
+    return gravar_resposta(
+        ligacao, tenant_id, contact_id, quote_id, valor_minor, validade_ate, limpas, agora
+    )
+
+
+def _conferir_pedido(quote_id: str, valor_minor: int) -> None:
+    if not isinstance(quote_id, str) or not _UUID.fullmatch(quote_id):
+        raise OrcamentoRecusadoError(DESCONHECIDO)
+    if not isinstance(valor_minor, int) or isinstance(valor_minor, bool) or not (
+        0 < valor_minor <= regras.VALOR_MAXIMO_MINOR
+    ):
+        raise OrcamentoRecusadoError(regras.VALOR_FORA_DO_INTERVALO)
+
+
+def gravar_resposta(
+    ligacao: Any,
+    tenant_id: str,
+    contact_id: str,
+    quote_id: str,
+    valor_minor: int,
+    validade_ate: datetime.date | None,
+    limpas: str | None,
+    agora: datetime.datetime,
+) -> Resposta:
+    """A metade do `responder` que escreve, com as condicoes **ja conferidas**.
+
+    `limpas` e o que o `regras.conferir_condicoes` devolveu — e so isso: quem
+    passa aqui texto que nao passou por ele grava condicoes que o `screen`
+    nunca viu. Existe para o executor do `submit_quote` (KAM-230), que confere
+    as condicoes **sem a tomada** e so depois a retoma para esta transaccao.
+    """
+    _conferir_pedido(quote_id, valor_minor)
     validade = validade_ate or regras.validade_por_omissao(agora)
     if validade <= regras.hoje_em_luanda(agora):
         raise OrcamentoRecusadoError(VALIDADE_NO_PASSADO)

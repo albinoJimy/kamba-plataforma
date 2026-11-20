@@ -22,6 +22,23 @@ Faz: le o pedido por forma fechada, minimiza o texto (KAM-112), e chama o papel
 `screening` pelo `chamar`, com a saida estruturada, a temperatura zero e o
 tecto de tempo do classificador. Devolve o **texto** do modelo e mais nada.
 
+## A finalidade e o prazo vem no pedido (KAM-230)
+
+**A finalidade** de transferencia e a do tratamento, e nao a do papel: o mesmo
+classificador le os textos de um produto (`classificacao_de_catalogo`, KAM-195)
+e as condicoes que o dono escreve num orcamento (`classificacao_de_condicoes`,
+decisao do fundador de 2026-11-20, opcao B). Quem chama diz qual — o COM,
+pelo sujeito do `screen` —, e o *gate* de destino consulta essa. A lista e
+fechada (`destinos.FINALIDADES_ESCOLHIVEIS`), e nenhuma cai na outra.
+
+**O prazo** e o que sobra a quem chama (`prazo_ms`). O GOV espera 15 s, mas o
+`submit_quote` espera menos do que isso: o `screen` das condicoes cabe no tecto
+de uma tool `write` da ToolLayer. Um classificador que tomasse os 12 s do
+transporte respondia a ninguem — o AGR ja tinha recusado as condicoes, e o COM
+gravava uma decisao sobre uma resposta que ninguem leu (achado 2 da revisao do
+KAM-228). A rota so chama o modelo se o que sobra cobrir **uma** tentativa do
+proxy (`minimo_s`), e corta o transporte ao que sobra.
+
 Nao faz: ler o veredicto. O `lerVeredicto` do TypeScript e o unico leitor, e a
 falha dele e `condicional` (KAM-088, criterio 2). Duas leituras do mesmo
 esquema eram outra vez duas leitoras.
@@ -57,6 +74,7 @@ from starlette.routing import Route
 from ..privacidade.minimizacao import contexto_de, mensagem, minimise
 from .aliases import Alias
 from .cliente import MARGEM_SEGUNDOS, ContextoDeChamada
+from .destinos import FINALIDADE_CLASSIFICACAO, FINALIDADES_ESCOLHIVEIS
 from .erros import ErroDeLlm
 
 #: O papel do gateway (`llm/aliases.yaml`): `screening-nano` (KAM-192).
@@ -97,7 +115,17 @@ CARACTERES_DA_CATEGORIA: Final = 200
 #: O `trace_id` do W3C: 32 digitos hexadecimais. E o que o TypeScript gera.
 _TRACE_ID: Final = re.compile(r"^[0-9a-f]{32}$")
 
-CAMPOS: Final = ("tenant_id", "trace_id", "categoria_declarada", "textos")
+CAMPOS: Final = (
+    "tenant_id",
+    "trace_id",
+    "categoria_declarada",
+    "textos",
+    "finalidade",
+    "prazo_ms",
+)
+
+#: As finalidades que o pedido pode trazer: as que o papel admite (KAM-230).
+FINALIDADES_DO_PEDIDO: Final = FINALIDADES_ESCOLHIVEIS[PAPEL]
 
 #: As instrucoes fixas. **O texto do produto nunca entra aqui**: vai como valor
 #: de um JSON na mensagem do utilizador. Vieram do `classificador.ts` (KAM-088)
@@ -165,6 +193,19 @@ def tecto_s(alias: Alias) -> float:
     return alias.timeout * TENTATIVAS + MARGEM_SEGUNDOS
 
 
+def minimo_s(alias: Alias) -> float:
+    """O menor prazo com que a rota ainda chama o modelo: uma tentativa do proxy.
+
+    Abaixo disto, nem a primeira tentativa cabe no que sobra a quem chama, e
+    chamar era pagar uma resposta que ninguem le (KAM-230). **Nao cobre a
+    segunda**: com o prazo do `submit_quote`, uma primeira tentativa que falhe
+    perto do `timeout` do alias deixa a segunda cortada pelo transporte, e o
+    que o proxy faz depois de o cliente desistir nao esta medido
+    (**NAO VERIFICADO**).
+    """
+    return float(alias.timeout)
+
+
 def folga_de_fila_s(alias: Alias) -> float:
     """Quanto um pedido pode esperar pela sua *thread* antes de chamar o modelo.
 
@@ -181,6 +222,13 @@ class PedidoDeScreening:
     trace_id: str
     categoria_declarada: str
     textos: tuple[str, ...]
+    #: A finalidade de transferencia que o *gate* consulta (KAM-230). Por
+    #: omissao a do catalogo **so para quem constroi o pedido em processo**: no
+    #: corpo da rota o campo e obrigatorio.
+    finalidade: str = FINALIDADE_CLASSIFICACAO
+    #: O que sobra a quem chama, em segundos, no instante de chamar o modelo.
+    #: `None` e o tecto do alias inteiro.
+    prazo_s: float | None = None
 
 
 class PedidoInvalido(ValueError):
@@ -227,7 +275,18 @@ def ler_pedido(corpo: Any) -> PedidoDeScreening:
         raise PedidoInvalido("textos_invalidos")
     if not _utf8(categoria) or not all(_utf8(t) for t in textos):
         raise PedidoInvalido("texto_nao_utf8")
-    return PedidoDeScreening(tenant_id, trace_id, categoria, tuple(textos))
+    finalidade, prazo_ms = corpo["finalidade"], corpo["prazo_ms"]
+    if not isinstance(finalidade, str) or finalidade not in FINALIDADES_DO_PEDIDO:
+        raise PedidoInvalido("finalidade_invalida")
+    if (
+        isinstance(prazo_ms, bool)
+        or not isinstance(prazo_ms, int)
+        or not 0 < prazo_ms <= PRAZO_DO_GOV_S * 1000
+    ):
+        raise PedidoInvalido("prazo_invalido")
+    return PedidoDeScreening(
+        tenant_id, trace_id, categoria, tuple(textos), finalidade, prazo_ms / 1000
+    )
 
 
 class ClassificadorDeScreening:
@@ -270,8 +329,9 @@ class ClassificadorDeScreening:
                 trace_id=pedido.trace_id,
                 no_grafo=NO_DO_GRAFO,
             ),
-            tecto_s=self._tecto,
+            tecto_s=self._tecto if pedido.prazo_s is None else min(self._tecto, pedido.prazo_s),
             corpo_extra={"response_format": ESQUEMA_DA_RESPOSTA, "temperature": 0},
+            finalidade=pedido.finalidade,
         )
         return resposta.texto
 
@@ -285,6 +345,7 @@ def rotas(
     classificar: Callable[[PedidoDeScreening], str] | None,
     *,
     folga_s: float,
+    minimo_s: float,
 ) -> list[Route]:
     """A rota do screening. `classificar` e o `ClassificadorDeScreening`.
 
@@ -292,6 +353,11 @@ def rotas(
     isto pela sua *thread* responde 503 `sem_tempo` **sem chamar o modelo**.
     Obrigatorio e sem omissao: uma omissao que desligasse a guarda era a
     guarda desligada no dia em que alguem se esquecesse dela.
+
+    `minimo_s` e o `minimo_s` do alias (KAM-230): o pedido traz o prazo de quem
+    chama, e um pedido a quem sobre menos do que isto responde 503 `sem_tempo`
+    **sem chamar o modelo**. Com o que sobra, o transporte corta ao que sobra.
+    Obrigatorio pela mesma razao.
 
     **Os codigos dizem ao GOV so uma coisa: se ha texto para ler.** O 200 leva o
     texto; tudo o resto — 400, 401, 503 — e falha do classificador, e o `screen`
@@ -305,6 +371,7 @@ def rotas(
     | sem credencial, credencial errada, ou credencial por configurar | 401 |
     | classificador por ligar | 503 `classificador_por_ligar` |
     | esperou pela *thread* mais do que a folga | 503 `sem_tempo`, sem chamada |
+    | o prazo de quem chama ja nao cobre uma tentativa | 503 `sem_tempo`, sem chamada |
     | o `chamar` levantou (`destino_negado`, `timeout`, ...) | 503 com o `resultado` |
     | o modelo respondeu sem texto | 503 `sem_conteudo` (a linha ja esta escrita) |
     """
@@ -316,9 +383,16 @@ def rotas(
     def _dentro_do_prazo(chegada: float, corpo: PedidoDeScreening) -> str | None:
         # Na *thread*, imediatamente antes de chamar: e aqui, e nao no ciclo de
         # eventos, que a espera pela vaga do *threadpool* ja aconteceu.
-        if time.monotonic() - chegada > folga_s:
+        decorrido = time.monotonic() - chegada
+        if decorrido > folga_s:
             return None
-        return classificar(corpo)  # type: ignore[misc]
+        # O prazo de quem chama, menos o que ja passou e a margem da resposta
+        # (KAM-230). O `ler_pedido` pos-lhe valor: no corpo e obrigatorio.
+        prazo = PRAZO_DO_GOV_S if corpo.prazo_s is None else corpo.prazo_s
+        restante = prazo - decorrido - MARGEM_DE_RESPOSTA_S
+        if restante < minimo_s:
+            return None
+        return classificar(dataclasses.replace(corpo, prazo_s=restante))  # type: ignore[misc]
 
     async def screening(pedido: Request) -> JSONResponse:
         chegada = time.monotonic()
