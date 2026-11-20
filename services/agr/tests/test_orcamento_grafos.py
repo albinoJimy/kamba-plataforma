@@ -728,7 +728,7 @@ class TestARespostaDoDono(unittest.TestCase):
     def setUp(self) -> None:
         self.respostas: list[tuple] = []
 
-        # O `gravar_resposta`, e nao o `responder`: desde o KAM-230 o executor
+        # O `gravar_a_resposta_do_dono`, e nao o `responder`: desde o KAM-230 o executor
         # confere as condicoes sem a tomada e so depois grava.
         self.condicoes: list[str | None] = []
 
@@ -742,7 +742,7 @@ class TestARespostaDoDono(unittest.TestCase):
 
         self.por_ref: dict[str, str] = {}
         for alvo, substituto in (
-            ("gravar_resposta", responder),
+            ("gravar_a_resposta_do_dono", responder),
             ("por_referencia", lambda _l, _t, referencia: self.por_ref.get(referencia)),
         ):
             remendo = mock.patch.object(rep, alvo, substituto)

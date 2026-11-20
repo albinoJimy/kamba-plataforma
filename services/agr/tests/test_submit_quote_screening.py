@@ -239,7 +239,7 @@ def _cliente(base: str) -> ClienteDoCom:
 
 
 def _gravar_sem_base(_ligacao, _tenant, _contacto, quote_id, valor_minor, validade, limpas, agora):  # noqa: ANN001, ANN202
-    """O `gravar_resposta` sem a base: o eco, sem escrita.
+    """O `gravar_a_resposta_do_dono` sem a base: o eco, sem escrita.
 
     As condicoes ja vem conferidas pelo executor (KAM-230: sem a tomada); o que
     fica de fora e so a transaccao, que e do `db/tests_agr/test_quote_requests.py`.
@@ -274,7 +274,7 @@ class _Montagem(unittest.TestCase):
         return await camada.invoke(contexto(vertical="dono"), "submit_quote", argumentos, allowed=("submit_quote",))
 
     def _sem_base(self) -> None:
-        remendo = mock.patch.object(rep, "gravar_resposta", _gravar_sem_base)
+        remendo = mock.patch.object(rep, "gravar_a_resposta_do_dono", _gravar_sem_base)
         remendo.start()
         self.addCleanup(remendo.stop)
 
@@ -520,7 +520,7 @@ class TestOPrazo(_Montagem):
         """O `screen` acaba depois do prazo: nada se grava, e o dono ja teve o `UPSTREAM_TIMEOUT`."""
         gravadas: list[Any] = []
         self._sem_base()
-        remendo = mock.patch.object(rep, "gravar_resposta", lambda *a: gravadas.append(a))
+        remendo = mock.patch.object(rep, "gravar_a_resposta_do_dono", lambda *a: gravadas.append(a))
         remendo.start()
         self.addCleanup(remendo.stop)
         modelo = orcamento_tools.ArgumentosDeSubmitQuote(referencia=REFERENCIA, valor="120 mil", condicoes=LIMPAS)

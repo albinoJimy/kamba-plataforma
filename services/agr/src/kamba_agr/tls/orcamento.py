@@ -632,7 +632,7 @@ def responder(
         tenant_id=tenant_id,
         quote_id=quote_id,
     )
-    return gravar_resposta(
+    return gravar_a_resposta_do_dono(
         ligacao, tenant_id, contact_id, quote_id, valor_minor, validade_ate, limpas, agora
     )
 
@@ -646,7 +646,7 @@ def _conferir_pedido(quote_id: str, valor_minor: int) -> None:
         raise OrcamentoRecusadoError(regras.VALOR_FORA_DO_INTERVALO)
 
 
-def gravar_resposta(
+def gravar_a_resposta_do_dono(
     ligacao: Any,
     tenant_id: str,
     contact_id: str,
@@ -662,6 +662,10 @@ def gravar_resposta(
     passa aqui texto que nao passou por ele grava condicoes que o `screen`
     nunca viu. Existe para o executor do `submit_quote` (KAM-230), que confere
     as condicoes **sem a tomada** e so depois a retoma para esta transaccao.
+
+    **Nao se chama `gravar_resposta`**: esse nome e o do `saida.py`, que este
+    modulo importa para o aviso ao dono (KAM-226), e uma funcao daqui com ele
+    tapava a importada — o `_avisar_o_dono` passava a chamar esta.
     """
     _conferir_pedido(quote_id, valor_minor)
     validade = validade_ate or regras.validade_por_omissao(agora)

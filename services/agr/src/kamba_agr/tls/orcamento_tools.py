@@ -261,7 +261,7 @@ def executores(
                 # fecha**: uma transaccao mais lenta do que o que sobra mais a
                 # margem da camada ainda grava depois (achado 8 da revisao).
                 raise ErroDeBackend(UPSTREAM_TIMEOUT, "o screen das condicoes passou do prazo")
-            resposta = repositorio.gravar_resposta(
+            resposta = repositorio.gravar_a_resposta_do_dono(
                 ligacao,
                 pedido.ctx.tenant_id,
                 pedido.ctx.contact_id,
