@@ -129,7 +129,7 @@ export function clienteDaGraphPorCanal(o: OpcoesDaCredencial): ClienteDoCanal {
 
     // O anel primeiro: uma KEK em falta é do processo, e sobe como erro.
     const valores = await o.cofre.getRing(REF_DA_KEK); // kamba:secrets-inventory dinamico REF_DA_KEK e a kek_token_cliente, no inventario
-    const anel = anelDaKek(valores, await o.cofre.versions(REF_DA_KEK));
+    const anel = anelDaKek(valores, await o.cofre.versions(REF_DA_KEK)); // kamba:secrets-inventory dinamico REF_DA_KEK e a kek_token_cliente, no inventario
 
     let criptograma: string;
     try {

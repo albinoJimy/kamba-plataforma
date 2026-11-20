@@ -37,13 +37,11 @@
  *
  * As portas montam-se **antes** de levantar *workers*, e cada uma recusa o que
  * não deve servir: o `Secrets.arrancar` recusa sem a `kek_token_cliente`, e o
- * `Identidade.arrancar` recusa, com `KAMBA_ENV=prod`, o provedor de chaves de
- * ambiente (`KeyProviderDeAmbienteError`, critério 9 do KAM-008). **Logo, hoje,
- * o `outbound` não arranca em `prod`** — pela mesma razão do
- * `worker-canal-entrada`: não há provedor de chaves de cofre, e é a contradição
- * 2 do `docs/identidade.md` §8, entre esse critério e o ADR-L002, devolvida ao
- * fundador. Não se põe `dev` no compose de produção para o fazer arrancar, que
- * era desligar a recusa. Os eventos esperam nas filas `evt.outbound.p<n>`.
+ * `Identidade.arrancar` recusa, com `KAMBA_ENV=prod`, sem a KEK das DEK de
+ * contacto (`ChavesDeIdentidadeEmFaltaError`). As chaves vêm do ambiente que o
+ * lançador do cofre enche (ADR-L002): é a decisão do fundador de 2026-11-20, que
+ * fechou a contradição 2 do `docs/identidade.md` §8 e emendou o critério 9 do
+ * KAM-008. Com o cofre completo, **arranca em `prod`**.
  */
 
 import { serve } from '@hono/node-server';
@@ -235,8 +233,7 @@ export function ambienteDoOutbound(env: Readonly<Record<string, string | undefin
  * as recusas são as do cofre e da identidade, não deste ficheiro.
  *
  * @throws {ArranqueAbortadoError} sem a `kek_token_cliente` no cofre.
- * @throws {KeyProviderDeAmbienteError} em `prod`, com o provedor de chaves de
- *   ambiente — que é o único que há (nota do módulo).
+ * @throws {ChavesDeIdentidadeEmFaltaError} em `prod`, sem a `kek_contact_dek`.
  */
 export async function portasDoOutbound(a: ArranqueDoOutbound): Promise<PortasDeProducao> {
   const ambiente = ambienteDoOutbound(a.env);
@@ -251,6 +248,8 @@ export async function portasDoOutbound(a: ArranqueDoOutbound): Promise<PortasDeP
   const identidade = await Identidade.arrancar({
     chaves: new EnvKeyProvider({ ambiente, env: a.env }),
     env: a.env,
+    // Só o `lerEndpoints`: o *pepper* do HMAC não chega a este processo.
+    soLeEndpoints: true,
   });
   return {
     meta: clienteDaGraphPorCanal({ cofre }),

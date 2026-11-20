@@ -22,7 +22,7 @@ import { SQL_PAYMENT_SEM_ORDEM } from "@kamba/core-ts/eventos";
 
 import { randomBytes } from "node:crypto";
 
-import { KeyProviderDeAmbienteError } from "@kamba/core-ts/identity";
+import { ChavesDeIdentidadeEmFaltaError } from "@kamba/core-ts/identity";
 import { ArranqueAbortadoError } from "@kamba/core-ts/secrets";
 
 import {
@@ -173,10 +173,32 @@ describe("as portas de produção do outbound, e o arranque em prod (KAM-227, cr
     assert.equal(typeof portas.destinatario, "function");
   });
 
-  it("**em prod não arranca**: a identidade recusa as chaves de ambiente (KAM-008, critério 9)", async () => {
-    // A medição do critério 3. Com o cofre completo, o que recusa é o
-    // `Identidade.arrancar`, e é a contradição 2 do `docs/identidade.md` §8.
-    await assert.rejects(portasDoOutbound({ env: completo("prod"), ...ligacoes }), KeyProviderDeAmbienteError);
+  it("**em prod arranca**, com as chaves no ambiente do lançador (decisão do fundador, 2026-11-20)", async () => {
+    // A medição do critério 3: o critério 9 do KAM-008 emendado deixa o
+    // provedor de ambiente arrancar em `prod`, com as chaves lá.
+    const portas = await portasDoOutbound({ env: completo("prod"), ...ligacoes });
+    assert.equal(typeof portas.meta, "function");
+    assert.equal(typeof portas.destinatario, "function");
+  });
+
+  it("em prod, sem a KEK das DEK de contacto (ausente, vazia ou mal formada), não arranca", async () => {
+    // O fail-closed que ficou do critério 9 do KAM-008.
+    for (const valor of [undefined, "", "   ", "k1:nao-e-base64"]) {
+      const env = completo("prod");
+      if (valor === undefined) delete env["KAMBA_SECRET_KEK_CONTACT_DEK"];
+      else env["KAMBA_SECRET_KEK_CONTACT_DEK"] = valor;
+      await assert.rejects(portasDoOutbound({ env, ...ligacoes }), (erro: unknown) => {
+        if (!(erro instanceof ChavesDeIdentidadeEmFaltaError)) return false;
+        assert.deepEqual(erro.refs, ["kek_contact_dek"]);
+        return true;
+      });
+    }
+  });
+
+  it("em prod, o pepper do HMAC não é pedido: o outbound só lê endpoints", async () => {
+    const env = completo("prod");
+    assert.equal(env["KAMBA_SECRET_PEPPER_CONTACT_HMAC"], undefined);
+    await portasDoOutbound({ env, ...ligacoes });
   });
 
   it("sem a kek_token_cliente o arranque aborta, e nomeia o segredo", async () => {

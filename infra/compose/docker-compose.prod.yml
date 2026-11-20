@@ -292,12 +292,9 @@ services:
     environment:
       <<: *node-env
       ENTRADA_PORT: "3013"
-      # **Em `prod` este processo NAO arranca hoje, e e medido.** O
-      # `Identidade.arrancar` do KAM-008 recusa o provedor de chaves de
-      # ambiente com `KAMBA_ENV=prod` (`exigirKeyProviderDeCofre`, criterio 9 do
-      # KAM-008), e nao ha provedor de cofre: e a contradicao do
-      # `docs/identidade.md` §8, linha 2, devolvida ao fundador. Nao se poe
-      # `dev` aqui para o fazer arrancar — isso era desligar a recusa.
+      # As chaves de identidade vem do ambiente que o lancador do cofre enche
+      # (ADR-L002; criterio 9 do KAM-008, emendado a 2026-11-20). Sem o *pepper*
+      # ou sem a KEK abaixo, o `Identidade.arrancar` recusa em `prod`.
       KAMBA_ENV: prod
       KAMBA_FASE: piloto
       KAMBA_QUEUE_URL: redis://queue:6379
@@ -451,11 +448,8 @@ services:
       # tenant, e chegam pelo lancador do cofre
       # (ADR-L002, decisao 1). O valor de cada um e o criptograma, e abre com a
       # `kek_token_cliente`.
-      #
-      # **Em `prod` este processo NAO arranca hoje, e e medido**
-      # (`services/worker-canal/tests/consumidor.test.ts`): o `Identidade.arrancar`
-      # recusa o provedor de chaves de ambiente com `KAMBA_ENV=prod`, como no
-      # `worker-canal-entrada` acima. Nao se poe `dev` para o fazer arrancar.
+      # Sem a KEK das DEK de contacto o `Identidade.arrancar` recusa em `prod`
+      # (criterio 9 do KAM-008, emendado a 2026-11-20).
       KAMBA_CONSUMER: outbound
       KAMBA_ENV: prod
       KAMBA_CONSUMIDOR_DB_URL: ${KAMBA_CONSUMIDOR_DB_URL:?o deploy passa a cadeia de ligacao do kamba_app}

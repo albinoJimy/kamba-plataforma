@@ -4,7 +4,7 @@
 |---|---|
 | Produto | KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para Angola |
 | Documento | Epic — Fundações e Dados |
-| Versão | 1.60 |
+| Versão | 1.61 |
 | Data | Outubro de 2026 |
 | Classificação | Documento de Referência — Interno |
 | Documento-fonte | `../docs/tecnica/00_Arquitectura_Solucao.md`, `../docs/tecnica/03_Core_Comercio_Medusa.md`, `../docs/tecnica/06_Dados_Eventos_Analytics.md`, `../docs/tecnica/08_Seguranca_Conformidade.md`, `../docs/tecnica/09_Topologia_Operacao_Escala.md` |
@@ -215,3 +215,4 @@ KAM-144.
 | 1.58 | Novembro 2026 | **KAM-185** acrescentado **e entregue no mesmo PR**. O bloco vive em `tickets/KAM-185.md`, pela convenção do KAM-155. Automatiza a escolha do lote e a ordem de fecho que a *skill* mandava fazer à mão: o `lote.py` e o `fila.py`, com o `vagas.py` a passar a ler a `publico/main`. **Sem portão, sem *job* novo, `.github/` intocado.** | Equipa KAMBÁ |
 | 1.59 | Novembro 2026 | **KAM-194** acrescentado, e **não entregue no mesmo PR**: abre-o o KAM-193 (EPIC-06), que lhe devolve o processo do consumidor do índice. O bloco vive em `tickets/KAM-194.md`, pela convenção do KAM-155. É deste epic porque o que falta é do EVT: a casca BullMQ → HTTP para consumidores Python, as linhas de `platform.evt_subscricoes` e a forma do `registry/` para um consumidor que não é vertical. **Recebe duas dívidas sem dono:** a casca do `/internal/event` do AGR e as linhas de subscrição dele, cujos credores eram o KAM-005 e o KAM-006, fechados com este epic. | Equipa KAMBÁ |
 | 1.60 | Novembro 2026 | **KAM-213** acrescentado **e entregue no mesmo PR**. O bloco vive em `tickets/KAM-213.md`, pela convenção do KAM-155. Dois ensaios de base de dados do `core-ts` que avermelhavam o CI ao acaso: o «reaplicar um pedir_info» do `lote.bd.test.ts` (o «antes» e o «depois» no mesmo milissegundo) e o «ON CONFLICT da conta» do `handoff.bd.test.ts` (uma corrida que o `Promise.all` não forçava). Os dois corrigem-se no ensaio, sem tocar no produto, e as mutações que eles prendem continuam a pô-los vermelhos; o «sobrevive a um reinício» do lote, exposto ao mesmo desempate, leva a mesma espera. | Equipa KAMBÁ |
+| 1.61 | Novembro 2026 | **Critério 9 do KAM-008 emendado** (`tickets/KAM-008.md`), por decisão do fundador de 2026-11-20, tomada no KAM-227 (EPIC-11): em `prod` as chaves de identidade vêm do ambiente que o lançador do cofre enche (ADR-L002), e o arranque recusa sem a KEK ou a chave de pesquisa — ausente, vazia ou mal formada —, em vez de recusar o provedor de ambiente. Fecha a contradição 2 do `../docs/identidade.md` §8; a decisão 2 do bloco e a linha 9 da verificação revistas. A caixa continua marcada, reverificada contra a letra nova | Equipa KAMBÁ |

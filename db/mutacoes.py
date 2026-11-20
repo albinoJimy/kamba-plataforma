@@ -1298,8 +1298,17 @@ MUTACOES = [
     ("identidade: sujeito_ref com a mesma chave em todos os meses", ID_CHAVES,
      "const ref = `${REF_CHAVE_DE_EPOCA}/${epoca}`;",
      "const ref = `${REF_CHAVE_DE_EPOCA}/202610`;", IDENTIDADE),
-    ("identidade: prod aceita o KeyProvider de ambiente", ID_CHAVES,
-     'if (declarado === "prod" && chaves.deAmbiente) {', "if (false) {", IDENTIDADE),
+    # O criterio 9 do KAM-008 emendado (fundador, 2026-11-20): em `prod` o
+    # provedor de ambiente arranca, e o que se recusa e arrancar sem as chaves.
+    # A primeira muta a ligacao (o `arrancar` deixa de chamar a verificacao), a
+    # segunda a funcao, e a terceira deixa cair a chave de pesquisa.
+    ("identidade: prod arranca sem conferir as chaves", ID_SERVICO,
+     'if (ambiente === "prod") {', "if (false) {", IDENTIDADE),
+    ("identidade: a falta de chaves no arranque nao recusa", ID_CHAVES,
+     "if (falhas.length > 0) throw", "if (false) throw", IDENTIDADE),
+    ("identidade: o arranque em prod so confere a KEK", ID_SERVICO,
+     "opcoes.soLeEndpoints === true ? [REF_KEK] : [REF_KEK, REF_CHAVE_DE_PESQUISA]",
+     "[REF_KEK]", IDENTIDADE),
     ("identidade: provedor de dev arranca em prod", ID_CHAVES,
      "if (chaves.ambiente !== declarado) {", "if (false) {", IDENTIDADE),
     ("identidade: pesquisa do BSUID so com a chave actual", ID_SERVICO,

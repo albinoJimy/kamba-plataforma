@@ -193,9 +193,9 @@ services:
   # pontes do KAM-194, com o `idx` mais abaixo), com a mesma imagem, o
   # mesmo `command:`, as mesmas replicas e os mesmos limites; a razao de cada
   # escolha esta escrita la e nao se repete aqui. A unica diferenca e o
-  # `KAMBA_ENV`, e e ela que faz o `entrada.ts` arrancar aqui e nao la: em
-  # `staging` o provedor de chaves de ambiente e aceite, em `prod` e recusado
-  # (criterio 9 do KAM-008).
+  # `KAMBA_ENV`. As chaves de identidade vem do ambiente nos dois; em `prod` o
+  # arranque recusa tambem sem elas (criterio 9 do KAM-008, emendado a
+  # 2026-11-20).
   worker-canal-entrada:
     <<: *node
     build:
