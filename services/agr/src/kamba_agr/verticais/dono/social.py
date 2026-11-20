@@ -11,12 +11,13 @@ tool sai de um modelo de linguagem.
 | Entrada | Accao |
 |---|---|
 | botao `tom:{tom}` | grava o tom do perfil |
-| botao `social:ideias`, ou «ideias», «calendario» | o calendario da semana (`generate_calendar`); sem perfil completo, a proxima pergunta |
-| botao `social:nova`, ou «NOVA» sozinho | outro calendario para a mesma semana |
 | botao `legenda:SOC-…`, ou uma referencia `SOC-…` no texto | a legenda do item; o resto do texto e a instrucao do dono |
-| «publica no Instagram», e afins | diz que nao publica, e o que faz |
-| «perfil», «marca» | o perfil, e a proxima pergunta se faltar alguma |
+| «FACTOS: …», «DIAS: …», e os outros campos | grava esse campo, a qualquer altura |
+| um verbo de publicar **e** uma rede («publica no Instagram») | diz que nao publica, e o que faz |
+| botao `social:ideias`, ou so «IDEIAS» | o calendario da semana (`generate_calendar`); sem perfil completo, a proxima pergunta |
+| botao `social:nova`, ou so «NOVA» | outro calendario para a mesma semana |
 | texto, com o perfil a meio | a resposta a pergunta em aberto |
+| «ideias», «calendario», as redes, sem perfil a meio | o calendario, o comeco do perfil, ou o convite |
 
 ## Os numeros do texto sao os da tool
 
@@ -30,6 +31,7 @@ tem digitos (ensaio).
 from __future__ import annotations
 
 import datetime
+import re
 from collections.abc import Mapping
 from typing import Any, Final
 
@@ -37,26 +39,38 @@ from ...social import regras
 from ...tls.erros import ENTITLEMENT_DENIED, LIMIT_EXCEEDED, NOT_FOUND, TOOL_NOT_ALLOWED, UPSTREAM_DOWN, VALIDATION_ERROR
 from ..vendedor.nos import Dependencias, _invocar, _resposta_estatica, _texto_do_cliente
 
-#: As palavras que fazem o turno ser deste modulo. Sem acentos, e **antes** das
-#: do catalogo no `classify`: «publica no instagram» nao e um produto.
-PALAVRAS_DO_SOCIAL: Final = (
-    "ideias",
-    "calendario",
-    "legenda",
-    "perfil de marca",
-    "perfil da marca",
-    "redes sociais",
-    "instagram",
-    "facebook",
-    "tiktok",
-    "publicacoes",
+#: As palavras das redes que levam um texto livre a este modulo, pelas regras do
+#: `classify` (**depois** do humano, da informacao da loja e do orcamento, e
+#: antes do catalogo: «publica no instagram» nao e um produto). Por palavra.
+PALAVRAS_DO_SOCIAL: Final = re.compile(
+    r"\b(?:ideias|calendario|legendas?|perfil d[ae] marca|redes sociais|instagram|facebook|tiktok)\b"
 )
 
-#: As que pedem uma publicacao que o modulo nao faz (criterio 7, D13).
-PALAVRAS_DE_PUBLICAR: Final = ("publica", "publique", "posta ", "postar", "partilha", "agenda no", "envia para")
+#: Um pedido de publicacao que o modulo nao faz (criterio 7, D13): o verbo **e**
+#: a rede. So o verbo nao chega — «prefiro publicar segunda as 18h» e a resposta
+#: a pergunta dos dias (achado I6 da revisao adversarial).
+_VERBO_DE_PUBLICAR: Final = re.compile(r"\b(?:publica|publique|publicar|publicas|posta|postar|partilha|partilhar|agenda)\b")
+_REDE: Final = re.compile(r"\b(?:instagram|facebook|tiktok|redes sociais|rede social|status|estado do whatsapp)\b")
 
-#: As que pedem o calendario.
-PALAVRAS_DO_CALENDARIO: Final = ("ideias", "calendario")
+#: Os comandos exactos do calendario: o texto todo, e nada mais.
+COMANDOS_DO_CALENDARIO: Final = frozenset({"ideias", "calendario", "ideias da semana", "nova", "novas ideias"})
+
+#: A edicao de um campo do perfil, a qualquer altura: «FACTOS: entregamos em
+#: Luanda». E a saida que um perfil completo nao tinha (achado I5): as promocoes
+#: expiram, e o dono tem de as poder trocar. O nome do campo e o do dono.
+_EDICAO: Final = re.compile(
+    r"\A\s*(nome|marca|categoria|tom|cores|publico|dias|factos)\s*:\s*(\S.*)\Z", re.DOTALL | re.IGNORECASE
+)
+CAMPO_DA_EDICAO: Final = {
+    "nome": "nome",
+    "marca": "nome",
+    "categoria": "categoria",
+    "tom": "tom",
+    "cores": "cores",
+    "publico": "publico",
+    "dias": "slots",
+    "factos": "factos",
+}
 
 
 def _botao(estado: Mapping[str, Any]) -> str:
@@ -66,16 +80,35 @@ def _botao(estado: Mapping[str, Any]) -> str:
     return botao if isinstance(botao, str) else ""
 
 
-def e_do_social(estado: Mapping[str, Any], texto: str) -> bool:
-    """Se o turno e do social **sem ler a base**: um botao dele, um `SOC-…`, «NOVA», ou as palavras."""
+def _limpo(texto: str) -> str:
+    return " ".join(regras.sem_acentos(texto).strip(" .!").split())
+
+
+def edicao(texto: str) -> tuple[str, str] | None:
+    """`(campo, valor)` de um «CAMPO: valor», ou `None`. O valor e o do texto original."""
+    casado = _EDICAO.match(regras.sem_acentos(texto)) if texto else None
+    if casado is None:
+        return None
+    return CAMPO_DA_EDICAO[casado.group(1).lower()], texto.split(":", 1)[1].strip()
+
+
+def pede_publicacao(texto: str) -> bool:
+    limpo = _limpo(texto)
+    return bool(_VERBO_DE_PUBLICAR.search(limpo) and _REDE.search(limpo))
+
+
+def e_comando_social(estado: Mapping[str, Any], texto: str) -> bool:
+    """Se o turno e do social **sem ler a base**, e sem ambiguidade.
+
+    Um botao dele, uma referencia `SOC-…`, um comando exacto («IDEIAS», «NOVA»)
+    ou a edicao de um campo. As palavras das redes **nao** estao aqui: vao pelas
+    regras do `classify`, depois do orcamento e da informacao da loja (achado I6).
+    """
     if regras.ler_botao(_botao(estado)) is not None:
         return True
     if regras.REFERENCIA_NO_TEXTO.search(texto):
         return True
-    limpo = regras.sem_acentos(texto).strip(" .!")
-    if limpo == "nova":
-        return True
-    return any(p in limpo for p in PALAVRAS_DO_SOCIAL)
+    return _limpo(texto) in COMANDOS_DO_CALENDARIO or edicao(texto) is not None
 
 
 async def perfil_a_meio(deps: Dependencias, estado: Mapping[str, Any]) -> bool:
@@ -94,7 +127,14 @@ async def perfil_a_meio(deps: Dependencias, estado: Mapping[str, Any]) -> bool:
 
 
 async def tratar(deps: Dependencias, estado: Mapping[str, Any]) -> dict[str, Any]:
-    """O turno do social. Devolve sempre uma resposta pronta."""
+    """O turno do social. Devolve sempre uma resposta pronta.
+
+    A ordem e a dos comandos explicitos primeiro: o botao, a referencia, a
+    edicao de um campo, o pedido de publicacao (que se recusa), os comandos
+    exactos do calendario. **Com o perfil a meio, o resto e a resposta a pergunta
+    em aberto** — «Ideias e Companhia» e um nome, e nao um pedido de ideias (achado
+    I4) —; sem ele, as palavras das redes pedem o calendario ou o perfil.
+    """
     toque = regras.ler_botao(_botao(estado))
     if toque is not None:
         if toque.accao == "tom":
@@ -106,32 +146,29 @@ async def tratar(deps: Dependencias, estado: Mapping[str, Any]) -> dict[str, Any
     referencia, resto = regras.referencia_no_texto(texto)
     if referencia is not None:
         return await _legenda(deps, estado, referencia, resto or None)
-    limpo = regras.sem_acentos(texto).strip(" .!")
-    if limpo == "nova":
-        return await _calendario(deps, estado, nova=True)
-    if any(p in limpo for p in PALAVRAS_DE_PUBLICAR):
+    editado = edicao(texto)
+    if editado is not None:
+        return await _responder(deps, estado, editado[0], editado[1])
+    if pede_publicacao(texto):
         resposta = _resposta_estatica(MSG_NAO_PUBLICO)
         resposta["draft"]["botoes"] = (regras.BOTAO_IDEIAS,)
         return resposta
-    if any(p in limpo for p in PALAVRAS_DO_CALENDARIO):
-        return await _calendario(deps, estado, nova=False)
+    limpo = _limpo(texto)
+    if limpo in COMANDOS_DO_CALENDARIO:
+        return await _calendario(deps, estado, nova=limpo in ("nova", "novas ideias"))
     lido = await _invocar(deps, estado, "get_brand_profile", {})
     if not lido.ok:
         return _resposta_estatica(_frase_do_erro(lido.error))
     proxima = lido.data.get("proxima")
-    if any(p in limpo for p in PALAVRAS_DO_SOCIAL) or not lido.data.get("existe"):
-        # Um pedido sobre o perfil ou as redes, sem resposta a dar: o perfil
-        # (comecado, se nao existia) e a proxima pergunta, ou o convite.
-        if proxima is None:
-            resposta = _resposta_estatica(MSG_PERFIL_COMPLETO)
-            resposta["draft"]["botoes"] = (regras.BOTAO_IDEIAS,)
-            return resposta
+    if lido.data.get("existe") and proxima is not None:
+        return await _responder(deps, estado, str(proxima["campo"]), texto)
+    if re.search(r"\b(?:ideias|calendario)\b", limpo):
+        return await _calendario(deps, estado, nova=False)
+    if not lido.data.get("existe"):
         return await _comecar(deps, estado)
-    if proxima is None:
-        resposta = _resposta_estatica(MSG_PERFIL_COMPLETO)
-        resposta["draft"]["botoes"] = (regras.BOTAO_IDEIAS,)
-        return resposta
-    return await _responder(deps, estado, str(proxima["campo"]), texto)
+    resposta = _resposta_estatica(MSG_PERFIL_COMPLETO)
+    resposta["draft"]["botoes"] = (regras.BOTAO_IDEIAS,)
+    return resposta
 
 
 async def _comecar(deps: Dependencias, estado: Mapping[str, Any], *, antes: str = "") -> dict[str, Any]:
@@ -231,7 +268,9 @@ MSG_COMECAR: Final = "Vamos conhecer a sua marca. Sao poucas perguntas, uma de c
 MSG_PERFIL_PRIMEIRO: Final = "Antes das ideias, preciso de conhecer a sua marca."
 MSG_GUARDADO: Final = "Guardado."
 MSG_PERFIL_COMPLETO: Final = (
-    "O perfil da marca esta completo. Escreva IDEIAS para receber as ideias da proxima semana."
+    "O perfil da marca esta completo. Escreva IDEIAS para receber as ideias da proxima semana. Para "
+    "mudar um campo, escreva o nome dele e o valor novo, por exemplo FACTOS: seguido dos factos, um "
+    "por linha."
 )
 MSG_RESPOSTA_RECUSADA: Final = "Nao percebi a resposta."
 MSG_IDEIAS: Final = "Ideias para a proxima semana (sao rascunhos; o senhor publica quando quiser):"
@@ -291,9 +330,10 @@ FRASE_DA_RECUSA: Final = {
     "perfil_incompleto": MSG_PERFIL_PRIMEIRO,
     "item_fechado": "Essa ideia ja nao esta em rascunho.",
     "faltam_factos": (
-        "Para por precos, descontos, datas ou contactos na legenda, escreva-os primeiro como factos do "
-        "perfil, com a data em que a promocao acaba. Nao invento valores."
+        "Para por precos, descontos, datas ou contactos na legenda, escreva primeiro FACTOS: seguido "
+        "dos factos da loja, um por linha, e em cada promocao a data em que acaba. Nao invento valores."
     ),
+    "promocao_vencida": "Essa promocao ja acabou. Escreva a data em que a promocao nova acaba.",
     "alegacao": (
         "Nao posso escrever essa legenda: tinha uma promessa que a loja nao pode garantir (cura, "
         "garantia total, o melhor de todos, comparacoes ou selos que nao me deu)."

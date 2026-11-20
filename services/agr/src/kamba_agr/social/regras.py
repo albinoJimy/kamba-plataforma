@@ -233,26 +233,48 @@ def ler_cores(texto: str) -> tuple[str, ...]:
 
 # ------------------------------------------------------------------ os factos
 
-#: As palavras que fazem de um facto uma **promocao** (criterio 4). Sem acentos.
-PALAVRAS_DE_PROMOCAO: Final = (
-    "desconto",
-    "promocao",
-    "promo",
-    "saldo",
-    "gratis",
-    "oferta",
-    "por cento",
-    "metade do preco",
-    "leve",
-    "black friday",
-    "liquidacao",
-    "brinde",
-)
+#: Os padroes que fazem de um texto uma **promocao** (criterio 4), sobre o texto
+#: sem acentos e com os espacos colapsados, **por palavra** — «leve» so com
+#: «pague», e «promo» nao casa «promover» (achado M2 da revisao). E a mesma
+#: lista que decide se um facto do dono e uma promocao e que a guarda de
+#: numeros le numa legenda (`numeros.py`). *Proposta*: vem do bloco e de
+#: conhecimento geral, nao de anuncios contados.
+PADROES_DE_PROMOCAO: Final = {
+    "promocao": re.compile(r"\bpromoc(?:ao|oes)\b|\bpromo\b"),
+    "desconto": re.compile(r"\bdescontos?\b"),
+    "saldos": re.compile(r"\bsaldos?\b"),
+    "gratis": re.compile(r"\bgratis\b|\bgratuit[oa]s?\b|\bde borla\b"),
+    "oferta": re.compile(r"\bofertas?\b"),
+    "brinde": re.compile(r"\bbrindes?\b"),
+    "leve_pague": re.compile(r"\bleve\b.{0,20}\bpague\b"),
+    "metade": re.compile(r"\bmetade do preco\b|\bpela metade\b"),
+    "liquidacao": re.compile(r"\bliquidac(?:ao|oes)\b|\bqueima\b"),
+    "black_friday": re.compile(r"\bblack friday\b"),
+    "preco_especial": re.compile(r"\bprecos? (?:especia(?:l|is)|baix(?:o|os|issimos?)|imbativ\w*|de amigo)\b"),
+    "imperdivel": re.compile(r"\bimperdive(?:l|is)\b"),
+    "por_tempo_limitado": re.compile(
+        r"\bso (?:hoje|esta semana|este mes|amanha)\b|\bpor tempo limitado\b|\bultimos dias\b|\bultimas unidades\b"
+    ),
+}
+
+#: As genericas: dizem «ha uma promocao», e passam com qualquer promocao valida
+#: do dono. As outras tem de estar **na** promocao do dono (`numeros.py`).
+PROMOCAO_GENERICA: Final = frozenset({"promocao", "por_tempo_limitado"})
+
+
+def palavras_de_promocao(texto: str) -> list[str]:
+    """Os nomes dos padroes de promocao que casam no texto, pela ordem da lista."""
+    limpo = " ".join(sem_acentos(texto).split())
+    return [nome for nome, padrao in PADROES_DE_PROMOCAO.items() if padrao.search(limpo)]
+
 
 _VALIDADE: Final = re.compile(
     r"\bate\s+(?:dia\s+)?(?P<dia>[0-3]?\d)\s*[/.-]\s*(?P<mes>[01]?\d)(?:\s*[/.-]\s*(?P<ano>\d{2,4}))?"
 )
-_DINHEIRO_OU_PERCENTAGEM: Final = re.compile(r"\d\s*%|\bkz\b|\baoa\b|\bkwanzas?\b|\d\s*mil\b", re.IGNORECASE)
+#: Uma percentagem (em algarismos ou por extenso) faz de um facto uma promocao.
+#: **Um preco nao** (achado M6): «Camisas a 8.000 Kz» e um facto do dono, e
+#: entra sem validade.
+_PERCENTAGEM: Final = re.compile(r"\d\s*%|\bpor\s?cento\b|\bporcento\b")
 
 
 @dataclass(frozen=True)
@@ -284,8 +306,7 @@ class Facto:
 
 
 def e_promocao(texto: str) -> bool:
-    limpo = sem_acentos(texto)
-    return any(p in limpo for p in PALAVRAS_DE_PROMOCAO) or bool(_DINHEIRO_OU_PERCENTAGEM.search(limpo))
+    return bool(palavras_de_promocao(texto)) or bool(_PERCENTAGEM.search(sem_acentos(texto)))
 
 
 def ler_validade(texto: str, hoje: datetime.date) -> datetime.date | None:
@@ -328,6 +349,10 @@ def ler_factos(texto: str, hoje: datetime.date) -> tuple[Facto, ...]:
             validade = ler_validade(linha, hoje)
             if validade is None:
                 raise RespostaRecusadaError("promocao_sem_validade")
+            if validade < hoje:
+                # Uma data com o ano escrito e ja passada (achado M3): um facto
+                # morto que o dono julgava valido. Recusa-se, e diz-se porque.
+                raise RespostaRecusadaError("promocao_vencida")
             factos.append(Facto(linha, promocao=True, valido_ate=validade))
         else:
             factos.append(Facto(linha))

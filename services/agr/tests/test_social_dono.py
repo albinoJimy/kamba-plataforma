@@ -244,7 +244,7 @@ class TestRegras(unittest.TestCase):
         self.assertEqual(factos[0], regras.Facto("Entregamos em Luanda"))
         self.assertEqual(factos[1].valido_ate, datetime.date(2026, 11, 30))
         self.assertTrue(factos[1].promocao)
-        for texto in ("10% de desconto", "Leve dois pague um", "Entrega gratis", "Tudo a 5 mil kz"):
+        for texto in ("10% de desconto", "Leve dois pague um", "Entrega gratis", "Preco especial so esta semana"):
             with self.subTest(texto=texto), self.assertRaises(regras.RespostaRecusadaError) as erro:
                 regras.ler_factos(texto, HOJE)
             self.assertEqual(erro.exception.motivo, "promocao_sem_validade")
@@ -430,8 +430,8 @@ class TestNumeros(unittest.TestCase):
         factos = ["10% de desconto ate 30/11", "Entregas: 999 456 789", "Camisa a 12.500 Kz"]
         self.assertEqual(numeros.numeros_fora_dos_factos("Ligue 999456789 e aproveite 10% ate 30/11", factos), ())
         self.assertEqual(numeros.numeros_fora_dos_factos("Camisa a 12 500 kz", factos), ())
-        self.assertEqual(numeros.numeros_fora_dos_factos("Camisa a 12.000 Kz", factos), ("12000",))
-        self.assertEqual(numeros.numeros_fora_dos_factos("5% de desconto", factos), ("5",))
+        self.assertEqual(numeros.numeros_fora_dos_factos("Camisa a 12.000 Kz", factos), ("12000 kz",))
+        self.assertEqual(numeros.numeros_fora_dos_factos("5% de desconto", factos), ("5%",))
         self.assertEqual(numeros.numeros_fora_dos_factos("cinquenta por cento de desconto", factos), ("cinquenta por cento",))
         self.assertEqual(numeros.numeros_fora_dos_factos("as cores 1, 2 e 3", ["cores 1, 2 e 3"]), ())
 
@@ -622,7 +622,7 @@ class TestAsTools(unittest.TestCase):
         # fundador) e a categoria do tenant (`None`), nunca a do perfil.
         self.assertEqual(
             [(t, s, c, x) for t, s, c, x in mundo.screening.chamadas],
-            [(A, i["content_item_id"], None, (i["tema"],)) for i in r.data["itens"]],
+            [(A, i["content_item_id"], None, (i["tema"], "roupa de mulher", "Loja da Ana")) for i in r.data["itens"]],
         )
 
     def test_categoria_bloqueada_da_zero_itens_e_condicional_marca_revisao_reforcada(self) -> None:
@@ -899,6 +899,15 @@ class TestOGrafo(unittest.TestCase):
         self.assertNotIn(B, mundo.repo.perfis)
         # E nenhuma tool fora das quatro do social e da get_store_info foi pedida.
         self.assertEqual(set(mundo.ligacao.modulos_pedidos()) - {"social", "vendedor"}, set())
+        # **O texto do dono chega ao gerador como dado, num campo a parte** (achado
+        # I10): a instrucao no `instrucao`, e o tema e os factos sem ela. Isto e o
+        # que se mede sem modelo; que o modelo real nao a obedeca e do golden do
+        # KAM-125.
+        temas = {i.tema for i in mundo.repo.itens.values()}
+        for pedido in gerador.pedidos:
+            self.assertIn(pedido.tema, temas)
+            self.assertTrue(pedido.instrucao is None or any(pedido.instrucao in x for x in injeccoes), pedido.instrucao)
+            self.assertFalse(any(pedido.instrucao and pedido.instrucao in f for f in pedido.factos[1:]))
 
     def test_o_texto_do_calendario_so_tem_os_numeros_das_horas(self) -> None:
         mundo = Mundo()
@@ -906,6 +915,176 @@ class TestOGrafo(unittest.TestCase):
         _f, texto, _ = mundo.turno("IDEIAS")
         sem_horas = re.sub(r"\b\d{2}:\d{2}\b", "", texto)
         self.assertIsNone(re.search(r"\d", sem_horas), texto)
+
+
+class TestAchadosDaRevisao(unittest.TestCase):
+    """Um ensaio por achado da revisao adversarial do KAM-121, com os exemplos dela."""
+
+    lexico = Lexico.carregar(POLITICAS)
+    alegacoes = Alegacoes.carregar(POLITICAS)
+
+    def _legenda(self, texto: str, factos: tuple[regras.Facto, ...], *, tema: str = "Camisas", nome: str = "Loja") -> Any:
+        return geracao.gerar_legenda(
+            GeradorDuplo(texto),
+            geracao.PedidoDeLegenda(tema=tema, tipo="produto", nome=nome, tom="proximo", publico="todos", factos=()),
+            self.lexico,
+            self.alegacoes,
+            factos,
+        )
+
+    def _recusada(self, texto: str, factos: tuple[regras.Facto, ...] = (), **kw: Any) -> None:
+        resultado = self._legenda(texto, factos, **kw)
+        self.assertIsInstance(resultado, geracao.Recusa, texto)
+
+    def test_i1_um_numero_so_casa_com_a_mesma_unidade(self) -> None:
+        self._recusada("30% em tudo esta semana!", (regras.Facto("Entregamos em 30 minutos"),))
+        # Com uma promocao valida ao lado, quem recusa e so a unidade: o «30» dos
+        # minutos nao e o «30%» da legenda.
+        com_promocao = (
+            regras.Facto("Entregamos em 30 minutos"),
+            regras.Facto("10% de desconto ate 30/11", True, datetime.date(2026, 11, 30)),
+        )
+        self._recusada("30% de desconto ate 30/11!", com_promocao)
+        self.assertIsInstance(self._legenda("10% de desconto ate 30/11!", com_promocao), geracao.Legenda)
+        self.assertIsInstance(
+            self._legenda("Entregamos em 30 minutos.", (regras.Facto("Entregamos em 30 minutos"),)), geracao.Legenda
+        )
+
+    def test_i1_cada_palavra_de_promocao_tem_de_estar_numa_promocao_do_dono(self) -> None:
+        sapatos = (regras.Facto("10% de desconto em sapatos ate 30/11", True, datetime.date(2026, 11, 30)),)
+        for texto in ("Entrega gratis em Luanda!", "Brinde em todas as compras.", "Leve dois pague um!"):
+            self._recusada(texto, sapatos)
+        self.assertIsInstance(self._legenda("Sapatos com 10% de desconto ate 30/11.", sapatos), geracao.Legenda)
+
+    def test_i1_promocao_sem_palavra_da_lista_antiga(self) -> None:
+        for texto in ("Preco especial so esta semana!", "Queima de stock!", "Precos baixos imperdiveis."):
+            self._recusada(texto)
+
+    def test_i2_o_tema_nao_autoriza_numeros(self) -> None:
+        # A promocao do tema foi retirada dos factos, e a categoria leva um preco.
+        self._recusada("Sapatos com 15% ate 30/11, venha ja!", tema="A promocao em curso: 15% de desconto ate 30/11")
+        self._recusada("Camisas a 5000 kz", tema="Uma dica para quem compra camisas a 5000 kz")
+        # O nome da marca autoriza os numeros dele.
+        self.assertIsInstance(self._legenda("A Loja 2000 abriu mais cedo.", (), nome="Loja 2000"), geracao.Legenda)
+
+    def test_i3_numeros_por_extenso(self) -> None:
+        for texto in (
+            "Tudo a quatrocentos kwanzas.",
+            "Quinze porcento em tudo.",
+            "Cinquenta dolares e e seu.",
+            "Ligue nove nove nove um dois tres quatro.",
+            "Valido ate trinta de dezembro.",
+        ):
+            self._recusada(texto)
+        self._recusada("Cinco mil kwanzas por camisa.", (regras.Facto("Camisas a vinte e cinco mil kwanzas"),))
+        self.assertIsInstance(
+            self._legenda("Camisas a vinte e cinco mil kwanzas.", (regras.Facto("Camisas a vinte e cinco mil kwanzas"),)),
+            geracao.Legenda,
+        )
+
+    def test_m2_palavras_vizinhas_nao_sao_promocao(self) -> None:
+        for texto in ("Um tecido leve e fresco para o calor.", "Vamos promover a nova coleccao.", "Uma escolha relevante."):
+            self.assertIsInstance(self._legenda(texto, ()), geracao.Legenda, texto)
+
+    def test_m6_um_preco_e_um_facto_e_entra_sem_validade(self) -> None:
+        factos = regras.ler_factos("Camisas a 8.000 Kz", HOJE)
+        self.assertEqual(factos, (regras.Facto("Camisas a 8.000 Kz"),))
+        self.assertIsInstance(self._legenda("Camisas a 8.000 Kz, venha ver.", factos), geracao.Legenda)
+
+    def test_m3_uma_validade_ja_passada_e_recusada(self) -> None:
+        with self.assertRaises(regras.RespostaRecusadaError) as erro:
+            regras.ler_factos("10% de desconto ate 01/01/2020", HOJE)
+        self.assertEqual(erro.exception.motivo, "promocao_vencida")
+
+    def test_m1_a_correccao_que_alonga_o_texto_volta_a_medir_se(self) -> None:
+        texto = ("celular " * 124).strip()
+        self.assertLessEqual(len(texto), geracao.TAMANHO_MAXIMO)
+        resultado = self._legenda(texto, ())
+        self.assertEqual(resultado, geracao.Recusa(geracao.FORA_DA_FORMA))
+
+    def test_i9_o_gerundio_nao_estraga_portugues_certo(self) -> None:
+        for frase in (
+            "O bolo esta lindo!",
+            "O resultado esta estupendo.",
+            "A festa esta tremenda.",
+            "Estamos a fazer bolos todos os dias.",
+            "O segundo andar esta pronto.",
+        ):
+            self.assertEqual(self.lexico.corrigir(frase), frase)
+            self.assertEqual(self.lexico.marcadores_em(frase), ())
+
+    def test_m4_os_botoes_de_legenda_tem_titulos_diferentes(self) -> None:
+        um, dois = regras.botao_da_legenda("SOC-ABCDEFGH"), regras.botao_da_legenda("SOC-HGFEDCBA")
+        self.assertEqual(saida.titulo_do_botao(um), "Legenda SOC-ABCDEFGH")
+        self.assertNotEqual(saida.titulo_do_botao(um), saida.titulo_do_botao(dois))
+        self.assertEqual(saida.PREFIXO_DA_LEGENDA, regras.PREFIXO_DA_LEGENDA)
+
+    def test_i7_uma_categoria_disfarcada_no_perfil_bloqueia_todos_os_temas(self) -> None:
+        mundo = Mundo(screening=ScreeningDuplo(por_texto={"Revolver": "bloqueada"}))
+        perfil = _perfil_completo()
+        mundo.repo.perfis[A] = regras.Perfil(**{**perfil.__dict__, "categoria": "Revolver de coleccao"})
+        r = mundo.invocar("generate_calendar", {})
+        self.assertEqual((r.data["decisao"], r.data["itens"]), ("bloqueada", []))
+
+
+class TestAchadosDaConversa(unittest.TestCase):
+    """Os achados I4, I5 e I6: as respostas ao perfil, os campos e as intencoes."""
+
+    def _a_meio(self, ate: str) -> Mundo:
+        mundo = Mundo()
+        perfil = _perfil_completo()
+        campos = list(regras.CAMPOS_OBRIGATORIOS)
+        vazios = {c: None for c in campos[campos.index(ate) :]}
+        mundo.repo.perfis[A] = regras.Perfil(**{**perfil.__dict__, **vazios})
+        return mundo
+
+    def test_i4_as_respostas_ao_perfil_gravam_se_mesmo_com_palavras_de_outras_intencoes(self) -> None:
+        for campo, texto, esperado in (
+            ("nome", "Ideias e Companhia", "Ideias e Companhia"),
+            ("categoria", "Produtos de beleza", "Produtos de beleza"),
+            ("publico", "Seguidores do Instagram em Luanda", "Seguidores do Instagram em Luanda"),
+        ):
+            mundo = self._a_meio(campo)
+            final, _t, _b = mundo.turno(texto)
+            with self.subTest(campo=campo):
+                self.assertEqual(final["intent"], "social")
+                self.assertEqual(getattr(mundo.repo.perfis[A], campo), esperado)
+        mundo = self._a_meio("slots")
+        mundo.turno("Prefiro publicar segunda as 18h")
+        self.assertEqual(mundo.repo.perfis[A].slots, (regras.Slot(0, 18),))
+        mundo = self._a_meio("factos")
+        mundo.turno("Horario: de segunda a sexta")
+        self.assertEqual(mundo.repo.perfis[A].factos, (regras.Facto("Horario: de segunda a sexta"),))
+
+    def test_i5_com_o_perfil_completo_os_factos_mudam_se_pelo_campo(self) -> None:
+        mundo = Mundo(gerador=GeradorDuplo("Sapatos com 10% de desconto ate 30/11."))
+        mundo.com_perfil()
+        _f, _t, botoes = mundo.turno("IDEIAS")
+        referencia = botoes[0].split(":", 1)[1]
+        _f, texto, _ = mundo.turno(f"{referencia} poe 10% de desconto")
+        self.assertIn("FACTOS:", texto)
+        final, _t, _b = mundo.turno("FACTOS: 10% de desconto em sapatos ate 30/11\nEntregamos em Luanda")
+        self.assertEqual(final["intent"], "social")
+        self.assertEqual(len(mundo.repo.perfis[A].factos or ()), 2)
+        _f, texto, _ = mundo.turno(f"{referencia} poe 10% de desconto")
+        self.assertIn("Sapatos com 10% de desconto ate 30/11.", texto)
+
+    def test_i6_as_palavras_das_redes_nao_roubam_outras_intencoes(self) -> None:
+        mundo = Mundo()
+        mundo.com_perfil()
+        for texto, intencao in (
+            ("ORC-ABCDEFGH 30 mil, bolo com legenda personalizada", "responder_orcamento"),
+            ("Qual o horario que esta no Facebook?", "info_loja"),
+            ("Tenho pedidos de orcamento pendentes do Instagram?", "orcamento"),
+            ("quero falar com uma pessoa sobre o instagram", "humano"),
+        ):
+            final, _t, _b = mundo.turno(texto)
+            with self.subTest(texto=texto):
+                self.assertEqual(final["intent"], intencao)
+        _f, texto, _ = mundo.turno("Quero ideias para as publicacoes da semana")
+        self.assertIn(conversa.MSG_IDEIAS, texto)
+        _f, texto, _ = mundo.turno("Preciso de uma resposta sobre as ideias")
+        self.assertNotIn(conversa.MSG_NAO_PUBLICO, texto)
 
 
 class TestRepositorioEmMemoria(unittest.TestCase):

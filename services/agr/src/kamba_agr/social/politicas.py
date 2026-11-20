@@ -91,6 +91,25 @@ class Marcador:
     tipo: str
     padrao: re.Pattern[str]
     correccao: str | None
+    #: So no `gerundio`: as palavras em -ndo que **nao** sao gerundio («lindo»,
+    #: «estupendo»), e que a regra deixa como estao (achado I9 da revisao).
+    excepcoes: frozenset[str] = frozenset()
+
+    def casos(self, texto: str) -> list[re.Match[str]]:
+        """As ocorrencias que contam: no gerundio, sem as excepcoes e com radical de tres letras."""
+        achados = list(self.padrao.finditer(texto))
+        if self.tipo != "gerundio":
+            return achados
+        return [m for m in achados if _e_gerundio(m, self.excepcoes)]
+
+
+#: O radical minimo de um gerundio: «lindo» tem «l», «indo» nao tem nenhum.
+RADICAL_MINIMO: Final = 3
+
+
+def _e_gerundio(casado: re.Match[str], excepcoes: frozenset[str]) -> bool:
+    palavra = f"{casado.group(2)}{casado.group(3)}ndo".lower()
+    return len(casado.group(2)) >= RADICAL_MINIMO and normalizar(palavra) not in excepcoes
 
 
 @dataclass(frozen=True)
@@ -108,7 +127,10 @@ class Lexico:
         for entrada in entradas:
             try:
                 padrao = re.compile(rf"\b(?:{entrada['padrao']})\b", re.IGNORECASE)
-                lidos.append(Marcador(str(entrada["id"]), str(entrada["tipo"]), padrao, entrada.get("correccao")))
+                excepcoes = frozenset(normalizar(str(x)) for x in entrada.get("excepcoes") or ())
+                lidos.append(
+                    Marcador(str(entrada["id"]), str(entrada["tipo"]), padrao, entrada.get("correccao"), excepcoes)
+                )
             except (KeyError, TypeError, re.error):
                 raise PoliticaIndisponivelError("marcador fora da forma") from None
         return cls(versao=str(conteudo["versao"]), marcadores=tuple(lidos))
@@ -119,7 +141,12 @@ class Lexico:
         for marcador in self.marcadores:
             if marcador.tipo == "gerundio":
                 corrigido = marcador.padrao.sub(
-                    lambda m: f"{m.group(1)} a {_infinitivo(m.group(2), m.group(3))}", corrigido
+                    lambda m, mk=marcador: (
+                        f"{m.group(1)} a {_infinitivo(m.group(2), m.group(3))}"
+                        if _e_gerundio(m, mk.excepcoes)
+                        else m.group(0)
+                    ),
+                    corrigido,
                 )
             elif marcador.correccao is not None:
                 substituto = marcador.correccao
@@ -128,7 +155,7 @@ class Lexico:
 
     def marcadores_em(self, texto: str) -> tuple[str, ...]:
         """Os `id` dos marcadores presentes no texto, pela ordem do ficheiro."""
-        return tuple(m.id for m in self.marcadores if m.padrao.search(texto))
+        return tuple(m.id for m in self.marcadores if m.casos(texto))
 
 
 # ------------------------------------------------------------------ as alegacoes

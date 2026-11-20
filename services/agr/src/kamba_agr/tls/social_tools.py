@@ -171,6 +171,18 @@ def _exigir_ligacao(pedido: Pedido) -> None:
         )
 
 
+def _do_perfil(perfil: regras.Perfil) -> list[str]:
+    """A categoria e o nome do perfil, que vao em **todo** o screen do social.
+
+    Nem todo o modelo de tema cita a categoria («Os bastidores de {nome}»), e
+    uma categoria bloqueada disfarcada no perfil («Revolver de coleccao», com a
+    categoria declarada «moda») so era vista nos temas que a citam — os outros
+    nasciam (achado I7 da revisao adversarial). Com o texto do perfil em cada
+    pedido, a mesma categoria bloqueia todos os itens.
+    """
+    return [x for x in (perfil.categoria, perfil.nome) if x]
+
+
 def _screen(portas: PortasDoSocial, tenant: str, sujeito_ref: str, textos: list[str]) -> Any:
     try:
         return portas.screening.screen(tenant, sujeito_ref, None, textos)
@@ -248,7 +260,7 @@ def executores(
         versao_politica = ""
         for tema in temas:
             content_item_id = str(uuid.uuid4())
-            decisao = _screen(portas, tenant, content_item_id, [tema.tema])
+            decisao = _screen(portas, tenant, content_item_id, [tema.tema, *_do_perfil(perfil)])
             decisoes.append(decisao.decisao)
             versao_politica = decisao.versao_politica
             if decisao.decisao == BLOQUEADA:
@@ -307,7 +319,7 @@ def executores(
             raise ErroDeBackend(UPSTREAM_DOWN, "gerador_indisponivel") from None
         if isinstance(resultado, Recusa):
             raise ErroDeBackend(VALIDATION_ERROR, resultado.motivo)
-        decisao = _screen(portas, tenant, item.content_item_id, [item.tema, resultado.texto])
+        decisao = _screen(portas, tenant, item.content_item_id, [item.tema, resultado.texto, *_do_perfil(perfil)])
         try:
             if decisao.decisao == BLOQUEADA:
                 repositorio.rejeitar(item, decisao.versao_politica)

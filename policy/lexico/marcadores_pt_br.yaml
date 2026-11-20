@@ -31,7 +31,7 @@
 # «grama», «massa», «cara», «moca», e o «pro» (que casava «pro-activo»).
 # Corrigi-las estragava legendas certas.
 
-versao: "1.0.0"
+versao: "1.1.0"
 estado: proposta
 
 marcadores:
@@ -78,4 +78,4 @@ marcadores:
   - {id: galera, tipo: vocabulario, padrao: "galera", correccao: null}
   - {id: bacana, tipo: vocabulario, padrao: "bacana", correccao: null}
   - {id: show_de_bola, tipo: vocabulario, padrao: "show de bola", correccao: null}
-  - {id: gerundio, tipo: gerundio, padrao: "(estou|estamos|est[aá]|est[aã]o|estava|est[aá]vamos|estavam)\\s+(\\w+?)([aei])ndo", correccao: null, nota: "estar + gerundio -> estar + a + infinitivo; a regra esta no leitor"}
+  - {id: gerundio, tipo: gerundio, padrao: "(estou|estamos|est[aá]|est[aã]o|estava|est[aá]vamos|estavam)\\s+(\\w+?)([aei])ndo", correccao: null, nota: "estar + gerundio -> estar + a + infinitivo; a regra esta no leitor, com radical de tres letras e sem as excepcoes", excepcoes: [lindo, linda, lindos, lindas, tremendo, tremenda, tremendos, tremendas, estupendo, estupenda, horrendo, horrenda, fecundo, fecunda, profundo, profunda, rotundo, segundo, segunda, oriundo, oriunda, nauseabundo, moribundo, vagabundo, iracundo, jucundo, venerando, nefando, infando, memorando, educando, formando, doutorando, mestrando, orientando, graduando, vestibulando]}

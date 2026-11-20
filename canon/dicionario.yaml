@@ -21565,8 +21565,7 @@ entradas:
       - "uuid"
       - "conteudo"
       - "versao_politica"
-    variantes_literais:
-      - "content_items.screening_ref"
+    variantes_literais: []
   - seccao: "3.82"
     conceito: "Tipo de um item"
     canonico: "content_items.tipo ∈ {produto, dica, bastidores, promocao}"
@@ -25363,10 +25362,5 @@ variantes:
     seccao: "3.66"
     conceito: "Trabalho de imagem"
     canonico: "platform.image_jobs, dezoito colunas: image_job_id, tenant_id, origem_ref, versao_ref, operacao, provider, estado, motivo, idempotency_key, sintetica, gerado_por_ia, escolhida, custo_usd, latencia_ms, aviso_at, versao, criado_at, atualizado_at"
-  - nome: "content_items.screening_ref"
-    tipo: "nome"
-    seccao: "3.82"
-    conceito: "Item de conteúdo"
-    canonico: "platform.content_items(content_item_id, tenant_id, calendar_id, semana_iso, tipo, tema, legenda, art_asset_id, estado, is_ai_generated, revisao_reforcada, versao_politica, versao, agendado_at, criado_at, atualizado_at)"
 
 contradicoes: []

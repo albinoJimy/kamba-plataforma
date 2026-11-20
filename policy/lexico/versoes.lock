@@ -2,3 +2,4 @@
 # Uma linha por versao publicada: o sha256 sela o conteudo, sem a `versao`. Nao se edita
 # a mao; o `TestPoliticasSeladas` recusa um conteudo que mude sem a versao subir.
 1.0.0 912619e61dc0d87a99d2e9e5dc523fcbd0db41911a27e683474b57c4086ad455
+1.1.0 7b37d636d5bb83c3a06e6d6b64db868d1abd669a1cfe5e7d53775f1f3fc8b7c1

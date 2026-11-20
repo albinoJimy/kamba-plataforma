@@ -135,8 +135,12 @@ def gerar_legenda(
     """A legenda que passa as quatro barreiras, ou a recusa. O gerador pode levantar."""
     dos_factos = [f.texto for f in factos]
     promocoes = [f.texto for f in factos if f.promocao]
-    # O tema veio do perfil e dos factos (`regras.temas`): os numeros dele sao do dono.
-    permitidos = [*dos_factos, pedido.tema]
+    # **So os factos validos e o nome da marca autorizam numeros**, e nao o tema
+    # (achado I2 da revisao): o tema de um item `promocao` guarda o texto da
+    # promocao do dia em que o calendario nasceu, e a categoria do perfil e
+    # texto livre. Uma promocao que o dono retirou, ou um preco escrito na
+    # categoria, nao chegam a legenda por ele.
+    permitidos = [*dos_factos, pedido.nome]
     if pedido.instrucao and _faltam_factos(pedido.instrucao, permitidos, promocoes):
         return Recusa(FALTAM_FACTOS, "instrucao")
     ultima = Recusa(FORA_DA_FORMA)
@@ -148,6 +152,11 @@ def gerar_legenda(
             ultima, actual = Recusa(FORA_DA_FORMA), _com(actual, evitar=("tamanho",))
             continue
         texto = lexico.corrigir(bruto)
+        if len(texto) > TAMANHO_MAXIMO:
+            # A correccao alonga o texto (achado M1): mede-se outra vez, senao
+            # o `CHECK` da coluna recusava a escrita.
+            ultima, actual = Recusa(FORA_DA_FORMA), _com(actual, evitar=("tamanho",))
+            continue
         ficaram = lexico.marcadores_em(texto)
         if ficaram:
             ultima, actual = Recusa(PT_BR, ficaram[0]), _com(actual, evitar=ficaram)

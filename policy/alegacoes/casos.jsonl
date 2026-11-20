@@ -105,3 +105,17 @@
 {"id": "aleg-105", "texto": "As melhores ideias nascem a conversar com os clientes.", "factos": [], "esperado": "allow"}
 {"id": "aleg-106", "texto": "Comprar perto de casa poupa tempo.", "factos": [], "esperado": "allow"}
 {"id": "aleg-107", "texto": "Produtos de higiene para toda a familia.", "factos": [], "esperado": "allow"}
+{"id": "aleg-108", "texto": "Este cha cura malaria.", "factos": [], "esperado": "deny", "regra": "cura"}
+{"id": "aleg-109", "texto": "Um oleo que cura dores de cabeca.", "factos": [], "esperado": "deny", "regra": "cura"}
+{"id": "aleg-110", "texto": "Combate a gripe com o nosso sumo de limao.", "factos": [], "esperado": "deny", "regra": "cura"}
+{"id": "aleg-111", "texto": "Perca cinco quilos este mes.", "factos": [], "esperado": "deny", "regra": "cura"}
+{"id": "aleg-112", "texto": "Emagreca rapido com este cha.", "factos": [], "esperado": "deny", "regra": "cura"}
+{"id": "aleg-113", "texto": "A maior loja de Luanda!", "factos": [], "esperado": "deny", "regra": "superlativo_nao_comprovado"}
+{"id": "aleg-114", "texto": "O melhor pao de Benguela.", "factos": [], "esperado": "deny", "regra": "superlativo_nao_comprovado"}
+{"id": "aleg-115", "texto": "Os melhores precos para si.", "factos": [], "esperado": "deny", "regra": "superlativo_nao_comprovado"}
+{"id": "aleg-116", "texto": "Mais em conta que o Kero.", "factos": [], "esperado": "deny", "regra": "comparacao_com_concorrente"}
+{"id": "aleg-117", "texto": "Produto certificado pelo Ministerio da Saude.", "factos": ["Somos certificados pela ISO 9001"], "esperado": "deny", "regra": "selo_ou_certificacao"}
+{"id": "aleg-118", "texto": "Estamos melhor do que nunca!", "factos": [], "esperado": "allow"}
+{"id": "aleg-119", "texto": "Aprovado pelas maes de Luanda, que voltam sempre.", "factos": [], "esperado": "allow"}
+{"id": "aleg-120", "texto": "O bolo esta lindo, venha ver.", "factos": [], "esperado": "allow"}
+{"id": "aleg-121", "texto": "Uma loja maior, com mais espaco para si.", "factos": [], "esperado": "allow"}

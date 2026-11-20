@@ -108,6 +108,12 @@ REGRAS_DE_INTENCAO: Final = (
     # KAM-220. **Antes do `modulos`**, que tem «preco»: «que pedidos de
     # orcamento tenho?» e uma pergunta pelos pendentes, e nao pelo catalogo.
     ("orcamento", ("orcamento", "pendente", "proposta")),
+    # KAM-121. **Depois** do humano, da informacao da loja e do orcamento
+    # («o horario que esta no facebook» e informacao, «pendentes do instagram»
+    # sao orcamentos) e **antes** do `modulos`, que tem «publica»: «publica no
+    # instagram» nao e um produto. A lista e a do `social.PALAVRAS_DO_SOCIAL`,
+    # por palavra (ver o `intencao_por_regras`).
+    ("social", social.PALAVRAS_DO_SOCIAL),
     (
         "modulos",
         (
@@ -134,6 +140,10 @@ def intencao_por_regras(texto: str) -> str | None:
     """A intencao pelas palavras, ou `None` se nenhuma regra decidir."""
     limpo = _sem_acentos(texto)
     for intencao, palavras in REGRAS_DE_INTENCAO:
+        if isinstance(palavras, re.Pattern):
+            if palavras.search(limpo):
+                return intencao
+            continue
         if any(palavra in limpo for palavra in palavras):
             return intencao
     return None
@@ -176,10 +186,11 @@ def classify(deps: Dependencias):
         if catalogo.e_do_catalogo(estado, texto):
             # KAM-119: um botao do catalogo, uma foto, ou uma referencia `PRD-…`.
             return {"intent": "catalogo"}
-        if social.e_do_social(estado, texto) and intencao_por_regras(texto) != "humano":
-            # KAM-121: um botao do social, uma referencia `SOC-…`, «NOVA», ou as
-            # palavras das redes. **Antes do `modulos`**, que tem «publica»:
-            # «publica no instagram» nao e um produto. Um pedido de humano ganha.
+        if social.e_comando_social(estado, texto) and intencao_por_regras(texto) != "humano":
+            # KAM-121: um botao do social, uma referencia `SOC-…`, um comando
+            # exacto («IDEIAS», «NOVA») ou a edicao de um campo («FACTOS: …»).
+            # As palavras das redes vao pelas regras, depois do orcamento (achado
+            # I6 da revisao). Um pedido de humano ganha.
             return {"intent": "social"}
         if e_resposta_de_orcamento(texto):
             # KAM-220. **Antes das palavras e do modelo**: um valor escrito pelo
@@ -198,6 +209,22 @@ def classify(deps: Dependencias):
                 return {"intent": "catalogo"}
             return {"intent": "responder_orcamento"}
         intencao = intencao_por_regras(texto)
+        if (
+            intencao != "humano"
+            and catalogo.regras.parece_resposta(texto)
+            and await social.perfil_a_meio(deps, estado)
+            and not await catalogo.ha_resposta_a_dar(deps, estado)
+        ):
+            # KAM-121: **com o perfil de marca a meio, uma resposta e resposta**,
+            # antes das palavras e do classificador (achado I4 da revisao):
+            # «prefiro publicar segunda as 18h» ia ao catalogo por ter «publica»,
+            # «horario: de segunda a sexta» a informacao da loja, «produtos de
+            # beleza» ao catalogo. Nunca um cumprimento nem uma pergunta
+            # (`parece_resposta`), nunca um pedido de humano, e um rascunho do
+            # catalogo a espera de resposta responde-se primeiro. A leitura custa
+            # uma linha de `tool_audit` por turno destes, e num tenant sem o
+            # modulo e um `ENTITLEMENT_DENIED` — o preco do catalogo, outra vez.
+            return {"intent": "social"}
         if intencao is None and deps.classificador is not None:
             escolhida = deps.classificador(texto)
             # Um valor fora da lista **nao** entra no estado: o `r_intent`
@@ -222,16 +249,6 @@ def classify(deps: Dependencias):
             # `tool_audit` por turno destes, e num tenant sem o modulo e um
             # `ENTITLEMENT_DENIED` — o preco de nao guardar estado proprio.
             resolvida = "catalogo"
-        if (
-            resolvida == "outro"
-            and catalogo.regras.parece_resposta(texto)
-            and await social.perfil_a_meio(deps, estado)
-        ):
-            # KAM-121: o dono a responder a uma pergunta do perfil de marca
-            # («Loja da Ana», «maes jovens»). Pela regra do catalogo: so no lugar
-            # do `outro`, nunca um cumprimento, e depois do catalogo — um
-            # rascunho a espera de resposta responde-se primeiro.
-            resolvida = "social"
         delta: dict[str, Any] = {"intent": resolvida}
         if resolvida == "humano":
             delta["handoff_motivo"] = MOTIVO_PEDIDO

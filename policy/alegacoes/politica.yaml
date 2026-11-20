@@ -26,22 +26,30 @@
 #   cura nao passa a verdade por o dono a escrever;
 # * `estado` e `fonte`: a escala de tres estados do conjunto, e de onde vem.
 
-versao: "1.0.0"
+versao: "1.1.0"
 estado: proposta
 
 regras:
+  # 1.1.0 (KAM-121, revisao adversarial): curas sem artigo e doencas comuns, o
+  # emagrecimento por extenso, superlativos com «maior», com mais lugares e com
+  # «os melhores precos», «mais em conta» nas comparacoes, as excepcoes «melhor
+  # do que nunca» e «aprovado pelas maes», e os selos com o objecto preso ao
+  # padrao: um facto com «certificados pela ISO» ja nao autoriza «certificado
+  # pelo Ministerio».
   - id: cura
-    descricao: "promessa de cura, tratamento ou prevencao de doenca, e emagrecimento com numero"
+    descricao: "promessa de cura, tratamento ou prevencao de doenca, e emagrecimento"
     permitido_se_nos_factos: false
     estado: INDICIO
     fonte: "Lei 15/03 (publicidade enganosa) e politica de publicidade da Meta sobre saude, a confirmar por parecer"
     padroes:
       - "\\b(cura|curam|curar)\\s+(a|o|as|os|tudo|para|de vez)\\b"
+      - "\\b(cura|curam|curar)\\s+(de\\s+)?(diabetes|cancro|cancer|hipertensao|tensao|paludismo|malaria|hiv|sida|covid|gripe|constipac\\w*|dores?|infecc\\w*|doenc\\w*|asma|anemia|febre|tosse|feridas?|ulceras?|gastrite|reumatismo|artrite)"
       - "\\bcura (garantid|definitiv|natural|rapid|total)"
       - "\\b(efeito|poder|propriedades?) curativ"
-      - "\\b(trata|tratar|combate|combater|previne|prevenir|elimina|eliminar|acaba com)\\s+(a|o|as|os)?\\s*(diabetes|cancro|cancer|hipertensao|tensao alta|paludismo|malaria|hiv|sida|covid|infecc\\w*|doenc\\w*|virus|bacteria\\w*|anemia|asma)"
+      - "\\b(trata|tratar|combate|combater|previne|prevenir|elimina|eliminar|acaba com)\\s+(a|o|as|os)?\\s*(diabetes|cancro|cancer|hipertensao|tensao alta|paludismo|malaria|hiv|sida|covid|gripe|constipac\\w*|febre|tosse|colesterol|reumatismo|artrite|ulceras?|gastrite|infecc\\w*|doenc\\w*|virus|bacteria\\w*|anemia|asma)"
       - "\\bmilagr"
-      - "\\b(emagrec\\w*|perca|perder|perde)\\s+\\d+\\s*(kg|quilos)"
+      - "\\b(emagrec\\w*|perca|perder|perde)\\s+(\\d+|um|dois|tres|quatro|cinco|seis|sete|oito|nove|dez|quinze|vinte|trinta)\\s*(kg|quilos)"
+      - "\\bemagrec\\w*\\s+(rapid\\w*|facil\\w*|ja\\b|sem\\s+\\w+|em\\s+\\w+\\s+dias?)"
       - "\\bsubstitui\\s+(o|os)?\\s*(medicamento|remedio|medico)"
   - id: garantia_absoluta
     descricao: "garantia absoluta de resultado"
@@ -62,7 +70,8 @@ regras:
     estado: INDICIO
     fonte: "Lei 15/03 (publicidade enganosa), a confirmar por parecer"
     padroes:
-      - "\\b(o|a|os|as) (melhor|melhores|mais barat[oa]s?)( \\w+){0,3} (de|do|da|em) (angola|luanda|todo o pais|pais|mundo|cidade|bairro|mercado|africa)"
+      - "\\b(o|a|os|as) (melhor|melhores|maior|maiores|mais barat[oa]s?)( \\w+){0,3} (de|do|da|em|no|na) (angola|luanda|benguela|huambo|lubango|huila|cabinda|namibe|malanje|uige|lobito|kuito|bie|moxico|cunene|zaire|soyo|saurimo|lunda|kwanza|cuanza|bengo|cuando|cubango|viana|cacuaco|talatona|kilamba|todo o pais|pais|mundo|cidade|bairro|mercado|africa|provincia|regiao|zona)\\b"
+      - "\\b(o|a|os|as) (melhor|melhores) precos?\\b"
       - "\\bnumero (um|1)\\b"
       - "\\bn\\.?\\s*o?\\s*1\\b"
       - "\\bimbativel"
@@ -76,7 +85,7 @@ regras:
     estado: INDICIO
     fonte: "Lei 15/03 (publicidade comparativa), a confirmar por parecer"
     padroes:
-      - "\\b(melhor|melhores|mais barat[oa]s?|mais rapid[oa]s?|mais fresc[oa]s?|superior(es)?|mais bonit[oa]s?|mais fortes?|mais duradour[oa]s?|mais saboros[oa]s?)\\s+(do\\s+)?que\\s+(a|o|os|as|na|no|nas|nos|qualquer)?\\s*\\w"
+      - "\\b(melhor|melhores|mais barat[oa]s?|mais em conta|mais acessive(l|is)|mais rapid[oa]s?|mais fresc[oa]s?|superior(es)?|mais bonit[oa]s?|mais fortes?|mais duradour[oa]s?|mais saboros[oa]s?)\\s+(do\\s+)?que\\s+(?!nunca\\b|antes\\b|ontem\\b|sempre\\b|o normal\\b|o habitual\\b|o costume\\b)(a|o|os|as|na|no|nas|nos|qualquer)?\\s*\\w"
       - "\\bao contrario d(a|o|as|os)\\s+\\w"
       - "\\bsuperior(es)? a(o|os|a|as)?\\s+\\w"
       - "\\bconcorrente"
@@ -87,12 +96,12 @@ regras:
     estado: INDICIO
     fonte: "Lei 15/03 (publicidade enganosa), a confirmar por parecer"
     padroes:
-      - "\\bcertificad[oa]s?\\b"
-      - "\\bcertificacao\\b"
+      - "\\bcertificad[oa]s?( (pel[oa]s?|por|no|na|de|da|do) \\w+( \\w+)?)?"
+      - "\\bcertificac(ao|oes)( (de|do|da|pel[oa]) \\w+( \\w+)?)?"
       - "\\biso\\s*\\d{3,5}"
-      - "\\baprovad[oa]s? pel[oa]s?\\s+\\w"
-      - "\\bselo de (qualidade|garantia)"
-      - "\\bpremiad[oa]s?\\b"
+      - "\\baprovad[oa]s? pel[oa]s? (ministerio|inadec|arsea|agt|bna|governo|autoridade|ordem|instituto|ianorq|associacao|comissao|camara)( \\w+)?"
+      - "\\bselo de (qualidade|garantia)( (d[aoe]s?|pel[oa]) \\w+)?"
+      - "\\bpremiad[oa]s?( (na|no|em|pel[oa]|com) \\w+)?"
       - "\\brecomendad[oa]s? por (medicos|dentistas|especialistas|nutricionistas|dermatologistas)"
       - "\\b(testado dermatologicamente|dermatologicamente testado)"
       - "\\bclinicamente (provado|testado|comprovado)"
