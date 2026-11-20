@@ -2871,6 +2871,9 @@ IMUTAVEIS_PARA_A_APP = {
         # KAM-097: a auto-compra compara o comprador com o dono, e o dono
         # anulava-o antes de comprar a si proprio. Escreve-o o provisioning.
         "owner_contact_id",
+        # KAM-216: o canal do dono. So a `definir_dono` o escreve, quando o dono
+        # muda; com ele o servico punha o painel a mandar o dono para o WhatsApp.
+        "owner_channel_wa",
     },
     "tenant_channels": {
         "id",         # identidade

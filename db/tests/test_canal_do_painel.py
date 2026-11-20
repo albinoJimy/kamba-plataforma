@@ -13,6 +13,8 @@ prova:
    nem a sincronizacao, nem o nivel, nem as sancoes.
 3. **A escolha do canal e a do texto**: o da plataforma (Fluxo B) nao entra, e
    entre dois o ligado vem primeiro.
+4. **O canal do dono** (KAM-216): o `tenants.owner_channel_wa` sai na linha do
+   canal, e so o do tenant do contexto.
 """
 
 from __future__ import annotations
@@ -101,6 +103,21 @@ class TestCanalDoPainel(ComBase):
         nivel = self.linhas(SQL_NIVEL, self.a)
         self.assertEqual([(l["nivel"], int(l["tecto_pedido_minor"]), l["currency"]) for l in nivel], [(1, 5_000_000, "AOA")])
         self.assertEqual([l["motivo_publico"] for l in self.linhas(SQL_SANCOES, self.a)], ["conduta_em_analise"])
+
+    def test_o_canal_do_dono_sai_na_linha_do_canal_e_so_do_seu_tenant(self) -> None:
+        """KAM-216: o `tenants.owner_channel_wa`, pelo `JOIN` da consulta, como `kamba_app`.
+
+        A escrita e da `definir_dono`; aqui o administrador so prepara o valor,
+        porque o que se mede e a leitura. Com o `JOIN` pelo tenant errado, ou sem a
+        RLS da `tenants`, A lia o valor de B.
+        """
+        self.cursor.execute("UPDATE platform.tenants SET owner_channel_wa = true WHERE id = %s", (self.b,))
+        self.cursor.execute("UPDATE platform.tenants SET owner_channel_wa = false WHERE id = %s", (self.a,))
+        self.como_app(self.a)
+        self.assertEqual([l["owner_channel_wa"] for l in self.linhas(SQL_CANAL, self.a)], [False])
+        self.assertEqual(self.linhas(SQL_CANAL, self.b), [])
+        self.como_app(self.b)
+        self.assertEqual([l["owner_channel_wa"] for l in self.linhas(SQL_CANAL, self.b)], [True])
 
     def test_com_o_contexto_de_a_o_tenant_de_b_nao_devolve_nada(self) -> None:
         """O `tenant_id = $1` do texto e a RLS: o B pedido com o contexto de A da zero linhas."""
