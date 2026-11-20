@@ -251,9 +251,15 @@ def executores(
                     quote_id=quote_id,
                 )
             ) if regras.ha_condicoes(args.condicoes) else (None, pedido.ligacao)
-            if pedido.prazo is not None and time.monotonic() >= pedido.prazo:
-                # A ToolLayer ja respondeu `UPSTREAM_TIMEOUT` ao dono: gravar
-                # agora era uma resposta sem eco nem botao (KAM-230).
+            if (
+                pedido.prazo is not None
+                and time.monotonic() >= pedido.prazo - RESERVA_DA_TRANSACCAO_MS / 2000
+            ):
+                # Sem metade da reserva para a transaccao, a resposta arriscava
+                # gravar-se depois de a ToolLayer dar `UPSTREAM_TIMEOUT` ao dono,
+                # sem eco nem botao (KAM-230). **Estreita a janela, e nao a
+                # fecha**: uma transaccao mais lenta do que o que sobra mais a
+                # margem da camada ainda grava depois (achado 8 da revisao).
                 raise ErroDeBackend(UPSTREAM_TIMEOUT, "o screen das condicoes passou do prazo")
             resposta = repositorio.gravar_resposta(
                 ligacao,

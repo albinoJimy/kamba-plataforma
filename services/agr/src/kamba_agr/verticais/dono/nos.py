@@ -178,8 +178,13 @@ def classify(deps: Dependencias):
             # KAM-119: **sem referencia `ORC-…`, sem pedido de orcamento a
             # espera e com um rascunho do catalogo a espera de resposta**, o
             # valor e o preco desse rascunho — vai ao eco, e nao se grava.
+            partes = _partes_da_resposta(texto)
             if (
-                _partes_da_resposta(texto).referencia is None
+                partes.referencia is None
+                # Com condicoes e um orcamento, e nunca o preco de um rascunho
+                # (achado 11 da revisao): o catalogo lia o texto todo como valor.
+                and partes.condicoes is None
+                and partes.erro is None
                 and not await _ha_pendentes(deps, estado)
                 and await catalogo.ha_resposta_a_dar(deps, estado)
             ):
@@ -265,6 +270,9 @@ def _partes_da_resposta(texto: str) -> _Resposta:
     texto inteiro, dos dois lados: e um identificador para o sistema, e nao
     conteudo para o cliente.
     """
+    # NFC antes de procurar a marca (achado 9 da revisao): «Condições» composta
+    # por letra e acento combinante nao casava, e o texto ia ao modelo.
+    texto = unicodedata.normalize("NFC", texto)
     achada = _REFERENCIA_NO_TEXTO.search(texto)
     referencia = f"ORC-{achada.group(1).upper()}" if achada else None
     sem_referencia = _REFERENCIA_NO_TEXTO.sub(" ", texto)
@@ -630,11 +638,14 @@ MSG_CONDICOES_MAL_ESCRITAS: Final = (
     "Nao percebi as condicoes. Escreva Condicoes: uma so vez, no fim, com o "
     "texto a seguir, ou envie so o valor e a referencia."
 )
-#: KAM-230: as condicoes recusadas — numeros, tamanho, a guarda ou o `screen`.
-#: Nunca diz porque, pela razao da recusa do `screen`: a regra nao sai.
+#: KAM-230: as condicoes recusadas — numeros, tamanho, a guarda, o `screen`, ou
+#: o `screen` indisponivel (sem destino autorizado, o COM em baixo, sem prazo).
+#: **Nao culpa o texto**, porque a tool nao distingue as recusas para o no
+#: (achado 6 da revisao): diz o que o dono pode fazer nos dois casos. Nunca diz
+#: porque, pela razao da recusa do `screen`: a regra nao sai.
 MSG_CONDICOES_POR_REESCREVER: Final = (
-    "Nao posso enviar essas condicoes ao cliente. Reescreva-as sem numeros e sem "
-    "valores, ou envie so o valor e a referencia."
+    "Nao consegui aceitar essas condicoes. Pode enviar o orcamento sem elas, so "
+    "com o valor e a referencia, ou reescreve-las sem numeros."
 )
 
 #: As frases do `confirm` (KAM-211). Sem digitos, pela razao dos outros textos.

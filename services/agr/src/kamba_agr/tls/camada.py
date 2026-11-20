@@ -47,6 +47,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import threading
 import time
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
@@ -121,6 +122,17 @@ BACKENDS_DA_BASE: Final = frozenset({"plataforma", "idx"})
 #: e nesse caso o cliente deixa de ficar pendurado. Sem a folga, os dois
 #: tectos corriam ao mesmo instante e qual ganhava dependia do escalonador.
 MARGEM_DO_TECTO_MS: Final = 500
+
+#: Quantas invocacoes podem estar ao mesmo tempo **sem a tomada**, a espera de a
+#: retomar (KAM-230, `_largar_tomada`). **Tem de ficar abaixo dos *workers* do
+#: executor por omissao do `asyncio`**, que sao `min(32, cpus + 4)`, cinco no
+#: minimo: a vaga e tomada no laco **antes** de haver *worker*, e com todos os
+#: *workers* presos a espera da retoma e as tomadas presas em tarefas que nunca
+#: chegam a correr, a ToolLayer parava para sempre (achado 1 da revisao
+#: adversarial do KAM-230, reproduzido com quatro tomadas e cinco *workers*).
+#: Com quatro, fica sempre um *worker* para quem tem a tomada acabar e
+#: devolve-la. A quinta invocacao a querer largar corre com a tomada, como antes.
+LARGAS_MAXIMAS: Final = 4
 
 
 class ConfiguracaoDaCamadaError(ValueError):
@@ -503,6 +515,9 @@ class ToolLayer:
         self._tomadas: asyncio.Queue[Any] = asyncio.Queue()
         for _ in range(self._quantas):
             self._tomadas.put_nowait(None)
+        #: Ver `LARGAS_MAXIMAS`. Um semaforo de *threads*, e nao do laco: quem o
+        #: toma e o larga e a *thread* do pipeline.
+        self._largas = threading.BoundedSemaphore(LARGAS_MAXIMAS)
 
     # ------------------------------------------------------------- contrato
     def for_context(self, ctx: ToolContext, allowed: Sequence[str]) -> list[BoundTool]:
@@ -967,18 +982,24 @@ class ToolLayer:
         quando ela acaba. Quem decide se ainda vale a pena escrever e o
         executor, pelo `Pedido.prazo`.
 
-        Fora de um `invoke` (sem ciclo), o trabalho corre com a tomada.
+        Fora de um `invoke` (sem ciclo), o trabalho corre com a tomada. E corre
+        com ela tambem quando ja ha `LARGAS_MAXIMAS` invocacoes sem tomada: e o
+        que impede todos os *workers* do executor de ficarem presos na retoma
+        enquanto as tomadas esperam por um *worker* (ver a constante).
         """
         laco = inv.laco
-        if laco is None:
+        if laco is None or not self._largas.acquire(blocking=False):
             return trabalho(), inv.ligacao
-        largada, inv.ligacao = inv.ligacao, None
-        laco.call_soon_threadsafe(self._tomadas.put_nowait, largada)
         try:
-            resultado = trabalho()
+            largada, inv.ligacao = inv.ligacao, None
+            laco.call_soon_threadsafe(self._tomadas.put_nowait, largada)
+            try:
+                resultado = trabalho()
+            finally:
+                vaga = asyncio.run_coroutine_threadsafe(self._tomadas.get(), laco).result()
+                inv.ligacao = vaga if vaga is not None else self._abrir_ligacao()
         finally:
-            vaga = asyncio.run_coroutine_threadsafe(self._tomadas.get(), laco).result()
-            inv.ligacao = vaga if vaga is not None else self._abrir_ligacao()
+            self._largas.release()
         return resultado, inv.ligacao
 
     def timeout_de(self, klass: str) -> int:

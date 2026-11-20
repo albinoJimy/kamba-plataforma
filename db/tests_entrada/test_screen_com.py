@@ -29,15 +29,16 @@ processo por `host.docker.internal`, que o Docker Desktop resolve; num Linux sem
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import secrets
 import threading
-import time
 import uuid
 from decimal import Decimal
 from typing import Any
 
 import ligacao
+from tests import factories
 from tests_agr.test_quote_requests import ComOrcamento
 from tests_entrada import node
 from tests_entrada.test_entrada import ARRANQUE, _sonda, esperar_por, porta_livre
@@ -52,10 +53,11 @@ from kamba_agr.llm import screening as llm_screening  # noqa: E402
 from kamba_agr.llm.cliente import ClienteDeLlm  # noqa: E402
 from kamba_agr.orcamento import regras  # noqa: E402
 from kamba_agr.tls import orcamento_tools  # noqa: E402
+from kamba_agr.tls.camada import ToolLayer  # noqa: E402
+from kamba_agr.tls.catalogo import catalogo_do_piloto  # noqa: E402
 from kamba_agr.tls.com import ClienteDoCom  # noqa: E402
 from kamba_agr.tls.contexto import ToolContext  # noqa: E402
 from kamba_agr.tls.erros import VALIDATION_ERROR  # noqa: E402
-from kamba_agr.tls.especificacoes import ErroDeBackend, Pedido  # noqa: E402
 from kamba_core.destinos import FINALIDADE_CLASSIFICACAO, FINALIDADE_CONDICOES  # noqa: E402
 
 REAIS = aliases_mod.ler(node.RAIZ / "llm")
@@ -188,6 +190,16 @@ class TestOAgrContraOComACorrer(ComOrcamento):
         super().setUp()
         self.proxy.chamadas = 0
         self.addCleanup(self._limpar_destinos)
+        # O que os passos 2 e 3 da ToolLayer leem, como no `TestPelaToolLayer`
+        # do `test_quote_requests.py`.
+        factories.aceitar_contratos_vigentes(self.semente, self.tenant)
+        self.semente.execute("UPDATE platform.tenants SET estado = 'ativo' WHERE id = %s", (self.tenant,))
+        factories.contexto(self.semente, None)
+        self.addCleanup(
+            lambda: self.semente.execute(
+                "DELETE FROM platform.tool_idempotency WHERE tenant_id = %s", (self.tenant,)
+            )
+        )
 
     def _limpar_destinos(self) -> None:
         # Uma linha da finalidade nova deixada para tras fazia a descida da
@@ -218,32 +230,42 @@ class TestOAgrContraOComACorrer(ComOrcamento):
         )
 
     def _submeter(self, condicoes: str) -> Any:
-        """O executor do `submit_quote` de producao, sobre o COM a correr."""
+        """O `submit_quote` pela ToolLayer de producao, sobre o COM a correr.
+
+        **Pela ToolLayer, e nao pelo executor so** (achado 14 da revisao): os
+        oito passos, o `Pedido.prazo` que ela da e o `sem_tomada` que larga a
+        ligacao durante o `screen` correm aqui como em producao.
+        """
         pedido_do_cliente = self._pedir()
-        executor = orcamento_tools.executores(
-            cliente_do_com=ClienteDoCom(
-                base=f"http://127.0.0.1:{self.porta_do_com}", credencial=lambda: CREDENCIAL_DO_COM
-            )
-        )["submit_quote"]
-        ctx = ToolContext(
-            tenant_id=self.tenant,
-            channel_id=str(uuid.uuid4()),
-            contact_id=self.dono,
-            conversation_id=self.conversa.conversation_id,
-            turn_id=uuid.uuid4().hex,
-            vertical="dono",
-            run_id=uuid.uuid4().hex,
-            graph_version="ensaio",
-        )
-        args = orcamento_tools.ArgumentosDeSubmitQuote(
-            referencia=regras.referencia_interna(pedido_do_cliente.quote_id),
-            valor="120 mil",
-            condicoes=condicoes,
-        )
         self.quote_id = pedido_do_cliente.quote_id
-        return executor(
-            Pedido(ctx=ctx, args=args, timeout_ms=8_000, ligacao=self.app, prazo=time.monotonic() + 8.0)
+        camada = ToolLayer(
+            catalogo_do_piloto(
+                orcamento_tools.executores(
+                    cliente_do_com=ClienteDoCom(
+                        base=f"http://127.0.0.1:{self.porta_do_com}", credencial=lambda: CREDENCIAL_DO_COM
+                    )
+                )
+            ),
+            abrir_ligacao=lambda: self.app,
         )
+        ctx = ToolContext.de_estado(
+            {
+                "tenant_id": self.tenant,
+                "channel_id": self.conversa.canal_id,
+                "contact_id": self.dono,
+                "conversation_id": self.conversa.conversation_id,
+                "turn_id": uuid.uuid4().hex,
+                "vertical": "dono",
+            },
+            run_id="r-1",
+            graph_version="1.3.0",
+        )
+        argumentos = {
+            "referencia": regras.referencia_interna(pedido_do_cliente.quote_id),
+            "valor": "120 mil",
+            "condicoes": condicoes,
+        }
+        return asyncio.run(camada.invoke(ctx, "submit_quote", argumentos, allowed=["submit_quote"]))
 
     def _decisoes(self) -> list[tuple[str, str]]:
         self.semente.execute(
@@ -260,10 +282,9 @@ class TestOAgrContraOComACorrer(ComOrcamento):
         )
         return [linha[0] for linha in self.semente.fetchall()]
 
-    def _assert_recusa(self, chamar) -> None:  # noqa: ANN001
-        with self.assertRaises(ErroDeBackend) as caso:
-            chamar()
-        self.assertEqual((caso.exception.codigo, caso.exception.detalhe), (VALIDATION_ERROR, regras.CONDICOES_RECUSADAS))
+    def _assert_recusa(self, resultado) -> None:  # noqa: ANN001
+        self.assertFalse(resultado.ok)
+        self.assertEqual((resultado.error.codigo, resultado.error.detalhe), (VALIDATION_ERROR, regras.CONDICOES_RECUSADAS))
         # Nada se gravou na resposta: o pedido continua a espera do valor.
         self.assertEqual([linha[1] for linha in self._linhas()], [regras.PEDIDO])
 
@@ -272,13 +293,12 @@ class TestOAgrContraOComACorrer(ComOrcamento):
     def test_condicoes_limpas_seguem_e_a_decisao_grava_se(self) -> None:
         self._categoria("moda")
         self._destino(FINALIDADE_CONDICOES)
-        try:
-            resposta = self._submeter(LIMPAS)
-        except ErroDeBackend as erro:
+        resposta = self._submeter(LIMPAS)
+        if not resposta.ok:
             # O diagnostico de uma recusa: o que o COM gravou, quantas vezes o
             # modelo foi chamado e o que o COM escreveu.
             self.fail(
-                f"{erro}: decisoes={self._decisoes()} modelo={self._chamadas_ao_modelo()} "
+                f"{resposta.error}: decisoes={self._decisoes()} modelo={self._chamadas_ao_modelo()} "
                 f"proxy={self.proxy.chamadas}{self.com.diagnostico()}"
             )
         self.assertIn(LIMPAS, resposta.data["previsao"])
@@ -292,7 +312,7 @@ class TestOAgrContraOComACorrer(ComOrcamento):
         """A decisao B do fundador: a `classificacao_de_catalogo` nunca as cobre."""
         self._categoria("moda")
         self._destino(FINALIDADE_CLASSIFICACAO)
-        self._assert_recusa(lambda: self._submeter(LIMPAS))
+        self._assert_recusa(self._submeter(LIMPAS))
         # O COM gravou a `condicional` (o classificador nao respondeu), e o
         # texto nao saiu: zero chamadas ao proxy, uma linha `destino_negado`.
         ((decisao, regras_da_decisao),) = self._decisoes()
@@ -304,7 +324,7 @@ class TestOAgrContraOComACorrer(ComOrcamento):
     def test_uma_categoria_restrita_recusa_sem_ir_ao_modelo(self) -> None:
         self._categoria("tabaco")
         self._destino(FINALIDADE_CONDICOES)
-        self._assert_recusa(lambda: self._submeter(LIMPAS))
+        self._assert_recusa(self._submeter(LIMPAS))
         ((decisao, regras_da_decisao),) = self._decisoes()
         self.assertEqual(decisao, "bloqueada")
         self.assertIn("tabaco", regras_da_decisao)
@@ -316,9 +336,9 @@ class TestOAgrContraOComACorrer(ComOrcamento):
         """A guarda local recusa antes do COM: nenhuma decisao, nenhuma chamada."""
         self._categoria("moda")
         self._destino(FINALIDADE_CONDICOES)
-        with self.assertRaises(ErroDeBackend) as caso:
-            self._submeter("entrega em tres dias")
-        self.assertEqual(caso.exception.detalhe, regras.CONDICOES_COM_NUMEROS)
+        resultado = self._submeter("entrega em tres dias")
+        self.assertFalse(resultado.ok)
+        self.assertEqual(resultado.error.detalhe, regras.CONDICOES_COM_NUMEROS)
         self.assertEqual(self._decisoes(), [])
         self.assertEqual(self.proxy.chamadas, 0)
 

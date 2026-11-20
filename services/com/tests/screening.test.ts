@@ -35,7 +35,6 @@ import { operacoesDoCom } from "../src/adapters/medusa/index.ts";
 import {
   FINALIDADE_DO_SUJEITO,
   operacaoDeScreen,
-  RESERVA_DA_GRAVACAO_MS,
   SQL_CATEGORIA_DO_TENANT,
   SUJEITO_DAS_CONDICOES,
   SUJEITO_DO_PRODUTO,
@@ -357,8 +356,10 @@ test("KAM-230: o classificador recebe a finalidade do sujeito e o prazo menos a 
   const contexto = c.contextos[0] as { tenantId: string; finalidade: string; prazoMs: number };
   assert.equal(contexto.tenantId, TENANT);
   assert.equal(contexto.finalidade, FINALIDADE_DAS_CONDICOES);
-  assert.ok(contexto.prazoMs <= 6_000 - RESERVA_DA_GRAVACAO_MS, String(contexto.prazoMs));
-  assert.ok(contexto.prazoMs > 6_000 - RESERVA_DA_GRAVACAO_MS - 1_000, String(contexto.prazoMs));
+  // Os 300 ms por extenso, e nao a constante do alvo (achado 13 da revisão):
+  // com a reserva a zero, o prazo passava dos 5 700 e o ensaio ficava vermelho.
+  assert.ok(contexto.prazoMs <= 6_000 - 300, String(contexto.prazoMs));
+  assert.ok(contexto.prazoMs > 6_000 - 300 - 1_000, String(contexto.prazoMs));
   // O produto vai com a do catalogo.
   await operar(CTX, { ...PROD, sujeitoTipo: SUJEITO_DO_PRODUTO, sujeitoRef: "vestido-01", categoriaDeclarada: null, textos: ["Vestido"] });
   assert.equal((c.contextos[1] as { finalidade: string }).finalidade, FINALIDADE_DO_CATALOGO);

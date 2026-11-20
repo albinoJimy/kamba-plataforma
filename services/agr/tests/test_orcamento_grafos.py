@@ -952,6 +952,21 @@ class TestAsCondicoesDoDono(TestARespostaDoDono):
         self.assertIn(nos_do_dono.MSG_VALOR_POR_REESCREVER, texto)
         self.assertEqual((self.respostas, self.porta.textos), ([], []))
 
+    def test_a_marca_composta_com_acento_combinante_tambem_vale(self) -> None:
+        """Achado 9 da revisao: «Condições» em NFD (letra mais acento combinante)."""
+        import unicodedata
+
+        marca = unicodedata.normalize("NFD", "Condições:")
+        self.assertNotEqual(marca, "Condições:")
+        self._responder(f"ORC-ABCDEFGH 120 mil {marca} levantamento na loja")
+        self.assertEqual(self.condicoes, ["levantamento na loja"])
+
+    def test_com_condicoes_e_orcamento_e_nunca_o_preco_do_rascunho(self) -> None:
+        """Achado 11: sem pendente e com um rascunho do catalogo, umas condicoes nao vao ao catalogo."""
+        partes = nos_do_dono._partes_da_resposta("120 mil Condições: entrega combinada consigo")
+        self.assertIsNotNone(partes.condicoes)
+        self.assertTrue(nos_do_dono.e_resposta_de_orcamento("120 mil Condições: entrega combinada consigo"))
+
     def test_a_mensagem_de_como_responder_ensina_a_marca(self) -> None:
         self.assertIn("Condicoes:", nos_do_dono.MSG_COMO_RESPONDER)
         partes = nos_do_dono._partes_da_resposta(nos_do_dono.MSG_COMO_RESPONDER)

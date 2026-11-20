@@ -263,7 +263,7 @@ def _utf8(texto: str) -> bool:
 
 
 def ler_pedido(corpo: Any) -> PedidoDeScreening:
-    """Forma fechada: os quatro campos, e nenhum outro. Levanta `PedidoInvalido`."""
+    """Forma fechada: os seis campos, e nenhum outro. Levanta `PedidoInvalido`."""
     if not isinstance(corpo, dict) or set(corpo) != set(CAMPOS):
         raise PedidoInvalido("campos_do_screening")
     tenant_id, trace_id = corpo["tenant_id"], corpo["trace_id"]
