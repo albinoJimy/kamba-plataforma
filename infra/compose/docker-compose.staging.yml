@@ -752,7 +752,13 @@ services:
         KAMBA_COMMIT_SHA: ${KAMBA_COMMIT_SHA:?o deploy passa o SHA da release}
     command: ["node", "services/onboarding-web/src/lote.ts"]
     environment:
-      <<: *node-env
+      # `*saida` desde o KAM-218: a fase `canal` do off-boarding cancela a
+      # subscricao do WABA na Graph API (`infra/egress/onboarding-lote.yaml`),
+      # e so pelo `proxy-saida`.
+      <<: [*node-env, *saida]
+      # O `fetch` do Node 24 ignora o `HTTPS_PROXY` sem esta variavel (medido no
+      # KAM-227, `node:24.21.0`). Sem ela o `*saida` nao fazia nada.
+      NODE_USE_ENV_PROXY: "1"
       KAMBA_AMBIENTE: staging
       LOTE_PORT: "3014"
       # `kamba_batch` (a fila atravessa tenants, e as varreduras de T&S) e
@@ -761,6 +767,12 @@ services:
       KAMBA_LOTE_DB_URL: ${KAMBA_LOTE_DB_URL:?o deploy passa a cadeia de ligacao do kamba_batch}
       KAMBA_LOTE_APP_DB_URL: ${KAMBA_LOTE_APP_DB_URL:?o deploy passa a cadeia de ligacao do kamba_app}
       KAMBA_QUEUE_URL: redis://queue:6379
+      # KAM-218: a KEK dos *tokens* de cliente, para o leitor do *token* de cada
+      # WABA na fase `canal`. Os *tokens* (as instancias de `meta_client_token`,
+      # uma por `token_ref`) nao se nomeiam aqui: sao por tenant, e chegam pelo
+      # lancador do cofre (ADR-L002). Sem a KEK a fase falha pelo nome.
+      KAMBA_SECRET_KEK_TOKEN_CLIENTE: ${KAMBA_SECRET_KEK_TOKEN_CLIENTE:?o cofre entrega a KEK dos tokens de cliente}
+      KAMBA_SECRET_KEK_TOKEN_CLIENTE_ANTERIOR: ${KAMBA_SECRET_KEK_TOKEN_CLIENTE_ANTERIOR:-}
     networks:
       - app
       - data

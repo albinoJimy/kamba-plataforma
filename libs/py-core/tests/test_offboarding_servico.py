@@ -149,6 +149,49 @@ class TestOProcessoPeloMain(unittest.TestCase):
         self.assertEqual(self.correr(ambiente(KAMBA_SECRET_OFFBOARDING_CERTIFICATE_KEY=CHAVE)), 2)
 
 
+class TestArrancaEmProd(unittest.TestCase):
+    """O processo de verdade, num subprocesso: arranca com `KAMBA_ENV=prod` e serve a sonda.
+
+    A base nao existe (o anfitriao e `.invalid`): a volta falha pelo nome e o
+    processo continua vivo, que e o que um arranque sem base deve fazer — o
+    alerta da fase parada e quem chama um humano, e nao um contentor em ciclo de
+    reinicio.
+    """
+
+    def test_o_processo_arranca_em_prod_e_responde_na_sonda(self) -> None:
+        import os
+        import socket
+        import subprocess
+        import sys
+        import time
+
+        with socket.socket() as s:
+            s.bind(("127.0.0.1", 0))
+            porta = s.getsockname()[1]
+        env = {**os.environ, **ambiente("prod"), "OFFBOARDING_DADOS_PORT": str(porta),
+               "KAMBA_DB_HOST": "base.invalid", "KAMBA_STORAGE_ENDPOINT": "http://sto.invalid:8333",
+               "PYTHONPATH": str(RAIZ / "libs/py-core/src")}
+        processo = subprocess.Popen([sys.executable, "-m", "kamba_core.offboarding"], env=env,
+                                    stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        try:
+            corpo = None
+            fim = time.monotonic() + 20
+            while time.monotonic() < fim and processo.poll() is None:
+                try:
+                    with urllib.request.urlopen(f"http://127.0.0.1:{porta}/healthz", timeout=2) as r:
+                        corpo = json.loads(r.read())
+                    break
+                except OSError:
+                    time.sleep(0.2)
+            self.assertIsNone(processo.poll(), "o processo saiu em vez de arrancar")
+            self.assertEqual(corpo and corpo["service"], SERVICO)
+        finally:
+            processo.terminate()
+            saida = processo.communicate(timeout=10)[0].decode("utf-8", "replace")
+        self.assertIn("service_started", saida)
+        self.assertNotIn(SENHA, saida, "nenhuma credencial no registo")
+
+
 class TestCiclo(unittest.TestCase):
     def test_corre_a_volta_e_uma_que_levanta_nao_mata_o_ciclo(self) -> None:
         parar = threading.Event()

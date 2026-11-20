@@ -16,7 +16,11 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
+import { randomBytes } from "node:crypto";
+
+import { cifrarToken } from "../src/onboarding/cifra.ts";
 import { CAMPOS_DE_WEBHOOK } from "../src/onboarding/contrato.ts";
+import { SecretAusenteError } from "../src/secrets/port.ts";
 import type { ConjuntoSql } from "../src/revisao/sql.ts";
 import { GraphHttp, GraphRecusouError, type Buscar } from "../src/onboarding/graph.ts";
 import { executarNoCanalDoCliente, accoesDoCanalDoCliente } from "../src/provisioning/compensacao.ts";
@@ -34,6 +38,9 @@ import {
   SQL_CONTAGEM_DAS_FASES,
   SQL_FASES_POR_CORRER,
   DIAS_DE_CANCELAMENTO,
+  SQL_TOKENS_DO_WABA,
+  WabaSemTokenError,
+  tokenDoWabaPeloCofre,
 } from "../src/offboarding/index.ts";
 
 const T = "11111111-1111-4111-8111-111111111111";
@@ -313,5 +320,108 @@ describe("o adaptador da Meta (CanalDaMetaPelaGraph)", () => {
     );
     // E nenhum pedido a um caminho que não seja o da subscrição.
     assert.ok(g.pedidos.every((p) => p.caminho.endsWith("/subscribed_apps")));
+  });
+});
+
+// ------------------------------------------- o leitor do token pelo cofre (KAM-218)
+
+const OUTRO = "22222222-2222-4222-8222-222222222222";
+const KEK = randomBytes(32).toString("base64");
+const CLARO = "texto-em-claro";
+/** As referências do cofre, montadas: um literal com a forma de uma referência parece um segredo ao gate 9. */
+const REF1 = ["meta_client_token", "c1"].join("/");
+const REF2 = ["meta_client_token", "c2"].join("/");
+
+/** A base falsa responde pelo **texto**: o `waba_id` tem de estar no predicado, e nada de `LIMIT`. */
+function baseDosCanais(linhas: { tenant_id: string; token_ref: string }[]) {
+  const consultas: { sql: string; valores: readonly unknown[] }[] = [];
+  return {
+    consultas,
+    async query(sql: string, valores: readonly unknown[] = []) {
+      consultas.push({ sql, valores });
+      assert.ok(sql.includes("WHERE waba_id = $1 AND token_ref IS NOT NULL"), "o predicado do WABA no texto");
+      assert.ok(!/LIMIT/i.test(sql), "sem LIMIT: dois tenants tem de se ver");
+      return { rows: linhas };
+    },
+  };
+}
+
+/** O cofre falso: a KEK com o `kid` k1 e os criptogramas pela referência. */
+function cofreFalso(segredos: Record<string, string>) {
+  const lidos: string[] = [];
+  return {
+    lidos,
+    async get(ref: string) {
+      lidos.push(ref);
+      const valor = segredos[ref];
+      if (valor === undefined) throw new SecretAusenteError(ref, "falso");
+      return valor;
+    },
+    async getRing(ref: string): Promise<readonly [string, string | null]> {
+      assert.equal(ref, "kek_token_cliente");
+      return [KEK, null] as const;
+    },
+    async versions(ref: string) {
+      assert.equal(ref, "kek_token_cliente");
+      return ["k1"];
+    },
+  };
+}
+
+describe("o leitor do token de cada WABA pelo cofre (KAM-218)", () => {
+  it("lê a referência do WABA, abre o criptograma com a KEK e o tenant da linha, e o adaptador usa-o", async () => {
+    const bd = baseDosCanais([{ tenant_id: T, token_ref: REF1 }]);
+    const cofre = cofreFalso({ [REF1]: cifrarToken(KEK, "k1", T, CLARO) });
+    const g = graphFalsa({ conhecidos: ["w1"] });
+    await new CanalDaMetaPelaGraph(g.graph, tokenDoWabaPeloCofre({ bd, cofre })).cancelarSubscricao("w1");
+    assert.deepEqual(bd.consultas.map((c) => c.valores), [["w1"]]);
+    assert.equal(bd.consultas[0]?.sql, SQL_TOKENS_DO_WABA);
+    assert.deepEqual(g.pedidos.map((p) => [p.method, p.caminho, p.auth]), [
+      ["DELETE", "/v21.0/w1/subscribed_apps", `Bearer ${CLARO}`],
+    ]);
+  });
+
+  it("um criptograma de outro tenant copiado para a linha não abre: a fase falha pelo nome e nada sai", async () => {
+    const bd = baseDosCanais([{ tenant_id: T, token_ref: REF1 }]);
+    const cofre = cofreFalso({ [REF1]: cifrarToken(KEK, "k1", OUTRO, CLARO) });
+    const g = graphFalsa({ conhecidos: ["w1"] });
+    const erro = await new CanalDaMetaPelaGraph(g.graph, tokenDoWabaPeloCofre({ bd, cofre }))
+      .cancelarSubscricao("w1")
+      .then(() => null, (e: unknown) => e);
+    assert.ok(erro instanceof WabaSemTokenError);
+    assert.equal(erro.motivo, "nao_abre");
+    assert.ok(!erro.message.includes(CLARO) && !erro.message.includes("c1"), "nem o token nem a referência");
+    assert.equal(g.pedidos.length, 0);
+  });
+
+  it("um WABA de dois tenants recusa sem ler o cofre", async () => {
+    const bd = baseDosCanais([
+      { tenant_id: T, token_ref: REF1 },
+      { tenant_id: OUTRO, token_ref: REF2 },
+    ]);
+    const cofre = cofreFalso({});
+    await assert.rejects(tokenDoWabaPeloCofre({ bd, cofre })("w1"), (e: unknown) => e instanceof WabaSemTokenError && e.motivo === "ambiguo");
+    assert.deepEqual(cofre.lidos, []);
+  });
+
+  it("sem canal, sem segredo: cada um pelo seu motivo", async () => {
+    await assert.rejects(
+      tokenDoWabaPeloCofre({ bd: baseDosCanais([]), cofre: cofreFalso({}) })("w1"),
+      (e: unknown) => e instanceof WabaSemTokenError && e.motivo === "sem_canal",
+    );
+    await assert.rejects(
+      tokenDoWabaPeloCofre({ bd: baseDosCanais([{ tenant_id: T, token_ref: REF1 }]), cofre: cofreFalso({}) })("w1"),
+      (e: unknown) => e instanceof WabaSemTokenError && e.motivo === "sem_segredo",
+    );
+  });
+
+  it("duas referências do mesmo tenant: a primeira que abre ganha", async () => {
+    const bd = baseDosCanais([
+      { tenant_id: T, token_ref: REF1 },
+      { tenant_id: T, token_ref: REF2 },
+    ]);
+    const cofre = cofreFalso({ [REF2]: cifrarToken(KEK, "k1", T, CLARO) });
+    assert.equal(await tokenDoWabaPeloCofre({ bd, cofre })("w1"), CLARO);
+    assert.deepEqual(cofre.lidos, [REF1, REF2]);
   });
 });

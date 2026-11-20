@@ -264,6 +264,9 @@ MARCADORES = {
     # e). Mesma razao e mesmo sintoma.
     "KAMBA_SECRET_OFFBOARDING_CERTIFICATE_KEY": "marcador",
     "KAMBA_SECRET_DB_IDENTITY_PASSWORD": "marcador",
+    # E o `onboarding-lote` passa a exigir a KEK dos tokens de cliente (a fase
+    # `canal`, com a Meta ligada).
+    "KAMBA_SECRET_KEK_TOKEN_CLIENTE": "marcador",
     "KAMBA_SECRET_STORAGE_ACCESS_KEY_ID": "marcador",
     "KAMBA_SECRET_STORAGE_SECRET_ACCESS_KEY": "marcador",
     "KAMBA_STORAGE_ENDPOINT": "http://marcador.invalid:8333",

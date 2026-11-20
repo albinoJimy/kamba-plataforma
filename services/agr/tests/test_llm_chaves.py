@@ -41,6 +41,8 @@ class _Proxy:
     def __init__(self, existentes: list[dict[str, Any]] | None = None) -> None:
         self.chaves = list(existentes or [])
         self.pedidos: list[tuple[str, str, dict[str, Any] | None]] = []
+        #: O proxy responde 200 ao `/key/delete` e nao apaga nada.
+        self.delete_finge = False
 
     def __call__(self, url: str, metodo: str, chave: str, corpo: dict | None):
         self.pedidos.append((url, metodo, corpo))
@@ -63,6 +65,13 @@ class _Proxy:
                     existente.update(corpo)
                     return 200, dict(existente)
             return 404, {"error": {"message": "Key not found"}}
+        if url.endswith("/key/delete"):
+            # Le o corpo: so sai a chave cujo `token` vem em `keys`.
+            antes = len(self.chaves)
+            if not self.delete_finge:
+                self.chaves = [k for k in self.chaves if k.get("token") not in corpo["keys"]]
+            return (200, {"deleted_keys": corpo["keys"]}) if len(self.chaves) < antes or self.delete_finge else (
+                404, {"error": {"message": "key not found"}})
         raise AssertionError(f"rota inesperada: {url}")
 
     def proxy(self) -> Any:
@@ -346,3 +355,51 @@ class TestOComandoNaoImprimeSegredos(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestARevogacao(unittest.TestCase):
+    """KAM-218: a chave de um tenant encerrado, criada a mao, sai pelo alias."""
+
+    OUTRO = "22222222-2222-2222-2222-222222222222"
+
+    def proxy_com_duas(self) -> _Proxy:
+        return _Proxy([
+            {"key_alias": chaves.alias_do_tenant(TENANT), "token": "hash-a", "spend": 0.0},
+            {"key_alias": chaves.alias_do_tenant(self.OUTRO), "token": "hash-b", "spend": 0.0},
+        ])
+
+    def test_revoga_so_a_chave_do_tenant_pelo_token_e_confirma_pela_listagem(self) -> None:
+        p = self.proxy_com_duas()
+        self.assertEqual(chaves.revogar(p.proxy(), TENANT), "revogada")
+        apagados = [c for u, m, c in p.pedidos if u.endswith("/key/delete")]
+        self.assertEqual(apagados, [{"keys": ["hash-a"]}])
+        self.assertEqual([k["key_alias"] for k in p.chaves], [chaves.alias_do_tenant(self.OUTRO)])
+        self.assertEqual(p.rotas()[-1], "list", "a revogacao confirma-se pela listagem")
+
+    def test_repetir_e_o_sucesso_de_uma_repeticao(self) -> None:
+        p = self.proxy_com_duas()
+        chaves.revogar(p.proxy(), TENANT)
+        self.assertEqual(chaves.revogar(p.proxy(), TENANT), "inexistente")
+        self.assertEqual(sum(1 for u, _, _ in p.pedidos if u.endswith("/key/delete")), 1)
+
+    def test_um_200_com_a_chave_ainda_la_levanta(self) -> None:
+        p = self.proxy_com_duas()
+        p.delete_finge = True
+        with self.assertRaises(chaves.ErroDeProvisionamento):
+            chaves.revogar(p.proxy(), TENANT)
+
+    def test_o_comando_diz_o_desfecho_e_nao_o_token(self) -> None:
+        import contextlib
+        import io
+
+        p = self.proxy_com_duas()
+        original = chaves._proxy_do_ambiente
+        chaves._proxy_do_ambiente = p.proxy
+        saida = io.StringIO()
+        try:
+            with contextlib.redirect_stdout(saida):
+                self.assertEqual(chaves.main(["revogar", TENANT]), 0)
+        finally:
+            chaves._proxy_do_ambiente = original
+        self.assertIn("revogada", saida.getvalue())
+        self.assertNotIn("hash-a", saida.getvalue())

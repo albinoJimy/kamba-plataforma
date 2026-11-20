@@ -735,6 +735,8 @@ services:
       KAMBA_LOTE_APP_DB_URL: postgresql://kamba_app:${KAMBA_SECRET_DB_APP_PASSWORD:-}@postgres:5432/${KAMBA_DB_NAME:-kamba_platform}
       # KAM-200: o consumidor de T&S le as filas `evt.trust.p<n>`.
       KAMBA_QUEUE_URL: redis://queue:6379
+      # KAM-218: a KEK dos *tokens* de cliente, para a fase `canal` do off-boarding.
+      KAMBA_SECRET_KEK_TOKEN_CLIENTE: ${KAMBA_SECRET_KEK_TOKEN_CLIENTE:-}
     healthcheck:
       test:
         - CMD

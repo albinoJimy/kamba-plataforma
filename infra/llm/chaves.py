@@ -3,6 +3,7 @@
     python infra/llm/chaves.py provisionar <tenant_id> <plano>
     python infra/llm/chaves.py provisionar-screening
     python infra/llm/chaves.py orcamentos
+    python infra/llm/chaves.py revogar <tenant_id>
 
 Na Fase 0 isto corre **a mao**, e o bloco di-lo: «chave virtual criada no
 provisioning; manualmente por *script* na Fase 0». O automatico e no evento
@@ -264,6 +265,55 @@ class Proxy:
         return resposta if isinstance(resposta, dict) else {}
 
 
+    def apagar(self, token: str) -> None:
+        """`/key/delete` de uma chave, pelo `token` que o `/key/list` devolve.
+
+        **NAO VERIFICADO** contra a imagem fixada: a forma do corpo (`keys`, com o
+        *token* em resumo que o `/key/list?return_full_object=true` traz) e a do
+        proxy em versoes recentes, e nao esta medida no
+        `docs/evidencia/KAM-030-litellm.md`. Por isso quem chama confirma pela
+        listagem, e nao pelo 200.
+        """
+        estado, resposta = self._pedir(
+            f"{self._url}/key/delete", "POST", self._chave, {"keys": [token]}
+        )
+        if estado != 200:
+            raise ErroDeProvisionamento(
+                f"/key/delete respondeu {estado}: {str(resposta)[:300]}"
+            )
+
+
+def revogar(proxy: Proxy, tenant_id: str) -> str:
+    """Revoga a chave virtual do tenant (KAM-218, o encerramento). `revogada` ou `inexistente`.
+
+    E a revogacao da Fase 0, simetrica do `provisionar`: a chave de um tenant
+    nasce **a mao** com o alias `tenant-<uuid>`, e nao fica no
+    `provisioning_step` — pelo que a revogacao do encerramento
+    (`packages/core-ts/src/offboarding/encerramento.ts`) a da por `sem_recurso`
+    e ela continuava viva. O *runbook* do encerramento manda correr isto no D7.
+
+    **Idempotente do lado de fora**: uma chave que ja nao existe e o sucesso de
+    uma repeticao (`inexistente`). E **confirmada pela listagem**: um 200 do
+    `/key/delete` com a chave ainda la levanta, em vez de se dar por revogada uma
+    chave que continua a gastar o orcamento.
+    """
+    alias = alias_do_tenant(tenant_id)
+    existente = proxy.procurar(alias)
+    if existente is None:
+        return "inexistente"
+    token = existente.get("token")
+    if not isinstance(token, str) or not token:
+        raise ErroDeProvisionamento(
+            f"a chave {alias} veio do /key/list sem o token: nao ha como a revogar"
+        )
+    proxy.apagar(token)
+    if proxy.procurar(alias) is not None:
+        raise ErroDeProvisionamento(
+            f"o /key/delete respondeu 200 e a chave {alias} continua no /key/list"
+        )
+    return "revogada"
+
+
 def provisionar(proxy: Proxy, tenant_id: str, plano: str, ambiente: Any = None) -> str:
     """Cria **ou actualiza** a chave virtual do tenant. Devolve `criada` ou `actualizada`.
 
@@ -400,6 +450,13 @@ def main(argv: list[str] | None = None) -> int:
                 return 2
             feito = provisionar_screening(_proxy_do_ambiente())
             print(f"chave virtual {feito}: {ALIAS_DA_CHAVE_DO_SCREENING}")
+            return 0
+        if args[0] == "revogar":
+            if len(args) != 2:
+                print("uso: revogar <tenant_id>", file=sys.stderr)
+                return 2
+            feito = revogar(_proxy_do_ambiente(), args[1])
+            print(f"chave virtual {feito}: {alias_do_tenant(args[1])}")
             return 0
         if args[0] == "orcamentos":
             acima = orcamentos(_proxy_do_ambiente())
