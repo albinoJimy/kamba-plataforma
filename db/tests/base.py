@@ -724,6 +724,17 @@ TABELAS_ORCAMENTO = ("quote_requests",)
 #: `kamba_app` insere e muda so o `entregue_at`; ninguem apaga.
 TABELAS_RESPOSTA_DO_AGR = ("agent_replies",)
 
+#: O que a revisao do canal do dono pelo painel (KAM-223) acrescenta.
+#:
+#: **Pelo nome e nao pelo numero**, pela razao do `TABELAS_CATALOGO_AI`.
+#:
+#: Duas tabelas de tenant, as duas com RLS `FORCE` pela `tenant_iso` e FK
+#: para `tenants`: a `agent_messages`, a mensagem que entra no AGR (o
+#: `kamba_app` le e insere por coluna; ninguem muda nem apaga), e a
+#: `owner_phone_changes`, a troca de telefone do dono com prova de posse (so
+#: o `kamba_identity`, que le, insere e muda por coluna; ninguem apaga).
+TABELAS_CANAL_DO_DONO_PELO_PAINEL = ("agent_messages", "owner_phone_changes")
+
 TABELAS = tuple(
     sorted(
         TABELAS_0001 + TABELAS_0003 + TABELAS_0004 + TABELAS_0005
@@ -742,6 +753,7 @@ TABELAS = tuple(
         + TABELAS_CANAL_DO_DONO
         + TABELAS_ORCAMENTO
         + TABELAS_RESPOSTA_DO_AGR
+        + TABELAS_CANAL_DO_DONO_PELO_PAINEL
     )
 )
 
@@ -755,7 +767,16 @@ TABELAS = tuple(
 #: da finalidade do screening (KAM-195), que nao cria tabela nenhuma.
 #: O que existe em `platform` antes da revisao da resposta do AGR (KAM-224),
 #: que e o topo da cadeia desde ela.
-TABELAS_ANTES_DA_RESPOSTA_DO_AGR = tuple(sorted(set(TABELAS) - set(TABELAS_RESPOSTA_DO_AGR)))
+#: O que existe em `platform` antes da revisao do canal do dono pelo painel
+#: (KAM-223), que e o topo da cadeia desde ela.
+TABELAS_ANTES_DO_CANAL_DO_DONO_PELO_PAINEL = tuple(
+    sorted(set(TABELAS) - set(TABELAS_CANAL_DO_DONO_PELO_PAINEL))
+)
+
+#: Deriva do de cima desde o KAM-223.
+TABELAS_ANTES_DA_RESPOSTA_DO_AGR = tuple(
+    sorted(set(TABELAS_ANTES_DO_CANAL_DO_DONO_PELO_PAINEL) - set(TABELAS_RESPOSTA_DO_AGR))
+)
 
 #: O que existe antes do Orcamento expresso (KAM-123). Deriva do de cima desde
 #: o KAM-224.

@@ -42,6 +42,8 @@ resposta decide se o *job* se repete:
 | turno correu, ou foi ao HND, ou nao havia conversa | 200 | completa o *job* |
 | descartado por ritmo (criterio 5) | **200** | completa o *job* |
 | corpo invalido | 400 | descarta o *job* — nao melhora com repeticao |
+| o `message_id` nao se le com o tenant, o contacto e a conversa — ou, com a persona `dono`, o contacto nao e o dono (KAM-223) | 400 `invocacao_invalida` | descarta o *job* — o turno nao entrou no grafo |
+| credencial do painel (`agr_painel_token`) fora do turno de texto do dono: sem `persona` `dono`, sem `message_id`, com `botao`, com `type` que nao e `text`, ou com `wamid` que nao e `painel.{message_id}` | 401 | nao repete — e a mesma resposta de uma credencial errada |
 | tecto do *tenant* cheio | 503 + `Retry-After` | devolve o *job* a fila com atraso |
 | a vertical recusada pelo registo — sem entitlement, ou desconhecida (KAM-186) | **200** `servico_indisponivel` | completa o *job* — e configuracao, e nenhuma tentativa a muda |
 | nao ha grafo registado para a vertical | 503 + `Retry-After` | devolve o *job* a fila com atraso |
@@ -83,7 +85,7 @@ from starlette.responses import JSONResponse
 from starlette.routing import Route
 
 from .admissao import Admissao, TectoDoTenantCheioError
-from .contexto import InvocacaoInvalidaError, ler_invocacao
+from .contexto import PERSONA_DONO, InvocacaoInvalidaError, ler_invocacao
 from .eventos import EntregaInvalidaError, EntregaPorRepetir, ler_entrega
 from .handoff.autenticacao import CABECALHO_DO_BOT
 from .handoff.maquina import DESFECHOS, DesfechoInvalidoError
@@ -103,6 +105,24 @@ CABECALHO: Final = "x-kamba-interno"
 #: O `id` do segredo no inventario (`ops/secrets-inventory.yaml`). Dicionario
 #: §3.9 para a forma, §3.24 para este valor.
 SEGREDO_DA_API: Final = "agr_internal_token"
+
+#: A credencial **propria** do `onboarding-web` para o `/internal/turn`
+#: (KAM-223): o turno de uma mensagem que o dono escreveu no painel. **Nao e a
+#: `agr_internal_token`**, pela regra do `agr_screening_token`: quem tem a do
+#: *shim* corre o turno de qualquer contacto de qualquer tenant, e o painel so
+#: precisa de correr o do dono, com uma mensagem que ele proprio gravou. Por
+#: isso, com esta credencial, a invocacao **tem** de ter `persona` `dono` e
+#: `message_id` — senao e a mesma 401 de uma credencial errada. Lida a cada
+#: pedido; uma referencia em falta no cofre fecha (401), nunca abre.
+SEGREDO_DO_PAINEL: Final = "agr_painel_token"
+
+#: O `type` de um turno do painel: o dono escreve texto, e so texto.
+TIPO_DO_PAINEL: Final = "text"
+
+#: O prefixo do `wamid` de um turno do painel: `painel.{message_id}`. Com ponto
+#: e nao dois pontos, porque o esquema do `agent_invocation` nao aceita `:` no
+#: `wamid`.
+PREFIXO_DO_WAMID_DO_PAINEL: Final = "painel."
 
 #: Quanto tempo o *shim* deve esperar antes de voltar a tentar, em segundos.
 #: *Proposta*: um turno dura 3–7 s (§15.1), e menos do que isso punha o *job* de
@@ -192,6 +212,47 @@ def autenticado(pedido: Request, credencial: Callable[[], str]) -> bool:
     return hmac.compare_digest(dado.encode("utf-8"), credencial().encode("utf-8"))
 
 
+def _autenticado_ou_fechado(pedido: Request, credencial: Callable[[], str] | None) -> bool:
+    """O `autenticado`, com a falha fechada de uma credencial opcional.
+
+    Sem credencial ligada, ou com uma que nao se le do cofre, e `False` — a
+    regra do `llm/screening.py`: uma referencia em falta fecha a porta, e nao a
+    abre nem da 500.
+    """
+    if credencial is None:
+        return False
+    try:
+        return autenticado(pedido, credencial)
+    except Exception:  # noqa: BLE001 — falha fechada, a razao nao sai
+        return False
+
+
+def invocacao_do_painel_admitida(invocacao: Any) -> bool:
+    """O que a credencial do painel pode correr: o turno de texto do dono.
+
+    Todas as condicoes, e basta faltar uma para recusar:
+
+    - a `persona` e `dono` (as tools do dono, e so as dele);
+    - ha `message_id` (o texto vem da fonte persistida, e nao ha turno do
+      painel sem ele);
+    - o `type` e `text` e **nao ha `botao`**: um `botao` com `type`
+      `interactive` e o `confirm:{action_id}` que confirma uma accao sensivel
+      do dono (KAM-211), e a confirmacao so chega pelo WhatsApp do dono, pelo
+      CHR — nunca pela credencial do painel;
+    - o `wamid` e exactamente `painel.{message_id}`: o `turn_id` e a chave de
+      idempotencia da resposta (`turn_id:seq`), e um `wamid` escolhido por quem
+      chama podia colidir com o de um turno do WhatsApp.
+    """
+    message_id = invocacao.message_id
+    return (
+        invocacao.persona == PERSONA_DONO
+        and message_id is not None
+        and invocacao.botao is None
+        and invocacao.type == TIPO_DO_PAINEL
+        and invocacao.wamid == f"{PREFIXO_DO_WAMID_DO_PAINEL}{message_id}"
+    )
+
+
 async def _corpo(pedido: Request) -> Any:
     cru = await pedido.body()
     if len(cru) > CORPO_MAXIMO:
@@ -212,6 +273,7 @@ def rotas(
     aviso: Callable[[str], None] | None = None,
     eventos: Any = None,
     decidir: Callable[..., Awaitable[str]] | None = None,
+    credencial_do_painel: Callable[[], str] | None = None,
 ) -> list[Route]:
     """As tres rotas internas, com as portas que elas precisam.
 
@@ -234,11 +296,20 @@ def rotas(
     ninguem deu verificador — era um argumento por omissao a desligar um
     controlo de seguranca, que e a mesma regra do `segredoConfere` do HND («uma
     configuracao sem segredo nao pode tornar-se uma porta aberta»).
+
+    `credencial_do_painel` e o `agr_painel_token` (KAM-223), so para o
+    `/internal/turn`. Por omissao `None`, e entao so a do *shim* entra.
     """
 
     async def turno(pedido: Request) -> JSONResponse:
+        # Duas credenciais, e as duas antes de se ler o corpo. A do painel so se
+        # pergunta se a do *shim* falhou; com ela, o corpo tem de ser o turno do
+        # dono com mensagem (`invocacao_do_painel_admitida`).
+        pelo_painel = False
         if not autenticado(pedido, credencial):
-            return _nao_autorizado()
+            if not _autenticado_ou_fechado(pedido, credencial_do_painel):
+                return _nao_autorizado()
+            pelo_painel = True
         try:
             invocacao = ler_invocacao(await _corpo(pedido))
         except InvocacaoInvalidaError as erro:
@@ -247,6 +318,11 @@ def rotas(
                 {"outcome": "invocacao_invalida", "error_code": erro.codigo},
                 status_code=400,
             )
+        if pelo_painel and not invocacao_do_painel_admitida(invocacao):
+            # A **mesma** 401, e nao um 403: a credencial do painel nao chega
+            # para isto, e uma resposta diferente dizia a quem a tem que corpos
+            # ela abre.
+            return _nao_autorizado()
 
         # **A vaga vem antes do ritmo**, e a ordem foi invertida de proposito:
         # uma recusa por tecto devolve o *job* a fila, e a entrega seguinte do
@@ -261,6 +337,15 @@ def rotas(
                         aviso("ritmo_excedido")
                     return JSONResponse({"outcome": "descartado"}, status_code=200)
                 desfecho = await executar(invocacao)
+        except InvocacaoInvalidaError as erro:
+            # KAM-223. A mensagem do `message_id` nao se encontra com o tenant,
+            # o contacto e a conversa da invocacao (`mensagens.py`): o turno nao
+            # entrou no grafo, e nenhuma repeticao o muda.
+            METRICAS.contar(METRICA_RECUSADOS, "invocacao_invalida")
+            return JSONResponse(
+                {"outcome": "invocacao_invalida", "error_code": erro.codigo},
+                status_code=400,
+            )
         except TectoDoTenantCheioError:
             return JSONResponse(
                 {"outcome": "tecto_do_tenant"},
