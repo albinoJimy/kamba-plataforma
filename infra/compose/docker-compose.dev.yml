@@ -595,6 +595,13 @@ services:
       # e o `kamba_app` (`NOBYPASSRLS`, sem DDL), que e o que a RLS do `platform`
       # pressupoe.
       KAMBA_COM_DB_URL: postgresql://kamba_app:${KAMBA_SECRET_DB_APP_PASSWORD:?defina-o no .env}@postgres:5432/${KAMBA_DB_NAME:-kamba_platform}
+      # KAM-206: o contacto de uma encomenda ao dono, decifrado como
+      # `kamba_identity` (decisao do fundador de 2026-11-20, opcao A). **Opt-in**:
+      # sem a cadeia o contacto responde UPSTREAM_DOWN e o resto do COM serve
+      # igual; com ela, a KEK passa a obrigatoria no arranque. A cadeia e a do
+      # ONBOARDING_IDENTITY_DB_URL do onboarding-web, com o mesmo papel.
+      KAMBA_COM_IDENTITY_DB_URL: ${KAMBA_COM_IDENTITY_DB_URL:-}
+      KAMBA_SECRET_KEK_CONTACT_DEK: ${KAMBA_SECRET_KEK_CONTACT_DEK:-}
     healthcheck:
       # O Node 24 tem `fetch` nativo: a sonda nao precisa de curl na imagem.
       test:

@@ -336,6 +336,18 @@ export interface EndpointsDoContacto {
   }[];
 }
 
+/** As opções do `lerEndpoints` (KAM-206). */
+export interface OpcoesDaLeitura {
+  /**
+   * Corre na transacção da leitura, antes da decifra. Se levanta, nada se
+   * decifra e a transacção desfaz-se. Recebe a ligação da leitura, já com o
+   * contexto do tenant.
+   */
+  readonly antes?: (cliente: ClienteDeIdentidade) => Promise<void>;
+  /** Só os telefones: as linhas de BSUID não se decifram. */
+  readonly soTelefones?: boolean;
+}
+
 export interface OpcoesDeRotacao {
   /** Linhas por transacção. Por omissão, `LOTE_DE_ROTACAO`. */
   readonly lote?: number;
@@ -614,6 +626,14 @@ export class Identidade {
    *
    * O resultado não se guarda nem se regista (`docs/tecnica/01` §6.3, ponto 5).
    *
+   * **O `antes`** (KAM-206) corre na transacção desta leitura, com o contexto do
+   * tenant, depois de se saber que o contacto existe e não foi apagado e **antes
+   * de qualquer decifra**. É onde quem lê para mostrar escreve a linha de
+   * `audit_log`: se o `antes` levanta, a transacção desfaz-se e nada se decifra;
+   * se a decifra levanta, a linha desfaz-se com ela. **O `soTelefones`** salta as
+   * linhas de BSUID sem as decifrar: quem só precisa do telefone não abre mais
+   * do que ele.
+   *
    * @throws {ContactoApagadoError} se o contacto foi apagado.
    * @throws {DekDestruidaError} se há cifra mas a chave de dados já não existe.
    */
@@ -621,14 +641,17 @@ export class Identidade {
     cliente: ClienteDeIdentidade,
     tenantId: string,
     contactId: string,
+    opcoes: OpcoesDaLeitura = {},
   ): Promise<EndpointsDoContacto> {
     const tenant = normalizarTenant(tenantId);
     const pedido = normalizarUuid(contactId, "contact_id");
     const lidos = await comTenant(cliente, tenant, async () => {
       const alvo = await this.#seguirFusoes(cliente, tenant, pedido);
-      const linhas = await consultar(cliente, SQL.ENDPOINTS_DO_CONTACTO, [tenant, alvo.id]);
+      const todas = await consultar(cliente, SQL.ENDPOINTS_DO_CONTACTO, [tenant, alvo.id]);
+      const linhas = opcoes.soTelefones === true ? todas.filter((l) => l.tipo !== "bsuid") : todas;
       if (linhas.some((linha) => linha.wrapped_dek === null)) throw new DekDestruidaError();
       if (alvo.erasedAt !== null) throw new ContactoApagadoError();
+      if (opcoes.antes !== undefined) await opcoes.antes(cliente);
 
       const deks = new Map<string, Uint8Array>();
       const bsuids: string[] = [];

@@ -35,7 +35,13 @@ import type { CanalDoDono } from "@kamba/core-ts/dono";
 
 import { cabecalhos } from "../pagina.ts";
 import type { VistaDoCanal } from "./canal.ts";
-import { ESTADOS_DA_ENCOMENDA, type Encomenda, type Oferta } from "./comercio.ts";
+import {
+  ESTADOS_COM_CONTACTO,
+  ESTADOS_DA_ENCOMENDA,
+  type ContactoDaEncomenda,
+  type Encomenda,
+  type Oferta,
+} from "./comercio.ts";
 
 export { cabecalhos };
 
@@ -268,14 +274,30 @@ export function paginaDeEncomendas(
   return moldura(nonce, "Encomendas", `${filtro}${tabela}${seguinte}`);
 }
 
-/** Uma encomenda. O contacto **não** aparece: ver a verificação do bloco. */
-export function paginaDaEncomenda(nonce: string, e: Encomenda): string {
-  return moldura(
-    nonce,
-    `Encomenda ${e.numeroPublico}`,
-    `<div class="cartao"><p>Estado: ${escapar(NOMES_DOS_ESTADOS[e.estado] ?? e.estado)}</p>
-<p>Valor: ${escapar(kz(e.totalMinor))}</p><p>Data: ${escapar(diaEmLuanda(e.criadoAt))}</p></div>`,
-  );
+/**
+ * Uma encomenda. **O contacto não vem por omissão** (KAM-206): nos estados em
+ * que o dono age, a página tem o botão que o pede, e só a resposta a esse pedido
+ * — auditada no COM — traz o telefone, mascarado. O `contactId` nunca aparece.
+ */
+export function paginaDaEncomenda(
+  nonce: string,
+  e: Encomenda,
+  contacto: ContactoDaEncomenda | null = null,
+): string {
+  const dados = `<div class="cartao"><p>Estado: ${escapar(NOMES_DOS_ESTADOS[e.estado] ?? e.estado)}</p>
+<p>Valor: ${escapar(kz(e.totalMinor))}</p><p>Data: ${escapar(diaEmLuanda(e.criadoAt))}</p></div>`;
+  let parteDoContacto = "";
+  if (contacto !== null) {
+    parteDoContacto =
+      contacto.telefoneMascarado === null
+        ? '<div class="cartao"><p>Esta encomenda não tem telefone do cliente para mostrar.</p></div>'
+        : `<div class="cartao"><p>Telefone do cliente: <strong data-contacto>${escapar(contacto.telefoneMascarado)}</strong></p>
+<p>Mostramos só os últimos três algarismos. Responda ao cliente pela conversa da loja.</p></div>`;
+  } else if (ESTADOS_COM_CONTACTO.includes(e.estado)) {
+    parteDoContacto = `<form method="post" action="/painel/encomendas/${escapar(encodeURIComponent(e.orderId))}/contacto" class="cartao">
+<p>Precisa de reconhecer o cliente? O pedido fica registado.</p><button type="submit">Ver o contacto do cliente</button></form>`;
+  }
+  return moldura(nonce, `Encomenda ${e.numeroPublico}`, `${dados}${parteDoContacto}`);
 }
 
 /** O canal do dono por omissão: o painel, que funciona sempre (KAM-216). */

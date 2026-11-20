@@ -1300,10 +1300,10 @@ async function lerPorContacto(
 
 // ------------------------------------------------------ a API interna do COM
 //
-// As dezasseis superficies da API interna do COM: as catorze rotas
+// As dezassete superficies da API interna do COM: as quinze rotas
 // `POST /internal/*` (sete do KAM-178, as duas do painel do dono do KAM-099, as
-// duas leituras do KAM-190, o `screen` do KAM-222 e as duas do Catalogo AI do
-// KAM-119), o `GET /metrics` e o
+// duas leituras do KAM-190, o `screen` do KAM-222, as duas do Catalogo AI do
+// KAM-119 e o contacto da encomenda do KAM-206), o `GET /metrics` e o
 // `ALL /internal/*` da app construida **sem** a API montada.
 //
 // ## A propriedade que este grupo mede, e a que ele **nao** mede
@@ -1347,10 +1347,10 @@ async function lerPorContacto(
 // `nota`.
 
 /**
- * As catorze rotas, pela ordem de `services/com/src/api/interna.ts`: as sete do
+ * As quinze rotas, pela ordem de `services/com/src/api/interna.ts`: as sete do
  * KAM-178, as duas do painel do KAM-099, as duas leituras do KAM-190, o
- * `screen` do KAM-222 e as duas do Catalogo AI do KAM-119 (o rascunho e a
- * publicacao).
+ * `screen` do KAM-222, as duas do Catalogo AI do KAM-119 (o rascunho e a
+ * publicacao) e o contacto da encomenda do KAM-206.
  */
 const ROTAS_DO_COM = [
   "/internal/offer-view",
@@ -1367,9 +1367,10 @@ const ROTAS_DO_COM = [
   "/internal/screen",
   "/internal/upsert-product-draft",
   "/internal/publish-product",
+  "/internal/order-contact",
 ] as const;
 
-/** O `item` enumerado de uma das catorze. Copiado do caso, nao derivado dele. */
+/** O `item` enumerado de uma das quinze. Copiado do caso, nao derivado dele. */
 function itemDoCom(rota: string): string {
   return `rota:com:api/interna:apiInterna:POST:${rota}`;
 }
@@ -1609,6 +1610,11 @@ function operacoesDeEnsaioDoCom(
         ctx,
         valorDeA({ decisao: "permitida", regras: [canarioDeA], versao_politica: "2026.11.0", confianca: 0.95 }),
       );
+    },
+    // KAM-206: o contacto da encomenda. O canario de A vai na mascara, que e o
+    // campo que a resposta leva; o real nunca devolve o telefone em claro.
+    async contactoDaEncomenda(ctx: unknown) {
+      return servir("contactoDaEncomenda", ctx, valorDeA({ orderId: ORDER_DE_A, telefoneMascarado: canarioDeA }));
     },
     async alterarOferta(ctx: unknown) {
       return servir(

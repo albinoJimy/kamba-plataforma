@@ -146,6 +146,11 @@ import {
 } from "../../screening/index.ts";
 
 import { vistaDoCanal as vistaDoCanalDoModulo, type VistaDoCanal } from "../../canal/vista.ts";
+import {
+  contactoDaEncomenda as contactoDaEncomendaDoModulo,
+  type ContactoDaEncomenda,
+  type LeitorDeContactos,
+} from "../../orders/contacto.ts";
 import { SQL_GRAFO } from "../../orders/consultas.ts";
 import type { ClienteSql as ClienteSqlDoModulo } from "../../orders/contrato.ts";
 import {
@@ -399,6 +404,13 @@ export interface Dependencias {
   readonly classificador?: ClassificadorDeCategorias | null;
   /** A política. Por omissão a `politicaCorrente()`; um ensaio pode dar outra. */
   readonly politica?: PoliticaCompilada;
+  /**
+   * Quem lê os telefones do contacto, como `kamba_identity` (KAM-206, decisão do
+   * fundador de 2026-11-20). **`null` por omissão**: sem a ligação, o contacto
+   * da encomenda responde `UPSTREAM_DOWN` e o resto do COM serve igual. Quem o
+   * liga é o `server.ts`.
+   */
+  readonly contactos?: LeitorDeContactos | null;
 }
 
 /**
@@ -990,6 +1002,12 @@ export interface OperacoesDoCom {
    * assinatura o §3.39 fecha. A nota está no `../../screening/index.ts`.
    */
   publicarProduto(ctx: Ctx, pedido: PedidoDePublicacao): Promise<Resultado<void>>;
+  /**
+   * O contacto de uma encomenda, mascarado, ao dono (KAM-206). **Não é método
+   * da porta**, pela razão do `proposeCart`. A nota está no
+   * `../../orders/contacto.ts`.
+   */
+  contactoDaEncomenda(ctx: Ctx, orderId: string): Promise<ResultadoFinal<ContactoDaEncomenda>>;
 }
 
 /**
@@ -1025,8 +1043,9 @@ export function operacoesDoCom(
     publicar: (ctx, ref, c, nomeEsperado) =>
       comRegisto(deps, ctx, (r) => publishProductDoModulo(r, ref, c, { nomeEsperado })),
   });
+  const porta = adaptadorMedusa(deps, agora);
   return {
-    porta: adaptadorMedusa(deps, agora),
+    porta,
 
     async proposeCart(ctx: Ctx, rascunho: RascunhoDoCarrinho) {
       return comRegisto(deps, ctx, (r) =>
@@ -1107,6 +1126,25 @@ export function operacoesDoCom(
 
     async publicarProduto(ctx: Ctx, pedido: PedidoDePublicacao) {
       return publicarDoCom(ctx, pedido);
+    },
+
+    async contactoDaEncomenda(ctx: Ctx, orderId: string) {
+      return contactoDaEncomendaDoModulo(
+        {
+          // A leitura da encomenda é o `getOrder` da porta, como `kamba_app`: o
+          // tenant do `ctx`, e a de outro tenant é `NOT_FOUND` pela RLS.
+          async lerEncomenda(c: Ctx, id: string) {
+            const r = await porta.getOrder(c, id);
+            if (r.tipo === "erro") return r;
+            if (r.tipo === "conflito") return { tipo: "erro", erro: "NOT_FOUND" } as const;
+            return { tipo: "ok", valor: { orderId: r.valor.orderId, estado: r.valor.estado, contactId: r.valor.contactId } } as const;
+          },
+          contactos: deps.contactos ?? null,
+          agora: () => agora(),
+        },
+        ctx,
+        orderId,
+      );
     },
   };
 }

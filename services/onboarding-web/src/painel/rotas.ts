@@ -10,6 +10,9 @@
  *                                   stock recusa-se — ver `./validacao.ts`
  *     GET   /painel/encomendas      só leitura, por estado e data (critério 6)
  *     GET   /painel/encomendas/:id  uma encomenda
+ *     POST  /painel/encomendas/:id/contacto
+ *                                   o contacto do cliente, mascarado, pedido pelo
+ *                                   botão da encomenda e auditado no COM (KAM-206)
  *     GET   /painel/canal           o estado do canal (critério 7) e o canal do
  *                                   dono, o `owner_channel_wa` (KAM-216)
  *     POST  /painel/codigo          a reentrada (KAM-190): o telefone, e o código
@@ -704,6 +707,36 @@ export function rotasDoPainel(opcoes: OpcoesDoPainel): Hono {
     if (r.tipo === "ok") return html(paginaDaEncomenda(n, r.valor), 200, n, sessao.renovar);
     const indisponivel = r.tipo === "erro" && r.erro !== "NOT_FOUND" && r.erro !== "VALIDATION_ERROR";
     falhou("encomenda", indisponivel ? "indisponivel" : "nao_encontrado");
+    return html(paginaNaoEncontrada(n), indisponivel ? 503 : 404, n, sessao.renovar);
+  });
+
+  // **O contacto do cliente, pelo botão** (KAM-206). Um `POST` e não um `GET`:
+  // é uma acção do dono que fica no `audit_log`, e uma ligação que se abre por
+  // engano, ou que um navegador pré-carrega, não a pode fazer. O cookie é
+  // `SameSite=Lax`, que não vai num `POST` de outra origem, e a CSP tem
+  // `form-action 'self'`. A encomenda lê-se primeiro (sem auditoria), e só
+  // depois o contacto: uma encomenda que não existe não chega ao COM do
+  // contacto. Fora da regra, ou de outro tenant, é o mesmo 404.
+  app.post("/painel/encomendas/:id/contacto", async (c) => {
+    metricas.pedido("contacto");
+    const n = nonce();
+    const sessao = await sessaoDe(c.req.header("cookie"));
+    if (sessao === null) {
+      falhou("contacto", "sem_sessao");
+      return html(paginaSemSessao(n), 401, n);
+    }
+    const id = c.req.param("id").toLowerCase();
+    const lida = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(id)
+      ? await comercio.obterEncomenda(sessao.s.tenantId, actor(sessao.s), id)
+      : ({ tipo: "erro", erro: "NOT_FOUND" } as const);
+    const r = lida.tipo === "ok" ? await comercio.contactoDaEncomenda(sessao.s.tenantId, actor(sessao.s), id) : lida;
+    if (lida.tipo === "ok" && r.tipo === "ok") {
+      // Sem identificadores nem máscara: só o desfecho (`OBS-I`).
+      log?.info({ outcome: "painel_contacto_mostrado" });
+      return html(paginaDaEncomenda(n, lida.valor, r.valor), 200, n, sessao.renovar);
+    }
+    const indisponivel = r.tipo !== "erro" || (r.erro !== "NOT_FOUND" && r.erro !== "VALIDATION_ERROR");
+    falhou("contacto", indisponivel ? "indisponivel" : "nao_encontrado");
     return html(paginaNaoEncontrada(n), indisponivel ? 503 : 404, n, sessao.renovar);
   });
 

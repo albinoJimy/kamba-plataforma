@@ -594,6 +594,13 @@ services:
       # `agr` esta no `NO_PROXY`: a chamada fica na rede `app`.
       KAMBA_AGR_URL: http://agr:8000
       KAMBA_SECRET_AGR_SCREENING_TOKEN: ${KAMBA_SECRET_AGR_SCREENING_TOKEN:?o cofre entrega a credencial da rota do classificador do AGR}
+      # KAM-206: o contacto de uma encomenda ao dono, decifrado como
+      # `kamba_identity` (decisao do fundador de 2026-11-20, opcao A). O deploy
+      # passa a cadeia do papel; sem ela o contacto responde UPSTREAM_DOWN e o
+      # resto do COM serve igual, e com ela a KEK e obrigatoria no arranque.
+      KAMBA_COM_IDENTITY_DB_URL: ${KAMBA_COM_IDENTITY_DB_URL:-}
+      KAMBA_SECRET_KEK_CONTACT_DEK: ${KAMBA_SECRET_KEK_CONTACT_DEK:-}
+      KAMBA_SECRET_KEK_CONTACT_DEK_ANTERIOR: ${KAMBA_SECRET_KEK_CONTACT_DEK_ANTERIOR:-}
     networks:
       - app
       - data

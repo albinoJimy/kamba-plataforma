@@ -96,6 +96,7 @@ export type {
   Finalidade,
   GanchoDeFusao,
   Linha,
+  OpcoesDaLeitura,
   OpcoesDeIdentidade,
   OpcoesDeRotacao,
   PedidoDeResolucao,

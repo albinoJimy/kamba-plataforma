@@ -21,6 +21,7 @@ import { CanalEmMemoria, CanalPeloCom, SEM_CANAL, type VistaDoCanal } from "../s
 import {
   ComercioEmMemoria,
   ComercioPorHttp,
+  ESTADOS_COM_CONTACTO,
   ESTADOS_DA_ENCOMENDA,
   type Encomenda,
   type Oferta,
@@ -769,6 +770,100 @@ test("KAM-206: o COM em baixo na pagina de um produto e 503, e conta indisponive
   m.comercio.obterOferta = async () => ({ tipo: "erro", erro: "UPSTREAM_DOWN" });
   assert.equal((await m.app.fetch(get("/painel/produtos/arroz", cookieDe(sessaoA())))).status, 503);
   assert.match(m.metricas.exposicao(), /painel_erros_total\{rota="produto",motivo="indisponivel"\} 1/);
+});
+
+function pedirContacto(caminho: string, cookie: string): Request {
+  return new Request(`http://127.0.0.1${caminho}`, { method: "POST", headers: { cookie } });
+}
+
+test("KAM-206: o detalhe nao traz o contacto por omissao, e so tem o botao nos estados da regra", async () => {
+  const m = montar();
+  m.comercio.semear(TENANT_A, [], [
+    encomenda(ORDEM_A, { estado: "pendente_confirmacao" }),
+    encomenda("0c0c0c0c-0c0c-4c0c-8c0c-0c0c0c0c0c0c", { estado: "aguarda_pagamento" }),
+  ]);
+  m.comercio.mascaras.set(ORDEM_A, "••• ••• 789");
+  const comBotao = await (await m.app.fetch(get(`/painel/encomendas/${ORDEM_A}`, cookieDe(sessaoA())))).text();
+  assert.match(comBotao, new RegExp(`<form method="post" action="/painel/encomendas/${ORDEM_A}/contacto"`));
+  assert.doesNotMatch(comBotao, /789|data-contacto|7c1d5e3a/);
+  const semBotao = await (await m.app.fetch(get("/painel/encomendas/0c0c0c0c-0c0c-4c0c-8c0c-0c0c0c0c0c0c", cookieDe(sessaoA())))).text();
+  assert.doesNotMatch(semBotao, /\/contacto"/);
+  // O detalhe nao pede o contacto ao COM: so o botao o pede.
+  assert.equal(m.comercio.contactosPedidos.length, 0);
+});
+
+test("KAM-206: o botao mostra o telefone mascarado, pedido ao COM com o tenant da sessao", async () => {
+  const m = montar();
+  m.comercio.semear(TENANT_A, [], [encomenda(ORDEM_A, { estado: "paga" })]);
+  m.comercio.mascaras.set(ORDEM_A, "••• ••• 789");
+  const r = await m.app.fetch(pedirContacto(`/painel/encomendas/${ORDEM_A}/contacto?tenant_id=${TENANT_B}`, cookieDe(sessaoA())));
+  assert.equal(r.status, 200);
+  assert.equal(r.headers.get("cache-control"), "no-store");
+  const corpo = await r.text();
+  assert.match(corpo, /<strong data-contacto>••• ••• 789<\/strong>/);
+  assert.doesNotMatch(corpo, /7c1d5e3a|\/contacto"/);
+  assert.deepEqual(m.comercio.contactosPedidos, [{ tenantId: TENANT_A, orderId: ORDEM_A }]);
+  assert.match(m.metricas.exposicao(), /painel_pedidos_total\{rota="contacto"\} 1/);
+});
+
+test("KAM-206: uma encomenda sem telefone diz que nao ha telefone, e nao mostra o resto", async () => {
+  const m = montar();
+  m.comercio.semear(TENANT_A, [], [encomenda(ORDEM_A, { estado: "em_entrega" })]);
+  const corpo = await (await m.app.fetch(pedirContacto(`/painel/encomendas/${ORDEM_A}/contacto`, cookieDe(sessaoA())))).text();
+  assert.match(corpo, /não tem telefone do cliente para mostrar/);
+});
+
+test("KAM-206: isolamento - o contacto da encomenda de B com a sessao de A e 404, igual ao de uma que nao existe e ao de fora da regra", async () => {
+  const m = montar();
+  m.comercio.semear(TENANT_A, [], [encomenda(ORDEM_A, { estado: "entregue" })]);
+  m.comercio.semear(TENANT_B, [], [encomenda(ORDEM_B, { estado: "paga", numeroPublico: "B00001" })]);
+  m.comercio.mascaras.set(ORDEM_B, "••• ••• 222");
+  const sem = (t: string): string => t.replace(/nonce="[^"]+"/g, "");
+  const deB = await m.app.fetch(pedirContacto(`/painel/encomendas/${ORDEM_B}/contacto`, cookieDe(sessaoA())));
+  const inexistente = await m.app.fetch(pedirContacto("/painel/encomendas/0d0d0d0d-0d0d-4d0d-8d0d-0d0d0d0d0d0d/contacto", cookieDe(sessaoA())));
+  const foraDaRegra = await m.app.fetch(pedirContacto(`/painel/encomendas/${ORDEM_A}/contacto`, cookieDe(sessaoA())));
+  const malFormada = await m.app.fetch(pedirContacto("/painel/encomendas/nao-e-uuid/contacto", cookieDe(sessaoA())));
+  for (const r of [deB, inexistente, foraDaRegra, malFormada]) assert.equal(r.status, 404);
+  const corpoDeB = await deB.text();
+  assert.doesNotMatch(corpoDeB, /222|B00001/);
+  assert.equal(sem(corpoDeB), sem(await inexistente.text()));
+  assert.equal(sem(corpoDeB), sem(await foraDaRegra.text()));
+  // Nenhum pedido de contacto saiu com o tenant de B.
+  assert.ok(m.comercio.contactosPedidos.every((p) => p.tenantId === TENANT_A));
+  assert.equal((await m.app.fetch(pedirContacto(`/painel/encomendas/${ORDEM_A}/contacto`, ""))).status, 401);
+});
+
+test("KAM-206: adversarial - um COM que devolva o telefone em claro e recusado, e a pagina nao o mostra", async () => {
+  const pedidos: string[] = [];
+  const com = new ComercioPorHttp("http://com:3002", "cred", async (url) => {
+    pedidos.push(url);
+    return new Response(JSON.stringify({ tipo: "ok", valor: { orderId: ORDEM_A, telefoneMascarado: "+244 999 000 789" } }));
+  });
+  const r = await com.contactoDaEncomenda(TENANT_A, { id: CASO_A, traceId: "t" }, ORDEM_A);
+  assert.deepEqual(r, { tipo: "erro", erro: "UPSTREAM_DOWN" });
+  assert.deepEqual(pedidos, ["http://com:3002/internal/order-contact"]);
+  const certo = new ComercioPorHttp("http://com:3002", "cred", async () =>
+    new Response(JSON.stringify({ tipo: "ok", valor: { orderId: ORDEM_A, telefoneMascarado: "••• ••• 789" } })),
+  );
+  assert.deepEqual(await certo.contactoDaEncomenda(TENANT_A, { id: CASO_A, traceId: "t" }, ORDEM_A), {
+    tipo: "ok",
+    valor: { orderId: ORDEM_A, telefoneMascarado: "••• ••• 789" },
+  });
+  const m = montar();
+  m.comercio.semear(TENANT_A, [], [encomenda(ORDEM_A, { estado: "paga" })]);
+  m.comercio.contactoDaEncomenda = async () => ({ tipo: "erro", erro: "UPSTREAM_DOWN" });
+  const pagina = await m.app.fetch(pedirContacto(`/painel/encomendas/${ORDEM_A}/contacto`, cookieDe(sessaoA())));
+  assert.equal(pagina.status, 503);
+  assert.doesNotMatch(await pagina.text(), /999|789/);
+  assert.match(m.metricas.exposicao(), /painel_erros_total\{rota="contacto",motivo="indisponivel"\} 1/);
+});
+
+test("KAM-206: os estados do botao sao os da regra do COM, confrontados com o texto de la", () => {
+  const regra = readFileSync(new URL("../../com/src/orders/contacto.ts", import.meta.url), "utf8");
+  const bloco = /export const ESTADOS_COM_CONTACTO = \[([\s\S]*?)\] as const;/.exec(regra)?.[1] ?? "";
+  const doCom = [...bloco.matchAll(/"([a-z_]+)"/g)].map((x) => x[1]);
+  assert.equal(doCom.length, 4);
+  assert.deepEqual([...ESTADOS_COM_CONTACTO], doCom);
 });
 
 // ------------------------------------------------------------------ KAM-190

@@ -84,6 +84,9 @@ const publicacoes: { tenantId: string; pedido: PedidoDePublicacao }[] = [];
 /** Os filtros que chegaram ao `listOrders`. */
 const filtrosDasEncomendas: unknown[] = [];
 
+/** Os pedidos de contacto do duplo (KAM-206), com o tenant e o actor. */
+const contactosPedidos: { tenantId: string; actor: string; orderId: string }[] = [];
+
 function operacoesDeEnsaio(): { operacoes: OperacoesDoCom; chamadas: Chamadas } {
   const contagem = new Map<string, number>();
   const contar = (nome: string) => {
@@ -260,6 +263,12 @@ function operacoesDeEnsaio(): { operacoes: OperacoesDoCom; chamadas: Chamadas } 
       publicacoes.push({ tenantId: ctx.tenantId, pedido });
       return ok(undefined);
     },
+    // KAM-206: o contacto da encomenda. O duplo devolve uma máscara fixa de A.
+    async contactoDaEncomenda(ctx: Ctx, orderId: string) {
+      contar("contactoDaEncomenda");
+      contactosPedidos.push({ tenantId: ctx.tenantId, actor: ctx.actor.kind, orderId });
+      return ok({ orderId, telefoneMascarado: "••• ••• 789" });
+    },
   };
   return { operacoes, chamadas: { contagem } };
 }
@@ -299,8 +308,8 @@ const BONS = {
 
 // ------------------------------------------------------------------- a credencial
 
-test("criterio 2: as catorze rotas sem credencial dao 401, e nenhuma operacao corre", async () => {
-  assert.equal(ROTAS.length, 14);
+test("criterio 2: as quinze rotas sem credencial dao 401, e nenhuma operacao corre", async () => {
+  assert.equal(ROTAS.length, 15);
   const { aplicacao, chamadas } = app();
   for (const rota of ROTAS) {
     const r = await aplicacao.fetch(
@@ -603,7 +612,7 @@ test("um corpo com caracteres multi-octeto conta em octetos e nao em UTF-16", as
 });
 
 test("um GET numa rota /internal/* nao e servido, e nao devolve 200", async () => {
-  // As catorze rotas são `POST`. Um `GET` que respondesse era uma superfície que
+  // As quinze rotas são `POST`. Um `GET` que respondesse era uma superfície que
   // ninguém desenhou — e um `GET` é o que um *crawler* tenta primeiro.
   const { aplicacao } = app();
   for (const rota of ROTAS) {
@@ -1122,4 +1131,21 @@ test("KAM-119: sem x-kamba-tenant, as duas rotas novas sao 400 e nada corre", as
     assert.equal(semCredencial.status, 401, rota);
   }
   assert.equal(chamadas.contagem.size, 0);
+});
+
+// ------------------------------------------- KAM-206: /internal/order-contact
+
+test("KAM-206: o order-contact leva o tenant do cabecalho e o actor do corpo, e devolve so a mascara", async () => {
+  contactosPedidos.length = 0;
+  const { aplicacao, chamadas } = app();
+  const r = await aplicacao.fetch(
+    pedido("/internal/order-contact", { ...CTX_DO_CORPO, actor: { kind: "dono", id: "caso-a" }, order_id: ORDER, tenant_id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb" }, BONS),
+  );
+  assert.equal(r.status, 200);
+  assert.deepEqual(await r.json(), { tipo: "ok", valor: { orderId: ORDER, telefoneMascarado: "••• ••• 789" } });
+  assert.deepEqual(contactosPedidos, [{ tenantId: TENANT, actor: "dono", orderId: ORDER }]);
+  assert.equal(chamadas.contagem.get("contactoDaEncomenda"), 1);
+  const semId = await aplicacao.fetch(pedido("/internal/order-contact", { ...CTX_DO_CORPO }, BONS));
+  assert.equal(semId.status, 400);
+  assert.equal(chamadas.contagem.get("contactoDaEncomenda"), 1);
 });

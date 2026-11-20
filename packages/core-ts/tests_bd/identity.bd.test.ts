@@ -1283,3 +1283,111 @@ describe("critérios 3 e 5 — idempotência e rotação", () => {
     return String(linha?.resumo);
   }
 });
+
+describe("KAM-206 — o antes do lerEndpoints: a auditoria na transacção da decifra", () => {
+  /**
+   * O SQL é o do COM (`SQL_AUDITAR_CONTACTO` de `services/com/src/orders/contacto.ts`),
+   * escrito aqui por extenso porque o `core-ts` não importa um serviço. A
+   * suite `db/tests/test_contacto_da_encomenda.py` corre o do próprio ficheiro.
+   */
+  const AUDITAR =
+    "SELECT platform.audit_append($1::uuid, 'owner', $2, 'order.contact_view', 'order', $3, NULL, sha256($4::bytea))";
+
+  async function linhasDeAuditoria(tenant: string): Promise<number> {
+    const [linha] = await linhas("SELECT count(*)::int AS n FROM platform.audit_log WHERE tenant_id = $1", [tenant]);
+    return Number(linha?.n);
+  }
+
+  /** O `audit_log` é *append-only*: sai como administrador, com o *trigger* desligado. */
+  async function limparAuditoria(tenant: string): Promise<void> {
+    await admin.query("ALTER TABLE platform.audit_log DISABLE TRIGGER audit_log_sem_update_nem_delete");
+    try {
+      await admin.query("DELETE FROM platform.audit_log WHERE tenant_id = $1", [tenant]);
+    } finally {
+      await admin.query("ALTER TABLE platform.audit_log ENABLE ALWAYS TRIGGER audit_log_sem_update_nem_delete");
+    }
+    await admin.query("DELETE FROM platform.audit_heads WHERE tenant_id = $1", [tenant]);
+  }
+
+  test("a linha escreve-se como kamba_identity antes da decifra, e o soTelefones nao abre o BSUID", async () => {
+    const tenant = await novoTenant("kam206-antes");
+    const telefone = telefoneDeEnsaio();
+    const { contactId } = await identidade.resolveContact(id, {
+      tenantId: tenant,
+      bsuid: bsuidDeEnsaio(),
+      telefone,
+      guardarTelefone: { finalidade: "contacto_pedido", expiraAt: daquiAUmAno() },
+    });
+    const ordem = "0000000a-0000-4000-8000-0000000002a6";
+    let auditadas = -1;
+    try {
+      const lidos = await identidade.lerEndpoints(id, tenant, contactId, {
+        soTelefones: true,
+        antes: async (cliente) => {
+          await cliente.query(AUDITAR, [tenant, "caso-a", ordem, Buffer.from(`order.contact_view\x1f${ordem}\x1fpaga`)]);
+        },
+      });
+      auditadas = await linhasDeAuditoria(tenant);
+      assert.deepEqual(lidos.bsuids, [], "o soTelefones abriu o BSUID");
+      assert.deepEqual(lidos.telefones.map((t) => t.telefone), [telefone]);
+      assert.equal(auditadas, 1);
+      const [linha] = await linhas(
+        "SELECT actor_type, action, entity, entity_id, position($2::bytea in convert_to(actor_id || entity_id, 'UTF8')) AS no_texto " +
+          "FROM platform.audit_log WHERE tenant_id = $1",
+        [tenant, Buffer.from(telefone)],
+      );
+      assert.deepEqual(
+        [linha?.actor_type, linha?.action, linha?.entity, linha?.entity_id, linha?.no_texto],
+        ["owner", "order.contact_view", "order", ordem, 0],
+      );
+    } finally {
+      await limparAuditoria(tenant);
+    }
+  });
+
+  test("se o antes falha nada se decifra, e se a decifra falha a linha desfaz-se", async () => {
+    const tenant = await novoTenant("kam206-desfaz");
+    const { contactId } = await identidade.resolveContact(id, {
+      tenantId: tenant,
+      bsuid: bsuidDeEnsaio(),
+      telefone: telefoneDeEnsaio(),
+      guardarTelefone: { finalidade: "entrega", expiraAt: daquiAUmAno() },
+    });
+    try {
+      // O antes levanta: a leitura sobe o erro e não devolve telefone nenhum.
+      let decifrados = 0;
+      await assert.rejects(
+        identidade
+          .lerEndpoints(id, tenant, contactId, {
+            antes: async () => {
+              throw new Error("auditoria recusada");
+            },
+          })
+          .then((l) => {
+            decifrados = l.telefones.length;
+          }),
+        /auditoria recusada/,
+      );
+      assert.equal(decifrados, 0);
+
+      // A decifra falha depois do antes: a linha de auditoria desfaz-se com ela.
+      const linhaDoTelefone = (await endpoints(tenant, contactId)).find((e) => e.tipo === "telefone");
+      assert.ok(linhaDoTelefone);
+      const alterada = Buffer.from(linhaDoTelefone.phone_enc);
+      alterada[alterada.length - 1] = (alterada[alterada.length - 1] ?? 0) ^ 0x01;
+      await admin.query("UPDATE platform.contact_endpoints SET phone_enc = $1 WHERE id = $2", [alterada, linhaDoTelefone.id]);
+      await assert.rejects(
+        identidade.lerEndpoints(id, tenant, contactId, {
+          soTelefones: true,
+          antes: async (cliente) => {
+            await cliente.query(AUDITAR, [tenant, "caso-a", "0000000a-0000-4000-8000-0000000002a7", Buffer.from("x")]);
+          },
+        }),
+        CifraInvalidaError,
+      );
+      assert.equal(await linhasDeAuditoria(tenant), 0, "a linha ficou sem a decifra");
+    } finally {
+      await limparAuditoria(tenant);
+    }
+  });
+});

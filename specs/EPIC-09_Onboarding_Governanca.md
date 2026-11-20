@@ -3537,6 +3537,28 @@ não cumpriu.
 - **Componentes:** COM (leitura do contacto e auditoria), identidade de contacto (decifra), `onboarding-web` (rota do painel).
 - **Fora deste ticket:** o filtro de data das encomendas (KAM-190); a cifra dos contactos em si (KAM-008).
 
+### Decisões do fundador
+
+**1. Quem decifra o telefone.**
+
+| Campo | Valor |
+|---|---|
+| Decisão | **Opção A — alargar o `kamba_identity`.** O COM passa a ser o terceiro consumidor do `db_identity_password` e da `kek_contact_dek`, no inventário e nos *compose*. Na revisão `0082` o `kamba_identity` ganha **só** o `EXECUTE` no `audit_append` e o `INSERT` nas oito colunas que ele escreve. O `kamba_app` lê a encomenda e confere o tenant e o estado, só em leitura; depois, numa transacção do `kamba_identity`, escreve-se a linha de `audit_log` e decifra-se. A resposta vai mascarada. Ensaia-se que o `kamba_identity` continua sem outras escritas e sem acesso a outras tabelas |
+| Autor | O fundador |
+| Data | 2026-11-20 |
+| Via | No chat com a coordenação do lote 16, que a transmitiu a este ramo |
+| Porquê decidir | O `kamba_identity` é o único papel que lê a `contact_endpoints` e não escrevia no `audit_log`; o `kamba_app` escreve no `audit_log` e não lê o cofre. «A linha de auditoria na mesma transacção» obrigava a alargar um dos dois, e decifrar num serviço público é um caminho de PII (a razão que o KAM-190 escreveu) |
+| As outras duas | B — os papéis como estão, e a auditoria numa transacção `kamba_app` antes da decifra (fail-closed, mas não na mesma transacção: o critério ficava parcial); C — decifrar no `onboarding-web`, que já tem o papel e a KEK desde o KAM-217 (contradiz o critério, e o telefone em claro passava pelo serviço público) |
+
+**2. A regra, a máscara e a acção.**
+
+| Campo | Valor |
+|---|---|
+| Decisão | **As propostas do executor, aceites.** Os estados em que o dono vê o contacto: `pendente_confirmacao`, `paga`, `em_entrega`, `entrega_falhada`. O telefone de finalidade `contacto_pedido` (primeiro) ou `entrega`, ainda por expirar. A máscara mostra os últimos três algarismos (`••• ••• 789`). A acção nova é `order.contact_view` |
+| Autor | O fundador |
+| Data | 2026-11-20 |
+| Via | A mesma |
+
 ### Testes Requeridos
 
 - Integração: a decifra e a máscara contra o PostgreSQL do *gate* 8, com a linha de `audit_log` na mesma transacção.
