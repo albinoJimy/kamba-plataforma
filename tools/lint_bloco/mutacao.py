@@ -184,9 +184,10 @@ MUTACOES: tuple[tuple[str, str, str, str], ...] = (
     # 76 -> 77 com o KAM-220** (154 medidos, no ramo sobre a `57446ec0`). **E 77 -> 78 com
     # o KAM-221** (156 medidos, na arvore integrada com o KAM-224). **E 78 -> 79
     # com o KAM-216**, sem o literal acompanhar: a `main` em `45d21bcc` ficou com o
-    # 77 aqui; a integracao do KAM-221 (159 medidos) acerta-o.
+    # 77 aqui; a integracao do KAM-221 acerta-o. **E 79 -> 80 com o KAM-221**
+    # (160 medidos, na arvore integrada com o KAM-228).
     ("o piso de emparelhados a zero", "lint.py",
-     "MINIMO_DE_BLOCOS_MEDIDOS = 79", "MINIMO_DE_BLOCOS_MEDIDOS = 0"),
+     "MINIMO_DE_BLOCOS_MEDIDOS = 80", "MINIMO_DE_BLOCOS_MEDIDOS = 0"),
 )
 
 

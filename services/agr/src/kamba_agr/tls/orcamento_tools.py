@@ -39,20 +39,71 @@ do dominio traduzem-se para ele **sem perder a razao**, que vai no `detalhe`:
 | `fechado`, `validade_no_passado`, valor e condicoes recusados | `VALIDATION_ERROR` |
 
 O `detalhe` e o codigo do dominio, e nunca um valor nem o texto do dono.
+
+## A porta do *screening* das condicoes (KAM-228)
+
+O `submit_quote` passa ao `responder` um `ScreeningPeloCom` com o sujeito das
+condicoes, sobre o `ClienteDoCom` do `KAMBA_COM_URL` — o mesmo cliente das tools
+de comercio. Sem COM com quem falar nao ha porta, e o `responder` usa a
+`ScreeningPorLigar`, que recusa: umas condicoes nao passam sem ponte.
+
+**Hoje a porta esta fechada**, por decisao do fundador de 2026-11-20 (opcao B):
+as condicoes tem finalidade de transferencia propria, e ela ainda nao existe
+(`FINALIDADE_DAS_CONDICOES`, credor **KAM-230**). Ate la as condicoes recusam
+todas sem sair do processo (`test_sem_finalidade_as_condicoes_recusam_sem_ir_ao_com`),
+e os ensaios da montagem abrem-na por remendo, para medir o que o KAM-230 liga.
+
+**O executor ja corre numa *thread*.** A ToolLayer corre todo o executor em
+`asyncio.to_thread` (`camada.py`, `invoke`), e e isso que deixa o ciclo de
+eventos do AGR livre para servir o `POST /internal/screening` que o COM chama
+durante o `screen`. Com o ciclo preso, o classificador saia por tempo e as
+condicoes recusavam sempre. O `test_condicoes_limpas_seguem_pelo_com_e_pelo_classificador`
+mede isto pela ToolLayer, com um COM que chama o AGR do ciclo do ensaio, e o
+`test_com_o_ciclo_preso_as_condicoes_recusam` e o canario.
+
+**O `screen` cabe no tecto do executor**, e nao nos 20 s do adaptador. A
+ToolLayer corta um `write` aos 8 s (mais a margem): um `screen` de 20 s dava ao
+dono um `UPSTREAM_TIMEOUT` com a *thread* ainda viva, e a resposta gravava-se
+depois, sem eco nem botao. O tecto do `screen` e o que sobra do tecto do executor
+depois do que ja correu e da reserva da transaccao; se nao sobrar nada, nao ha
+porta, e as condicoes recusam.
 """
 
 from __future__ import annotations
 
 import datetime
+import time
 from collections.abc import Callable
 from typing import Final
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from kamba_core.catalogo.screening import PortaDeScreening
+
 from ..orcamento import regras
 from . import orcamento as repositorio
+from . import screening as ponte
+from .com import ClienteDoCom
 from .erros import LIMIT_EXCEEDED, NOT_FOUND, TENANT_MISMATCH, VALIDATION_ERROR
 from .especificacoes import ErroDeBackend, Executor, Pedido, Resposta
+
+#: O sujeito da `screening_decision` das condicoes (revisao `0074`, KAM-222).
+SUJEITO_DAS_CONDICOES: Final = "condicoes"
+
+#: A finalidade de transferencia das condicoes (ADR-008). **Decisao do fundador
+#: de 2026-11-20, opcao B** (bloco do KAM-228): as condicoes ganham finalidade
+#: propria, e **nao** vao ao modelo com a `classificacao_de_catalogo`, que e a do
+#: papel `screening` na rota do classificador. Ate a finalidade existir — o valor
+#: no dicionario e no ADR-008, a revisao `0078`, e o classificador a escolhe-la
+#: pelo sujeito, tudo no **KAM-230** — e `None`, e sem ela nao ha porta: as
+#: condicoes recusam todas, e o texto nao sai do processo. Dar-lhe um valor sem
+#: o fazer viajar ate ao classificador e voltar a opcao A, que o fundador recusou.
+FINALIDADE_DAS_CONDICOES: Final[str | None] = None
+
+#: O que fica do tecto do executor para a transaccao, depois do `screen`.
+#: *Proposta*: a transaccao do `responder` sao tres instrucoes numa linha
+#: trancada, e nao se mediu o p99 dela em producao.
+RESERVA_DA_TRANSACCAO_MS: Final = 1_500
 
 _CODIGO_DA_RECUSA: Final = {
     repositorio.FORA_DO_CATALOGO: NOT_FOUND,
@@ -93,10 +144,40 @@ def _traduzir(codigo: str) -> ErroDeBackend:
     return ErroDeBackend(_CODIGO_DA_RECUSA.get(codigo, VALIDATION_ERROR), codigo)
 
 
+def porta_das_condicoes(
+    cliente: ClienteDoCom | None, pedido: Pedido, decorrido_ms: float
+) -> PortaDeScreening | None:
+    """A porta do `screen` para as condicoes deste pedido, ou `None` (fecha).
+
+    `None` enquanto as condicoes nao tiverem finalidade de transferencia
+    (`FINALIDADE_DAS_CONDICOES`, decisao B do fundador), `None` sem cliente, e `None` quando o tecto do executor ja nao deixa tempo ao
+    `screen` depois da reserva da transaccao: o `responder` usa entao a
+    `ScreeningPorLigar`, e as condicoes recusam com `screening_indisponivel`.
+    A vertical do `actor` e a do turno, e nao uma fixa.
+    """
+    if FINALIDADE_DAS_CONDICOES is None or cliente is None:
+        return None
+    tecto = int(min(ponte.TEMPO_MAXIMO_MS, pedido.timeout_ms - decorrido_ms - RESERVA_DA_TRANSACCAO_MS))
+    if tecto <= 0:
+        return None
+    return ponte.ScreeningPeloCom(
+        cliente=cliente,
+        sujeito_tipo=SUJEITO_DAS_CONDICOES,
+        vertical=pedido.ctx.vertical,
+        timeout_ms=tecto,
+    )
+
+
 def executores(
     relogio: Callable[[], datetime.datetime] | None = None,
+    *,
+    cliente_do_com: ClienteDoCom | None = None,
 ) -> dict[str, Executor]:
-    """Os dois executores, com o relogio do processo (ou o de um ensaio)."""
+    """Os dois executores, com o relogio do processo (ou o de um ensaio).
+
+    O `cliente_do_com` e o do `KAMBA_COM_URL` (KAM-228): sem ele, as condicoes
+    de uma resposta recusam, e uma resposta sem condicoes segue.
+    """
     agora = relogio or (lambda: datetime.datetime.now(datetime.UTC))
 
     def request_quote(pedido: Pedido) -> Resposta:
@@ -130,6 +211,7 @@ def executores(
         _exigir_ligacao(pedido)
         args = pedido.args
         assert isinstance(args, ArgumentosDeSubmitQuote)
+        inicio = time.monotonic()
         instante = agora()
         try:
             valor_minor = regras.ler_valor_do_dono(args.valor)
@@ -147,6 +229,9 @@ def executores(
                 args.validade_ate,
                 args.condicoes,
                 instante,
+                screening=porta_das_condicoes(
+                    cliente_do_com, pedido, (time.monotonic() - inicio) * 1000
+                ),
             )
         except repositorio.OrcamentoRecusadoError as erro:
             raise _traduzir(erro.codigo) from None

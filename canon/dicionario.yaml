@@ -12,7 +12,7 @@
 
 version: 1
 fonte: "specs/02_Dicionario_de_Dados_Canonico.md"
-versao_dicionario: "1.122"
+versao_dicionario: "1.123"
 entradas:
   - seccao: "3.1"
     conceito: "Contacto"
@@ -5585,6 +5585,7 @@ entradas:
       - "KAMBA_AGR_URL"
       - "AGR_SHIM_PORT"
     nomes_nota:
+      - "KAMBA_AGR_URL"
       - "KAMBA_DB_HOST"
       - "KAMBA_DB_PORT"
       - "KAMBA_DB_NAME"
@@ -15602,6 +15603,7 @@ entradas:
     nomes_nota:
       - "agr_internal_token"
       - "obrigatorio_em"
+      - "KAMBA_AGR_URL"
     variantes_literais: []
   - seccao: "3.58"
     conceito: "Chave virtual do classificador"
