@@ -5,7 +5,8 @@
  * lerConfiguracao     as variáveis de arranque; sem as credenciais de lote, não arranca
  * verificarPapeis     cada ligação é do papel que diz ser (`kamba_batch`, `kamba_app`)
  * montarProcesso      a fila sobre os adaptadores SQL, o ciclo, as duas portas do KAM-092,
- *                     e o T&S ligado à fila com as suas varreduras (KAM-200)
+ *                     o T&S ligado à fila com as suas varreduras (KAM-200), e o avanço
+ *                     do caso até `es_concluido` que emite o `tenant.provisioned` (KAM-215)
  * consumidorDoTrust   o consumidor dos sete tipos de evento de T&S, como `kamba_app`
  * consumidorDoPainel  o consumidor da resposta do AGR de canal `painel` (KAM-224)
  * cicloDoOffboarding  as fases do encerramento deste lado, agendadas (KAM-210)
@@ -87,7 +88,9 @@
  * O aviso precisa do telefone registado em claro (`DadosPessoais`) e de um
  * agregador de SMS. **Nenhum dos dois existe em produção**: o agregador não está
  * escolhido (fundador, KAM-116), e o telefone cifrado do `onboarding_case` não
- * tem adaptador que o decifre. O duplo `FakeSmsProvider` não entra aqui — um
+ * se decifra **neste** processo — tem decifrador desde o KAM-215, mas a KEK dele
+ * (`kek_telefone_do_caso`) só a recebem o `onboarding-web` e o consumidor `dono`
+ * (decisão do fundador de 2026-11-20), e o lote corre como `kamba_batch`. O duplo `FakeSmsProvider` não entra aqui — um
  * aviso «enviado» para lado nenhum resolvia o efeito e o dono nunca sabia.
  * O `AvisoSemVia` levanta `AvisoSemDestinoError`: a fase e o screening aplicam-se
  * (vêm antes), o efeito fica por reaplicar, e o ciclo di-lo em cada volta.
@@ -134,6 +137,7 @@ import { METRICAS, MaquinaNaBase, filasDe, type Envelope } from "@kamba/core-ts/
 // Só os tipos: o `bullmq` e o `ioredis` carregam-se na casca, **depois** de a
 // porta abrir (ver o `consumidorDoTrust`).
 import type { criarTrabalhadores, Trabalhadores } from "@kamba/core-ts/eventos/trabalhador_bullmq";
+import { varrerProvisionamentos } from "@kamba/core-ts/provisioning";
 import { CONSUMIDOR_DO_PAINEL, efeitoDoPainel } from "@kamba/core-ts/resposta";
 import { EscritorSql, LeitorSql, type EscritorDeDecisoes } from "@kamba/core-ts/screening";
 import { isAmbiente } from "@kamba/core-ts/secrets";
@@ -652,6 +656,9 @@ export function montarProcesso(o: OpcoesDoProcesso): ProcessoDeLote {
         amostrar: (onboardingId, tenantId) => servico.amostrar(onboardingId, tenantId),
         limite,
       }),
+    // KAM-215: o caso avança até `es_concluido` pela porta da base, como
+    // `kamba_batch`, e é aí que sai o `tenant.provisioned`.
+    provisionar: (limite) => varrerProvisionamentos({ lote: o.lote, limite }),
     ...(o.limite === undefined ? {} : { limite: o.limite }),
   });
   const aprovacaoAutomatica = (onboardingId: string, tenantId: string) =>

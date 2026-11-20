@@ -12,7 +12,7 @@
 
 version: 1
 fonte: "specs/02_Dicionario_de_Dados_Canonico.md"
-versao_dicionario: "1.125"
+versao_dicionario: "1.126"
 entradas:
   - seccao: "3.1"
     conceito: "Contacto"
@@ -20581,6 +20581,123 @@ entradas:
       - "kek_contact_dek"
       - "trocaPeloPool"
       - "numaLigacao"
+    variantes_literais: []
+  - seccao: "3.78"
+    conceito: "A KEK do telefone do caso"
+    canonico: "kek_telefone_do_caso, REF_KEK_DO_TELEFONE, anelDoTelefone, lerAnelDoTelefone, KekDoTelefoneInvalidaError"
+    literais:
+      - "kek_telefone_do_caso"
+      - "REF_KEK_DO_TELEFONE"
+      - "anelDoTelefone"
+      - "lerAnelDoTelefone"
+      - "KekDoTelefoneInvalidaError"
+    nomes:
+      - "kek_telefone_do_caso"
+      - "REF_KEK_DO_TELEFONE"
+      - "anelDoTelefone"
+      - "lerAnelDoTelefone"
+      - "KekDoTelefoneInvalidaError"
+    nomes_nota:
+      - "onboarding_case.phone_enc"
+      - "kid"
+      - "kek_token_cliente"
+      - "kek_contact_dek"
+      - "onboarding"
+      - "web"
+      - "dono"
+    variantes_literais: []
+  - seccao: "3.78"
+    conceito: "A cifra do telefone do caso"
+    canonico: "onboarding_case.phone_enc, cifrarTelefoneDoCaso, decifrarTelefoneDoCaso, contextoDoTelefone, CAMPO_DO_TELEFONE, TelefoneCifradoInvalidoError"
+    literais:
+      - "onboarding_case.phone_enc"
+      - "cifrarTelefoneDoCaso"
+      - "decifrarTelefoneDoCaso"
+      - "contextoDoTelefone"
+      - "CAMPO_DO_TELEFONE"
+      - "TelefoneCifradoInvalidoError"
+    nomes:
+      - "onboarding_case.phone_enc"
+      - "cifrarTelefoneDoCaso"
+      - "decifrarTelefoneDoCaso"
+      - "contextoDoTelefone"
+      - "CAMPO_DO_TELEFONE"
+      - "TelefoneCifradoInvalidoError"
+    nomes_nota:
+      - "kid"
+      - "onboarding_id"
+      - "phone_enc"
+    variantes_literais: []
+  - seccao: "3.78"
+    conceito: "O escritor e o decifrador"
+    canonico: "colunasDoTelefone, ColunasDoTelefone, lerTelefoneDoCaso, SQL_TELEFONE_DO_CASO, TelefoneDoCasoEmClaro"
+    literais:
+      - "colunasDoTelefone"
+      - "ColunasDoTelefone"
+      - "lerTelefoneDoCaso"
+      - "SQL_TELEFONE_DO_CASO"
+      - "TelefoneDoCasoEmClaro"
+    nomes:
+      - "colunasDoTelefone"
+      - "ColunasDoTelefone"
+      - "lerTelefoneDoCaso"
+      - "SQL_TELEFONE_DO_CASO"
+      - "TelefoneDoCasoEmClaro"
+    nomes_nota:
+      - "kamba_app"
+      - "tenant_id"
+      - "onboarding_id"
+    variantes_literais: []
+  - seccao: "3.78"
+    conceito: "O avanço do caso até ao provisionamento"
+    canonico: "varrerProvisionamentos, ACTOR_DO_AVANCO (lote:provisionamento), PASSOS_ANTES_DO_ES, AvancoComFalhasError; o passo provisionar do CicloDaFila"
+    literais:
+      - "varrerProvisionamentos"
+      - "ACTOR_DO_AVANCO"
+      - "lote:provisionamento"
+      - "PASSOS_ANTES_DO_ES"
+      - "AvancoComFalhasError"
+      - "provisionar"
+      - "CicloDaFila"
+    nomes:
+      - "varrerProvisionamentos"
+      - "ACTOR_DO_AVANCO"
+      - "lote"
+      - "provisionamento"
+      - "PASSOS_ANTES_DO_ES"
+      - "AvancoComFalhasError"
+      - "provisionar"
+      - "CicloDaFila"
+    nomes_nota:
+      - "tenant.provisioned"
+      - "aprovado"
+      - "aguarda_catalogo"
+      - "platform.advance_case"
+      - "kamba_batch"
+    variantes_literais: []
+  - seccao: "3.78"
+    conceito: "O processo do consumidor do dono"
+    canonico: "onboarding-provisionamento, KAMBA_PROVISIONAMENTO_APP_DB_URL, KAMBA_PROVISIONAMENTO_IDENTITY_DB_URL, PROVISIONAMENTO_PORT, provisionamentoPelaBase, registry/dono_provisionamento.yaml"
+    literais:
+      - "onboarding-provisionamento"
+      - "KAMBA_PROVISIONAMENTO_APP_DB_URL"
+      - "KAMBA_PROVISIONAMENTO_IDENTITY_DB_URL"
+      - "PROVISIONAMENTO_PORT"
+      - "provisionamentoPelaBase"
+    nomes:
+      - "onboarding"
+      - "provisionamento"
+      - "KAMBA_PROVISIONAMENTO_APP_DB_URL"
+      - "KAMBA_PROVISIONAMENTO_IDENTITY_DB_URL"
+      - "PROVISIONAMENTO_PORT"
+      - "provisionamentoPelaBase"
+    nomes_nota:
+      - "onboarding"
+      - "web"
+      - "kamba_app"
+      - "consumir"
+      - "kamba_identity"
+      - "platform.definir_dono"
     variantes_literais: []
   - seccao: "3.79"
     conceito: "Pedido de orçamento"

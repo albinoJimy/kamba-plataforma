@@ -718,6 +718,53 @@ services:
       queue:
         condition: service_healthy
 
+  onboarding-provisionamento:
+    # KAM-215: o consumidor `dono` — o contacto `dono` nasce do
+    # `tenant.provisioned`. Terceiro processo da imagem do `onboarding-web`.
+    # Duas ligacoes, dois papeis: `kamba_app` para o `consumir` e o telefone do
+    # caso (sob a RLS do tenant do envelope), `kamba_identity` para o contacto e
+    # a `platform.definir_dono`. A `kek_telefone_do_caso` e so deste processo e
+    # do escritor do caso (decisao do fundador de 2026-11-20).
+    <<: *service-defaults
+    profiles: ["consumidores"]
+    build:
+      context: ../..
+      dockerfile: services/onboarding-web/Dockerfile
+      args:
+        KAMBA_COMMIT_SHA: ${KAMBA_COMMIT_SHA:-unknown}
+    command: ["node", "services/onboarding-web/src/provisionamento.ts"]
+    environment:
+      <<: *service-env
+      KAMBA_ENV: dev
+      PROVISIONAMENTO_PORT: "3015"
+      KAMBA_PROVISIONAMENTO_APP_DB_URL: postgresql://kamba_app:${KAMBA_SECRET_DB_APP_PASSWORD:-}@postgres:5432/${KAMBA_DB_NAME:-kamba_platform}
+      KAMBA_PROVISIONAMENTO_IDENTITY_DB_URL: postgresql://kamba_identity:${KAMBA_SECRET_DB_IDENTITY_PASSWORD:-}@postgres:5432/${KAMBA_DB_NAME:-kamba_platform}
+      KAMBA_QUEUE_URL: redis://queue:6379
+      KAMBA_SECRET_KEK_TELEFONE_DO_CASO: ${KAMBA_SECRET_KEK_TELEFONE_DO_CASO:-}
+      KAMBA_SECRET_PEPPER_CONTACT_HMAC: ${KAMBA_SECRET_PEPPER_CONTACT_HMAC:-}
+      KAMBA_SECRET_KEK_CONTACT_DEK: ${KAMBA_SECRET_KEK_CONTACT_DEK:-}
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - >-
+          fetch('http://127.0.0.1:3015/healthz')
+          .then(r => process.exit(r.ok ? 0 : 1))
+          .catch(() => process.exit(1))
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 20s
+    networks:
+      - app
+      - data
+    depends_on:
+      postgres:
+        condition: service_healthy
+      queue:
+        condition: service_healthy
+
 networks:
   # `edge` (proxy inverso TLS) e `ops` (Prometheus, Loki, pgBackRest) fazem parte
   # da topologia de `docs/tecnica/09` §3.2 mas nao do compose de desenvolvimento:

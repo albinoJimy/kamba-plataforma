@@ -52,6 +52,10 @@ FICHEIROS = (
     "tests/chr.botao.test.ts",
     "tests_bd/chr.bd.test.ts",
     "tests_bd/dono.bd.test.ts",
+    # KAM-215: o dono nasce do provisionamento — o caso avanca pela porta como
+    # `kamba_batch`, e o `tenant.provisioned` consome-se como `kamba_app` com o
+    # contacto e a porta como `kamba_identity`.
+    "tests_bd/provisionamento.bd.test.ts",
 )
 
 #: Os grupos de `tests_bd/chr.bd.test.ts`: um por propriedade que **so** se
@@ -80,6 +84,9 @@ GRUPOS = (
     "KAM-223 — a conversa do dono pelo painel, contra a base",
     # KAM-216: o canal do dono guardado pela troca e lido pelo painel.
     "KAM-216 — o canal do dono guardado, contra a base",
+    # KAM-215: o dono do provisionamento, a reentrega, o isolamento e os dois
+    # adversariais do bloco.
+    "KAM-215 — o dono nasce do provisionamento, contra a base",
 )
 
 #: Testes que **tem** de ter corrido e passado, pelo nome. Lista curta, com os
@@ -125,6 +132,13 @@ TESTES_OBRIGATORIOS = (
     "isolamento: a troca de B não escreve o canal de A",
     # KAM-217: duas trocas concorrentes de dois tenants, cada uma no seu.
     "cinco pares de trocas concorrentes em dois tenants acabam cada uma no seu tenant",
+    # KAM-215: os quatro criterios, o isolamento e os dois adversariais do bloco.
+    "saga → tenant.provisioned → contacto dono; a reentrega 3× deixa 1 dono",
+    "duas varreduras ao mesmo tempo dão um tenant.provisioned, e o caso chega uma vez",
+    "isolamento: o evento de A com o tenant de B não cria dono em B nem em A",
+    "adversarial: um onboarding_id de outro tenant no payload vai à DLQ e não cria dono",
+    "adversarial: um phone_enc ilegível vai à DLQ e não cria dono",
+    "adversarial: um phone_enc copiado de outro caso não decifra, e vai à DLQ",
 )
 
 #: Os ficheiros do modulo. A cobertura mede-se em **cada um**.
