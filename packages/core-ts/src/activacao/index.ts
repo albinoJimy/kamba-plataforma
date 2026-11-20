@@ -91,6 +91,7 @@ export {
 } from "./ciclo.ts";
 export type { OpcoesDoCicloDaActivacao, PassoDaActivacao, ResultadoDoCicloDaActivacao } from "./ciclo.ts";
 
+export { ASSISTENTE_DO_TESTE, ObservadorSql, SQL_FACTOS_DO_TESTE } from "./observador_sql.ts";
 export { ObservadorPorWebhook } from "./observador.ts";
 export type { LojaDoTeste } from "./observador.ts";
 

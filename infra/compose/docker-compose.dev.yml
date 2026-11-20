@@ -630,6 +630,9 @@ services:
       # confronta com elas.
       KAMBA_ENV: dev
       ONBOARDING_IDENTITY_DB_URL: postgresql://kamba_identity:${KAMBA_SECRET_DB_IDENTITY_PASSWORD:-}@postgres:5432/${KAMBA_DB_NAME:-kamba_platform}
+      # KAM-202: o inicio do teste ponta a ponta no painel, como `kamba_app`.
+      # Opcional: sem ela o `POST /painel/teste` responde 503.
+      ONBOARDING_APP_DB_URL: postgresql://kamba_app:${KAMBA_SECRET_DB_APP_PASSWORD:-}@postgres:5432/${KAMBA_DB_NAME:-kamba_platform}
       KAMBA_SECRET_PEPPER_CONTACT_HMAC: ${KAMBA_SECRET_PEPPER_CONTACT_HMAC:-}
       KAMBA_SECRET_KEK_CONTACT_DEK: ${KAMBA_SECRET_KEK_CONTACT_DEK:-}
     networks:

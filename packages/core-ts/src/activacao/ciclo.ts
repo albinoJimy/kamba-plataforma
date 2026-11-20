@@ -58,6 +58,7 @@ import {
   type ObservadorDoTeste,
 } from "./contrato.ts";
 import { Activacao } from "./gates.ts";
+import { ObservadorSql } from "./observador_sql.ts";
 import { SmokeOwnerAssisted } from "./smoke.ts";
 import {
   CatalogoSql,
@@ -104,8 +105,11 @@ export interface OpcoesDoCicloDaActivacao {
   readonly lote: ConjuntoSql;
   /** O conjunto de ligações do `kamba_app`. */
   readonly app: ConjuntoSql;
-  /** O observador do teste, sobre a ligação do lote do caso. */
-  readonly observador: (lote: ClienteSql) => ObservadorDoTeste;
+  /**
+   * O observador do teste, sobre uma leitura da aplicação com o `app.tenant_id`
+   * do caso. Por omissão o `ObservadorSql` (`./observador_sql.ts`).
+   */
+  readonly observador?: (leitura: ClienteSql) => ObservadorDoTeste;
   /** A fila do teste falhado, com a máquina do caso: o `filaDoTeste` sobre o serviço da fila. */
   readonly fila: (maquina: MaquinaDoCaso) => FilaDoTeste;
   readonly politica?: PoliticaCompilada;
@@ -226,7 +230,7 @@ export class CicloDaActivacao {
             if (fase !== "aguarda_catalogo") doCaso.catalogos = 1;
             return;
           }
-          const teste = await this.#teste(lote).verify(caso.onboardingId);
+          const teste = await this.#teste(lote, caso.tenantId).verify(caso.onboardingId);
           if (!teste.ok) return;
           doCaso.testes = 1;
           passo = "activacao";
@@ -269,12 +273,13 @@ export class CicloDaActivacao {
     return new Activacao({ catalogo, gates: new GatesSql(lote), maquina: new MaquinaSql(lote) });
   }
 
-  #teste(lote: ClienteSql): SmokeOwnerAssisted {
+  #teste(lote: ClienteSql, tenantId: string): SmokeOwnerAssisted {
     const maquina = new MaquinaSql(lote);
+    const leitura = leituraDaApp(this.#o.app, tenantId);
     return new SmokeOwnerAssisted({
       maquina,
       registo: new RegistoDoTesteSql(lote),
-      observador: this.#o.observador(lote),
+      observador: (this.#o.observador ?? ((l: ClienteSql) => new ObservadorSql(l)))(leitura),
       marcador: new MarcadorSql(lote),
       fila: this.#o.fila(maquina),
       gates: new GatesSql(lote),

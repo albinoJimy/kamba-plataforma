@@ -78,8 +78,9 @@ import type { OpcoesDoGuia } from "./guia.ts";
 import { LigadorPorHttp } from "./ligador.ts";
 import { CanalPeloCom } from "./painel/canal.ts";
 import { ComercioPorHttp } from "./painel/comercio.ts";
-import type { OpcoesDaTroca, OpcoesDoPainel } from "./painel/rotas.ts";
+import type { OpcoesDaTroca, OpcoesDoPainel, TesteDoPainel } from "./painel/rotas.ts";
 import { RevogacoesEmMemoria } from "./painel/sessao.ts";
+import { testeDaActivacao } from "./painel/teste.ts";
 import { precoMaximoKz } from "./painel/validacao.ts";
 import { DEFAULT_PORT, SERVICE } from "./meta.ts";
 import { paginaDeRegisto } from "./pagina.ts";
@@ -98,6 +99,17 @@ const VARIAVEL_DO_AMBIENTE = "KAMBA_AMBIENTE";
  */
 const VARIAVEL_DA_IDENTIDADE = "ONBOARDING_IDENTITY_DB_URL";
 const URL_DA_IDENTIDADE = (process.env[VARIAVEL_DA_IDENTIDADE] ?? "").trim();
+
+/**
+ * A ligação à base do `kamba_app` (KAM-202, critério 2): a página do dono abre
+ * a tentativa do teste ponta a ponta por ela. **Opcional, como a da
+ * identidade**: sem ela, o `POST /painel/teste` responde 503 e o resto do painel
+ * serve igual. Este processo continua a recusar `prod` pelos repositórios em
+ * memória (credor no bloco do KAM-202), e a rota fica provada contra a base em
+ * `packages/core-ts/tests_bd/activacao.bd.test.ts`.
+ */
+const VARIAVEL_DA_APP = "ONBOARDING_APP_DB_URL";
+const URL_DA_APP = (process.env[VARIAVEL_DA_APP] ?? "").trim();
 
 /**
  * As chaves do contacto que o `resolveContact` usa: o *pepper* do HMAC e a KEK
@@ -307,6 +319,9 @@ function montarGuia(): OpcoesDoGuia | undefined {
  */
 const LIGACOES_DA_IDENTIDADE = 4;
 
+/** As ligações do teste do painel (KAM-202): um clique por dono, e curto. *Proposta*. */
+const LIGACOES_DA_APP = 2;
+
 /**
  * O registo de um aviso da troca (ganchos `DESTINOS_DO_AVISO` do KAM-118). **Não
  * entrega nada**: o aviso ao número antigo e ao e-mail é do KAM-115, que ainda
@@ -420,7 +435,31 @@ async function montarPainel(guia: PassoGuiado | undefined): Promise<OpcoesDoPain
       religar: guia === undefined ? undefined : (id) => guia.religar(id),
     },
     troca: await montarTroca(guia !== undefined),
+    teste: montarTeste(),
   };
+}
+
+/** O teste ponta a ponta do painel (KAM-202), **só com a ligação da aplicação**. */
+function montarTeste(): TesteDoPainel | undefined {
+  if (URL_DA_APP === "") {
+    log.info({ outcome: "painel_teste_desligado" });
+    return undefined;
+  }
+  const pool = new pg.Pool({
+    connectionString: URL_DA_APP,
+    max: LIGACOES_DA_APP,
+    // ***Proposta***, como a da identidade: uma base que não responde dá erro
+    // ao fim de 5 s, e o pedido recebe 503 em vez de ficar pendurado.
+    connectionTimeoutMillis: 5_000,
+    application_name: "onboarding-web:teste",
+  });
+  // Pela razão da ligação da identidade: uma ligação que cai não derruba o
+  // processo, inactiva ou emprestada.
+  pool.on("error", (erro) => log.excepcao(erro, "teste_bd_falhou"));
+  pool.on("connect", (cliente) => {
+    cliente.on("error", (erro) => log.excepcao(erro, "teste_bd_falhou"));
+  });
+  return testeDaActivacao(pool);
 }
 
 // **A política de comunicação verifica-se no arranque**, e não só por resposta:

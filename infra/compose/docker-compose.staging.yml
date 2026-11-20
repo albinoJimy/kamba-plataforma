@@ -630,6 +630,9 @@ services:
       # ele correr la era abrir topologia por nada.
       KAMBA_ENV: staging
       ONBOARDING_IDENTITY_DB_URL: ${ONBOARDING_IDENTITY_DB_URL:-}
+      # KAM-202: o inicio do teste ponta a ponta no painel, como `kamba_app`.
+      # Opcional, como a de cima: sem ela o `POST /painel/teste` responde 503.
+      ONBOARDING_APP_DB_URL: ${ONBOARDING_APP_DB_URL:-}
       KAMBA_SECRET_PEPPER_CONTACT_HMAC: ${KAMBA_SECRET_PEPPER_CONTACT_HMAC:-}
       KAMBA_SECRET_PEPPER_CONTACT_HMAC_ANTERIOR: ${KAMBA_SECRET_PEPPER_CONTACT_HMAC_ANTERIOR:-}
       KAMBA_SECRET_KEK_CONTACT_DEK: ${KAMBA_SECRET_KEK_CONTACT_DEK:-}

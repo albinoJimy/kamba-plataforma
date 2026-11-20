@@ -39,6 +39,8 @@ export const ROTAS_DO_PAINEL = [
   // KAM-207: a ponte do `/painel/ligar` pedida por um caso activo cujo canal
   // caiu. Os pedidos dessa rota repartem-se entre `ligar` e `religar`.
   "religar",
+  // KAM-202: o início do teste ponta a ponta.
+  "teste",
 ] as const;
 export type RotaDoPainel = (typeof ROTAS_DO_PAINEL)[number];
 
