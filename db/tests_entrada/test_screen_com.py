@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import re
 import secrets
 import threading
 import uuid
@@ -161,7 +162,7 @@ class TestOAgrContraOComACorrer(ComOrcamento):
             transporte=cls.proxy,
         )
         alias = REAIS["screening"]
-        app = create_app(
+        rota = create_app(
             rotas_internas=llm_screening.rotas(
                 credencial=lambda: CREDENCIAL_DO_SCREENING,
                 classificar=llm_screening.ClassificadorDeScreening(cliente, alias),
@@ -169,6 +170,32 @@ class TestOAgrContraOComACorrer(ComOrcamento):
                 minimo_s=llm_screening.minimo_s(alias),
             )
         )
+        cls.vistos_na_rota: list[str] = []
+
+        async def app(scope, receive, send):  # noqa: ANN001, ANN202
+            """A rota, a registar o prazo que chega e o estado que sai: o diagnostico."""
+            if scope["type"] != "http":
+                return await rota(scope, receive, send)
+            corpo = b""
+
+            async def ler():  # noqa: ANN202
+                nonlocal corpo
+                mensagem = await receive()
+                corpo += mensagem.get("body", b"")
+                return mensagem
+
+            async def escrever(mensagem):  # noqa: ANN001, ANN202
+                if mensagem["type"] == "http.response.start":
+                    prazo = re.search(rb'"prazo_ms":\s*(\d+)', corpo)
+                    cls.vistos_na_rota.append(
+                        f"prazo_ms={prazo.group(1).decode() if prazo else '?'} estado={mensagem['status']}"
+                    )
+                elif mensagem["type"] == "http.response.body" and mensagem.get("body"):
+                    cls.vistos_na_rota.append(mensagem["body"][:80].decode(errors="replace"))
+                await send(mensagem)
+
+            await rota(scope, ler, escrever)
+
         porta = porta_livre()
         # Em contentor o COM chega aqui por `host.docker.internal`; sem
         # contentor, por `127.0.0.1`. Nos dois casos so na interface local.
@@ -189,6 +216,7 @@ class TestOAgrContraOComACorrer(ComOrcamento):
     def setUp(self) -> None:
         super().setUp()
         self.proxy.chamadas = 0
+        self.vistos_na_rota.clear()
         self.addCleanup(self._limpar_destinos)
         # O que os passos 2 e 3 da ToolLayer leem, como no `TestPelaToolLayer`
         # do `test_quote_requests.py`.
@@ -299,9 +327,11 @@ class TestOAgrContraOComACorrer(ComOrcamento):
             # modelo foi chamado e o que o COM escreveu.
             self.fail(
                 f"{resposta.error}: decisoes={self._decisoes()} modelo={self._chamadas_ao_modelo()} "
-                f"proxy={self.proxy.chamadas}{self.com.diagnostico()}"
+                f"proxy={self.proxy.chamadas} rota={self.vistos_na_rota}{self.com.diagnostico()}"
             )
         self.assertIn(LIMPAS, resposta.data["previsao"])
+        # A rota do classificador respondeu 200: o *gate* correu, e o modelo tambem.
+        self.assertTrue(any("estado=200" in visto for visto in self.vistos_na_rota), self.vistos_na_rota)
         # A decisao do COM, com o sujeito das condicoes e o `quote_id`.
         self.assertEqual(self._decisoes(), [("permitida", "moda")])
         # O modelo foi chamado uma vez, pelo gate, com a linha `ok`.
