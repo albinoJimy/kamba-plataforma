@@ -566,6 +566,67 @@ services:
       postgres:
         condition: service_healthy
 
+  # KAM-218. As fases de dados do off-boarding — `python -m kamba_core.offboarding`
+  # — com a imagem do AGR, que ja traz o `kamba_core` e o `pg8000`: a exportacao,
+  # a purga e o certificado, numa volta de 15 min (*proposta*). As outras quatro
+  # fases correm no `onboarding-lote`. Fala com a base e com o armazenamento (as
+  # duas em `data`); nao sai para fora (`infra/egress/offboarding-dados.yaml`,
+  # `destinos: []`), e a entrega do certificado nao tem adaptador (KAM-116 e
+  # KAM-115 por escolher). O ciclo das copias e o `retencao_dias` do
+  # `infra/backup/cobertura.yaml`, e um ensaio confronta os dois.
+  offboarding-dados:
+    <<: *service-defaults
+    profiles: ["consumidores"]
+    user: "nobody"
+    build:
+      context: ../..
+      dockerfile: services/agr/Dockerfile
+      args:
+        KAMBA_COMMIT_SHA: ${KAMBA_COMMIT_SHA:-unknown}
+    command: ["python", "-m", "kamba_core.offboarding"]
+    environment:
+      HOST: 0.0.0.0
+      OFFBOARDING_DADOS_PORT: "8062"
+      KAMBA_COMMIT_SHA: ${KAMBA_COMMIT_SHA:-unknown}
+      KAMBA_ENV: dev
+      # O `retencao_dias` do `infra/backup/cobertura.yaml` (KAM-079).
+      KAMBA_OFFBOARDING_COPIAS_DIAS: "35"
+      # Tres papeis: as fases como `kamba_batch`, a leitura das coleccoes da
+      # exportacao como `kamba_app`, com o contexto do tenant, e o apagamento
+      # dos contactos na purga como `kamba_identity` (o *crypto-shredding*).
+      KAMBA_DB_HOST: postgres
+      KAMBA_DB_PORT: "5432"
+      KAMBA_DB_NAME: ${KAMBA_DB_NAME:-kamba_platform}
+      KAMBA_SECRET_DB_APP_PASSWORD: ${KAMBA_SECRET_DB_APP_PASSWORD:-}
+      KAMBA_SECRET_DB_BATCH_PASSWORD: ${KAMBA_SECRET_DB_BATCH_PASSWORD:-}
+      KAMBA_SECRET_DB_IDENTITY_PASSWORD: ${KAMBA_SECRET_DB_IDENTITY_PASSWORD:-}
+      KAMBA_SECRET_OFFBOARDING_CERTIFICATE_KEY: ${KAMBA_SECRET_OFFBOARDING_CERTIFICATE_KEY:-}
+      KAMBA_STORAGE_ENDPOINT: ${KAMBA_STORAGE_ENDPOINT:-http://seaweedfs:8333}
+      KAMBA_STORAGE_BUCKET: ${KAMBA_STORAGE_BUCKET:-kamba-dev}
+      KAMBA_STORAGE_REGION: ${KAMBA_STORAGE_REGION:-ao-luanda-1}
+      KAMBA_STORAGE_DESTINO_COUNTRY: ${KAMBA_STORAGE_DESTINO_COUNTRY:-AO}
+      KAMBA_STORAGE_DESTINO_PROVIDER: ${KAMBA_STORAGE_DESTINO_PROVIDER:-seaweedfs}
+      KAMBA_SECRET_STORAGE_ACCESS_KEY_ID: ${KAMBA_SECRET_STORAGE_ACCESS_KEY_ID:-}
+      KAMBA_SECRET_STORAGE_SECRET_ACCESS_KEY: ${KAMBA_SECRET_STORAGE_SECRET_ACCESS_KEY:-}
+    networks:
+      - data
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - >-
+          import sys, urllib.request;
+          sys.exit(0 if urllib.request.urlopen(
+          'http://127.0.0.1:8062/healthz', timeout=4).status == 200 else 1)
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 20s
+    depends_on:
+      postgres:
+        condition: service_healthy
+
   com:
     <<: *service-defaults
     build:
@@ -696,6 +757,8 @@ services:
       KAMBA_LOTE_APP_DB_URL: postgresql://kamba_app:${KAMBA_SECRET_DB_APP_PASSWORD:-}@postgres:5432/${KAMBA_DB_NAME:-kamba_platform}
       # KAM-200: o consumidor de T&S le as filas `evt.trust.p<n>`.
       KAMBA_QUEUE_URL: redis://queue:6379
+      # KAM-218: a KEK dos *tokens* de cliente, para a fase `canal` do off-boarding.
+      KAMBA_SECRET_KEK_TOKEN_CLIENTE: ${KAMBA_SECRET_KEK_TOKEN_CLIENTE:-}
     healthcheck:
       test:
         - CMD

@@ -34,18 +34,32 @@
  * antes de ligar o adaptador. Refazer a subscrição é
  * idempotente pela própria Graph (o simulador do KAM-024 modela-o assim).
  *
- * ## O *token* de cada WABA vem de fora
+ * ## O *token* de cada WABA vem do cofre (KAM-218)
  *
  * O *token* de cliente vive cifrado no cofre, com a referência em
- * `tenant_channels.token_ref` (KAM-016). Este adaptador recebe uma função que o
- * devolve por WABA, e não a escreve: **neste processo não há leitor do cofre em
- * produção** (o `Cofre` do KAM-016 não tem implementação fora dos ensaios), pelo
- * que o processo de lote monta a porta sem adaptador até haver — e a fase
- * `canal` fica parada, com alerta, em vez de se dar por feita sem a Meta saber.
+ * `tenant_channels.token_ref` (KAM-016). O adaptador recebe uma função que o
+ * devolve por WABA (`TokenDoWaba`), e o leitor é o `tokenDoWabaPeloCofre`
+ * abaixo, pela ordem que o KAM-016 escreveu ao guardá-lo — a mesma do
+ * `#tokenEmClaro` do onboarding:
+ *
+ *     tenant_channels.token_ref        a referência, lida como `kamba_batch`
+ *       → o cofre, pela referência     o criptograma (ADR-L002: o ambiente que
+ *                                      o lançador do cofre enche)
+ *       → decifrarToken(anel, tenant)  com a `kek_token_cliente`, cujo contexto
+ *                                      autenticado leva o tenant da linha
+ *
+ * **Um WABA de mais do que um tenant recusa**, em vez de escolher: a leitura é do
+ * lote (`BYPASSRLS`) e não tem um tenant do pedido que a filtre, e cancelar a
+ * subscrição de um WABA que outro tenant ainda usa desligava o canal dele.
+ * Recusar deixa a fase parada, com alerta, que é o lado seguro do engano.
  */
 
+import { anelDaKek, decifrarToken, TokenCifradoInvalidoError } from "../onboarding/cifra.ts";
 import { CAMPOS_DE_WEBHOOK, type Graph } from "../onboarding/contrato.ts";
 import { GraphRecusouError } from "../onboarding/graph.ts";
+// O `id` da KEK vem do ficheiro estreito que o *gate* 9 dispensa.
+import { REF_DA_KEK } from "../onboarding/segredos.ts";
+import { SecretAusenteError, SecretRefInvalidaError, type SecretProvider } from "../secrets/port.ts";
 import type { CanalDaMeta } from "./contrato.ts";
 
 /** Devolve o *token* de cliente em claro de um WABA. Nunca vai a registo. */
@@ -99,4 +113,103 @@ export class CanalDaMetaPelaGraph implements CanalDaMeta {
   async numeroDoTenant(_tenantId: string): Promise<string | null> {
     throw new OperacaoForaDoOffboardingError("numeroDoTenant", "o numero le-o o onboarding");
   }
+}
+
+// ------------------------------------------------- o leitor do cofre (KAM-218)
+
+/**
+ * As referências do *token* de um WABA, com o tenant de cada uma. **Sem
+ * `LIMIT`**: duas linhas de tenants diferentes têm de se ver para se recusar.
+ *
+ * **Sem os canais `encerrado`** (achado 7 da revisão adversarial): a linha de um
+ * tenant que já saiu guarda o `waba_id` e o `token_ref`, e contá-la fazia
+ * `ambiguo` para sempre o encerramento de quem ficou com o WABA. O limite que
+ * fica, escrito: um tenant com o mesmo WABA que só tenha a linha do onboarding
+ * de canal, e nenhuma na `tenant_channels`, não conta para a recusa.
+ */
+export const SQL_TOKENS_DO_WABA = `
+  SELECT DISTINCT tenant_id::text AS tenant_id, token_ref
+    FROM platform.tenant_channels
+   WHERE waba_id = $1 AND token_ref IS NOT NULL AND estado <> 'encerrado'
+   ORDER BY 1, 2
+`;
+
+/** Porque é que um WABA não tem *token*. Literais, para o registo: nenhum leva a referência. */
+export const MOTIVOS_SEM_TOKEN = [
+  /** Nenhum canal com este WABA tem `token_ref`. */
+  "sem_canal",
+  /** O WABA aparece em mais do que um tenant. */
+  "ambiguo",
+  /** O cofre não tem segredo sob a referência, ou ela não tem forma. */
+  "sem_segredo",
+  /** O criptograma não abre: outra KEK, outro tenant, ou conteúdo alterado. */
+  "nao_abre",
+] as const;
+export type MotivoSemToken = (typeof MOTIVOS_SEM_TOKEN)[number];
+
+/** O WABA não tem *token* que sirva. A fase `canal` falha por isto, pelo nome. */
+export class WabaSemTokenError extends Error {
+  override readonly name = "WabaSemTokenError";
+  readonly motivo: MotivoSemToken;
+
+  constructor(motivo: MotivoSemToken) {
+    super(`o WABA do encerramento nao tem token de cliente: ${motivo}`);
+    this.motivo = motivo;
+  }
+}
+
+/**
+ * A ligação de que o leitor precisa: só o `query`, com as linhas só de leitura —
+ * a forma mais larga, que o conjunto do lote (`ConjuntoSql`) e o cliente do
+ * encerramento satisfazem os dois.
+ */
+export interface LeitorSql {
+  query(sql: string, valores?: readonly unknown[]): Promise<{ readonly rows: readonly Record<string, unknown>[] }>;
+}
+
+/** O que o leitor lê do cofre: só leitura, e só as três operações de que precisa. */
+export type CofreDoToken = Pick<SecretProvider, "get" | "getRing" | "versions">;
+
+/**
+ * O leitor: o *token* em claro de um WABA, pela referência e pela KEK.
+ *
+ * Lê o cofre a cada chamada, sem *cache*: com o `EnvSecretProvider` do Piloto é
+ * uma leitura do ambiente, e uma *cache* aqui era um segundo sítio onde o
+ * *token* em claro ficava a viver entre fases. A KEK em falta **não** é motivo
+ * deste WABA: é configuração do processo, e sobe como o erro do cofre.
+ */
+export function tokenDoWabaPeloCofre(o: { readonly bd: LeitorSql; readonly cofre: CofreDoToken }): TokenDoWaba {
+  return async (wabaId) => {
+    const { rows } = await o.bd.query(SQL_TOKENS_DO_WABA, [wabaId]);
+    if (rows.length === 0) throw new WabaSemTokenError("sem_canal");
+    const tenants = new Set(rows.map((r) => String(r.tenant_id)));
+    if (tenants.size > 1) throw new WabaSemTokenError("ambiguo");
+    const tenantId = [...tenants][0] as string;
+
+    const anel = anelDaKek(await o.cofre.getRing(REF_DA_KEK), await o.cofre.versions(REF_DA_KEK)); // kamba:secrets-inventory dinamico REF_DA_KEK e a kek_token_cliente, no inventario
+
+    // Um WABA com dois números pode ter duas referências do mesmo tenant: qualquer
+    // *token* de cliente desse tenant serve a subscrição do WABA, e a primeira que
+    // abre ganha. Nenhuma a abrir diz o motivo da última.
+    let motivo: MotivoSemToken = "sem_segredo";
+    for (const r of rows) {
+      let criptograma: string;
+      try {
+        criptograma = await o.cofre.get(String(r.token_ref)); // kamba:secrets-inventory dinamico o token_ref do canal, instancia de meta_client_token
+      } catch (erro) {
+        if (erro instanceof SecretAusenteError || erro instanceof SecretRefInvalidaError) {
+          motivo = "sem_segredo";
+          continue;
+        }
+        throw erro;
+      }
+      try {
+        return decifrarToken(anel, tenantId, criptograma);
+      } catch (erro) {
+        if (!(erro instanceof TokenCifradoInvalidoError)) throw erro;
+        motivo = "nao_abre";
+      }
+    }
+    throw new WabaSemTokenError(motivo);
+  };
 }
