@@ -320,6 +320,71 @@ export function operacaoDePublicar(deps: DependenciasDaPublicacao): OperacaoDePu
   };
 }
 
+// ---------------------------------------- o nome novo de um publicado (KAM-202)
+
+/**
+ * O `nome` e o `estado` de uma oferta do tenant, antes de um rascunho. **Sem
+ * tranca**, pela razão do `SQL_NOME_DA_OFERTA`: quem decide sob a tranca é a
+ * base, com o *trigger* `offer_terms_publicacao_segura`.
+ */
+export const SQL_OFERTA_ANTES_DO_RASCUNHO = `
+SELECT nome, estado FROM platform.offer_terms
+WHERE tenant_id = $1 AND sku = $2 AND deleted_at IS NULL`;
+
+export interface DependenciasDoNomeNovo {
+  readonly comTenant: ComTenant;
+  readonly screen: OperacaoDeScreen;
+}
+
+/**
+ * Repete o screening quando um rascunho muda o nome de um produto **publicado**
+ * (KAM-202, critério 5). Devolve `null` quando a escrita pode seguir, e a
+ * recusa quando não pode.
+ *
+ * ```text
+ * oferta nova, rascunho, ou o mesmo nome   null, sem screening
+ * publicado com nome novo                  screen do nome novo, e null
+ * base em baixo, ao ler ou no screen       UPSTREAM_DOWN, e nada se escreve
+ * ```
+ *
+ * **O screening corre antes da escrita, e o resultado dele não decide aqui.**
+ * Quem decide é a base: com o nome novo escrito, o *trigger*
+ * `offer_terms_publicacao_segura` deixa o produto em `publicado` se houver
+ * decisão que o permita para o conteúdo de agora, e tira-o para `rascunho` se
+ * não houver. Decidir aqui também era uma segunda regra para o mesmo facto.
+ * Correr o `screen` antes é o que faz o caminho certo ser possível: sem ele,
+ * nenhum nome novo tinha decisão, e toda a edição de um publicado o despublicava.
+ *
+ * **Falhar é não escrever.** Uma base em baixo ao ler ou ao gravar a decisão
+ * devolve `UPSTREAM_DOWN`; o chamador repete. Um classificador em baixo não é
+ * falha: o `screen` lê-o como `condicional`, a escrita segue, e a base tira o
+ * produto de `publicado`, que é o lado seguro.
+ */
+export function screeningDoNomeNovo(
+  deps: DependenciasDoNomeNovo,
+): (ctx: Ctx, sku: string, nome: string) => Promise<ResultadoFinal<never> | null> {
+  return async (ctx, sku, nome) => {
+    const { tenantId } = exigirCtx(ctx);
+    let antes: { nome: unknown; estado: unknown } | undefined;
+    try {
+      antes = await deps.comTenant(tenantId, async (cliente) => {
+        const { rows } = await cliente.query(SQL_OFERTA_ANTES_DO_RASCUNHO, [tenantId, sku]);
+        return rows[0] as { nome: unknown; estado: unknown } | undefined;
+      });
+    } catch {
+      return erro("UPSTREAM_DOWN");
+    }
+    if (antes === undefined || antes.estado !== "publicado" || antes.nome === nome) return null;
+    const decidido = await deps.screen(ctx, {
+      sujeitoTipo: SUJEITO_DO_PRODUTO,
+      sujeitoRef: sku,
+      categoriaDeclarada: null,
+      textos: [nome],
+    });
+    return decidido.tipo === "ok" ? null : erro(decidido.erro);
+  };
+}
+
 /** O cliente da transacção na forma que o `LeitorSql` pede. */
 function leitorDe(cliente: ClienteSql): ConstructorParameters<typeof LeitorSql>[0] {
   return cliente as unknown as ConstructorParameters<typeof LeitorSql>[0];

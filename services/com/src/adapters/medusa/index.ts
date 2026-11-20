@@ -140,6 +140,7 @@ import {
 import {
   operacaoDePublicar,
   operacaoDeScreen,
+  screeningDoNomeNovo,
   type PedidoDePublicacao,
   type PedidoDeScreen,
   type ResultadoDoScreenDoCom,
@@ -507,9 +508,24 @@ export function adaptadorMedusa(
   deps: Dependencias,
   agora: Relogio = RELOGIO_DO_SISTEMA,
 ): CommerceRegistry {
+  // KAM-202: o nome novo de um publicado passa pelo `screen` antes de se
+  // escrever. A nota está no `screeningDoNomeNovo`.
+  const conferirNomeNovo = screeningDoNomeNovo({
+    comTenant: deps.comTenant,
+    screen: operacaoDeScreen({
+      comTenant: deps.comTenant,
+      politica: deps.politica ?? politicaCorrente(),
+      classificador: deps.classificador ?? null,
+    }),
+  });
   return {
     /**
      * KAM-043, critério 4. **Implementado** — já não é `NOT_IMPLEMENTED`.
+     *
+     * **KAM-202:** mudar o nome de um produto `publicado` repete o screening
+     * antes de escrever (`screeningDoNomeNovo`), e a base decide se ele
+     * continua publicado com o nome novo (*trigger*
+     * `offer_terms_publicacao_segura`).
      *
      * O `ProductDraft` da porta tem `sku`, `nome`, `descricao`, `categoria` e
      * `atributos`; o módulo escreve os três primeiros campos que a
@@ -538,6 +554,8 @@ export function adaptadorMedusa(
         exigirCtx(ctx);
         return erro("VALIDATION_ERROR");
       }
+      const recusa = await conferirNomeNovo(ctx, rascunho.sku, rascunho.nome);
+      if (recusa !== null) return recusa;
       return comRegisto(deps, ctx, (r) =>
         upsertProductDraftDoModulo(r, rascunho),
       );

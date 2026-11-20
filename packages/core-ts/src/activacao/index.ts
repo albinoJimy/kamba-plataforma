@@ -83,6 +83,14 @@ export {
   SQL_ZERAR_FALHAS,
 } from "./sql.ts";
 
+export {
+  CicloDaActivacao,
+  INTERVALO_DA_ACTIVACAO_POR_OMISSAO_MS,
+  PASSOS_DA_ACTIVACAO,
+  SQL_CASOS_DA_ACTIVACAO,
+} from "./ciclo.ts";
+export type { OpcoesDoCicloDaActivacao, PassoDaActivacao, ResultadoDoCicloDaActivacao } from "./ciclo.ts";
+
 export { ObservadorPorWebhook } from "./observador.ts";
 export type { LojaDoTeste } from "./observador.ts";
 

@@ -146,7 +146,7 @@ export const SQL_ACTUALIZAR_TERMOS = `
          preco_atualizado_at = $8,
          atualizado_at = clock_timestamp()
    WHERE tenant_id = $1 AND sku = $2 AND deleted_at IS NULL
-  RETURNING sku, preco_tipo, preco_minor, currency, stock_modo, atualizado_at
+  RETURNING sku, preco_tipo, preco_minor, currency, stock_modo, atualizado_at, estado
 `;
 
 /**
