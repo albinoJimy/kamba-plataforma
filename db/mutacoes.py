@@ -328,6 +328,10 @@ REV_FOTO = _revisao_por_glob("*_foto_de_produtos.py")
 #: numero (`0069`) e o da fila de integracao. O ensaio que a prova e o
 #: `db/tests/test_finalidade_do_screening_schema.py`.
 REV_FINALIDADE_DO_SCREENING = _revisao_por_glob("*_finalidade_do_screening.py")
+#: KAM-230: a revisao da finalidade das condicoes, pela mesma razao — o numero
+#: (`0078`) e o da fila de integracao. O ensaio que a prova e o
+#: `db/tests/test_finalidade_das_condicoes_schema.py`.
+REV_FINALIDADE_DAS_CONDICOES = _revisao_por_glob("*_finalidade_das_condicoes.py")
 #: KAM-095: a revisao da lista de espera, pela razao da do Catalogo AI — o
 #: numero (`0059`) e provisorio. O ensaio que a prova e o
 #: `db/tests/test_lista_espera_schema.py`.
@@ -7711,6 +7715,27 @@ MUTACOES = [
     # e o `ADD CONSTRAINT` das catorze rebentava a meio — ou, sem a linha,
     # apagava-se em silencio um registo de transferencia. O
     # `test_com_um_destino_recusa_e_sem_ele_desce_e_volta` tem de a matar.
+
+    # ------------------------ KAM-230 (revisao da finalidade das condicoes)
+    #
+    # Duas, uma por direccao, como as da KAM-195. O alvo e a revisao descoberta
+    # pelo *glob* (`REV_FINALIDADE_DAS_CONDICOES`).
+    ('finalidade das condicoes: o dominio nao a ganha', REV_FINALIDADE_DAS_CONDICOES,
+     "    \"'classificacao_de_condicoes'\",\n",
+     "",
+     "tests"),
+    # A revisao corria e o `CHECK` ficava com as quinze: um destino da
+    # finalidade das condicoes nao cabia, e o *gate* negava sempre as condicoes.
+    # O `test_o_dominio_tem_as_dezasseis_e_as_condicoes_sao_aceites` tem de a
+    # matar.
+    ('finalidade das condicoes: a descida apaga a decisao', REV_FINALIDADE_DAS_CONDICOES,
+     "    if linhas:\n        raise RuntimeError(",
+     "    if False:\n        raise RuntimeError(",
+     "tests"),
+    # A descida deixava de recusar com um destino `classificacao_de_condicoes`,
+    # e o `ADD CONSTRAINT` das quinze rebentava a meio. O
+    # `test_com_um_destino_recusa_e_sem_ele_desce_e_volta` da
+    # `test_finalidade_das_condicoes_schema.py` tem de a matar.
 
     # ------------------------------------------------------------- KAM-061
     # O indice de pesquisa: o DDL e a funcao (`db/indice.py`), a camada de
