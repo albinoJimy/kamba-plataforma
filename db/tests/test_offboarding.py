@@ -56,6 +56,7 @@ from kamba_core.offboarding import (  # noqa: E402
     tenants_purgados,
     verificar_certificado,
 )
+from kamba_core.offboarding.cofre import PAPEL_DO_COFRE, apagar_contactos_pelo_cofre  # noqa: E402
 from kamba_core.offboarding.purga import sem_caminho  # noqa: E402
 from kamba_core.retencao import hold, politica  # noqa: E402
 from kamba_core.storage.fake import MotorEmMemoria  # noqa: E402
@@ -311,16 +312,29 @@ class TestExportacao(ComOffboarding):
     def test_a_exportacao_de_a_nunca_contem_dados_de_b(self) -> None:
         a, b = self.tenant(), self.tenant()
         sa, sb = self.semear(a), self.semear(b)
+        # KAM-218: uma oferta e a prova de aceite de cada tenant, lidas pelo SQL
+        # real das duas coleccoes novas.
+        for tenant, sku in ((a, "sku-de-a"), (b, "sku-de-b")):
+            self.cur.execute(
+                "INSERT INTO platform.offer_terms (tenant_id, sku, nome, preco_tipo, preco_minor, estado) "
+                "VALUES (%s, %s, %s, 'fixo', 100, 'rascunho')", (tenant, sku, f"produto {sku}"))
+            factories.aceitar_contratos_vigentes(self.cur, tenant)
+        self.cur.execute("SELECT signatario_ref::text FROM platform.contract_acceptance WHERE tenant_id = %s", (a,))
+        assinante_a = self.cur.fetchone()[0]
+        self.cur.execute("SELECT signatario_ref::text FROM platform.contract_acceptance WHERE tenant_id = %s", (b,))
+        assinante_b = self.cur.fetchone()[0]
         self.pedido(a, pendentes="concluida")
         r = exportar(self.batch, self.app, a, self.armazenamento, D0 + timedelta(days=2))
         conteudo = b"".join(self.ficheiros(r["ref"]).values())
-        for valor in (sa["contacto"], sa["conversa"]):
+        for valor in (sa["contacto"], sa["conversa"], "sku-de-a", assinante_a):
             self.assertIn(valor.encode(), conteudo)
-        for valor in (b, sb["contacto"], sb["conversa"], sb["canal"]):
+        for valor in (b, sb["contacto"], sb["conversa"], sb["canal"], "sku-de-b", assinante_b):
             with self.subTest(valor=valor):
                 self.assertNotIn(valor.encode(), conteudo)
         self.assertEqual(r["manifesto"]["coleccoes"]["clientes"], 1)
         self.assertEqual(r["manifesto"]["coleccoes"]["conversas"], 1)
+        self.assertEqual(r["manifesto"]["coleccoes"]["ofertas"], 1)
+        self.assertGreaterEqual(r["manifesto"]["coleccoes"]["aceites"], 1)
 
     def test_o_manifesto_leva_o_sha256_de_cada_ficheiro(self) -> None:
         import hashlib
@@ -330,7 +344,7 @@ class TestExportacao(ComOffboarding):
         r = exportar(self.batch, self.app, a, self.armazenamento, D0 + timedelta(days=2))
         ficheiros = self.ficheiros(r["ref"])
         manifesto = json.loads(ficheiros.pop("manifesto.json"))
-        self.assertEqual(manifesto["versao"], "1.1.0")
+        self.assertEqual(manifesto["versao"], "1.2.0")
         self.assertEqual(sorted(f["nome"] for f in manifesto["ficheiros"]), sorted(ficheiros))
         for f in manifesto["ficheiros"]:
             self.assertEqual(hashlib.sha256(ficheiros[f["nome"]]).hexdigest(), f["sha256"])
@@ -657,6 +671,63 @@ class TestCertificado(ComOffboarding):
         with self.assertRaises(FaseForaDeOrdem):
             emitir_certificado(self.batch, a, D31, chave=CHAVE, kid="k", copias_expiram_em_dias=35,
                                entregar=lambda *_: True)
+
+
+# ------------------------------------------------- os contactos pelo cofre
+
+
+class TestPurgaPeloCofre(ComOffboarding):
+    """KAM-218, criterio 6: o *crypto-shredding* do KAM-008 na purga, como `kamba_identity`."""
+
+    def cofre(self):
+        return LigacaoDeEnsaio(self.conexao, PAPEL_DO_COFRE)
+
+    def contacto_com_cifra(self, tenant: str) -> str:
+        contacto = factories.contacto(self.cur, tenant)
+        dek = factories.dek(self.cur, tenant, contacto)
+        factories.endpoint_bsuid(self.cur, tenant, contacto, dek)
+        factories.endpoint_telefone(self.cur, tenant, contacto, dek)
+        return contacto
+
+    def test_os_contactos_de_a_saem_pelo_cofre_e_os_de_b_ficam(self) -> None:
+        a, b = self.tenant(), self.tenant()
+        self.semear(a)
+        self.contacto_com_cifra(a)
+        cb = self.contacto_com_cifra(b)
+        self.ate_a_purga(a)
+        r = purgar(self.batch, a, D31, apagar_contactos=apagar_contactos_pelo_cofre(self.cofre))
+        self.assertEqual(self.contar("platform.contact_endpoints", a), 0)
+        self.cur.execute("SELECT count(*) FROM platform.contact_deks WHERE tenant_id = %s "
+                         "AND (wrapped_dek IS NOT NULL OR destroyed_at IS NULL)", (a,))
+        self.assertEqual(self.cur.fetchone()[0], 0, "o embrulho de cada DEK de A foi destruido")
+        self.cur.execute("SELECT count(*) FROM platform.contacts WHERE tenant_id = %s "
+                         "AND (erased_at IS NULL OR phone_hmac IS NOT NULL)", (a,))
+        self.assertEqual(self.cur.fetchone()[0], 0)
+        # B intacto: os endpoints, a DEK embrulhada e o contacto vivo.
+        self.assertEqual(self.contar("platform.contact_endpoints", b), 2)
+        self.cur.execute("SELECT wrapped_dek IS NOT NULL FROM platform.contact_deks WHERE tenant_id = %s", (b,))
+        self.assertTrue(self.cur.fetchone()[0])
+        self.cur.execute("SELECT erased_at FROM platform.contacts WHERE contact_id = %s", (cb,))
+        self.assertIsNone(self.cur.fetchone()[0])
+        self.assertIn(("platform.contacts", "ok", None, 2), self.purge_log(r["execucao_id"]))
+
+    def test_repetir_nao_marca_nada_de_novo(self) -> None:
+        a = self.tenant()
+        self.contacto_com_cifra(a)
+        apagar = apagar_contactos_pelo_cofre(self.cofre)
+        self.assertEqual(apagar(a), 1)
+        self.cur.execute("SELECT erased_at FROM platform.contacts WHERE tenant_id = %s", (a,))
+        antes = self.cur.fetchone()[0]
+        self.assertEqual(apagar(a), 0)
+        self.cur.execute("SELECT erased_at FROM platform.contacts WHERE tenant_id = %s", (a,))
+        self.assertEqual(self.cur.fetchone()[0], antes, "a data do apagamento nao muda")
+
+    def test_o_lote_nao_tem_o_privilegio_que_o_cofre_usa(self) -> None:
+        """O controlo: com o papel do lote, a mesma porta falha, e e por isso que leva o seu."""
+        a = self.tenant()
+        self.contacto_com_cifra(a)
+        with self.assertRaises(Exception):
+            apagar_contactos_pelo_cofre(self.batch)(a)
 
 
 if __name__ == "__main__":

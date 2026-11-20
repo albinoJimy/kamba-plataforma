@@ -21,10 +21,13 @@ RLS). O isolamento mede-se pelo ensaio cruzado (exportacao de A sem nada de B).
   que so o `kamba_identity` le, e decifra-los exige a DEK — a mesma lacuna da
   exportacao do titular do KAM-070, com o mesmo credor. O bloco pede «telefones
   decifrados so para campos exportaveis, com auditoria»: fica por fazer.
-* **O catalogo**, quando nao ha fonte: vive na Medusa (D3, KAM-042), e nao ha
-  adaptador. Com `fonte_do_catalogo`, entra; sem ela, o manifesto diz
+* **O catalogo da Medusa**, quando nao ha fonte: o registo de produtos da opcao
+  B da D3 nao existe (o KAM-042 deixou o `RegistoAdmin` sem cliente, e a D3 esta
+  por ratificar). Com `fonte_do_catalogo`, entra; sem ela, o manifesto diz
   `indisponivel` com a razao, em vez de um ficheiro vazio que parecia um
-  catalogo sem produtos.
+  catalogo sem produtos. **O que a plataforma guarda do catalogo sai sempre**
+  (KAM-218): as `ofertas` (a `offer_terms`, termos comerciais por SKU) e os
+  `aceites` (a prova de aceite do KAM-090).
 * **O texto das conversas**: esta base guarda de cada conversa o canal, o
   modo e as janelas, e nao o texto — o CHR nao o guarda, e as mensagens vivem
   no Chatwoot (o espelho do KAM-019). A coleccao `conversas` sai com os
@@ -75,7 +78,8 @@ from .contrato import (
 #: A versao do manifesto, em SemVer (bloco: «formato estruturado estavel»). Sobe
 #: o *major* quando um campo muda de sentido ou sai; o *minor* quando entra um.
 #: 1.1.0 (KAM-210): os bytes dos objectos do STO em `objectos/<chave>`.
-VERSAO_DO_MANIFESTO: Final = "1.1.0"
+#: 1.2.0 (KAM-218): as coleccoes `ofertas` e `aceites`.
+VERSAO_DO_MANIFESTO: Final = "1.2.0"
 
 #: O tecto dos bytes dos objectos dentro do pacote. *Proposta*, sem medicao: o
 #: pacote monta-se em memoria no processo dos dados. Acima dele, os bytes ficam
@@ -124,10 +128,38 @@ COLECCOES: Final[Mapping[str, str]] = {
        WHERE tenant_id = %s::uuid
        ORDER BY contact_id, purpose
     """,
+    # KAM-218: as ofertas do tenant — o que a plataforma guarda do catalogo
+    # (os termos comerciais por SKU, a revisao `0028`). O registo de produtos
+    # da opcao B da D3 (a Medusa) nao existe, e continua `indisponivel` no
+    # manifesto (`RAZAO_SEM_CATALOGO`): estas linhas nao fingem ser ele. As
+    # apagadas e as arquivadas saem tambem, com a coluna que o diz — sao
+    # dados do titular.
+    "ofertas": """
+      SELECT sku, nome, preco_tipo, preco_minor, currency, preco_valido_ate,
+             stock_modo, stock_verificado_at, estado, criado_at, atualizado_at,
+             deleted_at
+        FROM platform.offer_terms
+       WHERE tenant_id = %s::uuid
+       ORDER BY sku
+    """,
+    # KAM-218: a prova de aceite do KAM-090 — cada documento aceite, a versao,
+    # o `sha256` do texto e o `evidence_hash` que o `CHECK` da `0040` amarra ao
+    # signatario, ao instante e ao desafio do OTP. O prefixo do IP fica de
+    # fora: e um resumo de rede, e nao prova nada a quem recebe o pacote.
+    "aceites": """
+      SELECT document_id, versao, doc_sha256, signatario_ref, otp_challenge_id,
+             aceite_em, evidence_hash
+        FROM platform.contract_acceptance
+       WHERE tenant_id = %s::uuid
+       ORDER BY aceite_em, document_id, versao
+    """,
 }
 
 #: A razao do catalogo em falta, quando nao ha fonte.
-RAZAO_SEM_CATALOGO: Final = "o catalogo vive na Medusa e nao ha adaptador (D3, KAM-042)"
+RAZAO_SEM_CATALOGO: Final = (
+    "o registo de produtos da opcao B da D3 (a Medusa) nao existe nesta plataforma; "
+    "os termos comerciais por SKU saem em ofertas"
+)
 
 #: A fonte do catalogo: o tenant, e as linhas. Nenhuma implementacao ainda.
 FonteDoCatalogo = Callable[[str], Sequence[Mapping[str, Any]]]
