@@ -65,6 +65,14 @@ class PortaEmMemoria:
             raise RuntimeError("base em baixo")
         return self.ultimo
 
+    async def pedido_por_referencia(self, tenant_id: str, contact_id: str, referencia: str):
+        self.leituras.append(("referencia", tenant_id, contact_id, referencia))
+        if self.rebenta:
+            raise RuntimeError("base em baixo")
+        if self.ultimo is not None and self.ultimo.referencia == referencia:
+            return self.ultimo
+        return None
+
     async def pendentes(self, tenant_id: str, limite: int = 5):
         self.leituras.append(("pendentes", tenant_id))
         if self.rebenta:
@@ -119,9 +127,10 @@ class TestOAceitoDoCliente(unittest.TestCase):
         self.assertIn("passar a conversa", saida.textos[0])
 
     def test_o_botao_aceitar_e_o_mesmo_caminho(self) -> None:
-        porta = PortaEmMemoria(_ultimo(regras.ENVIADO))
+        ultimo = _ultimo(regras.ENVIADO)
+        porta = PortaEmMemoria(ultimo)
         _estado, hnd, _saida, _ = self._turno(
-            porta, nos_mod.BOTAO_ACEITAR_ORCAMENTO, tipo="interactive"
+            porta, regras.botao_aceitar(ultimo.quote_id), tipo="interactive"
         )
         self.assertEqual([r["motivo"] for r in hnd.recebido], [nos_mod.MOTIVO_ORCAMENTO_ACEITE])
 
@@ -886,12 +895,173 @@ class TestOBotaoDaInvocacao(unittest.TestCase):
         asyncio.run(grafo.ainvoke(estado, conversa.config))
         self.assertEqual(len(pedidos.chamadas), 1)
 
-        porta = PortaEmMemoria(_ultimo(regras.ENVIADO))
+        ultimo = _ultimo(regras.ENVIADO)
+        porta = PortaEmMemoria(ultimo)
         hnd = Handoff()
         grafo, *_ = montar(hnd=hnd, checkpointer=InMemorySaver(), orcamentos=porta)
-        estado = estado_de("", tipo="interactive", botao=nos_mod.BOTAO_ACEITAR_ORCAMENTO)
+        estado = estado_de("", tipo="interactive", botao=regras.botao_aceitar(ultimo.quote_id))
         asyncio.run(grafo.ainvoke(estado, {"configurable": {"thread_id": str(uuid.uuid4())}}))
         self.assertEqual([r["motivo"] for r in hnd.recebido], [nos_mod.MOTIVO_ORCAMENTO_ACEITE])
+
+
+class PortaPorContacto(PortaEmMemoria):
+    """Os pedidos **de cada contacto**, do mais velho para o mais novo.
+
+    O `ultimo_pedido` e o do `SQL_ULTIMO_DO_CLIENTE`; o `pedido_por_referencia`
+    e o do `SQL_DO_CLIENTE_POR_REFERENCIA`, que so procura nos pedidos de quem
+    toca.
+    """
+
+    def __init__(self, por_contacto: dict[str, list[rep.UltimoPedido]]) -> None:
+        super().__init__()
+        self.por_contacto = por_contacto
+
+    async def ultimo_pedido(self, tenant_id: str, contact_id: str):
+        self.leituras.append(("ultimo", tenant_id, contact_id))
+        pedidos = self.por_contacto.get(contact_id) or []
+        return pedidos[-1] if pedidos else None
+
+    async def pedido_por_referencia(self, tenant_id: str, contact_id: str, referencia: str):
+        self.leituras.append(("referencia", tenant_id, contact_id, referencia))
+        achados = [p for p in self.por_contacto.get(contact_id) or [] if p.referencia == referencia]
+        return achados[0] if len(achados) == 1 else None
+
+
+class TestOBotaoDaPropostaAdversarial(unittest.TestCase):
+    """KAM-226: o botao «Aceito» de uma proposta vencida, de outra proposta, ou de outro cliente.
+
+    O botao leva a referencia da proposta (`aceitar_orcamento:ORC-…`, decisao do
+    fundador de 2026-11-20, opcao B), e chega pelo `agent_invocation.botao` com
+    a janela vazia, como no processo. Decide o pedido **daquela** referencia e
+    de quem toca, e nunca o ultimo pedido nem um pedido de outro cliente.
+    """
+
+    CLIENTE = str(uuid.uuid4())
+
+    def _tocar(self, porta: PortaEmMemoria, botao: str, texto: str = "", **troca: Any):
+        hnd = Handoff()
+        grafo, _deps, backend, saida, _ = montar(hnd=hnd, checkpointer=InMemorySaver(), orcamentos=porta)
+        troca.setdefault("contact_id", self.CLIENTE)
+        if botao:
+            estado = estado_de(texto, tipo="interactive", botao=botao, **troca)
+            self.assertEqual(estado["messages"], [])
+        else:
+            estado = estado_de(texto, **troca)
+        asyncio.run(grafo.ainvoke(estado, {"configurable": {"thread_id": str(uuid.uuid4())}}))
+        return hnd, saida, backend
+
+    def test_caso_a_o_botao_de_uma_proposta_valida_aceita_a_mesmo_com_um_pedido_mais_novo(self) -> None:
+        """Achado 1 (a) da revisao: com o ultimo pedido, respondia «em curso» e Q1 nunca se aceitava."""
+        q1 = _ultimo(regras.ENVIADO, sku="SKU-A")
+        q2 = _ultimo(regras.PEDIDO, sku="SKU-B")
+        porta = PortaPorContacto({self.CLIENTE: [q1, q2]})
+        hnd, _saida, backend = self._tocar(porta, regras.botao_aceitar(q1.quote_id))
+        self.assertEqual([r["motivo"] for r in hnd.recebido], [nos_mod.MOTIVO_ORCAMENTO_ACEITE])
+        self.assertIn(f"orcamento={q1.referencia}", hnd.recebido[0]["resumo"])
+        self.assertNotIn(q2.referencia, hnd.recebido[0]["resumo"])
+        self.assertEqual(backend.chamadas, {})
+
+    def test_caso_b_o_botao_de_uma_proposta_vencida_nao_aceita_a_mais_nova(self) -> None:
+        """Achado 1 (b) da revisao: com o ultimo pedido, o botao velho aceitava Q2."""
+        ontem = HOJE - datetime.timedelta(days=1)
+        q1 = _ultimo(regras.ENVIADO, validade=ontem, sku="SKU-A")
+        q2 = _ultimo(regras.ENVIADO, sku="SKU-B")
+        porta = PortaPorContacto({self.CLIENTE: [q1, q2]})
+        hnd, saida, backend = self._tocar(porta, regras.botao_aceitar(q1.quote_id))
+        self.assertEqual(hnd.recebido, [])
+        self.assertIn(nos_mod.FRASE_DO_AVISO[tabela.ORCAMENTO_FECHADO], saida.textos[0])
+        self.assertEqual(backend.chamadas, {})
+
+    def test_a_palavra_escrita_continua_a_decidir_pelo_ultimo_pedido(self) -> None:
+        q1 = _ultimo(regras.ENVIADO, sku="SKU-A")
+        q2 = _ultimo(regras.PEDIDO, sku="SKU-B")
+        porta = PortaPorContacto({self.CLIENTE: [q1, q2]})
+        hnd, saida, _backend = self._tocar(porta, "", texto="aceito")
+        self.assertEqual(hnd.recebido, [])
+        self.assertIn(nos_mod.FRASE_DO_AVISO[tabela.ORCAMENTO_EM_CURSO], saida.textos[0])
+
+    def test_o_botao_de_uma_proposta_vencida_nao_aceita(self) -> None:
+        ontem = HOJE - datetime.timedelta(days=1)
+        for nome, ultimo in {
+            "enviado e vencido": _ultimo(regras.ENVIADO, validade=ontem),
+            "expirado": _ultimo(regras.EXPIRADO),
+            "cancelado": _ultimo(regras.CANCELADO),
+        }.items():
+            with self.subTest(caso=nome):
+                porta = PortaPorContacto({self.CLIENTE: [ultimo]})
+                hnd, saida, backend = self._tocar(porta, regras.botao_aceitar(ultimo.quote_id))
+                self.assertEqual(hnd.recebido, [])
+                self.assertEqual(len(saida.textos), 1)
+                self.assertIn(nos_mod.FRASE_DO_AVISO[tabela.ORCAMENTO_FECHADO], saida.textos[0])
+                # Nem pedido nem pesquisa: o «aceito» nunca cria nada.
+                self.assertEqual(backend.chamadas, {})
+
+    def test_o_botao_tocado_por_outro_cliente_nao_aceita_a_proposta_alheia(self) -> None:
+        intruso = str(uuid.uuid4())
+        alheia = _ultimo(regras.ENVIADO)
+        propria = _ultimo(regras.ENVIADO)
+        porta = PortaPorContacto({self.CLIENTE: [alheia], intruso: [propria]})
+        hnd, saida, backend = self._tocar(porta, regras.botao_aceitar(alheia.quote_id), contact_id=intruso)
+        self.assertEqual(hnd.recebido, [])
+        self.assertEqual(backend.chamadas, {})
+        self.assertIn(nos_mod.FRASE_DO_AVISO[tabela.ORCAMENTO_FECHADO], saida.textos[0])
+        # Leu-se so nos pedidos de quem tocou, e pela referencia do botao.
+        self.assertEqual(
+            [(l[0], l[2]) for l in porta.leituras], [("referencia", intruso)]
+        )
+
+    def test_o_mesmo_botao_do_cliente_certo_aceita(self) -> None:
+        proposta = _ultimo(regras.ENVIADO)
+        porta = PortaPorContacto({self.CLIENTE: [proposta]})
+        hnd, _saida, _backend = self._tocar(porta, regras.botao_aceitar(proposta.quote_id))
+        self.assertEqual([r["motivo"] for r in hnd.recebido], [nos_mod.MOTIVO_ORCAMENTO_ACEITE])
+
+    def test_um_botao_sem_referencia_ou_com_uma_referencia_que_nao_se_le_nao_aceita(self) -> None:
+        proposta = _ultimo(regras.ENVIADO)
+        for botao in ("aceitar_orcamento", "aceitar_orcamento:", "aceitar_orcamento:ORC-1234ABCD",
+                      "aceitar_orcamento:" + proposta.quote_id):
+            with self.subTest(botao=botao):
+                porta = PortaPorContacto({self.CLIENTE: [proposta]})
+                hnd, _saida, _backend = self._tocar(porta, botao)
+                self.assertEqual(hnd.recebido, [])
+
+
+class TestOIdentificadorDoBotao(unittest.TestCase):
+    """A forma do `aceitar_orcamento:ORC-…`, o titulo e a guarda de entrada."""
+
+    def test_a_forma_e_o_prefixo_e_a_referencia_da_proposta(self) -> None:
+        quote_id = str(uuid.uuid4())
+        botao = regras.botao_aceitar(quote_id)
+        self.assertEqual(botao, f"{nos_mod.PREFIXO_DO_ACEITO_ORCAMENTO}{regras.referencia_interna(quote_id)}")
+        self.assertRegex(botao, r"\Aaceitar_orcamento:ORC-[A-HJ-NP-R]{8}\Z")
+        self.assertEqual(regras.referencia_do_aceito(botao), regras.referencia_interna(quote_id))
+        self.assertTrue(nos_mod.pediu_para_aceitar("", botao))
+
+    def test_o_titulo_e_aceito(self) -> None:
+        from kamba_agr import saida
+
+        self.assertEqual(saida.titulo_do_botao(regras.botao_aceitar(str(uuid.uuid4()))), "Aceito")
+        with self.assertRaises(saida.RespostaInvalidaError):
+            saida.titulo_do_botao("aceitar_orcamento")
+
+    def test_o_id_passa_a_guarda_de_entrada_sem_ser_redigido(self) -> None:
+        """O caso do #237: um id com algarismos era redigido como cartao, e um com
+        letras podia casar o lexico sensivel. A referencia e so letras, e a guarda
+        devolve o botao como estava. Vinte mil `quote_id` deterministas.
+
+        **E nao so a amostra.** A referencia e uma palavra de oito letras de
+        `ABCDEFGHJKLMNPQR`, entre o `-` e o fim. Das palavras do `SENSIVEL` feitas
+        so dessas letras, as que contam (`mpla`, `fnla`, `arma`, `febre`) tem
+        fronteira dos dois lados e menos de oito letras, e nenhuma acaba em `\\w*`;
+        o cartao precisa de algarismos. Medido sobre o `politica.SENSIVEL`.
+        """
+        from kamba_agr.guardas import regras as regras_da_guarda
+        from kamba_agr.guardas.entrada import texto_seguro
+
+        for i in range(20_000):
+            botao = regras.botao_aceitar(uuid.UUID(int=(i * 0x9E3779B97F4A7C15 + 1) % (1 << 128)))
+            self.assertEqual(texto_seguro(botao), botao)
+            self.assertFalse(regras_da_guarda.e_sensivel(botao), botao)
 
 
 if __name__ == "__main__":
