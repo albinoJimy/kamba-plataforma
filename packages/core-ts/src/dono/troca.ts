@@ -36,6 +36,7 @@
 
 import type { Telefone } from "../inscricao/identificadores.ts";
 import type { ResultadoDeEnvio, Veredicto } from "../inscricao/otp.ts";
+import { canalDoDono } from "./persona.ts";
 
 /** O OTP do KAM-086, pela forma que a troca usa. O `Otp` de `inscricao/` serve. */
 export interface OtpDaTroca {
@@ -56,9 +57,17 @@ export interface ContactoDoNumero {
  * do pedido vai para o contexto da transacção, e não para a função.
  *
  * Devolve o contacto que deixou de ser dono, ou `null` se não havia nenhum.
+ *
+ * O `ownerChannelWa` é o canal do dono novo (`canalDoDono`), e a porta
+ * escreve-o em `tenants.owner_channel_wa` **na mesma transacção** em que move
+ * o papel (KAM-216): o dono e o canal dele têm um escritor só, e não divergem.
  */
 export interface TrocaNaBase {
-  (pedido: { readonly tenantId: string; readonly contactId: string }): Promise<{
+  (pedido: {
+    readonly tenantId: string;
+    readonly contactId: string;
+    readonly ownerChannelWa: boolean;
+  }): Promise<{
     readonly anterior: string | null;
   }>;
 }
@@ -81,6 +90,8 @@ export type DesfechoDaTroca =
 interface Pedido {
   readonly tenantId: string;
   readonly telefone: Telefone;
+  /** O HMAC do número da loja, que é o `phone_hmac` do caso (ver o `canalDoDono`). */
+  readonly hmacDoNumeroDaLoja: string | null;
   /** Quando o desafio do OTP deixa de valer. Depois disto o pedido é lixo. */
   readonly expiraEm: Date;
 }
@@ -125,9 +136,15 @@ export class TrocaDeTelefone {
    * Pede a troca: envia o OTP ao número novo. A chave do desafio é o `pedidoId`.
    *
    * **O `tenantId` vem da sessão do painel**, que o tem assinado; nunca de um
-   * parâmetro do pedido (critério 9).
+   * parâmetro do pedido (critério 9). O `hmacDoNumeroDaLoja` também: é o
+   * `phone_hmac` do caso da sessão, e `null` dá painel (KAM-216).
    */
-  async pedir(pedidoId: string, tenantId: string, telefone: Telefone): Promise<ResultadoDeEnvio> {
+  async pedir(
+    pedidoId: string,
+    tenantId: string,
+    telefone: Telefone,
+    hmacDoNumeroDaLoja: string | null,
+  ): Promise<ResultadoDeEnvio> {
     // **Um envio de cada vez por pedido** (KAM-211, achado 8 da revisão). O
     // `Otp` grava o desafio antes de esperar pelo fornecedor, e o registo do
     // pedido só se faz depois: dois `pedir` concorrentes da mesma sessão
@@ -140,7 +157,7 @@ export class TrocaDeTelefone {
       this.#esquecerExpirados();
       const envio = await this.#otp.enviar(pedidoId, telefone);
       if (envio.enviado) {
-        this.#pedidos.set(pedidoId, { tenantId, telefone, expiraEm: envio.expiraEm });
+        this.#pedidos.set(pedidoId, { tenantId, telefone, hmacDoNumeroDaLoja, expiraEm: envio.expiraEm });
       }
       return envio;
     } finally {
@@ -181,7 +198,13 @@ export class TrocaDeTelefone {
     this.#pedidos.delete(pedidoId);
 
     const { contactId } = await this.#contacto({ tenantId, telefone: pedido.telefone });
-    const { anterior } = await this.#trocar({ tenantId, contactId });
+    // O canal calcula-se com o número que o OTP acabou de provar, e não com o
+    // do caso: é o telefone do dono de agora (KAM-216, decisão de 2026-11-19).
+    const { owner_channel_wa: ownerChannelWa } = canalDoDono({
+      telefoneDoDono: pedido.telefone,
+      hmacDoNumeroDaLoja: pedido.hmacDoNumeroDaLoja,
+    });
+    const { anterior } = await this.#trocar({ tenantId, contactId, ownerChannelWa });
     for (const destino of DESTINOS_DO_AVISO) {
       await this.#avisar({ tenantId, destino });
     }

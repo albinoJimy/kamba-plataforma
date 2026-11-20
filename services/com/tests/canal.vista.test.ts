@@ -48,8 +48,8 @@ interface Tabelas {
 function tabelas(extra: Partial<Tabelas> = {}): Tabelas {
   return {
     canais: [
-      { tenant_id: TENANT_A, channel_id: CANAL_A, estado: "restrito", quality_rating: "amarelo", messaging_limit: "TIER_250", origem: "pme" },
-      { tenant_id: TENANT_B, channel_id: "0c0c0c0c-0c0c-4c0c-8c0c-0c0c0c0c0c0b", estado: "ativo", quality_rating: "verde", messaging_limit: "TIER_1K", origem: "pme" },
+      { tenant_id: TENANT_A, channel_id: CANAL_A, estado: "restrito", quality_rating: "amarelo", messaging_limit: "TIER_250", origem: "pme", owner_channel_wa: true },
+      { tenant_id: TENANT_B, channel_id: "0c0c0c0c-0c0c-4c0c-8c0c-0c0c0c0c0c0b", estado: "ativo", quality_rating: "verde", messaging_limit: "TIER_1K", origem: "pme", owner_channel_wa: false },
     ],
     sincronizacoes: [{ tenant_id: TENANT_A, channel_id: CANAL_A, estado: "sincronizado" }],
     niveis: [
@@ -85,7 +85,8 @@ function base(t: Tabelas): { cliente: ClienteSql; lidas: string[] } {
   const lidas: string[] = [];
   const cliente: ClienteSql = {
     async query(sql: string, parametros: readonly unknown[] = []) {
-      if (sql.includes("platform.tenants")) {
+      // O canal do painel junta a `tenants` desde o KAM-216, e nao e a leitura do merchant.
+      if (sql.includes("platform.tenants") && sql !== SQL_CANAL_DO_PAINEL) {
         return { rows: [{ medusa_merchant_id: "merch", medusa_sales_channel_id: null }] };
       }
       const doTenant = (linhas: Linha[]): Linha[] =>
@@ -140,6 +141,7 @@ test("KAM-190: a vista do canal junta as quatro fontes, so do tenant do ctx", as
     currency: "AOA",
     // Do mais recente para o mais antigo, e nunca o motivo interno.
     avisos: ["actividade_limitada", "conduta_em_analise"],
+    ownerChannelWa: true,
   });
   assert.deepEqual(lidas, ["canal", "sincronizacao", "nivel", "sancoes"]);
 });
@@ -152,6 +154,26 @@ test("KAM-190: o tenant B ve o dele, e A nunca ve o de B", async () => {
   assert.equal(r.valor.qualidade, "verde");
   assert.deepEqual(r.valor.avisos, ["loja_suspensa"]);
   assert.equal(r.valor.tectoPedidoMinor, 100n);
+  assert.equal(r.valor.ownerChannelWa, false);
+});
+
+test("KAM-216: o canal do dono vem na linha do canal, e um valor que nao e booleano e nulo", async () => {
+  for (const [guardado, esperado] of [
+    [true, true],
+    [false, false],
+    [null, null],
+    ["true", null],
+    [1, null],
+  ] as const) {
+    const { cliente } = base(
+      tabelas({
+        canais: [{ tenant_id: TENANT_A, channel_id: CANAL_A, estado: "ativo", quality_rating: null, messaging_limit: null, origem: "pme", owner_channel_wa: guardado }],
+      }),
+    );
+    const r = await comRegisto(deps(cliente), ctx(), (reg) => vistaDoCanal(reg));
+    assert.equal(r.tipo === "ok" && r.valor.ownerChannelWa, esperado, String(guardado));
+  }
+  assert.match(SQL_CANAL_DO_PAINEL, /JOIN platform\.tenants t ON t\.id = c\.tenant_id/);
 });
 
 test("KAM-190: sem canal, sem nivel e sem sancoes, a vista e sem_canal e vazia", async () => {
@@ -159,7 +181,7 @@ test("KAM-190: sem canal, sem nivel e sem sancoes, a vista e sem_canal e vazia",
   const r = await comRegisto(deps(cliente), ctx(), (reg) => vistaDoCanal(reg));
   assert.deepEqual(r, {
     tipo: "ok",
-    valor: { estado: "sem_canal", restrito: false, qualidade: null, escalao: null, nivel: null, tectoPedidoMinor: null, currency: null, avisos: [] },
+    valor: { estado: "sem_canal", restrito: false, qualidade: null, escalao: null, nivel: null, tectoPedidoMinor: null, currency: null, avisos: [], ownerChannelWa: null },
   });
   // Sem canal, a sincronizacao nao se pergunta.
   assert.deepEqual(lidas, ["canal", "nivel", "sancoes"]);
@@ -184,7 +206,7 @@ test("KAM-190: pelas operacoes, o channel-view nao pede o merchant do Medusa", a
   const { cliente } = base(tabelas());
   const semMerchant: ClienteSql = {
     async query(sql: string, parametros?: readonly unknown[]) {
-      if (sql.includes("platform.tenants")) throw new Error("a leitura do canal foi ao merchant");
+      if (sql.includes("platform.tenants") && sql !== SQL_CANAL_DO_PAINEL) throw new Error("a leitura do canal foi ao merchant");
       return cliente.query(sql, parametros);
     },
   };
@@ -232,7 +254,8 @@ test("KAM-190: o cliente dos avisos so le o tenant do ctx, e outro tenant levant
 
 test("KAM-190: as tres consultas do canal tem o tenant_id = $1 que o repo-base exige, e nenhuma escreve", () => {
   for (const sql of [SQL_CANAL_DO_PAINEL, SQL_SINCRONIZACAO_DO_CANAL, SQL_NIVEL_DO_TENANT]) {
-    assert.match(sql, /WHERE tenant_id = \$1/);
+    // O do canal leva o prefixo da tabela, pelo `JOIN` da `tenants` (KAM-216).
+    assert.match(sql, /WHERE (?:c\.)?tenant_id = \$1/);
     assert.match(sql, /^\s*SELECT/);
     assert.doesNotMatch(sql, /\$\{/);
   }
