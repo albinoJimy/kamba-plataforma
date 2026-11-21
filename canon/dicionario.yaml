@@ -12,7 +12,7 @@
 
 version: 1
 fonte: "specs/02_Dicionario_de_Dados_Canonico.md"
-versao_dicionario: "1.132"
+versao_dicionario: "1.133"
 entradas:
   - seccao: "3.1"
     conceito: "Contacto"
@@ -2543,6 +2543,7 @@ entradas:
       - "UNIQUE"
       - "kind"
       - "event_key"
+      - "PRAZO_DO_CORPO_S"
     variantes_literais: []
   - seccao: "3.12"
     conceito: "Métricas do GWY"
@@ -21648,6 +21649,7 @@ entradas:
     nomes_nota:
       - "FORCE"
       - "kamba_app"
+      - "message_id"
       - "UPDATE"
       - "DELETE"
       - "conversas"
@@ -21931,6 +21933,37 @@ entradas:
     nomes_nota:
       - "TrocasEmMemoria"
     variantes_literais: []
+  - seccao: "3.81"
+    conceito: "O texto do cliente do WhatsApp na fonte persistida"
+    canonico: "SQL_GRAVAR_MENSAGEM_DO_WHATSAPP, messageIdDe, DOMINIO_DO_MESSAGE_ID, TEXTO_MAXIMO"
+    literais:
+      - "SQL_GRAVAR_MENSAGEM_DO_WHATSAPP"
+      - "messageIdDe"
+      - "DOMINIO_DO_MESSAGE_ID"
+      - "TEXTO_MAXIMO"
+    nomes:
+      - "SQL_GRAVAR_MENSAGEM_DO_WHATSAPP"
+      - "messageIdDe"
+      - "DOMINIO_DO_MESSAGE_ID"
+      - "TEXTO_MAXIMO"
+    nomes_nota:
+      - "message"
+      - "text"
+      - "texto"
+      - "whatsapp"
+      - "kamba_app"
+      - "bot"
+      - "message_id"
+      - "ON"
+      - "CONFLICT"
+      - "DO"
+      - "NOTHING"
+      - "wamid"
+      - "jobId"
+      - "INSERT"
+      - "GRANT"
+    variantes_literais:
+      - "agr-inbound"
   - seccao: "3.81"
     conceito: "Os momentos do aviso"
     canonico: "MOMENTOS_DO_AVISO ∈ {pendente, feita, cancelada}"

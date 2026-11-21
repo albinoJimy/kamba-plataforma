@@ -648,6 +648,101 @@ describe("DoD — idempotência: o mesmo wamid não cria duas conversas nem dois
   });
 });
 
+describe("KAM-232 — o texto do WhatsApp na `agent_messages`, contra a base", () => {
+  const PAN = "4111111111111111";
+
+  function comTexto(evento: EventoDeEntrada, texto: string): EventoDeEntrada {
+    return { ...evento, texto };
+  }
+
+  async function linhasDe(tenant: string): Promise<Record<string, unknown>[]> {
+    const { rows } = await admin.query(
+      `SELECT message_id::text AS message_id, contact_id::text AS contact_id,
+              conversation_id::text AS conversation_id, canal, texto
+         FROM platform.agent_messages WHERE tenant_id = $1`,
+      [tenant],
+    );
+    return rows;
+  }
+
+  it("a reentrega 3x grava uma linha, como `kamba_app`, e a invocacao leva o identificador dela", async () => {
+    const tenant = await tenantComChave("kam232-reentrega");
+    try {
+      const canal = await criarCanal(admin, tenant);
+      const m = montar();
+      const evento = comTexto(
+        mensagem(canal.phoneNumberId, { bsuid: bsuidDeEnsaio(), telefone: null }),
+        `o meu cartao e ${PAN}`,
+      );
+      for (let n = 0; n < 3; n += 1) await m.chr.tratar(evento);
+
+      const linhas = await linhasDe(tenant);
+      assert.equal(linhas.length, 1);
+      const [linha] = linhas;
+      assert.equal(linha?.["canal"], "whatsapp");
+      assert.equal(linha?.["texto"], `o meu cartao e ${PAN}`);
+      assert.equal(m.entrega.aoAgr.length, 3);
+      for (const invocacao of m.entrega.aoAgr) {
+        assert.equal(invocacao.message_id, linha?.["message_id"]);
+        assert.equal(invocacao.contact_id, linha?.["contact_id"]);
+        assert.equal(invocacao.conversation_id, linha?.["conversation_id"]);
+        assert.ok(!JSON.stringify(invocacao).includes(PAN), "a invocacao nao leva o texto");
+      }
+    } finally {
+      await apagarTenant(admin, tenant);
+    }
+  });
+
+  it("duas mensagens sao duas linhas; o mesmo `wamid` noutro tenant e outra linha, invisivel a este", async () => {
+    const a = await tenantComChave("kam232-a");
+    const b = await tenantComChave("kam232-b");
+    try {
+      const canalA = await criarCanal(admin, a);
+      const canalB = await criarCanal(admin, b);
+      const m = montar();
+      const wamid = `wamid.${randomUUID()}`;
+      await m.chr.tratar(comTexto(mensagem(canalA.phoneNumberId, { bsuid: bsuidDeEnsaio(), telefone: null }, wamid), "de A"));
+      await m.chr.tratar(comTexto(mensagem(canalA.phoneNumberId, { bsuid: bsuidDeEnsaio(), telefone: null }), "de A outra"));
+      await m.chr.tratar(comTexto(mensagem(canalB.phoneNumberId, { bsuid: bsuidDeEnsaio(), telefone: null }, wamid), "de B"));
+
+      assert.equal((await linhasDe(a)).length, 2);
+      assert.equal((await linhasDe(b)).length, 1);
+      const [deA, , deB] = m.entrega.aoAgr;
+      assert.notEqual(deA?.message_id, deB?.message_id, "o tenant entra no identificador");
+
+      // O `kamba_app` com o contexto de B nao le a linha de A pelo identificador.
+      const visto = await comTenantReal(appBd, b, () =>
+        appBd.query("SELECT texto FROM platform.agent_messages WHERE message_id = $1", [deA?.message_id]),
+      );
+      assert.equal(visto.rows.length, 0);
+    } finally {
+      await apagarTenant(admin, a);
+      await apagarTenant(admin, b);
+    }
+  });
+
+  it("o `kamba_app` continua sem `UPDATE` nem `DELETE` na linha que gravou", async () => {
+    const tenant = await tenantComChave("kam232-imutavel");
+    try {
+      const canal = await criarCanal(admin, tenant);
+      const m = montar();
+      await m.chr.tratar(comTexto(mensagem(canal.phoneNumberId, { bsuid: bsuidDeEnsaio(), telefone: null }), "ola"));
+      const id = m.entrega.aoAgr[0]?.message_id;
+      for (const sql of [
+        "UPDATE platform.agent_messages SET texto = 'outro' WHERE message_id = $1",
+        "DELETE FROM platform.agent_messages WHERE message_id = $1",
+      ]) {
+        await assert.rejects(
+          comTenantReal(appBd, tenant, () => appBd.query(sql, [id])),
+          /permission denied/,
+        );
+      }
+    } finally {
+      await apagarTenant(admin, tenant);
+    }
+  });
+});
+
 describe("critério 2 — quarentena de um phone_number_id desconhecido", () => {
   it("uma linha, com o motivo `canal_desconhecido`, e a re-entrega não deixa outra", async () => {
     const m = montar();

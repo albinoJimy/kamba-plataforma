@@ -69,6 +69,42 @@ export function jobIdDe(tenantId: string, wamid: string): string {
 }
 
 /**
+ * O prefixo de domínio do `message_id` de uma mensagem do WhatsApp (KAM-232).
+ *
+ * Sem ele, o `message_id` era os primeiros 128 bits do `jobId` da mesma
+ * mensagem, que é lido por quem opera a fila: um identificador da fonte
+ * persistida não se deduz do nome de um *job*.
+ */
+export const DOMINIO_DO_MESSAGE_ID = "agent_messages";
+
+/**
+ * O `message_id` de uma mensagem `text` do WhatsApp na `platform.agent_messages`
+ * (KAM-232): um UUID **determinístico** de `{tenant_id}:{wamid}`.
+ *
+ * É ele que torna a reentrega idempotente sem coluna nova: o mesmo `wamid` no
+ * mesmo tenant dá o mesmo identificador, e o `ON CONFLICT (message_id) DO
+ * NOTHING` da `SQL_GRAVAR_MENSAGEM_DO_WHATSAPP` não grava segunda linha. O
+ * desenho mínimo foi aceite pela coordenação do lote 16 a 2026-11-20 (só o
+ * `GRANT INSERT (message_id)` ao `kamba_app`, revisão `0083`).
+ *
+ * Forma: os primeiros 16 bytes do SHA-256 de `agent_messages:{tenant}:{wamid}`,
+ * com a versão `8` e a variante RFC 9562 — a versão das UUID de construção
+ * própria. O AGR só confere a forma canónica em minúsculas (`_UUID` de
+ * `kamba_agr/contexto.py`), e o `uuid` do PostgreSQL aceita qualquer versão.
+ * As mensagens do painel continuam com o `gen_random_uuid()` da coluna.
+ */
+export function messageIdDe(tenantId: string, wamid: string): string {
+  const bytes = createHash("sha256")
+    .update(`${DOMINIO_DO_MESSAGE_ID}:${tenantId}:${wamid}`, "utf8")
+    .digest()
+    .subarray(0, 16);
+  bytes[6] = (bytes[6]! & 0x0f) | 0x80;
+  bytes[8] = (bytes[8]! & 0x3f) | 0x80;
+  const hex = bytes.toString("hex");
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
+
+/**
  * Monta o *job* do AGR, ou lança.
  *
  * **Não recebe telefone, BSUID nem `display_name`**, e isso não é por
