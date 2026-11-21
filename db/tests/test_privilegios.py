@@ -1602,8 +1602,9 @@ ESPERADO_POR_TABELA.update(
 )
 
 #: O canal do dono pelo painel (KAM-223). A mensagem que entra no AGR e **so da
-#: aplicacao**: o `onboarding-web` insere pela segunda ligacao dele e o AGR le,
-#: os dois como `kamba_app`; ninguem muda nem apaga. A troca de telefone e
+#: aplicacao**: o `onboarding-web` insere pela segunda ligacao dele, o CHR
+#: insere a do WhatsApp (KAM-232) e o AGR le, todos como `kamba_app`; ninguem
+#: muda nem apaga. A troca de telefone e
 #: **so do `kamba_identity`**, que e o papel da `definir_dono`: a troca de
 #: estado e a porta correm na mesma transaccao. Ver `COLUNAS_POR_PAPEL`.
 ESPERADO_POR_TABELA.update(
@@ -2616,9 +2617,12 @@ COLUNAS_POR_PAPEL = {
     },
     ("kamba_app", "agent_replies", "UPDATE"): {"entregue_at"},
     # KAM-223 (revisao do canal do dono pelo painel): a mensagem insere-se
-    # sem o `message_id` nem o `criado_at`, que vem do `DEFAULT`, e nao muda.
+    # sem o `criado_at`, que vem do `DEFAULT`, e nao muda. KAM-232 (revisao
+    # `0083`): o `message_id` tambem, porque o CHR grava o do WhatsApp
+    # deterministico e com `ON CONFLICT DO NOTHING`; o painel deixa-o ao
+    # `DEFAULT`.
     ("kamba_app", "agent_messages", "INSERT"): {
-        "tenant_id", "contact_id", "conversation_id", "canal", "texto",
+        "message_id", "tenant_id", "contact_id", "conversation_id", "canal", "texto",
     },
     # A troca insere a identidade do pedido e o canal do numero pedido, que
     # nao mudam depois; o `UPDATE` e o estado, o prazo, o contacto, o HMAC do

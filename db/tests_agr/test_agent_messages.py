@@ -205,7 +205,7 @@ class TestAMensagemDoWhatsApp(ComMensagens):
             "SELECT count(*), min(canal) FROM platform.agent_messages WHERE message_id = %s",
             (self.MESSAGE_ID,),
         )
-        self.assertEqual(self.semente.fetchone(), (1, "whatsapp"))
+        self.assertEqual(tuple(self.semente.fetchone()), (1, "whatsapp"))
 
     def test_le_se_na_sua_conversa_com_a_persona_do_cliente(self) -> None:
         cliente = self.criar_conversa()
