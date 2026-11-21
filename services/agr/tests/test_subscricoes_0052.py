@@ -317,5 +317,70 @@ class TestRevisaoDaRespostaContraORegisto(unittest.TestCase):
         self.assertFalse(outras & {(c, t) for c, t, *_ in linhas_da_resposta()})
 
 
+
+#: A revisao do consumidor `dono` (KAM-215) e a sua declaracao. O ficheiro do
+#: registo nao se chama `dono.yaml`, que e a persona do KAM-118.
+SUFIXO_DO_DONO = "_subscricao_do_dono.py"
+
+
+def linhas_do_dono() -> list[tuple[str, str, str, str, str]]:
+    [ficheiro] = sorted((RAIZ / "db" / "migrations" / "versions").glob(f"*{SUFIXO_DO_DONO}"))
+    arvore = ast.parse(ficheiro.read_text(encoding="utf-8"))
+    for no in arvore.body:
+        if isinstance(no, ast.Assign) and [getattr(a, "id", None) for a in no.targets] == ["LINHAS"]:
+            return [tuple(linha) for linha in ast.literal_eval(no.value)]
+    raise AssertionError(f"{ficheiro.name} nao tem a constante LINHAS")
+
+
+class TestRevisaoDoDonoContraORegisto(unittest.TestCase):
+    """A mesma confrontacao para o consumidor `dono` (KAM-215):
+    `registry/dono_provisionamento.yaml`."""
+
+    def test_as_linhas_sao_as_da_declaracao(self) -> None:
+        declaracao = load_file(RAIZ / "registry" / "dono_provisionamento.yaml")
+        nome = declaracao["consumidor"]
+        declaradas = {
+            (nome, s["tipo"], int(s["versao"]), subscricoes.e_de_pagamento(s["tipo"]))
+            for s in declaracao["subscriptions"]
+        }
+        da_revisao = {
+            (consumer, tipo, int(versao), _bool(ordem))
+            for consumer, tipo, versao, _finalidade, ordem in linhas_do_dono()
+        }
+        self.assertEqual(da_revisao, declaradas)
+
+    def test_o_nome_o_tipo_e_a_versao_sao_os_do_efeito(self) -> None:
+        """O `consumer` e o `CONSUMIDOR_DO_DONO`, o tipo o `TIPO_DO_PROVISIONAMENTO`,
+        e a `versao_max` a maior das `VERSOES_DO_PROVISIONAMENTO`."""
+        fonte = (RAIZ / "packages" / "core-ts" / "src" / "dono" / "provisionamento.ts").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn('export const CONSUMIDOR_DO_DONO = "dono";', fonte)
+        self.assertIn('export const TIPO_DO_PROVISIONAMENTO = "tenant.provisioned";', fonte)
+        versoes = fonte.split("export const VERSOES_DO_PROVISIONAMENTO: readonly number[] = [", 1)[1]
+        versoes = [int(v) for v in re.findall(r"\d+", versoes.split("]", 1)[0])]
+        self.assertEqual(
+            [(c, t, int(v)) for c, t, v, *_ in linhas_do_dono()],
+            [("dono", "tenant.provisioned", max(versoes))],
+        )
+
+    def test_a_finalidade_esta_nos_exemplos_das_duas_versoes(self) -> None:
+        pasta = RAIZ / "contratos" / "eventos" / "tenant.provisioned"
+        for _consumer, _tipo, _versao, finalidade, _ordem in linhas_do_dono():
+            for exemplo in ("exemplo.json", "exemplo.v2.json"):
+                with self.subTest(exemplo=exemplo):
+                    dados = json.loads((pasta / exemplo).read_text(encoding="utf-8"))
+                    self.assertIn(finalidade, dados["finalidades"])
+
+    def test_nenhuma_chave_repete_uma_de_outra_revisao(self) -> None:
+        outras = (
+            {(c, t) for c, t, *_ in linhas_da_revisao()}
+            | {(c, t) for c, t, *_ in linhas_do_chr()}
+            | {(c, t) for c, t, *_ in linhas_de_trust()}
+            | {(c, t) for c, t, *_ in linhas_da_resposta()}
+        )
+        self.assertFalse(outras & {(c, t) for c, t, *_ in linhas_do_dono()})
+
+
 if __name__ == "__main__":
     unittest.main()

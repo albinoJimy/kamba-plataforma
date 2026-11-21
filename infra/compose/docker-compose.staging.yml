@@ -828,6 +828,58 @@ services:
       postgres:
         condition: service_healthy
 
+  onboarding-provisionamento:
+    # KAM-215: o consumidor `dono`, terceiro processo da imagem do
+    # `onboarding-web`. `kamba_app` para o `consumir` e o telefone do caso,
+    # `kamba_identity` para o contacto e a `platform.definir_dono`. A
+    # `kek_telefone_do_caso` e so deste processo e do escritor do caso (decisao
+    # do fundador de 2026-11-20). **Fora do compose de `prod`** pelo orcamento
+    # de memoria do conjunto reduzido, e nao pelo arranque (bloco do KAM-215,
+    # decisoes do executor).
+    <<: *node
+    build:
+      context: ../..
+      dockerfile: services/onboarding-web/Dockerfile
+      args:
+        KAMBA_COMMIT_SHA: ${KAMBA_COMMIT_SHA:?o deploy passa o SHA da release}
+    command: ["node", "services/onboarding-web/src/provisionamento.ts"]
+    environment:
+      <<: *node-env
+      KAMBA_ENV: staging
+      PROVISIONAMENTO_PORT: "3015"
+      KAMBA_QUEUE_URL: redis://queue:6379
+      KAMBA_PROVISIONAMENTO_APP_DB_URL: ${KAMBA_PROVISIONAMENTO_APP_DB_URL:?o deploy passa a cadeia de ligacao do kamba_app}
+      KAMBA_PROVISIONAMENTO_IDENTITY_DB_URL: ${KAMBA_PROVISIONAMENTO_IDENTITY_DB_URL:?o deploy passa a cadeia de ligacao do kamba_identity}
+      KAMBA_SECRET_KEK_TELEFONE_DO_CASO: ${KAMBA_SECRET_KEK_TELEFONE_DO_CASO:?o cofre entrega a KEK do telefone do caso}
+      KAMBA_SECRET_KEK_TELEFONE_DO_CASO_ANTERIOR: ${KAMBA_SECRET_KEK_TELEFONE_DO_CASO_ANTERIOR:-}
+      KAMBA_SECRET_PEPPER_CONTACT_HMAC: ${KAMBA_SECRET_PEPPER_CONTACT_HMAC:?o cofre entrega o pepper do HMAC de contacto}
+      KAMBA_SECRET_PEPPER_CONTACT_HMAC_ANTERIOR: ${KAMBA_SECRET_PEPPER_CONTACT_HMAC_ANTERIOR:-}
+      KAMBA_SECRET_KEK_CONTACT_DEK: ${KAMBA_SECRET_KEK_CONTACT_DEK:?o cofre entrega a KEK das DEK de contacto}
+      KAMBA_SECRET_KEK_CONTACT_DEK_ANTERIOR: ${KAMBA_SECRET_KEK_CONTACT_DEK_ANTERIOR:-}
+    networks:
+      - app
+      - data
+    # shortcut: 128m sem medicao, igual ao `onboarding-lote` (dezasseis *workers*
+    # BullMQ); reve-se com a primeira medicao de repouso do processo em `staging`.
+    mem_limit: 128m
+    cpus: 0.25
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - >-
+          fetch('http://127.0.0.1:3015/healthz')
+          .then(r => process.exit(r.ok ? 0 : 1))
+          .catch(() => process.exit(1))
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 20s
+    depends_on:
+      postgres:
+        condition: service_healthy
+
   chatwoot:
     image: chatwoot/chatwoot:v4.18.0@sha256:b419dded7e9d2f54a24fd427b74ba7e6069d601b500618045c1eb6c01a1cc9a1
     <<: *endurecido

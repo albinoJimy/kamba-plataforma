@@ -8,6 +8,12 @@
  * screening, o aviso sem via, as rotas e a forma como o processo compõe a fila.
  */
 
+import {
+  ACTOR_DO_AVANCO,
+  SQL_AVANCAR_CASO,
+  SQL_CASOS_POR_AVANCAR,
+  SQL_TRANCAR_CASO,
+} from "@kamba/core-ts/provisioning";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
@@ -386,6 +392,29 @@ test("o ciclo do processo corre os quatro passos sobre o lote e lê os efeitos d
   assert.ok(lote.textos().some((t) => t.includes("estado = 'em_triagem_automatica' ORDER BY")));
 });
 
+test("o ciclo do processo avança o caso pela porta, como kamba_batch e sob o tenant do caso (KAM-215)", async () => {
+  const caso = "11111111-1111-4111-8111-111111111111";
+  const tenant = "22222222-2222-4222-8222-222222222222";
+  // O caso está pronto até a porta o avançar; depois, o varrimento já não o vê.
+  let avancado = false;
+  const lote = new ConjuntoFalso((texto) => {
+    if (texto === SQL_AVANCAR_CASO) avancado = true;
+    if (texto !== SQL_CASOS_POR_AVANCAR || avancado) return undefined;
+    return { rows: [{ onboarding_id: caso, tenant_id: tenant, fase: "aguarda_es", evento: "es_concluido" }] };
+  });
+  const p = montarProcesso({ lote, app: new ConjuntoFalso(), efeitos: efeitosVazios(), log: semRegisto });
+  const r = await p.ciclo.correr();
+  assert.deepEqual(r.falhas, []);
+  const avanco = lote.consultas.find((c) => c.texto === SQL_AVANCAR_CASO);
+  assert.ok(avanco !== undefined, "o ciclo chamou a porta do avanço");
+  assert.deepEqual(avanco.valores, [caso, "es_concluido", ACTOR_DO_AVANCO]);
+  // Na ligação do lote, depois do contexto do tenant do caso e da tranca.
+  const daLigacao = lote.consultas.filter((c) => c.ligacao === avanco.ligacao).map((c) => c.texto);
+  assert.ok(daLigacao.some((t) => t.includes("set_config('app.tenant_id'")));
+  assert.ok(daLigacao.indexOf(SQL_TRANCAR_CASO) < daLigacao.indexOf(SQL_AVANCAR_CASO));
+  assert.equal(r.provisionados, 1);
+});
+
 // ---------------------------------------------------------- HTTP e registo
 
 test("/healthz e /metrics: as quatro séries, da instância que o ciclo recalcula", async () => {
@@ -418,6 +447,7 @@ test("registarVolta diz os passos que falharam pelo nome, e nada mais", () => {
     reaplicados: 0,
     porReaplicar: 0,
     aprovados: 0,
+    provisionados: 0,
     falhas,
   });
   registarVolta(log as never, volta([]));

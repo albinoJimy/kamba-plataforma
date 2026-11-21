@@ -154,6 +154,10 @@ SONDAS_TS = (
     # KAM-190: as series do painel do dono, `painel_pedidos_total{rota}` e
     # `painel_erros_total{rota,motivo}`, de dominios fechados e sem tenant.
     "rota:onboarding-web:app:createApp:GET:/metrics",
+    # KAM-215: o consumidor `dono`. O `/metrics` serve as series do consumo
+    # (KAM-006) e as da guarda de tenant, sem `consumer` nem tenant.
+    "rota:onboarding-web:provisionamento/processo:criarApp:GET:/healthz",
+    "rota:onboarding-web:provisionamento/processo:criarApp:GET:/metrics",
     "rota:worker-canal:agr_shim:criarApp:GET:/healthz",
     "rota:worker-canal:agr_shim:criarApp:GET:/metrics",
     "rota:worker-canal:app:createApp:GET:/healthz",

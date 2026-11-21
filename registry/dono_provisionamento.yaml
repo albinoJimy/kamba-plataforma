@@ -1,0 +1,34 @@
+# registry/dono_provisionamento.yaml — o consumidor que faz nascer o dono (KAM-215)
+#
+# A QUARTA FORMA dos ficheiros de `registry/` (a do `registry/idx.yaml`,
+# KAM-194), distinguida pela chave de topo `consumidor`: um consumidor de
+# eventos que NAO e vertical. Nao tem persona, grafo, tools nem entitlements.
+#
+# O NOME DO FICHEIRO NAO E O DO CONSUMIDOR, e a razao e o `registry/dono.yaml`:
+# esse e a persona Assistente do Dono (chave de topo `id: dono`, KAM-118), e o
+# gate 3b distingue as formas pela chave de topo e nunca pelo nome do ficheiro.
+# O nome do consumidor e `dono` — o `CONSUMIDOR_DO_DONO` de
+# `packages/core-ts/src/dono/provisionamento.ts`, o `events_consumed.consumer`
+# e o prefixo das filas `evt.dono.p<n>`. Fora do prefixo `agr_`, que e o das
+# verticais.
+#
+# O efeito e o `efeitoDoProvisionamento` (KAM-118), montado pelo
+# `provisionamentoPelaBase` de `packages/core-ts/src/dono/sql.ts`, e corre no
+# processo `services/onboarding-web/src/provisionamento.ts`: o telefone
+# verificado do caso decifra-se com a `kek_telefone_do_caso`, resolve-se no
+# contacto do tenant do envelope e passa a dono pela `platform.definir_dono`.
+# Trata a v1 e a v2 do `tenant.provisioned` (`VERSOES_DO_PROVISIONAMENTO`): o
+# payload das duas e o mesmo, e o `onboarding_id` esta nas duas.
+#
+# ---------------------------------------------------------------------------
+# ESTE FICHEIRO E A REVISAO DE DADOS `*_subscricao_do_dono.py` DIZEM O MESMO,
+# e um ensaio confronta-os (`services/agr/tests/test_subscricoes_0052.py`).
+#
+# ESTILO DE BLOCO, E NAO DE FLUXO: o `tools/kamba_yaml.py` nao le mapas em
+# estilo de fluxo.
+
+consumidor: dono
+version: 1.0.0
+subscriptions:
+  - tipo: tenant.provisioned
+    versao: 2

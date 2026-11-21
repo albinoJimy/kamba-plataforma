@@ -413,6 +413,15 @@ export const INVENTARIO: readonly Entrada[] = [
       "original para provar que ele vai ao numero REGISTADO e nao ao submetido",
   },
   {
+    ficheiro: "packages/core-ts/tests/inscricao.telefone_do_caso.test.ts",
+    ocorrencias: 2,
+    razao:
+      "o telefone do caso que se cifra no phone_enc (KAM-215), escrito com " +
+      "separadores e em E.164, para provar que o decifrado sai normalizado. O " +
+      "escritor recebe um Telefone da inscricao, que so aceita +244, pelo que um " +
+      "numero do intervalo reservado era recusado antes de chegar a cifra",
+  },
+  {
     ficheiro: "services/onboarding-web/tests/registo.test.ts",
     ocorrencias: 2,
     razao:

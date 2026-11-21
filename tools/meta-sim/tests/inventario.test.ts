@@ -240,8 +240,12 @@ describe("o inventario deste repositorio", () => {
     // (seis e quatro) e um terceiro destino no condutor do gate 6, o do caso de
     // A do grupo `guia`. Medidas com `varrer`, e a razao de os moveis casarem os
     // dois padroes esta na entrada.
-    assert.equal(totalDeclarado(), 165);
-    assert.equal(INVENTARIO.length, 43);
+    //
+    // **167 em 44 ficheiros desde o KAM-215**: os dois do telefone do caso que
+    // se cifra no `phone_enc` (com separadores e em E.164), pela mesma razao das
+    // baterias da inscricao.
+    assert.equal(totalDeclarado(), 167);
+    assert.equal(INVENTARIO.length, 44);
   });
 
   it("nenhuma entrada e de uma pasta inteira", () => {
