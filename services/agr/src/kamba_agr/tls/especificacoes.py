@@ -192,6 +192,28 @@ class Pedido:
     #:
     #: `None` numa tool que nao o use, que sao todas menos duas.
     rascunho: Mapping[str, Any] | None = None
+    #: O **prazo absoluto** da invocacao, em `time.monotonic()` (KAM-230): o
+    #: inicio da espera da ToolLayer mais o `timeout_ms`. O `timeout_ms` diz
+    #: quanto o executor tinha **ao inicio da ToolLayer**, e nao quando ele
+    #: comeca: os passos 1 a 5 ja gastaram uma parte (achado 3 da revisao do
+    #: KAM-228). `None` num `Pedido` feito a mao.
+    prazo: float | None = None
+    #: Quem larga a tomada durante um trabalho que nao a precisa e a retoma
+    #: depois (KAM-230). Devolve o resultado e a ligacao retomada, que pode nao
+    #: ser a mesma. `None` num `Pedido` feito a mao: o trabalho corre com ela.
+    largar_tomada: Callable[[Callable[[], Any]], tuple[Any, Any]] | None = None
+
+    def sem_tomada(self, trabalho: Callable[[], Any]) -> tuple[Any, Any]:
+        """Corre `trabalho` sem segurar a tomada; devolve `(resultado, ligacao)`.
+
+        **Depois disto, a ligacao e a devolvida**, e nao a `self.ligacao`: a
+        outra pode estar ja noutra invocacao. Para um trabalho que espera pela
+        rede sem tocar na base — o `screen` das condicoes, que espera pelo COM e
+        pelo classificador ate seis segundos (achado 9 da revisao do KAM-228).
+        """
+        if self.largar_tomada is None:
+            return trabalho(), self.ligacao
+        return self.largar_tomada(trabalho)
 
 
 @dataclass(frozen=True, slots=True)

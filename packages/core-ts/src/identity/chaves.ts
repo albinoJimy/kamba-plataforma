@@ -23,10 +23,19 @@
  *
  * ## Produção
  *
- * O critério de aceitação do ticket é literal: com `KAMBA_ENV=prod`, o arranque
- * falha se as chaves vierem do ambiente do processo. `exigirKeyProviderDeCofre`
- * é essa verificação, e `Identidade.arrancar` chama-a sempre — não há forma de
- * obter o serviço sem passar por ela.
+ * **Em `prod` as chaves vêm do ambiente que o lançador do cofre enche**, como em
+ * todos os outros segredos (ADR-L002). Decisão do fundador, 2026-11-20, que
+ * emendou o critério 9 do KAM-008 (até ali, o arranque recusava o provedor de
+ * ambiente em `prod`). O que continua a falhar fechado, e onde:
+ *
+ * - `exigirAmbienteDoKeyProvider`: `KAMBA_ENV` em falta ou desconhecida, e o
+ *   `KAMBA_ENV` diferente do ambiente do provedor;
+ * - `exigirChavesNoArranque`: em `prod`, a KEK e (salvo num processo que só lê
+ *   endpoints) a chave de pesquisa têm de estar lá no arranque, com forma de
+ *   chave. Ausente, vazia ou mal formada recusa, e a recusa nomeia todas.
+ *
+ * `Identidade.arrancar` chama as duas — não há forma de obter o serviço sem
+ * passar por elas.
  *
  * **Nenhuma mensagem de erro deste ficheiro contém material de chave.**
  */
@@ -107,17 +116,27 @@ export class EmbrulhoInvalidoError extends Error {
   }
 }
 
-/** Em `prod`, as chaves não vêm do ambiente do processo. */
-export class KeyProviderDeAmbienteError extends Error {
-  override readonly name = "KeyProviderDeAmbienteError";
+/**
+ * Em `prod`, uma chave de identidade que o processo usa não está no arranque.
+ *
+ * Substitui a recusa do provedor de ambiente (critério 9 do KAM-008, emendado a
+ * 2026-11-20): o provedor de ambiente passou a ser o de `prod`, e o que se recusa
+ * é arrancar sem as chaves. Leva as referências e o motivo de cada uma, nunca um
+ * valor.
+ */
+export class ChavesDeIdentidadeEmFaltaError extends Error {
+  override readonly name = "ChavesDeIdentidadeEmFaltaError";
   readonly provedor: string;
+  readonly refs: readonly string[];
 
-  constructor(provedor: string) {
+  constructor(provedor: string, falhas: readonly { ref: string; motivo: string }[]) {
     super(
-      `arranque recusado: em prod o KeyProvider não pode ser o de ambiente ` +
-        `(provedor ${provedor}); as chaves de identidade vêm do cofre`,
+      `arranque recusado: em prod as chaves de identidade têm de estar no arranque ` +
+        `(provedor ${provedor}): ` +
+        falhas.map((f) => `${f.ref} ${f.motivo}`).join("; "),
     );
     this.provedor = provedor;
+    this.refs = falhas.map((f) => f.ref);
   }
 }
 
@@ -148,8 +167,18 @@ export interface KeyProvider {
   readonly nome: string;
   /** Ambiente para que o provedor está configurado. */
   readonly ambiente: Ambiente;
-  /** `true` se as chaves vêm do ambiente do processo. Em `prod` é recusado. */
+  /**
+   * `true` se as chaves vêm do ambiente do processo. Informativo: em `prod` é o
+   * caminho do ADR-L002 desde 2026-11-20, e já não é recusado.
+   */
   readonly deAmbiente: boolean;
+
+  /**
+   * Lê a versão actual (e a anterior, se houver) de uma chave versionada e
+   * confere a forma. Levanta como as leituras: `SecretAusenteError` se faltar,
+   * `ChaveMalFormadaError` se não tiver forma de chave. É o que o arranque usa.
+   */
+  carregar(ref: ChaveDoArranque): Promise<void>;
 
   /** A chave de pesquisa da versão `kid`. */
   getLookupKey(kid: string): Promise<Uint8Array>;
@@ -166,6 +195,9 @@ export interface KeyProvider {
   /** Desembrulha com a KEK da versão `kekId`. */
   unwrapDek(embrulho: Uint8Array, kekId: string, contexto: Uint8Array): Promise<Uint8Array>;
 }
+
+/** As chaves versionadas que o arranque confere em `prod`. */
+export type ChaveDoArranque = typeof REF_CHAVE_DE_PESQUISA | typeof REF_KEK;
 
 /** `true` se `kid` tem a forma de um identificador de versão. */
 export function kidValido(kid: unknown): kid is string {
@@ -262,6 +294,10 @@ export class SecretsKeyProvider implements KeyProvider {
     return encontrada.chave;
   }
 
+  async carregar(ref: ChaveDoArranque): Promise<void> {
+    await this.#anel(ref);
+  }
+
   async getLookupKey(kid: string): Promise<Uint8Array> {
     return this.#versao(REF_CHAVE_DE_PESQUISA, kid);
   }
@@ -342,8 +378,12 @@ export interface EnvKeyProviderOpcoes {
 /**
  * O `KeyProvider` de ambiente: as chaves vêm de `KAMBA_SECRET_*`.
  *
- * Para `dev` e para os testes. Em `prod` é recusado por
- * `exigirKeyProviderDeCofre`, que é a letra do critério de aceitação.
+ * É o de todos os ambientes, `prod` incluído: o lançador do cofre enche o
+ * ambiente do processo (ADR-L002; decisão do fundador, 2026-11-20). **De dentro
+ * do processo não se distingue** um ambiente cheio pelo lançador de um cheio à
+ * mão: as variáveis são as mesmas, e um marcador do lançador seria uma variável
+ * que se escreve à mão também (e a forma do Doppler é NÃO VERIFICADO, ADR-L002
+ * §6). O que se recusa é arrancar sem as chaves — `exigirChavesNoArranque`.
  */
 export class EnvKeyProvider extends SecretsKeyProvider {
   constructor(opcoes: EnvKeyProviderOpcoes) {
@@ -358,20 +398,23 @@ export class EnvKeyProvider extends SecretsKeyProvider {
 }
 
 /**
- * Recusa o arranque quando as chaves não podem ser as que são.
+ * Recusa o arranque quando as chaves não são do ambiente declarado.
  *
- * Três recusas, todas fechadas:
+ * Duas recusas, as duas fechadas:
  *
  * 1. `KAMBA_ENV` em falta ou fora de `dev`/`staging`/`prod`. Uma variável
  *    esquecida não pode valer como «não é produção»: era a forma de um
- *    `prod` mal configurado arrancar com chaves de ambiente.
+ *    `prod` mal configurado arrancar sem a verificação das chaves.
  * 2. `KAMBA_ENV` diferente do ambiente do provedor: chaves de `dev` em `prod`,
  *    ou o contrário.
- * 3. `KAMBA_ENV=prod` com um provedor de ambiente — o critério do ticket.
+ *
+ * A terceira recusa — o provedor de ambiente em `prod` — saiu a 2026-11-20
+ * (decisão do fundador, critério 9 do KAM-008 emendado), e no lugar dela está
+ * `exigirChavesNoArranque`, que é assíncrona porque lê as chaves.
  *
  * Devolve o ambiente, para quem o quiser registar.
  */
-export function exigirKeyProviderDeCofre(
+export function exigirAmbienteDoKeyProvider(
   chaves: KeyProvider,
   env: ProcessEnv = process.env,
 ): Ambiente {
@@ -387,10 +430,36 @@ export function exigirKeyProviderDeCofre(
         `está configurado para ${chaves.ambiente}`,
     );
   }
-  if (declarado === "prod" && chaves.deAmbiente) {
-    throw new KeyProviderDeAmbienteError(chaves.nome);
-  }
   return declarado;
+}
+
+/**
+ * Em `prod`, recusa o arranque se uma chave que o processo usa não estiver lá.
+ *
+ * Lê cada uma pelo `carregar` do provedor — a mesma leitura e a mesma conferência
+ * de forma que as operações fazem —, e junta as falhas numa só recusa, para que
+ * quem configura um ambiente corrija uma lista e não descubra uma chave por
+ * reinício. Uma variável vazia é ausente (`EnvSecretProvider`). Um erro que não
+ * seja de chave ausente ou mal formada (um cofre inacessível) sobe como está:
+ * também recusa.
+ *
+ * @throws {ChavesDeIdentidadeEmFaltaError}
+ */
+export async function exigirChavesNoArranque(
+  chaves: KeyProvider,
+  refs: readonly ChaveDoArranque[],
+): Promise<void> {
+  const falhas: { ref: string; motivo: string }[] = [];
+  for (const ref of refs) {
+    try {
+      await chaves.carregar(ref);
+    } catch (erro) {
+      if (erro instanceof SecretAusenteError) falhas.push({ ref, motivo: "ausente ou vazia" });
+      else if (erro instanceof ChaveMalFormadaError) falhas.push({ ref, motivo: "mal formada" });
+      else throw erro;
+    }
+  }
+  if (falhas.length > 0) throw new ChavesDeIdentidadeEmFaltaError(chaves.nome, falhas);
 }
 
 /**

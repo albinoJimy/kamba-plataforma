@@ -74,6 +74,8 @@
 import {
   assertPublishable,
   EscritorSql,
+  FINALIDADE_DAS_CONDICOES,
+  FINALIDADE_DO_CATALOGO,
   LeitorSql,
   NaoPublicavelError,
   SUJEITOS,
@@ -126,6 +128,29 @@ export const SUJEITOS_DA_ROTA: readonly SujeitoTipo[] = SUJEITOS.filter(
     (sujeito as string) === SUJEITO_DO_CONTEUDO,
 );
 
+/**
+ * A finalidade de transferência de cada sujeito da rota (KAM-230). O
+ * classificador do AGR consulta o *gate* de destino com ela, e não com a do
+ * papel: as condições de um orçamento têm a sua (decisão do fundador de
+ * 2026-11-20, opção B), e a do catálogo nunca as cobre. O AGR manda a
+ * finalidade no pedido, e a operação confere-a com esta tabela: duas leituras
+ * que discordam recusam, em vez de uma escolher pela outra.
+ */
+export const FINALIDADE_DO_SUJEITO: Readonly<Record<string, string>> = {
+  [SUJEITO_DAS_CONDICOES]: FINALIDADE_DAS_CONDICOES,
+  [SUJEITO_DO_PRODUTO]: FINALIDADE_DO_CATALOGO,
+};
+
+/**
+ * O que fica do prazo de quem chama para gravar a decisão e responder, depois do
+ * classificador (KAM-230). *Proposta*: a gravação é uma instrução numa
+ * transacção curta, e o p99 dela não está medido.
+ */
+export const RESERVA_DA_GRAVACAO_MS = 300;
+
+/** O tecto do `prazo_ms` que a rota aceita: o `TEMPO_MAXIMO_MS` do adaptador Python. */
+export const PRAZO_MAXIMO_MS = 20_000;
+
 /** O pedido que a rota valida. `categoriaDeclarada` `null` quer dizer «a do tenant». */
 export interface PedidoDeScreen {
   /** Uma cadeia: quem decide se é um sujeito aceite é a operação. */
@@ -133,6 +158,10 @@ export interface PedidoDeScreen {
   readonly sujeitoRef: string;
   readonly categoriaDeclarada: string | null;
   readonly textos: readonly string[];
+  /** A finalidade que o chamador diz (KAM-230); tem de ser a do sujeito. */
+  readonly finalidade: string;
+  /** O que sobra a quem chama, em milissegundos, quando o pedido sai (KAM-230). */
+  readonly prazoMs: number;
 }
 
 /**
@@ -174,9 +203,22 @@ export function operacaoDeScreen(deps: DependenciasDoScreenDoCom): OperacaoDeScr
   return async (ctx, pedido) => {
     // Antes de qualquer ligação, como em todo o COM (ISO-09).
     const { tenantId } = exigirCtx(ctx);
+    // O prazo conta da chegada, e não de quando o classificador é chamado: a
+    // leitura da categoria do tenant também o gasta.
+    const limite = Date.now() + pedido.prazoMs - RESERVA_DA_GRAVACAO_MS;
     const aceites = SUJEITOS_DA_ROTA;
     if (!(aceites as readonly string[]).includes(pedido.sujeitoTipo)) return erro("VALIDATION_ERROR");
     const sujeitoTipo = pedido.sujeitoTipo as SujeitoTipo;
+    const finalidade = FINALIDADE_DO_SUJEITO[pedido.sujeitoTipo];
+    if (finalidade === undefined || pedido.finalidade !== finalidade) return erro("VALIDATION_ERROR");
+    const base = deps.classificador;
+    const classificador: ClassificadorDeCategorias | null =
+      base === null
+        ? null
+        : {
+            classificar: (entradaDoModelo, contexto) =>
+              base.classificar(entradaDoModelo, { ...contexto, finalidade, prazoMs: limite - Date.now() }),
+          };
     try {
       const categoria =
         pedido.categoriaDeclarada ??
@@ -191,7 +233,7 @@ export function operacaoDeScreen(deps: DependenciasDoScreenDoCom): OperacaoDeScr
         entrada,
         {
           politica: deps.politica,
-          classificador: deps.classificador,
+          classificador,
           escritor: {
             gravar: (linha) =>
               deps.comTenant(tenantId, (cliente) =>

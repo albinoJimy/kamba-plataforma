@@ -854,7 +854,7 @@ class TestSaidaPorLigar(unittest.TestCase):
         saida = grafos_mod.SaidaPorLigar(aviso=avisos.append)
         for chave in ("t:0", "t:1"):
             with self.assertRaises(SaidaPorLigarError):
-                saida.enfileirar({}, "ola", chave=chave)
+                asyncio.run(saida.enfileirar({}, "ola", chave=chave))
         self.assertEqual(avisos, ["saida_por_ligar", "saida_por_ligar"])
 
     def test_um_turno_sem_outbound_e_503_e_a_reentrega_nao_e_repetida(self) -> None:

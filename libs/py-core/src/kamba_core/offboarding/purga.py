@@ -68,7 +68,7 @@ from __future__ import annotations
 import contextlib
 import json
 import uuid
-from collections.abc import Callable, Iterator, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Final
@@ -149,8 +149,10 @@ LOTE_DO_STO: Final = LIMITE_MAXIMO_DE_LISTAGEM
 #: em vez de girar.
 VOLTAS_DO_STO: Final = 2
 
-#: Quem apaga os contactos do tenant, e devolve quantos. O cofre, em producao.
-ApagarContactos = Callable[[str], int]
+#: Quem apaga os contactos do tenant. O cofre, em producao. Devolve as linhas
+#: por tabela do cofre (`cofre.apagar_contactos_pelo_cofre`, KAM-218), e cada uma
+#: fica no `purge_log`; um inteiro (a forma do KAM-098) conta so os contactos.
+ApagarContactos = Callable[[str], "int | Mapping[str, int]"]
 AbrirLigacao = Callable[[], Any]
 
 #: Uma encomenda em disputa conta como disputa aberta.
@@ -305,10 +307,18 @@ class _Corrida:
                 cur, "platform.contacts", purge_log.RESULTADO_FALHOU, purge_log.MOTIVO_ERRO))
             return
 
+        # Uma linha por tabela do cofre, e nao so a dos contactos: a destruicao das
+        # DEK e a prova do *crypto-shredding*, e o certificado le-a daqui (achado 1
+        # da revisao adversarial do KAM-218).
+        por_tabela = dict(n) if isinstance(n, Mapping) else {"platform.contacts": int(n)}
+
         def corpo(cursor: Any) -> None:
-            r = self.registo("platform.contacts", purge_log.RESULTADO_OK, linhas=max(int(n), 0))
-            purge_log.escrever(cursor, r)
-            self.registos.append(r)
+            for tabela in TABELAS_DOS_CONTACTOS:
+                if tabela not in por_tabela:
+                    continue
+                r = self.registo(tabela, purge_log.RESULTADO_OK, linhas=max(int(por_tabela[tabela]), 0))
+                purge_log.escrever(cursor, r)
+                self.registos.append(r)
 
         _em_batch(self.abrir, "offboarding_purga", corpo)
 

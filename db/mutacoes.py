@@ -328,6 +328,10 @@ REV_FOTO = _revisao_por_glob("*_foto_de_produtos.py")
 #: numero (`0069`) e o da fila de integracao. O ensaio que a prova e o
 #: `db/tests/test_finalidade_do_screening_schema.py`.
 REV_FINALIDADE_DO_SCREENING = _revisao_por_glob("*_finalidade_do_screening.py")
+#: KAM-230: a revisao da finalidade das condicoes, pela mesma razao — o numero
+#: (`0078`) e o da fila de integracao. O ensaio que a prova e o
+#: `db/tests/test_finalidade_das_condicoes_schema.py`.
+REV_FINALIDADE_DAS_CONDICOES = _revisao_por_glob("*_finalidade_das_condicoes.py")
 #: KAM-095: a revisao da lista de espera, pela razao da do Catalogo AI — o
 #: numero (`0059`) e provisorio. O ensaio que a prova e o
 #: `db/tests/test_lista_espera_schema.py`.
@@ -635,6 +639,7 @@ AG_TURNO = "services/agr/src/kamba_agr/turno.py"
 RESPOSTA_EFEITO = "packages/core-ts/src/resposta/efeito.ts"
 RESPOSTA_ENVIO = "packages/core-ts/src/resposta/envio.ts"
 RESPOSTA_CONTRATO = "packages/core-ts/src/resposta/contrato.ts"
+RESPOSTA_CREDENCIAL = "packages/core-ts/src/resposta/credencial.ts"
 #: O grafo do Vendedor (KAM-031). Tambem na `agr_unit`: o grafo corre com
 #: *fakes* por contrato e com a ToolLayer a serio, e nada do que estas mutacoes
 #: alteram toca a base.
@@ -1302,8 +1307,17 @@ MUTACOES = [
     ("identidade: sujeito_ref com a mesma chave em todos os meses", ID_CHAVES,
      "const ref = `${REF_CHAVE_DE_EPOCA}/${epoca}`;",
      "const ref = `${REF_CHAVE_DE_EPOCA}/202610`;", IDENTIDADE),
-    ("identidade: prod aceita o KeyProvider de ambiente", ID_CHAVES,
-     'if (declarado === "prod" && chaves.deAmbiente) {', "if (false) {", IDENTIDADE),
+    # O criterio 9 do KAM-008 emendado (fundador, 2026-11-20): em `prod` o
+    # provedor de ambiente arranca, e o que se recusa e arrancar sem as chaves.
+    # A primeira muta a ligacao (o `arrancar` deixa de chamar a verificacao), a
+    # segunda a funcao, e a terceira deixa cair a chave de pesquisa.
+    ("identidade: prod arranca sem conferir as chaves", ID_SERVICO,
+     'if (ambiente === "prod") {', "if (false) {", IDENTIDADE),
+    ("identidade: a falta de chaves no arranque nao recusa", ID_CHAVES,
+     "if (falhas.length > 0) throw", "if (false) throw", IDENTIDADE),
+    ("identidade: o arranque em prod so confere a KEK", ID_SERVICO,
+     "opcoes.soLeEndpoints === true ? [REF_KEK] : [REF_KEK, REF_CHAVE_DE_PESQUISA]",
+     "[REF_KEK]", IDENTIDADE),
     ("identidade: provedor de dev arranca em prod", ID_CHAVES,
      "if (chaves.ambiente !== declarado) {", "if (false) {", IDENTIDADE),
     ("identidade: pesquisa do BSUID so com a chave actual", ID_SERVICO,
@@ -5181,6 +5195,19 @@ MUTACOES = [
      '    const resposta = await respostaParaEnviar',
      '    const resposta = await respostaParaEnviar',
      SAIDA),
+    # KAM-227: o reenvio repete a chave do turno, e o `Saida` nunca o envia:
+    # «uma chave repetida cuja linha ficou queued, failed ou sem linha reenvia
+    # uma vez, pela chave derivada (KAM-227)».
+    ('resposta: o reenvio usa a chave do turno', RESPOSTA_EFEITO,
+     '      const reenvio = { ...pedido, idempotencyKey: chaveDoReenvio(pedido.idempotencyKey) };',
+     '      const reenvio = pedido;',
+     SAIDA),
+    # KAM-227: o token e o do primeiro canal do tenant, e nao o do pedido:
+    # «um canal que não é o do pedido não serve: sem_canal».
+    ('resposta: a credencial ignora o canal do pedido', RESPOSTA_CREDENCIAL,
+     '   WHERE tenant_id = $1 AND id = $2 AND phone_number_id = $3`;',
+     '   WHERE tenant_id = $1 AND $2::text IS NOT NULL AND $3::text IS NOT NULL`;',
+     SAIDA),
     # Um canal desconhecido cai no WhatsApp:
     # «recusa um canal desconhecido, e não o trata como WhatsApp».
     ('resposta: o canal desconhecido passa', RESPOSTA_CONTRATO,
@@ -5598,6 +5625,14 @@ MUTACOES = [
     ('grafos: a saida por ligar deixa de levantar', AG_GRAFOS,
      '        raise SaidaPorLigarError("saida_por_ligar")',
      '        return None',
+     AGR_UNIT),
+    # KAM-227: o envio volta a correr na *event loop* e pára os outros turnos:
+    # `test_uma_base_lenta_nao_para_os_outros_turnos`.
+    ('saida: o enfileirar volta a correr na event loop', AG_SAIDA,
+     '        reply_id = await asyncio.to_thread(\n'
+     '            self._gravar, estado, texto, chave, tuple(botoes), canal, inicio\n'
+     '        )',
+     '        reply_id = self._gravar(estado, texto, chave, tuple(botoes), canal, inicio)',
      AGR_UNIT),
     ('grafos: o resolve volta a correr na event loop', AG_GRAFOS,
      '        resolucao = await asyncio.to_thread(self._registo.resolve, invocacao)',
@@ -7711,6 +7746,27 @@ MUTACOES = [
     # e o `ADD CONSTRAINT` das catorze rebentava a meio — ou, sem a linha,
     # apagava-se em silencio um registo de transferencia. O
     # `test_com_um_destino_recusa_e_sem_ele_desce_e_volta` tem de a matar.
+
+    # ------------------------ KAM-230 (revisao da finalidade das condicoes)
+    #
+    # Duas, uma por direccao, como as da KAM-195. O alvo e a revisao descoberta
+    # pelo *glob* (`REV_FINALIDADE_DAS_CONDICOES`).
+    ('finalidade das condicoes: o dominio nao a ganha', REV_FINALIDADE_DAS_CONDICOES,
+     "    \"'classificacao_de_condicoes'\",\n",
+     "",
+     "tests"),
+    # A revisao corria e o `CHECK` ficava com as quinze: um destino da
+    # finalidade das condicoes nao cabia, e o *gate* negava sempre as condicoes.
+    # O `test_o_dominio_tem_as_dezasseis_e_as_condicoes_sao_aceites` tem de a
+    # matar.
+    ('finalidade das condicoes: a descida apaga a decisao', REV_FINALIDADE_DAS_CONDICOES,
+     "    if linhas:\n        raise RuntimeError(",
+     "    if False:\n        raise RuntimeError(",
+     "tests"),
+    # A descida deixava de recusar com um destino `classificacao_de_condicoes`,
+    # e o `ADD CONSTRAINT` das quinze rebentava a meio. O
+    # `test_com_um_destino_recusa_e_sem_ele_desce_e_volta` da
+    # `test_finalidade_das_condicoes_schema.py` tem de a matar.
 
     # ------------------------------------------------------------- KAM-061
     # O indice de pesquisa: o DDL e a funcao (`db/indice.py`), a camada de

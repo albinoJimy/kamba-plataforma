@@ -24,6 +24,17 @@ isso nao grava `produto` com o `quote_id`.
 decisao de categoria mais recente). E o caso das condicoes, que nao tem
 categoria propria.
 
+## A finalidade e o prazo viajam com o pedido (KAM-230)
+
+O adaptador manda ao COM a **finalidade de transferencia** do sujeito
+(`FINALIDADE_DO_SUJEITO`) e o **prazo** que lhe sobra (`prazo_ms`, o seu
+`timeout_ms`). O COM confere a finalidade com a tabela dele e passa-a ao
+classificador, cuja rota no AGR consulta o *gate* de destino com ela, e nao
+com a do papel: as condicoes de um orcamento tem finalidade propria (decisao do
+fundador de 2026-11-20, opcao B), e a do catalogo nunca as cobre. O prazo corta
+a espera do COM pelo classificador e a da rota pelo modelo, para que a decisao
+gravada seja a de uma resposta que alguem ainda le.
+
 ## *Fail-closed*, e sem texto
 
 Tudo o que nao seja um 200 com um resultado de forma fechada **levanta**: um
@@ -41,6 +52,7 @@ from dataclasses import dataclass
 from typing import Any, Final
 
 from kamba_core.catalogo.screening import DECISOES, PERMITIDA, REGRA_REVISAO_PENDENTE, ResultadoDoScreen
+from kamba_core.destinos import FINALIDADE_CLASSIFICACAO, FINALIDADE_CONDICOES
 
 from .com import ClienteDoCom
 
@@ -58,6 +70,14 @@ SUJEITO_DO_PRODUTO: Final = "produto"
 #: O de um item do social, o tema e depois a legenda, com o `content_item_id`
 #: como `sujeito_ref` (decisao 1 do fundador de 2026-11-20).
 SUJEITO_DO_CONTEUDO: Final = "conteudo"
+
+#: A finalidade de transferencia de cada sujeito (KAM-230). Igual a do
+#: `FINALIDADE_DO_SUJEITO` de `services/com/src/screening/index.ts`, que a
+#: confere: um ensaio le o TypeScript e exige a mesma tabela.
+FINALIDADE_DO_SUJEITO: Final = {
+    SUJEITO_DAS_CONDICOES: FINALIDADE_CONDICOES,
+    SUJEITO_DO_PRODUTO: FINALIDADE_CLASSIFICACAO,
+}
 
 #: O tecto de uma chamada. O classificador do `screen` tem 15 s
 #: (`TEMPO_MAXIMO_MS` do `classificador.ts`), e o COM grava depois: vinte
@@ -144,6 +164,9 @@ class ScreeningPeloCom:
             "sujeito_ref": sujeito_ref,
             "categoria_declarada": categoria_declarada,
             "textos": list(textos),
+            "finalidade": FINALIDADE_DO_SUJEITO[self.sujeito_tipo],
+            # O mesmo tecto do transporte: e o que o COM tem para responder.
+            "prazo_ms": self.timeout_ms,
         }
         try:
             valor = self.cliente.chamar(ROTA, ctx, corpo, self.timeout_ms)

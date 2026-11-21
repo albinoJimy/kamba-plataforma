@@ -38,9 +38,19 @@ chave e a mesma, e o `INSERT` nao insere: a resposta sai uma vez.
 ## Uma ligacao por envio
 
 Pela razao da `PortaDeConfirmacao` do KAM-211: o `tenant_guard` recusa uma
-segunda transaccao na mesma ligacao, e uma tomada guardada pedia um trinco. O
-`enfileirar` e **sincrono** (a `PortaDeSaida` do grafo e sincrona desde o
-KAM-031) e corre a ida a base dentro do no, como a ToolLayer.
+segunda transaccao na mesma ligacao, e uma tomada guardada pedia um trinco.
+
+**A ida a base corre fora da *event loop*** (KAM-227). A `PortaDeSaida` do grafo
+e `async`, os tres nos que enviam (`send`, `handoff_prepare`, `handoff_close`)
+fazem `await`, e o `enfileirar` passa a ligacao, as duas instrucoes e o `COMMIT`
+a uma *thread* com o `asyncio.to_thread` — a travessia do `conversa.py` e do
+`checkpointer.py`. Uma base lenta atrasa o turno que envia e nao os outros. O
+`emitir_resposta` continua sincrono: e o corpo que corre na *thread*.
+
+Um cancelamento a meio nao corta a *thread* (o `to_thread` nao cancela), mas
+nao ha nada partilhado a proteger: a ligacao e so deste envio, e a *thread*
+fecha-a. Se o `COMMIT` chegou, o turno repete-se com a mesma chave e o `INSERT`
+nao insere.
 
 ## O inicio do turno
 
@@ -53,6 +63,7 @@ vale o instante do envio, que e quando a retoma comecou a responder.
 
 from __future__ import annotations
 
+import asyncio
 import contextvars
 import datetime
 import json
@@ -448,7 +459,7 @@ class SaidaPorEvento:
         self._relogio = relogio
         self._aviso = aviso
 
-    def enfileirar(
+    async def enfileirar(
         self,
         estado: Mapping[str, Any],
         texto: str,
@@ -456,21 +467,39 @@ class SaidaPorEvento:
         chave: str,
         botoes: Sequence[str] = (),
     ) -> None:
-        # shortcut: a ligacao, as duas instrucoes e o COMMIT correm na event loop,
-        # porque a `PortaDeSaida` do grafo e sincrona e os nos chamam-na sem
-        # `await`; com a base lenta, o processo para. Passar a porta a `async`
-        # (com `asyncio.to_thread`, como a `PortaDeConfirmacao`) muda os tres
-        # nos e os duplos; revê-se no KAM-227, antes de o `outbound` arrancar.
+        # O inicio e o canal leem-se aqui, na tarefa do no: o `to_thread` copia
+        # o contexto, mas o `INICIO_DO_TURNO` fica lido onde o turno o pos, e a
+        # *thread* recebe valores e nao um `ContextVar`.
         inicio = INICIO_DO_TURNO.get() or self._relogio()
+        canal = self._canal_de(estado)
+        reply_id = await asyncio.to_thread(
+            self._gravar, estado, texto, chave, tuple(botoes), canal, inicio
+        )
+        if reply_id is None and self._aviso is not None:
+            # Uma repeticao nao e erro: e o turno a voltar sobre a mesma chave.
+            # Conta-se para se ver quantas vezes o *shim* repete um turno que ja
+            # tinha respondido.
+            self._aviso("resposta_repetida")
+
+    def _gravar(
+        self,
+        estado: Mapping[str, Any],
+        texto: str,
+        chave: str,
+        botoes: Sequence[str],
+        canal: str,
+        inicio: datetime.datetime,
+    ) -> str | None:
+        """O corpo sincrono do envio, na *thread*: abre, grava e emite, fecha."""
         ligacao = self._abrir()
         try:
-            reply_id = emitir_resposta(
+            return emitir_resposta(
                 ligacao,
                 estado,
                 texto,
                 chave=chave,
                 botoes=botoes,
-                canal=self._canal_de(estado),
+                canal=canal,
                 turno_iniciado_em=inicio,
             )
         finally:
@@ -478,11 +507,6 @@ class SaidaPorEvento:
                 ligacao.close()
             except Exception:  # noqa: BLE001 — a resposta ja ficou ou ja falhou
                 pass
-        if reply_id is None and self._aviso is not None:
-            # Uma repeticao nao e erro: e o turno a voltar sobre a mesma chave.
-            # Conta-se para se ver quantas vezes o *shim* repete um turno que ja
-            # tinha respondido.
-            self._aviso("resposta_repetida")
 
 
 __all__ = [
