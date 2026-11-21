@@ -152,7 +152,10 @@ class TestFicheirosReais(unittest.TestCase):
         """Eram sete; o KAM-187 trocou o `worker-canal` pelos quatro processos.
 
         O KAM-194 acrescentou tres: o `idx` (imagem do AGR) e as duas pontes. O
-        KAM-198 acrescentou o processo de lote do onboarding: catorze.
+        KAM-198 acrescentou o processo de lote do onboarding: catorze. O KAM-218
+        acrescentou o processo das fases de dados do off-boarding: quinze. O
+        KAM-215 acrescentou o consumidor `dono`, terceiro processo da imagem do
+        `onboarding-web`: dezasseis.
         """
         documento = arvore_yaml.ler(
             (ROOT / "infra/compose/docker-compose.dev.yml").read_text(encoding="utf-8")
@@ -161,8 +164,8 @@ class TestFicheirosReais(unittest.TestCase):
         self.assertEqual(
             sorted(servicos),
             [
-                "agr", "com", "gwy", "idx", "onboarding-lote", "onboarding-web",
-                "postgres", "queue",
+                "agr", "com", "gwy", "idx", "offboarding-dados", "onboarding-lote",
+                "onboarding-provisionamento", "onboarding-web", "postgres", "queue",
                 "worker-canal-agr-shim", "worker-canal-consumidor",
                 "worker-canal-entrada", "worker-canal-ponte-agr",
                 "worker-canal-ponte-idx", "worker-canal-publicador",

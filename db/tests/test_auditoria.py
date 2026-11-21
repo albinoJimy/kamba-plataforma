@@ -115,6 +115,11 @@ ACCOES = (
     # valor. A mesma extensao por migracao, com a mesma recusa no `downgrade`.
     "secret.rotate",
     "secret.revoke",
+    # A vigesima, da revisao `0082` (KAM-206): o dono viu o contacto de uma
+    # encomenda, mascarado. Escrita pelo `kamba_identity`, na transaccao da
+    # decifra (decisao do fundador de 2026-11-20, opcao A), com o `order_id` e
+    # nunca o telefone. A mesma recusa no `downgrade` se houver linhas.
+    "order.contact_view",
 )
 
 #: O dominio de `actor_type`.

@@ -283,6 +283,20 @@ const SONDAS: readonly Sonda[] = [
     fabrica: "createApp",
     caminho: "/metrics",
   },
+  // KAM-215: o consumidor `dono`. A `criarApp` constroi-se sem argumentos e
+  // nao abre a base nem a fila.
+  {
+    item: "rota:onboarding-web:provisionamento/processo:criarApp:GET:/healthz",
+    modulo: "services/onboarding-web/src/provisionamento/processo.ts",
+    fabrica: "criarApp",
+    caminho: "/healthz",
+  },
+  {
+    item: "rota:onboarding-web:provisionamento/processo:criarApp:GET:/metrics",
+    modulo: "services/onboarding-web/src/provisionamento/processo.ts",
+    fabrica: "criarApp",
+    caminho: "/metrics",
+  },
   {
     item: "rota:worker-canal:agr_shim:criarApp:GET:/healthz",
     modulo: "services/worker-canal/src/agr_shim.ts",
@@ -1300,10 +1314,10 @@ async function lerPorContacto(
 
 // ------------------------------------------------------ a API interna do COM
 //
-// As dezasseis superficies da API interna do COM: as catorze rotas
+// As dezassete superficies da API interna do COM: as quinze rotas
 // `POST /internal/*` (sete do KAM-178, as duas do painel do dono do KAM-099, as
-// duas leituras do KAM-190, o `screen` do KAM-222 e as duas do Catalogo AI do
-// KAM-119), o `GET /metrics` e o
+// duas leituras do KAM-190, o `screen` do KAM-222, as duas do Catalogo AI do
+// KAM-119 e o contacto da encomenda do KAM-206), o `GET /metrics` e o
 // `ALL /internal/*` da app construida **sem** a API montada.
 //
 // ## A propriedade que este grupo mede, e a que ele **nao** mede
@@ -1347,10 +1361,10 @@ async function lerPorContacto(
 // `nota`.
 
 /**
- * As catorze rotas, pela ordem de `services/com/src/api/interna.ts`: as sete do
+ * As quinze rotas, pela ordem de `services/com/src/api/interna.ts`: as sete do
  * KAM-178, as duas do painel do KAM-099, as duas leituras do KAM-190, o
- * `screen` do KAM-222 e as duas do Catalogo AI do KAM-119 (o rascunho e a
- * publicacao).
+ * `screen` do KAM-222, as duas do Catalogo AI do KAM-119 (o rascunho e a
+ * publicacao) e o contacto da encomenda do KAM-206.
  */
 const ROTAS_DO_COM = [
   "/internal/offer-view",
@@ -1367,9 +1381,10 @@ const ROTAS_DO_COM = [
   "/internal/screen",
   "/internal/upsert-product-draft",
   "/internal/publish-product",
+  "/internal/order-contact",
 ] as const;
 
-/** O `item` enumerado de uma das catorze. Copiado do caso, nao derivado dele. */
+/** O `item` enumerado de uma das quinze. Copiado do caso, nao derivado dele. */
 function itemDoCom(rota: string): string {
   return `rota:com:api/interna:apiInterna:POST:${rota}`;
 }
@@ -1610,6 +1625,11 @@ function operacoesDeEnsaioDoCom(
         valorDeA({ decisao: "permitida", regras: [canarioDeA], versao_politica: "2026.11.0", confianca: 0.95 }),
       );
     },
+    // KAM-206: o contacto da encomenda. O canario de A vai na mascara, que e o
+    // campo que a resposta leva; o real nunca devolve o telefone em claro.
+    async contactoDaEncomenda(ctx: unknown) {
+      return servir("contactoDaEncomenda", ctx, valorDeA({ orderId: ORDER_DE_A, telefoneMascarado: canarioDeA }));
+    },
     async alterarOferta(ctx: unknown) {
       return servir(
         "alterarOferta",
@@ -1728,7 +1748,15 @@ async function grupoDaApiInternaDoCom(relatorio: Relatorio): Promise<void> {
       return { sku: SKU_DE_A, preco_tipo: "fixo", preco_minor: "1000000", versao: VERSAO_DE_A };
     }
     if (rota === "/internal/screen") {
-      return { sujeito_tipo: "condicoes", sujeito_ref: ORDER_DE_A, textos: ["entrega de A"] };
+      // KAM-230: a finalidade (a das condicoes, que a operacao confere com o
+      // sujeito) e o prazo sao obrigatorios; sem eles a rota recusa antes da porta.
+      return {
+        sujeito_tipo: "condicoes",
+        sujeito_ref: ORDER_DE_A,
+        textos: ["entrega de A"],
+        finalidade: "classificacao_de_condicoes",
+        prazo_ms: 6_000,
+      };
     }
     if (rota === "/internal/upsert-product-draft") {
       return { sku: SKU_DE_A, nome: "arroz de A", preco_tipo: "fixo", preco_minor: "1000000" };
@@ -1780,7 +1808,14 @@ async function grupoDaApiInternaDoCom(relatorio: Relatorio): Promise<void> {
       return { sku: canario, preco_tipo: "fixo", preco_minor: "1", versao: VERSAO_DE_A, stock: 1 };
     }
     if (rota === "/internal/screen") {
-      return { sujeito_tipo: "condicoes", sujeito_ref: canario, categoria_declarada: canario, textos: [canario] };
+      return {
+        sujeito_tipo: "condicoes",
+        sujeito_ref: canario,
+        categoria_declarada: canario,
+        textos: [canario],
+        finalidade: "classificacao_de_condicoes",
+        prazo_ms: 6_000,
+      };
     }
     if (rota === "/internal/upsert-product-draft") {
       return { sku: canario, nome: canario, preco_tipo: "fixo", preco_minor: "1" };
@@ -2744,6 +2779,12 @@ const ITENS_DO_PAINEL = [
   "rota:onboarding-web:painel/rotas:actor:POST:/painel/telefone/cancelar",
   "rota:onboarding-web:painel/rotas:actor:GET:/painel/conversa",
   "rota:onboarding-web:painel/rotas:actor:POST:/painel/conversa",
+  // KAM-202: o inicio do teste ponta a ponta.
+  "rota:onboarding-web:painel/rotas:actor:POST:/painel/teste",
+  // KAM-206: a pagina de um produto, com o formulario que saiu da lista.
+  "rota:onboarding-web:painel/rotas:actor:GET:/painel/produtos/:id",
+  // KAM-206: o contacto do cliente de uma encomenda, mascarado, pelo botao.
+  "rota:onboarding-web:painel/rotas:actor:POST:/painel/encomendas/:id/contacto",
 ] as const;
 
 /** Os telefones da reentrada (KAM-190). Ficticios, com 999. */
@@ -2758,8 +2799,13 @@ const CASO_DE_A_NO_PAINEL = "0000000a-0000-4000-8000-0000000000c1";
 const CASO_DE_B_NO_PAINEL = "0000000b-0000-4000-8000-0000000000c1";
 /** O caso `activo` de A: a troca de telefone (KAM-211) so abre nessa fase. */
 const CASO_ACTIVO_DE_A_NO_PAINEL = "0000000a-0000-4000-8000-0000000000c2";
+/** O caso de A em `aguarda_teste`: o teste ponta a ponta (KAM-202) so abre nessa fase. */
+const CASO_EM_TESTE_DE_A_NO_PAINEL = "0000000a-0000-4000-8000-0000000000c3";
 const ORDEM_DE_A_NO_PAINEL = "0000000a-0000-4000-8000-0000000000d1";
 const ORDEM_DE_B_NO_PAINEL = "0000000b-0000-4000-8000-0000000000d1";
+/** KAM-206: uma encomenda **paga** de cada tenant, no estado em que o contacto se mostra. */
+const ORDEM_PAGA_DE_A_NO_PAINEL = "0000000a-0000-4000-8000-0000000000d2";
+const ORDEM_PAGA_DE_B_NO_PAINEL = "0000000b-0000-4000-8000-0000000000d2";
 
 /** O marcador de A: o que tem de **chegar** a resposta das listas. */
 const MARCADOR_DE_A = "marcador-de-a-no-painel";
@@ -2839,8 +2885,17 @@ async function grupoDoPainel(relatorio: Relatorio): Promise<void> {
     })();
     comercio.semear(TENANT_DE_A_NO_PAINEL, [oferta("arroz-de-a", MARCADOR_DE_A)], [
       encomenda(ORDEM_DE_A_NO_PAINEL, MARCADOR_DE_A),
+      { ...encomenda(ORDEM_PAGA_DE_A_NO_PAINEL, MARCADOR_DE_A), estado: "paga" },
     ]);
-    comercio.semear(TENANT_DE_B_NO_PAINEL, [oferta(canario, canario)], [encomenda(ORDEM_DE_B_NO_PAINEL, canario)]);
+    comercio.semear(TENANT_DE_B_NO_PAINEL, [oferta(canario, canario)], [
+      encomenda(ORDEM_DE_B_NO_PAINEL, canario),
+      { ...encomenda(ORDEM_PAGA_DE_B_NO_PAINEL, canario), estado: "paga" },
+    ]);
+    // KAM-206: a mascara de B leva o canario. Um contacto de B servido a A
+    // punha-o na resposta, e o oraculo apanhava-o.
+    const mascaras = (comercio as unknown as { mascaras: Map<string, string> }).mascaras;
+    mascaras.set(ORDEM_PAGA_DE_A_NO_PAINEL, "••• ••• 101");
+    mascaras.set(ORDEM_PAGA_DE_B_NO_PAINEL, canario);
 
     const canal = new (canalModulo["CanalEmMemoria"] as new () => { vistas: Map<string, unknown> })();
     const vazia = { restrito: false, escalao: null, nivel: 1, tectoPedidoMinor: 5_000_000n };
@@ -2906,6 +2961,7 @@ async function grupoDoPainel(relatorio: Relatorio): Promise<void> {
       [CASO_DE_A_NO_PAINEL, { tenantId: TENANT_DE_A_NO_PAINEL, fase: "aguarda_es" }],
       [CASO_DE_B_NO_PAINEL, { tenantId: TENANT_DE_B_NO_PAINEL, fase: "activo" }],
       [CASO_ACTIVO_DE_A_NO_PAINEL, { tenantId: TENANT_DE_A_NO_PAINEL, fase: "activo" }],
+      [CASO_EM_TESTE_DE_A_NO_PAINEL, { tenantId: TENANT_DE_A_NO_PAINEL, fase: "aguarda_teste" }],
     ]);
     const novaSessao = sessaoModulo["novaSessao"] as (t: string, d: string, a: Date) => Record<string, unknown>;
     const cunharSessao = sessaoModulo["cunharSessao"] as (s: unknown, c: Uint8Array) => string;
@@ -3004,6 +3060,16 @@ async function grupoDoPainel(relatorio: Relatorio): Promise<void> {
       }),
     };
 
+    // O teste ponta a ponta (KAM-202): um `TesteDoPainel` de duplo que regista o
+    // caso e o tenant de cada inicio.
+    const iniciados: { onboardingId: string; tenantId: string }[] = [];
+    const teste = {
+      async iniciar(onboardingId: string, tenantId: string) {
+        iniciados.push({ onboardingId, tenantId });
+        return { instrucoes: "envie a palavra", expiraEm: new Date(agora.getTime() + 60_000) };
+      },
+    };
+
     const app = (rotas["rotasDoPainel"] as (o: unknown) => AppHono)({
       comercio,
       canal: canalEspiao,
@@ -3014,6 +3080,7 @@ async function grupoDoPainel(relatorio: Relatorio): Promise<void> {
       reentrada,
       troca,
       conversa,
+      teste,
     });
     const cookieDeA = `kamba_painel=${cunharSessao(sessaoDeA, chave)}`;
 
@@ -3383,6 +3450,62 @@ async function grupoDoPainel(relatorio: Relatorio): Promise<void> {
           !("botao" in i),
       );
     marcarEm(16, conversaDeA ? "conversa=a" : "conversa=alheia");
+
+    // ---- POST /painel/teste (KAM-202): a sessao de A com o caso e o tenant de B
+    // no corpo, na consulta e no cabecalho. A tentativa abre-se so no caso e no
+    // tenant da sessao de A.
+    const sessaoEmTesteDeA = novaSessao(TENANT_DE_A_NO_PAINEL, CASO_EM_TESTE_DE_A_NO_PAINEL, agora);
+    const cookieDoTeste = `kamba_painel=${cunharSessao(sessaoEmTesteDeA, chave)}`;
+    for (let vez = 0; vez < 3; vez += 1) {
+      const [c, headers] = comTenantDeB("/painel/teste", vez, cookieDoTeste);
+      await empurrar(
+        ITENS_DO_PAINEL[17],
+        "POST",
+        c,
+        {
+          method: "POST",
+          headers: { ...headers, "content-type": "application/json" },
+          body: JSON.stringify({ onboarding_id: CASO_DE_B_NO_PAINEL, tenant_id: TENANT_DE_B_NO_PAINEL }),
+        },
+        () => "",
+      );
+    }
+    const soOCasoDeA =
+      iniciados.length === 3 &&
+      iniciados.every((i) => i.onboardingId === CASO_EM_TESTE_DE_A_NO_PAINEL && i.tenantId === TENANT_DE_A_NO_PAINEL);
+    for (const entrada of relatorio.rotas) {
+      if (entrada.item === ITENS_DO_PAINEL[17]) entrada.nota += soOCasoDeA ? " teste=a" : " teste=alheio";
+    }
+
+    // ---- GET /painel/produtos/:id (KAM-206): o `sku` de B, com a sessao de A e
+    // o tenant de B na consulta e no cabecalho: 404 uniforme e nada de B. A
+    // sonda e a pagina do `sku` de A, fora das entradas.
+    for (let vez = 0; vez < 3; vez += 1) {
+      const [c, headers] = comTenantDeB(`/painel/produtos/${encodeURIComponent(canario)}`, vez);
+      await empurrar(ITENS_DO_PAINEL[18], "GET", c, { headers }, () => "");
+    }
+    const produtoDeA = await app.request("/painel/produtos/arroz-de-a", { headers: { cookie: cookieDeA } });
+    marcarEm(18, produtoDeA.status === 200 && (await produtoDeA.text()).includes(MARCADOR_DE_A) ? "sonda=viva" : "sonda=morta");
+
+    // ---- POST /painel/encomendas/:id/contacto (KAM-206): a encomenda **paga** de
+    // B (no estado em que o contacto se mostra, e com o canario na mascara), com
+    // a sessao de A e o tenant de B na consulta e no cabecalho: 404 uniforme e
+    // nada de B. A sonda e o contacto da encomenda paga de A, fora das entradas.
+    for (let vez = 0; vez < 3; vez += 1) {
+      const [c, headers] = comTenantDeB(`/painel/encomendas/${ORDEM_PAGA_DE_B_NO_PAINEL}/contacto`, vez);
+      await empurrar(ITENS_DO_PAINEL[19], "POST", c, { method: "POST", headers }, () => "");
+    }
+    const contactoDeA = await app.request(`/painel/encomendas/${ORDEM_PAGA_DE_A_NO_PAINEL}/contacto`, {
+      method: "POST",
+      headers: { cookie: cookieDeA },
+    });
+    const corpoDoContactoDeA = await contactoDeA.text();
+    marcarEm(
+      19,
+      contactoDeA.status === 200 && corpoDoContactoDeA.includes(MARCADOR_DE_A) && corpoDoContactoDeA.includes("••• ••• 101")
+        ? "sonda=viva"
+        : "sonda=morta",
+    );
   } catch (erro) {
     falhar(`a montagem do painel levantou: ${razao(erro)}`);
   }

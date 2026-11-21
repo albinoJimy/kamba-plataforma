@@ -98,7 +98,15 @@ class TestRepositorioReal(unittest.TestCase):
         # **KAM-198: de 62 para 65.** O processo de lote do onboarding (imagem
         # do `onboarding-web`), **+1 em cada um dos tres composes** — em
         # desenvolvimento atras do perfil `consumidores`.
-        self.assertEqual(resumo["servicos"], 65)
+        #
+        # **KAM-218: de 65 para 68.** O processo das fases de dados do
+        # off-boarding (imagem do AGR), **+1 em cada um dos tres composes** — em
+        # desenvolvimento atras do perfil `consumidores`.
+        #
+        # **KAM-215: de 68 para 70.** O consumidor `dono` (imagem do
+        # `onboarding-web`), **+1 em desenvolvimento e em *staging*** e nao em
+        # producao: la o `Identidade.arrancar` recusa o `EnvKeyProvider`.
+        self.assertEqual(resumo["servicos"], 70)
 
         _, resumo = egress.verificar(ROOT)
         # Idem: as quatro listas de saidas sao **vazias** com `por_omissao:
@@ -129,7 +137,12 @@ class TestRepositorioReal(unittest.TestCase):
         # sua lista em `infra/egress/`, todas `destinos: []`.
         # **KAM-198: de 25 para 26.** O `onboarding-lote`, com a sua lista em
         # `infra/egress/` e `destinos: []`: fala com a base e e raspado.
-        self.assertEqual(resumo["servicos"], 26)
+        # **KAM-218: de 26 para 27.** O `offboarding-dados`, com a sua lista em
+        # `infra/egress/` e `destinos: []`: fala com a base e com o
+        # armazenamento, os dois em `data`.
+        # **KAM-215: de 27 para 28.** O `onboarding-provisionamento`, com a sua
+        # lista e `destinos: []`: fala com a base e com a fila, e e raspado.
+        self.assertEqual(resumo["servicos"], 28)
         # **E os destinos de 3 para 8**, que e a conta que importa ler devagar:
         # os 3 do `litellm` continuam, o `gwy` passa a declarar
         # `graph.facebook.com` (ADR-001 faz dele o unico servico que fala com a
@@ -142,7 +155,19 @@ class TestRepositorioReal(unittest.TestCase):
         # igualdade nos dois sentidos — um destino que um servico declare e o
         # proxy nao sirva, e um que o proxy sirva e nenhum servico declare, sao
         # os dois achado.
-        self.assertEqual(resumo["destinos"], 8)
+        #
+        # **KAM-218: de 8 para 9.** O `onboarding-lote` passa a declarar
+        # `graph.facebook.com` (a fase `canal` do off-boarding: so o
+        # `subscribed_apps` do WABA). O proxy nao muda — a Graph ja era um dos
+        # quatro que ele abre —, e o destino novo e o mesmo FQDN declarado por
+        # um segundo servico.
+        # **KAM-227: de 9 para 10** (escrito como 8 para 9 e renumerado na
+        # integracao, depois do KAM-218). O `worker-canal-consumidor` corre o
+        # `outbound`, que envia pelo `Saida` e por isso declara
+        # `graph.facebook.com`; o ADR-001 faz do GWY o unico endpoint de
+        # *webhook*, e nao o unico servico que fala com a Meta. O proxy nao
+        # muda: e o mesmo destino, com um terceiro declarante.
+        self.assertEqual(resumo["destinos"], 10)
 
         _, resumo = licencas.verificar(ROOT)
         self.assertEqual(resumo["estados"]["pendente_de_decisao"], 2)  # redis e valkey: D12

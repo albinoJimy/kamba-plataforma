@@ -61,6 +61,7 @@ import {
   type Ambiente,
 } from "@kamba/core-ts/secrets";
 import { comTenant } from "@kamba/core-ts/tenant_guard";
+import { EnvKeyProvider, Identidade } from "@kamba/core-ts/identity";
 import { classificadorPeloAgr, type ClassificadorDeCategorias } from "@kamba/core-ts/screening";
 
 import { createApp } from "./app.ts";
@@ -68,6 +69,8 @@ import { DEFAULT_PORT, SERVICE } from "./meta.ts";
 import { operacoesDoCom } from "./adapters/medusa/index.ts";
 import { SEGREDO_DA_API } from "./api/interna.ts";
 import { REF_SEGREDO_DE_INTENTS, lerSegredo } from "./orders/index.ts";
+import { leitorPelaIdentidade, type PoolDaIdentidade } from "./orders/contacto_identidade.ts";
+import type { LeitorDeContactos } from "./orders/contacto.ts";
 import type { ClienteSql, ComTenant } from "./port/index.ts";
 
 /** A variável com a cadeia de ligação. Lida na primeira ligação, não aqui. */
@@ -86,6 +89,27 @@ export const VARIAVEL_DO_AGR = "KAMBA_AGR_URL";
 
 /** O `id` da credencial da rota do classificador (`ops/secrets-inventory.yaml`). */
 export const SEGREDO_DO_CLASSIFICADOR = "agr_screening_token";
+
+/**
+ * A base do `kamba_identity`, para o contacto de uma encomenda (KAM-206,
+ * decisão do fundador de 2026-11-20, opção A).
+ *
+ * **Opcional**, pela regra do `KAMBA_AGR_URL`: sem ela o contacto da encomenda
+ * responde `UPSTREAM_DOWN` e o resto do COM serve igual. Com ela, a
+ * `kek_contact_dek` passa a obrigatória no arranque — só a pede quem a usa —, e
+ * o `Identidade.arrancar` recusa uma chave de ambiente em `prod`.
+ */
+export const VARIAVEL_DA_IDENTIDADE = "KAMBA_COM_IDENTITY_DB_URL";
+
+/** A KEK das DEK de contacto (`ops/secrets-inventory.yaml`). Só a decifra a usa. */
+export const SEGREDO_DA_KEK_DE_CONTACTO = "kek_contact_dek";
+
+/**
+ * Quantas ligações do `kamba_identity` o COM abre, no máximo. ***Proposta***: o
+ * contacto pede-se por um botão do dono, uma leitura por pedido. Calibra-se com
+ * a carga real (KAM-084).
+ */
+const LIGACOES_DA_IDENTIDADE = 4;
 
 /** A variável que diz o ambiente. O domínio é o `AMBIENTES` do `secrets`. */
 export const VARIAVEL_DO_AMBIENTE = "KAMBA_ENV";
@@ -132,6 +156,7 @@ const log = instalar(SERVICE);
 const ambiente = ambienteDoProcesso();
 
 const urlDoAgr = process.env[VARIAVEL_DO_AGR]?.trim().replace(/\/+$/, "") || null;
+const urlDaIdentidade = process.env[VARIAVEL_DA_IDENTIDADE]?.trim() || null;
 
 let anel: readonly [string, string | null];
 let credencial: string;
@@ -140,10 +165,12 @@ try {
   const segredos = await Secrets.arrancar({
     servico: SERVICE,
     provider: new EnvSecretProvider({ ambiente }),
-    obrigatorios:
-      urlDoAgr === null
-        ? [REF_SEGREDO_DE_INTENTS, SEGREDO_DA_API]
-        : [REF_SEGREDO_DE_INTENTS, SEGREDO_DA_API, SEGREDO_DO_CLASSIFICADOR],
+    obrigatorios: [
+      REF_SEGREDO_DE_INTENTS,
+      SEGREDO_DA_API,
+      ...(urlDoAgr === null ? [] : [SEGREDO_DO_CLASSIFICADOR]),
+      ...(urlDaIdentidade === null ? [] : [SEGREDO_DA_KEK_DE_CONTACTO]),
+    ],
     // O aviso do cofre não leva valores, por construção — ver o `arranque.ts`.
     aviso: () => log.warn({ outcome: "cofre_indisponivel_no_arranque" }),
   });
@@ -209,11 +236,54 @@ const transaccaoDeTenant: ComTenant = async (tenantId, trabalho) => {
   }
 };
 
+/**
+ * O leitor de contactos (KAM-206), **só com a ligação do `kamba_identity`**. As
+ * chaves são as do `EnvKeyProvider`, como no `onboarding-web` e no CHR, e o
+ * `Identidade.arrancar` recusa-as se o `KAMBA_ENV` não for este ambiente. O COM
+ * só chama o `lerEndpoints`, e por isso arranca com `soLeEndpoints`: em `prod`
+ * confere-se só a KEK, e o *pepper* do HMAC não lhe tem de chegar (KAM-227).
+ */
+async function montarContactos(): Promise<LeitorDeContactos | null> {
+  if (urlDaIdentidade === null) {
+    log.info({ outcome: "contacto_da_encomenda_desligado" });
+    return null;
+  }
+  let identidade: Identidade;
+  try {
+    identidade = await Identidade.arrancar({ chaves: new EnvKeyProvider({ ambiente }), soLeEndpoints: true });
+  } catch (erro) {
+    // **O contacto cai, e o COM não.** Em `prod` o `Identidade.arrancar` recusa
+    // sem a KEK das DEK (critério 9 do KAM-008, emendado a 2026-11-20), e o
+    // `KAMBA_ENV` errado recusa em qualquer ambiente: sair aqui derrubava a saga
+    // do dinheiro por causa de uma rota de leitura do painel. Fica registado, e
+    // o contacto responde `UPSTREAM_DOWN`.
+    log.excepcao(erro, "contacto_da_encomenda_sem_chaves");
+    return null;
+  }
+  const poolDaIdentidade = new Pool({
+    connectionString: urlDaIdentidade,
+    max: LIGACOES_DA_IDENTIDADE,
+    connectionTimeoutMillis: 5_000,
+    application_name: "com:identidade",
+  });
+  // Uma ligação que cai não pode derrubar o processo: inactiva, o `pg` emite
+  // `error` no *pool*; emprestada, no cliente (a razão do `poolDe` do
+  // `onboarding-web`, achado 7 da revisão adversarial do KAM-217).
+  poolDaIdentidade.on("error", (erro) => log.excepcao(erro, "identidade_bd_falhou"));
+  poolDaIdentidade.on("connect", (cliente) => {
+    cliente.on("error", (erro) => log.excepcao(erro, "identidade_bd_falhou"));
+  });
+  return leitorPelaIdentidade({ pool: poolDaIdentidade as unknown as PoolDaIdentidade, identidade });
+}
+
+const contactos = await montarContactos();
+
 const operacoes = operacoesDoCom({
   comTenant: transaccaoDeTenant,
   anel,
   bandeiras: bandeirasDoAmbiente(),
   classificador,
+  contactos,
 });
 
 const hostname = process.env.HOST?.trim() || "127.0.0.1";

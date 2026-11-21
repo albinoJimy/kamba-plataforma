@@ -4,11 +4,15 @@
  *     GET   /painel/entrar          a sessão do registo (KAM-086) troca-se pela
  *                                   sessão do painel; 401 sem ela
  *     POST  /painel/sair            revoga a sessão do painel
- *     GET   /painel/produtos        a lista, com o formulário (critério 2)
+ *     GET   /painel/produtos        a lista, sem formulários (KAM-206)
+ *     GET   /painel/produtos/:id    um produto, com o formulário (critério 2)
  *     PATCH /painel/produtos/:id    o preço, com `Idempotency-Key` e versão; o
  *                                   stock recusa-se — ver `./validacao.ts`
  *     GET   /painel/encomendas      só leitura, por estado e data (critério 6)
  *     GET   /painel/encomendas/:id  uma encomenda
+ *     POST  /painel/encomendas/:id/contacto
+ *                                   o contacto do cliente, mascarado, pedido pelo
+ *                                   botão da encomenda e auditado no COM (KAM-206)
  *     GET   /painel/canal           o estado do canal (critério 7) e o canal do
  *                                   dono, o `owner_channel_wa` (KAM-216)
  *     POST  /painel/codigo          a reentrada (KAM-190): o telefone, e o código
@@ -151,6 +155,7 @@ import {
   paginaDaEncomenda,
   paginaDeEncomendas,
   paginaDeProdutos,
+  paginaDoProduto,
   paginaDaLigacaoFechada,
   paginaDoCanal,
   paginaDoCodigoDaLigacao,
@@ -300,6 +305,18 @@ function numeroDaTroca(corpo: Corpo): NumeroDaTroca | null {
   return bruto === "novo" || bruto === "antigo" ? bruto : null;
 }
 
+/** A única fase em que o teste ponta a ponta se abre (KAM-094, passo 9). */
+export const FASE_DO_TESTE = "aguarda_teste";
+
+/**
+ * O teste ponta a ponta pelo lado da página (KAM-202, critério 2): o `start` do
+ * `SmokeOwnerAssisted`, com o caso e o tenant **da sessão**. Quem o fecha é o
+ * processo de lote.
+ */
+export interface TesteDoPainel {
+  iniciar(onboardingId: string, tenantId: string): Promise<{ readonly instrucoes: string; readonly expiraEm: Date }>;
+}
+
 /** O que as rotas do painel precisam. */
 export interface OpcoesDoPainel {
   readonly comercio: Comercio;
@@ -322,6 +339,12 @@ export interface OpcoesDoPainel {
   readonly reentrada?: OpcoesDaReentrada | undefined;
   readonly troca?: OpcoesDaTroca | undefined;
   readonly conversa?: OpcoesDaConversa | undefined;
+  /**
+   * O início do teste ponta a ponta (KAM-202, critério 2): abre a tentativa pela
+   * ligação da aplicação. **Opcional**: sem ele, o `POST /painel/teste` responde
+   * 503 e o resto do painel serve igual.
+   */
+  readonly teste?: TesteDoPainel | undefined;
   /** O preço máximo em Kz (critério 5). */
   readonly precoMaximoKz?: bigint | undefined;
   readonly relogio?: (() => Date) | undefined;
@@ -537,6 +560,25 @@ export function rotasDoPainel(opcoes: OpcoesDoPainel): Hono {
     return html(paginaDeProdutos(n, r.valor.itens, r.valor.truncada), 200, n, sessao.renovar);
   });
 
+  // **Um produto, pelo `get-offer`** (KAM-206): o formulário do preço saiu da
+  // lista, que era pesada de mais para um telemóvel em 3G. O `sku` procura-se no
+  // tenant da sessão, e um `sku` de outro tenant é o mesmo 404 de um que não
+  // existe (critério 8 do KAM-099).
+  app.get("/painel/produtos/:id", async (c) => {
+    metricas.pedido("produto");
+    const n = nonce();
+    const sessao = await sessaoDe(c.req.header("cookie"));
+    if (sessao === null) {
+      falhou("produto", "sem_sessao");
+      return html(paginaSemSessao(n), 401, n);
+    }
+    const r = await comercio.obterOferta(sessao.s.tenantId, actor(sessao.s), c.req.param("id"));
+    if (r.tipo === "ok") return html(paginaDoProduto(n, r.valor), 200, n, sessao.renovar);
+    const indisponivel = r.tipo !== "erro" || (r.erro !== "NOT_FOUND" && r.erro !== "VALIDATION_ERROR");
+    falhou("produto", indisponivel ? "indisponivel" : "nao_encontrado");
+    return html(paginaNaoEncontrada(n), indisponivel ? 503 : 404, n, sessao.renovar);
+  });
+
   app.patch("/painel/produtos/:id", async (c) => {
     metricas.pedido("gravar");
     const sessao = await sessaoDe(c.req.header("cookie"));
@@ -683,6 +725,44 @@ export function rotasDoPainel(opcoes: OpcoesDoPainel): Hono {
     if (r.tipo === "ok") return html(paginaDaEncomenda(n, r.valor), 200, n, sessao.renovar);
     const indisponivel = r.tipo === "erro" && r.erro !== "NOT_FOUND" && r.erro !== "VALIDATION_ERROR";
     falhou("encomenda", indisponivel ? "indisponivel" : "nao_encontrado");
+    return html(paginaNaoEncontrada(n), indisponivel ? 503 : 404, n, sessao.renovar);
+  });
+
+  // **O contacto do cliente, pelo botão** (KAM-206). Um `POST` e não um `GET`:
+  // é uma acção do dono que fica no `audit_log`, e uma ligação que se abre por
+  // engano, ou que um navegador pré-carrega, não a pode fazer. O cookie é
+  // `SameSite=Lax`, que não vai num `POST` de outro **sítio** — mas um sítio é
+  // mais largo do que uma origem, e por isso o `Sec-Fetch-Site` que o navegador
+  // põe tem de ser `same-origin` (ou faltar, num cliente que não é navegador):
+  // um formulário de outra origem do mesmo sítio não escreve uma linha de
+  // `audit_log` em nome do dono. A encomenda lê-se primeiro (sem auditoria), e só
+  // depois o contacto: uma encomenda que não existe não chega ao COM do
+  // contacto. Fora da regra, ou de outro tenant, é o mesmo 404.
+  app.post("/painel/encomendas/:id/contacto", async (c) => {
+    metricas.pedido("contacto");
+    const n = nonce();
+    const sessao = await sessaoDe(c.req.header("cookie"));
+    if (sessao === null) {
+      falhou("contacto", "sem_sessao");
+      return html(paginaSemSessao(n), 401, n);
+    }
+    const sitio = c.req.header("sec-fetch-site");
+    if (sitio !== undefined && sitio !== "same-origin") {
+      falhou("contacto", "invalido");
+      return html(paginaNaoEncontrada(n), 403, n, sessao.renovar);
+    }
+    const id = c.req.param("id").toLowerCase();
+    const lida = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(id)
+      ? await comercio.obterEncomenda(sessao.s.tenantId, actor(sessao.s), id)
+      : ({ tipo: "erro", erro: "NOT_FOUND" } as const);
+    const r = lida.tipo === "ok" ? await comercio.contactoDaEncomenda(sessao.s.tenantId, actor(sessao.s), id) : lida;
+    if (lida.tipo === "ok" && r.tipo === "ok") {
+      // Sem identificadores nem máscara: só o desfecho (`OBS-I`).
+      log?.info({ outcome: "painel_contacto_mostrado" });
+      return html(paginaDaEncomenda(n, lida.valor, r.valor), 200, n, sessao.renovar);
+    }
+    const indisponivel = r.tipo !== "erro" || (r.erro !== "NOT_FOUND" && r.erro !== "VALIDATION_ERROR");
+    falhou("contacto", indisponivel ? "indisponivel" : "nao_encontrado");
     return html(paginaNaoEncontrada(n), indisponivel ? 503 : 404, n, sessao.renovar);
   });
 
@@ -1148,6 +1228,41 @@ export function rotasDoPainel(opcoes: OpcoesDoPainel): Hono {
     }
     log?.info({ outcome: "painel_conversa_enviada" });
     return json({ ok: true, mensagem: enviado.messageId }, 200, sessao.renovar);
+  });
+
+  /**
+   * Abre a tentativa do teste ponta a ponta (KAM-202, critério 2). O caso e o
+   * tenant são os da sessão, e só eles: um `onboarding_id` ou um `tenant_id` no
+   * corpo, na consulta ou num cabeçalho não é lido. Só na fase do teste; um
+   * segundo clique dentro da janela devolve a mesma janela (o `start`).
+   */
+  app.post("/painel/teste", async (c) => {
+    metricas.pedido("teste");
+    const t = opcoes.teste;
+    if (t === undefined) {
+      falhou("teste", "indisponivel");
+      return json({ erro: "indisponivel" }, 503);
+    }
+    const sessao = await sessaoDe(c.req.header("cookie"));
+    if (sessao === null) {
+      falhou("teste", "sem_sessao");
+      return json({ erro: "sessao" }, 401);
+    }
+    if (sessao.fase !== FASE_DO_TESTE) {
+      falhou("teste", "conflito");
+      return json({ erro: "fase" }, 409, sessao.renovar);
+    }
+    let aberta: { readonly instrucoes: string; readonly expiraEm: Date };
+    try {
+      aberta = await t.iniciar(sessao.s.dono, sessao.s.tenantId);
+    } catch {
+      // Sem a excepção no corpo nem no registo: o motivo de uma falha da base
+      // não é do dono. A fase mudou entre a sessão e o `start` também cai aqui.
+      falhou("teste", "indisponivel");
+      return json({ erro: "indisponivel" }, 503, sessao.renovar);
+    }
+    log?.info({ outcome: "painel_teste_iniciado" });
+    return json({ instrucoes: aberta.instrucoes, expira_em: aberta.expiraEm.toISOString() }, 200, sessao.renovar);
   });
 
   return app;

@@ -27,6 +27,10 @@ que entra aqui e o **nome**».
 | `get_catalog_status` | Dono | `read` | ligada com executor (KAM-119) | — |
 | `request_quote` | Vendedor | **`write`** | ligada com executor (KAM-220) | — |
 | `submit_quote` | Dono | **`write`** | ligada com executor (KAM-220) | — |
+| `get_brand_profile` | Dono | `read` | ligada com executor (KAM-121) | — |
+| `update_brand_profile` | Dono | **`write`** | ligada com executor (KAM-121) | — |
+| `generate_calendar` | Dono | **`write`** | ligada com executor (KAM-121) | — |
+| `generate_caption` | Dono | **`write`** | ligada com executor (KAM-121) | — |
 
 ## As quatro do dono entram declaradas, e e o que o KAM-118 pode fazer
 
@@ -76,6 +80,7 @@ from typing import Final
 from . import catalogo_tools
 from . import get_store_info
 from . import orcamento_tools
+from . import social_tools
 from . import vendedor
 from .especificacoes import Catalogo, EspecificacaoDeTool, Executor
 
@@ -195,8 +200,88 @@ _AS_DUAS_DO_ORCAMENTO: Final = (
     ),
 )
 
+#: O credor das quatro tools do modulo `social` (KAM-121): o ticket que as liga.
+CREDOR_DO_SOCIAL: Final = "KAM-121"
+
+#: O modulo que as fecha no passo 2: um tenant sem `social` nao tem perfil de
+#: marca, calendario nem legendas.
+MODULO_DO_SOCIAL: Final = "social"
+
+#: As quatro do Social AI, pela ordem do §21.3, com a `update_brand_profile`
+#: (decisao 2 do fundador de 2026-11-20, bloco do KAM-121) a seguir a leitura do perfil. As duas que
+#: faltam ao §21.3 (`generate_art`, `request_approval`) sao do KAM-122, que as
+#: declara e liga. **Nenhuma publica nem envia** (D13): o dono publica a mao.
+_AS_QUATRO_DO_SOCIAL: Final = (
+    EspecificacaoDeTool(
+        nome="get_brand_profile", klass="read", backend="plataforma", credor=CREDOR_DO_SOCIAL, modulo=MODULO_DO_SOCIAL
+    ),
+    EspecificacaoDeTool(
+        nome="update_brand_profile",
+        klass="write",
+        backend="plataforma",
+        credor=CREDOR_DO_SOCIAL,
+        modulo=MODULO_DO_SOCIAL,
+    ),
+    EspecificacaoDeTool(
+        nome="generate_calendar", klass="write", backend="plataforma", credor=CREDOR_DO_SOCIAL, modulo=MODULO_DO_SOCIAL
+    ),
+    EspecificacaoDeTool(
+        nome="generate_caption", klass="write", backend="plataforma", credor=CREDOR_DO_SOCIAL, modulo=MODULO_DO_SOCIAL
+    ),
+)
+
+#: As razoes da dispensa do passo 4 das tres de escrita do social (KAM-121, pelos
+#: precedentes do KAM-220 e do KAM-119). Ficam na especificacao, como as outras.
+RAZAO_DA_DISPENSA_DO_PERFIL: Final = (
+    "so grava a resposta do dono no brand_profile do proprio tenant; nada sai para "
+    "o cliente nem para uma rede social"
+)
+RAZAO_DA_DISPENSA_DO_CALENDARIO: Final = (
+    "so grava o calendario e os itens em rascunho (is_ai_generated); nada se publica "
+    "nem se envia, e a aprovacao e a entrega sao do KAM-122 com o botao confirm:{action_id}"
+)
+RAZAO_DA_DISPENSA_DA_LEGENDA: Final = (
+    "so grava a legenda do item em rascunho, depois das barreiras e do screening; nada "
+    "se publica nem se envia, e a aprovacao e a entrega sao do KAM-122"
+)
+
+#: As quatro do social, pelo nome.
+_NOMES_DO_SOCIAL: Final = tuple(e.nome for e in _AS_QUATRO_DO_SOCIAL)
+
+
+def _do_social(ligaveis: Mapping[str, Executor]) -> tuple[EspecificacaoDeTool, ...]:
+    """As quatro do social: **ligadas** com os executores, declaradas sem eles (KAM-121).
+
+    Ligam-se as quatro juntas, ou nenhuma: um perfil que se escreve e um
+    calendario que nada le era um modulo meio ligado.
+    """
+    presentes = [nome for nome in _NOMES_DO_SOCIAL if nome in ligaveis]
+    if not presentes:
+        return _AS_QUATRO_DO_SOCIAL
+    if len(presentes) != len(_NOMES_DO_SOCIAL):
+        raise ValueError("as quatro tools do social ligam-se juntas, ou nenhuma")
+    dispensas = {
+        "update_brand_profile": RAZAO_DA_DISPENSA_DO_PERFIL,
+        "generate_calendar": RAZAO_DA_DISPENSA_DO_CALENDARIO,
+        "generate_caption": RAZAO_DA_DISPENSA_DA_LEGENDA,
+    }
+    return tuple(
+        EspecificacaoDeTool(
+            nome=declarada.nome,
+            klass=declarada.klass,
+            backend=declarada.backend,
+            modelo=social_tools.MODELOS[declarada.nome],
+            executor=ligaveis[declarada.nome],
+            modulo=MODULO_DO_SOCIAL,
+            confirmacao_dispensada=dispensas.get(declarada.nome),
+        )
+        for declarada in _AS_QUATRO_DO_SOCIAL
+    )
+
+
 #: As onze do §6.2, pela ordem em que esse documento as escreve, e as quatro do
-#: §21.3 no fim, e as duas do orcamento (KAM-123) depois delas. **As cinco do
+#: §21.3 no fim, e as duas do orcamento (KAM-123) depois delas, e as quatro do
+#: social (KAM-121) no fim de tudo. **As cinco do
 #: Vendedor `declaradas`**, que e o estado sem os executores do KAM-178 — e e o
 #: que a bateria do registo compara contra o `registry/*.yaml`.
 ESPECIFICACOES_DO_PILOTO: Final = (
@@ -216,6 +301,7 @@ ESPECIFICACOES_DO_PILOTO: Final = (
     *_AS_SEIS_QUE_NAO_SAO_DO_VENDEDOR,
     *_AS_QUATRO_DO_DONO,
     *_AS_DUAS_DO_ORCAMENTO,
+    *_AS_QUATRO_DO_SOCIAL,
 )
 
 #: A razao da dispensa do passo 4 do `submit_quote` (decisao do fundador de
@@ -370,6 +456,7 @@ def especificacoes_do_piloto(
         *_AS_SEIS_QUE_NAO_SAO_DO_VENDEDOR,
         *_do_catalogo(ligaveis),
         *_do_orcamento(ligaveis),
+        *_do_social(ligaveis),
     )
 
 

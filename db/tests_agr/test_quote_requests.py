@@ -1471,6 +1471,327 @@ class TestEnvioPelaResposta(ComOrcamento):
             self.assertEqual(cursor.fetchone()[0], 0)
 
 
+class TestAvisoAoDono(ComOrcamento):
+    """KAM-226, criterio 1: um `quote.requested` novo da **um** aviso ao dono, so com a janela dele aberta.
+
+    O dono fala com o numero da loja (bloco do EPIC-11), e a conversa dele e uma
+    `conversations` do mesmo canal. O aviso sai pela resposta do AGR (a
+    `agent_replies` e o `agent.replied` do KAM-224) e nasce na transaccao do
+    pedido.
+    """
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.conversa_do_dono = self._conversa_do_dono(self.tenant, self.dono, self.conversa.canal_id)
+
+    def _conversa_do_dono(self, tenant: str, dono: str, canal: str) -> str:
+        import uuid
+
+        conversa = str(uuid.uuid4())
+        self.semente.execute(
+            "INSERT INTO platform.conversations "
+            "(id, tenant_id, contact_id, channel_id, mode, last_inbound_at, window_expires_at) "
+            "VALUES (%s, %s, %s, %s, 'bot', now(), now() + interval '24 hours')",
+            (conversa, tenant, dono, canal),
+        )
+        return conversa
+
+    def _janela_do_dono(self, expira: str, modo: str = "bot") -> None:
+        self.semente.execute(
+            "UPDATE platform.conversations SET window_expires_at = now() + %s::interval, "
+            "last_inbound_at = now() + %s::interval - interval '24 hours', mode = %s "
+            "WHERE tenant_id = %s AND id = %s",
+            (expira, expira, modo, self.tenant, self.conversa_do_dono),
+        )
+
+    def _avisos(self, tenant: str | None = None) -> list[tuple]:
+        self.semente.execute(
+            "SELECT chave, canal, texto, contact_id::text, conversation_id::text, botoes, "
+            "template_nome FROM platform.agent_replies WHERE tenant_id = %s ORDER BY criado_at",
+            (tenant or self.tenant,),
+        )
+        return [tuple(linha) for linha in self.semente.fetchall()]
+
+    def test_com_a_janela_aberta_sai_um_aviso_na_conversa_do_dono(self) -> None:
+        pedido = self._pedir()
+        avisos = self._avisos()
+        self.assertEqual(len(avisos), 1)
+        chave, canal, texto, contacto, conversa, botoes, template = avisos[0]
+        self.assertEqual(chave, f"orcamento:{pedido.quote_id}{rep.SUFIXO_DO_AVISO_AO_DONO}")
+        self.assertEqual((canal, contacto, conversa), ("whatsapp", self.dono, self.conversa_do_dono))
+        self.assertIn(regras.referencia_interna(pedido.quote_id), texto)
+        # Sem numero: nem `sku`, nem quantidade, nem valor.
+        self.assertIsNone(re.search(r"\d", texto))
+        # Uma *service message*: nunca *template* (KAM-118, criterio 8), sem botoes.
+        self.assertIsNone(template)
+        self.assertEqual(botoes if isinstance(botoes, list) else json.loads(botoes), [])
+        self.assertEqual(len(self._eventos(TIPO_DA_RESPOSTA)), 1)
+        self.assertEqual(len(self._eventos(rep.EVENTO_PEDIDO)), 1)
+        # O cliente nao recebeu nada: o aviso e so ao dono.
+        self.assertNotIn(self.conversa.conversation_id, [a[4] for a in avisos])
+
+    def test_fora_da_janela_nada_sai_e_o_pedido_fica_nos_pendentes(self) -> None:
+        casos = {
+            "fechada": ("-1 hour", "bot"),
+            "dentro da margem": ("3 minutes", "bot"),
+            "humano na conversa do dono": ("3 hours", "humano"),
+        }
+        for nome, (expira, modo) in casos.items():
+            with self.subTest(caso=nome):
+                self._limpar_orcamentos()
+                self._oferta(self.tenant, SKU)
+                factories.entitlement(self.semente, self.tenant, modulo="orcamento",
+                                      limites={"orcamentos_mes": 500})
+                self._janela_do_dono(expira, modo)
+                pedido = self._pedir()
+                self.assertEqual(self._avisos(), [])
+                self.assertEqual(self._eventos(TIPO_DA_RESPOSTA), [])
+                self.assertEqual(len(self._eventos(rep.EVENTO_PEDIDO)), 1)
+                self.assertIn(pedido.quote_id, [p.quote_id for p in rep.pendentes(self.app, self.tenant)])
+
+    def test_um_dono_sem_conversa_no_whatsapp_nao_recebe_nada(self) -> None:
+        """O dono que so fala pelo painel: nao ha janela, e o pedido fica nos pendentes."""
+        self.semente.execute(
+            "DELETE FROM platform.conversations WHERE tenant_id = %s AND id = %s",
+            (self.tenant, self.conversa_do_dono),
+        )
+        pedido = self._pedir()
+        self.assertEqual(self._avisos(), [])
+        self.assertIn(pedido.quote_id, [p.quote_id for p in rep.pendentes(self.app, self.tenant)])
+
+    def test_a_reentrega_do_pedido_nao_avisa_outra_vez(self) -> None:
+        """A mensagem do cliente reentregue (o mesmo turno, o mesmo `sku`) da o mesmo `quote_id`."""
+        primeiro = self._pedir()
+        for _ in range(3):
+            self.assertEqual(self._pedir().quote_id, primeiro.quote_id)
+        self.assertEqual(len(self._avisos()), 1)
+        self.assertEqual(len(self._eventos(TIPO_DA_RESPOSTA)), 1)
+        self.assertEqual(len(self._eventos(rep.EVENTO_PEDIDO)), 1)
+
+    def test_o_mesmo_aviso_escrito_duas_vezes_e_uma_linha_e_um_evento(self) -> None:
+        """A segunda barreira: a chave e o `UNIQUE` da `agent_replies`."""
+        from kamba_core import tenant_guard
+
+        pedido = self._pedir()
+        with tenant_guard.tx(self.app, self.tenant) as cursor:
+            self.assertIsNone(rep._avisar_o_dono(cursor, self.tenant, pedido.quote_id, _agora()))
+        self.assertEqual(len(self._avisos()), 1)
+        self.assertEqual(len(self._eventos(TIPO_DA_RESPOSTA)), 1)
+
+    def test_dois_pedidos_novos_dao_dois_avisos(self) -> None:
+        self._pedir()
+        rep.pedir(self.app, self.tenant, self.cliente, self.conversa.conversation_id, "SKU-301", None, _agora())
+        self.assertEqual(len(self._avisos()), 2)
+
+    def test_um_pedido_recusado_nao_avisa(self) -> None:
+        with self.assertRaises(rep.OrcamentoRecusadoError):
+            rep.pedir(self.app, self.tenant, self.cliente, self.conversa.conversation_id,
+                      "SKU-NAO-EXISTE", None, _agora())
+        self.assertEqual(self._avisos(), [])
+
+    def test_o_dono_de_b_nao_e_avisado_dos_pedidos_de_a(self) -> None:
+        outra = self.criar_conversa()
+        dono_b = factories.contacto(self.semente, outra.tenant_id)
+        self.semente.execute(
+            "UPDATE platform.contacts SET papel = 'dono' WHERE tenant_id = %s AND contact_id = %s",
+            (outra.tenant_id, dono_b),
+        )
+        self._conversa_do_dono(outra.tenant_id, dono_b, outra.canal_id)
+        self._pedir()
+        self.assertEqual(len(self._avisos()), 1)
+        self.assertEqual(self._avisos(outra.tenant_id), [])
+
+    def test_o_evento_leva_o_thread_id_do_dono_que_o_consumidor_exige(self) -> None:
+        """Achado 2 da revisao: o consumidor TS recusa um `thread_id` que nao seja `tenant:contacto`."""
+        self._pedir()
+        [envelope] = self._eventos(TIPO_DA_RESPOSTA)
+        payload = envelope["payload"]
+        self.assertEqual(payload["thread_id"], f"{self.tenant}:{self.dono}")
+        self.assertEqual(
+            (payload["contact_id"], payload["conversation_id"], payload["canal"]),
+            (self.dono, self.conversa_do_dono, "whatsapp"),
+        )
+        self.assertEqual(envelope["agregado"]["id"], self.conversa_do_dono)
+
+    def test_um_dono_apagado_ou_fundido_nao_e_avisado(self) -> None:
+        outro = factories.contacto(self.semente, self.tenant)
+        factories.contexto(self.semente, None)
+        casos = {
+            "apagado": (
+                "UPDATE platform.contacts SET erased_at = now(), phone_hmac = NULL "
+                "WHERE tenant_id = %s AND contact_id = %s",
+                (self.tenant, self.dono),
+            ),
+            "fundido": (
+                "UPDATE platform.contacts SET merged_into = %s, merged_at = now(), phone_hmac = NULL "
+                "WHERE tenant_id = %s AND contact_id = %s",
+                (outro, self.tenant, self.dono),
+            ),
+        }
+        for nome, (sql, args) in casos.items():
+            with self.subTest(caso=nome):
+                self._limpar_orcamentos()
+                self._oferta(self.tenant, SKU)
+                factories.entitlement(self.semente, self.tenant, modulo="orcamento",
+                                      limites={"orcamentos_mes": 500})
+                self.semente.execute(
+                    "UPDATE platform.contacts SET erased_at = NULL, merged_into = NULL, merged_at = NULL "
+                    "WHERE tenant_id = %s AND contact_id = %s",
+                    (self.tenant, self.dono),
+                )
+                self.semente.execute(sql, args)
+                self._pedir()
+                self.assertEqual(self._avisos(), [])
+
+    def test_com_dois_canais_a_conversa_do_humano_nao_esconde_a_do_bot(self) -> None:
+        """Achado 5: a janela mais tardia esta com um humano, e a outra conversa do dono e do bot."""
+        self._janela_do_dono("20 hours", "humano")
+        outro_canal = factories.canal(self.semente, self.tenant)
+        factories.contexto(self.semente, None)
+        conversa_bot = self._conversa_do_dono(self.tenant, self.dono, outro_canal)
+        self.semente.execute(
+            "UPDATE platform.conversations SET window_expires_at = now() + interval '3 hours', "
+            "last_inbound_at = now() - interval '21 hours' WHERE tenant_id = %s AND id = %s",
+            (self.tenant, conversa_bot),
+        )
+        self._pedir()
+        self.assertEqual([a[4] for a in self._avisos()], [conversa_bot])
+
+    def test_um_cliente_nao_e_tomado_pelo_dono(self) -> None:
+        """So o contacto `papel='dono'`: a conversa do cliente com a janela aberta nao conta."""
+        self.semente.execute(
+            "DELETE FROM platform.conversations WHERE tenant_id = %s AND id = %s",
+            (self.tenant, self.conversa_do_dono),
+        )
+        self._pedir()
+        self.assertEqual(self._avisos(), [])
+
+
+class TestBotaoNaProposta(ComOrcamento):
+    """KAM-226, criterio 2: a proposta de texto leva o `aceitar_orcamento:ORC-…` dela, e o *template* nao."""
+
+    @staticmethod
+    def aceito(quote_id: str) -> list[dict[str, str]]:
+        return [{"id": regras.botao_aceitar(quote_id), "titulo": "Aceito"}]
+
+    def _porta(self) -> NotificacaoPelaResposta:
+        return NotificacaoPelaResposta(lambda: ligacao_bd.ligar("app"))
+
+    def _botoes(self) -> list[tuple]:
+        self.semente.execute(
+            "SELECT chave, botoes, template_nome FROM platform.agent_replies "
+            "WHERE tenant_id = %s ORDER BY criado_at",
+            (self.tenant,),
+        )
+        return [(c, b if isinstance(b, list) else json.loads(b), t) for (c, b, t) in self.semente.fetchall()]
+
+    def _janela(self, expira: str) -> None:
+        self.semente.execute(
+            "UPDATE platform.conversations SET window_expires_at = now() + %s::interval, "
+            "last_inbound_at = now() + %s::interval - interval '24 hours' "
+            "WHERE tenant_id = %s AND id = %s",
+            (expira, expira, self.tenant, self.conversa.conversation_id),
+        )
+
+    def test_a_proposta_enviada_leva_o_botao_aceito(self) -> None:
+        pedido = self._pedir()
+        resposta = self._responder(pedido.quote_id)
+        envio = self._tocar(resposta.action_id, self._porta())
+        self.assertEqual(envio.desfecho, rep.ENVIADO)
+        [(chave, botoes, template)] = self._botoes()
+        self.assertTrue(chave.startswith(f"orcamento:{pedido.quote_id}:"))
+        self.assertIsNone(template)
+        self.assertEqual(botoes, self.aceito(pedido.quote_id))
+
+    def test_o_template_nao_leva_o_botao_e_o_valor_sai_depois_com_ele(self) -> None:
+        self._janela("3 minutes")
+        pedido = self._pedir()
+        resposta = self._responder(pedido.quote_id)
+        self.assertEqual(self._tocar(resposta.action_id, self._porta()).desfecho, rep.AGUARDA_JANELA)
+        [(_chave, botoes, template)] = self._botoes()
+        self.assertEqual((template, botoes), (rep.TEMPLATE_ORCAMENTO_PRONTO, []))
+        # O cliente escreve: a janela abre, e o valor sai com o botao.
+        self._janela("23 hours")
+        envios = rep.libertar_da_janela(self.app, self.tenant, self.cliente, self._porta(), _agora())
+        self.assertEqual([e.desfecho for e in envios], [rep.ENVIADO])
+        chave, botoes, template = self._botoes()[1]
+        self.assertTrue(chave.endswith(":janela"))
+        self.assertEqual((template, botoes), (None, self.aceito(pedido.quote_id)))
+
+    def test_a_mensagem_das_24_h_nao_leva_o_botao(self) -> None:
+        """So a proposta: a mensagem neutra nao tem nada para aceitar."""
+        pedido = self._pedir()
+        self.semente.execute(
+            "UPDATE platform.quote_requests SET criado_at = now() - interval '25 hours' "
+            "WHERE tenant_id = %s AND quote_id = %s",
+            (self.tenant, pedido.quote_id),
+        )
+        rep.avisar_sem_resposta(self.app, self.tenant, self._porta(), _agora())
+        [(chave, botoes, _template)] = self._botoes()
+        self.assertTrue(chave.endswith(":sem_resposta"))
+        self.assertEqual(botoes, [])
+
+
+class TestPedidoPelaReferenciaDoBotao(ComOrcamento):
+    """KAM-226, decisao do fundador de 2026-11-20 (opcao B): o botao decide o pedido que cita.
+
+    Os dois casos do achado 1 da revisao, contra a base: com o ultimo pedido do
+    cliente, o (a) nao se aceitava e o (b) aceitava a proposta errada.
+    """
+
+    def _enviado(self, sku: str, validade: datetime.date | None = None) -> str:
+        pedido = rep.pedir(self.app, self.tenant, self.cliente, self.conversa.conversation_id, sku, None, _agora())
+        resposta = self._responder(pedido.quote_id, validade=validade)
+        self.assertEqual(self._tocar(resposta.action_id, Saida("livre")).desfecho, rep.ENVIADO)
+        return pedido.quote_id
+
+    def _pela_referencia(self, quote_id: str, contacto: str | None = None):
+        return rep.pedido_por_referencia(
+            self.app, self.tenant, contacto or self.cliente, regras.referencia_interna(quote_id)
+        )
+
+    def test_caso_a_a_proposta_valida_le_se_com_um_pedido_mais_novo_em_curso(self) -> None:
+        q1 = self._enviado(SKU)
+        q2 = rep.pedir(self.app, self.tenant, self.cliente, self.conversa.conversation_id, "SKU-301", None,
+                       _agora()).quote_id
+        self.assertEqual(rep.ultimo_pedido(self.app, self.tenant, self.cliente).quote_id, q2)
+        lido = self._pela_referencia(q1)
+        self.assertEqual((lido.quote_id, lido.estado), (q1, "enviado"))
+        self.assertTrue(lido.aceitavel(_agora()))
+
+    def test_caso_b_a_proposta_vencida_nao_se_aceita_mesmo_com_uma_mais_nova_enviada(self) -> None:
+        # Q1 com a validade por omissao (sete dias), Q2 com trinta: daqui a nove
+        # dias, Q1 esta vencida e Q2 continua valida. O `enviado` e final, e o
+        # tempo anda pelo relogio, como no `test_um_enviado_vencido_ou_um_cancelado_nao_se_aceitam`.
+        q1 = self._enviado(SKU)
+        q2 = self._enviado("SKU-301", validade=regras.hoje_em_luanda(_agora()) + datetime.timedelta(days=30))
+        depois = _agora() + datetime.timedelta(days=9)
+        self.assertTrue(rep.ultimo_pedido(self.app, self.tenant, self.cliente).aceitavel(depois))
+        lido = self._pela_referencia(q1)
+        self.assertEqual((lido.quote_id, lido.estado), (q1, "enviado"))
+        self.assertFalse(lido.aceitavel(depois))
+        self.assertTrue(lido.fechado(depois))
+        self.assertNotEqual(lido.quote_id, q2)
+
+    def test_a_referencia_de_outro_cliente_nao_se_le(self) -> None:
+        q1 = self._enviado(SKU)
+        intruso = factories.contacto(self.semente, self.tenant)
+        factories.contexto(self.semente, None)
+        self.assertIsNone(self._pela_referencia(q1, intruso))
+
+    def test_a_referencia_de_outro_tenant_nao_se_le(self) -> None:
+        q1 = self._enviado(SKU)
+        outra = self.criar_conversa()
+        self.assertIsNone(
+            rep.pedido_por_referencia(self.app, outra.tenant_id, self.cliente, regras.referencia_interna(q1))
+        )
+
+    def test_uma_referencia_que_nao_se_le_nao_vai_a_base(self) -> None:
+        for referencia in ("", "ORC-12345678", "ORC-ABC", "nada"):
+            with self.subTest(referencia=referencia):
+                self.assertIsNone(rep.pedido_por_referencia(self.app, self.tenant, self.cliente, referencia))
+
+
 def varredura_sql(nome: str) -> str:
     from kamba_agr.orcamento import varredura
 

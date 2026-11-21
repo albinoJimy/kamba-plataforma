@@ -31,6 +31,8 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { createApp } from "../src/app.ts";
+import { Logger } from "@kamba/core-ts/logger";
+import { contactoDaEncomenda, type MontagemDoContacto } from "../src/orders/contacto.ts";
 import { FiltroEmFaltaError, repoBase } from "../src/repo-base/index.ts";
 import {
   CABECALHO_INTERNO,
@@ -83,6 +85,9 @@ const rascunhosDeProduto: { tenantId: string; d: ProductDraft }[] = [];
 const publicacoes: { tenantId: string; pedido: PedidoDePublicacao }[] = [];
 /** Os filtros que chegaram ao `listOrders`. */
 const filtrosDasEncomendas: unknown[] = [];
+
+/** Os pedidos de contacto do duplo (KAM-206), com o tenant e o actor. */
+const contactosPedidos: { tenantId: string; actor: string; orderId: string }[] = [];
 
 function operacoesDeEnsaio(): { operacoes: OperacoesDoCom; chamadas: Chamadas } {
   const contagem = new Map<string, number>();
@@ -260,6 +265,12 @@ function operacoesDeEnsaio(): { operacoes: OperacoesDoCom; chamadas: Chamadas } 
       publicacoes.push({ tenantId: ctx.tenantId, pedido });
       return ok(undefined);
     },
+    // KAM-206: o contacto da encomenda. O duplo devolve uma máscara fixa de A.
+    async contactoDaEncomenda(ctx: Ctx, orderId: string) {
+      contar("contactoDaEncomenda");
+      contactosPedidos.push({ tenantId: ctx.tenantId, actor: ctx.actor.kind, orderId });
+      return ok({ orderId, telefoneMascarado: "••• ••• 789" });
+    },
   };
   return { operacoes, chamadas: { contagem } };
 }
@@ -299,8 +310,8 @@ const BONS = {
 
 // ------------------------------------------------------------------- a credencial
 
-test("criterio 2: as catorze rotas sem credencial dao 401, e nenhuma operacao corre", async () => {
-  assert.equal(ROTAS.length, 14);
+test("criterio 2: as quinze rotas sem credencial dao 401, e nenhuma operacao corre", async () => {
+  assert.equal(ROTAS.length, 15);
   const { aplicacao, chamadas } = app();
   for (const rota of ROTAS) {
     const r = await aplicacao.fetch(
@@ -603,7 +614,7 @@ test("um corpo com caracteres multi-octeto conta em octetos e nao em UTF-16", as
 });
 
 test("um GET numa rota /internal/* nao e servido, e nao devolve 200", async () => {
-  // As catorze rotas são `POST`. Um `GET` que respondesse era uma superfície que
+  // As quinze rotas são `POST`. Um `GET` que respondesse era uma superfície que
   // ninguém desenhou — e um `GET` é o que um *crawler* tenta primeiro.
   const { aplicacao } = app();
   for (const rota of ROTAS) {
@@ -843,6 +854,8 @@ test("KAM-222: o screen recebe o tenant do cabecalho e o pedido do corpo", async
         sujeito_tipo: "condicoes",
         sujeito_ref: ORDER,
         textos: ["entrega combinada consigo"],
+        finalidade: "classificacao_de_condicoes",
+        prazo_ms: 6_000,
         // Um tenant no corpo não desloca o `ctx`.
         tenant_id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
       },
@@ -863,6 +876,8 @@ test("KAM-222: o screen recebe o tenant do cabecalho e o pedido do corpo", async
         sujeitoRef: ORDER,
         categoriaDeclarada: null,
         textos: ["entrega combinada consigo"],
+        finalidade: "classificacao_de_condicoes",
+        prazoMs: 6_000,
       },
     },
   ]);
@@ -871,7 +886,13 @@ test("KAM-222: o screen recebe o tenant do cabecalho e o pedido do corpo", async
 test("KAM-222: um corpo de screen que nao valida da 400, e o screen nao corre", async () => {
   const { aplicacao, chamadas } = app();
   // O sujeito aceite decide-o a operação (`screening.test.ts`); aqui, só a forma.
-  const bom = { sujeito_tipo: "condicoes", sujeito_ref: ORDER, textos: ["x"] };
+  const bom = {
+    sujeito_tipo: "condicoes",
+    sujeito_ref: ORDER,
+    textos: ["x"],
+    finalidade: "classificacao_de_condicoes",
+    prazo_ms: 6_000,
+  };
   const maus: Record<string, unknown>[] = [
     { ...bom, sujeito_tipo: "" },
     { ...bom, sujeito_tipo: 7 },
@@ -883,6 +904,16 @@ test("KAM-222: um corpo de screen que nao valida da 400, e o screen nao corre", 
     { ...bom, textos: "x" },
     { ...bom, textos: ["x", 1] },
     { ...bom, textos: Array.from({ length: 51 }, () => "x") },
+    // KAM-230: a finalidade e o prazo, obrigatórios. Que a finalidade seja a
+    // do sujeito decide-o a operação; aqui, só a forma.
+    { ...bom, finalidade: undefined },
+    { ...bom, finalidade: "" },
+    { ...bom, finalidade: 7 },
+    { ...bom, prazo_ms: undefined },
+    { ...bom, prazo_ms: 0 },
+    { ...bom, prazo_ms: 1.5 },
+    { ...bom, prazo_ms: "6000" },
+    { ...bom, prazo_ms: 20_001 },
   ];
   for (const corpo of maus) {
     const r = await aplicacao.fetch(pedido("/internal/screen", { ...CTX_DO_CORPO, ...corpo }, BONS));
@@ -899,7 +930,18 @@ test("KAM-222: um screen que falha sai 503 com o codigo, e nao 200", async () =>
     credencial: CREDENCIAL,
   });
   const r = await aplicacao.fetch(
-    pedido("/internal/screen", { ...CTX_DO_CORPO, sujeito_tipo: "condicoes", sujeito_ref: ORDER, textos: ["x"] }, BONS),
+    pedido(
+      "/internal/screen",
+      {
+        ...CTX_DO_CORPO,
+        sujeito_tipo: "condicoes",
+        sujeito_ref: ORDER,
+        textos: ["x"],
+        finalidade: "classificacao_de_condicoes",
+        prazo_ms: 6_000,
+      },
+      BONS,
+    ),
   );
   assert.equal(r.status, 503);
   assert.deepEqual(await r.json(), { tipo: "erro", erro: "UPSTREAM_DOWN" });
@@ -913,6 +955,8 @@ function corpoDeScreenCom(octetos: number): string {
     ...CTX_DO_CORPO,
     sujeito_tipo: "produto",
     sujeito_ref: "vestido-01",
+    finalidade: "classificacao_de_catalogo",
+    prazo_ms: 10_000,
     // «é» tem dois octetos em UTF-8: o tecto mede-se em octetos.
     textos: Array.from({ length: 24 }, () => "\u00e9".repeat(Math.floor(octetos / 48))),
   });
@@ -1122,4 +1166,73 @@ test("KAM-119: sem x-kamba-tenant, as duas rotas novas sao 400 e nada corre", as
     assert.equal(semCredencial.status, 401, rota);
   }
   assert.equal(chamadas.contagem.size, 0);
+});
+
+// ------------------------------------------- KAM-206: /internal/order-contact
+
+test("KAM-206: o order-contact leva o tenant do cabecalho e o actor do corpo, e devolve so a mascara", async () => {
+  contactosPedidos.length = 0;
+  const { aplicacao, chamadas } = app();
+  const r = await aplicacao.fetch(
+    pedido("/internal/order-contact", { ...CTX_DO_CORPO, actor: { kind: "dono", id: "caso-a" }, order_id: ORDER, tenant_id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb" }, BONS),
+  );
+  assert.equal(r.status, 200);
+  assert.deepEqual(await r.json(), { tipo: "ok", valor: { orderId: ORDER, telefoneMascarado: "••• ••• 789" } });
+  assert.deepEqual(contactosPedidos, [{ tenantId: TENANT, actor: "dono", orderId: ORDER }]);
+  assert.equal(chamadas.contagem.get("contactoDaEncomenda"), 1);
+  const semId = await aplicacao.fetch(pedido("/internal/order-contact", { ...CTX_DO_CORPO }, BONS));
+  assert.equal(semId.status, 400);
+  assert.equal(chamadas.contagem.get("contactoDaEncomenda"), 1);
+});
+
+test("KAM-206: adversarial - o telefone em claro nao sai na resposta, nos logs nem no /metrics", async (t) => {
+  const consola: unknown[][] = [];
+  for (const metodo of ["error", "log", "warn", "info"] as const) {
+    t.mock.method(console, metodo, (...argumentos: unknown[]) => {
+      consola.push(argumentos);
+    });
+  }
+  let escrito = "";
+  const log = new Logger("com", {
+    destino: { write: (pedaco: string) => (escrito += pedaco) },
+    relogio: () => new Date("2026-01-01T00:00:00.000Z"),
+    estrito: true,
+  });
+  const TELEFONE = "+244 999 000 789";
+  const montagem = (falhar: boolean): MontagemDoContacto => ({
+    async lerEncomenda(_ctx, orderId) {
+      return { tipo: "ok", valor: { orderId, estado: "paga", contactId: CONTACTO } };
+    },
+    contactos: {
+      async telefones(_t, _c, antes) {
+        await antes({ async query() { return { rows: [] }; } });
+        if (falhar) throw new Error(`a decifra falhou para ${TELEFONE}`);
+        return [{ finalidade: "contacto_pedido", telefone: TELEFONE, expiraAt: new Date("2099-01-01T00:00:00.000Z") }];
+      },
+    },
+    agora: () => new Date("2026-11-20T10:00:00.000Z"),
+  });
+  const { operacoes } = operacoesDeEnsaio();
+  for (const falhar of [false, true]) {
+    const aplicacao = createApp(log, {
+      operacoes: { ...operacoes, contactoDaEncomenda: (ctx, id) => contactoDaEncomenda(montagem(falhar), ctx, id) },
+      credencial: CREDENCIAL,
+      log,
+    });
+    const r = await aplicacao.fetch(
+      pedido("/internal/order-contact", { ...CTX_DO_CORPO, actor: { kind: "dono", id: "caso-a" }, order_id: ORDER }, BONS),
+    );
+    const corpo = await r.text();
+    if (falhar) {
+      assert.equal(r.status, 500);
+    } else {
+      assert.equal(r.status, 200);
+      assert.match(corpo, /••• ••• 789/);
+    }
+    assert.doesNotMatch(corpo, /999|244/);
+    const metricas = await (await aplicacao.fetch(new Request("http://127.0.0.1/metrics"))).text();
+    assert.doesNotMatch(metricas, /999 000|244999|caso-a/);
+  }
+  assert.doesNotMatch(escrito, /999|789/, escrito);
+  assert.doesNotMatch(JSON.stringify(consola), /999|789/);
 });

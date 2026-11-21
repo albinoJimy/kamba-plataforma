@@ -1,0 +1,10 @@
+# Lista de saida do `onboarding-provisionamento` (KAM-215): o consumidor `dono`.
+#
+# Fala com a base (as duas ligacoes) e com a fila, ambas na rede interna, e e
+# raspado. Nenhum destino de saida: a decifra do telefone do caso e local, e a
+# chave vem do cofre pelo lancador (ADR-L002).
+
+version: 1
+servico: onboarding-provisionamento
+por_omissao: negar
+destinos: []

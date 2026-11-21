@@ -102,10 +102,15 @@ class TestArvoreReal(unittest.TestCase):
         # tambem sem linha no bloco, pela mesma razao.
         do_kam_198 = dados.manifesto["onboarding-lote"].memoria_mib
         self.assertEqual(do_kam_198, 128)
+        # KAM-218: o processo das fases de dados do off-boarding, 256 MiB, uma
+        # replica — tambem sem linha no bloco, pela mesma razao.
+        do_kam_218 = dados.manifesto["offboarding-dados"].memoria_mib
+        self.assertEqual(do_kam_218, 256)
         self.assertEqual(
-            soma, do_bloco - do_worker_antes + do_worker_agora + do_kam_194 + do_kam_198
+            soma,
+            do_bloco - do_worker_antes + do_worker_agora + do_kam_194 + do_kam_198 + do_kam_218,
         )
-        self.assertEqual(soma, 25856)
+        self.assertEqual(soma, 26112)
 
     def test_a_soma_cabe_nos_80_por_cento_da_ram_do_host(self) -> None:
         """Criterio 4: «a soma dos `mem_limit` <= 80% da RAM (<= 25,6 GB)»."""
@@ -177,9 +182,13 @@ class TestArvoreReal(unittest.TestCase):
         #
         # **KAM-198: de 21 para 22 presentes, e de 22 656 para 22 784 MiB.** O
         # processo de lote do onboarding (128 MiB, uma replica), pela mesma razao.
-        self.assertEqual(do_compose, 22784, "a reserva real dos 22 presentes, em MiB")
-        self.assertEqual(sum(s.memoria_mib for s in presentes.values()), 22784)
-        self.assertEqual(len(presentes), 22)
+        #
+        # **KAM-218: de 22 para 23 presentes, e de 22 784 para 23 040 MiB.** O
+        # processo das fases de dados do off-boarding (256 MiB, uma replica).
+        # Ficam 102 MiB de folga ate aos 80% no total do manifesto.
+        self.assertEqual(do_compose, 23040, "a reserva real dos 23 presentes, em MiB")
+        self.assertEqual(sum(s.memoria_mib for s in presentes.values()), 23040)
+        self.assertEqual(len(presentes), 23)
         self.assertLessEqual(do_compose, 26214.4)
 
     def test_cada_variavel_obrigatoria_tem_marcador(self) -> None:

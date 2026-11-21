@@ -14,8 +14,13 @@ export type Decisao = (typeof DECISOES)[number];
 export const ORIGENS = ["regra", "llm", "humano"] as const;
 export type Origem = (typeof ORIGENS)[number];
 
-/** O que se avalia — o `CHECK` de `screening_decision.sujeito_tipo`. */
-export const SUJEITOS = ["categoria", "produto", "condicoes"] as const;
+/**
+ * O que se avalia — o `CHECK` de `screening_decision.sujeito_tipo`. O `conteudo`
+ * é o do módulo social (KAM-121): os temas de um calendário e a legenda de um
+ * item, com o `content_item_id` como `sujeitoRef` (decisão 1 do fundador de
+ * 2026-11-20, bloco do KAM-121).
+ */
+export const SUJEITOS = ["categoria", "produto", "condicoes", "conteudo"] as const;
 export type SujeitoTipo = (typeof SUJEITOS)[number];
 
 export const ESTADOS_DE_EVIDENCIA = ["CONFIRMADO", "INDÍCIO", "NÃO VERIFICADO"] as const;

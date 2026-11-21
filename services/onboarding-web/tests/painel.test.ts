@@ -21,6 +21,7 @@ import { CanalEmMemoria, CanalPeloCom, SEM_CANAL, type VistaDoCanal } from "../s
 import {
   ComercioEmMemoria,
   ComercioPorHttp,
+  ESTADOS_COM_CONTACTO,
   ESTADOS_DA_ENCOMENDA,
   type Encomenda,
   type Oferta,
@@ -211,7 +212,7 @@ test("criterio 1: uma sessao com o tenant trocado ou assinada por outra chave e 
 test("criterio 8: a lista de produtos so mostra os do tenant da sessao", async () => {
   const m = montar();
   const corpo = await (await m.app.fetch(get("/painel/produtos", cookieDe(sessaoA())))).text();
-  assert.match(corpo, /data-sku="arroz"/);
+  assert.match(corpo, /href="\/painel\/produtos\/arroz"/);
   assert.doesNotMatch(corpo, /so-de-b/);
 });
 
@@ -521,13 +522,17 @@ test("renovacao: uma sessao expirada (30 dias sem uso) nao se renova, e o tecto 
 
 // ----------------------------------------------------------- páginas
 
-test("adversarial: XSS no nome do produto sai escapado", async () => {
+test("adversarial: XSS no nome do produto sai escapado, na lista e na pagina do produto", async () => {
   const m = montar();
-  m.comercio.semear(TENANT_A, [oferta("x\"'><svg>", { nome: "<script>alert(1)</script>" })]);
+  const sku = "x\"'><svg>";
+  m.comercio.semear(TENANT_A, [oferta(sku, { nome: "<script>alert(1)</script>" })]);
   const corpo = await (await m.app.fetch(get("/painel/produtos", cookieDe(sessaoA())))).text();
   assert.doesNotMatch(corpo, /<script>alert/);
   assert.match(corpo, /&lt;script&gt;alert\(1\)&lt;\/script&gt;/);
-  assert.match(corpo, /data-sku="x&quot;&#39;&gt;&lt;svg&gt;"/);
+  assert.doesNotMatch(corpo, /<svg>/);
+  const produto = await (await m.app.fetch(get(`/painel/produtos/${encodeURIComponent(sku)}`, cookieDe(sessaoA())))).text();
+  assert.doesNotMatch(produto, /<script>alert/);
+  assert.match(produto, /data-sku="x&quot;&#39;&gt;&lt;svg&gt;"/);
 });
 
 test("criterio 9: a pagina dos produtos cabe em 200 KB comprimida, e nao tem scripts de terceiros", async () => {
@@ -624,7 +629,8 @@ test("o painel nao grava stock: um stock no corpo e 400 stock_por_ligar, e nada 
   assert.equal(r.status, 400);
   assert.deepEqual(await r.json(), { erro: "campo", campo: "stock_por_ligar" });
   assert.equal(m.comercio.gravacoes.length, 0);
-  const pagina = await (await m.app.fetch(get("/painel/produtos", cookieDe(sessaoA())))).text();
+  const pagina = await (await m.app.fetch(get("/painel/produtos/arroz", cookieDe(sessaoA())))).text();
+  assert.match(pagina, /name="preco_kz"/);
   assert.doesNotMatch(pagina, /name="stock"/);
 });
 
@@ -714,10 +720,174 @@ test("renovacao: uma sessao com a renovacao no futuro e recusada", () => {
 test("um preco com centimos nao se pre-preenche, para nao se perder numa gravacao", async () => {
   const m = montar();
   m.comercio.semear(TENANT_A, [oferta("arroz", { precoMinor: 1_250_050n })]);
-  const corpo = await (await m.app.fetch(get("/painel/produtos", cookieDe(sessaoA())))).text();
+  const corpo = await (await m.app.fetch(get("/painel/produtos/arroz", cookieDe(sessaoA())))).text();
   assert.match(corpo, /name="preco_kz" inputmode="numeric" pattern="\[0-9\]\*" value=""/);
   assert.match(corpo, /data-kz=""/);
   assert.match(corpo, /12 500,50 Kz/);
+});
+
+// ------------------------------------------------------------------ KAM-206
+
+test("KAM-206: a lista de produtos nao tem formularios nem guiao, e liga a pagina de cada produto", async () => {
+  const m = montar();
+  m.comercio.semear(TENANT_A, Array.from({ length: 200 }, (_, i) => oferta(`sku-${i}`, { nome: `Produto ${i}` })));
+  const r = await m.app.fetch(get("/painel/produtos", cookieDe(sessaoA())));
+  assert.equal(r.status, 200);
+  const corpo = await r.text();
+  assert.doesNotMatch(corpo, /<form class="oferta|<select|name="preco_kz"/);
+  assert.doesNotMatch(corpo, /<script/);
+  assert.equal((corpo.match(/<a href="\/painel\/produtos\/sku-\d+">/g) ?? []).length, 200);
+  // So o formulario de sair, na barra: nenhum por produto.
+  assert.equal((corpo.match(/<form/g) ?? []).length, 1);
+});
+
+test("KAM-206: a pagina de um produto tem o formulario e o guiao, com a versao da oferta", async () => {
+  const m = montar();
+  const r = await m.app.fetch(get("/painel/produtos/arroz", cookieDe(sessaoA())));
+  assert.equal(r.status, 200);
+  const corpo = await r.text();
+  assert.match(corpo, /<form class="oferta cartao" data-sku="arroz" data-versao="2026-11-02T11:00:00.000001Z"/);
+  assert.match(corpo, /<script nonce="[^"]+">/);
+  assert.match(corpo, /<title>Produto arroz/);
+});
+
+test("KAM-206: isolamento - a pagina de um produto de B com a sessao de A e 404, igual a de um que nao existe", async () => {
+  const m = montar();
+  const deB = await m.app.fetch(get("/painel/produtos/so-de-b", cookieDe(sessaoA())));
+  const inexistente = await m.app.fetch(get("/painel/produtos/nao-existe", cookieDe(sessaoA())));
+  assert.equal(deB.status, 404);
+  assert.equal(inexistente.status, 404);
+  const corpoDeB = await deB.text();
+  assert.doesNotMatch(corpoDeB, /so-de-b|Produto so-de-b/);
+  assert.equal(corpoDeB.replace(/nonce="[^"]+"/g, ""), (await inexistente.text()).replace(/nonce="[^"]+"/g, ""));
+  const tenantNaConsulta = await m.app.fetch(get(`/painel/produtos/so-de-b?tenant_id=${TENANT_B}`, cookieDe(sessaoA())));
+  assert.equal(tenantNaConsulta.status, 404);
+  assert.equal((await m.app.fetch(get("/painel/produtos/arroz", ""))).status, 401);
+});
+
+test("KAM-206: o COM em baixo na pagina de um produto e 503, e conta indisponivel", async () => {
+  const m = montar();
+  m.comercio.obterOferta = async () => ({ tipo: "erro", erro: "UPSTREAM_DOWN" });
+  assert.equal((await m.app.fetch(get("/painel/produtos/arroz", cookieDe(sessaoA())))).status, 503);
+  assert.match(m.metricas.exposicao(), /painel_erros_total\{rota="produto",motivo="indisponivel"\} 1/);
+});
+
+function pedirContacto(caminho: string, cookie: string): Request {
+  return new Request(`http://127.0.0.1${caminho}`, { method: "POST", headers: { cookie } });
+}
+
+test("KAM-206: o detalhe nao traz o contacto por omissao, e so tem o botao nos estados da regra", async () => {
+  const m = montar();
+  m.comercio.semear(TENANT_A, [], [
+    encomenda(ORDEM_A, { estado: "pendente_confirmacao" }),
+    encomenda("0c0c0c0c-0c0c-4c0c-8c0c-0c0c0c0c0c0c", { estado: "aguarda_pagamento" }),
+  ]);
+  m.comercio.mascaras.set(ORDEM_A, "••• ••• 789");
+  const comBotao = await (await m.app.fetch(get(`/painel/encomendas/${ORDEM_A}`, cookieDe(sessaoA())))).text();
+  assert.match(comBotao, new RegExp(`<form method="post" action="/painel/encomendas/${ORDEM_A}/contacto"`));
+  assert.doesNotMatch(comBotao, /789|data-contacto|7c1d5e3a/);
+  const semBotao = await (await m.app.fetch(get("/painel/encomendas/0c0c0c0c-0c0c-4c0c-8c0c-0c0c0c0c0c0c", cookieDe(sessaoA())))).text();
+  assert.doesNotMatch(semBotao, /\/contacto"/);
+  // O detalhe nao pede o contacto ao COM: so o botao o pede.
+  assert.equal(m.comercio.contactosPedidos.length, 0);
+});
+
+test("KAM-206: o botao mostra o telefone mascarado, pedido ao COM com o tenant da sessao", async () => {
+  const m = montar();
+  m.comercio.semear(TENANT_A, [], [encomenda(ORDEM_A, { estado: "paga" })]);
+  m.comercio.mascaras.set(ORDEM_A, "••• ••• 789");
+  const r = await m.app.fetch(pedirContacto(`/painel/encomendas/${ORDEM_A}/contacto?tenant_id=${TENANT_B}`, cookieDe(sessaoA())));
+  assert.equal(r.status, 200);
+  assert.equal(r.headers.get("cache-control"), "no-store");
+  const corpo = await r.text();
+  assert.match(corpo, /<strong data-contacto>••• ••• 789<\/strong>/);
+  assert.doesNotMatch(corpo, /7c1d5e3a|\/contacto"/);
+  assert.deepEqual(m.comercio.contactosPedidos, [{ tenantId: TENANT_A, orderId: ORDEM_A }]);
+  assert.match(m.metricas.exposicao(), /painel_pedidos_total\{rota="contacto"\} 1/);
+});
+
+test("KAM-206: uma encomenda sem telefone diz que nao ha telefone, e nao mostra o resto", async () => {
+  const m = montar();
+  m.comercio.semear(TENANT_A, [], [encomenda(ORDEM_A, { estado: "em_entrega" })]);
+  const corpo = await (await m.app.fetch(pedirContacto(`/painel/encomendas/${ORDEM_A}/contacto`, cookieDe(sessaoA())))).text();
+  assert.match(corpo, /não tem telefone do cliente para mostrar/);
+});
+
+test("KAM-206: isolamento - o contacto da encomenda de B com a sessao de A e 404, igual ao de uma que nao existe e ao de fora da regra", async () => {
+  const m = montar();
+  m.comercio.semear(TENANT_A, [], [encomenda(ORDEM_A, { estado: "entregue" })]);
+  m.comercio.semear(TENANT_B, [], [encomenda(ORDEM_B, { estado: "paga", numeroPublico: "B00001" })]);
+  m.comercio.mascaras.set(ORDEM_B, "••• ••• 222");
+  const sem = (t: string): string => t.replace(/nonce="[^"]+"/g, "");
+  const deB = await m.app.fetch(pedirContacto(`/painel/encomendas/${ORDEM_B}/contacto`, cookieDe(sessaoA())));
+  const inexistente = await m.app.fetch(pedirContacto("/painel/encomendas/0d0d0d0d-0d0d-4d0d-8d0d-0d0d0d0d0d0d/contacto", cookieDe(sessaoA())));
+  const foraDaRegra = await m.app.fetch(pedirContacto(`/painel/encomendas/${ORDEM_A}/contacto`, cookieDe(sessaoA())));
+  const malFormada = await m.app.fetch(pedirContacto("/painel/encomendas/nao-e-uuid/contacto", cookieDe(sessaoA())));
+  for (const r of [deB, inexistente, foraDaRegra, malFormada]) assert.equal(r.status, 404);
+  const corpoDeB = await deB.text();
+  assert.doesNotMatch(corpoDeB, /222|B00001/);
+  assert.equal(sem(corpoDeB), sem(await inexistente.text()));
+  assert.equal(sem(corpoDeB), sem(await foraDaRegra.text()));
+  // Nenhum pedido de contacto saiu com o tenant de B.
+  assert.ok(m.comercio.contactosPedidos.every((p) => p.tenantId === TENANT_A));
+  assert.equal((await m.app.fetch(pedirContacto(`/painel/encomendas/${ORDEM_A}/contacto`, ""))).status, 401);
+});
+
+test("KAM-206: adversarial - um COM que devolva o telefone em claro e recusado, e a pagina nao o mostra", async () => {
+  const pedidos: string[] = [];
+  const com = new ComercioPorHttp("http://com:3002", "cred", async (url) => {
+    pedidos.push(url);
+    return new Response(JSON.stringify({ tipo: "ok", valor: { orderId: ORDEM_A, telefoneMascarado: "+244 999 000 789" } }));
+  });
+  const r = await com.contactoDaEncomenda(TENANT_A, { id: CASO_A, traceId: "t" }, ORDEM_A);
+  assert.deepEqual(r, { tipo: "erro", erro: "UPSTREAM_DOWN" });
+  assert.deepEqual(pedidos, ["http://com:3002/internal/order-contact"]);
+  const certo = new ComercioPorHttp("http://com:3002", "cred", async () =>
+    new Response(JSON.stringify({ tipo: "ok", valor: { orderId: ORDEM_A, telefoneMascarado: "••• ••• 789" } })),
+  );
+  assert.deepEqual(await certo.contactoDaEncomenda(TENANT_A, { id: CASO_A, traceId: "t" }, ORDEM_A), {
+    tipo: "ok",
+    valor: { orderId: ORDEM_A, telefoneMascarado: "••• ••• 789" },
+  });
+  const m = montar();
+  m.comercio.semear(TENANT_A, [], [encomenda(ORDEM_A, { estado: "paga" })]);
+  m.comercio.contactoDaEncomenda = async () => ({ tipo: "erro", erro: "UPSTREAM_DOWN" });
+  const pagina = await m.app.fetch(pedirContacto(`/painel/encomendas/${ORDEM_A}/contacto`, cookieDe(sessaoA())));
+  assert.equal(pagina.status, 503);
+  assert.doesNotMatch(await pagina.text(), /999|789/);
+  assert.match(m.metricas.exposicao(), /painel_erros_total\{rota="contacto",motivo="indisponivel"\} 1/);
+});
+
+test("KAM-206: um POST de outra origem do mesmo sitio e recusado antes de pedir o contacto", async () => {
+  const m = montar();
+  m.comercio.semear(TENANT_A, [], [encomenda(ORDEM_A, { estado: "paga" })]);
+  m.comercio.mascaras.set(ORDEM_A, "••• ••• 789");
+  for (const sitio of ["same-site", "cross-site"]) {
+    const r = await m.app.fetch(
+      new Request(`http://127.0.0.1/painel/encomendas/${ORDEM_A}/contacto`, {
+        method: "POST",
+        headers: { cookie: cookieDe(sessaoA()), "sec-fetch-site": sitio },
+      }),
+    );
+    assert.equal(r.status, 403, sitio);
+    assert.doesNotMatch(await r.text(), /789/);
+  }
+  assert.equal(m.comercio.contactosPedidos.length, 0);
+  const daMesma = await m.app.fetch(
+    new Request(`http://127.0.0.1/painel/encomendas/${ORDEM_A}/contacto`, {
+      method: "POST",
+      headers: { cookie: cookieDe(sessaoA()), "sec-fetch-site": "same-origin" },
+    }),
+  );
+  assert.equal(daMesma.status, 200);
+});
+
+test("KAM-206: os estados do botao sao os da regra do COM, confrontados com o texto de la", () => {
+  const regra = readFileSync(new URL("../../com/src/orders/contacto.ts", import.meta.url), "utf8");
+  const bloco = /export const ESTADOS_COM_CONTACTO = \[([\s\S]*?)\] as const;/.exec(regra)?.[1] ?? "";
+  const doCom = [...bloco.matchAll(/"([a-z_]+)"/g)].map((x) => x[1]);
+  assert.equal(doCom.length, 4);
+  assert.deepEqual([...ESTADOS_COM_CONTACTO], doCom);
 });
 
 // ------------------------------------------------------------------ KAM-190

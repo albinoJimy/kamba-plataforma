@@ -16,8 +16,8 @@ as respostas a identificadores de B sao indistinguiveis entre si.
                                  `tenant_id`, e que o oraculo morderia se levasse
 ```
 
-As catorze `POST /internal/*` do COM (sete do KAM-178, duas do KAM-099, duas do
-KAM-190, uma do KAM-222, duas do KAM-119) entram na primeira metade, e o
+As quinze `POST /internal/*` do COM (sete do KAM-178, duas do KAM-099, duas do
+KAM-190, uma do KAM-222, duas do KAM-119, uma do KAM-206) entram na primeira metade, e o
 `ALL /internal/*` da app sem API montada entra nela tambem: ele recebe os mesmos
 corpos, e o que se afirma e que os recusa de forma indistinguivel. O
 `GET /metrics` do COM entra na segunda.
@@ -154,6 +154,10 @@ SONDAS_TS = (
     # KAM-190: as series do painel do dono, `painel_pedidos_total{rota}` e
     # `painel_erros_total{rota,motivo}`, de dominios fechados e sem tenant.
     "rota:onboarding-web:app:createApp:GET:/metrics",
+    # KAM-215: o consumidor `dono`. O `/metrics` serve as series do consumo
+    # (KAM-006) e as da guarda de tenant, sem `consumer` nem tenant.
+    "rota:onboarding-web:provisionamento/processo:criarApp:GET:/healthz",
+    "rota:onboarding-web:provisionamento/processo:criarApp:GET:/metrics",
     "rota:worker-canal:agr_shim:criarApp:GET:/healthz",
     "rota:worker-canal:agr_shim:criarApp:GET:/metrics",
     "rota:worker-canal:app:createApp:GET:/healthz",
@@ -478,6 +482,33 @@ registar_caso(
     origens=("corpo", "cabecalhos", "logs"),
 )
 
+# ------------------------------- o processo dos dados do off-boarding (KAM-218)
+#
+# Uma rota so, a sonda do `python -m kamba_core.offboarding`, num
+# `BaseHTTPRequestHandler` como o do IDX. O ataque esta em `_offboarding.py`.
+
+#: A sonda do processo dos dados. Sem identificadores a entrada.
+SONDA_DO_OFFBOARDING = (
+    "rota:py-core:kamba_core/offboarding/servico:servidor:GET:/healthz",
+)
+
+
+def _conduzir_sonda_do_offboarding(ctx) -> list[str]:  # noqa: ANN001
+    from ._offboarding import atacar_sonda  # noqa: PLC0415
+
+    return atacar_sonda(ctx)
+
+
+registar_caso(
+    id="X-01/offboarding/sonda",
+    bateria="X-01",
+    camada="rotas",
+    enumeravel=SONDA_DO_OFFBOARDING,
+    fn=_conduzir_sonda_do_offboarding,
+    precisa="postgres",
+    origens=("corpo", "cabecalhos"),
+)
+
 registar_caso(
     id="X-01/ts/sondas",
     bateria="X-01",
@@ -553,10 +584,11 @@ registar_caso(
 # sao exigidas aqui: uma afirmacao nao medida nao e um verde.
 
 
-#: As catorze rotas `POST /internal/*`, pela ordem da constante `ROTAS` do COM:
+#: As quinze rotas `POST /internal/*`, pela ordem da constante `ROTAS` do COM:
 #: as sete do KAM-178, as duas do painel do dono (KAM-099), as duas leituras do
 #: KAM-190 — uma oferta so, e o estado do canal —, o `screen` do KAM-222 e as
-#: duas do Catalogo AI do KAM-119 (o rascunho e a publicacao) no fim.
+#: duas do Catalogo AI do KAM-119 (o rascunho e a publicacao), e o contacto da
+#: encomenda do KAM-206 no fim.
 ROTAS_POST_DA_API_INTERNA_DO_COM = (
     "rota:com:api/interna:apiInterna:POST:/internal/offer-view",
     "rota:com:api/interna:apiInterna:POST:/internal/propose-cart",
@@ -572,6 +604,7 @@ ROTAS_POST_DA_API_INTERNA_DO_COM = (
     "rota:com:api/interna:apiInterna:POST:/internal/screen",
     "rota:com:api/interna:apiInterna:POST:/internal/upsert-product-draft",
     "rota:com:api/interna:apiInterna:POST:/internal/publish-product",
+    "rota:com:api/interna:apiInterna:POST:/internal/order-contact",
 )
 
 #: O `GET /metrics` do COM. Sem credencial e sem identificadores (§3.39).
@@ -580,7 +613,7 @@ ITEM_DAS_METRICAS_DO_COM = "rota:com:api/interna:rotaDasMetricas:GET:/metrics"
 #: O `ALL /internal/*` da app construida **sem** a API montada.
 ITEM_SEM_API_DO_COM = "rota:com:app:createApp:ALL:/internal/*"
 
-#: As dezasseis, que e o que o caso cobre. Literais pela razao do topo do modulo: um
+#: As dezassete, que e o que o caso cobre. Literais pela razao do topo do modulo: um
 #: filtro fazia uma rota nova nascer coberta.
 ROTAS_DA_API_INTERNA_DO_COM = (
     *ROTAS_POST_DA_API_INTERNA_DO_COM,
@@ -904,6 +937,13 @@ registar_caso(
 #                             um texto que imita um botao: 200, e a mensagem e a
 #                             invocacao do AGR ficam no tenant e no thread de A,
 #                             com a persona `dono` e sem botao
+#     telefone/verificar      a sessao de A com o codigo certo do pedido de B, o
+#       (KAM-211)             tenant de B e o pedido de B no corpo: 401 uniforme,
+#                             e a troca de B nao acontece
+#     teste (KAM-202)         a sessao de A (caso em `aguarda_teste`) com o caso
+#                             e o tenant de B no corpo, na consulta e no
+#                             cabecalho: 200, e a tentativa abre-se so no caso e
+#                             no tenant da sessao de A
 #
 # **O 200 das listas entra por item e nao no global**, pela razao do `/metrics`
 # do COM: a afirmacao delas e «o tenant e o da sessao», e essa mede-se a ver os
@@ -930,6 +970,12 @@ ROTAS_DO_PAINEL = (
     "rota:onboarding-web:painel/rotas:actor:POST:/painel/telefone/cancelar",
     "rota:onboarding-web:painel/rotas:actor:GET:/painel/conversa",
     "rota:onboarding-web:painel/rotas:actor:POST:/painel/conversa",
+    # KAM-202: o inicio do teste ponta a ponta.
+    "rota:onboarding-web:painel/rotas:actor:POST:/painel/teste",
+    # KAM-206: a pagina de um produto, com o formulario que saiu da lista.
+    "rota:onboarding-web:painel/rotas:actor:GET:/painel/produtos/:id",
+    # KAM-206: o contacto do cliente de uma encomenda, mascarado, pelo botao.
+    "rota:onboarding-web:painel/rotas:actor:POST:/painel/encomendas/:id/contacto",
 )
 
 #: Os estados de cada rota, quando nao sao os do `RECUSAS_ACEITAVEIS`. As listas
@@ -961,6 +1007,14 @@ ACEITAVEIS_DO_PAINEL: dict[str, tuple[int, ...]] = {
     "rota:onboarding-web:painel/rotas:actor:POST:/painel/telefone/cancelar": (200,),
     "rota:onboarding-web:painel/rotas:actor:GET:/painel/conversa": (404,),
     "rota:onboarding-web:painel/rotas:actor:POST:/painel/conversa": (200,),
+    # KAM-202. O inicio do teste responde 200 com a sessao de A, sempre no caso dela.
+    "rota:onboarding-web:painel/rotas:actor:POST:/painel/teste": (200,),
+    # KAM-206. A pagina do `sku` de B com a sessao de A responde **so** 404,
+    # pela razao do `PATCH`: o criterio 8 do KAM-099 escreve «404, nao 403».
+    "rota:onboarding-web:painel/rotas:actor:GET:/painel/produtos/:id": (404,),
+    # KAM-206. O contacto da encomenda de B com a sessao de A: **so** 404, igual
+    # ao de uma encomenda que nao existe e ao de uma fora da regra.
+    "rota:onboarding-web:painel/rotas:actor:POST:/painel/encomendas/:id/contacto": (404,),
 }
 
 #: Ataques por rota do painel.
@@ -999,6 +1053,7 @@ def _afirmacoes_do_painel(item: str, entradas: list[dict]) -> list[str]:
             "/painel/telefone/concluir",
             "/painel/telefone/cancelar",
             "POST:/painel/conversa",
+            "/painel/teste",
         )
     ):
         achados.extend(
@@ -1091,6 +1146,18 @@ def _afirmacoes_do_painel(item: str, entradas: list[dict]) -> list[str]:
                 "O `/painel/telefone` registou um pedido de troca noutro tenant ou "
                 "noutra sessao que nao a de A: o pedido escolheu o tenant, e o "
                 "dono de A podia mudar o telefone do dono de B.",
+            )
+        )
+    if item.endswith("POST:/painel/teste"):
+        achados.extend(
+            _exigir_marca(
+                item,
+                entradas,
+                "teste",
+                "a",
+                "O `/painel/teste` abriu a tentativa noutro caso ou noutro tenant que "
+                "nao os da sessao de A: o pedido escolheu o caso, e o dono de A podia "
+                "fechar o teste da loja de B.",
             )
         )
     if item.endswith("POST:/painel/telefone/verificar"):

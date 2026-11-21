@@ -201,11 +201,16 @@ class ClienteDeLlm:
         *,
         tecto_s: float | None = None,
         corpo_extra: dict[str, Any] | None = None,
+        finalidade: str | None = None,
     ) -> Resposta:
         """Chama o modelo do papel. Levanta `ErroDeLlm`; grava sempre uma linha.
 
         `tecto_s` substitui o tecto do transporte, como no `embeber`; `corpo_extra`
         acrescenta ao corpo so os campos de `CAMPOS_EXTRA_PERMITIDOS` (KAM-195).
+        `finalidade` e a de transferencia que o *gate* consulta em vez da do
+        papel, e so uma que o papel admita (`destinos.FINALIDADES_ESCOLHIVEIS`,
+        KAM-230): as condicoes de um orcamento pelo classificador do `screening`.
+        Uma que ele nao admita nega, com linha e metrica, como qualquer recusa.
 
         **`mensagens` sao `MensagemMinimizada` e nao `dict`, e e o criterio 1 do
         KAM-112.** Um `MensagemMinimizada` traz um `MinimisedText`, e um
@@ -262,7 +267,7 @@ class ClienteDeLlm:
         # 1. O *gate* de destino, para **todos** os fornecedores que o alias pode
         #    alcancar. Ver a nota do modulo: autorizar so o primeiro deixava o
         #    *fallback* sair para um destino nao autorizado.
-        self._autorizar(alias, papel, ctx, inicio)
+        self._autorizar(alias, papel, ctx, inicio, finalidade)
 
         # 2. A chamada.
         tecto = (
@@ -416,7 +421,12 @@ class ClienteDeLlm:
     # ------------------------------------------------------------- internos
 
     def _autorizar(
-        self, alias: Alias, papel: str, ctx: ContextoDeChamada, inicio: float
+        self,
+        alias: Alias,
+        papel: str,
+        ctx: ContextoDeChamada,
+        inicio: float,
+        finalidade: str | None = None,
     ) -> None:
         """O *gate* de destino para **todos** os fornecedores do alias, ou levanta.
 
@@ -430,9 +440,9 @@ class ClienteDeLlm:
             # consultar —, pelo que tem de estar **dentro** deste `try`: fora
             # dele, essa recusa saia sem linha de registo e sem metrica, que e
             # precisamente o caminho que o criterio 5 fecha.
-            finalidade = destinos_mod.finalidade_de(papel)
+            efectiva = destinos_mod.finalidade_de(papel, finalidade)
             for fornecedor in alias.fornecedores:
-                self._destinos.autorizar(ctx.tenant_id, fornecedor, finalidade)
+                self._destinos.autorizar(ctx.tenant_id, fornecedor, efectiva)
         except ErroDeLlm as erro:
             self._metricas.contar(metricas_mod.METRICA_LLM_DESTINO_NEGADO)
             self._falhou(alias, ctx, erro, inicio)

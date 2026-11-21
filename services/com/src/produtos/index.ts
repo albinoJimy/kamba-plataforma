@@ -143,5 +143,6 @@ export {
   publishProduct,
   searchOffers,
   upsertProductDraft,
+  validarRascunho,
   vistaDaOfertaCompleta,
 } from "./produtos.ts";

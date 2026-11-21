@@ -47,6 +47,8 @@ COLUNAS_DE_HEAD = (
     "last_human_activity_at",
     "last_inbound_at",
     "mode",
+    # KAM-202: o sinal do teste ponta a ponta.
+    "teste_recebido_at",
     "window_expires_at",
 )
 

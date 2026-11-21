@@ -15,26 +15,41 @@
  * (critério 2). Três entregas dão um contacto e um dono, porque as duas portas
  * o garantem e este código não guarda estado nenhum entre entregas.
  *
- * ## Está entregue, e não está ligado
+ * ## O que o KAM-215 entregou, e o que continua a faltar a montante
  *
- * Duas coisas faltam fora deste ticket, e ligar o consumidor sem elas era pôr
- * eventos numa fila que só pode falhar:
+ * O KAM-118 entregou o efeito sem nada que o fizesse correr. O KAM-215 entrega
+ * as três peças em falta deste lado:
  *
- * * **o evento não sai em produção** — o `platform.advance_case(...,
- *   'es_concluido')` da revisão `0058` emite-o, e nenhum serviço o chama;
- * * **o telefone do caso não se lê em claro** — a `onboarding_case.phone_enc`
- *   não tem adaptador nem KEK no inventário (`lote/processo.ts`, `SEM_DADOS`), e
- *   o `phone_hmac` do caso está noutro espaço de chave que o de `contacts`.
+ * * **o emissor** — o varrimento do processo de lote do onboarding
+ *   (`../provisioning/avanco.ts`) avança o caso até `es_concluido` pela
+ *   `platform.advance_case` (revisão `0058`), como `kamba_batch`, e é a função
+ *   que emite o `tenant.provisioned`;
+ * * **o telefone do caso** — o `phone_enc` tem cifra e KEK própria
+ *   (`kek_telefone_do_caso`, decisão do fundador de 2026-11-20), e o decifrador
+ *   é o `lerTelefoneDoCaso` de `../inscricao/telefone_do_caso.ts`;
+ * * **o consumidor** — a subscrição em `platform.evt_subscricoes` (revisão de
+ *   dados) e o `registry/dono_provisionamento.yaml`, e o processo
+ *   `services/onboarding-web/src/provisionamento.ts`, com a ligação `kamba_app`
+ *   para o `consumir` e a `kamba_identity` para o contacto e a porta.
  *
- * Por isso o efeito recebe o telefone por uma porta (`TelefoneDoCaso`), e a
- * subscrição em `platform.evt_subscricoes` e o `registry/` do consumidor ficam
- * para quando houver emissor e adaptador. Está na secção de verificação do bloco.
+ * **O que continua a faltar está a montante, e não aqui:** nenhum serviço
+ * corre a saga do KAM-091 (ninguém escreve `provisioning_step`), e nenhum
+ * escreve o `onboarding_case` em produção (o `onboarding-web` corre sobre
+ * memória; o adaptador SQL do `RepositorioDeCasos` é do KAM-086). Sem eles,
+ * nenhum caso chega a `provisionando` em produção, e o varrimento não tem o que
+ * avançar — que é o certo, e não uma falha dele.
+ *
+ * **O telefone lê-se pela ligação do consumo**, e não por uma ligação própria:
+ * é `kamba_app` com o `app.tenant_id` do **envelope** já posto pelo `consumir`,
+ * pelo que um `onboarding_id` de outro tenant no *payload* não se encontra (zero
+ * linhas, `null`, DLQ) em vez de dar o telefone do dono de outro tenant.
  */
 
 import type { Efeito } from "../eventos/consumo.ts";
-import type { Telefone } from "../inscricao/identificadores.ts";
+import type { LigacaoDeLeitura } from "../inscricao/telefone_do_caso.ts";
+import type { Opaco } from "../sms/opaco.ts";
 
-/** O nome do consumidor, quando for ligado. Fora do prefixo `agr_` das verticais. */
+/** O nome do consumidor (`events_consumed.consumer`, filas `evt.dono.p<n>`). Fora do prefixo `agr_` das verticais. */
 export const CONSUMIDOR_DO_DONO = "dono";
 
 /** O evento que cria o dono. Dicionário §3.5. */
@@ -68,14 +83,20 @@ export class TelefoneDoCasoIndisponivelError extends Error {
   }
 }
 
-/** O telefone verificado por OTP do caso. É o `telefoneDe` do KAM-086. */
+/** Um telefone em claro, opaco: só o `revelar()` o dá. */
+export type TelefoneRevelavel = Pick<Opaco, "revelar">;
+
+/**
+ * O telefone verificado por OTP do caso, ou `null`. É o `lerTelefoneDoCaso` do
+ * KAM-215: lê pela ligação do consumo, sob a RLS do tenant do envelope.
+ */
 export interface TelefoneDoCaso {
-  (onboardingId: string): Promise<Telefone | null>;
+  (bd: LigacaoDeLeitura, caso: { readonly tenantId: string; readonly onboardingId: string }): Promise<TelefoneRevelavel | null>;
 }
 
 /** O contacto do telefone, no tenant. É o `resolveContact` do KAM-008. */
 export interface ContactoDoTelefone {
-  (pedido: { readonly tenantId: string; readonly telefone: Telefone }): Promise<{
+  (pedido: { readonly tenantId: string; readonly telefone: TelefoneRevelavel }): Promise<{
     readonly contactId: string;
   }>;
 }
@@ -95,7 +116,7 @@ export function efeitoDoProvisionamento(portas: {
   readonly contacto: ContactoDoTelefone;
   readonly definirDono: DefinirDono;
 }): Efeito {
-  return async (_bd, envelope) => {
+  return async (bd, envelope) => {
     if (
       envelope.tipo !== TIPO_DO_PROVISIONAMENTO ||
       !VERSOES_DO_PROVISIONAMENTO.includes(envelope.versao)
@@ -106,12 +127,11 @@ export function efeitoDoProvisionamento(portas: {
     if (typeof onboardingId !== "string" || onboardingId === "") {
       throw new TelefoneDoCasoIndisponivelError();
     }
-    const telefone = await portas.telefoneDoCaso(onboardingId);
-    if (telefone === null) throw new TelefoneDoCasoIndisponivelError();
-
     // O tenant é o do envelope, que o `consumir` já pôs no contexto da RLS; não
     // vem do payload, que não o tem.
     const tenantId = envelope.tenant_id;
+    const telefone = await portas.telefoneDoCaso(bd, { tenantId, onboardingId });
+    if (telefone === null) throw new TelefoneDoCasoIndisponivelError();
     const { contactId } = await portas.contacto({ tenantId, telefone });
     await portas.definirDono({ tenantId, contactId, origem: ORIGEM_DO_PROVISIONAMENTO });
   };

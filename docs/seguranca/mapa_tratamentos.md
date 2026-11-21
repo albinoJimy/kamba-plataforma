@@ -4,7 +4,7 @@
 |---|---|
 | Produto | KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para Angola |
 | Documento | Mapa de tratamentos por destino, **gerado** do inventário e de `platform.tenant_destinations` |
-| Versão | 1.0+c17ff5ccf311 |
+| Versão | 1.0+9d7dd8d6a20f |
 | Classificação | Documento de Referência — Interno; base da submissão à APD |
 | Ticket | KAM-069 (EPIC-07) |
 | Documento-fonte | [`gov/subprocessadores.yaml`](../../gov/subprocessadores.yaml); `platform.tenant_destinations` (revisão [`0036`](../../db/migrations/versions/0036_destinos_de_transferencia.py)); `../tecnica/08_Seguranca_Conformidade.md` §7.1, §8.3, §8.6 |
@@ -22,7 +22,7 @@
 
 ## 1. A versão, e porque é que ela é um `sha256`
 
-`1.0+c17ff5ccf311` — a versão declarada do inventário, mais os doze primeiros dígitos do `sha256` das linhas que decidem (sem as `nota`, pela razão que o `ci/llm-aliases.lock` do KAM-030 já escreve: o que se *hasheia* é o conteúdo que decide, não o texto que o descreve).
+`1.0+9d7dd8d6a20f` — a versão declarada do inventário, mais os doze primeiros dígitos do `sha256` das linhas que decidem (sem as `nota`, pela razão que o `ci/llm-aliases.lock` do KAM-030 já escreve: o que se *hasheia* é o conteúdo que decide, não o texto que o descreve).
 
 O critério 9 do KAM-069 pede que **alterar uma linha altere a versão**, e um número escrito à mão não tem essa propriedade: esquece-se. Mudar um país, um estado, uma finalidade ou a *checklist* de qualquer linha muda estes doze dígitos; reescrever uma nota não.
 
@@ -44,7 +44,7 @@ O critério 9 do KAM-069 pede que **alterar uma linha altere a versão**, e um n
 | meta | Meta (WhatsApp Cloud API) | Canal | conteúdo das mensagens, telefone e BSUID | `canal` | EUA ou UE | **não** | `pendente` | **não há** | **não** | **não** | **não há** | KAM-104 |
 | openai | OpenAI | LLM e transcrição | texto minimizado, áudio | `conversa`, `transcricao` | EUA | **não** | `pendente` | **não há** | **não** | **não** | **não há** | KAM-104 |
 | google | Google (Gemini) | LLM | texto minimizado | `conversa`, `visao` | EUA ou UE | **não** | `pendente` | **não há** | **não** | **não** | **não há** | KAM-104 |
-| anthropic | Anthropic | LLM | texto minimizado | `classificacao_de_catalogo`, `conversa`, `visao` | EUA | **não** | `pendente` | **não há** | **não** | **não** | **não há** | KAM-104 |
+| anthropic | Anthropic | LLM | texto minimizado | `classificacao_de_catalogo`, `classificacao_de_condicoes`, `classificacao_de_conteudo`, `conversa`, `visao` | EUA | **não** | `pendente` | **não há** | **não** | **não** | **não há** | KAM-104 |
 | groq | Groq | Transcrição | áudio | `transcricao` | EUA | **não** | `pendente` | **não há** | **não** | **não** | **não há** | KAM-036 |
 | alojamento | Alojamento (Luanda ou JNB/CPT) | Computação, base de dados e cópias de segurança | todas as classes do docs/tecnica/08 §7.1 | `alojamento`, `copias_de_seguranca` | Angola ou África do Sul | **não** | `pendente` | **não há** | **não** | **não** | **não há** | D1 |
 | cdn_waf | CDN e firewall aplicacional (Cloudflare) | Termina TLS e vê tráfego em claro | conteúdo em trânsito | `entrega_de_conteudo` | global | **não** | `pendente` | **não há** | **não** | **não** | **não há** | D12 |

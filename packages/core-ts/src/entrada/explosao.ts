@@ -41,6 +41,7 @@
 
 import { createHash } from "node:crypto";
 
+import { eMensagemDeTeste } from "../activacao/smoke.ts";
 import {
   CAMPO_DAS_MENSAGENS,
   FORMA_DO_BOTAO,
@@ -171,6 +172,14 @@ export interface EventoDeEntrada {
    * trazer um PAN, e a redacção é uma só, no AGR, antes da janela.
    */
   readonly texto?: string;
+  /**
+   * `true` numa `message` de texto cujo corpo é a palavra do teste ponta a ponta
+   * (KAM-202, critério 1): o sinal que o observador do teste lê, gravado pelo CHR
+   * como o instante `conversations.teste_recebido_at`. **Ausente** em tudo o
+   * resto. É um booleano e mais nada; o corpo, quando segue, segue em `texto`
+   * (KAM-232), e o telefone não sai daqui (ADR-010).
+   */
+  readonly eTeste?: true;
 }
 
 /** Um evento que não se conseguiu encaminhar, a registar em `unrouted_events`. */
@@ -459,6 +468,9 @@ function explodirMensagens(
     const wamid = texto(mensagem.id, EVENT_KEY_MAXIMO);
     const botao = botaoDaResposta(mensagem);
     const corpo = textoDaMensagem(mensagem);
+    // KAM-202: só um texto, e só a palavra do teste. O corpo compara-se aqui, e
+    // o sinal é só o booleano.
+    const eTeste = mensagem.type === "text" && eMensagemDeTeste(objecto(mensagem.text)?.body);
     eventos.push({
       kind: "message",
       eventKey: wamid ?? resumoCanonico("message", wabaId, mensagem),
@@ -475,6 +487,7 @@ function explodirMensagens(
       },
       ...(botao === null ? {} : { botao }),
       ...(corpo === null ? {} : { texto: corpo }),
+      ...(eTeste ? { eTeste: true as const } : {}),
     });
     quantos += 1;
   }

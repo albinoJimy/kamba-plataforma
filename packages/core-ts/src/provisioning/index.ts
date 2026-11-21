@@ -121,3 +121,15 @@ export {
   Metricas,
   PASSOU,
 } from "./metricas.ts";
+
+export {
+  ACTOR_DO_AVANCO,
+  AvancoComFalhasError,
+  PASSAGENS_POR_VOLTA,
+  PASSOS_ANTES_DO_ES,
+  SQL_AVANCAR_CASO,
+  SQL_CASOS_POR_AVANCAR,
+  SQL_TRANCAR_CASO,
+  varrerProvisionamentos,
+  type ConjuntoDoLote,
+} from "./avanco.ts";

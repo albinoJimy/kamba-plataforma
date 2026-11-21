@@ -4,7 +4,7 @@
  * A forma é a do `/internal/turn` e `/internal/resume` do AGR (KAM-025):
  * credencial no cabeçalho, comparação em **tempo constante**, autenticação
  * **antes** de se ler o corpo, e o segredo no inventário. «Mínima» é o
- * adjectivo, e cumpre-se: catorze rotas, nenhuma de administração, nenhuma que
+ * adjectivo, e cumpre-se: quinze rotas, nenhuma de administração, nenhuma que
  * exista «para depois». A `/healthz` fica onde estava e **não** leva credencial
  * — é a sonda do *rolling deploy*, e uma sonda que precisa de segredo é uma
  * sonda que falha no dia em que o segredo roda.
@@ -75,7 +75,7 @@ import {
 import type { OperacoesDoCom } from "../adapters/medusa/index.ts";
 import { exposicao, TIPO_DE_CONTEUDO } from "../metricas.ts";
 import type { AlteracaoDeOferta } from "../produtos/index.ts";
-import type { PedidoDePublicacao, PedidoDeScreen } from "../screening/index.ts";
+import { PRAZO_MAXIMO_MS, type PedidoDePublicacao, type PedidoDeScreen } from "../screening/index.ts";
 import type {
   ErroDaCriacao,
   PedidoDeCriacao,
@@ -130,12 +130,14 @@ export function corpoMaximo(rota: (typeof ROTAS)[number]): number {
 }
 
 /**
- * As catorze rotas: as sete pela ordem em que a cadeia grafo → TLS → COM as
+ * As quinze rotas: as sete pela ordem em que a cadeia grafo → TLS → COM as
  * toca, as duas do painel do dono (KAM-099), as duas leituras que o KAM-190 lhe
  * acrescenta — uma oferta só, e o estado do canal —, o `screen` do KAM-088
  * para quem não é TypeScript (KAM-222, `../screening/index.ts`) e as duas do
  * Catálogo AI (KAM-119): o rascunho de um produto e a publicação com a decisão
- * do screening conferida.
+ * do screening conferida. **E a décima quinta** (KAM-206): o contacto de uma
+ * encomenda ao dono, mascarado e auditado — o telefone decifra-se dentro do COM
+ * e sai só a máscara.
  *
  * **As duas do painel não são administração**, e é a distinção que o «nenhuma
  * de administração» acima defende: servem um dono a ler e a corrigir o **seu**
@@ -158,6 +160,7 @@ export const ROTAS = [
   "/internal/screen",
   "/internal/upsert-product-draft",
   "/internal/publish-product",
+  "/internal/order-contact",
 ] as const;
 
 /**
@@ -379,7 +382,13 @@ function pedidoDeScreenDoCorpo(corpo: Record<string, unknown>): PedidoDeScreen |
   const sujeitoRef = corpo["sujeito_ref"];
   const categoria = corpo["categoria_declarada"] ?? null;
   const textos = corpo["textos"];
+  const finalidade = corpo["finalidade"];
+  const prazoMs = corpo["prazo_ms"];
   if (typeof sujeitoTipo !== "string" || sujeitoTipo.length === 0) return null;
+  // KAM-230: a finalidade de transferência e o prazo de quem chama. A operação
+  // confere a finalidade com a do sujeito; aqui só a forma.
+  if (typeof finalidade !== "string" || finalidade.length === 0) return null;
+  if (!Number.isInteger(prazoMs) || (prazoMs as number) < 1 || (prazoMs as number) > PRAZO_MAXIMO_MS) return null;
   if (typeof sujeitoRef !== "string" || sujeitoRef.length === 0 || sujeitoRef.length > 200) return null;
   if (categoria !== null && typeof categoria !== "string") return null;
   if (!Array.isArray(textos) || textos.length === 0 || textos.length > TEXTOS_MAXIMOS_DO_SCREEN) return null;
@@ -389,6 +398,8 @@ function pedidoDeScreenDoCorpo(corpo: Record<string, unknown>): PedidoDeScreen |
     sujeitoRef,
     categoriaDeclarada: categoria,
     textos: textos as string[],
+    finalidade,
+    prazoMs: prazoMs as number,
   };
 }
 
@@ -495,7 +506,7 @@ export function apiInterna(deps: DependenciasDaApi): Hono {
   /**
    * A autenticação, **antes** de o corpo ser lido.
    *
-   * Um `app.use` e não uma linha em cada rota: catorze rotas e catorze
+   * Um `app.use` e não uma linha em cada rota: quinze rotas e quinze
    * verificações era a décima quinta a nascer sem ela. O `/metrics` não passa por aqui — ver a nota
    * da rota.
    */
@@ -576,7 +587,7 @@ function responder(
   );
 }
 
-/** As catorze rotas, uma a uma. O despacho é por igualdade e não por padrão. */
+/** As quinze rotas, uma a uma. O despacho é por igualdade e não por padrão. */
 async function despachar(
   rota: (typeof ROTAS)[number],
   ctx: Ctx,
@@ -706,6 +717,16 @@ async function despachar(
     // `publishProduct` da porta. **Não se ecoa o `sku` do pedido** — a resposta
     // leva só o que a operação devolve, que é o que a bateria X-01 mede.
     return responder(await deps.operacoes.publicarProduto(ctx, pedido));
+  }
+
+  if (rota === "/internal/order-contact") {
+    const orderId = corpo["order_id"];
+    if (typeof orderId !== "string") {
+      return json({ tipo: "erro", erro: "VALIDATION_ERROR" }, 400);
+    }
+    // O telefone em claro nunca chega aqui: a operação devolve só a máscara, e
+    // nenhum *log* desta rota leva o identificador, o contacto ou a máscara.
+    return responder(await deps.operacoes.contactoDaEncomenda(ctx, orderId));
   }
 
   if (rota === "/internal/update-offer") {

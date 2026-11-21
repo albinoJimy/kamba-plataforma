@@ -7,11 +7,9 @@
  * do aviso de 1.º contacto. É o observador dos ensaios com o simulador do
  * KAM-024 e do `dev`.
  *
- * shortcut: não há observador de produção. As tabelas da conversa guardam o
- * `last_inbound_at`, o `delivered_at` e o `consent_event`, mas não o texto do
- * «teste» nem o da resposta (ADR-010), e sem eles não se confere a palavra nem a
- * identificação da loja; revê-se quando o `worker-canal` emitir um sinal de
- * teste no caminho de entrada (credor no bloco do KAM-094).
+ * O de produção é o `ObservadorSql` (`./observador_sql.ts`, KAM-202), sobre o
+ * sinal que o `worker-canal` passou a emitir (`conversations.teste_recebido_at`)
+ * e as tabelas da conversa. Este fica para os ensaios com o simulador.
  *
  * **Nenhum telefone se guarda.** O `from` serve para separar conversas e entra
  * só como `sha256`, e o texto da mensagem do dono só se compara.

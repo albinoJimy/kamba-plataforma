@@ -25,14 +25,21 @@ import type { DesafioGuardado, RepositorioDeOtp } from "../inscricao/contrato.ts
 import type { Telefone } from "../inscricao/identificadores.ts";
 import type { ResultadoDeEnvio, Veredicto } from "../inscricao/otp.ts";
 import { comTenant, type ClienteSql } from "../tenant_guard/index.ts";
-import { ORIGEM_DO_PROVISIONAMENTO, type DefinirDono } from "./provisionamento.ts";
+import type { Efeito } from "../eventos/consumo.ts";
+import { lerTelefoneDoCaso, type AnelDoTelefone } from "../inscricao/telefone_do_caso.ts";
+import {
+  ORIGEM_DO_PROVISIONAMENTO,
+  efeitoDoProvisionamento,
+  type ContactoDoTelefone,
+  type DefinirDono,
+  type TelefoneRevelavel,
+} from "./provisionamento.ts";
 import {
   AnteriorDiferenteError,
   TrocaDeTelefone,
   chaveDoDesafio,
   type AlvoDoDesafio,
   type AvisoDaTroca,
-  type ContactoDoNumero,
   type EstadoDaTroca,
   type OtpDaTroca,
   type RepositorioDaTroca,
@@ -380,12 +387,17 @@ export function trocaPeloPool(portas: {
   });
 }
 
-/** O `ContactoDoNumero`: o `resolveContact` do KAM-008, só com o telefone. */
+/**
+ * O contacto de um telefone: o `resolveContact` do KAM-008, só com o telefone.
+ * Serve a troca (`ContactoDoNumero`, com o `Telefone` da inscrição) e o
+ * provisionamento (`ContactoDoTelefone`, com o telefone decifrado do caso, que
+ * não tem HMAC): os dois só precisam do `revelar()`.
+ */
 export function contactoDoNumero(
   modulo: Pick<Identidade, "resolveContact">,
   identidade: ClienteDeIdentidade,
-): ContactoDoNumero {
-  return async ({ tenantId, telefone }: { tenantId: string; telefone: Telefone }) => {
+): ContactoDoTelefone {
+  return async ({ tenantId, telefone }: { tenantId: string; telefone: TelefoneRevelavel }) => {
     // **Um sitio de chamada do `revelar()`, e fica dito** (a nota do `ComHmac`
     // de `inscricao/identificadores.ts` conta-os): o `resolveContact` cunha o
     // HMAC do contacto com a chave **dele**, noutro espaco que o da inscricao,
@@ -398,4 +410,27 @@ export function contactoDoNumero(
     if (resolvido.evento !== null) throw new FusaoNaTrocaError();
     return { contactId: resolvido.contactId };
   };
+}
+
+/**
+ * O efeito do consumidor `dono` **como o processo o monta** (KAM-215): o
+ * telefone pela ligação do consumo (`kamba_app`, sob a RLS do tenant do
+ * envelope), e o contacto e a porta com uma ligação do *pool* do
+ * `kamba_identity` por operação. Está aqui, e não no processo, para que o
+ * ensaio contra a base corra esta montagem e não uma cópia dela.
+ *
+ * As duas operações do `kamba_identity` confirmam cada uma na sua transacção, e
+ * fora da do consumo: uma reentrega depois de a marca falhar volta a resolver o
+ * mesmo contacto e a chamar a porta, que devolve sem mudar nada.
+ */
+export function provisionamentoPelaBase(o: {
+  readonly anel: AnelDoTelefone;
+  readonly identidade: Pick<Identidade, "resolveContact">;
+  readonly pool: PoolDeIdentidade;
+}): Efeito {
+  return efeitoDoProvisionamento({
+    telefoneDoCaso: lerTelefoneDoCaso(o.anel),
+    contacto: (pedido) => numaLigacao(o.pool, (ligacao) => contactoDoNumero(o.identidade, ligacao)(pedido)),
+    definirDono: (pedido) => numaLigacao(o.pool, (ligacao) => definirDonoNaBase(ligacao)(pedido)),
+  });
 }

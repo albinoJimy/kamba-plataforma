@@ -551,6 +551,10 @@ class TestConvencoes(ComBase):
                 # pela regra geral («billing_c» < «billing_d» < «billing_o»).
                 ("billing_dunning_steps", "id", "uuid", "gen_random_uuid()"),
                 ("billing_ops_approvals", "id", "uuid", "gen_random_uuid()"),
+                # KAM-121 (revisao do social do dono): o perfil de marca tem o
+                # `tenant_id` por chave, uma linha por tenant, pela razao da
+                # `trust_level` («billing_o» < «br» < «ca»).
+                ("brand_profile", "tenant_id", "uuid", None),
                 # KAM-049 (revisao do Catalogo AI): a ingestao, `uuid` gerada
                 # pela regra geral. Entre a auditoria e os canais («au» < «ca»
                 # < «ch»).
@@ -608,6 +612,10 @@ class TestConvencoes(ComBase):
                 ("contact_deks", "dek_id", "uuid", "gen_random_uuid()"),
                 ("contact_endpoints", "id", "uuid", "gen_random_uuid()"),
                 ("contacts", "contact_id", "uuid", "gen_random_uuid()"),
+                # KAM-121: o calendario e o item do social, pela regra geral
+                # («conta» < «conte» < «contr»).
+                ("content_calendar", "calendar_id", "uuid", "gen_random_uuid()"),
+                ("content_items", "content_item_id", "uuid", "gen_random_uuid()"),
                 # KAM-090, revisao `0040`: as duas seguem a regra geral, `uuid`
                 # gerado. A da prova chama-se `id` e **nao** e o `bigserial`
                 # dos Detalhes Tecnicos do bloco, pela razao da `consent_event`
@@ -1521,7 +1529,15 @@ class TestConvencoes(ComBase):
              # criado_at)`, e a troca pelo `owner_phone_changes_viva_uq
              # (tenant_id)`. **Com** FK para `tenants` e as compostas.
              "agent_messages",
-             "owner_phone_changes"},
+             "owner_phone_changes",
+             # KAM-121 (revisao do social do dono). O perfil pela chave
+             # primaria (`tenant_id`), o calendario pela
+             # `content_calendar_geracao_uq (tenant_id, semana_iso, geracao)` e o
+             # item pelo `content_items_calendario_idx`. **Com** FK para `tenants`,
+             # e a composta do item para o calendario.
+             "brand_profile",
+             "content_calendar",
+             "content_items"},
         )
         for tabela, anulavel in com_tenant:
             with self.subTest(tabela=tabela):
@@ -2222,7 +2238,11 @@ class TestConvencoes(ComBase):
         # tres da `agent_messages` (o tenant, e as compostas do contacto e da
         # conversa) e as duas da `owner_phone_changes` (o tenant e a
         # composta do contacto novo).
-        self.assertEqual(len(linhas), 118)
+        #
+        # **122** desde a revisao do social do dono (KAM-121): a do tenant em
+        # cada uma das tres, e a composta `content_items_calendario_fk`: um
+        # item de um tenant nao aponta para o calendario de outro.
+        self.assertEqual(len(linhas), 122)
         for nome, alvo in linhas:
             with self.subTest(fk=nome):
                 self.assertTrue(alvo.startswith("platform."), alvo)

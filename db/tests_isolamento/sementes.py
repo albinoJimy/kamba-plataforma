@@ -1050,6 +1050,55 @@ def _mensagem_do_agr(cursor, tenant_id: str, canario: str) -> None:
     )
 
 
+def _perfil_de_marca(cursor, tenant_id: str, canario: str) -> None:
+    """O perfil de marca do tenant (KAM-121). O canario vai no `publico`.
+
+    Uma linha por tenant (a chave e o `tenant_id`): as intrusas desfazem-se.
+    So as colunas do `INSERT` por coluna do `kamba_app`. A coluna alteravel e o
+    `nome`, do `GRANT UPDATE` por coluna.
+    """
+    cursor.execute(
+        "INSERT INTO platform.brand_profile (tenant_id, nome, publico) VALUES (%s, 'Loja', %s)",
+        (tenant_id, canario),
+    )
+
+
+def _calendario_social(cursor, tenant_id: str, canario: str) -> None:
+    """Um calendario semanal do social (KAM-121). O canario vai na `versao_politica`.
+
+    So as colunas do `INSERT` por coluna do `kamba_app`; o `calendar_id` nao
+    tem `DEFAULT`. A coluna alteravel e o `estado`.
+    """
+    cursor.execute(
+        "INSERT INTO platform.content_calendar "
+        "(calendar_id, tenant_id, semana_iso, geracao, decisao, versao_politica) "
+        "VALUES (gen_random_uuid(), %s, '2026-W48', "
+        "(SELECT coalesce(max(geracao), 0) + 1 FROM platform.content_calendar "
+        "WHERE tenant_id = %s AND semana_iso = '2026-W48'), 'permitida', %s)",
+        (tenant_id, tenant_id, canario),
+    )
+
+
+_UM_CALENDARIO = (
+    "COALESCE((SELECT calendar_id FROM platform.content_calendar WHERE tenant_id = %s "
+    "ORDER BY criado_at, calendar_id LIMIT 1), gen_random_uuid())"
+)
+
+
+def _item_social(cursor, tenant_id: str, canario: str) -> None:
+    """Um item de um calendario do social (KAM-121). O canario vai no `tema`.
+
+    Aponta o calendario do mesmo tenant pela FK composta, pelo que vem depois
+    dele. A coluna alteravel e a `legenda`.
+    """
+    cursor.execute(
+        "INSERT INTO platform.content_items "
+        "(tenant_id, calendar_id, semana_iso, tipo, tema, agendado_at) "
+        f"VALUES (%s, {_UM_CALENDARIO}, '2026-W48', 'dica', %s, now())",
+        (tenant_id, tenant_id, canario),
+    )
+
+
 def _troca_do_dono(cursor, tenant_id: str, canario: str) -> None:
     """Uma troca de telefone do dono pedida (KAM-223). O canario vai no `pedido`.
 
@@ -1918,6 +1967,18 @@ RECEITAS: dict[tuple[str, str], Receita] = {
         _troca_do_dono, "pedido", "prazo", "2099-01-01T00:00:00+00:00",
         papel="identity", semeador="admin",
     ),
+    # KAM-121: o perfil de marca, o calendario e os itens do social. O
+    # `kamba_app` le, insere e muda por coluna; o `kamba_batch` nao tem
+    # privilegio nenhum, pelo que semeia o administrador.
+    ("platform", "brand_profile"): Receita(
+        _perfil_de_marca, "publico", "nome", "Loja Nova", semeador="admin",
+    ),
+    ("platform", "content_calendar"): Receita(
+        _calendario_social, "versao_politica", "estado", "substituido", semeador="admin",
+    ),
+    ("platform", "content_items"): Receita(
+        _item_social, "tema", "legenda", "Legenda nova", semeador="admin",
+    ),
     ("platform", "events_outbox"): Receita(
         _evento_no_outbox, "agregado_id", None, None, semeador="admin"
     ),
@@ -2473,6 +2534,11 @@ ORDEM = (
     # contacto, pelo que vem depois deles; ninguem as aponta.
     ("platform", "agent_messages"),
     ("platform", "owner_phone_changes"),
+    # KAM-121: o perfil e o calendario so apontam o tenant; o item aponta o
+    # calendario, pelo que vem depois dele.
+    ("platform", "brand_profile"),
+    ("platform", "content_calendar"),
+    ("platform", "content_items"),
     # KAM-009: as duas so tem FK para `tenants`, e por isso ficam no fim.
     ("platform", "tenant_usage"),
     ("platform", "usage_ledger"),

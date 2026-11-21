@@ -167,9 +167,16 @@ class TestAOrigemSintetica(unittest.TestCase):
         self.assertIn("round(d.razao_edicao, 1)", gc.SQL_CANDIDATOS)
 
     def test_a_consulta_nao_leva_identificadores(self) -> None:
+        """O que a consulta **devolve**: a projeccao, antes do `FROM`.
+
+        Desde o KAM-202 o predicado le o `tenant_id` e o `thread_id` para tirar a
+        conversa de teste (decisao do fundador de 2026-11-20). Le-os e nao os
+        devolve: e essa a propriedade, e e a projeccao que se mede.
+        """
+        projeccao = gc.SQL_CANDIDATOS.split("FROM", 1)[0]
         for coluna in ("draft_id", "tenant_id", "thread_id", "turn_id"):
             with self.subTest(coluna=coluna):
-                self.assertNotIn(f"d.{coluna}", gc.SQL_CANDIDATOS)
+                self.assertNotIn(f"d.{coluna}", projeccao)
 
 
 if __name__ == "__main__":

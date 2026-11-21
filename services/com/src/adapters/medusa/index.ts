@@ -140,12 +140,18 @@ import {
 import {
   operacaoDePublicar,
   operacaoDeScreen,
+  screeningDoNomeNovo,
   type PedidoDePublicacao,
   type PedidoDeScreen,
   type ResultadoDoScreenDoCom,
 } from "../../screening/index.ts";
 
 import { vistaDoCanal as vistaDoCanalDoModulo, type VistaDoCanal } from "../../canal/vista.ts";
+import {
+  contactoDaEncomenda as contactoDaEncomendaDoModulo,
+  type ContactoDaEncomenda,
+  type LeitorDeContactos,
+} from "../../orders/contacto.ts";
 import { SQL_GRAFO } from "../../orders/consultas.ts";
 import type { ClienteSql as ClienteSqlDoModulo } from "../../orders/contrato.ts";
 import {
@@ -159,6 +165,7 @@ import {
   obterOferta as obterOfertaDoModulo,
   publishProduct as publishProductDoModulo,
   upsertProductDraft as upsertProductDraftDoModulo,
+  validarRascunho,
   type AlteracaoDeOferta,
   type ListaDoPainel,
   type OfertaDoPainel,
@@ -399,6 +406,13 @@ export interface Dependencias {
   readonly classificador?: ClassificadorDeCategorias | null;
   /** A política. Por omissão a `politicaCorrente()`; um ensaio pode dar outra. */
   readonly politica?: PoliticaCompilada;
+  /**
+   * Quem lê os telefones do contacto, como `kamba_identity` (KAM-206, decisão do
+   * fundador de 2026-11-20). **`null` por omissão**: sem a ligação, o contacto
+   * da encomenda responde `UPSTREAM_DOWN` e o resto do COM serve igual. Quem o
+   * liga é o `server.ts`.
+   */
+  readonly contactos?: LeitorDeContactos | null;
 }
 
 /**
@@ -507,9 +521,24 @@ export function adaptadorMedusa(
   deps: Dependencias,
   agora: Relogio = RELOGIO_DO_SISTEMA,
 ): CommerceRegistry {
+  // KAM-202: o nome novo de um publicado passa pelo `screen` antes de se
+  // escrever. A nota está no `screeningDoNomeNovo`.
+  const conferirNomeNovo = screeningDoNomeNovo({
+    comTenant: deps.comTenant,
+    screen: operacaoDeScreen({
+      comTenant: deps.comTenant,
+      politica: deps.politica ?? politicaCorrente(),
+      classificador: deps.classificador ?? null,
+    }),
+  });
   return {
     /**
      * KAM-043, critério 4. **Implementado** — já não é `NOT_IMPLEMENTED`.
+     *
+     * **KAM-202:** mudar o nome de um produto `publicado` repete o screening
+     * antes de escrever (`screeningDoNomeNovo`), e a base decide se ele
+     * continua publicado com o nome novo (*trigger*
+     * `offer_terms_publicacao_segura`).
      *
      * O `ProductDraft` da porta tem `sku`, `nome`, `descricao`, `categoria` e
      * `atributos`; o módulo escreve os três primeiros campos que a
@@ -537,6 +566,13 @@ export function adaptadorMedusa(
         // duas barreiras é a do ISO-09, e é a que o teste afirma.
         exigirCtx(ctx);
         return erro("VALIDATION_ERROR");
+      }
+      // A validação do módulo primeiro: um rascunho que ele recusa não grava
+      // uma decisão de screening nem chama o classificador (achado 10 da
+      // revisão adversarial). O módulo repete-a por dentro.
+      if (validarRascunho(rascunho) === null) {
+        const recusa = await conferirNomeNovo(ctx, rascunho.sku, rascunho.nome);
+        if (recusa !== null) return recusa;
       }
       return comRegisto(deps, ctx, (r) =>
         upsertProductDraftDoModulo(r, rascunho),
@@ -990,6 +1026,12 @@ export interface OperacoesDoCom {
    * assinatura o §3.39 fecha. A nota está no `../../screening/index.ts`.
    */
   publicarProduto(ctx: Ctx, pedido: PedidoDePublicacao): Promise<Resultado<void>>;
+  /**
+   * O contacto de uma encomenda, mascarado, ao dono (KAM-206). **Não é método
+   * da porta**, pela razão do `proposeCart`. A nota está no
+   * `../../orders/contacto.ts`.
+   */
+  contactoDaEncomenda(ctx: Ctx, orderId: string): Promise<ResultadoFinal<ContactoDaEncomenda>>;
 }
 
 /**
@@ -1025,8 +1067,9 @@ export function operacoesDoCom(
     publicar: (ctx, ref, c, nomeEsperado) =>
       comRegisto(deps, ctx, (r) => publishProductDoModulo(r, ref, c, { nomeEsperado })),
   });
+  const porta = adaptadorMedusa(deps, agora);
   return {
-    porta: adaptadorMedusa(deps, agora),
+    porta,
 
     async proposeCart(ctx: Ctx, rascunho: RascunhoDoCarrinho) {
       return comRegisto(deps, ctx, (r) =>
@@ -1107,6 +1150,25 @@ export function operacoesDoCom(
 
     async publicarProduto(ctx: Ctx, pedido: PedidoDePublicacao) {
       return publicarDoCom(ctx, pedido);
+    },
+
+    async contactoDaEncomenda(ctx: Ctx, orderId: string) {
+      return contactoDaEncomendaDoModulo(
+        {
+          // A leitura da encomenda é o `getOrder` da porta, como `kamba_app`: o
+          // tenant do `ctx`, e a de outro tenant é `NOT_FOUND` pela RLS.
+          async lerEncomenda(c: Ctx, id: string) {
+            const r = await porta.getOrder(c, id);
+            if (r.tipo === "erro") return r;
+            if (r.tipo === "conflito") return { tipo: "erro", erro: "NOT_FOUND" } as const;
+            return { tipo: "ok", valor: { orderId: r.valor.orderId, estado: r.valor.estado, contactId: r.valor.contactId } } as const;
+          },
+          contactos: deps.contactos ?? null,
+          agora: () => agora(),
+        },
+        ctx,
+        orderId,
+      );
     },
   };
 }

@@ -292,12 +292,9 @@ services:
     environment:
       <<: *node-env
       ENTRADA_PORT: "3013"
-      # **Em `prod` este processo NAO arranca hoje, e e medido.** O
-      # `Identidade.arrancar` do KAM-008 recusa o provedor de chaves de
-      # ambiente com `KAMBA_ENV=prod` (`exigirKeyProviderDeCofre`, criterio 9 do
-      # KAM-008), e nao ha provedor de cofre: e a contradicao do
-      # `docs/identidade.md` §8, linha 2, devolvida ao fundador. Nao se poe
-      # `dev` aqui para o fazer arrancar — isso era desligar a recusa.
+      # As chaves de identidade vem do ambiente que o lancador do cofre enche
+      # (ADR-L002; criterio 9 do KAM-008, emendado a 2026-11-20). Sem o *pepper*
+      # ou sem a KEK abaixo, o `Identidade.arrancar` recusa em `prod`.
       KAMBA_ENV: prod
       KAMBA_FASE: piloto
       KAMBA_QUEUE_URL: redis://queue:6379
@@ -433,17 +430,35 @@ services:
         KAMBA_COMMIT_SHA: ${KAMBA_COMMIT_SHA:?o deploy passa o SHA da release}
     command: ["node", "services/worker-canal/src/consumidor.ts"]
     environment:
-      <<: *node-env
+      # `*saida` desde o KAM-227: o `Saida` fala com a Graph API
+      # (`infra/egress/worker-canal-consumidor.yaml`), e so pelo `proxy-saida`.
+      <<: [*node-env, *saida]
       CONSUMIDOR_PORT: "3012"
+      # O `fetch` do Node 24 **ignora** o `HTTPS_PROXY` sem esta variavel (medido
+      # no KAM-227, `node:24.21.0`: sem ela o pedido vai directo e expira; com
+      # ela, vai ao proxy). Sem ela o `*saida` nao fazia nada.
+      NODE_USE_ENV_PROXY: "1"
       KAMBA_QUEUE_URL: redis://queue:6379
-      # A subscricao (`evt_subscricoes.consumer`). Obrigatoria: o processo
-      # recusa arrancar sem ela, e um nome por omissao era uma subscricao que
-      # ninguem configurou.
-      KAMBA_CONSUMER: ${KAMBA_CONSUMER:?o deploy nomeia a subscricao do consumidor}
-      # Dois papeis (cabecalho do `consumidor.ts`): o consumo como `kamba_app`,
-      # o reconciliador e o *gauge* da DLQ como `kamba_batch`.
+      # KAM-227: o consumidor e o `outbound`, a resposta do AGR ao WhatsApp.
+      # Tres papeis, tres ligacoes: `kamba_app` (o consumo e o `Saida`),
+      # `kamba_batch` (o reconciliador) e `kamba_identity` (o destinatario, pelo
+      # `lerEndpoints` do KAM-008, que so precisa da KEK das DEK: o *pepper*
+      # do HMAC nao entra). Os *tokens* de cada canal (as instancias de
+      # `meta_client_token`, uma por `token_ref`) nao se nomeiam aqui: sao por
+      # tenant, e chegam pelo lancador do cofre
+      # (ADR-L002, decisao 1). O valor de cada um e o criptograma, e abre com a
+      # `kek_token_cliente`.
+      # Sem a KEK das DEK de contacto o `Identidade.arrancar` recusa em `prod`
+      # (criterio 9 do KAM-008, emendado a 2026-11-20).
+      KAMBA_CONSUMER: outbound
+      KAMBA_ENV: prod
       KAMBA_CONSUMIDOR_DB_URL: ${KAMBA_CONSUMIDOR_DB_URL:?o deploy passa a cadeia de ligacao do kamba_app}
       KAMBA_CONSUMIDOR_OPS_DB_URL: ${KAMBA_CONSUMIDOR_OPS_DB_URL:?o deploy passa a cadeia de ligacao do kamba_batch}
+      KAMBA_CONSUMIDOR_IDENTITY_DB_URL: ${KAMBA_CONSUMIDOR_IDENTITY_DB_URL:?o deploy passa a cadeia de ligacao do kamba_identity}
+      KAMBA_SECRET_KEK_TOKEN_CLIENTE: ${KAMBA_SECRET_KEK_TOKEN_CLIENTE:?o cofre entrega a KEK dos tokens de cliente}
+      KAMBA_SECRET_KEK_TOKEN_CLIENTE_ANTERIOR: ${KAMBA_SECRET_KEK_TOKEN_CLIENTE_ANTERIOR:-}
+      KAMBA_SECRET_KEK_CONTACT_DEK: ${KAMBA_SECRET_KEK_CONTACT_DEK:?o cofre entrega a KEK das DEK de contacto}
+      KAMBA_SECRET_KEK_CONTACT_DEK_ANTERIOR: ${KAMBA_SECRET_KEK_CONTACT_DEK_ANTERIOR:-}
     # **Uma replica.** As dezasseis filas de particao garantem a ordem por
     # agregado com «concorrencia 1 por fila» (`docs/eventos.md` §4, *Fan-out*);
     # uma segunda replica punha dois *workers* na mesma particao.
@@ -681,6 +696,79 @@ services:
       postgres:
         condition: service_healthy
 
+  # KAM-218. As fases de dados do off-boarding — `python -m kamba_core.offboarding`
+  # — com a imagem do AGR, que ja traz o `kamba_core` e o `pg8000`: a exportacao,
+  # a purga e o certificado, numa volta de 15 min (*proposta*). As outras quatro
+  # fases correm no `onboarding-lote`. Fala com a base e com o armazenamento (as
+  # duas em `data`); nao sai para fora (`infra/egress/offboarding-dados.yaml`,
+  # `destinos: []`), e a entrega do certificado nao tem adaptador (KAM-116 e
+  # KAM-115 por escolher). O ciclo das copias e o `retencao_dias` do
+  # `infra/backup/cobertura.yaml`, e um ensaio confronta os dois.
+  offboarding-dados:
+    <<: *endurecido
+    user: "nobody"
+    build:
+      context: ../..
+      dockerfile: services/agr/Dockerfile
+      args:
+        KAMBA_COMMIT_SHA: ${KAMBA_COMMIT_SHA:?o deploy passa o SHA da release}
+    command: ["python", "-m", "kamba_core.offboarding"]
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    environment:
+      HOST: 0.0.0.0
+      OFFBOARDING_DADOS_PORT: "8062"
+      KAMBA_COMMIT_SHA: ${KAMBA_COMMIT_SHA:?o deploy passa o SHA da release}
+      KAMBA_ENV: prod
+      # O `retencao_dias` do `infra/backup/cobertura.yaml` (KAM-079).
+      KAMBA_OFFBOARDING_COPIAS_DIAS: "35"
+      # Tres papeis: as fases como `kamba_batch`, a leitura das coleccoes da
+      # exportacao como `kamba_app`, com o contexto do tenant, e o apagamento
+      # dos contactos na purga como `kamba_identity` (o *crypto-shredding*).
+      KAMBA_DB_HOST: postgres
+      KAMBA_DB_PORT: "5432"
+      KAMBA_DB_NAME: ${KAMBA_DB_NAME:?o deploy nomeia a base da plataforma}
+      KAMBA_SECRET_DB_APP_PASSWORD: ${KAMBA_SECRET_DB_APP_PASSWORD:?o cofre entrega a senha do kamba_app}
+      KAMBA_SECRET_DB_BATCH_PASSWORD: ${KAMBA_SECRET_DB_BATCH_PASSWORD:?o cofre entrega a senha do kamba_batch}
+      KAMBA_SECRET_DB_IDENTITY_PASSWORD: ${KAMBA_SECRET_DB_IDENTITY_PASSWORD:?o cofre entrega a senha do kamba_identity}
+      KAMBA_SECRET_OFFBOARDING_CERTIFICATE_KEY: ${KAMBA_SECRET_OFFBOARDING_CERTIFICATE_KEY:?o cofre entrega a chave do certificado de eliminacao}
+      KAMBA_STORAGE_ENDPOINT: ${KAMBA_STORAGE_ENDPOINT:?o deploy diz onde e o armazenamento (D6 aberta)}
+      KAMBA_STORAGE_BUCKET: ${KAMBA_STORAGE_BUCKET:?o deploy nomeia o bucket}
+      KAMBA_STORAGE_REGION: ${KAMBA_STORAGE_REGION:?o deploy nomeia a regiao}
+      KAMBA_STORAGE_DESTINO_COUNTRY: ${KAMBA_STORAGE_DESTINO_COUNTRY:?o deploy diz o pais do armazenamento (ADR-008)}
+      KAMBA_STORAGE_DESTINO_PROVIDER: ${KAMBA_STORAGE_DESTINO_PROVIDER:?o deploy diz o fornecedor do armazenamento}
+      KAMBA_STORAGE_DESTINO_APD_REF: ${KAMBA_STORAGE_DESTINO_APD_REF:-}
+      KAMBA_DATA_CLASS: ${KAMBA_DATA_CLASS:-synthetic}
+      KAMBA_SECRET_STORAGE_ACCESS_KEY_ID: ${KAMBA_SECRET_STORAGE_ACCESS_KEY_ID:?o cofre entrega a chave de acesso do armazenamento}
+      KAMBA_SECRET_STORAGE_SECRET_ACCESS_KEY: ${KAMBA_SECRET_STORAGE_SECRET_ACCESS_KEY:?o cofre entrega o segredo do armazenamento}
+    networks:
+      - data
+    # **Uma replica.** Duas eram duas voltas sobre as mesmas fases; a fase
+    # tranca-se (`FOR UPDATE`, e a purga com `pg_try_advisory_lock`), mas a
+    # segunda volta so gastava ligacoes.
+    # shortcut: 256m sem medicao; o pacote de exportacao vive em memoria, os
+    # bytes ate ao tecto de 48 MiB (`TECTO_DOS_BYTES`), tres vezes no pico — e
+    # e o que a folga do orcamento de producao comporta; reve-se com a primeira
+    # exportacao medida em `staging`.
+    mem_limit: 256m
+    cpus: 0.25
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - >-
+          import sys, urllib.request;
+          sys.exit(0 if urllib.request.urlopen(
+          'http://127.0.0.1:8062/healthz', timeout=4).status == 200 else 1)
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 20s
+    depends_on:
+      postgres:
+        condition: service_healthy
+
   com:
     <<: *node
     build:
@@ -704,6 +792,17 @@ services:
       # `agr` esta no `NO_PROXY`: a chamada fica na rede `app`.
       KAMBA_AGR_URL: http://agr:8000
       KAMBA_SECRET_AGR_SCREENING_TOKEN: ${KAMBA_SECRET_AGR_SCREENING_TOKEN:?o cofre entrega a credencial da rota do classificador do AGR}
+      # KAM-206: o contacto de uma encomenda ao dono, decifrado como
+      # `kamba_identity` (decisao do fundador de 2026-11-20, opcao A). O deploy
+      # passa a cadeia do papel; sem ela o contacto responde UPSTREAM_DOWN e o
+      # resto do COM serve igual, e com ela a KEK e obrigatoria no arranque.
+      # As chaves vem do ambiente do lancador do cofre (ADR-L002); o COM so le
+      # endpoints, pelo que o *pepper* do HMAC nao entra (KAM-227). Se o
+      # Identidade.arrancar recusar, o COM arranca na mesma, com o contacto em
+      # UPSTREAM_DOWN e uma linha de log.
+      KAMBA_COM_IDENTITY_DB_URL: ${KAMBA_COM_IDENTITY_DB_URL:-}
+      KAMBA_SECRET_KEK_CONTACT_DEK: ${KAMBA_SECRET_KEK_CONTACT_DEK:-}
+      KAMBA_SECRET_KEK_CONTACT_DEK_ANTERIOR: ${KAMBA_SECRET_KEK_CONTACT_DEK_ANTERIOR:-}
     networks:
       - app
       - data
@@ -781,7 +880,13 @@ services:
         KAMBA_COMMIT_SHA: ${KAMBA_COMMIT_SHA:?o deploy passa o SHA da release}
     command: ["node", "services/onboarding-web/src/lote.ts"]
     environment:
-      <<: *node-env
+      # `*saida` desde o KAM-218: a fase `canal` do off-boarding cancela a
+      # subscricao do WABA na Graph API (`infra/egress/onboarding-lote.yaml`),
+      # e so pelo `proxy-saida`.
+      <<: [*node-env, *saida]
+      # O `fetch` do Node 24 ignora o `HTTPS_PROXY` sem esta variavel (medido no
+      # KAM-227, `node:24.21.0`). Sem ela o `*saida` nao fazia nada.
+      NODE_USE_ENV_PROXY: "1"
       KAMBA_AMBIENTE: prod
       LOTE_PORT: "3014"
       # `kamba_batch` (a fila atravessa tenants, e as varreduras de T&S) e
@@ -790,6 +895,12 @@ services:
       KAMBA_LOTE_DB_URL: ${KAMBA_LOTE_DB_URL:?o deploy passa a cadeia de ligacao do kamba_batch}
       KAMBA_LOTE_APP_DB_URL: ${KAMBA_LOTE_APP_DB_URL:?o deploy passa a cadeia de ligacao do kamba_app}
       KAMBA_QUEUE_URL: redis://queue:6379
+      # KAM-218: a KEK dos *tokens* de cliente, para o leitor do *token* de cada
+      # WABA na fase `canal`. Os *tokens* (as instancias de `meta_client_token`,
+      # uma por `token_ref`) nao se nomeiam aqui: sao por tenant, e chegam pelo
+      # lancador do cofre (ADR-L002). Sem a KEK a fase falha pelo nome.
+      KAMBA_SECRET_KEK_TOKEN_CLIENTE: ${KAMBA_SECRET_KEK_TOKEN_CLIENTE:?o cofre entrega a KEK dos tokens de cliente}
+      KAMBA_SECRET_KEK_TOKEN_CLIENTE_ANTERIOR: ${KAMBA_SECRET_KEK_TOKEN_CLIENTE_ANTERIOR:-}
     networks:
       - app
       - data
