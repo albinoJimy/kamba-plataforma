@@ -132,6 +132,7 @@ subprocessadores:
     finalidades:
       - classificacao_de_catalogo
       - classificacao_de_condicoes
+      - classificacao_de_conteudo
       - conversa
       - visao
     contrato_ref: null
@@ -151,7 +152,10 @@ subprocessadores:
       (KAM-230, decisao do fundador a 2026-11-20, opcao B): ate 200 caracteres
       de texto do dono, sem numeros, com a categoria declarada da loja, pelo
       mesmo `screening-nano`. Um tratamento distinto do do catalogo, e por isso
-      uma finalidade distinta para a APD.
+      uma finalidade distinta para a APD. A `classificacao_de_conteudo` e a do
+      mesmo classificador quando le os temas e as legendas que o modulo
+      `social` gera para a loja (KAM-121, pelo precedente da opcao B), com a
+      categoria e o nome da marca, pelo mesmo `screening-nano`.
 
   - nome: groq
     designacao: Groq

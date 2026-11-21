@@ -166,7 +166,14 @@ class TestRepositorio(unittest.TestCase):
         ]
         self.assertEqual(
             set(cliente.finalidades),
-            {"classificacao_de_catalogo", "classificacao_de_condicoes", "conversa", "embeddings", "visao"},
+            {
+                "classificacao_de_catalogo",
+                "classificacao_de_condicoes",
+                "classificacao_de_conteudo",
+                "conversa",
+                "embeddings",
+                "visao",
+            },
         )
 
 

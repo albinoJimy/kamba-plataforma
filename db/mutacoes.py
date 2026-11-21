@@ -332,6 +332,7 @@ REV_FINALIDADE_DO_SCREENING = _revisao_por_glob("*_finalidade_do_screening.py")
 #: (`0078`) e o da fila de integracao. O ensaio que a prova e o
 #: `db/tests/test_finalidade_das_condicoes_schema.py`.
 REV_FINALIDADE_DAS_CONDICOES = _revisao_por_glob("*_finalidade_das_condicoes.py")
+REV_SOCIAL_DO_DONO = _revisao_por_glob("*_social_do_dono.py")
 #: KAM-095: a revisao da lista de espera, pela razao da do Catalogo AI — o
 #: numero (`0059`) e provisorio. O ensaio que a prova e o
 #: `db/tests/test_lista_espera_schema.py`.
@@ -7767,6 +7768,38 @@ MUTACOES = [
     # e o `ADD CONSTRAINT` das quinze rebentava a meio. O
     # `test_com_um_destino_recusa_e_sem_ele_desce_e_volta` da
     # `test_finalidade_das_condicoes_schema.py` tem de a matar.
+
+    # ------------------------------------ KAM-121 (revisao do social do dono)
+    #
+    # Quatro: a finalidade, as duas metades da descida e a marca de IA. O alvo
+    # e a revisao descoberta pelo *glob* (`REV_SOCIAL_DO_DONO`).
+    ('social do dono: o dominio nao ganha a finalidade', REV_SOCIAL_DO_DONO,
+     "    \"'classificacao_de_conteudo'\",\n",
+     "",
+     "tests"),
+    # A revisao corria e o `CHECK` ficava com as dezasseis: o *gate* negava
+    # sempre o screening do conteudo. O
+    # `test_a_finalidade_e_o_sujeito_do_conteudo_sao_aceites` tem de a matar.
+    ('social do dono: a descida apaga o destino', REV_SOCIAL_DO_DONO,
+     "    if linhas:\n        raise RuntimeError(",
+     "    if False:\n        raise RuntimeError(",
+     "tests"),
+    # A descida deixava de recusar com um destino `classificacao_de_conteudo`,
+    # e o `ADD CONSTRAINT` das dezasseis rebentava a meio. O
+    # `test_com_um_destino_recusa_e_sem_ele_desce_apagando_so_o_conteudo_e_volta`
+    # tem de a matar.
+    ('social do dono: a descida nao apaga as decisoes do conteudo', REV_SOCIAL_DO_DONO,
+     "    op.execute(f\"DELETE FROM {DECISOES} WHERE sujeito_tipo = 'conteudo'\")\n",
+     "",
+     "tests"),
+    # Sem o `DELETE`, uma decisao `conteudo` fazia o `ADD CONSTRAINT` dos tres
+    # rebentar, e a descida ficava presa. O mesmo ensaio tem de a matar.
+    ('social do dono: o item nasce sem a marca de IA', REV_SOCIAL_DO_DONO,
+     "is_ai_generated   boolean NOT NULL DEFAULT true,",
+     "is_ai_generated   boolean NOT NULL DEFAULT false,",
+     "tests"),
+    # O criterio 8: um item nascia sem `is_ai_generated`, e nenhum codigo o
+    # escreve. O `test_o_catalogo_e_exactamente_o_inventario` tem de a matar.
 
     # ------------------------------------------------------------- KAM-061
     # O indice de pesquisa: o DDL e a funcao (`db/indice.py`), a camada de

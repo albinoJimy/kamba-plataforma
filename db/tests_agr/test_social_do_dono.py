@@ -22,9 +22,8 @@ import datetime
 import threading
 import uuid
 
-import psycopg
-
 from tests import factories
+from tests.base import PRIVILEGIO_INSUFICIENTE, VIOLACAO_DE_CHECK, sqlstate
 from tests_agr.base import ComAgr
 
 # O `tests_agr.base` poe o `services/agr/src` no caminho, e por isso vem antes.
@@ -37,6 +36,7 @@ from kamba_agr.social.repositorio import (  # noqa: E402
     SemPublicacoesError,
 )
 from kamba_agr.tls.social import RepositorioSql  # noqa: E402
+from kamba_core import tenant_guard  # noqa: E402
 
 SEMANA = "2026-W48"
 HORA = datetime.datetime(2026, 11, 23, 17, 0, tzinfo=datetime.UTC)
@@ -112,8 +112,9 @@ class TestPerfil(ComSocial):
 
     def test_uma_cor_fora_da_forma_e_recusada_pela_base(self) -> None:
         mau = regras.Perfil(tenant_id=self.tenant, cores=("azul",))
-        with self.assertRaises(psycopg.errors.CheckViolation):
+        with self.assertRaises(Exception) as erro:
             self.repo.gravar_perfil(mau, None)
+        self.assertEqual(sqlstate(erro.exception), VIOLACAO_DE_CHECK)
 
 
 def dataclass_versao(perfil: regras.Perfil, versao: int) -> regras.Perfil:
@@ -224,10 +225,11 @@ class TestPrivilegiosESujeito(ComSocial):
             "DELETE FROM platform.brand_profile",
             "UPDATE platform.content_calendar SET semana_iso = '2026-W49'",
         ):
-            with self.subTest(sql=sql), self.assertRaises(psycopg.errors.InsufficientPrivilege):
-                with self.app.transaction(), self.app.cursor() as cursor:
-                    cursor.execute("SELECT set_config('app.tenant_id', %s, true)", (self.tenant,))
-                    cursor.execute(sql)
+            with self.subTest(sql=sql):
+                with self.assertRaises(Exception) as erro:
+                    with tenant_guard.tx(self.app, self.tenant) as cursor:
+                        cursor.execute(sql)
+                self.assertEqual(sqlstate(erro.exception), PRIVILEGIO_INSUFICIENTE)
         self.assertTrue(all(i.is_ai_generated for i in um.itens))
 
     def test_o_sujeito_conteudo_cabe_no_check(self) -> None:

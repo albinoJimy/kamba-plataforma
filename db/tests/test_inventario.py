@@ -2864,6 +2864,59 @@ INVENTARIO["agent_messages"] = {
     "criado_at": ("timestamp with time zone", NAO, "now()", "nao"),
 }
 
+#: O perfil de marca do tenant (KAM-121, revisao do social do dono). **Os
+#: campos sao anulaveis ate a resposta**: `NULL` e «por responder». Nenhum guarda
+#: dados pessoais: e o que a loja diz de si, escrito pelo dono.
+INVENTARIO["brand_profile"] = {
+    "tenant_id": ("uuid", NAO, None, "nao"),
+    "nome": ("text", SIM, None, "nao — o nome da loja"),
+    "categoria": ("text", SIM, None, "nao"),
+    "tom": ("text", SIM, None, "nao — lista fechada de tres"),
+    "cores": ("ARRAY", SIM, None, "nao — ate tres cores hexadecimais"),
+    "logo_asset_id": ("uuid", SIM, None, "nao"),
+    "publico": ("text", SIM, None, "nao — o publico da loja, descrito pelo dono"),
+    "slots_preferidos": ("jsonb", SIM, None, "nao"),
+    "factos": ("jsonb", SIM, None, "nao — os factos da loja que o dono autoriza a dizer"),
+    "idioma": ("text", NAO, "'pt-AO'::text", "nao"),
+    "versao": ("integer", NAO, "1", "nao"),
+    "criado_at": ("timestamp with time zone", NAO, "now()", "nao"),
+    "atualizado_at": ("timestamp with time zone", NAO, "now()", "nao"),
+}
+
+#: O calendario semanal do social (KAM-121). Um `activo` por `(tenant_id,
+#: semana_iso)`, pelo indice unico parcial.
+INVENTARIO["content_calendar"] = {
+    "calendar_id": ("uuid", NAO, "gen_random_uuid()", "nao"),
+    "tenant_id": ("uuid", NAO, None, "nao"),
+    "semana_iso": ("text", NAO, None, "nao"),
+    "geracao": ("integer", NAO, None, "nao"),
+    "estado": ("text", NAO, "'activo'::text", "nao — lista fechada de dois"),
+    "decisao": ("text", NAO, None, "nao — a decisao do screening dos temas"),
+    "versao_politica": ("text", NAO, None, "nao"),
+    "criado_at": ("timestamp with time zone", NAO, "now()", "nao"),
+}
+
+#: Os itens de um calendario (KAM-121). Nascem `rascunho` e gerados por IA
+#: (criterio 8); o tema e a legenda sao texto de marketing da loja, sem pessoa.
+INVENTARIO["content_items"] = {
+    "content_item_id": ("uuid", NAO, "gen_random_uuid()", "nao"),
+    "tenant_id": ("uuid", NAO, None, "nao"),
+    "calendar_id": ("uuid", NAO, None, "nao"),
+    "semana_iso": ("text", NAO, None, "nao"),
+    "tipo": ("text", NAO, None, "nao — lista fechada de quatro"),
+    "tema": ("text", NAO, None, "nao — texto de marketing da loja"),
+    "legenda": ("text", SIM, None, "nao — texto de marketing da loja"),
+    "art_asset_id": ("uuid", SIM, None, "nao"),
+    "estado": ("text", NAO, "'rascunho'::text", "nao — lista fechada de seis"),
+    "is_ai_generated": ("boolean", NAO, "true", "nao"),
+    "revisao_reforcada": ("boolean", NAO, "false", "nao"),
+    "versao_politica": ("text", SIM, None, "nao"),
+    "versao": ("integer", NAO, "1", "nao"),
+    "agendado_at": ("timestamp with time zone", NAO, None, "nao"),
+    "criado_at": ("timestamp with time zone", NAO, "now()", "nao"),
+    "atualizado_at": ("timestamp with time zone", NAO, "now()", "nao"),
+}
+
 #: A troca de telefone do dono (KAM-223). **Sem telefone em claro**: os dois
 #: numeros vao pelo HMAC com o *pepper* da inscricao (ADR-010), e o desafio
 #: do OTP guarda o HMAC do codigo, nunca o codigo.
@@ -3848,6 +3901,12 @@ class TestInventario(ComBase):
                         "quote_requests_tenant_fk",
                         "quote_requests_contact_fk",
                         "quote_requests_conversation_fk",
+                        # KAM-121 (revisao do social do dono): as tres apontam o
+                        # tenant, e o item, pelo par, o calendario. Sem cascata.
+                        "brand_profile_tenant_fk",
+                        "content_calendar_tenant_fk",
+                        "content_items_tenant_fk",
+                        "content_items_calendario_fk",
                         # KAM-224 (revisao da resposta do AGR): a resposta
                         # aponta o tenant e, pelos pares, o contacto e a
                         # conversa, sem cascata.
@@ -4192,6 +4251,10 @@ class TestInventario(ComBase):
             # Perde-lo deixava duas replicas abrirem duas trocas, e a segunda
             # conclusao movia o papel outra vez.
             "owner_phone_changes_viva_uq": True,
+            # KAM-121: **um calendario `activo` por (tenant_id, semana_iso)**.
+            # Perde-lo deixava dois «NOVA» concorrentes abrirem duas geracoes
+            # activas da mesma semana.
+            "content_calendar_um_activo_uq": True,
             # KAM-043: os dois da revisao `0028`, parciais e **nao** unicos.
             # O `offer_terms_tenant_estado_idx` cobre so o que nao esta
             # apagado (`deleted_at IS NULL`), que e a leitura do catalogo; o
@@ -4790,6 +4853,39 @@ class TestInventario(ComBase):
                     "owner_phone_changes_pedido_ck",
                     "owner_phone_changes_pkey",
                     "owner_phone_changes_telefone_hmac_ck",
+                    # ---------- KAM-121 (revisao do social do dono)
+                    #
+                    # O perfil: a chave e a forma de cada campo. O calendario:
+                    # a chave, a semana, a geracao, o estado, a decisao, a
+                    # versao da politica, a geracao unica por semana e o par
+                    # que a FK composta do item aponta. O item: a chave e a
+                    # forma de cada campo. O activo unico e um indice.
+                    "brand_profile_categoria_ck",
+                    "brand_profile_cores_ck",
+                    "brand_profile_factos_ck",
+                    "brand_profile_idioma_ck",
+                    "brand_profile_nome_ck",
+                    "brand_profile_pkey",
+                    "brand_profile_publico_ck",
+                    "brand_profile_slots_ck",
+                    "brand_profile_tom_ck",
+                    "brand_profile_versao_ck",
+                    "content_calendar_decisao_ck",
+                    "content_calendar_estado_ck",
+                    "content_calendar_geracao_ck",
+                    "content_calendar_geracao_uq",
+                    "content_calendar_pkey",
+                    "content_calendar_semana_ck",
+                    "content_calendar_tenant_id_uq",
+                    "content_calendar_versao_politica_ck",
+                    "content_items_estado_ck",
+                    "content_items_legenda_ck",
+                    "content_items_pkey",
+                    "content_items_semana_ck",
+                    "content_items_tema_ck",
+                    "content_items_tipo_ck",
+                    "content_items_versao_ck",
+                    "content_items_versao_politica_ck",
                     "purge_log_classe_ck",
                     "purge_log_linhas_ck",
                     "purge_log_modo_ck",

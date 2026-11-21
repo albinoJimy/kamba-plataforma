@@ -52,7 +52,7 @@ from dataclasses import dataclass
 from typing import Any, Final
 
 from kamba_core.catalogo.screening import DECISOES, PERMITIDA, REGRA_REVISAO_PENDENTE, ResultadoDoScreen
-from kamba_core.destinos import FINALIDADE_CLASSIFICACAO, FINALIDADE_CONDICOES
+from kamba_core.destinos import FINALIDADE_CLASSIFICACAO, FINALIDADE_CONDICOES, FINALIDADE_CONTEUDO
 
 from .com import ClienteDoCom
 
@@ -76,6 +76,7 @@ SUJEITO_DO_CONTEUDO: Final = "conteudo"
 #: confere: um ensaio le o TypeScript e exige a mesma tabela.
 FINALIDADE_DO_SUJEITO: Final = {
     SUJEITO_DAS_CONDICOES: FINALIDADE_CONDICOES,
+    SUJEITO_DO_CONTEUDO: FINALIDADE_CONTEUDO,
     SUJEITO_DO_PRODUTO: FINALIDADE_CLASSIFICACAO,
 }
 

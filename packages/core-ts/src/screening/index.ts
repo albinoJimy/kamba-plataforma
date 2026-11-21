@@ -51,6 +51,7 @@ export {
   classificadorPeloAgr,
   FINALIDADE_DAS_CONDICOES,
   FINALIDADE_DO_CATALOGO,
+  FINALIDADE_DO_CONTEUDO,
   LIMITES_DO_PEDIDO,
   lerVeredicto,
   prepararPedido,

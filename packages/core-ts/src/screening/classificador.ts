@@ -64,6 +64,13 @@ export const FINALIDADE_DO_CATALOGO = "classificacao_de_catalogo";
 export const FINALIDADE_DAS_CONDICOES = "classificacao_de_condicoes";
 
 /**
+ * A finalidade de transferência dos temas e das legendas do módulo `social`
+ * (KAM-121): o mesmo classificador, outro tratamento, pelo precedente da
+ * opção B do KAM-230.
+ */
+export const FINALIDADE_DO_CONTEUDO = "classificacao_de_conteudo";
+
+/**
  * De quem é a decisão: a linha de `dat.llm_call_log` e o *gate* de destino são
  * por tenant (KAM-195). Não vai ao modelo.
  *

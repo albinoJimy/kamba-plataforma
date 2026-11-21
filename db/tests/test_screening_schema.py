@@ -660,7 +660,10 @@ class TestDowngradeDoSujeitoDasCondicoes(unittest.TestCase):
             admin.close()
 
         alembic_ok("upgrade", "head")
-        self.assertEqual(self._estado()[1], ("categoria", "condicoes", "produto"))
+        # Os tres voltam. **Contem, e nao e igual**: a revisao do social do dono
+        # (KAM-121) poe o `conteudo` por cima, e um ensaio preso a cabeca parte
+        # com a revisao seguinte.
+        self.assertLessEqual({"categoria", "condicoes", "produto"}, set(self._estado()[1]))
 
 
 if __name__ == "__main__":

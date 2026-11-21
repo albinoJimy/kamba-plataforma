@@ -472,9 +472,13 @@ class TestAFinalidade(_Montagem):
         bloco = texto.split("export const FINALIDADE_DO_SUJEITO", 1)[1].split("};", 1)[0]
         self.assertIn("[SUJEITO_DAS_CONDICOES]: FINALIDADE_DAS_CONDICOES", bloco)
         self.assertIn("[SUJEITO_DO_PRODUTO]: FINALIDADE_DO_CATALOGO", bloco)
+        # KAM-121: o conteudo do social, com a finalidade propria.
+        self.assertIn("[SUJEITO_DO_CONTEUDO]: FINALIDADE_DO_CONTEUDO", bloco)
         classificador = (RAIZ / "packages/core-ts/src/screening/classificador.ts").read_text(encoding="utf-8")
         self.assertIn(f'FINALIDADE_DAS_CONDICOES = "{FINALIDADE_CONDICOES}"', classificador)
         self.assertIn(f'FINALIDADE_DO_CATALOGO = "{FINALIDADE_CLASSIFICACAO}"', classificador)
+        self.assertIn('FINALIDADE_DO_CONTEUDO = "classificacao_de_conteudo"', classificador)
+        self.assertEqual(ponte.FINALIDADE_DO_SUJEITO[ponte.SUJEITO_DO_CONTEUDO], "classificacao_de_conteudo")
         self.assertEqual(set(ponte.FINALIDADE_DO_SUJEITO), set(ponte.SUJEITOS))
 
 

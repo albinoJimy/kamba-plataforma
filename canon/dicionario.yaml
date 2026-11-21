@@ -13125,13 +13125,14 @@ entradas:
     variantes_literais: []
   - seccao: "3.49"
     conceito: "Finalidade de uma transferência"
-    canonico: "tenant_destinations.purpose ∈ {alojamento, canal, classificacao_de_catalogo, classificacao_de_condicoes, conversa, copias_de_seguranca, embeddings, entrega_de_conteudo, facturacao, imagem, observabilidade, otp_e_avisos_de_servico, pagamentos, segredos, transcricao, visao}"
+    canonico: "tenant_destinations.purpose ∈ {alojamento, canal, classificacao_de_catalogo, classificacao_de_condicoes, classificacao_de_conteudo, conversa, copias_de_seguranca, embeddings, entrega_de_conteudo, facturacao, imagem, observabilidade, otp_e_avisos_de_servico, pagamentos, segredos, transcricao, visao}"
     literais:
       - "tenant_destinations.purpose"
       - "alojamento"
       - "canal"
       - "classificacao_de_catalogo"
       - "classificacao_de_condicoes"
+      - "classificacao_de_conteudo"
       - "conversa"
       - "copias_de_seguranca"
       - "embeddings"
@@ -13150,6 +13151,7 @@ entradas:
       - "canal"
       - "classificacao_de_catalogo"
       - "classificacao_de_condicoes"
+      - "classificacao_de_conteudo"
       - "conversa"
       - "copias_de_seguranca"
       - "embeddings"
@@ -13166,12 +13168,16 @@ entradas:
       - "imagem"
       - "classificacao_de_catalogo"
       - "classificacao_de_condicoes"
+      - "classificacao_de_conteudo"
+      - "finalidade_das_condicoes"
       - "finalidade_do_screening"
       - "foto_de_produtos"
       - "screening"
       - "nano"
       - "embeddings"
       - "FINALIDADES_ESCOLHIVEIS"
+      - "social"
+      - "social_do_dono"
       - "FINALIDADES"
       - "otp_e_avisos_de_servico"
       - "FINALIDADE"
@@ -15613,6 +15619,7 @@ entradas:
       - "FINALIDADES_ESCOLHIVEIS"
       - "classificacao_de_catalogo"
       - "classificacao_de_condicoes"
+      - "classificacao_de_conteudo"
       - "prazo_ms"
       - "resultado"
       - "dat.llm_call_log"
@@ -21603,6 +21610,20 @@ entradas:
     nomes_nota: []
     variantes_literais: []
   - seccao: "3.82"
+    conceito: "Idioma do perfil"
+    canonico: "brand_profile.idioma ∈ {pt-AO}"
+    literais:
+      - "brand_profile.idioma"
+      - "pt-AO"
+    nomes:
+      - "brand_profile.idioma"
+      - "pt"
+      - "AO"
+    nomes_nota:
+      - "DEFAULT"
+      - "CHECK"
+    variantes_literais: []
+  - seccao: "3.82"
     conceito: "Factos do perfil"
     canonico: "brand_profile.factos, lista de {texto, promocao, valido_ate}"
     literais:
@@ -24575,6 +24596,7 @@ dominios:
       - "canal"
       - "classificacao_de_catalogo"
       - "classificacao_de_condicoes"
+      - "classificacao_de_conteudo"
       - "conversa"
       - "copias_de_seguranca"
       - "embeddings"
@@ -25354,6 +25376,12 @@ dominios:
       - "divertido"
     seccao: "3.82"
     conceito: "Tom do perfil"
+    so_no_registo: false
+  - coluna: "brand_profile.idioma"
+    valores:
+      - "pt-AO"
+    seccao: "3.82"
+    conceito: "Idioma do perfil"
     so_no_registo: false
   - coluna: "content_calendar.estado"
     valores:

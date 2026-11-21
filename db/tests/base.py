@@ -735,6 +735,15 @@ TABELAS_RESPOSTA_DO_AGR = ("agent_replies",)
 #: o `kamba_identity`, que le, insere e muda por coluna; ninguem apaga).
 TABELAS_CANAL_DO_DONO_PELO_PAINEL = ("agent_messages", "owner_phone_changes")
 
+#: O que a revisao do social do dono (KAM-121) acrescenta.
+#:
+#: **Pelo nome e nao pelo numero**, pela razao do `TABELAS_CATALOGO_AI`.
+#:
+#: Tres tabelas de tenant, com RLS `FORCE` pela `tenant_iso` e FK para
+#: `tenants`: o perfil de marca, o calendario semanal e os itens dele. O
+#: `kamba_app` le, insere e muda por coluna; ninguem apaga.
+TABELAS_SOCIAL_DO_DONO = ("brand_profile", "content_calendar", "content_items")
+
 TABELAS = tuple(
     sorted(
         TABELAS_0001 + TABELAS_0003 + TABELAS_0004 + TABELAS_0005
@@ -754,6 +763,7 @@ TABELAS = tuple(
         + TABELAS_ORCAMENTO
         + TABELAS_RESPOSTA_DO_AGR
         + TABELAS_CANAL_DO_DONO_PELO_PAINEL
+        + TABELAS_SOCIAL_DO_DONO
     )
 )
 
@@ -767,10 +777,15 @@ TABELAS = tuple(
 #: da finalidade do screening (KAM-195), que nao cria tabela nenhuma.
 #: O que existe em `platform` antes da revisao da resposta do AGR (KAM-224),
 #: que e o topo da cadeia desde ela.
+#: O que existe em `platform` antes da revisao do social do dono (KAM-121),
+#: que e o topo da cadeia desde ela. A `0078` do KAM-230, entre as duas, nao
+#: cria tabela nenhuma.
+TABELAS_ANTES_DO_SOCIAL_DO_DONO = tuple(sorted(set(TABELAS) - set(TABELAS_SOCIAL_DO_DONO)))
+
 #: O que existe em `platform` antes da revisao do canal do dono pelo painel
-#: (KAM-223), que e o topo da cadeia desde ela.
+#: (KAM-223). Deriva do de cima desde o KAM-121.
 TABELAS_ANTES_DO_CANAL_DO_DONO_PELO_PAINEL = tuple(
-    sorted(set(TABELAS) - set(TABELAS_CANAL_DO_DONO_PELO_PAINEL))
+    sorted(set(TABELAS_ANTES_DO_SOCIAL_DO_DONO) - set(TABELAS_CANAL_DO_DONO_PELO_PAINEL))
 )
 
 #: Deriva do de cima desde o KAM-223.

@@ -17,8 +17,8 @@ duas leituras da mesma tabela que discordam no dia em que uma delas mudar.
 Para um pedido `(tenant, fornecedor, finalidade)`:
 
 1. **Se a finalidade nao esta no dominio, nega.** Nao e zelo: a coluna `purpose`
-   da `0036` tem `CHECK` fechado com dezasseis valores desde a revisao
-   `finalidade_das_condicoes` (KAM-230), pelo que uma finalidade fora
+   da `0036` tem `CHECK` fechado com dezassete valores desde a revisao
+   `social_do_dono` (KAM-121), pelo que uma finalidade fora
    deles **nao tem linha onde caiba** — a consulta devolveria sempre vazio, e um
    erro do chamador lia-se como «destino nao registado».
 2. **Se o tenant tem linha propria para esse par, so as dele contam.** As
@@ -83,13 +83,16 @@ from typing import Final, Protocol
 
 from ..tenant_guard import normalizar_tenant
 
-#: As **dezasseis** finalidades de transferencia, por ordem alfabetica: as treze
+#: As **dezassete** finalidades de transferencia, por ordem alfabetica: as treze
 #: da `0036`, a `imagem`, que a revisao `foto_de_produtos` (KAM-120) acrescenta,
 #: a `classificacao_de_catalogo`, que a revisao `finalidade_do_screening`
 #: (KAM-195) acrescenta para o classificador de screening do GOV, e a
 #: `classificacao_de_condicoes`, que a revisao `finalidade_das_condicoes`
 #: (KAM-230) acrescenta para o mesmo classificador quando le as condicoes que o
-#: dono escreve num orcamento (decisao do fundador de 2026-11-20, opcao B).
+#: dono escreve num orcamento (decisao do fundador de 2026-11-20, opcao B), e a
+#: `classificacao_de_conteudo`, que a revisao `social_do_dono` (KAM-121)
+#: acrescenta para o mesmo classificador quando le os temas e as legendas do
+#: modulo `social` (o precedente da opcao B: um tratamento, uma finalidade).
 #:
 #: **E o dominio de `platform.tenant_destinations.purpose`**, e a lista vive
 #: aqui e no `CHECK` da revisao `0036`; o `test_dominio_de_purpose_bate_com_o_codigo`
@@ -105,6 +108,7 @@ FINALIDADE_ALOJAMENTO: Final = "alojamento"
 FINALIDADE_CANAL: Final = "canal"
 FINALIDADE_CLASSIFICACAO: Final = "classificacao_de_catalogo"
 FINALIDADE_CONDICOES: Final = "classificacao_de_condicoes"
+FINALIDADE_CONTEUDO: Final = "classificacao_de_conteudo"
 FINALIDADE_CONVERSA: Final = "conversa"
 FINALIDADE_COPIAS: Final = "copias_de_seguranca"
 FINALIDADE_EMBEDDINGS: Final = "embeddings"
@@ -123,6 +127,7 @@ FINALIDADES: Final = (
     FINALIDADE_CANAL,
     FINALIDADE_CLASSIFICACAO,
     FINALIDADE_CONDICOES,
+    FINALIDADE_CONTEUDO,
     FINALIDADE_CONVERSA,
     FINALIDADE_COPIAS,
     FINALIDADE_EMBEDDINGS,

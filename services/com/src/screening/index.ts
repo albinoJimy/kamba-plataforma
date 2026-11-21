@@ -76,6 +76,7 @@ import {
   EscritorSql,
   FINALIDADE_DAS_CONDICOES,
   FINALIDADE_DO_CATALOGO,
+  FINALIDADE_DO_CONTEUDO,
   LeitorSql,
   NaoPublicavelError,
   SUJEITOS,
@@ -139,6 +140,7 @@ export const SUJEITOS_DA_ROTA: readonly SujeitoTipo[] = SUJEITOS.filter(
 export const FINALIDADE_DO_SUJEITO: Readonly<Record<string, string>> = {
   [SUJEITO_DAS_CONDICOES]: FINALIDADE_DAS_CONDICOES,
   [SUJEITO_DO_PRODUTO]: FINALIDADE_DO_CATALOGO,
+  [SUJEITO_DO_CONTEUDO]: FINALIDADE_DO_CONTEUDO,
 };
 
 /**

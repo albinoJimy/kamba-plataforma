@@ -176,6 +176,8 @@ class TestCatalogoReal(ComBase):
                 # `sementes.SEM_RECEITA_COM_RAZAO`.
                 ("platform", "billing_dunning_steps", "tenant_id"),
                 ("platform", "billing_ops_approvals", "tenant_id"),
+                # KAM-121: o perfil de marca do social («bi» < «br» < «ca»).
+                ("platform", "brand_profile", "tenant_id"),
                 # KAM-049: a ingestao do Catalogo AI, entre a auditoria e os
                 # canais («au» < «ca» < «ch»).
                 ("platform", "catalog_ingestions", "tenant_id"),
@@ -210,6 +212,9 @@ class TestCatalogoReal(ComBase):
                 ("platform", "contact_deks", "tenant_id"),
                 ("platform", "contact_endpoints", "tenant_id"),
                 ("platform", "contacts", "tenant_id"),
+                # KAM-121: o calendario e os itens do social («conta» < «conte»).
+                ("platform", "content_calendar", "tenant_id"),
+                ("platform", "content_items", "tenant_id"),
                 # KAM-090: a prova de aceite contratual. `tenant_id NOT NULL` e
                 # **sem FK** (o aceite e anterior a linha do tenant); a
                 # `contract_document` nao entra, pela razao da `consent_texts`:
@@ -542,6 +547,8 @@ class TestCatalogoReal(ComBase):
                 ("billing_dunning_steps", "tenant_iso", "ALL", "{public}"),
                 ("billing_ops_approvals", "tenant_iso", "ALL", "{public}"),
                 ("bookings", "tenant_iso", "ALL", "{public}"),
+                # KAM-121: o perfil de marca do social, uma politica so («bo» < «br»).
+                ("brand_profile", "tenant_iso", "ALL", "{public}"),
                 # KAM-049: a ingestao do Catalogo AI, entre a agenda e os
                 # canais pela colacao `C` («bo» < «ca» < «ch»).
                 ("catalog_ingestions", "tenant_iso", "ALL", "{public}"),
@@ -560,6 +567,9 @@ class TestCatalogoReal(ComBase):
                 ("contact_deks", "tenant_iso", "ALL", "{public}"),
                 ("contact_endpoints", "tenant_iso", "ALL", "{public}"),
                 ("contacts", "tenant_iso", "ALL", "{public}"),
+                # KAM-121: o calendario e os itens do social, uma politica cada.
+                ("content_calendar", "tenant_iso", "ALL", "{public}"),
+                ("content_items", "tenant_iso", "ALL", "{public}"),
                 # KAM-090: so a `tenant_iso`, como as do KAM-070.
                 ("contract_acceptance", "tenant_iso", "ALL", "{public}"),
                 # KAM-014: a primeira tabela do caminho do webhook com
@@ -848,6 +858,8 @@ class TestCatalogoReal(ComBase):
              # KAM-058: os passos da regua («billing_c» < «billing_d»).
              "billing_dunning_steps",
              "billing_ops_approvals",
+             # KAM-121: o perfil de marca do social («bi» < «br» < «ca»).
+             "brand_profile",
              # KAM-049: a ingestao do Catalogo AI («au» < «ca» < «ch»).
              "catalog_ingestions",
              # KAM-017: o estado de coexistencia. **Quinta e sexta listas
@@ -871,6 +883,8 @@ class TestCatalogoReal(ComBase):
              "commission_accruals",
              "consent_event",
              "contact_deks", "contact_endpoints", "contacts",
+             # KAM-121: o calendario e os itens do social («conta» < «conte»).
+             "content_calendar", "content_items",
              # KAM-090: a prova de aceite, com a `tenant_iso` do `db/rls.py`.
              "contract_acceptance",
              # KAM-014: a conversa.
