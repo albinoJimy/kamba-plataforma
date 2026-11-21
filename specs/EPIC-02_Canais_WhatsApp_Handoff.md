@@ -3773,14 +3773,20 @@ apresentação **não passa pelo *renderer* nem pelo validador**. Desde o achado
 `agent_replies` (`SaidaPorEvento.enfileirar`). O `agent.replied` não leva o texto. A recusa de dígitos no
 `_apresentacao` era o resto da primeira versão, que punha a frase num bloco do `compose`.
 
-**Proposta, levada à sessão coordenadora com três opções e esta recomendação, e implementada por ser a
-mais segura de reverter:** o nome entra **tal como é**, com dígitos. A regra do §9.1 — o modelo não escreve
-números em prosa — fica inteira, porque este nome não vem do modelo: vem do `tenants.nome`. As outras duas:
+**Decisão (A):** o `tenants.nome` entra na apresentação **tal como é**, com dígitos. Só cai para a frase
+sem nome quando o nome está vazio ou ilegível. A regra do §9.1 — o modelo não escreve números em prosa —
+fica inteira, porque este nome não vem do modelo: vem da base. Recusadas:
 
-- manter a frase sem nome para estas lojas, com o observador a aceitá-la. A loja activa-se sem se nomear;
-- manter como estava. Uma loja com dígitos nunca passa o teste e nunca se activa.
+- **B** — manter a frase sem nome para estas lojas, com o observador a aceitá-la. A loja activava-se sem
+  se nomear;
+- **C** — manter como estava. Uma loja com dígitos nunca passava o teste e nunca se activava.
 
-Se a decisão for outra, muda o `_apresentacao` e a *fixture* `apresentacao_do_vendedor.json`, mais nada.
+Data: 2026-11-21. Autor: o fundador.
+
+Os ensaios que a prendem: o caso «Kero 24» da *fixture* `apresentacao_do_vendedor.json`, que o AGR tem de
+produzir letra a letra e o observador tem de aceitar, e
+`test_a_loja_kero_24_e_nomeada_com_os_digitos` (`services/agr/tests/test_grafos.py`), que a leva pelo
+grafo inteiro até à mensagem que sai.
 
 ### Verificação dos Critérios de Aceitação
 
@@ -3800,7 +3806,7 @@ existem desde a `0010`):
 | Critério | Estado | Evidência |
 |---|---|---|
 | 1 — os *statuses* `delivered` e `read`, pelo braço `outbound` do `worker-canal`, escrevem o `delivered_at` pelo `wamid`, idempotentes por `wamid:estado` | **satisfeito** | Contra a base: `KAM-235: o delivered do simulador escreve o delivered_at pelo estagio, uma vez, e o observador da entregue` (`tests_bd/activacao.bd.test.ts`, suite `tests_lote`). O corpo do simulador do KAM-024 entra pelo `tratarCorpo` como no processo, o estágio escreve como `kamba_app` sob o contexto do tenant, a reentrega do mesmo `wamid:delivered` é `duplicado` e não chama o estágio, e o `read` seguinte avança o estado **sem** mudar o `delivered_at`. A montagem no processo: `KAM-235: o braco outbound do encaminhador de producao` (`services/worker-canal/tests/entrada.test.ts`, quatro ensaios: vai ao estágio e nunca ao CHR; o `encaminhadorDaEntrada` que o processo monta escreve depois do contexto do tenant do canal e avisa um `statuses` sem mensagem; uma falha sobe para o *job* repetir; sem estágio conta como antes). O estágio: `KAM-235 — o estágio dos statuses` (`tests/outbound.estagio.test.ts`, seis ensaios: os quatro `status` da Meta, o `pricing`, os três desfechos que não escrevem, o aviso sem mensagem, a falha que sobe) |
-| 2 — a apresentação nomeia a loja (o `tenants.nome` na persona do turno), e o observador confere-a | **satisfeito** | O AGR: `TestLojaNaApresentacao` (`services/agr/tests/test_grafos.py`, quatro ensaios): a primeira resposta começa pela frase da *fixture* para as quatro lojas, duas com dígitos; sem leitor não nomeia; a porta na omissão não deixa passar o nome lido; o nome de outro tenant não serve. O arranque: `test_a_loja_le_se_pela_ligacao_de_leitura_e_chega_ao_dependencias`. A função: `test_a_apresentacao_nomeia_a_loja_com_ou_sem_digitos` e `test_a_loja_do_turno_vence_a_da_persona_e_sem_nenhuma_nao_ha_nome` (`test_vendedor.py`). O leitor contra a base: `TestNomeDaLoja` (`db/tests_agr/test_nome_da_loja.py`, quatro ensaios: lê pelo `kamba_app`, com dígitos; um nome mudado lê-se no turno seguinte; o leitor assíncrono abre e fecha uma ligação; com o contexto de outro tenant não lê nada). O observador: `KAM-235: a apresentacao que o AGR produz, com ou sem digitos no nome, identifica a loja` (`tests/activacao.producao.test.ts`), sobre a **mesma** *fixture*, que confere também que a frase é a do `registry/vendedor.yaml`. Com dígitos pela decisão acima |
+| 2 — a apresentação nomeia a loja (o `tenants.nome` na persona do turno), e o observador confere-a | **satisfeito** | O AGR: `TestLojaNaApresentacao` (`services/agr/tests/test_grafos.py`, cinco ensaios): a primeira resposta começa pela frase da *fixture* para as quatro lojas, duas com dígitos; «Kero 24» sai com os dígitos pelo grafo inteiro; sem leitor não nomeia; a porta na omissão não deixa passar o nome lido; o nome de outro tenant não serve. O arranque: `test_a_loja_le_se_pela_ligacao_de_leitura_e_chega_ao_dependencias`. A função: `test_a_apresentacao_nomeia_a_loja_com_ou_sem_digitos` e `test_a_loja_do_turno_vence_a_da_persona_e_sem_nenhuma_nao_ha_nome` (`test_vendedor.py`). O leitor contra a base: `TestNomeDaLoja` (`db/tests_agr/test_nome_da_loja.py`, quatro ensaios: lê pelo `kamba_app`, com dígitos; um nome mudado lê-se no turno seguinte; o leitor assíncrono abre e fecha uma ligação; com o contexto de outro tenant não lê nada). O observador: `KAM-235: a apresentacao que o AGR produz, com ou sem digitos no nome, identifica a loja` (`tests/activacao.producao.test.ts`), sobre a **mesma** *fixture*, que confere também que a frase é a do `registry/vendedor.yaml`. Com dígitos pela decisão A do fundador (2026-11-21), acima |
 | 3 — o teste ponta a ponta com o simulador passa no observador de produção com o `ConsentGate` montado, e dá a causa certa sem ele | **satisfeito** | Contra a base, pela montagem real do lote do KAM-202: `KAM-235: ponta a ponta com o simulador, o ConsentGate montado e o lote fecha ok` — o «Continuar» passa pelo `ConsentGate.tratar` verdadeiro, que grava o `consent_event`; a resposta é a frase do registo com o nome da loja; o `delivered` do simulador passa pelo estágio — e o lote fecha a tentativa `ok`. E `KAM-235: ponta a ponta com o simulador e sem o ConsentGate, o lote fecha falhou com sem_consentimento`. **O que o ensaio semeia, e porquê:** o AGR e o envio não correm nesta suite, pelo que a resposta entra na `agent_replies` com a frase do registo (a mesma que a *fixture* prende ao AGR, critério 2) e a mensagem fica `sent` como o `Saida.enviar` a deixa (KAM-227); o sinal do «teste» grava-se com as instruções do CHR, como no KAM-202. O que passa pelo código de produção é a entrada do `statuses` (simulador → `tratarCorpo` → estágio), o `ConsentGate`, o observador e o lote |
 
 ### Verificação da Definition of Done

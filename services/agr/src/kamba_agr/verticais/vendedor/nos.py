@@ -1961,16 +1961,12 @@ def _apresentacao(deps: Dependencias, estado: Mapping[str, Any] | None = None) -
     o `loja` da persona; sem nenhum, a frase sem nome, que identifica o
     assistente e nao a loja.
 
-    **Um nome com digitos entra tal como e** (KAM-235). A primeira versao desta
-    funcao punha a frase num bloco `text` do `compose`, e o `renderizar` do
-    KAM-032 levanta com digitos num `text`: uma loja «Kero 24» rebentava o
-    turno, e a frase caia para «desta loja». Desde o achado 5 do KAM-031 a
-    frase junta-se no `send` e no `handoff_prepare` (`com_apresentacao`),
-    **depois** do *renderer* e do validador, e nenhum dos dois a ve. A regra do
-    §9.1 — o modelo nao escreve numeros — continua inteira, porque este nome
-    nao vem do modelo: vem da base. Tirar-lhe os digitos dava outro nome, e
-    cair para «desta loja» deixava a loja sem se poder activar (o teste ponta a
-    ponta pede o nome).
+    **Um nome com digitos entra tal como e** («Kero 24»): decisao A do
+    fundador, 2026-11-21, no bloco do KAM-235. So cai para a frase sem nome
+    quando o nome esta vazio. A frase junta-se no `send` e no `handoff_prepare`
+    (`com_apresentacao`), fora do *renderer* e do validador; a regra do §9.1 —
+    o modelo nao escreve numeros — nao se aplica aqui, porque este nome nao vem
+    do modelo: vem da base.
     """
     bruta = str(deps.persona.get("apresentacao") or "")
     lido = deps.loja(estado) if estado is not None else None

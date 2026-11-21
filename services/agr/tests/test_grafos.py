@@ -871,6 +871,17 @@ class TestLojaNaApresentacao(unittest.TestCase):
                 texto, _ = self._primeira(nome)
                 self.assertEqual(texto.splitlines()[0], caso["frase"])
 
+    def test_a_loja_kero_24_e_nomeada_com_os_digitos(self) -> None:
+        """Decisao A do fundador (2026-11-21): o nome entra tal como e."""
+        (caso,) = [c for c in _casos_da_apresentacao() if c["loja"] == "Kero 24"]
+
+        async def nome(_tenant: str) -> str:
+            return "Kero 24"
+
+        texto, _ = self._primeira(nome)
+        self.assertEqual(texto.splitlines()[0], caso["frase"])
+        self.assertIn("de Kero 24.", texto)
+
     def test_sem_leitor_a_resposta_nao_nomeia_a_loja(self) -> None:
         texto, _ = self._primeira(None)
         self.assertNotIn(" de ", texto.splitlines()[0])
