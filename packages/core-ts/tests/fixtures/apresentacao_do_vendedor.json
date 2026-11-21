@@ -1,0 +1,21 @@
+{
+  "_nota": "KAM-235: a apresentacao do vendedor (registry/vendedor.yaml) com o tenants.nome. O AGR tem de a produzir letra a letra (services/agr/tests/test_grafos.py) e o observador de producao do teste tem de a aceitar (packages/core-ts/tests/activacao.producao.test.ts). Mudar a frase de um lado sem o outro fica vermelho.",
+  "casos": [
+    {
+      "loja": "Casa Bela",
+      "frase": "Sou o assistente automatico de Casa Bela. Posso ajudar com produtos, precos e pedidos."
+    },
+    {
+      "loja": "Kero 24",
+      "frase": "Sou o assistente automatico de Kero 24. Posso ajudar com produtos, precos e pedidos."
+    },
+    {
+      "loja": "Loja da Zé",
+      "frase": "Sou o assistente automatico de Loja da Zé. Posso ajudar com produtos, precos e pedidos."
+    },
+    {
+      "loja": "Mercearia 2000 & Filhos",
+      "frase": "Sou o assistente automatico de Mercearia 2000 & Filhos. Posso ajudar com produtos, precos e pedidos."
+    }
+  ]
+}

@@ -188,8 +188,8 @@ MSG_ALTERNATIVAS: Final = (
     "um e-mail, ou passar por la; ou escrever-me outra vez por aqui."
 )
 
-#: A identificacao quando o nome da loja nao pode entrar num bloco `text` (ver
-#: a `_apresentacao`). Identifica na mesma, que e o que o §8.4 pede.
+#: A identificacao quando a persona nao traz `apresentacao` (ver a
+#: `_apresentacao`). Identifica na mesma, que e o que o §8.4 pede.
 MSG_APRESENTACAO_SEM_NOME: Final = (
     "Sou o assistente automatico desta loja. Posso ajudar com produtos, precos "
     "e pedidos."
@@ -358,6 +358,16 @@ class PortaDeSaida(Protocol):
 # de o importar para o satisfazer, porque a tipagem e estrutural.
 
 
+def _sem_loja(_estado: Mapping[str, Any]) -> str | None:
+    """A porta `loja` por omissao: sem leitor ligado, nao ha nome (KAM-235).
+
+    A apresentacao cai entao para o `loja` da persona e, sem ele, para a frase
+    sem nome — que identifica o assistente e nao a loja, e o teste ponta a ponta
+    da `sem_resposta`. E o lado seguro: nenhuma loja se activa sem se nomear.
+    """
+    return None
+
+
 def _admite_sempre(_estado: Mapping[str, Any]) -> str | None:
     """A porta de admissao por omissao: o turno corre.
 
@@ -447,6 +457,10 @@ class Dependencias:
     #: so o no `confirm` do grafo do dono chama. `None` e **nada se envia**, e o
     #: dono e avisado — o lado seguro, pela razao do `accoes_do_dono`.
     orcamentos: Any | None = None
+    #: KAM-235. O `tenants.nome` do turno, para a apresentacao: o
+    #: `grafos.loja_do_turno`, lido na resolucao do turno. Por omissao
+    #: `_sem_loja`, e a frase cai para o `loja` da persona ou «desta loja».
+    loja: Callable[[Mapping[str, Any]], str | None] = _sem_loja
 
     def __post_init__(self) -> None:
         if self.relogio is None:
@@ -1940,28 +1954,30 @@ def _e_upstream(resultado: Any) -> bool:
 # ----------------------------------------------------------------- o compose
 
 
-def _apresentacao(deps: Dependencias) -> str | None:
+def _apresentacao(deps: Dependencias, estado: Mapping[str, Any] | None = None) -> str:
     """A frase que identifica o assistente automatico da loja (criterio 8, §8.4).
 
-    Devolve `None` se a frase da persona nao puder ser um bloco `text` — e **a
-    razao e real e foi medida**: o `renderizar` do KAM-032 levanta se um bloco
-    `text` tiver digitos, e a frase do `registry/vendedor.yaml` e
-    «Sou o assistente automatico de {loja}». Uma loja chamada «Kero 24» fazia o
-    turno inteiro rebentar na camada 1, por causa do nome dela.
+    **O nome e o `tenants.nome` do turno** (KAM-235), pela porta `loja`; sem ele,
+    o `loja` da persona; sem nenhum, a frase sem nome, que identifica o
+    assistente e nao a loja.
 
-    Nao se mutila o nome (tirar os digitos dava outro nome) e nao se desliga a
-    regra: cai-se para uma frase sem nome, que identifica na mesma — que e o que
-    o §8.4 pede, «a 1.a mensagem identifica o assistente automatico da loja».
-    O que fica em divida e **mostrar o nome da loja**, e o credor e quem der ao
-    §9.1 um bloco para texto com digitos opacos.
+    **Um nome com digitos entra tal como e** (KAM-235). A primeira versao desta
+    funcao punha a frase num bloco `text` do `compose`, e o `renderizar` do
+    KAM-032 levanta com digitos num `text`: uma loja «Kero 24» rebentava o
+    turno, e a frase caia para «desta loja». Desde o achado 5 do KAM-031 a
+    frase junta-se no `send` e no `handoff_prepare` (`com_apresentacao`),
+    **depois** do *renderer* e do validador, e nenhum dos dois a ve. A regra do
+    §9.1 — o modelo nao escreve numeros — continua inteira, porque este nome
+    nao vem do modelo: vem da base. Tirar-lhe os digitos dava outro nome, e
+    cair para «desta loja» deixava a loja sem se poder activar (o teste ponta a
+    ponta pede o nome).
     """
     bruta = str(deps.persona.get("apresentacao") or "")
-    nome = str(deps.persona.get("loja") or "").strip()
+    lido = deps.loja(estado) if estado is not None else None
+    nome = str(lido or deps.persona.get("loja") or "").strip()
     frase = bruta.replace("{loja}", nome) if nome else bruta.replace(" de {loja}", "")
-    frase = frase.replace("{loja}", "")
-    if frase and not _DIGITO.search(frase):
-        return frase.strip()
-    return MSG_APRESENTACAO_SEM_NOME
+    frase = frase.replace("{loja}", "").strip()
+    return frase or MSG_APRESENTACAO_SEM_NOME
 
 
 def _primeiro_turno(estado: Mapping[str, Any]) -> bool:
@@ -2413,7 +2429,7 @@ def com_apresentacao(deps: Dependencias, estado: Mapping[str, Any], texto: str) 
     """
     if not _primeiro_turno(estado):
         return texto
-    frase = _apresentacao(deps)
+    frase = _apresentacao(deps, estado)
     return frase + "\n" + texto if frase else texto
 
 

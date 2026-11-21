@@ -61,6 +61,7 @@ export {
   resumoCanonico,
 } from "./explosao.ts";
 export type {
+  EstadoDaMeta,
   EventoDeEntrada,
   EventoEmQuarentena,
   Explosao,

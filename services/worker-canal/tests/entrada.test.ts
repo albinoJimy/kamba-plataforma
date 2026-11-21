@@ -14,10 +14,12 @@ import { sha256Hex, tratarCorpo } from "@kamba/core-ts/entrada";
 import type { ClienteSql } from "@kamba/core-ts/entrada";
 
 import {
+  EncaminhadorDoCanal,
   EncaminhadorQueSoRegista,
   PORTA_POR_OMISSAO,
   ambienteDasChaves,
   criarApp,
+  encaminhadorDaEntrada,
   identidadeDaEntrada,
 } from "../src/entrada.ts";
 import { SERVICE } from "../src/meta.ts";
@@ -91,6 +93,92 @@ describe("o encaminhador do esqueleto", () => {
     );
     assert.equal(resultado.emQuarentena, 1);
     assert.deepEqual(encaminhador.entregues, []);
+  });
+});
+
+describe("KAM-235: o braco outbound do encaminhador de producao", () => {
+  const corpo = mudanca("messages", { statuses: [{ id: "wamid.A", status: "delivered" }] });
+
+  it("um statuses vai ao estagio dos statuses, com o wamid e o estado, e nunca ao CHR", async () => {
+    const recebidos: unknown[] = [];
+    const chr = {
+      tratar: async () => {
+        throw new Error("um statuses nao vai ao CHR");
+      },
+    } as unknown as ConstructorParameters<typeof EncaminhadorDoCanal>[0];
+    const encaminhador = new EncaminhadorDoCanal(chr, async (evento) => {
+      recebidos.push(evento.estado);
+    });
+    const { trabalho, resumo } = trabalhoDe(corpo);
+    const resultado = await tratarCorpo(new BaseQueAceita(), trabalho, encaminhador, resumo);
+    assert.deepEqual(resultado.destinos, ["outbound"]);
+    assert.deepEqual(recebidos, [{ wamid: "wamid.A", estado: "delivered", pricing: null }]);
+    assert.equal(encaminhador.entregues.length, 1);
+  });
+
+  it("uma falha do estagio sobe, para o job repetir", async () => {
+    const chr = {} as unknown as ConstructorParameters<typeof EncaminhadorDoCanal>[0];
+    const encaminhador = new EncaminhadorDoCanal(chr, async () => {
+      throw new Error("base em baixo");
+    });
+    const { trabalho, resumo } = trabalhoDe(corpo);
+    await assert.rejects(tratarCorpo(new BaseQueAceita(), trabalho, encaminhador, resumo), /base em baixo/);
+  });
+
+  it("a montagem do processo: o tenant do canal, a escrita sob o contexto dele, e o aviso sem mensagem", async () => {
+    const TENANT = "11111111-1111-4111-8111-111111111111";
+    const pedidos: { sql: string; v: readonly unknown[] }[] = [];
+    let existe = true;
+    const bd = {
+      async query(sql: string, v: readonly unknown[] = []) {
+        pedidos.push({ sql, v });
+        if (!existe || !sql.includes("platform.outbound_messages")) return { rows: [] };
+        if (sql.includes("UPDATE")) return { rows: [{ id: "m1", estado_antes: "sent", state: "delivered", kind: "service" }] };
+        return { rows: [{ id: "m1", state: "sent", kind: "service" }] };
+      },
+    };
+    const resolvedor = {
+      resolver: async (pnid: string) => ({
+        resolvido: pnid === "pnid-ensaio" ? ({ contexto: { tenant_id: TENANT } } as never) : null,
+        daCache: false,
+      }),
+    };
+    const registos: Record<string, unknown>[] = [];
+    const log = {
+      info: (c: Record<string, unknown>) => registos.push(c),
+      warn: (c: Record<string, unknown>) => registos.push(c),
+    } as unknown as Parameters<typeof encaminhadorDaEntrada>[0]["log"];
+    const chr = {} as unknown as Parameters<typeof encaminhadorDaEntrada>[0]["chr"];
+    const encaminhador = encaminhadorDaEntrada({ chr, resolvedor, bd: bd as never, log });
+    const corpoDoCanal = mudanca("messages", {
+      metadata: { phone_number_id: "pnid-ensaio" },
+      statuses: [{ id: "wamid.A", status: "delivered" }],
+    });
+
+    const { trabalho, resumo } = trabalhoDe(corpoDoCanal);
+    await tratarCorpo(new BaseQueAceita(), trabalho, encaminhador, resumo);
+    const contexto = pedidos.findIndex((p) => p.sql.includes("set_config('app.tenant_id'"));
+    const escrita = pedidos.findIndex((p) => p.sql.includes("UPDATE platform.outbound_messages"));
+    assert.ok(contexto >= 0 && escrita > contexto, "a escrita corre depois do contexto do tenant");
+    assert.deepEqual(pedidos[contexto]!.v, [TENANT]);
+    assert.deepEqual(pedidos[escrita]!.v.slice(0, 3), [TENANT, "wamid.A", "delivered"]);
+    assert.ok(registos.some((r) => r.outcome === "estado_avancou"));
+
+    // Um `statuses` antes da nossa escrita do `wamid`: o `Saida` avisa.
+    existe = false;
+    const outro = trabalhoDe(corpoDoCanal);
+    await tratarCorpo(new BaseQueAceita(), outro.trabalho, encaminhador, outro.resumo);
+    assert.ok(registos.some((r) => r.outcome === "status_sem_mensagem"), JSON.stringify(registos));
+    assert.ok(registos.some((r) => r.outcome === "estado_nao_avancou"));
+  });
+
+  it("sem estagio, o braco conta e mais nada, como no esqueleto", async () => {
+    const chr = {} as unknown as ConstructorParameters<typeof EncaminhadorDoCanal>[0];
+    const encaminhador = new EncaminhadorDoCanal(chr);
+    const { trabalho, resumo } = trabalhoDe(corpo);
+    const resultado = await tratarCorpo(new BaseQueAceita(), trabalho, encaminhador, resumo);
+    assert.deepEqual(resultado.destinos, ["outbound"]);
+    assert.equal(encaminhador.entregues.length, 1);
   });
 });
 

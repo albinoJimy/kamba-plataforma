@@ -4,7 +4,7 @@
 |---|---|
 | Produto | KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para Angola |
 | Documento | Epic — Canais WhatsApp e Handoff |
-| Versão | 1.22 |
+| Versão | 1.23 |
 | Data | Outubro de 2026 |
 | Classificação | Documento de Referência — Interno |
 | Documento-fonte | `../docs/tecnica/00_Arquitectura_Solucao.md`, `../docs/tecnica/01_Canais_WhatsApp_Fluxo_Dual.md`, `../docs/tecnica/06_Dados_Eventos_Analytics.md`, `../docs/tecnica/08_Seguranca_Conformidade.md`, `../docs/tecnica/10_Onboarding_Governanca.md` (§6–§7), `../docs/tecnica/evidencia/E1_Meta_WhatsApp.md` |
@@ -3730,12 +3730,12 @@ texto nem telefone.
 
 ### Critérios de Aceitação
 
-- [ ] Os *statuses* `delivered` e `read` da Meta, pelo braço `outbound` do `worker-canal`, escrevem o
+- [x] Os *statuses* `delivered` e `read` da Meta, pelo braço `outbound` do `worker-canal`, escrevem o
   `outbound_messages.delivered_at` da mensagem pelo `wamid` (o `Saida.ingerir`), idempotentes por
   `wamid:estado`.
-- [ ] A apresentação do vendedor nomeia a loja (o `tenants.nome` na persona do turno), e o observador
+- [x] A apresentação do vendedor nomeia a loja (o `tenants.nome` na persona do turno), e o observador
   confere-a.
-- [ ] Um teste ponta a ponta com o simulador de webhooks passa no observador de produção quando o
+- [x] Um teste ponta a ponta com o simulador de webhooks passa no observador de produção quando o
   `ConsentGate` está montado, e dá a causa certa quando não está.
 
 ### Detalhes Técnicos
@@ -3751,8 +3751,8 @@ texto nem telefone.
 
 ### Definition of Done
 
-- [ ] Critérios de Aceitação satisfeitos; a caixa do critério 1 do KAM-202 revista com a evidência.
-- [ ] Nenhum texto de mensagem nem telefone guardados.
+- [x] Critérios de Aceitação satisfeitos; a caixa do critério 1 do KAM-202 revista com a evidência.
+- [x] Nenhum texto de mensagem nem telefone guardados.
 
 ### Handoff para Claude Code
 
@@ -3764,7 +3764,105 @@ Objectivo: os statuses escrevem o delivered_at, e a apresentação do vendedor n
 Regras: sem texto nem telefone guardados; idempotente por wamid:estado; falha fechada.
 ```
 
----
+### Decisão do nome com dígitos
+
+O «Detalhes Técnicos» deixava ao ticket decidir o nome de uma loja com dígitos («Kero 24»), que a nota do
+`_apresentacao` dizia não caber num bloco `text` do *renderer*. **Medido antes de decidir:** a frase da
+apresentação **não passa pelo *renderer* nem pelo validador**. Desde o achado 5 do KAM-031 ela junta-se no
+`send` e no `handoff_prepare` (`com_apresentacao`), **depois** do `compose`, e daí vai directa para a
+`agent_replies` (`SaidaPorEvento.enfileirar`). O `agent.replied` não leva o texto. A recusa de dígitos no
+`_apresentacao` era o resto da primeira versão, que punha a frase num bloco do `compose`.
+
+**Proposta, levada à sessão coordenadora com três opções e esta recomendação, e implementada por ser a
+mais segura de reverter:** o nome entra **tal como é**, com dígitos. A regra do §9.1 — o modelo não escreve
+números em prosa — fica inteira, porque este nome não vem do modelo: vem do `tenants.nome`. As outras duas:
+
+- manter a frase sem nome para estas lojas, com o observador a aceitá-la. A loja activa-se sem se nomear;
+- manter como estava. Uma loja com dígitos nunca passa o teste e nunca se activa.
+
+Se a decisão for outra, muda o `_apresentacao` e a *fixture* `apresentacao_do_vendedor.json`, mais nada.
+
+### Verificação dos Critérios de Aceitação
+
+Entregue no ramo `feature/KAM-235-factos-do-teste`, **sem esquema novo** (o `delivered_at` e o `pricing`
+existem desde a `0010`):
+
+- o estágio dos *statuses* ([`../packages/core-ts/src/outbound/estagio.ts`](../packages/core-ts/src/outbound/estagio.ts)),
+  ligado no braço `outbound` do processo de entrada ([`../services/worker-canal/src/entrada.ts`](../services/worker-canal/src/entrada.ts));
+- o `EventoDeEntrada.estado` na explosão ([`../packages/core-ts/src/entrada/explosao.ts`](../packages/core-ts/src/entrada/explosao.ts));
+- o nome da loja no AGR: a leitura antes do turno (`../services/agr/src/kamba_agr/grafos.py`, `conversa.py`,
+  `consultas.py`, `__main__.py`) e o `_apresentacao` do vendedor;
+- a *fixture* partilhada [`../packages/core-ts/tests/fixtures/apresentacao_do_vendedor.json`](../packages/core-ts/tests/fixtures/apresentacao_do_vendedor.json):
+  o AGR tem de a produzir letra a letra e o observador tem de a aceitar;
+- o dicionário §3.74 (emenda 1.134), a linha do critério 1 do KAM-202 (EPIC-04) e a do critério 7 do KAM-080
+  (EPIC-08) revistas.
+
+| Critério | Estado | Evidência |
+|---|---|---|
+| 1 — os *statuses* `delivered` e `read`, pelo braço `outbound` do `worker-canal`, escrevem o `delivered_at` pelo `wamid`, idempotentes por `wamid:estado` | **satisfeito** | Contra a base: `KAM-235: o delivered do simulador escreve o delivered_at pelo estagio, uma vez, e o observador da entregue` (`tests_bd/activacao.bd.test.ts`, suite `tests_lote`). O corpo do simulador do KAM-024 entra pelo `tratarCorpo` como no processo, o estágio escreve como `kamba_app` sob o contexto do tenant, a reentrega do mesmo `wamid:delivered` é `duplicado` e não chama o estágio, e o `read` seguinte avança o estado **sem** mudar o `delivered_at`. A montagem no processo: `KAM-235: o braco outbound do encaminhador de producao` (`services/worker-canal/tests/entrada.test.ts`, quatro ensaios: vai ao estágio e nunca ao CHR; o `encaminhadorDaEntrada` que o processo monta escreve depois do contexto do tenant do canal e avisa um `statuses` sem mensagem; uma falha sobe para o *job* repetir; sem estágio conta como antes). O estágio: `KAM-235 — o estágio dos statuses` (`tests/outbound.estagio.test.ts`, seis ensaios: os quatro `status` da Meta, o `pricing`, os três desfechos que não escrevem, o aviso sem mensagem, a falha que sobe) |
+| 2 — a apresentação nomeia a loja (o `tenants.nome` na persona do turno), e o observador confere-a | **satisfeito** | O AGR: `TestLojaNaApresentacao` (`services/agr/tests/test_grafos.py`, quatro ensaios): a primeira resposta começa pela frase da *fixture* para as quatro lojas, duas com dígitos; sem leitor não nomeia; a porta na omissão não deixa passar o nome lido; o nome de outro tenant não serve. O arranque: `test_a_loja_le_se_pela_ligacao_de_leitura_e_chega_ao_dependencias`. A função: `test_a_apresentacao_nomeia_a_loja_com_ou_sem_digitos` e `test_a_loja_do_turno_vence_a_da_persona_e_sem_nenhuma_nao_ha_nome` (`test_vendedor.py`). O leitor contra a base: `TestNomeDaLoja` (`db/tests_agr/test_nome_da_loja.py`, quatro ensaios: lê pelo `kamba_app`, com dígitos; um nome mudado lê-se no turno seguinte; o leitor assíncrono abre e fecha uma ligação; com o contexto de outro tenant não lê nada). O observador: `KAM-235: a apresentacao que o AGR produz, com ou sem digitos no nome, identifica a loja` (`tests/activacao.producao.test.ts`), sobre a **mesma** *fixture*, que confere também que a frase é a do `registry/vendedor.yaml`. Com dígitos pela decisão acima |
+| 3 — o teste ponta a ponta com o simulador passa no observador de produção com o `ConsentGate` montado, e dá a causa certa sem ele | **satisfeito** | Contra a base, pela montagem real do lote do KAM-202: `KAM-235: ponta a ponta com o simulador, o ConsentGate montado e o lote fecha ok` — o «Continuar» passa pelo `ConsentGate.tratar` verdadeiro, que grava o `consent_event`; a resposta é a frase do registo com o nome da loja; o `delivered` do simulador passa pelo estágio — e o lote fecha a tentativa `ok`. E `KAM-235: ponta a ponta com o simulador e sem o ConsentGate, o lote fecha falhou com sem_consentimento`. **O que o ensaio semeia, e porquê:** o AGR e o envio não correm nesta suite, pelo que a resposta entra na `agent_replies` com a frase do registo (a mesma que a *fixture* prende ao AGR, critério 2) e a mensagem fica `sent` como o `Saida.enviar` a deixa (KAM-227); o sinal do «teste» grava-se com as instruções do CHR, como no KAM-202. O que passa pelo código de produção é a entrada do `statuses` (simulador → `tratarCorpo` → estágio), o `ConsentGate`, o observador e o lote |
+
+### Verificação da Definition of Done
+
+| DoD | Estado | Evidência |
+|---|---|---|
+| Critérios satisfeitos; a caixa do critério 1 do KAM-202 revista com a evidência | **satisfeito** | Os três critérios acima. A linha do critério 1 no bloco do KAM-202 (EPIC-04) passa a dizer o que este ticket liga e o que falta, e **a caixa continua vazia**: o `consent_event` não tem quem o escreva em produção enquanto o `ConsentGate` não estiver montado no *worker* (KAM-022, linha 9b). O teste falha fechado com `sem_consentimento` |
+| Nenhum texto de mensagem nem telefone guardados | **satisfeito** | Do `statuses` só saem o `wamid`, o `status` e o `pricing`: `um statuses do simulador traz wamid, status e pricing, e mais nada do interlocutor` confere que nem o `recipient_id` nem o `recipient_user_id` passam a explosão. O desfecho do estágio vai ao registo como `outcome` (`estado_<desfecho>`), sem o `wamid`. O nome da loja lê-se e não se grava em lado nenhum novo |
+
+**Os gates, nesta máquina, na árvore do ramo:**
+
+- 3, 3b (os três comandos: `dict_export --check`, `canon_lint check`, `canon_lint canario`) e 3c: verdes;
+- as **30** suites de `tools/`, verdes (o `log_policy` com o `libs/py-core/src` no caminho: sem ele dá 69 em vez de 114, por ambiente), com o `lint_bloco` incluído: o piso fica em **86**: este bloco é o 173.º
+  medido na árvore integrada com a `publico/main` em `b37d1ffe`, e quem o subiu foi o KAM-232 (#246), que fundiu primeiro;
+- `core-ts`: *typecheck* e **3533** ensaios de unidade a passar (um saltado, que não é deste ticket), 0 falhas; `worker-canal`: *typecheck* e **58**, 0 falhas;
+  AGR: `test_grafos`, `test_vendedor` e `test_arranque`, **190**, verdes;
+- gate 8 (`db/gate_bd.py`): `tests_lote` (**11**, com os três ensaios KAM-235 pelo nome), `tests_agr` (**417**),
+  `tests_entrada` (**38**) e `tests_outbound` (**10**, que passa a levar o ensaio do estágio) verdes. O `tests` inteiro e o `tests_isolamento` ficam para o CI.
+- **depois da integração** com a `publico/main` em `b37d1ffe` (o #246 do KAM-232): os linters de cima, o
+  `lint_bloco` e a suite dele, o `core-ts` (**3556**), o `worker-canal` (**58**) e o AGR (**245**, com o
+  `test_mensagens` do KAM-232) verdes; o gate 8 dessa árvore fica para o CI.
+
+**Oito mutações novas** em `../db/mutacoes.py` (secção KAM-235), todas aplicáveis (`--aplicaveis`: 1300
+conferidas, 0 não aplicáveis). **Oito apanhadas em oito** numa prova focada nesta máquina: cada mutação
+aplicada na árvore, o ensaio de unidade que a deve matar corrido, a árvore reposta. As três de TypeScript com
+o `outbound.estagio.test.ts` e o `entrada.explosao.test.ts` em contentor; as cinco do AGR com o `test_grafos`
+e o `test_vendedor`. **Não é o corredor do `db/mutacoes.py`**, que nesta árvore recusa arrancar por um ensaio
+que não é deste ticket (`tests_bd/confianca.bd.test.ts` importa `@kamba/core-ts` por especificador). E **três
+mutações à ligação do processo** (`encaminhadorDaEntrada` sem o estágio, o estágio sem o contexto do tenant, o
+registo que não chega ao `Saida`) foram apanhadas pelo `entrada.test.ts` do `worker-canal` na mesma prova, e
+**não** ficam no `db/mutacoes.py`: nenhum corredor dele corre os ensaios de unidade do `worker-canal`, e uma
+mutação registada que nada pode matar contava como prova.
+
+**A revisão adversarial** correu numa passagem, sobre o primeiro *commit* do ramo: **dez achados**, nenhum a
+bloquear. **Seis corrigidos neste ramo:**
+
+- (1) o `Saida` do estágio montava-se sem registo, e um `statuses` que chegue antes de o nosso `wamid` estar
+  gravado perdia-se **calado**: o `status_sem_mensagem` do `Saida.ingerir` volta a sair (`o Saida do estagio
+  avisa…`, e a montagem do processo);
+- (2) a ligação no processo não tinha ensaio: passou para o `encaminhadorDaEntrada`, exportado e ensaiado;
+- (3) o leitor do nome não tinha ensaio: `TestNomeDaLoja`, contra a base;
+- (6) três frases que não diziam o que o código faz (a constante da frase sem nome, a linha do dicionário, e o
+  recurso à loja da persona);
+- (7) o que o ensaio ponta a ponta semeia ficou escrito no critério 3;
+- (9) as crases da emenda deixavam palavras genéricas (`estado`, `status`, `id`) como nomes aceites no
+  `canon/dicionario.yaml`: ficam só os nomes canónicos.
+
+**Cinco ficam escritos, e não corrigidos:**
+
+- (1, o resto) **o `statuses` que chega antes da nossa escrita do `wamid` não se repete**: o evento fica
+  processado e o `delivered_at` só aparece com o `statuses` seguinte (o `read` também o escreve). Repetir
+  obrigava a distinguir «não é nossa» de «ainda não é nossa», e um `statuses` de uma mensagem que nunca foi
+  nossa repetia até esgotar as tentativas. Fica avisado, e escrito no `estagio.ts`;
+- (4) **o custo de uma entrega não chega ao `/metrics`**: o `Saida` é um por evento. O custo fica no
+  `outbound_messages.pricing`; a métrica agregada é a do critério 7 do KAM-080, que continua parcial;
+- (5) **uma leitura de base a mais por turno, em todas as verticais**, e uma falha dela faz falhar o turno
+  (como a do contacto bloqueado, na mesma ligação). É uma leitura pela chave primária;
+- (8) os ensaios de base dependem de o relógio do Node e o `now()` da base andarem juntos (o `delivered_at` é o
+  da base): a janela tem cerca de 45 s de folga;
+- (10) com o *concierge* activo, a mensagem que sai depois da aprovação não nomeia a loja (a decisão de rascunho
+  não passa pela resolução do turno). Não toca no teste da activação: um tenant em `onboarding` não tem o
+  *concierge* ligado.
 
 ## Riscos do Epic e itens NÃO VERIFICADOS
 
@@ -3826,3 +3924,4 @@ Regras: sem texto nem telefone guardados; idempotente por wamid:estado; falha fe
 | 1.20 | Novembro 2026 | **Aresta recíproca, sem alteração de conteúdo: o `Bloqueia` do KAM-019 ganha o KAM-213** (EPIC-01), que torna determinístico o ensaio «duas chamadas concorrentes: o ON CONFLICT da conta» do `handoff.bd.test.ts` — uma barreira no provedor falso força as duas chamadas a passarem a leitura antes do `INSERT`, em vez de o deixar ao `Promise.all`. | Equipa KAMBÁ |
 | 1.21 | Novembro 2026 | **Aresta recíproca, sem alteração de conteúdo:** o `Bloqueia` do KAM-020 ganha o **KAM-231** (EPIC-11), aberto no PR do KAM-119: a foto do dono chega ao catálogo pelo MED. | Equipa KAMBÁ |
 | 1.22 | Novembro 2026 | **KAM-235 acrescentado**, no PR do **KAM-202** (EPIC-04), que o abre e não o implementa: o credor dos factos do teste ponta a ponta que em produção ninguém escreve — o `delivered_at` dos *statuses* e o nome da loja na apresentação do vendedor. Decisão do fundador de 2026-11-20, no bloco do KAM-202. Escrito como KAM-232 e renumerado duas vezes na integração: para 233 depois do KAM-223, e para 235 depois do KAM-218 e do KAM-234 (EPIC-11), que tomaram o 233 e o 234. | Equipa KAMBÁ |
+| 1.23 | Novembro 2026 | **KAM-235 entregue.** Os *statuses* escrevem o `delivered_at` pelo estágio do `worker-canal` (o `Saida.ingerir` do KAM-015, sem esquema novo), a apresentação do vendedor nomeia a loja pelo `tenants.nome` do turno, com ou sem dígitos (proposta levada à coordenação, no bloco), e o teste ponta a ponta com o simulador passa com o `ConsentGate` montado e dá `sem_consentimento` sem ele. Três critérios e as duas caixas da DoD satisfeitos. Emenda 1.134 do dicionário; a linha do critério 1 do KAM-202 (EPIC-04) e a do critério 7 do KAM-080 (EPIC-08) revistas | Equipa KAMBÁ |
