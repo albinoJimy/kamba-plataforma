@@ -22361,9 +22361,7 @@ entradas:
       - "kamba_app"
       - "INSERT"
       - "UPDATE"
-    variantes_literais:
-      - "Map"
-      - "CasosEmMemoria"
+    variantes_literais: []
   - seccao: "3.83"
     conceito: "Política das buscas do registo"
     canonico: "registo_busca em platform.onboarding_case, FOR SELECT TO kamba_migrator USING (current_setting('app.registo_busca', true) = 'on')"
@@ -22408,6 +22406,8 @@ entradas:
       - "platform.registo_contar_por_dispositivo"
       - "timestamptz"
     nomes_nota:
+      - "onboarding"
+      - "web"
       - "SECURITY"
       - "DEFINER"
       - "plpgsql"
@@ -22421,9 +22421,7 @@ entradas:
       - "tenant_id"
       - "FASES_MORTAS"
       - "onboarding_nif_vivo"
-    variantes_literais:
-      - "kamba_batch"
-      - "onboarding-web"
+    variantes_literais: []
   - seccao: "3.83"
     conceito: "Desafio do OTP do registo"
     canonico: "platform.onboarding_otp(onboarding_id, tenant_id, codigo_hmac, expira_at, tentativas, usado_at, criado_at)"
@@ -22445,8 +22443,7 @@ entradas:
       - "apagar"
       - "usado_at"
       - "guardar"
-    variantes_literais:
-      - "OtpEmMemoria"
+    variantes_literais: []
   - seccao: "3.83"
     conceito: "Contadores do registo"
     canonico: "platform.onboarding_contador(chave, instantes, actualizado_at)"
@@ -22475,8 +22472,7 @@ entradas:
       - "kamba_batch"
       - "contadores_do_registo"
       - "CAMINHO_CONTADORES_DO_REGISTO"
-    variantes_literais:
-      - "ContadoresEmMemoria"
+    variantes_literais: []
   - seccao: "3.83"
     conceito: "Revogações do painel"
     canonico: "platform.painel_revogacao(revogacao_id, tenant_id, sid, ate, expira_at, criado_at)"
@@ -22499,8 +22495,7 @@ entradas:
       - "expira_at"
       - "TECTO_DO_PAINEL_S"
       - "DELETE"
-    variantes_literais:
-      - "RevogacoesEmMemoria"
+    variantes_literais: []
   - seccao: "3.83"
     conceito: "Os adaptadores do registo"
     canonico: "casosNaBase, otpNaBase, contadoresNaBase, RevogacoesNaBase, numaLigacaoDaInscricao, PoolDaInscricao, CifraDoCaso, cifraDoCaso"
@@ -22573,8 +22568,7 @@ entradas:
       - "es_guia_fora_de_prod"
     nomes_nota:
       - "prod"
-    variantes_literais:
-      - "RepositorioEmMemoriaEmProducaoError"
+    variantes_literais: []
 
 tabelas:
   - nome: "contacts"
@@ -26285,35 +26279,5 @@ variantes:
     seccao: "3.66"
     conceito: "Trabalho de imagem"
     canonico: "platform.image_jobs, dezoito colunas: image_job_id, tenant_id, origem_ref, versao_ref, operacao, provider, estado, motivo, idempotency_key, sintetica, gerado_por_ia, escolhida, custo_usd, latencia_ms, aviso_at, versao, criado_at, atualizado_at"
-  - nome: "Map"
-    tipo: "nome"
-    seccao: "3.83"
-    conceito: "Chave de idempotência do registo"
-    canonico: "onboarding_case.chave_idem, índice único onboarding_case_chave_idem_uq"
-  - nome: "CasosEmMemoria"
-    tipo: "nome"
-    seccao: "3.83"
-    conceito: "Chave de idempotência do registo"
-    canonico: "onboarding_case.chave_idem, índice único onboarding_case_chave_idem_uq"
-  - nome: "OtpEmMemoria"
-    tipo: "nome"
-    seccao: "3.83"
-    conceito: "Desafio do OTP do registo"
-    canonico: "platform.onboarding_otp(onboarding_id, tenant_id, codigo_hmac, expira_at, tentativas, usado_at, criado_at)"
-  - nome: "ContadoresEmMemoria"
-    tipo: "nome"
-    seccao: "3.83"
-    conceito: "Contadores do registo"
-    canonico: "platform.onboarding_contador(chave, instantes, actualizado_at)"
-  - nome: "RevogacoesEmMemoria"
-    tipo: "nome"
-    seccao: "3.83"
-    conceito: "Revogações do painel"
-    canonico: "platform.painel_revogacao(revogacao_id, tenant_id, sid, ate, expira_at, criado_at)"
-  - nome: "RepositorioEmMemoriaEmProducaoError"
-    tipo: "nome"
-    seccao: "3.83"
-    conceito: "O registo na base"
-    canonico: "ONBOARDING_APP_DB_URL (obrigatória em prod), BaseEmFaltaEmProducaoError, LIGACOES_DA_INSCRICAO, registo_na_base, es_guia_fora_de_prod"
 
 contradicoes: []
