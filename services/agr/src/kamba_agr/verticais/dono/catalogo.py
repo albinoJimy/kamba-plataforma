@@ -13,7 +13,8 @@ de tool sai de um modelo de linguagem.
 | botao `preco:{ingestao}:{centimos}` | grava o preco do eco (`create_product_draft`, `preco_confirmado`) |
 | botao `preco_corrigir:{ingestao}` | pede o preco outra vez; nada se grava |
 | botao `mesmo_produto:` / `outro_produto:` | a resposta a «e o mesmo produto?» |
-| uma foto | a media nao chega ao AGR (o `agent_invocation` nao a leva): diz-se ao dono, e o credor esta no bloco |
+| uma foto com `asset_id` | o rascunho pela foto (`create_product_draft`, `asset_id`), KAM-231 |
+| uma foto sem `asset_id` | a foto nao chegou ao STO (o MED recusou, falhou ou nao esta montado): diz-se ao dono |
 | texto, com rascunho a espera de resposta | a resposta as perguntas em aberto; o preco vai so ao eco |
 | texto sobre o catalogo, sem resposta a dar | o estado do catalogo (`get_catalog_status`) |
 
@@ -93,9 +94,7 @@ async def tratar(deps: Dependencias, estado: Mapping[str, Any]) -> dict[str, Any
     if toque is not None:
         return await _do_botao(deps, estado, toque)
     if estado.get("input_kind") == "image":
-        # A media nao chega ao estado: o `agent_invocation` nao tem campo para
-        # ela, e o MED nao esta montado (credor no bloco do KAM-119).
-        return _resposta_estatica(MSG_FOTO_POR_LIGAR)
+        return await _da_foto(deps, estado)
     texto = _texto_do_cliente(estado)
     status = await estado_do_catalogo(deps, estado)
     if status is None:
@@ -119,6 +118,24 @@ async def tratar(deps: Dependencias, estado: Mapping[str, Any]) -> dict[str, Any
     if len(abertos) > 1 and resto and estado.get("intent") != "modulos":
         return _resposta_estatica("\n".join((MSG_QUAL_RASCUNHO, *_referencias(abertos))))
     return _resposta_do_estado(status)
+
+
+async def _da_foto(deps: Dependencias, estado: Mapping[str, Any]) -> dict[str, Any]:
+    """Uma foto do dono vira rascunho (KAM-231).
+
+    O `asset_id` vem do estado, que o tirou da invocacao: o CHR (pelo MED) ou o
+    painel guardaram a foto no STO antes de invocar. **Nenhum argumento vem de
+    um modelo**: o no constroi-o do estado, como os outros deste modulo. Sem
+    `asset_id`, a foto nao chegou ao STO — o MED recusou-a, falhou, ou nao esta
+    montado — e o dono e avisado, sem rascunho.
+    """
+    asset_id = estado.get("asset_id")
+    if not isinstance(asset_id, str) or not asset_id:
+        return _resposta_estatica(MSG_FOTO_POR_LIGAR)
+    recebida = await _invocar(deps, estado, "create_product_draft", {"asset_id": asset_id})
+    if not recebida.ok:
+        return _resposta_estatica(_frase_do_erro(recebida.error))
+    return _resposta_da_ingestao(recebida.data)
 
 
 async def _responder(
@@ -317,7 +334,7 @@ def _frase_do_erro(erro: Any) -> str:
 # **Sem digitos**, todos: vao ao `send` sem passar pelo validador (aresta 34).
 MSG_CATALOGO_INACTIVO: Final = "O modulo do catalogo nao esta activo para a sua loja."
 MSG_FOTO_POR_LIGAR: Final = (
-    "Ainda nao consigo receber fotos por aqui. Pode criar o produto pelo painel da loja."
+    "Nao consegui receber esta foto. Envie-a outra vez, ou crie o produto pelo painel da loja."
 )
 MSG_REFERENCIA_DESCONHECIDA: Final = (
     "Nao encontrei esse produto em preparacao. Confira a referencia PRD."

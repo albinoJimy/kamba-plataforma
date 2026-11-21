@@ -160,6 +160,10 @@ class PortasDoCatalogo:
     registo: PortaDoRegisto
     ambiente: str = AMBIENTE_PROD
     fonte: FonteDeMedia = field(default_factory=FontePorLigar)
+    #: KAM-231. A fonte **por invocacao**, sobre a ligacao dela: a `FonteDoMed`
+    #: le a `media_assets` no tenant da invocacao (`catalogo/fonte.py`). Com
+    #: ela, o `fonte` acima nao se usa.
+    fonte_sobre: Callable[[Any], FonteDeMedia] | None = None
     storage: StorageProvider = field(default_factory=StoragePorLigar)  # type: ignore[assignment]
     descodificador: Descodificador = field(default_factory=DescodificadorPorLigar)
     destinos: PortaDeDestinos = field(default_factory=DestinosPorLigar)
@@ -174,7 +178,7 @@ class PortasDoCatalogo:
         """O pipeline para uma invocacao: o repositorio sobre a ligacao dela."""
         return ServicoDeIngestao(
             repositorio=self.repositorio(ligacao),
-            fonte=self.fonte,
+            fonte=self.fonte if self.fonte_sobre is None else self.fonte_sobre(ligacao),
             storage=self.storage,
             descodificador=self.descodificador,
             destinos=self.destinos,

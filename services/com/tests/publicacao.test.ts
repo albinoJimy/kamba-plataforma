@@ -209,6 +209,37 @@ test("KAM-119: com uma permitida para o mesmo conteudo, publica uma vez", async 
   assert.equal(b.transaccoes, 2);
 });
 
+test("KAM-231: a quantidade do dono vai ao Registo com a publicacao, na mesma transaccao", async () => {
+  const b = base({ categoria: "moda" });
+  b.decidir("permitida", "moda", NOME);
+  const operar = operacoesDoCom({ comTenant: b.comTenant, anel: ANEL }).publicarProduto;
+  assert.deepEqual(await operar(CTX, { sku: SKU, confirmacao: CONFIRMACAO, stock: 500 }), {
+    tipo: "ok",
+    valor: undefined,
+  });
+  // A publicacao e o ajuste, os dois na transaccao de publicar: o `stock.adjusted`
+  // sai depois do `product.changed`, e nao ha terceira transaccao.
+  assert.deepEqual(b.eventos, [TIPO_PRODUCT_CHANGED, "stock.adjusted"]);
+  assert.equal(b.transaccoes, 2);
+});
+
+test("KAM-231: sem quantidade, a publicacao nao ajusta o stock", async () => {
+  const b = base({ categoria: "moda" });
+  b.decidir("permitida", "moda", NOME);
+  assert.deepEqual(await publicar(b), { tipo: "ok", valor: undefined });
+  assert.ok(!b.eventos.includes("stock.adjusted"));
+});
+
+test("KAM-231: uma publicacao recusada nao ajusta o stock", async () => {
+  const b = base({ categoria: "moda" });
+  const operar = operacoesDoCom({ comTenant: b.comTenant, anel: ANEL }).publicarProduto;
+  assert.deepEqual(await operar(CTX, { sku: SKU, confirmacao: CONFIRMACAO, stock: 500 }), {
+    tipo: "erro",
+    erro: "VALIDATION_ERROR",
+  });
+  assert.deepEqual(b.eventos, []);
+});
+
 test("KAM-119: uma linha bloqueada ou condicional para o conteudo recusa, mesmo com uma permitida ao lado", async () => {
   for (const outra of ["bloqueada", "condicional"] as const) {
     const b = base({ categoria: "moda" });

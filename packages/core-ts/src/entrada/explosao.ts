@@ -173,6 +173,19 @@ export interface EventoDeEntrada {
    */
   readonly texto?: string;
   /**
+   * O `image.id` de uma `message` de `waType` `image` (KAM-231): o identificador
+   * do objecto do lado da Meta, que o MED do KAM-020 resolve e descarrega.
+   * **Não é um URL**, e não sai do CHR: o AGR recebe o `asset_id` da
+   * `platform.media_assets`, e nunca este valor. **Ausente** em tudo o resto.
+   */
+  readonly mediaId?: string;
+  /**
+   * O `image.mime_type` que o webhook **anuncia**, se o trouxer (KAM-231). Não
+   * é de confiança: o MED confere o tipo da resposta da descarga, e este só
+   * serve para recusar cedo. **Ausente** sem `mediaId`.
+   */
+  readonly mimeAnunciado?: string;
+  /**
    * `true` numa `message` de texto cujo corpo é a palavra do teste ponta a ponta
    * (KAM-202, critério 1): o sinal que o observador do teste lê, gravado pelo CHR
    * como o instante `conversations.teste_recebido_at`. **Ausente** em tudo o
@@ -255,6 +268,22 @@ function textoDaMensagem(mensagem: Record<string, unknown>): string | null {
   const pontos = Array.from(corpo.replaceAll("\u0000", "").trim());
   if (pontos.length === 0) return null;
   return pontos.slice(0, TEXTO_MAXIMO).join("").trimEnd();
+}
+
+/**
+ * O `image.id` e o `image.mime_type` de uma mensagem `image`, ou `null`
+ * (KAM-231). O tipo é que manda, como no `textoDaMensagem`: um `image` colado a
+ * uma mensagem de outro tipo não conta. O `id` tem o tecto dos identificadores
+ * da Meta; o `mime_type`, se não for texto curto, não segue.
+ */
+function midiaDaImagem(
+  mensagem: Record<string, unknown>,
+): { readonly mediaId: string; readonly mimeAnunciado: string | null } | null {
+  if (mensagem.type !== "image") return null;
+  const imagem = objecto(mensagem.image);
+  const mediaId = texto(imagem?.id, ID_META_MAXIMO);
+  if (mediaId === null) return null;
+  return { mediaId, mimeAnunciado: texto(imagem?.mime_type, ID_META_MAXIMO) };
 }
 
 /** O texto, se for texto não vazio dentro do tecto; senão `null`. */
@@ -468,6 +497,7 @@ function explodirMensagens(
     const wamid = texto(mensagem.id, EVENT_KEY_MAXIMO);
     const botao = botaoDaResposta(mensagem);
     const corpo = textoDaMensagem(mensagem);
+    const midia = midiaDaImagem(mensagem);
     // KAM-202: só um texto, e só a palavra do teste. O corpo compara-se aqui, e
     // o sinal é só o booleano.
     const eTeste = mensagem.type === "text" && eMensagemDeTeste(objecto(mensagem.text)?.body);
@@ -487,6 +517,8 @@ function explodirMensagens(
       },
       ...(botao === null ? {} : { botao }),
       ...(corpo === null ? {} : { texto: corpo }),
+      ...(midia === null ? {} : { mediaId: midia.mediaId }),
+      ...(midia?.mimeAnunciado == null ? {} : { mimeAnunciado: midia.mimeAnunciado }),
       ...(eTeste ? { eTeste: true as const } : {}),
     });
     quantos += 1;

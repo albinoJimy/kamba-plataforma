@@ -30,6 +30,7 @@ const esquema = JSON.parse(readFileSync(AGENT_INVOCATION_V1_PATH, "utf8"));
 const TENANT = "11111111-1111-4111-8111-111111111111";
 const CONTACTO = "33333333-3333-4333-8333-333333333333";
 const CONVERSA = "44444444-4444-4444-8444-444444444444";
+const ASSET = "66666666-6666-4666-8666-666666666666";
 
 type Pedido = Parameters<typeof montarInvocacao>[0];
 
@@ -62,11 +63,38 @@ describe("o contrato agent_invocation", () => {
       [...esquema.required].sort(),
       Object.keys(invocacao()).filter((c) => c !== "persona").sort(),
     );
-    assert.deepEqual(Object.keys(esquema.properties).sort(), Object.keys(toque).sort());
+    // O `asset_id` (KAM-231) so vai numa `image` do dono, e o `botao` so num
+    // `interactive`: os dois nunca vao juntos, e o conjunto do esquema e a
+    // uniao do toque com a foto.
+    const foto = invocacao({ type: "image", persona: "dono", assetId: ASSET });
+    assert.deepEqual(
+      Object.keys(esquema.properties).sort(),
+      [...new Set([...Object.keys(toque), ...Object.keys(foto)])].sort(),
+    );
     assert.deepEqual(
       Object.keys(toque).filter((c) => !Object.keys(invocacao()).includes(c)),
       ["botao", "message_id"],
     );
+    assert.deepEqual(
+      Object.keys(foto).filter((c) => !Object.keys(invocacao()).includes(c)),
+      ["asset_id"],
+    );
+  });
+
+  it("o `asset_id` e uma referencia, e so numa `image` do dono (KAM-231)", () => {
+    const propriedade = esquema.properties.asset_id;
+    assert.equal(propriedade.format, "uuid");
+    assert.ok(!new RegExp(propriedade.pattern).test("media://" + ASSET));
+    assert.ok(![...esquema.required].includes("asset_id"));
+    // O esquema prende-o ao tipo e a persona.
+    assert.deepEqual(esquema.dependentSchemas.asset_id.properties.type, { const: "image" });
+    assert.deepEqual(esquema.dependentSchemas.asset_id.properties.persona, { const: "dono" });
+    assert.deepEqual(esquema.dependentSchemas.asset_id.required, ["persona"]);
+    // E o codigo tambem: noutro tipo ou noutra persona, nao sai.
+    assert.equal(invocacao({ type: "image", persona: "dono", assetId: ASSET }).asset_id, ASSET);
+    assert.equal(invocacao({ type: "image", persona: "cliente", assetId: ASSET }).asset_id, undefined);
+    assert.equal(invocacao({ type: "text", persona: "dono", assetId: ASSET }).asset_id, undefined);
+    assert.equal(invocacao({ type: "image", persona: "dono" }).asset_id, undefined);
   });
 
   it("o `message_id` e um identificador, e nunca o texto (KAM-223)", () => {
