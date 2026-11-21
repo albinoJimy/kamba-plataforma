@@ -21,7 +21,7 @@ RAIZ = Path(__file__).resolve().parents[3]
 #: Os quarenta e seis **tipos** do dicionario §3.5: os trinta e oito da emenda
 #: 1.11, os dois do KAM-050 (1.83), o `screening.violation_detected` da 1.84
 #: (KAM-191), o `billing.cycle_paid` do KAM-059, os dois `quote.*` do KAM-123, o
-#: `agent.replied` do KAM-224 e o `content.approved` do KAM-122 (1.134).
+#: `agent.replied` do KAM-224 e o `content.approved` do KAM-122 (1.135).
 #: Escritos aqui a
 #: mao e nao lidos do dicionario: se alguem apagar um contrato **e** a linha do
 #: dicionario, uma contagem derivada dos dois continuava a bater.
