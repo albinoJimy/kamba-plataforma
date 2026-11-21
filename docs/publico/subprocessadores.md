@@ -4,7 +4,7 @@
 |---|---|
 | Produto | KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para Angola |
 | Documento | Lista pública de subprocessadores (requisito 4 de `E3`) |
-| Versão | 1.0+c17ff5ccf311 |
+| Versão | 1.0+3d8ead9c0b06 |
 | Classificação | **Público** |
 | Ticket | KAM-069 (EPIC-07) |
 | Documento-fonte | [`gov/subprocessadores.yaml`](../../gov/subprocessadores.yaml); `../tecnica/08_Seguranca_Conformidade.md` §8.3.2 |

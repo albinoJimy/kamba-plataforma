@@ -49,7 +49,7 @@
 #   pais_hipotese     o destino **como hipotese**; nunca uma afirmacao
 #   pais_verificado   `false` enquanto o contrato nao o fixar
 #   estado            `pendente`, `autorizado`, `revogado` ou `negado`
-#   finalidades       as de `tenant_destinations.purpose` (quinze no dominio)
+#   finalidades       as de `tenant_destinations.purpose` (dezasseis no dominio)
 #   contrato_ref      referencia do contrato arquivado; `null` se nao ha
 #   retencao_zero     o fornecedor confirmou retencao zero por escrito
 #   sem_treino        o fornecedor confirmou nao-treino por escrito
@@ -131,6 +131,7 @@ subprocessadores:
     estado: pendente
     finalidades:
       - classificacao_de_catalogo
+      - classificacao_de_condicoes
       - conversa
       - visao
     contrato_ref: null
@@ -145,7 +146,12 @@ subprocessadores:
       `classificacao_de_catalogo` e a do classificador de screening do GOV
       (KAM-195, decisao do fundador a 2026-11-18): categorias declaradas e
       textos de produto, sem contactos nem sequencias longas de digitos, pelo
-      `screening-nano`.
+      `screening-nano`. A `classificacao_de_condicoes` e a do mesmo
+      classificador quando le as condicoes que o dono escreve num orcamento
+      (KAM-230, decisao do fundador a 2026-11-20, opcao B): ate 200 caracteres
+      de texto do dono, sem numeros, com a categoria declarada da loja, pelo
+      mesmo `screening-nano`. Um tratamento distinto do do catalogo, e por isso
+      uma finalidade distinta para a APD.
 
   - nome: groq
     designacao: Groq

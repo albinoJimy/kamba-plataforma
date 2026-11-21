@@ -256,6 +256,8 @@ test("KAM-119: a decisao que o screen do produto grava e a que a publicacao conf
   const b = base({ categoria: "moda" });
   const com = operacoesDoCom({ comTenant: b.comTenant, anel: ANEL, classificador: classificador("permitida") });
   const decidido = await com.screen(CTX, {
+    finalidade: "classificacao_de_catalogo",
+    prazoMs: 10_000,
     sujeitoTipo: SUJEITO_DO_PRODUTO,
     sujeitoRef: SKU,
     categoriaDeclarada: null,
@@ -355,6 +357,8 @@ test("KAM-119, criterio 5: os cem primeiros casos canonicos de categoria bloquea
     const b = base({ categoria: "moda", naTransaccao: (_n, oferta) => { oferta.nome = nome; } });
     const com = operacoesDoCom({ comTenant: b.comTenant, anel: ANEL, classificador: classificador("permitida") });
     const decidido = await com.screen(CTX, {
+      finalidade: "classificacao_de_catalogo",
+      prazoMs: 10_000,
       sujeitoTipo: SUJEITO_DO_PRODUTO,
       sujeitoRef: SKU,
       categoriaDeclarada: null,

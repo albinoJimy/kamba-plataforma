@@ -313,6 +313,16 @@ def _tem_numero_por_extenso(texto: str) -> bool:
     return _QUANTIFICADORES.search(normal) is not None
 
 
+def ha_condicoes(texto: object) -> bool:
+    """Se ha condicoes a conferir: tudo menos `None` e uma cadeia so de espacos.
+
+    O mesmo criterio do `conferir_condicoes`, que devolve `None` nesses dois
+    casos sem chamar o `screen`. Um valor que nao seja cadeia conta como
+    condicoes — e o `conferir_condicoes` recusa-o.
+    """
+    return texto is not None and not (isinstance(texto, str) and not texto.split())
+
+
 def conferir_condicoes(
     texto: object, *, screening: PortaDeScreening, tenant_id: str, quote_id: str
 ) -> str | None:
@@ -600,6 +610,7 @@ __all__ = [
     "CondicoesRecusadasError",
     "data_display",
     "eco_do_valor",
+    "ha_condicoes",
     "hoje_em_luanda",
     "instante_da_validade",
     "ler_valor_do_dono",
