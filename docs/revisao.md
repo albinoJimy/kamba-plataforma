@@ -158,7 +158,8 @@ caso.
 ([`../services/onboarding-web/src/lote.ts`](../services/onboarding-web/src/lote.ts)). Corre o ciclo
 da fila a cada minuto, como `kamba_batch`, e serve as quatro métricas em `/metrics` (porta 3014),
 que o Prometheus raspa. **Arranca em `prod`**; sem a `KAMBA_LOTE_DB_URL` (o `kamba_batch`) ou a
-`KAMBA_LOTE_APP_DB_URL` (o `kamba_app`, para a decisão humana de screening e o consumidor de T&S),
+`KAMBA_LOTE_APP_DB_URL` (o `kamba_app`, para o consumidor de T&S e as leituras da activação; a decisão
+humana de screening grava-se como `kamba_batch` desde o KAM-202),
 ou com uma delas de outro papel, sai com código 1 antes de abrir a porta. Desde o KAM-200 exige
 também a `KAMBA_QUEUE_URL`, e corre o T&S: o consumidor dos sete tipos de evento, as varreduras de
 hora a hora (cada corrida no `audit_log`), as decisões dos casos `trust` e `recurso`, e as três
@@ -192,3 +193,4 @@ métricas `ts_*` no mesmo `/metrics`.
 | 1.0 | Novembro 2026 | **KAM-089**: criação — o que a fila é, o *runbook* do revisor, a linha da RACI e o que fica por fazer. | Equipa KAMBÁ |
 | 1.1 | Novembro 2026 | **KAM-196**: a consola `/equipa` (§5, nova), a identidade da equipa e os avisos ao dono saem do §4; entram nele o IdP e as contas (fundador), o processo de lote (KAM-198), a via de e-mail e o motivo escolhido na decisão. | Equipa KAMBÁ |
 | 1.2 | Novembro 2026 | **KAM-198**: o processo de lote do onboarding (§6, nova). Saem do §4 o processo de lote e a quota entre processos; entram nele o aviso ao dono, que não tem via no lote, e o `amostrar` do KAM-092 como item próprio. | Equipa KAMBÁ |
+| 1.3 | Novembro 2026 | **KAM-202**: a decisão humana de screening grava-se como `kamba_batch` (decisão do fundador de 2026-11-20), e a `KAMBA_LOTE_APP_DB_URL` passa a servir as leituras da activação e o consumidor de T&S (§6). | Equipa KAMBÁ |

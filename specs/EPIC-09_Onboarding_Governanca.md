@@ -4,7 +4,7 @@
 |---|---|
 | Produto | KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para Angola |
 | Documento | Epic — Onboarding e Governação |
-| Versão | 1.39 |
+| Versão | 1.40 |
 | Data | Outubro de 2026 |
 | Classificação | Documento de Referência — Interno |
 | Documento-fonte | `../docs/tecnica/10_Onboarding_Governanca.md`, `../docs/tecnica/00_Arquitectura_Solucao.md` (ADR-019) |
@@ -79,6 +79,7 @@ Fora deste epic (Clusters): estafetas, revendedores, rede de agentes de activaç
 | KAM-209 | Preço anómalo: a categoria do produto e os preços de referência por categoria | feature | M | P2 | KAM-200 |
 | KAM-219 | Alerta da escrita recusada em `platform.trust_level`: ver o `42501` que a base já dá | feature | S | P2 | KAM-203 |
 | KAM-225 | A recusa em `platform.trust_level` fora do `tenant_guard`: o registo do PostgreSQL recolhido | feature | M | P2 | KAM-219 |
+| KAM-236 | `onboarding-web` em produção: o caso, o registo e o guia sobre a base, para que a página do dono arranque em `prod` | feature | M | P1 | KAM-202 |
 
 ---
 
@@ -1320,8 +1321,8 @@ interface SmokeProbe { start(onboardingId: string): Promise<{ instrucoes: string
 ### Definition of Done
 
 - [ ] Critérios de Aceitação satisfeitos; gate 12 e golden do Catálogo AI verdes.
-- [ ] Publicação protegida por restrição de BD (não só por convenção) e coberta por teste de isolamento (ADR-015).
-- [ ] Activação idempotente (ADR-009); eventos sem PII; conversa de teste fora das métricas.
+- [x] Publicação protegida por restrição de BD (não só por convenção) e coberta por teste de isolamento (ADR-015).
+- [x] Activação idempotente (ADR-009); eventos sem PII; conversa de teste fora das métricas.
 - [ ] Números só de tools; custo por tenant medido (ADR-007, ADR-018).
 - [x] D10 e o remetente do teste documentados; `prober_number` desligado por defeito.
 - [x] Migração reversível; documentação actualizada; sem segredos.
@@ -1393,12 +1394,12 @@ Dois passaram para o KAM-202:
 
 | Critério | Estado | Evidência |
 |---|---|---|
-| 1 — ≥ 5 publicados (`catalogo_minimo = 5`, configurável), cada um com `preco_modo`, nome, categoria e confirmação do dono; fotografia por web ou por WhatsApp | **parcial** | **Feito:** a contagem exige a oferta publicada, o `preco_tipo`, o nome, a categoria e a confirmação, que é a ingestão do KAM-049 em `publicada` (`motivoDeExclusao`, `cinco publicados e permitidos cumprem; quatro nao`). Exige também o `assertPublishable` para o conteúdo actual (`publicado sem decisao para o conteudo de agora nao conta…`). O mínimo é configurável e nunca zero. O `SQL_PRODUTOS` corre contra a base (`test_os_produtos_com_a_confirmacao_da_ingestao_e_a_categoria_declarada`). **Falta:** os dois canais de fotografia, que são do KAM-119 (D10), e a contagem num processo, que é do **KAM-202** |
-| 2 — `screen` antes de publicar; `permitida` publica, `bloqueada` rejeita com motivo, `condicional` abre `review_case` `catalogo`; a transição de `offer_terms` chama `assert_publishable` e falha fechado | **parcial** | **Feito:** o `CatalogoMinimo.publicar` corre o `screen` do KAM-088 quando ainda não há decisão para o conteúdo, e depois o `assertPublishable`. Só então escreve. A `bloqueada` devolve o motivo e a escrita não acontece (`(a) cinco moda com um alcool disfarcado…`). A `condicional` abre o `review_case` `catalogo` pelo `escritorComFila` do KAM-089, que entra como escritor. **Falta:** a restrição na base e o screening no `publishProduct` do COM, credor **KAM-202**. Hoje o COM publica sem decisão |
-| 3 — mudar o título ou a categoria de um publicado repete o screening antes de continuar visível; publicar com título neutro e editar depois é apanhado | **parcial** | **Feito:** o `CatalogoMinimo.renomear` avalia o nome novo **antes** de ele ficar visível. Se não passar, o produto sai de `publicado` e só depois muda de nome (`(b) editar o titulo…`, `(b) a ordem…`, `(b) uma edicao inocente…`). Uma categoria declarada nova muda o resumo, e o produto deixa de contar até ser reavaliado. **Falta:** a mudança de nome pelo `SQL_ACTUALIZAR_TERMOS` do COM, que não passa por aqui, e a re-análise do KAM-088, que não volta a ver um `sku` que já tem decisão. Credor **KAM-202** |
-| 4 — `SmokeProbe.owner_assisted`: o dono manda «teste»; validação em ≤ 60 s de `inbound`, resposta identificada, `delivered` e aviso de 1.º contacto com `consent_event`; conversa `is_test` fora de métricas, golden e Score | **parcial** | **Feito:** a porta à letra, a janela de 60 s (*proposta*) e os quatro factos pela ordem do bloco, sobre corpos do simulador. O «ainda não» dentro da janela não conta como falha, e factos fora da janela não contam (`dentro da janela…`, `factos fora da janela…`, `uma resposta sem a identificacao…`, `o «teste» noutro numero…`). A conversa marca-se `is_test` quando houve entrada. A coluna nasce falsa e só o lote a escreve (`test_a_aplicacao_nao_cria_uma_conversa_ja_marcada`, `test_o_lote_marca_e_a_aplicacao_nao`). **Falta:** o observador de produção, porque a base não guarda o texto do «teste» nem o da resposta (ADR-010), e o filtro de `is_test` nos leitores. Credor **KAM-202** |
-| 5 — 3 falhas ⇒ `review_case` `es_falhado`/`saga` e caso em `aguarda_teste`; o dono vê a causa genérica e repete sem custo | **parcial** | **Feito:** à terceira falha seguida abre-se o caso, `es_falhado` quando nada chegou e `saga` nos outros. O caso fica em `aguarda_teste` e a contagem recomeça (`3 falhas seguidas vao a fila…`). As pendentes vencidas contam como falhas (achado 6), e dois `verify` abrem um caso (achado 11). A `filaDoTeste` abre-o pelo serviço do KAM-089 e encadeia depois de decidido. A base guarda as tentativas: a aplicação abre, só o lote fecha, e uma fechada não muda (`TestTentativas`, oito ensaios). O dono lê uma mensagem igual para as quatro causas. **Falta:** um processo que o corra, credor **KAM-202** |
-| 6 — gates `catalogo_minimo` e `e2e` em `onboarding_gate`; com os 6 verdes, `tenant.provisioned` e depois `tenant.activated`, **uma vez** | **parcial** | **Feito:** o gate `catalogo_minimo` segue a contagem nos dois sentidos e o `e2e` grava-se no `verify`. O `GatesSql` e o `MaquinaSql` correm contra a base até `aguarda_teste` (`test_gates_e_maquina_ate_aguarda_teste`). A activação passa pelo `advance_case` do KAM-092 e reconta antes (achado 3). Repetir o clique não duplica o evento (`o caminho feliz emite tenant.activated uma vez`). O `tenant.provisioned` é do KAM-092 (divergência 1). **Falta:** a ligação ao lote do KAM-198, credor **KAM-202** |
+| 1 — ≥ 5 publicados (`catalogo_minimo = 5`, configurável), cada um com `preco_modo`, nome, categoria e confirmação do dono; fotografia por web ou por WhatsApp | **parcial** | **Feito:** a contagem exige a oferta publicada, o `preco_tipo`, o nome, a categoria e a confirmação, que é a ingestão do KAM-049 em `publicada` (`motivoDeExclusao`, `cinco publicados e permitidos cumprem; quatro nao`). Exige também o `assertPublishable` para o conteúdo actual (`publicado sem decisao para o conteudo de agora nao conta…`). O mínimo é configurável e nunca zero. O `SQL_PRODUTOS` corre contra a base (`test_os_produtos_com_a_confirmacao_da_ingestao_e_a_categoria_declarada`). **Falta:** os dois canais de fotografia, que são do KAM-119 (D10), e a contagem num processo, que é do **KAM-202**. **KAM-202:** a contagem corre num processo, o `CicloDaActivacao` do lote (`o lote conta o catalogo minimo, grava o gate e tira o caso de aguarda_catalogo`). Fica a fotografia por web e por WhatsApp, do KAM-119 e do KAM-231 |
+| 2 — `screen` antes de publicar; `permitida` publica, `bloqueada` rejeita com motivo, `condicional` abre `review_case` `catalogo`; a transição de `offer_terms` chama `assert_publishable` e falha fechado | **parcial** | **Feito:** o `CatalogoMinimo.publicar` corre o `screen` do KAM-088 quando ainda não há decisão para o conteúdo, e depois o `assertPublishable`. Só então escreve. A `bloqueada` devolve o motivo e a escrita não acontece (`(a) cinco moda com um alcool disfarcado…`). A `condicional` abre o `review_case` `catalogo` pelo `escritorComFila` do KAM-089, que entra como escritor. **Falta:** a restrição na base e o screening no `publishProduct` do COM, credor **KAM-202**. Hoje o COM publica sem decisão. **KAM-202:** a transição de `offer_terms` falha fechado na base (o *trigger* `offer_terms_publicacao_segura`), e o COM publica pelo `assertPublishable` desde o KAM-119. Fica a `condicional` gravada pelo `/internal/screen` do COM, que não abre o `review_case` `catalogo` (o escritor dele não é o `escritorComFila`) |
+| 3 — mudar o título ou a categoria de um publicado repete o screening antes de continuar visível; publicar com título neutro e editar depois é apanhado | **parcial** | **Feito:** o `CatalogoMinimo.renomear` avalia o nome novo **antes** de ele ficar visível. Se não passar, o produto sai de `publicado` e só depois muda de nome (`(b) editar o titulo…`, `(b) a ordem…`, `(b) uma edicao inocente…`). Uma categoria declarada nova muda o resumo, e o produto deixa de contar até ser reavaliado. **Falta:** a mudança de nome pelo `SQL_ACTUALIZAR_TERMOS` do COM, que não passa por aqui, e a re-análise do KAM-088, que não volta a ver um `sku` que já tem decisão. Credor **KAM-202**. **KAM-202:** o nome novo pelo COM repete o screening antes de se escrever (`screeningDoNomeNovo`), e a base tira de `publicado` um nome novo sem decisão (`test_um_nome_novo_sem_decisao_tira_de_publicado…`). Fica a categoria: um produto continua visível até a re-análise do KAM-088 o ver |
+| 4 — `SmokeProbe.owner_assisted`: o dono manda «teste»; validação em ≤ 60 s de `inbound`, resposta identificada, `delivered` e aviso de 1.º contacto com `consent_event`; conversa `is_test` fora de métricas, golden e Score | **parcial** | **Feito:** a porta à letra, a janela de 60 s (*proposta*) e os quatro factos pela ordem do bloco, sobre corpos do simulador. O «ainda não» dentro da janela não conta como falha, e factos fora da janela não contam (`dentro da janela…`, `factos fora da janela…`, `uma resposta sem a identificacao…`, `o «teste» noutro numero…`). A conversa marca-se `is_test` quando houve entrada. A coluna nasce falsa e só o lote a escreve (`test_a_aplicacao_nao_cria_uma_conversa_ja_marcada`, `test_o_lote_marca_e_a_aplicacao_nao`). **Falta:** o observador de produção, porque a base não guarda o texto do «teste» nem o da resposta (ADR-010), e o filtro de `is_test` nos leitores. Credor **KAM-202**. **KAM-202:** o observador de produção (`ObservadorSql`) e o sinal do «teste» no `worker-canal` (`conversations.teste_recebido_at`), e o filtro de `is_test` em cinco leitores. Falha fechado em produção até os *statuses* escreverem o `delivered_at` e o `ConsentGate` estar montado: credor **KAM-235** |
+| 5 — 3 falhas ⇒ `review_case` `es_falhado`/`saga` e caso em `aguarda_teste`; o dono vê a causa genérica e repete sem custo | **parcial** | **Feito:** à terceira falha seguida abre-se o caso, `es_falhado` quando nada chegou e `saga` nos outros. O caso fica em `aguarda_teste` e a contagem recomeça (`3 falhas seguidas vao a fila…`). As pendentes vencidas contam como falhas (achado 6), e dois `verify` abrem um caso (achado 11). A `filaDoTeste` abre-o pelo serviço do KAM-089 e encadeia depois de decidido. A base guarda as tentativas: a aplicação abre, só o lote fecha, e uma fechada não muda (`TestTentativas`, oito ensaios). O dono lê uma mensagem igual para as quatro causas. **Falta:** um processo que o corra, credor **KAM-202**. **KAM-202:** o processo existe, o `CicloDaActivacao` do lote, com a `filaDoTeste` sobre o serviço da fila; a falha depois da janela fecha `falhou` com a causa (`sem entrega, o lote fecha a tentativa falhada…`) |
+| 6 — gates `catalogo_minimo` e `e2e` em `onboarding_gate`; com os 6 verdes, `tenant.provisioned` e depois `tenant.activated`, **uma vez** | **parcial** | **Feito:** o gate `catalogo_minimo` segue a contagem nos dois sentidos e o `e2e` grava-se no `verify`. O `GatesSql` e o `MaquinaSql` correm contra a base até `aguarda_teste` (`test_gates_e_maquina_ate_aguarda_teste`). A activação passa pelo `advance_case` do KAM-092 e reconta antes (achado 3). Repetir o clique não duplica o evento (`o caminho feliz emite tenant.activated uma vez`). O `tenant.provisioned` é do KAM-092 (divergência 1). **Falta:** a ligação ao lote do KAM-198, credor **KAM-202**. **KAM-202:** a ligação ao lote do KAM-198 está feita; o `activar` corre no processo e recusa com os gates de outros tickets em falta (`a pagina abre a tentativa…`). Chegar a `activo` contra a base pede a sequência do KAM-092 |
 | 7 — custo LLM ≤ US$ 0,02 por produto com *virtual key*; até 12 perguntas | **por fazer** | O tecto das 12 perguntas é do KAM-049 (`catalog_ingestions_perguntas_ck`). O custo por produto mede-se com o modelo de visão real em staging, e isso pede as respostas da Meta sobre AI Provider. Credores **`ext:KAM-101`** e **KAM-109**, a caixa que o critério 9 do KAM-049 já deixou |
 | 8 — preço e stock mostrados ao dono vêm de *facts* da ToolLayer; o resumo cita-os (ADR-007) | **por fazer** | O resumo de confirmação é o do KAM-049 (`kamba_core.catalogo.pipeline.resumo`) e não passa por aqui. Ligá-lo aos *facts* é da montagem de produção do Catálogo AI, credor **KAM-119** |
 
@@ -1407,8 +1408,8 @@ Dois passaram para o KAM-202:
 | DoD | Estado | Evidência |
 |---|---|---|
 | Critérios satisfeitos; gate 12 e golden do Catálogo AI verdes | **por fazer** | Nenhum critério satisfeito à letra. O *eval-gate* e a golden da visão pedem o modelo real (`ext:KAM-101`, KAM-040) |
-| Publicação protegida por restrição de BD e teste de isolamento (ADR-015) | **devolvida** | Credor **KAM-202**, por decisão do orquestrador do lote. O desenho foi medido no primeiro *commit* deste ramo. Hoje a protecção é o `assertPublishable` em TypeScript. O isolamento está feito: a contagem é do tenant do caso, e um adaptador que devolva um produto de outro tenant não o faz contar (`isolamento`, quatro ensaios). A `onboarding_smoke` tem RLS `FORCE` (`test_rls_forcada_e_b_nao_ve…`) |
-| Activação idempotente (ADR-009); eventos sem PII; conversa de teste fora das métricas | **parcial** | A idempotência é a do `advance_case` (KAM-092). Os eventos são os do KAM-092, e este ticket não acrescenta nenhum. A exclusão das métricas é do **KAM-202** |
+| Publicação protegida por restrição de BD e teste de isolamento (ADR-015) | **satisfeito pelo KAM-202** | **KAM-202:** o *trigger* `offer_terms_publicacao_segura` da revisão `0080`, com a regra do `assertPublishable` na base (`platform.oferta_publicavel`) e o resumo do conteúdo byte a byte o do KAM-088 (`test_o_sha256_da_base_e_o_do_kam088_byte_a_byte`). Sem decisão, `bloqueada`, `condicional`, a decisão de outro nome, de outro `sku` e **de outro tenant** ⇒ zero linhas (`TestPublicacao`, oito ensaios em `db/tests/test_publicacao_segura_schema.py`). **O que segue é o texto de antes:** credor **KAM-202**, por decisão do orquestrador do lote. O desenho foi medido no primeiro *commit* deste ramo. Hoje a protecção é o `assertPublishable` em TypeScript. O isolamento está feito: a contagem é do tenant do caso, e um adaptador que devolva um produto de outro tenant não o faz contar (`isolamento`, quatro ensaios). A `onboarding_smoke` tem RLS `FORCE` (`test_rls_forcada_e_b_nao_ve…`) |
+| Activação idempotente (ADR-009); eventos sem PII; conversa de teste fora das métricas | **satisfeito pelo KAM-202** | A idempotência é a do `advance_case` (KAM-092). Os eventos são os do KAM-092, e este ticket não acrescenta nenhum. **KAM-202:** a conversa de teste sai dos cinco leitores que o fundador decidiu a 2026-11-20 (o `churn_sinais`, o `SQL_CLIENTES_NA_JANELA`, a `v_draft_metrics`, os candidatos a golden e as queixas do `risco_ts`), cada um com o seu ensaio (`TestTesteForaDasLeituras`); os contadores Prometheus em memória não a filtram, e isso está escrito no bloco do KAM-202 |
 | Números só de tools; custo por tenant medido | **por fazer** | Critérios 7 e 8 |
 | D10 e o remetente do teste documentados; `prober_number` desligado por defeito | **satisfeito** | O passo 9 do `docs/tecnica/10` §4.1 diz quem manda o «teste» e porquê (D10). O `remetenteDoTeste` dá `owner_assisted` por omissão e recusa o `prober_number` com `RemetenteVedadoError` (`D10: owner_assisted por omissao e prober_number vedado`) |
 | Migração reversível; documentação actualizada; sem segredos | **satisfeito** | `TestDowngradeDoCatalogoMinimo` desce até à revisão anterior e volta, com a tabela, as duas funções de *trigger* e a coluna. Actualizados o dicionário §3.72, o `docs/tecnica/10` e este bloco. O `scan_secrets` dá limpo no *commit* |
@@ -4364,6 +4365,65 @@ Testes: a ligação directa com o alerta, e o controlo.
 
 ---
 
+## KAM-236 — `onboarding-web` em produção: o caso, o registo e o guia sobre a base, para que a página do dono arranque em `prod`
+
+| Campo | Valor |
+|---|---|
+| Epic | EPIC-09 — Onboarding e Governação |
+| Fase | 1 |
+| Tipo | feature |
+| Prioridade | P1 |
+| Estimativa | M |
+| Dependências | KAM-202 |
+| Bloqueia | — |
+| Responsável sugerido | Engenheiro de Plataforma (TEN) |
+| Documentos de referência | `EPIC-04_Core_Comercio.md` (bloco KAM-202), `EPIC-09_Onboarding_Governanca.md` (blocos KAM-086 e KAM-093), `../services/onboarding-web/src/server.ts` |
+
+### Contexto
+
+Credor do KAM-202, aberto no PR dele por decisão do fundador de 2026-11-20. O KAM-202 liga o início do teste
+ponta a ponta à página do dono (`POST /painel/teste`), pela ligação da aplicação, e prova-o contra a base.
+Mas o `onboarding-web` **recusa `prod`** (`RepositorioEmMemoriaEmProducaoError`): o repositório dos casos, o
+do registo e o do guia são em memória, e um reinício perdia os casos. A rota está certa e não corre em
+produção.
+
+### Objectivo
+
+Que a página do dono corra em `prod` sobre a base, com os casos, o registo e o guia persistidos.
+
+### Critérios de Aceitação
+
+- [ ] Os repositórios do caso, do registo e do guia do `onboarding-web` são SQL, com os papéis certos, e o
+  `server.ts` arranca em `prod` sem nenhum repositório em memória.
+- [ ] O `POST /painel/teste` corre em `prod`, e um reinício do processo não perde a tentativa aberta.
+- [ ] O compose de produção monta o `onboarding-web` na rede `data` só com as ligações de que ele precisa.
+
+### Detalhes Técnicos
+
+- Pode pedir esquema (o desafio do OTP e o estado do guia): o número da revisão é da fila.
+
+### Testes Requeridos
+
+- Integração: arranque em `prod` contra a base; o registo, o guia e o teste sobrevivem a um reinício.
+- Isolamento: as rotas do painel e do guia na bateria X-01, sobre os adaptadores SQL.
+
+### Definition of Done
+
+- [ ] Critérios de Aceitação satisfeitos; a caixa do critério 2 do KAM-202 revista com a evidência.
+- [ ] Nenhum segredo no compose; `make up && make smoke` verde.
+
+### Handoff para Claude Code
+
+```text
+És o executor do ticket KAM-236 da KAMBÁ (o onboarding-web em produção).
+Lê specs/EPIC-04_Core_Comercio.md (bloco KAM-202), services/onboarding-web/src/server.ts e os blocos
+KAM-086 e KAM-093 de specs/EPIC-09_Onboarding_Governanca.md.
+Objectivo: o onboarding-web arranca em prod sobre a base.
+Regras: papéis mínimos por ligação; nenhum repositório em memória em prod.
+```
+
+---
+
 ## Riscos do Epic e itens NÃO VERIFICADOS
 
 | Risco / item | Estado | Impacto | Mitigação / critério de saída | Decisão |
@@ -4442,4 +4502,5 @@ Testes: a ligação directa com o alerta, e o controlo.
 | 1.36 | Novembro 2026 | **KAM-219 entregue**: a recusa `42501` da base sobre `platform.trust_level` passa a ver-se do lado de quem recebe o erro — o `catch` do `comTenant` e do `comBatch` conta-a em `tenant_guard_tecto_recusado_total` (módulo novo `../packages/core-ts/src/tenant_guard/metricas.ts`, servido pelo `onboarding-lote`, pelo `com` e pelo `worker-canal-entrada`) —, e a regra `confianca_tecto_escrita_recusada` dispara na primeira, com o runbook no `trust-e-safety.md` §5. Secção de verificação no bloco: os critérios 2 e 3 marcados e o 1 **parcial**, porque uma ligação directa, um processo Python, uma transacção aberta à mão (o `consumir` dos eventos, entre outras) ou uma consulta solta num *pool* não chegam ao contador. A revisão adversarial mudou três coisas: a regra ganhou o ramo da recusa anterior ao primeiro *scrape*, o caso do recálculo com o papel errado passou a dizer que mede uma leitura recusada (a escrita mede-se no caso do `comTenant`, com o `SQL_DEFINIR_NIVEL`), e a afirmação de que toda a transacção passa pelos *helpers* saiu. A caixa 7 do KAM-096 e a do KAM-203 revistas com a evidência, as duas ainda parciais, e o item 1 da DoD de cada um. **KAM-225** acrescentado, credor desse resto: depende do KAM-219 e entra no `Bloqueia` dele. O número é o que a coordenação do lote 12 lhe deu na fila de fusão: os cinco abaixo dele são dos credores do KAM-123 e do KAM-217, já fundidos, e a gama é contígua. | Equipa KAMBÁ |
 | 1.37 | Novembro 2026 | KAM-228 (EPIC-11): a nota do KAM-195 sobre quem chama a rota do classificador em produção revista — o COM, desde o KAM-222, ligado nos *compose* desde o KAM-228, e sem condições que lhe cheguem até terem finalidade própria (KAM-230). Nenhuma caixa deste epic muda. | Equipa KAMBÁ |
 | 1.38 | Novembro 2026 | **KAM-218 entregue**, e **KAM-233** aberto no mesmo PR como credor do que ele devolve. Satisfeito o processo dos dados (o serviço `offboarding-dados` nos três *compose*, que arranca em `prod` e não arranca sem as credenciais); parciais o canal da Meta (ligado pelo cofre no processo de lote, sem caminho para o *token* por tenant até ao contentor), a revogação (a chave do LiteLLM pelo alias, à mão), a exportação (a prova de aceite e as ofertas) e a purga (os contactos pelo cofre); por satisfazer as provas do titular, a entrega do certificado e o simulacro. As caixas do KAM-210 revistas no bloco dele. O KAM-233 escrito como o número a seguir ao maior da `main` (232), *provisório* até à integração. | Equipa KAMBÁ |
-| 1.39 | Novembro 2026 | KAM-206 (o contacto da encomenda ao dono e a lista de produtos em 3G): as decisões do fundador de 2026-11-20 (o COM decifra como `kamba_identity`, opção A; a regra, a máscara e a acção) e as duas secções de verificação — **quatro** critérios satisfeitos (a regra, o botão, o isolamento no X-01 e os 3 s em 3G) e dois parciais à espera da revisão `0082`, que entra depois da `0081` do KAM-215; as duas caixas da DoD parciais pela mesma razão. As linhas 6 e 9 do KAM-099 e 1 e 3 do KAM-190 passam a dizer o que o KAM-206 fechou (o 9 e o 3 satisfeitos). Escrita como 1.38 e renumerada na integração, depois do KAM-218. | Equipa KAMBÁ |
+| 1.39 | Novembro 2026 | **KAM-236 acrescentado**, no PR do **KAM-202** (EPIC-04): o `onboarding-web` em produção, credor do critério 2 do KAM-202 (decisão do fundador de 2026-11-20). E o bloco do KAM-094 revisto com a evidência do KAM-202: a publicação protegida pela base, a mudança de nome pelo COM, o processo que corre o teste e a activação, e o filtro de `is_test`. Escrito como KAM-233 e renumerado duas vezes na integração: para 234 depois do KAM-223, e para 236 depois do KAM-218 e do KAM-234 (EPIC-11). | Equipa KAMBÁ |
+| 1.40 | Novembro 2026 | KAM-206 (o contacto da encomenda ao dono e a lista de produtos em 3G): as decisões do fundador de 2026-11-20 (o COM decifra como `kamba_identity`, opção A; a regra, a máscara e a acção) e as duas secções de verificação — **quatro** critérios satisfeitos (a regra, o botão, o isolamento no X-01 e os 3 s em 3G) e dois parciais à espera da revisão `0082`, que entra depois da `0081` do KAM-215; as duas caixas da DoD parciais pela mesma razão. As linhas 6 e 9 do KAM-099 e 1 e 3 do KAM-190 passam a dizer o que o KAM-206 fechou (o 9 e o 3 satisfeitos). Escrita como 1.38 e renumerada na integração, depois do KAM-218. | Equipa KAMBÁ |

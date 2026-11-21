@@ -469,17 +469,28 @@ function envelope(troca: Partial<Envelope> = {}): Envelope {
 describe("KAM-118 criterio 3 — o dono nasce do `tenant.provisioned`", () => {
   function montar(telefone: Telefone | null = new Telefone(DONO, PEPPER)) {
     const definidos: { tenantId: string; contactId: string; origem: string }[] = [];
+    const lidos: { bd: unknown; tenantId: string; onboardingId: string }[] = [];
     const efeito = efeitoDoProvisionamento({
-      telefoneDoCaso: async () => telefone,
-      // O `resolveContact` e idempotente pelo `phone_hmac`: o mesmo telefone,
-      // o mesmo contacto.
-      contacto: async ({ tenantId, telefone: t }) => ({ contactId: `${tenantId}:${t.hmac}` }),
+      telefoneDoCaso: async (bd, caso) => {
+        lidos.push({ bd, ...caso });
+        return telefone;
+      },
+      // O `resolveContact` e idempotente pelo telefone: o mesmo telefone, o
+      // mesmo contacto.
+      contacto: async ({ tenantId, telefone: t }) => ({ contactId: `${tenantId}:${t.revelar()}` }),
       definirDono: async (pedido) => {
         definidos.push(pedido);
       },
     });
-    return { efeito, definidos };
+    return { efeito, definidos, lidos };
   }
+
+  it("o telefone le-se pela ligacao do consumo, com o tenant do envelope (KAM-215)", async () => {
+    const m = montar();
+    const bd = { query: async () => ({ rows: [], rowCount: 0 }) };
+    await m.efeito(bd, envelope({ payload: { vertical: "vendedor", onboarding_id: "x", tenant_id: TENANT_B } }));
+    assert.deepEqual(m.lidos, [{ bd, tenantId: TENANT_A, onboardingId: "x" }]);
+  });
 
   it("reentrega 3x pede sempre o mesmo contacto, com a origem do provisionamento", async () => {
     const m = montar();

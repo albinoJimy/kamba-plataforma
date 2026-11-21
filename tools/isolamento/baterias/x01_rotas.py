@@ -154,6 +154,10 @@ SONDAS_TS = (
     # KAM-190: as series do painel do dono, `painel_pedidos_total{rota}` e
     # `painel_erros_total{rota,motivo}`, de dominios fechados e sem tenant.
     "rota:onboarding-web:app:createApp:GET:/metrics",
+    # KAM-215: o consumidor `dono`. O `/metrics` serve as series do consumo
+    # (KAM-006) e as da guarda de tenant, sem `consumer` nem tenant.
+    "rota:onboarding-web:provisionamento/processo:criarApp:GET:/healthz",
+    "rota:onboarding-web:provisionamento/processo:criarApp:GET:/metrics",
     "rota:worker-canal:agr_shim:criarApp:GET:/healthz",
     "rota:worker-canal:agr_shim:criarApp:GET:/metrics",
     "rota:worker-canal:app:createApp:GET:/healthz",
@@ -933,6 +937,13 @@ registar_caso(
 #                             um texto que imita um botao: 200, e a mensagem e a
 #                             invocacao do AGR ficam no tenant e no thread de A,
 #                             com a persona `dono` e sem botao
+#     telefone/verificar      a sessao de A com o codigo certo do pedido de B, o
+#       (KAM-211)             tenant de B e o pedido de B no corpo: 401 uniforme,
+#                             e a troca de B nao acontece
+#     teste (KAM-202)         a sessao de A (caso em `aguarda_teste`) com o caso
+#                             e o tenant de B no corpo, na consulta e no
+#                             cabecalho: 200, e a tentativa abre-se so no caso e
+#                             no tenant da sessao de A
 #
 # **O 200 das listas entra por item e nao no global**, pela razao do `/metrics`
 # do COM: a afirmacao delas e «o tenant e o da sessao», e essa mede-se a ver os
@@ -959,6 +970,8 @@ ROTAS_DO_PAINEL = (
     "rota:onboarding-web:painel/rotas:actor:POST:/painel/telefone/cancelar",
     "rota:onboarding-web:painel/rotas:actor:GET:/painel/conversa",
     "rota:onboarding-web:painel/rotas:actor:POST:/painel/conversa",
+    # KAM-202: o inicio do teste ponta a ponta.
+    "rota:onboarding-web:painel/rotas:actor:POST:/painel/teste",
     # KAM-206: a pagina de um produto, com o formulario que saiu da lista.
     "rota:onboarding-web:painel/rotas:actor:GET:/painel/produtos/:id",
     # KAM-206: o contacto do cliente de uma encomenda, mascarado, pelo botao.
@@ -994,6 +1007,8 @@ ACEITAVEIS_DO_PAINEL: dict[str, tuple[int, ...]] = {
     "rota:onboarding-web:painel/rotas:actor:POST:/painel/telefone/cancelar": (200,),
     "rota:onboarding-web:painel/rotas:actor:GET:/painel/conversa": (404,),
     "rota:onboarding-web:painel/rotas:actor:POST:/painel/conversa": (200,),
+    # KAM-202. O inicio do teste responde 200 com a sessao de A, sempre no caso dela.
+    "rota:onboarding-web:painel/rotas:actor:POST:/painel/teste": (200,),
     # KAM-206. A pagina do `sku` de B com a sessao de A responde **so** 404,
     # pela razao do `PATCH`: o criterio 8 do KAM-099 escreve «404, nao 403».
     "rota:onboarding-web:painel/rotas:actor:GET:/painel/produtos/:id": (404,),
@@ -1038,6 +1053,7 @@ def _afirmacoes_do_painel(item: str, entradas: list[dict]) -> list[str]:
             "/painel/telefone/concluir",
             "/painel/telefone/cancelar",
             "POST:/painel/conversa",
+            "/painel/teste",
         )
     ):
         achados.extend(
@@ -1130,6 +1146,18 @@ def _afirmacoes_do_painel(item: str, entradas: list[dict]) -> list[str]:
                 "O `/painel/telefone` registou um pedido de troca noutro tenant ou "
                 "noutra sessao que nao a de A: o pedido escolheu o tenant, e o "
                 "dono de A podia mudar o telefone do dono de B.",
+            )
+        )
+    if item.endswith("POST:/painel/teste"):
+        achados.extend(
+            _exigir_marca(
+                item,
+                entradas,
+                "teste",
+                "a",
+                "O `/painel/teste` abriu a tentativa noutro caso ou noutro tenant que "
+                "nao os da sessao de A: o pedido escolheu o caso, e o dono de A podia "
+                "fechar o teste da loja de B.",
             )
         )
     if item.endswith("POST:/painel/telefone/verificar"):

@@ -328,6 +328,11 @@ REV_FOTO = _revisao_por_glob("*_foto_de_produtos.py")
 #: numero (`0069`) e o da fila de integracao. O ensaio que a prova e o
 #: `db/tests/test_finalidade_do_screening_schema.py`.
 REV_FINALIDADE_DO_SCREENING = _revisao_por_glob("*_finalidade_do_screening.py")
+#: KAM-230: a revisao da finalidade das condicoes, pela mesma razao — o numero
+#: (`0078`) e o da fila de integracao. O ensaio que a prova e o
+#: `db/tests/test_finalidade_das_condicoes_schema.py`.
+REV_FINALIDADE_DAS_CONDICOES = _revisao_por_glob("*_finalidade_das_condicoes.py")
+REV_SOCIAL_DO_DONO = _revisao_por_glob("*_social_do_dono.py")
 #: KAM-095: a revisao da lista de espera, pela razao da do Catalogo AI — o
 #: numero (`0059`) e provisorio. O ensaio que a prova e o
 #: `db/tests/test_lista_espera_schema.py`.
@@ -349,6 +354,15 @@ REV_KPIS_DE_CHURN = _revisao_por_glob("*_kpis_de_churn.py")
 REV_CATALOGO_MINIMO = _revisao_por_glob("*_catalogo_minimo_e_teste.py")
 #: KAM-094: o SQL das tentativas do teste, que o mesmo ensaio executa.
 ACTIVACAO_SQL = "packages/core-ts/src/activacao/sql.ts"
+#: KAM-202: a revisao da publicacao segura e do teste em producao, pela razao da
+#: do Catalogo AI — o numero e da fila. O ensaio que a prova e o
+#: `db/tests/test_publicacao_segura_schema.py`, que tambem executa o SQL dos
+#: quatro ficheiros seguintes.
+REV_PUBLICACAO_SEGURA = _revisao_por_glob("*_publicacao_segura_e_teste_em_producao.py")
+OBSERVADOR_SQL = "packages/core-ts/src/activacao/observador_sql.ts"
+GOLDEN_CANDIDATOS = "db/golden_candidates.py"
+CHURN_PY = "libs/py-core/src/kamba_core/kpis/churn.py"
+TRUST_SQL = "packages/core-ts/src/trust/sql.ts"
 #: KAM-095: o adaptador SQL da lista. A tranca vive no `emTransaccao`, e so a
 #: bateria `tests_bd/capacidade.bd.test.ts` (suite `tests_lote`) o corre.
 CAPACIDADE_SQL = "packages/core-ts/src/capacidade/sql.ts"
@@ -635,6 +649,7 @@ AG_TURNO = "services/agr/src/kamba_agr/turno.py"
 RESPOSTA_EFEITO = "packages/core-ts/src/resposta/efeito.ts"
 RESPOSTA_ENVIO = "packages/core-ts/src/resposta/envio.ts"
 RESPOSTA_CONTRATO = "packages/core-ts/src/resposta/contrato.ts"
+RESPOSTA_CREDENCIAL = "packages/core-ts/src/resposta/credencial.ts"
 #: O grafo do Vendedor (KAM-031). Tambem na `agr_unit`: o grafo corre com
 #: *fakes* por contrato e com a ToolLayer a serio, e nada do que estas mutacoes
 #: alteram toca a base.
@@ -1302,8 +1317,17 @@ MUTACOES = [
     ("identidade: sujeito_ref com a mesma chave em todos os meses", ID_CHAVES,
      "const ref = `${REF_CHAVE_DE_EPOCA}/${epoca}`;",
      "const ref = `${REF_CHAVE_DE_EPOCA}/202610`;", IDENTIDADE),
-    ("identidade: prod aceita o KeyProvider de ambiente", ID_CHAVES,
-     'if (declarado === "prod" && chaves.deAmbiente) {', "if (false) {", IDENTIDADE),
+    # O criterio 9 do KAM-008 emendado (fundador, 2026-11-20): em `prod` o
+    # provedor de ambiente arranca, e o que se recusa e arrancar sem as chaves.
+    # A primeira muta a ligacao (o `arrancar` deixa de chamar a verificacao), a
+    # segunda a funcao, e a terceira deixa cair a chave de pesquisa.
+    ("identidade: prod arranca sem conferir as chaves", ID_SERVICO,
+     'if (ambiente === "prod") {', "if (false) {", IDENTIDADE),
+    ("identidade: a falta de chaves no arranque nao recusa", ID_CHAVES,
+     "if (falhas.length > 0) throw", "if (false) throw", IDENTIDADE),
+    ("identidade: o arranque em prod so confere a KEK", ID_SERVICO,
+     "opcoes.soLeEndpoints === true ? [REF_KEK] : [REF_KEK, REF_CHAVE_DE_PESQUISA]",
+     "[REF_KEK]", IDENTIDADE),
     ("identidade: provedor de dev arranca em prod", ID_CHAVES,
      "if (chaves.ambiente !== declarado) {", "if (false) {", IDENTIDADE),
     ("identidade: pesquisa do BSUID so com a chave actual", ID_SERVICO,
@@ -5181,6 +5205,19 @@ MUTACOES = [
      '    const resposta = await respostaParaEnviar',
      '    const resposta = await respostaParaEnviar',
      SAIDA),
+    # KAM-227: o reenvio repete a chave do turno, e o `Saida` nunca o envia:
+    # «uma chave repetida cuja linha ficou queued, failed ou sem linha reenvia
+    # uma vez, pela chave derivada (KAM-227)».
+    ('resposta: o reenvio usa a chave do turno', RESPOSTA_EFEITO,
+     '      const reenvio = { ...pedido, idempotencyKey: chaveDoReenvio(pedido.idempotencyKey) };',
+     '      const reenvio = pedido;',
+     SAIDA),
+    # KAM-227: o token e o do primeiro canal do tenant, e nao o do pedido:
+    # «um canal que não é o do pedido não serve: sem_canal».
+    ('resposta: a credencial ignora o canal do pedido', RESPOSTA_CREDENCIAL,
+     '   WHERE tenant_id = $1 AND id = $2 AND phone_number_id = $3`;',
+     '   WHERE tenant_id = $1 AND $2::text IS NOT NULL AND $3::text IS NOT NULL`;',
+     SAIDA),
     # Um canal desconhecido cai no WhatsApp:
     # «recusa um canal desconhecido, e não o trata como WhatsApp».
     ('resposta: o canal desconhecido passa', RESPOSTA_CONTRATO,
@@ -5598,6 +5635,14 @@ MUTACOES = [
     ('grafos: a saida por ligar deixa de levantar', AG_GRAFOS,
      '        raise SaidaPorLigarError("saida_por_ligar")',
      '        return None',
+     AGR_UNIT),
+    # KAM-227: o envio volta a correr na *event loop* e pára os outros turnos:
+    # `test_uma_base_lenta_nao_para_os_outros_turnos`.
+    ('saida: o enfileirar volta a correr na event loop', AG_SAIDA,
+     '        reply_id = await asyncio.to_thread(\n'
+     '            self._gravar, estado, texto, chave, tuple(botoes), canal, inicio\n'
+     '        )',
+     '        reply_id = self._gravar(estado, texto, chave, tuple(botoes), canal, inicio)',
      AGR_UNIT),
     ('grafos: o resolve volta a correr na event loop', AG_GRAFOS,
      '        resolucao = await asyncio.to_thread(self._registo.resolve, invocacao)',
@@ -7712,6 +7757,59 @@ MUTACOES = [
     # apagava-se em silencio um registo de transferencia. O
     # `test_com_um_destino_recusa_e_sem_ele_desce_e_volta` tem de a matar.
 
+    # ------------------------ KAM-230 (revisao da finalidade das condicoes)
+    #
+    # Duas, uma por direccao, como as da KAM-195. O alvo e a revisao descoberta
+    # pelo *glob* (`REV_FINALIDADE_DAS_CONDICOES`).
+    ('finalidade das condicoes: o dominio nao a ganha', REV_FINALIDADE_DAS_CONDICOES,
+     "    \"'classificacao_de_condicoes'\",\n",
+     "",
+     "tests"),
+    # A revisao corria e o `CHECK` ficava com as quinze: um destino da
+    # finalidade das condicoes nao cabia, e o *gate* negava sempre as condicoes.
+    # O `test_o_dominio_tem_as_dezasseis_e_as_condicoes_sao_aceites` tem de a
+    # matar.
+    ('finalidade das condicoes: a descida apaga a decisao', REV_FINALIDADE_DAS_CONDICOES,
+     "    if linhas:\n        raise RuntimeError(",
+     "    if False:\n        raise RuntimeError(",
+     "tests"),
+    # A descida deixava de recusar com um destino `classificacao_de_condicoes`,
+    # e o `ADD CONSTRAINT` das quinze rebentava a meio. O
+    # `test_com_um_destino_recusa_e_sem_ele_desce_e_volta` da
+    # `test_finalidade_das_condicoes_schema.py` tem de a matar.
+
+    # ------------------------------------ KAM-121 (revisao do social do dono)
+    #
+    # Quatro: a finalidade, as duas metades da descida e a marca de IA. O alvo
+    # e a revisao descoberta pelo *glob* (`REV_SOCIAL_DO_DONO`).
+    ('social do dono: o dominio nao ganha a finalidade', REV_SOCIAL_DO_DONO,
+     "    \"'classificacao_de_conteudo'\",\n",
+     "",
+     "tests"),
+    # A revisao corria e o `CHECK` ficava com as dezasseis: o *gate* negava
+    # sempre o screening do conteudo. O
+    # `test_a_finalidade_e_o_sujeito_do_conteudo_sao_aceites` tem de a matar.
+    ('social do dono: a descida apaga o destino', REV_SOCIAL_DO_DONO,
+     "    if linhas:\n        raise RuntimeError(",
+     "    if False:\n        raise RuntimeError(",
+     "tests"),
+    # A descida deixava de recusar com um destino `classificacao_de_conteudo`,
+    # e o `ADD CONSTRAINT` das dezasseis rebentava a meio. O
+    # `test_com_um_destino_recusa_e_sem_ele_desce_apagando_so_o_conteudo_e_volta`
+    # tem de a matar.
+    ('social do dono: a descida nao apaga as decisoes do conteudo', REV_SOCIAL_DO_DONO,
+     "    op.execute(f\"DELETE FROM {DECISOES} WHERE sujeito_tipo = 'conteudo'\")\n",
+     "",
+     "tests"),
+    # Sem o `DELETE`, uma decisao `conteudo` fazia o `ADD CONSTRAINT` dos tres
+    # rebentar, e a descida ficava presa. O mesmo ensaio tem de a matar.
+    ('social do dono: o item nasce sem a marca de IA', REV_SOCIAL_DO_DONO,
+     "is_ai_generated   boolean NOT NULL DEFAULT true,",
+     "is_ai_generated   boolean NOT NULL DEFAULT false,",
+     "tests"),
+    # O criterio 8: um item nascia sem `is_ai_generated`, e nenhum codigo o
+    # escreve. O `test_o_catalogo_e_exactamente_o_inventario` tem de a matar.
+
     # ------------------------------------------------------------- KAM-061
     # O indice de pesquisa: o DDL e a funcao (`db/indice.py`), a camada de
     # resposta e o consumidor (`kamba_core.idx`). **Metade ataca a ligacao e nao
@@ -8486,6 +8584,75 @@ MUTACOES = [
     ('catalogo minimo: as falhas nao recomecam na fila', ACTIVACAO_SQL,
      "WHERE b.resultado = 'ok' OR b.levou_a_fila)",
      "WHERE b.resultado = 'ok')",
+     "tests"),
+    # --------------------- KAM-202 (a publicacao segura e o teste em producao)
+    #
+    # Onze, uma por barreira nova. O modulo que as mata e o
+    # `db/tests/test_publicacao_segura_schema.py`, com o ensaio nomeado em cada uma.
+    # A publicacao sem decisao passa: `test_sem_decisao_zero_linhas_e_continua_rascunho`.
+    ('publicacao segura: sem decisao publica', REV_PUBLICACAO_SEGURA,
+     "          -- como recusa de dominio.\n          RETURN NULL;\n",
+     "          -- como recusa de dominio.\n          RETURN NEW;\n",
+     "tests"),
+    # O nome novo de um publicado continua visivel: `test_um_nome_novo_sem_decisao_tira_de_publicado_sem_erro_e_o_returning_diz_o_estado`.
+    ('publicacao segura: o nome novo fica publicado', REV_PUBLICACAO_SEGURA,
+     "            NEW.estado := 'rascunho';\n",
+     "",
+     "tests"),
+    # A versao le a decisao de outro tenant: `test_o_lote_que_ignora_a_rls_nao_le_a_decisao_nem_a_categoria_de_outro_tenant`.
+    ('publicacao segura: a versao de outro tenant', REV_PUBLICACAO_SEGURA,
+     "           WHERE d.tenant_id = p_tenant_id AND d.sujeito_tipo = 'produto'\n"
+     "             AND d.sujeito_ref = p_sku AND d.conteudo_sha256 = v_sha\n"
+     "           ORDER BY (d.origem = 'humano')",
+     "           WHERE d.sujeito_tipo = 'produto'\n"
+     "             AND d.sujeito_ref = p_sku AND d.conteudo_sha256 = v_sha\n"
+     "           ORDER BY (d.origem = 'humano')",
+     "tests"),
+    # A versao e a da linha mais recente, e uma humana antiga levanta a bloqueada:
+    # `test_uma_humana_numa_versao_antiga_nao_levanta_a_bloqueada_da_versao_do_motor`.
+    ('publicacao segura: a versao da humana', REV_PUBLICACAO_SEGURA,
+     "ORDER BY (d.origem = 'humano'), d.criado_at DESC",
+     "ORDER BY d.criado_at DESC",
+     "tests"),
+    # A aplicacao grava a decisao humana: `test_a_aplicacao_nao_grava_a_humana_e_grava_a_do_motor`.
+    ('publicacao segura: a humana da aplicacao', REV_PUBLICACAO_SEGURA,
+     "IF NEW.origem <> 'humano' OR current_user = 'kamba_batch' THEN",
+     "IF true THEN",
+     "tests"),
+    # O churn conta a conversa de teste como cliente: `test_o_churn_nao_conta_a_conversa_de_teste_como_cliente`.
+    ('is_test: o churn conta o teste', REV_PUBLICACAO_SEGURA,
+     'SEM_TESTE_NO_CHURN = "AND NOT cv.is_test "',
+     'SEM_TESTE_NO_CHURN = ""',
+     "tests"),
+    # A vista do concierge conta a conversa de teste: `test_a_vista_do_concierge_nao_conta_a_conversa_de_teste`.
+    ('is_test: a vista do concierge conta o teste', REV_PUBLICACAO_SEGURA,
+     '"WHERE cv.tenant_id = d.tenant_id AND cv.is_test "',
+     '"WHERE cv.tenant_id = d.tenant_id AND false "',
+     "tests"),
+    # A golden leva o rascunho da conversa de teste: `test_os_candidatos_a_golden_nao_contam_a_conversa_de_teste`.
+    ('is_test: a golden conta o teste', GOLDEN_CANDIDATOS,
+     "WHERE cv.tenant_id = d.tenant_id AND cv.is_test",
+     "WHERE cv.tenant_id = d.tenant_id AND false",
+     "tests"),
+    # A guarda do *job* do churn ve o teste como cliente: `test_a_guarda_do_job_nao_conta_a_conversa_de_teste`.
+    ('is_test: a guarda do churn conta o teste', CHURN_PY,
+     "WHERE c.tenant_id = %s AND NOT c.is_test",
+     "WHERE c.tenant_id = %s",
+     "tests"),
+    # A queixa na conversa de teste conta para o risco: `test_as_queixas_do_risco_nao_contam_a_conversa_de_teste`.
+    ('is_test: as queixas contam o teste', TRUST_SQL,
+     "\n     AND NOT cv.is_test\n",
+     "\n",
+     "tests"),
+    # Duas conversas com o «teste» na janela, e escolhe-se uma: `test_duas_conversas_com_o_teste_na_janela_nao_dao_nenhuma`.
+    ('observador: escolhe entre duas conversas', OBSERVADOR_SQL,
+     "WHERE (SELECT count(*) FROM sinais) = 1",
+     "WHERE true",
+     "tests"),
+    # O observador le a conversa de outro tenant: `test_o_observador_nao_ve_a_conversa_de_outro_tenant`.
+    ('observador: a conversa de outro tenant', OBSERVADOR_SQL,
+     "JOIN caso ON v.tenant_id = caso.tenant_id",
+     "CROSS JOIN caso",
      "tests"),
     # ------------------------------------- KAM-098 (revisao do off-boarding)
     #

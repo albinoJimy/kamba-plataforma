@@ -82,11 +82,12 @@ quatro processos do `worker-canal` (`entrada` 3013, `agr_shim` 3025, `publicador
    publicador e o consumidor em baixo não. **E um `job` do numerador que nunca
    foi descoberto conta como mau**: o `min()` ignora séries que não existem, e
    a regra exige os quatro `job` presentes (um quarto caso prende-o). **O que este limite deixa:** em
-   `prod`, o `entrada.ts` **não arranca** — o `Identidade.arrancar` do KAM-008
-   recusa o provedor de chaves de ambiente com `KAMBA_ENV=prod` e não há
-   provedor de cofre (`../docs/identidade.md` §8, linha 2). Com o processo em
-   ciclo de reinício, o `up` dele é 0 e o SLI conta o caminho como mau, que é a
-   resposta certa: uma mensagem que ninguém consome não está a ser servida.
+   `prod`, um `entrada.ts` a que o lançador não entregue as chaves de identidade
+   **não arranca** — o `Identidade.arrancar` do KAM-008 recusa sem elas (critério
+   9, emendado a 2026-11-20; até ali recusava sempre, `../docs/identidade.md` §8,
+   linha 2). Com o processo em ciclo de reinício, o `up` dele é 0 e o SLI conta
+   o caminho como mau, que é a resposta certa: uma mensagem que ninguém consome
+   não está a ser servida.
 3. **Uma paragem do próprio Prometheus subconta o orçamento.** Sem avaliação não
    há amostra, e `avg_over_time` ignora o intervalo em falta — pelo que a pior
    avaria possível, o anfitrião todo em baixo, é a única que este SLI não vê. O

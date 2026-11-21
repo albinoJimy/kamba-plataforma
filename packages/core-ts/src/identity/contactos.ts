@@ -51,7 +51,10 @@ import {
   type KeyProvider,
   epocaValida,
   EpocaInvalidaError,
-  exigirKeyProviderDeCofre,
+  REF_CHAVE_DE_PESQUISA,
+  REF_KEK,
+  exigirAmbienteDoKeyProvider,
+  exigirChavesNoArranque,
   kidValido,
 } from "./chaves.ts";
 import * as SQL from "./consultas.ts";
@@ -390,6 +393,12 @@ export interface OpcoesDeIdentidade {
   readonly env?: ProcessEnv;
   /** Relógio injectável, para os testes. */
   readonly agora?: () => Date;
+  /**
+   * `true` num processo que só lê endpoints (`lerEndpoints`): em `prod` o
+   * arranque confere só a KEK, e a chave de pesquisa não lhe tem de chegar. A
+   * KEK confere-se sempre — não há operação deste módulo que não a use.
+   */
+  readonly soLeEndpoints?: boolean;
 }
 
 interface EstadoDoContacto {
@@ -503,7 +512,7 @@ function maisAntigoPrimeiro(
   return a.id < b.id ? [a, b] : [b, a];
 }
 
-/** O serviço. Obtém-se por `Identidade.arrancar`, que recusa chaves de ambiente em `prod`. */
+/** O serviço. Obtém-se por `Identidade.arrancar`, que em `prod` recusa arrancar sem as chaves. */
 export class Identidade {
   readonly #chaves: KeyProvider;
   readonly #agora: () => Date;
@@ -517,11 +526,18 @@ export class Identidade {
   /**
    * Arranca o serviço, ou recusa.
    *
-   * @throws {KeyProviderDeAmbienteError} em `KAMBA_ENV=prod` com chaves de ambiente.
    * @throws {AmbienteDeIdentidadeError} se `KAMBA_ENV` faltar ou não bater com o provedor.
+   * @throws {ChavesDeIdentidadeEmFaltaError} em `KAMBA_ENV=prod`, sem uma chave que
+   *   o processo usa (critério 9 do KAM-008, emendado a 2026-11-20).
    */
   static async arrancar(opcoes: OpcoesDeIdentidade): Promise<Identidade> {
-    exigirKeyProviderDeCofre(opcoes.chaves, opcoes.env ?? process.env);
+    const ambiente = exigirAmbienteDoKeyProvider(opcoes.chaves, opcoes.env ?? process.env);
+    if (ambiente === "prod") {
+      await exigirChavesNoArranque(
+        opcoes.chaves,
+        opcoes.soLeEndpoints === true ? [REF_KEK] : [REF_KEK, REF_CHAVE_DE_PESQUISA],
+      );
+    }
     return new Identidade(opcoes.chaves, opcoes.agora ?? (() => new Date()));
   }
 

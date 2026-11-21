@@ -554,11 +554,12 @@ class TestSubscricoesDoRegisto(unittest.TestCase):
         # quarta forma do registo (KAM-194), tres do consumidor do CHR (a
         # activacao do KAM-201, e a suspensao e o encerramento do KAM-098),
         # as sete do consumidor de Trust & Safety (KAM-200), e as duas da resposta
-        # do AGR, uma do `outbound` e uma do `painel` (KAM-224).
-        self.assertEqual(len(lidas), 25, [(s.consumer, s.tipo) for s in lidas])
+        # do AGR, uma do `outbound` e uma do `painel` (KAM-224), e a do consumidor
+        # `dono` (KAM-215), cujo ficheiro e o `dono_provisionamento.yaml`.
+        self.assertEqual(len(lidas), 26, [(s.consumer, s.tipo) for s in lidas])
         # O `consumer` vem do `id` da vertical, e do `consumidor` da quarta
         # forma, e nao do nome do ficheiro.
-        self.assertEqual({s.consumer for s in lidas}, {"vendedor", "servicos", "idx", "chr", "trust", "outbound", "painel"})
+        self.assertEqual({s.consumer for s in lidas}, {"vendedor", "servicos", "idx", "chr", "trust", "outbound", "painel", "dono"})
         self.assertEqual(
             sorted((s.tipo, s.versao_max) for s in lidas if s.consumer == "chr"),
             [("tenant.activated", 1), ("tenant.closed", 1), ("tenant.suspended", 1)],
@@ -687,11 +688,11 @@ class TestCli(unittest.TestCase):
         passa vacuamente. O KAM-194 acrescentou as cinco do `idx` (a quarta forma
         do registo), o KAM-201 a do `chr`, o KAM-200 as sete do `trust`, e o
         KAM-098 as duas do `chr` da suspensao e do encerramento, e o KAM-224 a do
-        `outbound` e a do `painel`: sao vinte e cinco.
+        `outbound` e a do `painel`, e o KAM-215 a do `dono`: sao vinte e seis.
         """
         codigo, texto = self.correr("subscricoes")
         self.assertEqual(codigo, cli.SAIDA_OK, texto)
-        self.assertIn("25 subscricao(oes) lida(s)", texto)
+        self.assertIn("26 subscricao(oes) lida(s)", texto)
 
     def test_sem_base_diz_que_nao_correu(self) -> None:
         """Uma verificacao que se desliga tem de o dizer na saida."""

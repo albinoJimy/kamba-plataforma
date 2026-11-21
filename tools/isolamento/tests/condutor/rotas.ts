@@ -283,6 +283,20 @@ const SONDAS: readonly Sonda[] = [
     fabrica: "createApp",
     caminho: "/metrics",
   },
+  // KAM-215: o consumidor `dono`. A `criarApp` constroi-se sem argumentos e
+  // nao abre a base nem a fila.
+  {
+    item: "rota:onboarding-web:provisionamento/processo:criarApp:GET:/healthz",
+    modulo: "services/onboarding-web/src/provisionamento/processo.ts",
+    fabrica: "criarApp",
+    caminho: "/healthz",
+  },
+  {
+    item: "rota:onboarding-web:provisionamento/processo:criarApp:GET:/metrics",
+    modulo: "services/onboarding-web/src/provisionamento/processo.ts",
+    fabrica: "criarApp",
+    caminho: "/metrics",
+  },
   {
     item: "rota:worker-canal:agr_shim:criarApp:GET:/healthz",
     modulo: "services/worker-canal/src/agr_shim.ts",
@@ -1734,7 +1748,15 @@ async function grupoDaApiInternaDoCom(relatorio: Relatorio): Promise<void> {
       return { sku: SKU_DE_A, preco_tipo: "fixo", preco_minor: "1000000", versao: VERSAO_DE_A };
     }
     if (rota === "/internal/screen") {
-      return { sujeito_tipo: "condicoes", sujeito_ref: ORDER_DE_A, textos: ["entrega de A"] };
+      // KAM-230: a finalidade (a das condicoes, que a operacao confere com o
+      // sujeito) e o prazo sao obrigatorios; sem eles a rota recusa antes da porta.
+      return {
+        sujeito_tipo: "condicoes",
+        sujeito_ref: ORDER_DE_A,
+        textos: ["entrega de A"],
+        finalidade: "classificacao_de_condicoes",
+        prazo_ms: 6_000,
+      };
     }
     if (rota === "/internal/upsert-product-draft") {
       return { sku: SKU_DE_A, nome: "arroz de A", preco_tipo: "fixo", preco_minor: "1000000" };
@@ -1786,7 +1808,14 @@ async function grupoDaApiInternaDoCom(relatorio: Relatorio): Promise<void> {
       return { sku: canario, preco_tipo: "fixo", preco_minor: "1", versao: VERSAO_DE_A, stock: 1 };
     }
     if (rota === "/internal/screen") {
-      return { sujeito_tipo: "condicoes", sujeito_ref: canario, categoria_declarada: canario, textos: [canario] };
+      return {
+        sujeito_tipo: "condicoes",
+        sujeito_ref: canario,
+        categoria_declarada: canario,
+        textos: [canario],
+        finalidade: "classificacao_de_condicoes",
+        prazo_ms: 6_000,
+      };
     }
     if (rota === "/internal/upsert-product-draft") {
       return { sku: canario, nome: canario, preco_tipo: "fixo", preco_minor: "1" };
@@ -2750,6 +2779,8 @@ const ITENS_DO_PAINEL = [
   "rota:onboarding-web:painel/rotas:actor:POST:/painel/telefone/cancelar",
   "rota:onboarding-web:painel/rotas:actor:GET:/painel/conversa",
   "rota:onboarding-web:painel/rotas:actor:POST:/painel/conversa",
+  // KAM-202: o inicio do teste ponta a ponta.
+  "rota:onboarding-web:painel/rotas:actor:POST:/painel/teste",
   // KAM-206: a pagina de um produto, com o formulario que saiu da lista.
   "rota:onboarding-web:painel/rotas:actor:GET:/painel/produtos/:id",
   // KAM-206: o contacto do cliente de uma encomenda, mascarado, pelo botao.
@@ -2768,6 +2799,8 @@ const CASO_DE_A_NO_PAINEL = "0000000a-0000-4000-8000-0000000000c1";
 const CASO_DE_B_NO_PAINEL = "0000000b-0000-4000-8000-0000000000c1";
 /** O caso `activo` de A: a troca de telefone (KAM-211) so abre nessa fase. */
 const CASO_ACTIVO_DE_A_NO_PAINEL = "0000000a-0000-4000-8000-0000000000c2";
+/** O caso de A em `aguarda_teste`: o teste ponta a ponta (KAM-202) so abre nessa fase. */
+const CASO_EM_TESTE_DE_A_NO_PAINEL = "0000000a-0000-4000-8000-0000000000c3";
 const ORDEM_DE_A_NO_PAINEL = "0000000a-0000-4000-8000-0000000000d1";
 const ORDEM_DE_B_NO_PAINEL = "0000000b-0000-4000-8000-0000000000d1";
 /** KAM-206: uma encomenda **paga** de cada tenant, no estado em que o contacto se mostra. */
@@ -2928,6 +2961,7 @@ async function grupoDoPainel(relatorio: Relatorio): Promise<void> {
       [CASO_DE_A_NO_PAINEL, { tenantId: TENANT_DE_A_NO_PAINEL, fase: "aguarda_es" }],
       [CASO_DE_B_NO_PAINEL, { tenantId: TENANT_DE_B_NO_PAINEL, fase: "activo" }],
       [CASO_ACTIVO_DE_A_NO_PAINEL, { tenantId: TENANT_DE_A_NO_PAINEL, fase: "activo" }],
+      [CASO_EM_TESTE_DE_A_NO_PAINEL, { tenantId: TENANT_DE_A_NO_PAINEL, fase: "aguarda_teste" }],
     ]);
     const novaSessao = sessaoModulo["novaSessao"] as (t: string, d: string, a: Date) => Record<string, unknown>;
     const cunharSessao = sessaoModulo["cunharSessao"] as (s: unknown, c: Uint8Array) => string;
@@ -3026,6 +3060,16 @@ async function grupoDoPainel(relatorio: Relatorio): Promise<void> {
       }),
     };
 
+    // O teste ponta a ponta (KAM-202): um `TesteDoPainel` de duplo que regista o
+    // caso e o tenant de cada inicio.
+    const iniciados: { onboardingId: string; tenantId: string }[] = [];
+    const teste = {
+      async iniciar(onboardingId: string, tenantId: string) {
+        iniciados.push({ onboardingId, tenantId });
+        return { instrucoes: "envie a palavra", expiraEm: new Date(agora.getTime() + 60_000) };
+      },
+    };
+
     const app = (rotas["rotasDoPainel"] as (o: unknown) => AppHono)({
       comercio,
       canal: canalEspiao,
@@ -3036,6 +3080,7 @@ async function grupoDoPainel(relatorio: Relatorio): Promise<void> {
       reentrada,
       troca,
       conversa,
+      teste,
     });
     const cookieDeA = `kamba_painel=${cunharSessao(sessaoDeA, chave)}`;
 
@@ -3406,15 +3451,41 @@ async function grupoDoPainel(relatorio: Relatorio): Promise<void> {
       );
     marcarEm(16, conversaDeA ? "conversa=a" : "conversa=alheia");
 
+    // ---- POST /painel/teste (KAM-202): a sessao de A com o caso e o tenant de B
+    // no corpo, na consulta e no cabecalho. A tentativa abre-se so no caso e no
+    // tenant da sessao de A.
+    const sessaoEmTesteDeA = novaSessao(TENANT_DE_A_NO_PAINEL, CASO_EM_TESTE_DE_A_NO_PAINEL, agora);
+    const cookieDoTeste = `kamba_painel=${cunharSessao(sessaoEmTesteDeA, chave)}`;
+    for (let vez = 0; vez < 3; vez += 1) {
+      const [c, headers] = comTenantDeB("/painel/teste", vez, cookieDoTeste);
+      await empurrar(
+        ITENS_DO_PAINEL[17],
+        "POST",
+        c,
+        {
+          method: "POST",
+          headers: { ...headers, "content-type": "application/json" },
+          body: JSON.stringify({ onboarding_id: CASO_DE_B_NO_PAINEL, tenant_id: TENANT_DE_B_NO_PAINEL }),
+        },
+        () => "",
+      );
+    }
+    const soOCasoDeA =
+      iniciados.length === 3 &&
+      iniciados.every((i) => i.onboardingId === CASO_EM_TESTE_DE_A_NO_PAINEL && i.tenantId === TENANT_DE_A_NO_PAINEL);
+    for (const entrada of relatorio.rotas) {
+      if (entrada.item === ITENS_DO_PAINEL[17]) entrada.nota += soOCasoDeA ? " teste=a" : " teste=alheio";
+    }
+
     // ---- GET /painel/produtos/:id (KAM-206): o `sku` de B, com a sessao de A e
     // o tenant de B na consulta e no cabecalho: 404 uniforme e nada de B. A
     // sonda e a pagina do `sku` de A, fora das entradas.
     for (let vez = 0; vez < 3; vez += 1) {
       const [c, headers] = comTenantDeB(`/painel/produtos/${encodeURIComponent(canario)}`, vez);
-      await empurrar(ITENS_DO_PAINEL[17], "GET", c, { headers }, () => "");
+      await empurrar(ITENS_DO_PAINEL[18], "GET", c, { headers }, () => "");
     }
     const produtoDeA = await app.request("/painel/produtos/arroz-de-a", { headers: { cookie: cookieDeA } });
-    marcarEm(17, produtoDeA.status === 200 && (await produtoDeA.text()).includes(MARCADOR_DE_A) ? "sonda=viva" : "sonda=morta");
+    marcarEm(18, produtoDeA.status === 200 && (await produtoDeA.text()).includes(MARCADOR_DE_A) ? "sonda=viva" : "sonda=morta");
 
     // ---- POST /painel/encomendas/:id/contacto (KAM-206): a encomenda **paga** de
     // B (no estado em que o contacto se mostra, e com o canario na mascara), com
@@ -3422,7 +3493,7 @@ async function grupoDoPainel(relatorio: Relatorio): Promise<void> {
     // nada de B. A sonda e o contacto da encomenda paga de A, fora das entradas.
     for (let vez = 0; vez < 3; vez += 1) {
       const [c, headers] = comTenantDeB(`/painel/encomendas/${ORDEM_PAGA_DE_B_NO_PAINEL}/contacto`, vez);
-      await empurrar(ITENS_DO_PAINEL[18], "POST", c, { method: "POST", headers }, () => "");
+      await empurrar(ITENS_DO_PAINEL[19], "POST", c, { method: "POST", headers }, () => "");
     }
     const contactoDeA = await app.request(`/painel/encomendas/${ORDEM_PAGA_DE_A_NO_PAINEL}/contacto`, {
       method: "POST",
@@ -3430,7 +3501,7 @@ async function grupoDoPainel(relatorio: Relatorio): Promise<void> {
     });
     const corpoDoContactoDeA = await contactoDeA.text();
     marcarEm(
-      18,
+      19,
       contactoDeA.status === 200 && corpoDoContactoDeA.includes(MARCADOR_DE_A) && corpoDoContactoDeA.includes("••• ••• 101")
         ? "sonda=viva"
         : "sonda=morta",

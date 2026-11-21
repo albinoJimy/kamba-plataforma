@@ -5,7 +5,8 @@
  * lerConfiguracao     as variáveis de arranque; sem as credenciais de lote, não arranca
  * verificarPapeis     cada ligação é do papel que diz ser (`kamba_batch`, `kamba_app`)
  * montarProcesso      a fila sobre os adaptadores SQL, o ciclo, as duas portas do KAM-092,
- *                     e o T&S ligado à fila com as suas varreduras (KAM-200)
+ *                     o T&S ligado à fila com as suas varreduras (KAM-200), e o avanço
+ *                     do caso até `es_concluido` que emite o `tenant.provisioned` (KAM-215)
  * consumidorDoTrust   o consumidor dos sete tipos de evento de T&S, como `kamba_app`
  * consumidorDoPainel  o consumidor da resposta do AGR de canal `painel` (KAM-224)
  * cicloDoOffboarding  as fases do encerramento deste lado, agendadas (KAM-210)
@@ -89,13 +90,20 @@
  * O aviso precisa do telefone registado em claro (`DadosPessoais`) e de um
  * agregador de SMS. **Nenhum dos dois existe em produção**: o agregador não está
  * escolhido (fundador, KAM-116), e o telefone cifrado do `onboarding_case` não
- * tem adaptador que o decifre. O duplo `FakeSmsProvider` não entra aqui — um
+ * se decifra **neste** processo — tem decifrador desde o KAM-215, mas a KEK dele
+ * (`kek_telefone_do_caso`) só a recebem o `onboarding-web` e o consumidor `dono`
+ * (decisão do fundador de 2026-11-20), e o lote corre como `kamba_batch`. O duplo `FakeSmsProvider` não entra aqui — um
  * aviso «enviado» para lado nenhum resolvia o efeito e o dono nunca sabia.
  * O `AvisoSemVia` levanta `AvisoSemDestinoError`: a fase e o screening aplicam-se
  * (vêm antes), o efeito fica por reaplicar, e o ciclo di-lo em cada volta.
  */
 
 import { healthz } from "@kamba/core-ts";
+import {
+  CicloDaActivacao,
+  filaDoTeste,
+  type ResultadoDoCicloDaActivacao,
+} from "@kamba/core-ts/activacao";
 import type { Logger } from "@kamba/core-ts/logger";
 import {
   AuditoriaSql,
@@ -136,6 +144,7 @@ import { METRICAS, MaquinaNaBase, filasDe, type Envelope } from "@kamba/core-ts/
 // Só os tipos: o `bullmq` e o `ioredis` carregam-se na casca, **depois** de a
 // porta abrir (ver o `consumidorDoTrust`).
 import type { criarTrabalhadores, Trabalhadores } from "@kamba/core-ts/eventos/trabalhador_bullmq";
+import { varrerProvisionamentos } from "@kamba/core-ts/provisioning";
 import { CONSUMIDOR_DO_PAINEL, efeitoDoPainel } from "@kamba/core-ts/resposta";
 import { EscritorSql, LeitorSql, type EscritorDeDecisoes } from "@kamba/core-ts/screening";
 import { isAmbiente } from "@kamba/core-ts/secrets";
@@ -179,7 +188,11 @@ export const VARIAVEIS_DO_LOTE = {
   ambiente: "KAMBA_AMBIENTE",
   /** A cadeia de ligação do `kamba_batch`. A palavra-passe vem do cofre (KAM-010). */
   lote: "KAMBA_LOTE_DB_URL",
-  /** A do `kamba_app`, só para a decisão humana de screening. */
+  /**
+   * A do `kamba_app`: as leituras que só a aplicação faz (o catálogo e o teste da
+   * activação, KAM-202) e os consumidores de eventos. A decisão humana de
+   * screening deixou de passar por aqui (KAM-202, critério 6).
+   */
   app: "KAMBA_LOTE_APP_DB_URL",
   porta: "LOTE_PORT",
   intervalo: "LOTE_INTERVALO_MS",
@@ -438,8 +451,15 @@ const SEM_DOCUMENTOS: DocumentosDaRevisao = {
 };
 
 /**
- * O escritor da decisão humana de screening: `kamba_app`, dentro do
+ * O escritor da decisão humana de screening: `kamba_batch`, dentro do
  * `comTenant` do tenant da linha, e **idempotente**.
+ *
+ * **O `kamba_batch` e não o `kamba_app`** (KAM-202, critério 6, decisão do
+ * fundador de 2026-11-20): a base só aceita a `origem = 'humano'` do papel do
+ * lote (*trigger* `screening_decision_humano_so_do_lote`). Era a aplicação que a
+ * gravava, e uma linha `humano`/`permitida` levanta qualquer recusa de produto
+ * no `assertPublishable` e na base — um defeito da aplicação podia publicar o que
+ * a fila nunca aprovou.
  *
  * A idempotência é deste adaptador e não do `EscritorSql`, e é medida: a
  * `screening_decision` é *append-only* e sem unicidade sobre a chave, e o
@@ -449,10 +469,10 @@ const SEM_DOCUMENTOS: DocumentosDaRevisao = {
  * decisão, mesma origem — não se repete; uma diferente (o recurso que inverte a
  * primeira, ou uma decisão do motor pelo meio) grava-se.
  */
-export function escritorHumanoDeScreening(app: ConjuntoSql): EscritorDeDecisoes {
+export function escritorHumanoDeScreening(lote: ConjuntoSql): EscritorDeDecisoes {
   return {
     async gravar(linha) {
-      const ligacao = await app.connect();
+      const ligacao = await lote.connect();
       let estragada: Error | undefined;
       try {
         // A `ligacao` e não o cliente que o `comTenant` entrega: são o mesmo
@@ -589,6 +609,8 @@ export interface ProcessoDeLote {
   /** As fases do encerramento deste lado, para a casca agendar (KAM-210, critério 1). */
   readonly cicloDoOffboarding: CicloDoOffboarding;
   readonly metricasDoOffboarding: MetricasDoOffboarding;
+  /** A activação dos casos, para a casca agendar (KAM-202, critério 2). */
+  readonly cicloDaActivacao: CicloDaActivacao;
   /**
    * **O ponto onde o KAM-092 chama o `amostrar`** sobre cada aprovação
    * automática, que é ele quem conhece (critério 4). Corre neste processo, com
@@ -665,7 +687,8 @@ export function montarProcesso(o: OpcoesDoProcesso): ProcessoDeLote {
     cifra: SEM_CIFRA,
     dados: SEM_DADOS,
     documentos: SEM_DOCUMENTOS,
-    screening: decisaoHumanaDeScreening(escritorHumanoDeScreening(o.app)),
+    // KAM-202, critério 6: o `humano` só o grava o `kamba_batch`.
+    screening: decisaoHumanaDeScreening(escritorHumanoDeScreening(o.lote)),
     // A mesma lista que o ciclo reaplica: o serviço marca antes dos efeitos.
     efeitos: o.efeitos,
     // KAM-200, critério 9: decidir um caso `trust` ou `recurso` aplica a sanção.
@@ -694,6 +717,9 @@ export function montarProcesso(o: OpcoesDoProcesso): ProcessoDeLote {
         amostrar: (onboardingId, tenantId) => servico.amostrar(onboardingId, tenantId),
         limite,
       }),
+    // KAM-215: o caso avança até `es_concluido` pela porta da base, como
+    // `kamba_batch`, e é aí que sai o `tenant.provisioned`.
+    provisionar: (limite) => varrerProvisionamentos({ lote: o.lote, limite }),
     ...(o.limite === undefined ? {} : { limite: o.limite }),
   });
   const aprovacaoAutomatica = (onboardingId: string, tenantId: string) =>
@@ -703,6 +729,14 @@ export function montarProcesso(o: OpcoesDoProcesso): ProcessoDeLote {
     lote: o.lote,
     portas: o.portasDoOffboarding ?? { canal: CANAL_SEM_ADAPTADOR, revogacao: REVOGACAO_SEM_ADAPTADOR },
     metricas: metricasDoOffboarding,
+    ...(o.relogio === undefined ? {} : { relogio: o.relogio }),
+  });
+  // KAM-202: a activação no lote, com a fila do teste falhado sobre o serviço
+  // da fila deste processo.
+  const cicloDaActivacao = new CicloDaActivacao({
+    lote: o.lote,
+    app: o.app,
+    fila: (maquina) => filaDoTeste(servico, maquina),
     ...(o.relogio === undefined ? {} : { relogio: o.relogio }),
   });
   return {
@@ -716,6 +750,7 @@ export function montarProcesso(o: OpcoesDoProcesso): ProcessoDeLote {
     metricasDaConfianca,
     cicloDoOffboarding,
     metricasDoOffboarding,
+    cicloDaActivacao,
     aprovacaoAutomatica,
     aprovacaoDoKyc: aprovacaoDoKyc(onboardings, aprovacaoAutomatica),
   };
@@ -815,6 +850,12 @@ export function registarVolta(log: Pick<Logger, "info" | "error">, r: ResultadoD
 export function registarVoltaDoOffboarding(log: Pick<Logger, "info" | "error">, r: ResultadoDoCicloDoOffboarding): void {
   if (r.falhas.length === 0) log.info({ outcome: "offboarding_volta_concluida" });
   else log.error({ outcome: "offboarding_volta_com_falhas", error_code: r.falhas.join(",") });
+}
+
+/** A linha de registo de uma volta da activação (KAM-202): o que falhou, pelo passo. */
+export function registarVoltaDaActivacao(log: Pick<Logger, "info" | "error">, r: ResultadoDoCicloDaActivacao): void {
+  if (r.falhas.length === 0) log.info({ outcome: "activacao_volta_concluida" });
+  else log.error({ outcome: "activacao_volta_com_falhas", error_code: r.falhas.join(",") });
 }
 
 /** A linha de registo de uma volta das varreduras de T&S: pelo nome da varredura. */

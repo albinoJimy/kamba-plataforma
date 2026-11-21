@@ -1414,7 +1414,9 @@ ESPERADO_POR_TABELA.update(
     {
         "screening_decision": {
             "kamba_app": {"SELECT", "INSERT"},
-            "kamba_batch": {"SELECT"},
+            # KAM-202, criterio 6: a decisao humana grava-a o lote, e so ele
+            # (*trigger* `screening_decision_humano_so_do_lote`).
+            "kamba_batch": {"SELECT", "INSERT"},
             "kamba_resolver": set(),
             "kamba_identity": set(),
             "kamba_audit": {"SELECT"},
@@ -1545,6 +1547,47 @@ ESPERADO_POR_TABELA.update(
 ESPERADO_POR_TABELA.update(
     {
         "agent_replies": {
+            "kamba_app": {"SELECT"},
+            "kamba_batch": set(),
+            "kamba_resolver": set(),
+            "kamba_identity": set(),
+            "kamba_audit": set(),
+            "kamba_agr": set(),
+            "kamba_pay_hooks": set(),
+            "kamba_migrator": set(PRIVILEGIOS_DE_TABELA),
+            "public": set(),
+        },
+    }
+)
+
+#: O social do dono (KAM-121). As tres tabelas sao **so da aplicacao**: o AGR
+#: le, insere e muda por coluna como `kamba_app`; ninguem apaga (a purga e a
+#: do encerramento). Ver `COLUNAS_POR_PAPEL`.
+ESPERADO_POR_TABELA.update(
+    {
+        "brand_profile": {
+            "kamba_app": {"SELECT"},
+            "kamba_batch": set(),
+            "kamba_resolver": set(),
+            "kamba_identity": set(),
+            "kamba_audit": set(),
+            "kamba_agr": set(),
+            "kamba_pay_hooks": set(),
+            "kamba_migrator": set(PRIVILEGIOS_DE_TABELA),
+            "public": set(),
+        },
+        "content_calendar": {
+            "kamba_app": {"SELECT"},
+            "kamba_batch": set(),
+            "kamba_resolver": set(),
+            "kamba_identity": set(),
+            "kamba_audit": set(),
+            "kamba_agr": set(),
+            "kamba_pay_hooks": set(),
+            "kamba_migrator": set(PRIVILEGIOS_DE_TABELA),
+            "public": set(),
+        },
+        "content_items": {
             "kamba_app": {"SELECT"},
             "kamba_batch": set(),
             "kamba_resolver": set(),
@@ -2101,7 +2144,13 @@ COLUNAS_POR_PAPEL = {
         "last_human_activity_at",
         "last_inbound_at",
         "window_expires_at",
+        # KAM-202: o sinal do teste, que o CHR grava.
+        "teste_recebido_at",
     },
+    # KAM-202: a `v_draft_metrics` e `security_invoker` e passou a excluir a
+    # conversa de teste; quem a le como auditoria precisa destas tres, e so
+    # destas.
+    ("kamba_audit", "conversations", "SELECT"): {"tenant_id", "contact_id", "is_test"},
     # KAM-015. Cinco colunas, e sao as que o ciclo de vida muda depois de a
     # linha existir. **O que nao esta aqui e o que importa**: `tenant_id`,
     # `channel_id`, `contact_id`, `conversation_id`, `idempotency_key`, `kind`,
@@ -2581,6 +2630,31 @@ COLUNAS_POR_PAPEL = {
         "estado", "prazo", "contact_id", "antigo_hmac", "desafio_chave", "desafio_hmac",
         "desafio_expira_em", "desafio_tentativas", "decidido_at",
     },
+    # KAM-121 (revisao do social do dono). O perfil insere-se com os campos da
+    # conversa e muda-os, sem o `tenant_id` nem o `criado_at`. O calendario
+    # muda so de `estado`. O item insere-se sem a `legenda`, a arte nem o
+    # `estado`, e **nunca** muda o `is_ai_generated`, o tenant, as chaves nem
+    # as horas de criacao.
+    ("kamba_app", "brand_profile", "INSERT"): {
+        "tenant_id", "nome", "categoria", "tom", "cores", "publico", "slots_preferidos", "factos",
+        "versao",
+    },
+    ("kamba_app", "brand_profile", "UPDATE"): {
+        "nome", "categoria", "tom", "cores", "publico", "slots_preferidos", "factos",
+        "logo_asset_id", "versao", "atualizado_at",
+    },
+    ("kamba_app", "content_calendar", "INSERT"): {
+        "calendar_id", "tenant_id", "semana_iso", "geracao", "decisao", "versao_politica",
+    },
+    ("kamba_app", "content_calendar", "UPDATE"): {"estado"},
+    ("kamba_app", "content_items", "INSERT"): {
+        "content_item_id", "tenant_id", "calendar_id", "semana_iso", "tipo", "tema",
+        "agendado_at", "revisao_reforcada", "versao_politica",
+    },
+    ("kamba_app", "content_items", "UPDATE"): {
+        "legenda", "art_asset_id", "estado", "revisao_reforcada", "versao_politica", "versao",
+        "atualizado_at",
+    },
     ("kamba_app", "quote_requests", "INSERT"): {
         "tenant_id", "contact_id", "conversation_id", "sku", "quantidade",
     },
@@ -2712,6 +2786,11 @@ TABELAS_COM_MATRIZ_DE_COLUNA = (
     # trocar o numero depois de o codigo o ter provado.
     "agent_messages",
     "owner_phone_changes",
+    # KAM-121: as tres do social do dono tem `INSERT` e `UPDATE` por coluna. Um
+    # `GRANT UPDATE (is_ai_generated)` a mais deixava apagar a marca de IA.
+    "brand_profile",
+    "content_calendar",
+    "content_items",
     # KAM-054 (0032): as quatro. Duas tem privilegio por coluna — o
     # `payment_confirmers` (`papel`, `pode_segunda_aprovacao`, `ativo`) e a
     # `refund_cases` (`estado`, `prova_ref`, `fechado_at`) —, e as outras duas

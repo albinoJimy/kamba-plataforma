@@ -44,6 +44,8 @@
  * serve as métricas em `/metrics` e dá ao KAM-092 o gancho do `amostrar`.
  */
 
+import { AvancoComFalhasError } from "../provisioning/avanco.ts";
+
 import type { Feriados } from "./sla.ts";
 import { FERIADOS_POR_OMISSAO } from "./sla.ts";
 import {
@@ -85,7 +87,7 @@ export class EfeitosPorReaplicarEmMemoria implements EfeitosPorReaplicar {
 }
 
 /** Os passos de uma volta. É por estes nomes que uma falha se diz. */
-export const PASSOS_DO_CICLO = ["drenar", "alertar", "reaplicar", "aprovar", "medir"] as const;
+export const PASSOS_DO_CICLO = ["drenar", "alertar", "reaplicar", "aprovar", "provisionar", "medir"] as const;
 export type PassoDoCiclo = (typeof PASSOS_DO_CICLO)[number];
 
 export interface ResultadoDoCiclo {
@@ -96,6 +98,8 @@ export interface ResultadoDoCiclo {
   readonly porReaplicar: number;
   /** Onboardings que o varrimento aprovou nesta volta (KAM-201). */
   readonly aprovados: number;
+  /** Avanços do caso que o varrimento do provisionamento fez nesta volta (KAM-215). */
+  readonly provisionados: number;
   readonly falhas: readonly PassoDoCiclo[];
 }
 
@@ -115,6 +119,12 @@ export interface OpcoesDoCiclo {
    * reaplicação e devolve quantos aprovou. Sem ele, o passo não faz nada.
    */
   readonly aprovar?: (limite: number) => Promise<number>;
+  /**
+   * O varrimento do provisionamento (KAM-215, `varrerProvisionamentos`): corre
+   * depois das aprovações, para que um caso aprovado nesta volta avance na
+   * mesma, e devolve quantos avanços fez. Sem ele, o passo não faz nada.
+   */
+  readonly provisionar?: (limite: number) => Promise<number>;
 }
 
 export class CicloDaFila {
@@ -149,6 +159,7 @@ export class CicloDaFila {
     let reaplicados = 0;
     let porReaplicar = 0;
     let aprovados = 0;
+    let provisionados = 0;
     try {
       entraram = await this.#o.servico.drenarTriagem(limite);
     } catch {
@@ -196,12 +207,18 @@ export class CicloDaFila {
       falhas.push("aprovar");
     }
     try {
+      if (this.#o.provisionar !== undefined) provisionados = await this.#o.provisionar(limite);
+    } catch (erro) {
+      if (erro instanceof AvancoComFalhasError) provisionados = erro.avancados;
+      falhas.push("provisionar");
+    }
+    try {
       const [vista, contadores] = await Promise.all([this.#o.leitor.vista(), this.#o.leitor.contadores()]);
       this.metricas.actualizar(vista, contadores, this.#o.feriados ?? FERIADOS_POR_OMISSAO);
     } catch {
       falhas.push("medir");
     }
-    return { entraram, alertas, reaplicados, porReaplicar, aprovados, falhas };
+    return { entraram, alertas, reaplicados, porReaplicar, aprovados, provisionados, falhas };
   }
 
   /** Marca um caso cujo efeito falhou depois de ele fechar. */

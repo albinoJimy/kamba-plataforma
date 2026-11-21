@@ -40,7 +40,7 @@ test("a regra: so os quatro estados em que o dono age, e todos sao estados da po
 
 test("a mascara mostra os tres ultimos digitos e nada do resto, nem o comprimento", () => {
   assert.equal(mascarar("+244 999 000 789"), "••• ••• 789");
-  assert.equal(mascarar("244999000789"), "••• ••• 789");
+  assert.equal(mascarar("+244-999-000-789"), "••• ••• 789");
   assert.equal(mascarar("999000789"), "••• ••• 789");
   for (const t of ["+244 999 000 789", "999000789"]) {
     const m = mascarar(t) ?? "";

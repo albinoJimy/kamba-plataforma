@@ -239,7 +239,9 @@ const transaccaoDeTenant: ComTenant = async (tenantId, trabalho) => {
 /**
  * O leitor de contactos (KAM-206), **só com a ligação do `kamba_identity`**. As
  * chaves são as do `EnvKeyProvider`, como no `onboarding-web` e no CHR, e o
- * `Identidade.arrancar` recusa-as se o `KAMBA_ENV` não for este ambiente.
+ * `Identidade.arrancar` recusa-as se o `KAMBA_ENV` não for este ambiente. O COM
+ * só chama o `lerEndpoints`, e por isso arranca com `soLeEndpoints`: em `prod`
+ * confere-se só a KEK, e o *pepper* do HMAC não lhe tem de chegar (KAM-227).
  */
 async function montarContactos(): Promise<LeitorDeContactos | null> {
   if (urlDaIdentidade === null) {
@@ -248,13 +250,13 @@ async function montarContactos(): Promise<LeitorDeContactos | null> {
   }
   let identidade: Identidade;
   try {
-    identidade = await Identidade.arrancar({ chaves: new EnvKeyProvider({ ambiente }) });
+    identidade = await Identidade.arrancar({ chaves: new EnvKeyProvider({ ambiente }), soLeEndpoints: true });
   } catch (erro) {
     // **O contacto cai, e o COM não.** Em `prod` o `Identidade.arrancar` recusa
-    // as chaves de ambiente (`exigirKeyProviderDeCofre`, critério 9 do
-    // KAM-008) até o cofre de `prod` existir (ADR-L002, KAM-227): sair aqui
-    // derrubava a saga do dinheiro por causa de uma rota de leitura do painel.
-    // Fica registado, e o contacto responde `UPSTREAM_DOWN`.
+    // sem a KEK das DEK (critério 9 do KAM-008, emendado a 2026-11-20), e o
+    // `KAMBA_ENV` errado recusa em qualquer ambiente: sair aqui derrubava a saga
+    // do dinheiro por causa de uma rota de leitura do painel. Fica registado, e
+    // o contacto responde `UPSTREAM_DOWN`.
     log.excepcao(erro, "contacto_da_encomenda_sem_chaves");
     return null;
   }

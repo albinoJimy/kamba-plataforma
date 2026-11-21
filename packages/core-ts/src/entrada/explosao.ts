@@ -41,6 +41,7 @@
 
 import { createHash } from "node:crypto";
 
+import { eMensagemDeTeste } from "../activacao/smoke.ts";
 import {
   CAMPO_DAS_MENSAGENS,
   FORMA_DO_BOTAO,
@@ -150,6 +151,14 @@ export interface EventoDeEntrada {
    * é texto que o cliente vê, e o `id` é o que nós emitimos.
    */
   readonly botao?: string;
+  /**
+   * `true` numa `message` de texto cujo corpo é a palavra do teste ponta a ponta
+   * (KAM-202, critério 1): o sinal que o observador do teste lê, gravado pelo CHR
+   * como o instante `conversations.teste_recebido_at`. **Ausente** em tudo o
+   * resto. É um booleano e mais nada: o texto da mensagem não sai daqui, e o
+   * telefone também não (ADR-010).
+   */
+  readonly eTeste?: true;
 }
 
 /** Um evento que não se conseguiu encaminhar, a registar em `unrouted_events`. */
@@ -420,6 +429,9 @@ function explodirMensagens(
     if (mensagem === null) continue;
     const wamid = texto(mensagem.id, EVENT_KEY_MAXIMO);
     const botao = botaoDaResposta(mensagem);
+    // KAM-202: só um texto, e só a palavra do teste. O corpo compara-se aqui e
+    // não segue.
+    const eTeste = mensagem.type === "text" && eMensagemDeTeste(objecto(mensagem.text)?.body);
     eventos.push({
       kind: "message",
       eventKey: wamid ?? resumoCanonico("message", wabaId, mensagem),
@@ -435,6 +447,7 @@ function explodirMensagens(
         telefone: texto(mensagem.from, ID_META_MAXIMO),
       },
       ...(botao === null ? {} : { botao }),
+      ...(eTeste ? { eTeste: true as const } : {}),
     });
     quantos += 1;
   }

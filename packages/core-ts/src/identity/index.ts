@@ -18,12 +18,12 @@
 
 export {
   AmbienteDeIdentidadeError,
+  ChavesDeIdentidadeEmFaltaError,
   ChaveDesconhecidaError,
   ChaveMalFormadaError,
   EmbrulhoInvalidoError,
   EnvKeyProvider,
   EpocaInvalidaError,
-  KeyProviderDeAmbienteError,
   OCTETOS_DE_CHAVE,
   REF_CHAVE_DE_EPOCA,
   REF_CHAVE_DE_PESQUISA,
@@ -32,11 +32,13 @@ export {
   VARIAVEL_DE_AMBIENTE,
   epocaDe,
   epocaValida,
-  exigirKeyProviderDeCofre,
+  exigirAmbienteDoKeyProvider,
+  exigirChavesNoArranque,
   gerarChaveVersionada,
   kidValido,
 } from "./chaves.ts";
 export type {
+  ChaveDoArranque,
   DekEmbrulhada,
   EnvKeyProviderOpcoes,
   KeyProvider,

@@ -19,7 +19,8 @@ destinos:
     razao: >-
       Graph API da Meta. O `docs/tecnica/09` §3.2 regra 2 nomeia este FQDN como
       conteudo da allowlist do proxy de saida, e o ADR-001 faz do GWY o unico
-      servico que fala com a Meta — logo o dono do destino nao e ambiguo.
+      endpoint de *webhook* da Meta. Desde o KAM-227 o `worker-canal-consumidor`
+      declara o mesmo destino, para o envio do Outbound.
       Entra com o KAM-076 porque e o ticket que aplica a allowlist na rede, e
       o criterio 3 dele exige que **este** destino passe de `app`. O GWY de
       hoje ainda nao abre a ligacao (recebe webhooks, nao envia): o envio vem

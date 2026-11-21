@@ -480,6 +480,14 @@ POLITICA: Final[tuple[Classe, ...]] = (
             # numeracao fiscal (nao e factura). Vivem com a relacao e saem no
             # encerramento.
             _t("platform.quote_requests", pendencia=_RELACAO),
+            # KAM-121 (revisao do social do dono). O perfil de marca, o
+            # calendario semanal e os itens dele: o que a loja diz de si e o
+            # que o modulo `social` lhe propoe publicar. Nenhuma coluna de
+            # pessoa; os factos sao do dono, sobre a loja. Vivem com a
+            # relacao e saem no encerramento.
+            _t("platform.brand_profile", pendencia=_RELACAO),
+            _t("platform.content_calendar", pendencia=_RELACAO),
+            _t("platform.content_items", pendencia=_RELACAO),
             _t("platform.handoff_accounts", pendencia=_RELACAO),
             _t("platform.channel_onboarding", pendencia=_RELACAO),
             _t("platform.channel_coexistence", pendencia=_RELACAO),

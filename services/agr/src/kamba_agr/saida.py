@@ -38,9 +38,19 @@ chave e a mesma, e o `INSERT` nao insere: a resposta sai uma vez.
 ## Uma ligacao por envio
 
 Pela razao da `PortaDeConfirmacao` do KAM-211: o `tenant_guard` recusa uma
-segunda transaccao na mesma ligacao, e uma tomada guardada pedia um trinco. O
-`enfileirar` e **sincrono** (a `PortaDeSaida` do grafo e sincrona desde o
-KAM-031) e corre a ida a base dentro do no, como a ToolLayer.
+segunda transaccao na mesma ligacao, e uma tomada guardada pedia um trinco.
+
+**A ida a base corre fora da *event loop*** (KAM-227). A `PortaDeSaida` do grafo
+e `async`, os tres nos que enviam (`send`, `handoff_prepare`, `handoff_close`)
+fazem `await`, e o `enfileirar` passa a ligacao, as duas instrucoes e o `COMMIT`
+a uma *thread* com o `asyncio.to_thread` — a travessia do `conversa.py` e do
+`checkpointer.py`. Uma base lenta atrasa o turno que envia e nao os outros. O
+`emitir_resposta` continua sincrono: e o corpo que corre na *thread*.
+
+Um cancelamento a meio nao corta a *thread* (o `to_thread` nao cancela), mas
+nao ha nada partilhado a proteger: a ligacao e so deste envio, e a *thread*
+fecha-a. Se o `COMMIT` chegou, o turno repete-se com a mesma chave e o `INSERT`
+nao insere.
 
 ## O inicio do turno
 
@@ -53,6 +63,7 @@ vale o instante do envio, que e quando a retoma comecou a responder.
 
 from __future__ import annotations
 
+import asyncio
 import contextvars
 import datetime
 import json
@@ -108,6 +119,14 @@ TITULOS: Final = {
     "menu:pedido": "O meu pedido",
     "menu:loja": "Horario e morada",
     "menu:humano": "Falar com um colega",
+    # O modulo social do dono (KAM-121, `social/regras.py`): os tres tons do
+    # perfil e as duas accoes do calendario. Os titulos dos tons sao os
+    # `TITULO_DO_TOM`, e um ensaio confronta-os.
+    "tom:proximo": "Proximo e caloroso",
+    "tom:profissional": "Profissional",
+    "tom:divertido": "Divertido",
+    "social:ideias": "Ver as ideias",
+    "social:nova": "Outras ideias",
 }
 
 #: Os botoes de confirmacao levam a referencia no `id` (`confirm:{cart_id}`,
@@ -131,7 +150,14 @@ TITULOS_POR_PREFIXO: Final = {
     "stock_corrigir:": "Corrigir",
     "mesmo_produto:": "Sim, e o mesmo",
     "outro_produto:": "Nao, e outro",
+    # KAM-121: a legenda de um item do calendario, pela referencia `SOC-…`. O
+    # titulo leva a referencia (`titulo_do_botao`); este e o de reserva.
+    "legenda:": "Escrever a legenda",
 }
+
+#: O prefixo do botao de legenda do social (o `PREFIXO_DA_LEGENDA` de
+#: `social/regras.py`, que um ensaio confronta).
+PREFIXO_DA_LEGENDA: Final = "legenda:"
 
 
 def titulo_do_botao(identificador: str) -> str:
@@ -151,6 +177,14 @@ def titulo_do_botao(identificador: str) -> str:
         return TITULO_DE_CONFIRMACAO
     if identificador.startswith(PREFIXO_DO_ACEITO) and len(identificador) > len(PREFIXO_DO_ACEITO):
         return TITULO_DO_ACEITO
+    if identificador.startswith(PREFIXO_DA_LEGENDA):
+        # KAM-121: os botoes de legenda saem dois a dois, e com o mesmo titulo o
+        # dono nao sabia qual era a de cada ideia (achado M4 da revisao). A
+        # referencia `SOC-` e oito letras: «Legenda SOC-ABCDEFGH» tem vinte.
+        referencia = identificador[len(PREFIXO_DA_LEGENDA) :]
+        titulo = f"Legenda {referencia}"
+        if referencia and len(titulo) <= MAXIMO_DO_TITULO:
+            return titulo
     for prefixo, titulo_do_prefixo in TITULOS_POR_PREFIXO.items():
         if identificador.startswith(prefixo) and len(identificador) > len(prefixo):
             return titulo_do_prefixo
@@ -425,7 +459,7 @@ class SaidaPorEvento:
         self._relogio = relogio
         self._aviso = aviso
 
-    def enfileirar(
+    async def enfileirar(
         self,
         estado: Mapping[str, Any],
         texto: str,
@@ -433,21 +467,39 @@ class SaidaPorEvento:
         chave: str,
         botoes: Sequence[str] = (),
     ) -> None:
-        # shortcut: a ligacao, as duas instrucoes e o COMMIT correm na event loop,
-        # porque a `PortaDeSaida` do grafo e sincrona e os nos chamam-na sem
-        # `await`; com a base lenta, o processo para. Passar a porta a `async`
-        # (com `asyncio.to_thread`, como a `PortaDeConfirmacao`) muda os tres
-        # nos e os duplos; revê-se no KAM-227, antes de o `outbound` arrancar.
+        # O inicio e o canal leem-se aqui, na tarefa do no: o `to_thread` copia
+        # o contexto, mas o `INICIO_DO_TURNO` fica lido onde o turno o pos, e a
+        # *thread* recebe valores e nao um `ContextVar`.
         inicio = INICIO_DO_TURNO.get() or self._relogio()
+        canal = self._canal_de(estado)
+        reply_id = await asyncio.to_thread(
+            self._gravar, estado, texto, chave, tuple(botoes), canal, inicio
+        )
+        if reply_id is None and self._aviso is not None:
+            # Uma repeticao nao e erro: e o turno a voltar sobre a mesma chave.
+            # Conta-se para se ver quantas vezes o *shim* repete um turno que ja
+            # tinha respondido.
+            self._aviso("resposta_repetida")
+
+    def _gravar(
+        self,
+        estado: Mapping[str, Any],
+        texto: str,
+        chave: str,
+        botoes: Sequence[str],
+        canal: str,
+        inicio: datetime.datetime,
+    ) -> str | None:
+        """O corpo sincrono do envio, na *thread*: abre, grava e emite, fecha."""
         ligacao = self._abrir()
         try:
-            reply_id = emitir_resposta(
+            return emitir_resposta(
                 ligacao,
                 estado,
                 texto,
                 chave=chave,
                 botoes=botoes,
-                canal=self._canal_de(estado),
+                canal=canal,
                 turno_iniciado_em=inicio,
             )
         finally:
@@ -455,11 +507,6 @@ class SaidaPorEvento:
                 ligacao.close()
             except Exception:  # noqa: BLE001 — a resposta ja ficou ou ja falhou
                 pass
-        if reply_id is None and self._aviso is not None:
-            # Uma repeticao nao e erro: e o turno a voltar sobre a mesma chave.
-            # Conta-se para se ver quantas vezes o *shim* repete um turno que ja
-            # tinha respondido.
-            self._aviso("resposta_repetida")
 
 
 __all__ = [

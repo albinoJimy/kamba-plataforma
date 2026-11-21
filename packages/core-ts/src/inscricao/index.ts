@@ -167,6 +167,26 @@ export { OtpPorSmsLocal, OtpPorWhatsApp, type OpcoesDeSmsLocal } from "./provedo
 export { REFERENCIAS, REF_ASSINATURA, REF_PEPPER } from "./refs.ts";
 
 export {
+  CAMPO_DO_TELEFONE,
+  KekDoTelefoneInvalidaError,
+  REF_KEK_DO_TELEFONE,
+  SQL_TELEFONE_DO_CASO,
+  TelefoneCifradoInvalidoError,
+  TelefoneDoCasoEmClaro,
+  anelDoTelefone,
+  cifrarTelefoneDoCaso,
+  colunasDoTelefone,
+  contextoDoTelefone,
+  decifrarTelefoneDoCaso,
+  lerAnelDoTelefone,
+  lerTelefoneDoCaso,
+  type AnelDoTelefone,
+  type CasoDoTelefone,
+  type ColunasDoTelefone,
+  type LigacaoDeLeitura,
+} from "./telefone_do_caso.ts";
+
+export {
   CODIGOS,
   ESTADO_HTTP,
   Registo,

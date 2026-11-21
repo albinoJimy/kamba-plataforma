@@ -854,6 +854,8 @@ test("KAM-222: o screen recebe o tenant do cabecalho e o pedido do corpo", async
         sujeito_tipo: "condicoes",
         sujeito_ref: ORDER,
         textos: ["entrega combinada consigo"],
+        finalidade: "classificacao_de_condicoes",
+        prazo_ms: 6_000,
         // Um tenant no corpo não desloca o `ctx`.
         tenant_id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
       },
@@ -874,6 +876,8 @@ test("KAM-222: o screen recebe o tenant do cabecalho e o pedido do corpo", async
         sujeitoRef: ORDER,
         categoriaDeclarada: null,
         textos: ["entrega combinada consigo"],
+        finalidade: "classificacao_de_condicoes",
+        prazoMs: 6_000,
       },
     },
   ]);
@@ -882,7 +886,13 @@ test("KAM-222: o screen recebe o tenant do cabecalho e o pedido do corpo", async
 test("KAM-222: um corpo de screen que nao valida da 400, e o screen nao corre", async () => {
   const { aplicacao, chamadas } = app();
   // O sujeito aceite decide-o a operação (`screening.test.ts`); aqui, só a forma.
-  const bom = { sujeito_tipo: "condicoes", sujeito_ref: ORDER, textos: ["x"] };
+  const bom = {
+    sujeito_tipo: "condicoes",
+    sujeito_ref: ORDER,
+    textos: ["x"],
+    finalidade: "classificacao_de_condicoes",
+    prazo_ms: 6_000,
+  };
   const maus: Record<string, unknown>[] = [
     { ...bom, sujeito_tipo: "" },
     { ...bom, sujeito_tipo: 7 },
@@ -894,6 +904,16 @@ test("KAM-222: um corpo de screen que nao valida da 400, e o screen nao corre", 
     { ...bom, textos: "x" },
     { ...bom, textos: ["x", 1] },
     { ...bom, textos: Array.from({ length: 51 }, () => "x") },
+    // KAM-230: a finalidade e o prazo, obrigatórios. Que a finalidade seja a
+    // do sujeito decide-o a operação; aqui, só a forma.
+    { ...bom, finalidade: undefined },
+    { ...bom, finalidade: "" },
+    { ...bom, finalidade: 7 },
+    { ...bom, prazo_ms: undefined },
+    { ...bom, prazo_ms: 0 },
+    { ...bom, prazo_ms: 1.5 },
+    { ...bom, prazo_ms: "6000" },
+    { ...bom, prazo_ms: 20_001 },
   ];
   for (const corpo of maus) {
     const r = await aplicacao.fetch(pedido("/internal/screen", { ...CTX_DO_CORPO, ...corpo }, BONS));
@@ -910,7 +930,18 @@ test("KAM-222: um screen que falha sai 503 com o codigo, e nao 200", async () =>
     credencial: CREDENCIAL,
   });
   const r = await aplicacao.fetch(
-    pedido("/internal/screen", { ...CTX_DO_CORPO, sujeito_tipo: "condicoes", sujeito_ref: ORDER, textos: ["x"] }, BONS),
+    pedido(
+      "/internal/screen",
+      {
+        ...CTX_DO_CORPO,
+        sujeito_tipo: "condicoes",
+        sujeito_ref: ORDER,
+        textos: ["x"],
+        finalidade: "classificacao_de_condicoes",
+        prazo_ms: 6_000,
+      },
+      BONS,
+    ),
   );
   assert.equal(r.status, 503);
   assert.deepEqual(await r.json(), { tipo: "erro", erro: "UPSTREAM_DOWN" });
@@ -924,6 +955,8 @@ function corpoDeScreenCom(octetos: number): string {
     ...CTX_DO_CORPO,
     sujeito_tipo: "produto",
     sujeito_ref: "vestido-01",
+    finalidade: "classificacao_de_catalogo",
+    prazo_ms: 10_000,
     // «é» tem dois octetos em UTF-8: o tecto mede-se em octetos.
     textos: Array.from({ length: 24 }, () => "\u00e9".repeat(Math.floor(octetos / 48))),
   });

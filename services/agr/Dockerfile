@@ -50,6 +50,12 @@ COPY services/agr/src services/agr/src
 # um `COPY` esquecido aqui nao e um defeito silencioso — e um contentor que nao
 # arranca. Continua a ser `COPY` selectivo e nunca `COPY . .` (ADR-L001 §11).
 COPY registry registry
+# O lexicon de marcadores pt-BR e a politica de alegacoes das legendas do modulo
+# social (KAM-121). Leem-se quando se gera uma legenda, e nao no arranque: um
+# ficheiro em falta recusa a legenda (`politica_indisponivel`). So as duas
+# pastas que o AGR le — a de categorias e do COM, pelo modulo gerado.
+COPY policy/lexico policy/lexico
+COPY policy/alegacoes policy/alegacoes
 # `nobody` existe na imagem base; nao se cria utilizador para nao fixar um UID
 # que a infraestrutura do KAM-075 possa querer escolher.
 USER nobody

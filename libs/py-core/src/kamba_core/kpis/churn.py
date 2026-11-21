@@ -143,10 +143,12 @@ SQL_TRANCAR_EPISODIO: Final = """
 """
 
 #: A guarda do criterio 5, outra vez, dentro da transaccao que zera: mensagens
-#: de clientes **na janela**, entre o inicio dela e agora.
+#: de clientes **na janela**, entre o inicio dela e agora. **Sem a conversa de
+#: teste** (KAM-202, decisao do fundador de 2026-11-20): o «teste» da activacao
+#: e o dono a escrever a loja, e nao um cliente.
 SQL_CLIENTES_NA_JANELA: Final = """
   SELECT EXISTS (SELECT 1 FROM platform.conversations c
-                  WHERE c.tenant_id = %s
+                  WHERE c.tenant_id = %s AND NOT c.is_test
                     AND c.last_inbound_at > %s AND c.last_inbound_at <= %s)
 """
 
