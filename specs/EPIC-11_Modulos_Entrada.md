@@ -4,7 +4,7 @@
 |---|---|
 | Produto | KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para Angola |
 | Documento | Epic — Módulos de Entrada |
-| Versão | 1.28 |
+| Versão | 1.29 |
 | Data | Novembro de 2026 |
 | Classificação | Documento de Referência — Interno |
 | Documento-fonte | `../docs/tecnica/00_Arquitectura_Solucao.md` (ADR-020, §13.3 D13), `../docs/tecnica/02_Agent_Runtime_Verticais.md` (§21), `../docs/exploracao/14-tese-minima-e-plano-de-validacao.md` (H10–H12) |
@@ -70,6 +70,7 @@ Estado da evidência (E5): **CONFIRMADO** — preços e termos publicados dos fo
 | KAM-231 | Catálogo do dono: a foto real — a média no `agent_invocation`, a fonte, o descodificador e a visão | feature | L | P1 | KAM-119, KAM-020, KAM-030 |
 | KAM-232 | Entrada do AGR: o texto do cliente do WhatsApp na fonte persistida e o `message_id` na invocação | feature | M | P1 | KAM-223 |
 | KAM-234 | O id da oferta do orçamento expresso leva dígitos que a guarda de entrada redige quando o toque chega pela janela | fix | S | P2 | KAM-220 |
+| KAM-237 | Canal do dono: o consumidor `dono` no *compose* de produção, com o pico de memória medido e um limite que caiba no orçamento | feature | S | P1 | KAM-215 |
 
 ---
 
@@ -1517,7 +1518,7 @@ Uma revisão independente, que recebeu o diff e os critérios e não o raciocín
 | Prioridade | P1 |
 | Estimativa | L |
 | Dependências | KAM-211 |
-| Bloqueia | — |
+| Bloqueia | KAM-237 |
 | Responsável sugerido | Engenheiro de Plataforma (TEN, EVT) com Responsável de Segurança |
 | Documentos de referência | `EPIC-11_Modulos_Entrada.md` (blocos KAM-118 e KAM-211, critério «Provisionamento»), `EPIC-09_Onboarding_Governanca.md` (blocos KAM-086, KAM-091 e KAM-092), `02_Dicionario_de_Dados_Canonico.md` (§3.70 e §3.78), `../ops/secrets-inventory.yaml` |
 
@@ -1580,7 +1581,7 @@ Testes: integração contra a base, isolamento e adversarial.
 - **O escritor são as duas colunas do `INSERT`** (`colunasDoTelefone`): o `kamba_app` só tem `INSERT` no `phone_enc` e no `phone_hmac`, pelo que o telefone de um caso se escreve uma vez, ao criá-lo, com o `id` e o `tenant_id` pré-alocados. **O adaptador SQL do `RepositorioDeCasos` continua por escrever** (KAM-086; o **KAM-236**, credor do KAM-202, põe o `onboarding-web` sobre a base): o `onboarding-web` corre sobre memória e recusa `prod`, e o escritor existe para quando ele chegar — o ensaio contra a base escreve o caso por ele, como `kamba_app`.
 - **O telefone lê-se pela ligação do consumo**, e não por uma terceira: a porta `TelefoneDoCaso` recebe a ligação `kamba_app` que o `consumir` abriu com o `app.tenant_id` do envelope. Um `onboarding_id` de outro tenant dá zero linhas e vai à DLQ. O telefone decifrado é opaco (`TelefoneDoCasoEmClaro`) e não tem HMAC: o consumidor não recebe o *pepper* da inscrição, e o `resolveContact` cunha o do contacto com a chave dele.
 - **O consumidor é um processo próprio, e não o lote** (`../services/onboarding-web/src/provisionamento.ts`, `onboarding-provisionamento`): a decisão do fundador dá a KEK ao consumidor `dono`, e o lote corre como `kamba_batch`, que lia o `phone_enc` de qualquer tenant. O efeito é o `provisionamentoPelaBase` de `../packages/core-ts/src/dono/sql.ts`, a mesma montagem que o ensaio contra a base corre. O registo é o `../registry/dono_provisionamento.yaml` (quarta forma, `consumidor: dono`): o `registry/dono.yaml` é a persona.
-- **No *compose* de `dev` e de `staging`, e não no de `prod`, pelo orçamento de memória.** Escrito primeiro assim porque o `Identidade.arrancar` recusava o `EnvKeyProvider` em `prod`. Essa recusa saiu com a decisão do fundador de 2026-11-20 (ADR-L002; critério 9 do KAM-008 emendado, bloco do KAM-227), e o processo arranca em `prod` com as três chaves. **O que o deixa de fora é a memória:** um serviço novo no *compose* de `prod` passa pelo `../infra/compose/conjunto-reduzido.yaml`, cuja soma o critério 4 do KAM-076 limita a 80% da RAM do *host*, e, medido na `main` em `d790a9be`, sobram **102 MiB**; o processo pede os 128 MiB do `onboarding-lote` (dezasseis *workers* BullMQ). Caber com menos, ou mexer no tecto, é decisão do fundador sobre o orçamento, e não deste ticket. O emissor (o lote) já corre em `prod`; o consumidor fica pronto para entrar.
+- **No *compose* de `dev` e de `staging`, e não no de `prod`, pelo orçamento de memória.** Escrito primeiro assim porque o `Identidade.arrancar` recusava o `EnvKeyProvider` em `prod`. Essa recusa saiu com a decisão do fundador de 2026-11-20 (ADR-L002; critério 9 do KAM-008 emendado, bloco do KAM-227), e o processo arranca em `prod` com as três chaves. **O que o deixa de fora é a memória:** um serviço novo no *compose* de `prod` passa pelo `../infra/compose/conjunto-reduzido.yaml`, cuja soma o critério 4 do KAM-076 limita a 80% da RAM do *host*, e, medido na `main` em `d790a9be`, sobram **102 MiB**; o processo pede os 128 MiB do `onboarding-lote` (dezasseis *workers* BullMQ). Caber com menos, ou mexer no tecto, é decisão do fundador sobre o orçamento, e não deste ticket. O emissor (o lote) já corre em `prod`; o consumidor fica pronto para entrar. **Decidido pelo fundador a 2026-11-21** (opção A; bloco do **KAM-237**): o consumidor fica fora do *compose* de `prod` por agora, e o KAM-237 é o credor que o põe lá depois de medir o pico de memória dele. Recusados: baixar-lhe o limite sem medição (B) e mexer no tecto (C).
 
 ### Verificação dos Critérios de Aceitação
 
@@ -3165,6 +3166,67 @@ Testes: os dois ensaios deterministas e a suite services/agr/tests.
 ```
 
 
+## KAM-237 — Canal do dono: o consumidor `dono` no *compose* de produção, com o pico de memória medido e um limite que caiba no orçamento
+
+| Campo | Valor |
+|---|---|
+| Epic | EPIC-11 — Módulos de Entrada |
+| Fase | 1 |
+| Tipo | feature |
+| Prioridade | P1 |
+| Estimativa | S |
+| Dependências | KAM-215 |
+| Bloqueia | — |
+| Responsável sugerido | Engenheiro de Plataforma (SRE) |
+| Documentos de referência | `EPIC-11_Modulos_Entrada.md` (bloco KAM-215, decisões do executor), `EPIC-08_Topologia_Operacao.md` (bloco KAM-076, critério 4), `../infra/compose/docker-compose.prod.yml`, `../infra/compose/conjunto-reduzido.yaml`, `../services/onboarding-web/src/provisionamento/processo.ts` |
+
+### Contexto
+
+Credor do KAM-215, aberto no PR do KAM-236 por decisão do fundador de 2026-11-21. O processo do consumidor `dono` (`onboarding-provisionamento`) arranca em `prod` e está no *compose* de `dev` e de `staging`, mas **não no de `prod`**: um serviço novo no *compose* de `prod` passa pelo `../infra/compose/conjunto-reduzido.yaml`, cuja soma o critério 4 do KAM-076 limita a 80% da RAM do *host*. A folga medida pelo KAM-215 (na `main` em `d790a9be`) é de **102 MiB**, e o processo pede os 128 MiB do `onboarding-lote`, um limite herdado e não medido para este processo. Sem ele em `prod`, o `tenant.provisioned` que o lote emite não tem consumidor, e o contacto `dono` não nasce.
+
+### Objectivo
+
+Que o consumidor `dono` corra em `prod` com um limite de memória medido, dentro do orçamento que o tecto já dá.
+
+### Critérios de Aceitação
+
+- [ ] O pico real de memória do `onboarding-provisionamento` está medido, com o método, a carga e o número escritos num anexo de evidência do ticket, em `../docs/evidencia/`.
+- [ ] Com o pico medido, há uma proposta de `mem_limit` que caiba na folga do conjunto reduzido **sem tocar no tecto nem no limite de outro processo**. Se não couber, a proposta volta ao fundador com o número, e esta caixa fica por marcar.
+- [ ] Com a proposta aceite, o processo entra no `../infra/compose/docker-compose.prod.yml` e no `../infra/compose/conjunto-reduzido.yaml`, e a suite do *compose* de produção continua verde, com a soma abaixo dos 80%.
+
+### Detalhes Técnicos
+
+- O limite de hoje (128 MiB) é o do `onboarding-lote`, que corre dezasseis *workers* BullMQ; o consumidor `dono` corre um só consumidor, e o número dele mede-se, não se infere.
+- **O tecto não se mexe aqui**, e o limite dos outros processos também não: os dois foram recusados pelo fundador (abaixo).
+
+### Decisão do fundador
+
+**Data: 2026-11-21. Autor: o fundador (decisão transmitida pela coordenação do lote 17).** A pergunta foi deixada em aberto pelo KAM-215: o consumidor `dono` cabe ou não no orçamento de memória de `prod`.
+
+- **Escolhida — A:** o processo do consumidor `dono` fica fora do *compose* de `prod` por agora, e este ticket põe-no lá depois de lhe medir o pico de memória. A razão: o conjunto reduzido tem cerca de 102 MiB de folga até aos 80%, e o processo pede 128 MiB.
+- **Recusada — B:** baixar-lhe o limite sem medição.
+- **Recusada — C:** mexer no tecto.
+
+### Testes Requeridos
+
+- Medição: o pico de memória do processo sob uma rajada de `tenant.provisioned`, com o método escrito.
+- Integração: a suite do *compose* de produção (`tools/compose_prod`) com o serviço novo.
+
+### Definition of Done
+
+- [ ] Critérios de Aceitação satisfeitos; a nota do KAM-215 sobre o *compose* de `prod` revista com a evidência.
+- [ ] Nenhum segredo no *compose*; `make up && make smoke` verde.
+
+### Handoff para Claude Code
+
+```text
+És o executor do ticket KAM-237 da KAMBÁ (o consumidor dono no compose de produção).
+Lê specs/EPIC-11_Modulos_Entrada.md (blocos KAM-215 e KAM-237), infra/compose/conjunto-reduzido.yaml
+e services/onboarding-web/src/provisionamento/processo.ts.
+Objectivo: medir o pico de memória do consumidor dono e propor o limite que caiba na folga.
+Regras: não mexer no tecto nem no limite de outro processo; se não couber, devolve ao fundador.
+```
+
 ---
 
 ## Riscos do Epic e itens NÃO VERIFICADOS
@@ -3234,3 +3296,4 @@ Testes: os dois ensaios deterministas e a suite services/agr/tests.
 | 1.26 | Novembro 2026 | **KAM-121 entregue em parte: o módulo `social` do dono.** Revisão `0079` (sobre a `0078` do KAM-230): o perfil de marca, o calendário semanal e os itens, o sujeito `conteudo` do screening e a finalidade `classificacao_de_conteudo`. Emenda 1.129 do dicionário (§3.82, nova), escrita como 1.125 e renumerada na integração, depois do KAM-223, do KAM-226, do KAM-218 e do KAM-230; e esta linha, escrita como 1.25, renumerada depois do KAM-234. Bloco do KAM-121: as três decisões do fundador de 2026-11-20 (A nas três) e a de 2026-11-21 (a finalidade própria `classificacao_de_conteudo`; recusada a reutilização da `classificacao_de_catalogo`), as decisões do executor, a verificação dos critérios (três marcados, cinco parciais, um não satisfeito, todos com credor), da DoD e da revisão adversarial. | Equipa KAMBÁ |
 | 1.27 | Novembro 2026 | **KAM-215 entregue: o dono nasce do provisionamento.** Escrita como 1.22 e renumerada na integração, depois do KAM-226, do KAM-227, do KAM-230, do KAM-234 e do KAM-121. Emenda 1.131 do dicionário (escrita como 1.126, renumerada depois do KAM-226, do KAM-218, do KAM-230, do KAM-121 e do KAM-202); a revisão `0081` (a subscrição do consumidor `dono`), sobre a `0080` do KAM-202. Bloco do KAM-215: a decisão do fundador de 2026-11-20 (KEK própria para o `phone_enc`), as decisões do executor (o processo do consumidor fora do *compose* de `prod` pelo orçamento de memória do conjunto reduzido, e não pelo arranque, depois do KAM-227) e as três secções de verificação, com **os quatro critérios e as duas caixas da DoD marcados**. Revistos com a evidência e marcados: o critério «Provisionamento» do KAM-211 e a caixa 3 do KAM-118. Número **provisório**: renumera-se na integração | Equipa KAMBÁ |
 | 1.28 | Novembro 2026 | **KAM-232 entregue: o texto do cliente do WhatsApp na fonte persistida.** Revisão `0083` (só o `GRANT INSERT (message_id)` ao `kamba_app`, sobre a `0082` do KAM-206) e emenda 1.133 do dicionário (§3.81 e §3.12), escrita como 1.126; esta linha, escrita como 1.22, renumerada na integração, depois do KAM-226, do KAM-227, do KAM-230, do KAM-234, do KAM-121 e do KAM-215, e a emenda depois do KAM-226, do KAM-218, do KAM-230, do KAM-121, do KAM-202, do KAM-215 e do KAM-206. Bloco do KAM-232: duas decisões do fundador de 2026-11-20 (a linha da `agent_messages` em claro 90 dias, opção A, como excepção escrita à letra do critério 2 do KAM-033; o corpo da `wa-inbound` com prazo de 24 h, opção B), as decisões do executor (o texto num campo do evento, a gravação só quando a mensagem vai ao AGR e antes de entregar, o `message_id` determinístico, o prazo no adaptador da fila, o que fica para o KAM-231) e a verificação: os três critérios marcados, o 1 contra a base com a `0083`, e as duas caixas da DoD. O critério 1 do KAM-223 marcado com a evidência do WhatsApp, e revistos o critério 3 do KAM-123 e o 3 do KAM-220. O piso do `lint_bloco` sobe para 86. | Equipa KAMBÁ |
+| 1.29 | Novembro 2026 | **KAM-237** acrescentado, no PR do **KAM-236** (EPIC-09): o consumidor `dono` no *compose* de `prod`, credor da pergunta que o KAM-215 deixou ao fundador. **A decisão do fundador de 2026-11-21** (opção A: fica de fora até se lhe medir o pico de memória; recusadas B, baixar o limite sem medição, e C, mexer no tecto) fica no bloco do KAM-237, e a nota do KAM-215 aponta para ele. O `Bloqueia` do KAM-215 ganha o KAM-237. Contagem: **27** tickets no epic. Número *provisório*, acertado na integração do lote 17. | Equipa KAMBÁ |
