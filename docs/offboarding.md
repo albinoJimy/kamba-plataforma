@@ -97,7 +97,11 @@ ofertas e a prova de aceite do KAM-090 no pacote, e os contactos pelo cofre na p
 `provisioning_step`, pelo que a revogação automática as dá por `sem_recurso` — e elas continuavam
 vivas. Com a fase `revogacao` concluída, corre-se `python infra/llm/chaves.py revogar <tenant>`: apaga
 a chave `tenant-<uuid>` e confirma-o pela listagem (`revogada`, ou `inexistente` numa repetição).
-**NÃO VERIFICADO** contra a imagem fixada: a forma do corpo do `/key/delete`.
+A forma do corpo do `/key/delete` está medida na imagem fixada (KAM-233,
+[`evidencia/KAM-233.md`](evidencia/KAM-233.md)): `{"keys": [token]}` dá 200 e a chave deixa de
+autenticar, e uma repetição dá 404. **E a mesma medição achou o limite maior:** o LiteLLM de `prod`
+arranca sem base de dados, e sem ela a imagem não tem chaves virtuais (o `/key/generate` e o
+`/key/list` dão 500). Enquanto for assim, o `provisionar` e o `revogar` falham em `prod`.
 
 **O que falta** (credor **KAM-233**, com a razão de cada um no bloco do KAM-218): o OTP e a ligação ao e-mail do
 dono, e a entrega do certificado — não há agregador de SMS nem fornecedor de e-mail escolhidos

@@ -61,8 +61,10 @@ import {
   ProvedorIndisponivelError,
   type AberturaNoProvedor,
   type ClienteDoProvedor,
+  type ArquivoDoProvedor,
   type ContaCriada,
   type ContaDeAtendimento,
+  type DesfechoDoArquivo,
   type MirrorMessage,
   type ProvisionadorDoProvedor,
 } from "./contrato.ts";
@@ -102,9 +104,13 @@ export const PAPEL_DO_UTILIZADOR = "administrator";
 
 /** Uma resposta do Chatwoot que não se consegue usar. */
 export class RespostaInesperadaError extends Error {
+  /** O código HTTP da resposta (KAM-233: o arquivo lê o 404). */
+  readonly estado: number;
+
   constructor(caminho: string, estado: number, detalhe: string) {
     super(`${caminho} respondeu ${estado}: ${detalhe}`);
     this.name = "RespostaInesperadaError";
+    this.estado = estado;
   }
 }
 
@@ -376,6 +382,50 @@ export class ProvisionadorDoChatwoot implements ProvisionadorDoProvedor {
       tokenDoBot: bot.access_token,
       tokenDoUtilizador: utilizador.access_token,
     };
+  }
+}
+
+/** O único estado para que se arquiva. Um valor fora do `enum` do Chatwoot dá 500 (medido). */
+export const ESTADO_DA_CONTA_ARQUIVADA = "suspended";
+
+export interface ConfiguracaoDoArquivo extends Transporte {
+  /** O *token* da **Platform API**. Nunca é registado. */
+  readonly tokenDaPlataforma: string;
+}
+
+/**
+ * O arquivo da conta (KAM-233): `PATCH /platform/api/v1/accounts/<id>` com
+ * `status: suspended`. Medido na imagem fixada (`docs/evidencia/KAM-233.md`
+ * §5): 200 e o estado no corpo, 200 outra vez numa repetição, 404 numa conta
+ * que não existe, e a conta suspensa a recusar com 401 a API dela, a *inbox*
+ * incluída. **Não apaga nada**: o `DELETE` da conta destrói as conversas, e o
+ * encerramento não o usa.
+ */
+export class ArquivoDoChatwoot implements ArquivoDoProvedor {
+  readonly #chamador: Chamador;
+  readonly #tokenDaPlataforma: string;
+
+  constructor(configuracao: ConfiguracaoDoArquivo) {
+    this.#chamador = new Chamador(configuracao);
+    this.#tokenDaPlataforma = configuracao.tokenDaPlataforma;
+  }
+
+  async arquivarConta(accountId: number): Promise<DesfechoDoArquivo> {
+    const caminho = `/platform/api/v1/accounts/${accountId}`;
+    let conta: { status?: unknown };
+    try {
+      conta = await this.#chamador.json<{ status?: unknown }>("PATCH", caminho, this.#tokenDaPlataforma, {
+        status: ESTADO_DA_CONTA_ARQUIVADA,
+      });
+    } catch (erro) {
+      // A conta já não está lá: não há nada a arquivar (idempotente do lado de fora).
+      if (erro instanceof RespostaInesperadaError && erro.estado === 404) return "inexistente";
+      throw erro;
+    }
+    if (conta.status !== ESTADO_DA_CONTA_ARQUIVADA) {
+      throw new RespostaInesperadaError(caminho, 200, "a conta nao ficou suspensa");
+    }
+    return "arquivada";
   }
 }
 

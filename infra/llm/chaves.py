@@ -268,11 +268,11 @@ class Proxy:
     def apagar(self, token: str) -> None:
         """`/key/delete` de uma chave, pelo `token` que o `/key/list` devolve.
 
-        **NAO VERIFICADO** contra a imagem fixada: a forma do corpo (`keys`, com o
-        *token* em resumo que o `/key/list?return_full_object=true` traz) e a do
-        proxy em versoes recentes, e nao esta medida no
-        `docs/evidencia/KAM-030-litellm.md`. Por isso quem chama confirma pela
-        listagem, e nao pelo 200.
+        Medido na imagem fixada (KAM-233, `docs/evidencia/KAM-233.md` §3): o
+        corpo `{"keys": [token]}`, com o *token* em resumo que o
+        `/key/list?return_full_object=true` traz, da 200 e a chave deixa de
+        autenticar; o mesmo pedido outra vez da **404**, e nao 200. Quem chama
+        procura antes e confirma pela listagem, e nao pelo 200.
         """
         estado, resposta = self._pedir(
             f"{self._url}/key/delete", "POST", self._chave, {"keys": [token]}
