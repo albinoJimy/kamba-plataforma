@@ -47,6 +47,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import threading
 import time
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
@@ -121,6 +122,17 @@ BACKENDS_DA_BASE: Final = frozenset({"plataforma", "idx"})
 #: e nesse caso o cliente deixa de ficar pendurado. Sem a folga, os dois
 #: tectos corriam ao mesmo instante e qual ganhava dependia do escalonador.
 MARGEM_DO_TECTO_MS: Final = 500
+
+#: Quantas invocacoes podem estar ao mesmo tempo **sem a tomada**, a espera de a
+#: retomar (KAM-230, `_largar_tomada`). **Tem de ficar abaixo dos *workers* do
+#: executor por omissao do `asyncio`**, que sao `min(32, cpus + 4)`, cinco no
+#: minimo: a vaga e tomada no laco **antes** de haver *worker*, e com todos os
+#: *workers* presos a espera da retoma e as tomadas presas em tarefas que nunca
+#: chegam a correr, a ToolLayer parava para sempre (achado 1 da revisao
+#: adversarial do KAM-230, reproduzido com quatro tomadas e cinco *workers*).
+#: Com quatro, fica sempre um *worker* para quem tem a tomada acabar e
+#: devolve-la. A quinta invocacao a querer largar corre com a tomada, como antes.
+LARGAS_MAXIMAS: Final = 4
 
 
 class ConfiguracaoDaCamadaError(ValueError):
@@ -218,9 +230,17 @@ class Invocacao:
     #: Quando a invocacao entrou no pipeline, no relogio da camada. O passo 7
     #: mede a latencia a partir daqui — e nao de um valor que o `finally`
     #: escreva depois dele, que era zero no caminho feliz.
-    #: A tomada que esta invocacao tem emprestada da fila da camada.
+    #: A tomada que esta invocacao tem emprestada da fila da camada. **Pode mudar
+    #: a meio** (KAM-230): um executor que largue a tomada (`Pedido.sem_tomada`)
+    #: retoma outra, e e esta que volta a fila no fim.
     ligacao: Any = None
     comecou: float = 0.0
+    #: Quando a espera da camada comecou, em `time.monotonic()` (KAM-230). E
+    #: daqui que conta o `Pedido.prazo`, e nao do inicio do executor.
+    inicio_da_espera: float | None = None
+    #: O ciclo de eventos de quem chamou o `invoke`, onde vive a fila das
+    #: tomadas. `None` quando o pipeline corre fora de um `invoke`.
+    laco: asyncio.AbstractEventLoop | None = None
     #: Se a linha de `tool_audit` ja foi escrita. O passo 7 escreve-a no caminho
     #: feliz e o `finally` escreve-a quando um passo anterior recusou; e esta
     #: marca que faz com que seja **uma** linha e nao duas.
@@ -495,6 +515,9 @@ class ToolLayer:
         self._tomadas: asyncio.Queue[Any] = asyncio.Queue()
         for _ in range(self._quantas):
             self._tomadas.put_nowait(None)
+        #: Ver `LARGAS_MAXIMAS`. Um semaforo de *threads*, e nao do laco: quem o
+        #: toma e o larga e a *thread* do pipeline.
+        self._largas = threading.BoundedSemaphore(LARGAS_MAXIMAS)
 
     # ------------------------------------------------------------- contrato
     def for_context(self, ctx: ToolContext, allowed: Sequence[str]) -> list[BoundTool]:
@@ -575,6 +598,10 @@ class ToolLayer:
                 idempotency_key,
                 tecto,
                 rascunho,
+                # O prazo do executor conta daqui, que e de onde conta a espera
+                # abaixo (KAM-230), e a fila vive neste ciclo.
+                inicio_da_espera=time.monotonic(),
+                laco=asyncio.get_running_loop(),
             )
         )
         try:
@@ -656,6 +683,9 @@ class ToolLayer:
         idempotency_key: str | None,
         tecto: tuple[str, int] | None,
         rascunho: Mapping[str, Any] | None = None,
+        *,
+        inicio_da_espera: float | None = None,
+        laco: asyncio.AbstractEventLoop | None = None,
     ) -> tuple[ToolResult, Any]:
         """Corre na *thread*. Devolve o resultado **e** a ligacao, ou larga-a.
 
@@ -676,6 +706,8 @@ class ToolLayer:
             tecto=tecto,
             ligacao=ligacao,
             rascunho=rascunho,
+            inicio_da_espera=inicio_da_espera,
+            laco=laco,
         )
         inv.comecou = self._relogio()
         resultado: ToolResult | None = None
@@ -693,7 +725,9 @@ class ToolLayer:
                 raise RuntimeError(
                     "o pipeline acabou sem resultado; o ultimo passo tem de devolver um"
                 )
-            return resultado, ligacao
+            # A de **agora**, e nao a do inicio: um executor que largou a tomada
+            # (KAM-230) retomou outra, e a primeira ja e de outra invocacao.
+            return resultado, inv.ligacao
         except BaseException:
             # **A reserva fecha-se aqui, antes de a ligacao cair.** Este caminho
             # fecha a ligacao — ela pode estar quebrada — e o `finally` corre
@@ -711,8 +745,8 @@ class ToolLayer:
             except Exception:  # noqa: BLE001 — ver o paragrafo acima
                 pass
             try:
-                ligacao.close()
-            except Exception:  # noqa: BLE001 — ja esta quebrada
+                inv.ligacao.close()
+            except Exception:  # noqa: BLE001 — ja esta quebrada (ou nao ha)
                 pass
             raise
         finally:
@@ -884,6 +918,18 @@ class ToolLayer:
             # plataforma (ADR-006), e o `search_catalog` le-o como o
             # `get_store_info` le a `platform.tenants` — sob `tenant_guard.tx`.
             ligacao=inv.ligacao if backend in BACKENDS_DA_BASE else None,
+            # O prazo absoluto (KAM-230): o executor tem o `timeout_ms` a contar
+            # do inicio da espera, e nao do momento em que comeca.
+            prazo=(
+                None
+                if inv.inicio_da_espera is None
+                else inv.inicio_da_espera + self.timeout_de(especificacao.klass) / 1000
+            ),
+            largar_tomada=(
+                (lambda trabalho: self._largar_tomada(inv, trabalho))
+                if backend in BACKENDS_DA_BASE
+                else None
+            ),
             # A chave do §6.3 (KAM-029). E o que torna verdadeira a frase do
             # criterio 4 — «o backend e idempotente pela chave» —, e sem ela a
             # retoma de uma linha `falhada` duplicava o efeito em vez de o
@@ -917,6 +963,44 @@ class ToolLayer:
             return falha(UPSTREAM_DOWN, f"`{backend}` falhou: {type(erro).__name__}")
         self.disjuntor.registar_sucesso(backend)
         return None
+
+    def _largar_tomada(
+        self, inv: Invocacao, trabalho: Callable[[], Any]
+    ) -> tuple[Any, Any]:
+        """Corre `trabalho` com a tomada de volta na fila, e retoma uma (KAM-230).
+
+        Corre na *thread* do pipeline. A ligacao volta a fila **pelo ciclo**
+        (`call_soon_threadsafe`), que e o unico sitio onde a fila se toca, e a
+        retoma espera por uma vaga como o `invoke` espera: o numero de tomadas
+        nao passa do tecto, e quem esta na fila nao espera pelo `screen` de
+        outro tenant. **A vaga retomada pode ser outra ligacao, ou nenhuma**
+        (abre-se uma), e e por isso que o resultado leva a ligacao.
+
+        **Sem prazo na retoma**: depois de largar a tomada a *thread* tem de ter
+        uma para escrever a `tool_audit`, e e a mesma regra do `invoke` — a
+        *thread* continua quando a espera da camada estoura, e a vaga volta
+        quando ela acaba. Quem decide se ainda vale a pena escrever e o
+        executor, pelo `Pedido.prazo`.
+
+        Fora de um `invoke` (sem ciclo), o trabalho corre com a tomada. E corre
+        com ela tambem quando ja ha `LARGAS_MAXIMAS` invocacoes sem tomada: e o
+        que impede todos os *workers* do executor de ficarem presos na retoma
+        enquanto as tomadas esperam por um *worker* (ver a constante).
+        """
+        laco = inv.laco
+        if laco is None or not self._largas.acquire(blocking=False):
+            return trabalho(), inv.ligacao
+        try:
+            largada, inv.ligacao = inv.ligacao, None
+            laco.call_soon_threadsafe(self._tomadas.put_nowait, largada)
+            try:
+                resultado = trabalho()
+            finally:
+                vaga = asyncio.run_coroutine_threadsafe(self._tomadas.get(), laco).result()
+                inv.ligacao = vaga if vaga is not None else self._abrir_ligacao()
+        finally:
+            self._largas.release()
+        return resultado, inv.ligacao
 
     def timeout_de(self, klass: str) -> int:
         """2 s para `read`, 8 s para `write` e `money` (§6.5)."""

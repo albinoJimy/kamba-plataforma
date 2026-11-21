@@ -12,7 +12,7 @@
 
 version: 1
 fonte: "specs/02_Dicionario_de_Dados_Canonico.md"
-versao_dicionario: "1.128"
+versao_dicionario: "1.131"
 entradas:
   - seccao: "3.1"
     conceito: "Contacto"
@@ -13125,12 +13125,14 @@ entradas:
     variantes_literais: []
   - seccao: "3.49"
     conceito: "Finalidade de uma transferência"
-    canonico: "tenant_destinations.purpose ∈ {alojamento, canal, classificacao_de_catalogo, conversa, copias_de_seguranca, embeddings, entrega_de_conteudo, facturacao, imagem, observabilidade, otp_e_avisos_de_servico, pagamentos, segredos, transcricao, visao}"
+    canonico: "tenant_destinations.purpose ∈ {alojamento, canal, classificacao_de_catalogo, classificacao_de_condicoes, classificacao_de_conteudo, conversa, copias_de_seguranca, embeddings, entrega_de_conteudo, facturacao, imagem, observabilidade, otp_e_avisos_de_servico, pagamentos, segredos, transcricao, visao}"
     literais:
       - "tenant_destinations.purpose"
       - "alojamento"
       - "canal"
       - "classificacao_de_catalogo"
+      - "classificacao_de_condicoes"
+      - "classificacao_de_conteudo"
       - "conversa"
       - "copias_de_seguranca"
       - "embeddings"
@@ -13148,6 +13150,8 @@ entradas:
       - "alojamento"
       - "canal"
       - "classificacao_de_catalogo"
+      - "classificacao_de_condicoes"
+      - "classificacao_de_conteudo"
       - "conversa"
       - "copias_de_seguranca"
       - "embeddings"
@@ -13163,10 +13167,17 @@ entradas:
     nomes_nota:
       - "imagem"
       - "classificacao_de_catalogo"
+      - "classificacao_de_condicoes"
+      - "classificacao_de_conteudo"
+      - "finalidade_das_condicoes"
+      - "finalidade_do_screening"
       - "foto_de_produtos"
       - "screening"
       - "nano"
       - "embeddings"
+      - "FINALIDADES_ESCOLHIVEIS"
+      - "social"
+      - "social_do_dono"
       - "FINALIDADES"
       - "otp_e_avisos_de_servico"
       - "FINALIDADE"
@@ -14870,6 +14881,7 @@ entradas:
       - "troca_cancelar"
       - "conversa"
       - "conversa_enviar"
+      - "teste"
       - "motivo"
       - "sem_sessao"
       - "nao_encontrado"
@@ -15445,20 +15457,24 @@ entradas:
     variantes_literais: []
   - seccao: "3.58"
     conceito: "Sujeito de uma decisão"
-    canonico: "screening_decision.sujeito_tipo ∈ {categoria, produto, condicoes}"
+    canonico: "screening_decision.sujeito_tipo ∈ {categoria, produto, condicoes, conteudo}"
     literais:
       - "screening_decision.sujeito_tipo"
       - "categoria"
       - "produto"
       - "condicoes"
+      - "conteudo"
     nomes:
       - "screening_decision.sujeito_tipo"
       - "categoria"
       - "produto"
       - "condicoes"
+      - "conteudo"
     nomes_nota:
       - "condicoes"
+      - "conteudo"
       - "sujeito_ref"
+      - "content_item_id"
       - "categoria"
       - "produto"
       - "sku"
@@ -15496,6 +15512,8 @@ entradas:
       - "kamba_app"
       - "SELECT"
       - "INSERT"
+      - "kamba_batch"
+      - "humano"
       - "UPDATE"
       - "DELETE"
       - "onboarding_case"
@@ -15599,9 +15617,17 @@ entradas:
       - "textos"
       - "LIMITES_DO_PEDIDO"
       - "classificador.ts"
+      - "finalidade"
+      - "screening"
+      - "FINALIDADES_ESCOLHIVEIS"
+      - "classificacao_de_catalogo"
+      - "classificacao_de_condicoes"
+      - "classificacao_de_conteudo"
+      - "prazo_ms"
       - "resultado"
       - "dat.llm_call_log"
       - "sem_tempo"
+      - "MINIMO_PARA_CHAMAR_S"
       - "sem_conteudo"
       - "screen"
       - "condicional"
@@ -15661,16 +15687,24 @@ entradas:
       - "null"
       - "categoria"
       - "textos"
+      - "finalidade"
+      - "FINALIDADE_DO_SUJEITO"
+      - "classificacao_de_condicoes"
+      - "produto"
+      - "classificacao_de_catalogo"
+      - "conteudo"
+      - "classificacao_de_conteudo"
+      - "VALIDATION_ERROR"
+      - "prazo_ms"
+      - "RESERVA_DA_GRAVACAO_MS"
       - "decisao"
       - "regras"
       - "versao_politica"
       - "confianca"
       - "CHECK"
-      - "produto"
       - "SUJEITOS_DA_ROTA"
       - "SUJEITOS"
       - "tipos.ts"
-      - "VALIDATION_ERROR"
       - "conteudo_sha256"
       - "SQL_POR_REANALISAR"
       - "publicavel"
@@ -15697,6 +15731,7 @@ entradas:
     nomes_nota:
       - "produto"
       - "publicavel"
+      - "conteudo"
       - "permitida"
       - "condicional"
       - "revisao_pendente"
@@ -19604,6 +19639,183 @@ entradas:
       - "FALHAS_ATE_A_FILA"
     nomes_nota: []
     variantes_literais: []
+  - seccao: "3.74"
+    conceito: "Resumo do conteúdo de um produto na base"
+    canonico: "platform.conteudo_sha256_do_produto(categoria, nome)"
+    literais:
+      - "platform.conteudo_sha256_do_produto(categoria, nome)"
+    nomes:
+      - "platform.conteudo_sha256_do_produto"
+      - "categoria"
+      - "nome"
+    nomes_nota:
+      - "conteudo_sha256"
+      - "sha256"
+      - "categoria_declarada"
+      - "nome"
+      - "conteudoSha256"
+    variantes_literais: []
+  - seccao: "3.74"
+    conceito: "A regra do assertPublishable na base"
+    canonico: "platform.oferta_publicavel(tenant, sku, nome)"
+    literais:
+      - "platform.oferta_publicavel(tenant, sku, nome)"
+    nomes:
+      - "assertPublishable"
+      - "platform.oferta_publicavel"
+      - "tenant"
+      - "sku"
+      - "nome"
+    nomes_nota:
+      - "NULL"
+      - "sem_decisao"
+      - "bloqueada"
+      - "por_rever"
+    variantes_literais: []
+  - seccao: "3.74"
+    conceito: "Publicação protegida pela base"
+    canonico: "trigger offer_terms_publicacao_segura"
+    literais:
+      - "offer_terms_publicacao_segura"
+    nomes:
+      - "offer_terms_publicacao_segura"
+    nomes_nota:
+      - "publicado"
+      - "rascunho"
+      - "INSERT"
+    variantes_literais: []
+  - seccao: "3.74"
+    conceito: "Sinal do teste ponta a ponta"
+    canonico: "conversations.teste_recebido_at, instante anulável"
+    literais:
+      - "conversations.teste_recebido_at"
+    nomes:
+      - "conversations.teste_recebido_at"
+    nomes_nota:
+      - "SQL_MARCAR_TESTE_RECEBIDO"
+      - "UPDATE"
+    variantes_literais: []
+  - seccao: "3.74"
+    conceito: "Marca do teste na entrada"
+    canonico: "EventoDeEntrada.eTeste, true ou ausente"
+    literais:
+      - "EventoDeEntrada.eTeste"
+      - "true"
+    nomes:
+      - "EventoDeEntrada.eTeste"
+      - "true"
+    nomes_nota:
+      - "message"
+      - "eMensagemDeTeste"
+    variantes_literais: []
+  - seccao: "3.74"
+    conceito: "Observador de produção do teste"
+    canonico: "ObservadorSql, sobre SQL_FACTOS_DO_TESTE"
+    literais:
+      - "ObservadorSql"
+      - "SQL_FACTOS_DO_TESTE"
+    nomes:
+      - "ObservadorSql"
+      - "SQL_FACTOS_DO_TESTE"
+    nomes_nota:
+      - "agent_replies"
+      - "outbound_messages.delivered_at"
+      - "consent_event"
+      - "ConsentGate"
+      - "sem_entrega"
+      - "sem_consentimento"
+    variantes_literais: []
+  - seccao: "3.74"
+    conceito: "Como o assistente se identifica"
+    canonico: "ASSISTENTE_DO_TESTE = assistente automatico"
+    literais:
+      - "ASSISTENTE_DO_TESTE"
+      - "assistente automatico"
+    nomes:
+      - "ASSISTENTE_DO_TESTE"
+      - "assistente"
+      - "automatico"
+    nomes_nota:
+      - "apresentacao"
+      - "tenants.nome"
+    variantes_literais: []
+  - seccao: "3.74"
+    conceito: "Activação no processo de lote"
+    canonico: "CicloDaActivacao; passos ∈ {listagem, catalogo, teste, activacao}"
+    literais:
+      - "CicloDaActivacao"
+      - "listagem"
+      - "catalogo"
+      - "teste"
+      - "activacao"
+    nomes:
+      - "CicloDaActivacao"
+      - "listagem"
+      - "catalogo"
+      - "teste"
+      - "activacao"
+    nomes_nota:
+      - "fecharCatalogo"
+      - "aguarda_catalogo"
+      - "verify"
+      - "activar"
+      - "aguarda_teste"
+      - "pendente"
+      - "ok"
+      - "kamba_batch"
+    variantes_literais: []
+  - seccao: "3.74"
+    conceito: "Início do teste pela página"
+    canonico: "POST /painel/teste; TesteDoPainel; ONBOARDING_APP_DB_URL"
+    literais:
+      - "TesteDoPainel"
+      - "ONBOARDING_APP_DB_URL"
+    nomes:
+      - "TesteDoPainel"
+      - "ONBOARDING_APP_DB_URL"
+    nomes_nota:
+      - "aguarda_teste"
+      - "kamba_app"
+    variantes_literais: []
+  - seccao: "3.74"
+    conceito: "Decisão humana só do lote"
+    canonico: "trigger screening_decision_humano_so_do_lote"
+    literais:
+      - "screening_decision_humano_so_do_lote"
+    nomes:
+      - "screening_decision_humano_so_do_lote"
+    nomes_nota:
+      - "origem"
+      - "humano"
+      - "kamba_batch"
+      - "permitida"
+      - "regra"
+      - "llm"
+      - "screen"
+    variantes_literais: []
+  - seccao: "3.74"
+    conceito: "Leitores sem a conversa de teste"
+    canonico: "churn_sinais (o cliente_at), SQL_CLIENTES_NA_JANELA, v_draft_metrics, SQL_CANDIDATOS da golden, SQL_QUEIXAS do risco_ts"
+    literais:
+      - "churn_sinais"
+      - "cliente_at"
+      - "SQL_CLIENTES_NA_JANELA"
+      - "v_draft_metrics"
+      - "SQL_CANDIDATOS"
+      - "SQL_QUEIXAS"
+      - "risco_ts"
+    nomes:
+      - "churn_sinais"
+      - "cliente_at"
+      - "SQL_CLIENTES_NA_JANELA"
+      - "v_draft_metrics"
+      - "SQL_CANDIDATOS"
+      - "SQL_QUEIXAS"
+      - "risco_ts"
+    nomes_nota:
+      - "is_test"
+      - "conversations"
+    variantes_literais: []
   - seccao: "3.75"
     conceito: "Nível de um tenant"
     canonico: "platform.trust_level, nove colunas"
@@ -20467,7 +20679,7 @@ entradas:
     variantes_literais: []
   - seccao: "3.78"
     conceito: "Intenções do Assistente do Dono"
-    canonico: "intent ∈ {modulos, info_loja, humano, confirmar, orcamento, responder_orcamento, outro}"
+    canonico: "intent ∈ {modulos, info_loja, humano, confirmar, orcamento, responder_orcamento, catalogo, social, outro}"
     literais:
       - "intent"
       - "modulos"
@@ -20476,6 +20688,8 @@ entradas:
       - "confirmar"
       - "orcamento"
       - "responder_orcamento"
+      - "catalogo"
+      - "social"
       - "outro"
     nomes:
       - "intent"
@@ -20485,11 +20699,15 @@ entradas:
       - "confirmar"
       - "orcamento"
       - "responder_orcamento"
+      - "catalogo"
+      - "social"
       - "outro"
     nomes_nota:
       - "confirmar"
       - "orcamento"
       - "responder_orcamento"
+      - "catalogo"
+      - "social"
       - "kamba_agr.verticais.dono"
       - "confirm"
       - "action_id"
@@ -21112,16 +21330,22 @@ entradas:
     variantes_literais: []
   - seccao: "3.79"
     conceito: "Dispensa do passo 4"
-    canonico: "DISPENSAS_DO_PASSO_4 = (submit_quote, create_product_draft); EspecificacaoDeTool.confirmacao_dispensada"
+    canonico: "DISPENSAS_DO_PASSO_4 = (submit_quote, create_product_draft, update_brand_profile, generate_calendar, generate_caption); EspecificacaoDeTool.confirmacao_dispensada"
     literais:
       - "DISPENSAS_DO_PASSO_4"
       - "submit_quote"
       - "create_product_draft"
+      - "update_brand_profile"
+      - "generate_calendar"
+      - "generate_caption"
       - "EspecificacaoDeTool.confirmacao_dispensada"
     nomes:
       - "DISPENSAS_DO_PASSO_4"
       - "submit_quote"
       - "create_product_draft"
+      - "update_brand_profile"
+      - "generate_calendar"
+      - "generate_caption"
       - "EspecificacaoDeTool.confirmacao_dispensada"
     nomes_nota:
       - "write"
@@ -21131,6 +21355,7 @@ entradas:
       - "action_id"
       - "create_product_draft"
       - "publish_product"
+      - "rascunho"
     variantes_literais: []
   - seccao: "3.79"
     conceito: "Botão do pedido de orçamento"
@@ -21638,6 +21863,371 @@ entradas:
       - "cancelada"
     nomes_nota:
       - "AvisoDaTroca"
+    variantes_literais: []
+  - seccao: "3.82"
+    conceito: "Perfil de marca"
+    canonico: "platform.brand_profile(tenant_id, nome, categoria, tom, cores, publico, slots_preferidos, factos, logo_asset_id, idioma, versao, criado_at, atualizado_at)"
+    literais:
+      - "platform.brand_profile(tenant_id, nome, categoria, tom, cores, publico, slots_preferidos, factos, logo_asset_id, idioma, versao, criado_at, atualizado_at)"
+    nomes:
+      - "platform.brand_profile"
+      - "tenant_id"
+      - "nome"
+      - "categoria"
+      - "tom"
+      - "cores"
+      - "publico"
+      - "slots_preferidos"
+      - "factos"
+      - "logo_asset_id"
+      - "idioma"
+      - "versao"
+      - "criado_at"
+      - "atualizado_at"
+    nomes_nota:
+      - "FORCE"
+      - "categoria"
+      - "NULL"
+      - "versao"
+      - "logo_asset_id"
+    variantes_literais: []
+  - seccao: "3.82"
+    conceito: "Tom do perfil"
+    canonico: "brand_profile.tom ∈ {proximo, profissional, divertido}"
+    literais:
+      - "brand_profile.tom"
+      - "proximo"
+      - "profissional"
+      - "divertido"
+    nomes:
+      - "brand_profile.tom"
+      - "proximo"
+      - "profissional"
+      - "divertido"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.82"
+    conceito: "Idioma do perfil"
+    canonico: "brand_profile.idioma ∈ {pt-AO}"
+    literais:
+      - "brand_profile.idioma"
+      - "pt-AO"
+    nomes:
+      - "brand_profile.idioma"
+      - "pt"
+      - "AO"
+    nomes_nota:
+      - "DEFAULT"
+      - "CHECK"
+    variantes_literais: []
+  - seccao: "3.82"
+    conceito: "Factos do perfil"
+    canonico: "brand_profile.factos, lista de {texto, promocao, valido_ate}"
+    literais:
+      - "brand_profile.factos"
+      - "{texto, promocao, valido_ate}"
+    nomes:
+      - "brand_profile.factos"
+      - "texto"
+      - "promocao"
+      - "valido_ate"
+    nomes_nota:
+      - "valido_ate"
+    variantes_literais: []
+  - seccao: "3.82"
+    conceito: "Dias e horas preferidos"
+    canonico: "brand_profile.slots_preferidos, lista de {dia, hora}"
+    literais:
+      - "brand_profile.slots_preferidos"
+      - "{dia, hora}"
+    nomes:
+      - "brand_profile.slots_preferidos"
+      - "dia"
+      - "hora"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.82"
+    conceito: "Calendário semanal"
+    canonico: "platform.content_calendar(calendar_id, tenant_id, semana_iso, geracao, estado, decisao, versao_politica, criado_at)"
+    literais:
+      - "platform.content_calendar(calendar_id, tenant_id, semana_iso, geracao, estado, decisao, versao_politica, criado_at)"
+    nomes:
+      - "platform.content_calendar"
+      - "calendar_id"
+      - "tenant_id"
+      - "semana_iso"
+      - "geracao"
+      - "estado"
+      - "decisao"
+      - "versao_politica"
+      - "criado_at"
+    nomes_nota:
+      - "activo"
+      - "tenant_id"
+      - "semana_iso"
+      - "geracao"
+      - "substituido"
+      - "AAAA"
+      - "Www"
+      - "decisao"
+      - "versao_politica"
+    variantes_literais: []
+  - seccao: "3.82"
+    conceito: "Estado de um calendário"
+    canonico: "content_calendar.estado ∈ {activo, substituido}"
+    literais:
+      - "content_calendar.estado"
+      - "activo"
+      - "substituido"
+    nomes:
+      - "content_calendar.estado"
+      - "activo"
+      - "substituido"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.82"
+    conceito: "Item de conteúdo"
+    canonico: "platform.content_items(content_item_id, tenant_id, calendar_id, semana_iso, tipo, tema, legenda, art_asset_id, estado, is_ai_generated, revisao_reforcada, versao_politica, versao, agendado_at, criado_at, atualizado_at)"
+    literais:
+      - "platform.content_items(content_item_id, tenant_id, calendar_id, semana_iso, tipo, tema, legenda, art_asset_id, estado, is_ai_generated, revisao_reforcada, versao_politica, versao, agendado_at, criado_at, atualizado_at)"
+    nomes:
+      - "platform.content_items"
+      - "content_item_id"
+      - "tenant_id"
+      - "calendar_id"
+      - "semana_iso"
+      - "tipo"
+      - "tema"
+      - "legenda"
+      - "art_asset_id"
+      - "estado"
+      - "is_ai_generated"
+      - "revisao_reforcada"
+      - "versao_politica"
+      - "versao"
+      - "agendado_at"
+      - "criado_at"
+      - "atualizado_at"
+    nomes_nota:
+      - "rascunho"
+      - "is_ai_generated"
+      - "true"
+      - "screening_ref"
+      - "bigint"
+      - "id"
+      - "screening_decision"
+      - "uuid"
+      - "conteudo"
+      - "versao_politica"
+    variantes_literais: []
+  - seccao: "3.82"
+    conceito: "Tipo de um item"
+    canonico: "content_items.tipo ∈ {produto, dica, bastidores, promocao}"
+    literais:
+      - "content_items.tipo"
+      - "produto"
+      - "dica"
+      - "bastidores"
+      - "promocao"
+    nomes:
+      - "content_items.tipo"
+      - "produto"
+      - "dica"
+      - "bastidores"
+      - "promocao"
+    nomes_nota:
+      - "promocao"
+    variantes_literais: []
+  - seccao: "3.82"
+    conceito: "Estado de um item"
+    canonico: "content_items.estado ∈ {rascunho, pendente_aprovacao, aprovado, entregue, rejeitado, expirado}"
+    literais:
+      - "content_items.estado"
+      - "rascunho"
+      - "pendente_aprovacao"
+      - "aprovado"
+      - "entregue"
+      - "rejeitado"
+      - "expirado"
+    nomes:
+      - "content_items.estado"
+      - "rascunho"
+      - "pendente_aprovacao"
+      - "aprovado"
+      - "entregue"
+      - "rejeitado"
+      - "expirado"
+    nomes_nota:
+      - "rascunho"
+      - "rejeitado"
+      - "expirado"
+    variantes_literais: []
+  - seccao: "3.82"
+    conceito: "Revisão reforçada"
+    canonico: "content_items.revisao_reforcada"
+    literais:
+      - "content_items.revisao_reforcada"
+    nomes:
+      - "content_items.revisao_reforcada"
+    nomes_nota:
+      - "condicional"
+    variantes_literais: []
+  - seccao: "3.82"
+    conceito: "Referência de um item"
+    canonico: "SOC- e oito letras derivadas do content_item_id"
+    literais:
+      - "SOC-"
+      - "content_item_id"
+    nomes:
+      - "SOC"
+      - "content_item_id"
+    nomes_nota:
+      - "PRD"
+    variantes_literais: []
+  - seccao: "3.82"
+    conceito: "Botões do social"
+    canonico: "tom:{tom}, legenda:{referencia}, social:ideias, social:nova"
+    literais:
+      - "tom:{tom}"
+      - "legenda:{referencia}"
+      - "social:ideias"
+      - "social:nova"
+    nomes:
+      - "tom"
+      - "legenda"
+      - "referencia"
+      - "social"
+      - "ideias"
+      - "nova"
+    nomes_nota:
+      - "saida.py"
+    variantes_literais: []
+  - seccao: "3.82"
+    conceito: "Tool do perfil de marca"
+    canonico: "get_brand_profile (tool get_brand_profile)"
+    literais:
+      - "get_brand_profile"
+    nomes:
+      - "get_brand_profile"
+    nomes_nota:
+      - "read"
+      - "social"
+    variantes_literais: []
+  - seccao: "3.82"
+    conceito: "Tool da resposta ao perfil"
+    canonico: "update_brand_profile (tool update_brand_profile)"
+    literais:
+      - "update_brand_profile"
+    nomes:
+      - "update_brand_profile"
+    nomes_nota:
+      - "write"
+    variantes_literais: []
+  - seccao: "3.82"
+    conceito: "Tool do calendário"
+    canonico: "generate_calendar (tool generate_calendar)"
+    literais:
+      - "generate_calendar"
+    nomes:
+      - "generate_calendar"
+    nomes_nota:
+      - "write"
+      - "content_item_id"
+      - "bloqueada"
+    variantes_literais: []
+  - seccao: "3.82"
+    conceito: "Tool da legenda"
+    canonico: "generate_caption (tool generate_caption)"
+    literais:
+      - "generate_caption"
+    nomes:
+      - "generate_caption"
+    nomes_nota:
+      - "write"
+    variantes_literais: []
+  - seccao: "3.82"
+    conceito: "Módulo das tools do social"
+    canonico: "MODULO_DO_SOCIAL (social)"
+    literais:
+      - "MODULO_DO_SOCIAL"
+      - "social"
+    nomes:
+      - "MODULO_DO_SOCIAL"
+      - "social"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.82"
+    conceito: "Consumo de publicações"
+    canonico: "posts_mes, com a chave social:{content_item_id}"
+    literais:
+      - "posts_mes"
+      - "social:{content_item_id}"
+    nomes:
+      - "posts_mes"
+      - "social"
+      - "content_item_id"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.82"
+    conceito: "Sujeito do conteúdo"
+    canonico: "SUJEITO_DO_CONTEUDO (conteudo), em screening_decision.sujeito_tipo"
+    literais:
+      - "SUJEITO_DO_CONTEUDO"
+      - "conteudo"
+      - "screening_decision.sujeito_tipo"
+    nomes:
+      - "SUJEITO_DO_CONTEUDO"
+      - "conteudo"
+      - "screening_decision.sujeito_tipo"
+    nomes_nota:
+      - "sujeito_ref"
+      - "content_item_id"
+      - "assertPublishable"
+      - "condicional"
+    variantes_literais: []
+  - seccao: "3.82"
+    conceito: "Políticas das legendas"
+    canonico: "policy/lexico/marcadores_pt_br.yaml, policy/alegacoes/politica.yaml e policy/alegacoes/casos.jsonl, seladas em versoes.lock; pasta em KAMBA_POLICY_DIR"
+    literais:
+      - "versoes.lock"
+      - "KAMBA_POLICY_DIR"
+    nomes:
+      - "versoes.lock"
+      - "KAMBA_POLICY_DIR"
+    nomes_nota:
+      - "versao"
+    variantes_literais: []
+  - seccao: "3.82"
+    conceito: "Gerador das legendas"
+    canonico: "GeradorDeLegendas, GeradorPorLigar, PedidoDeLegenda"
+    literais:
+      - "GeradorDeLegendas"
+      - "GeradorPorLigar"
+      - "PedidoDeLegenda"
+    nomes:
+      - "GeradorDeLegendas"
+      - "GeradorPorLigar"
+      - "PedidoDeLegenda"
+    nomes_nota:
+      - "social"
+      - "text"
+    variantes_literais: []
+  - seccao: "3.82"
+    conceito: "Motivos de recusa de uma legenda"
+    canonico: "faltam_factos, alegacao, pt_br, fora_da_forma"
+    literais:
+      - "faltam_factos"
+      - "alegacao"
+      - "pt_br"
+      - "fora_da_forma"
+    nomes:
+      - "faltam_factos"
+      - "alegacao"
+      - "pt_br"
+      - "fora_da_forma"
+    nomes_nota:
+      - "geracao.py"
+      - "faltam_factos"
     variantes_literais: []
 
 tabelas:
@@ -23079,6 +23669,25 @@ tabelas:
     assinatura: "platform.aprovacao_em_falta(p_onboarding_id)"
     seccao: "3.70"
     conceito: "Agregador da aprovação"
+  - nome: "conteudo_sha256_do_produto"
+    esquema: "platform"
+    colunas:
+      - "categoria"
+      - "nome"
+    aberta: false
+    assinatura: "platform.conteudo_sha256_do_produto(categoria, nome)"
+    seccao: "3.74"
+    conceito: "Resumo do conteúdo de um produto na base"
+  - nome: "oferta_publicavel"
+    esquema: "platform"
+    colunas:
+      - "tenant"
+      - "sku"
+      - "nome"
+    aberta: false
+    assinatura: "platform.oferta_publicavel(tenant, sku, nome)"
+    seccao: "3.74"
+    conceito: "A regra do assertPublishable na base"
   - nome: "definir_dono"
     esquema: "platform"
     colunas:
@@ -23182,6 +23791,64 @@ tabelas:
     assinatura: "platform.owner_phone_changes(change_id, tenant_id, pedido, telefone_hmac, owner_channel_wa, estado, prazo, contact_id, antigo_hmac, desafio_chave, desafio_hmac, desafio_expira_em, desafio_tentativas, criado_at, decidido_at)"
     seccao: "3.81"
     conceito: "Troca de telefone persistida"
+  - nome: "brand_profile"
+    esquema: "platform"
+    colunas:
+      - "tenant_id"
+      - "nome"
+      - "categoria"
+      - "tom"
+      - "cores"
+      - "publico"
+      - "slots_preferidos"
+      - "factos"
+      - "logo_asset_id"
+      - "idioma"
+      - "versao"
+      - "criado_at"
+      - "atualizado_at"
+    aberta: false
+    assinatura: "platform.brand_profile(tenant_id, nome, categoria, tom, cores, publico, slots_preferidos, factos, logo_asset_id, idioma, versao, criado_at, atualizado_at)"
+    seccao: "3.82"
+    conceito: "Perfil de marca"
+  - nome: "content_calendar"
+    esquema: "platform"
+    colunas:
+      - "calendar_id"
+      - "tenant_id"
+      - "semana_iso"
+      - "geracao"
+      - "estado"
+      - "decisao"
+      - "versao_politica"
+      - "criado_at"
+    aberta: false
+    assinatura: "platform.content_calendar(calendar_id, tenant_id, semana_iso, geracao, estado, decisao, versao_politica, criado_at)"
+    seccao: "3.82"
+    conceito: "Calendário semanal"
+  - nome: "content_items"
+    esquema: "platform"
+    colunas:
+      - "content_item_id"
+      - "tenant_id"
+      - "calendar_id"
+      - "semana_iso"
+      - "tipo"
+      - "tema"
+      - "legenda"
+      - "art_asset_id"
+      - "estado"
+      - "is_ai_generated"
+      - "revisao_reforcada"
+      - "versao_politica"
+      - "versao"
+      - "agendado_at"
+      - "criado_at"
+      - "atualizado_at"
+    aberta: false
+    assinatura: "platform.content_items(content_item_id, tenant_id, calendar_id, semana_iso, tipo, tema, legenda, art_asset_id, estado, is_ai_generated, revisao_reforcada, versao_politica, versao, agendado_at, criado_at, atualizado_at)"
+    seccao: "3.82"
+    conceito: "Item de conteúdo"
 
 dominios:
   - coluna: "consent_event.purpose"
@@ -24244,6 +24911,8 @@ dominios:
       - "alojamento"
       - "canal"
       - "classificacao_de_catalogo"
+      - "classificacao_de_condicoes"
+      - "classificacao_de_conteudo"
       - "conversa"
       - "copias_de_seguranca"
       - "embeddings"
@@ -24523,6 +25192,7 @@ dominios:
       - "categoria"
       - "produto"
       - "condicoes"
+      - "conteudo"
     seccao: "3.58"
     conceito: "Sujeito de uma decisão"
     so_no_registo: false
@@ -24959,6 +25629,8 @@ dominios:
       - "confirmar"
       - "orcamento"
       - "responder_orcamento"
+      - "catalogo"
+      - "social"
       - "outro"
     seccao: "3.78"
     conceito: "Intenções do Assistente do Dono"
@@ -25012,6 +25684,47 @@ dominios:
       - "cancelada"
     seccao: "3.81"
     conceito: "Os momentos do aviso"
+    so_no_registo: false
+  - coluna: "brand_profile.tom"
+    valores:
+      - "proximo"
+      - "profissional"
+      - "divertido"
+    seccao: "3.82"
+    conceito: "Tom do perfil"
+    so_no_registo: false
+  - coluna: "brand_profile.idioma"
+    valores:
+      - "pt-AO"
+    seccao: "3.82"
+    conceito: "Idioma do perfil"
+    so_no_registo: false
+  - coluna: "content_calendar.estado"
+    valores:
+      - "activo"
+      - "substituido"
+    seccao: "3.82"
+    conceito: "Estado de um calendário"
+    so_no_registo: false
+  - coluna: "content_items.tipo"
+    valores:
+      - "produto"
+      - "dica"
+      - "bastidores"
+      - "promocao"
+    seccao: "3.82"
+    conceito: "Tipo de um item"
+    so_no_registo: false
+  - coluna: "content_items.estado"
+    valores:
+      - "rascunho"
+      - "pendente_aprovacao"
+      - "aprovado"
+      - "entregue"
+      - "rejeitado"
+      - "expirado"
+    seccao: "3.82"
+    conceito: "Estado de um item"
     so_no_registo: false
 
 variantes:

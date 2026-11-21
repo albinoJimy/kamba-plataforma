@@ -656,6 +656,22 @@ describe("as outras portas de entrada", () => {
     assert.equal(m.repositorio.casos.size, 0, "e nenhum caso abre");
   });
 
+  it("KAM-121: uma condicional do conteudo social grava-se e nao abre caso", async () => {
+    // O item fica com «revisao reforcada» e o dono confirma a mais na
+    // aprovacao (KAM-122): um caso de catalogo com o id de um item era a
+    // revisao de um produto que nao existe.
+    const m = montarRevisao();
+    const o = m.onboarding({ fase: "kyc_pendente" });
+    const linhas: LinhaDeDecisao[] = [];
+    const escritor = escritorComFila({ gravar: async (l: LinhaDeDecisao) => void linhas.push(l) }, m.servico);
+    await escritor.gravar({
+      tenantId: o.tenantId, onboardingId: null, sujeitoTipo: "conteudo", sujeitoRef: randomUUID(), decisao: "condicional",
+      regras: ["nao_listada"], versaoPolitica: "1.0.0+m.2", origem: "regra", conteudoSha256: new Uint8Array(32).fill(4),
+    });
+    assert.equal(linhas.length, 1, "a decisao grava-se");
+    assert.equal(m.repositorio.casos.size, 0, "e nenhum caso abre");
+  });
+
   it("rejeitar um caso de catalogo grava bloqueada humana", async () => {
     const m = montarRevisao();
     const o = m.onboarding();

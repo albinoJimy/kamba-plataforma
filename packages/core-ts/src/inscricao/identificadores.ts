@@ -367,6 +367,12 @@ export function hmacDe(chave: Uint8Array, dominio: Dominio | string, valor: stri
  * `../dono/sql.ts`, que entrega ao `resolveContact` do KAM-008 o número que o
  * OTP da troca de telefone verificou e, desde o KAM-215, o telefone decifrado
  * do caso — que o cunha com a chave **dele**, noutro espaço que o deste módulo.
+ *
+ * **E um sítio onde o telefone sai em claro sem ser um `revelar()`, do
+ * KAM-227:** o `escolherDestinatario` de `../resposta/destinatario.ts`, que
+ * passa ao `Destinatario` do Outbound o telefone que o `lerEndpoints` do KAM-008
+ * já decifrou. Não entra na conta de cima, porque não é um `Opaco`; fica dito
+ * aqui para que quem a conte não o procure em vão.
  */
 abstract class ComHmac extends Opaco {
   /**

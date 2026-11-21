@@ -328,9 +328,14 @@ class PortaDeHandoff(Protocol):
 
 
 class PortaDeSaida(Protocol):
-    """O Outbound (`01` §8). O unico caminho para o cliente e o no `send`."""
+    """O Outbound (`01` §8). O unico caminho para o cliente e o no `send`.
 
-    def enfileirar(
+    **`async` desde o KAM-227**: a porta ligada vai a base, e um no que a
+    chamasse sem `await` corria essa ida na *event loop* e parava os outros
+    turnos do processo enquanto a base respondesse.
+    """
+
+    async def enfileirar(
         self,
         estado: Mapping[str, Any],
         texto: str,
@@ -2120,9 +2125,26 @@ def _id_da_oferta(estado: Mapping[str, Any], sku: str) -> str:
     Opaco, como o `cart_id`: **nao** e o `sku`, porque a chave do passo 5 deriva
     dele, e com o `sku` um segundo pedido do mesmo artigo nos trinta dias da
     retencao devolvia o primeiro (achado 1 da revisao adversarial).
+
+    **Consoantes coladas ao `orc_`, e nao hexadecimal depois de `orc-`**
+    (KAM-234). Medido em duzentas mil: o hexadecimal saia mudado do
+    `texto_seguro` uma vez em ~600 — uma corrida de treze ou mais digitos que
+    passa o Luhn, ou a forma de um IBAN com o *mod 97* certo. O processo
+    entrega o toque no `botao`, que a guarda nao redige; mas um toque lido da
+    janela (a segunda leitura do `_botao_do_turno`) chegava como
+    `confirm:orc-…[cartao removido]` e dava `STALE_CONFIRMATION`.
+    Sem digitos nao casa o PAN, o IBAN nem o BI. **E sem o hifen**, porque ele
+    abria uma fronteira de palavra antes das letras: com `orc-` e consoantes, o
+    prefixo `lgbt` do lexico sensivel casava uma vez em ~28 mil. O `_` conta
+    como letra, e a unica fronteira que sobra e antes do `orc`. Os mesmos
+    noventa e seis bits.
     """
     cru = f"{estado.get('thread_id')}:{int(estado.get('turn_seq') or 0)}:{sku}"
-    return "orc-" + hashlib.sha256(cru.encode()).hexdigest()[:24]
+    return "orc_" + hashlib.sha256(cru.encode()).hexdigest()[:24].translate(_CONSOANTES_DA_OFERTA)
+
+
+#: Dezasseis consoantes para os dezasseis valores de um hexadecimal (KAM-234).
+_CONSOANTES_DA_OFERTA: Final = str.maketrans("0123456789abcdef", "bcdfghjklmnpqrst")
 
 
 async def _modulo_activo_ou_nao(deps: Dependencias, estado: Mapping[str, Any]) -> bool:
@@ -2429,7 +2451,7 @@ def send(deps: Dependencias):
             # decisao que nao envia. Se um dia encaminhar, **nao sai mensagem**.
             return {}
 
-        deps.saida.enfileirar(
+        await deps.saida.enfileirar(
             estado,
             com_apresentacao(deps, estado, texto),
             chave=_chave_de_envio(estado, concierge),
@@ -2496,7 +2518,7 @@ def handoff_prepare(deps: Dependencias):
             # O §11: `HandoffUnavailable` -> `degraded` -> aresta 37 -> `send`.
             # O §14 acrescenta a conversa em `pausada`, que e do CHR e nao daqui.
             return _degradado(estado, hid)
-        deps.saida.enfileirar(
+        await deps.saida.enfileirar(
             estado,
             com_apresentacao(deps, estado, MSG_HUMANO_A_CAMINHO),
             chave=f"{hid}:msg",
@@ -2599,7 +2621,7 @@ def handoff_close(deps: Dependencias):
     async def no(estado: dict[str, Any]) -> dict[str, Any]:
         handoff = dict(estado.get("handoff") or {})
         if handoff.get("outcome") == "timeout":
-            deps.saida.enfileirar(
+            await deps.saida.enfileirar(
                 estado, MSG_ALTERNATIVAS, chave=f"{handoff.get('id')}:timeout"
             )
         return {"stage": "done"}

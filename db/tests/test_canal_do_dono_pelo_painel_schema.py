@@ -17,7 +17,12 @@ from pathlib import Path
 
 import bootstrap
 import ligacao
-from tests.base import alembic_ok, em_head, exigir_base_descartavel
+from tests.base import (
+    TABELAS_ANTES_DO_CANAL_DO_DONO_PELO_PAINEL,
+    alembic_ok,
+    em_head,
+    exigir_base_descartavel,
+)
 
 RAIZ = Path(__file__).resolve().parents[2]
 #: Por *glob* e nao pelo numero: o numero da-se na integracao.
@@ -80,11 +85,15 @@ class TestDowngradeDoCanalDoDonoPeloPainel(unittest.TestCase):
         self.assertIn("agent_messages_conversa_idx", indices)
         alembic_ok("downgrade", _anterior())
         depois = self._estado()
-        # **So estas**: as outras tabelas e as politicas delas ficam.
-        self.assertEqual(depois[0], sorted(set(tabelas) - NOVAS))
+        # **So estas e as das revisoes de cima**: as outras tabelas e as
+        # politicas delas ficam. Desde o KAM-121, descer daqui desce primeiro a
+        # revisao do social do dono, e o que fica le-se da cadeia do `base.py`,
+        # e nao de `tabelas - NOVAS` (um ensaio preso a cabeca).
+        self.assertEqual(depois[0], sorted(TABELAS_ANTES_DO_CANAL_DO_DONO_PELO_PAINEL))
         self.assertEqual(depois[1], [])
         self.assertEqual(
-            depois[2], [p for p in politicas if p.split(".")[0] not in NOVAS]
+            depois[2],
+            [p for p in politicas if p.split(".")[0] in TABELAS_ANTES_DO_CANAL_DO_DONO_PELO_PAINEL],
         )
         alembic_ok("upgrade", "head")
         self.assertEqual(self._estado(), (tabelas, indices, politicas))

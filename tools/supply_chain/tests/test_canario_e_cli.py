@@ -161,7 +161,13 @@ class TestRepositorioReal(unittest.TestCase):
         # `subscribed_apps` do WABA). O proxy nao muda — a Graph ja era um dos
         # quatro que ele abre —, e o destino novo e o mesmo FQDN declarado por
         # um segundo servico.
-        self.assertEqual(resumo["destinos"], 9)
+        # **KAM-227: de 9 para 10** (escrito como 8 para 9 e renumerado na
+        # integracao, depois do KAM-218). O `worker-canal-consumidor` corre o
+        # `outbound`, que envia pelo `Saida` e por isso declara
+        # `graph.facebook.com`; o ADR-001 faz do GWY o unico endpoint de
+        # *webhook*, e nao o unico servico que fala com a Meta. O proxy nao
+        # muda: e o mesmo destino, com um terceiro declarante.
+        self.assertEqual(resumo["destinos"], 10)
 
         _, resumo = licencas.verificar(ROOT)
         self.assertEqual(resumo["estados"]["pendente_de_decisao"], 2)  # redis e valkey: D12

@@ -622,7 +622,40 @@ dominios_historicos:
       (emenda 1.111). O upgrade escreve as quinze e o downgrade repoe as catorze
       da foto_de_produtos; esta entrada cobre a segunda. O passo de descida
       recusa-se se houver destinos com essa finalidade. Renumerar a revisao
-      e mudar tambem o caminho desta entrada.
+      e mudar tambem o caminho desta entrada. Desde o KAM-230 o upgrade tambem
+      e historico: escreve quinze, e o dicionario declara dezasseis.
+  - revisao: "db/migrations/versions/0078_finalidade_das_condicoes.py"
+    tabela: "tenant_destinations"
+    coluna: "purpose"
+    ticket: "KAM-230"
+    data: "2026-11-20"
+    razao: >-
+      A revisao finalidade_das_condicoes (KAM-230, decisao do fundador a
+      2026-11-20, opcao B do bloco do KAM-228) acrescenta a
+      classificacao_de_condicoes, a finalidade do classificador de screening
+      quando le as condicoes de um orcamento, por DROP CONSTRAINT mais ADD
+      CONSTRAINT com o mesmo nome, e o dicionario §3.49 passa a declarar
+      dezasseis (emenda 1.128). O upgrade escreve as dezasseis e o downgrade
+      repoe as quinze da finalidade_do_screening; esta entrada cobre a segunda.
+      O passo de descida recusa-se se houver destinos com essa finalidade.
+      Renumerar a revisao e mudar tambem o caminho desta entrada. Desde o
+      KAM-121 o upgrade tambem e historico: escreve dezasseis, e o dicionario
+      declara dezassete.
+  - revisao: "db/migrations/versions/0079_social_do_dono.py"
+    tabela: "tenant_destinations"
+    coluna: "purpose"
+    ticket: "KAM-121"
+    data: "2026-11-21"
+    razao: >-
+      A revisao social_do_dono (KAM-121) acrescenta a classificacao_de_conteudo,
+      a finalidade do classificador de screening quando le os temas e as
+      legendas do modulo social, pelo precedente da opcao B do KAM-230 (um
+      tratamento, uma finalidade), por DROP CONSTRAINT mais ADD CONSTRAINT com o
+      mesmo nome, e o dicionario §3.49 passa a declarar dezassete (emenda
+      1.129). O upgrade escreve as dezassete e o downgrade repoe as dezasseis
+      da finalidade_das_condicoes; esta entrada cobre a segunda. O passo de
+      descida recusa-se se houver destinos com essa finalidade. Renumerar a
+      revisao e mudar tambem o caminho desta entrada.
   - revisao: "db/migrations/versions/0044_screening_de_categorias.py"
     tabela: "screening_decision"
     coluna: "sujeito_tipo"
@@ -645,7 +678,22 @@ dominios_historicos:
       segunda e a que esta entrada cobre. O passo de descida apaga as decisoes
       condicoes antes de repor o dominio, pela regra da 0044 (descer uma
       revisao do screening e coisa de base de ensaio). Renumerar a revisao e
-      mudar tambem o caminho desta entrada.
+      mudar tambem o caminho desta entrada. Desde o KAM-121 o upgrade tambem e
+      historico: escreve tres, e o dicionario declara quatro.
+  - revisao: "db/migrations/versions/0079_social_do_dono.py"
+    tabela: "screening_decision"
+    coluna: "sujeito_tipo"
+    ticket: "KAM-121"
+    data: "2026-11-21"
+    razao: >-
+      A revisao social_do_dono (KAM-121, decisao do fundador a 2026-11-20,
+      opcao A) acrescenta conteudo, o sujeito dos temas e das legendas do
+      modulo social, com o content_item_id, por DROP CONSTRAINT mais ADD
+      CONSTRAINT com o mesmo nome, e o dicionario §3.58 passa a declarar quatro
+      (emenda 1.129). O upgrade escreve os quatro e o downgrade repoe os tres da
+      0074; esta entrada cobre a segunda. O passo de descida apaga as decisoes
+      conteudo antes de repor o dominio, pela regra da 0074. Renumerar a
+      revisao e mudar tambem o caminho desta entrada.
 
 # ------------------------------------------------ unicidades que o §3 proibe
 #

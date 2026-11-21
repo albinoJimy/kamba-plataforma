@@ -17,12 +17,12 @@ import {
   EmbrulhoInvalidoError,
   EnvKeyProvider,
   EpocaInvalidaError,
+  ChavesDeIdentidadeEmFaltaError,
   type KeyProvider,
-  KeyProviderDeAmbienteError,
   SecretsKeyProvider,
   epocaDe,
   epocaValida,
-  exigirKeyProviderDeCofre,
+  exigirAmbienteDoKeyProvider,
   gerarChaveVersionada,
   kidValido,
 } from "../src/identity/chaves.ts";
@@ -218,7 +218,10 @@ test("sem a chave no cofre, o erro nomeia o segredo; um cofre selado propaga-se 
 
 function deCofre(ambiente: "dev" | "staging" | "prod"): KeyProvider {
   return new SecretsKeyProvider({
-    segredos: new OpenBaoFakeProvider({ ambiente, dados: { pepper_contact_hmac: [K1] } }),
+    segredos: new OpenBaoFakeProvider({
+      ambiente,
+      dados: { pepper_contact_hmac: [K1], kek_contact_dek: [KEK1] },
+    }),
   });
 }
 
@@ -229,30 +232,76 @@ test("o provedor diz de onde vêm as chaves", () => {
   assert.deepEqual([cofre.nome, cofre.deAmbiente, cofre.ambiente], ["secrets:openbao-fake", false, "prod"]);
 });
 
-test("critério 9: em KAMBA_ENV=prod, com o KeyProvider de ambiente, o arranque falha", async () => {
+test("critério 9 emendado (fundador, 2026-11-20): em prod, o KeyProvider de ambiente com as chaves arranca", async () => {
+  // O ADR-L002: o lançador do cofre enche o ambiente, e é dele que as chaves vêm.
   const chaves = new EnvKeyProvider({
     ambiente: "prod",
     env: ambienteDeChaves({ pesquisa: [K1], kek: [KEK1] }),
   });
-  assert.throws(() => exigirKeyProviderDeCofre(chaves, { KAMBA_ENV: "prod" }), (erro: unknown) => {
-    assert.ok(erro instanceof KeyProviderDeAmbienteError);
-    assert.equal(erro.provedor, "secrets:env");
-    assert.match(erro.message, /prod/);
-    return true;
-  });
-  // E não há outra porta de entrada: o serviço só se obtém por `arrancar`.
-  await assert.rejects(
-    Identidade.arrancar({ chaves, env: { KAMBA_ENV: "prod" } }),
-    KeyProviderDeAmbienteError,
+  assert.equal(exigirAmbienteDoKeyProvider(chaves, { KAMBA_ENV: "prod" }), "prod");
+  for (const declarado of ["prod", " prod "]) {
+    assert.ok((await Identidade.arrancar({ chaves, env: { KAMBA_ENV: declarado } })) instanceof Identidade);
+  }
+});
+
+test("critério 9 emendado: em prod, sem uma chave, vazia ou mal formada, o arranque falha e nomeia todas", async () => {
+  const casos: [Record<string, string>, string[]][] = [
+    [ambienteDeChaves({}), ["kek_contact_dek", "pepper_contact_hmac"]],
+    [ambienteDeChaves({ kek: [KEK1] }), ["pepper_contact_hmac"]],
+    [ambienteDeChaves({ pesquisa: [K1] }), ["kek_contact_dek"]],
+    [ambienteDeChaves({ pesquisa: ["   "], kek: [KEK1] }), ["pepper_contact_hmac"]],
+    [ambienteDeChaves({ pesquisa: [K1], kek: ["kek-1:curta"] }), ["kek_contact_dek"]],
+    [ambienteDeChaves({ pesquisa: ["sem-versao"], kek: [KEK1] }), ["pepper_contact_hmac"]],
+    // Uma anterior mal formada também recusa: o anel inteiro tem de ler.
+    [ambienteDeChaves({ pesquisa: [K1, "k0:curta"], kek: [KEK1] }), ["pepper_contact_hmac"]],
+  ];
+  for (const [env, refs] of casos) {
+    const chaves = new EnvKeyProvider({ ambiente: "prod", env });
+    await assert.rejects(Identidade.arrancar({ chaves, env: { KAMBA_ENV: "prod" } }), (erro: unknown) => {
+      assert.ok(erro instanceof ChavesDeIdentidadeEmFaltaError);
+      assert.deepEqual(erro.refs, refs);
+      assert.equal(erro.provedor, "secrets:env");
+      for (const valor of Object.values(env)) {
+        if (valor.trim() !== "") assert.ok(!erro.message.includes(valor), "a mensagem não leva o valor");
+      }
+      return true;
+    });
+  }
+});
+
+test("soLeEndpoints: em prod confere só a KEK, e a KEK sempre", async () => {
+  const soKek = new EnvKeyProvider({ ambiente: "prod", env: ambienteDeChaves({ kek: [KEK1] }) });
+  assert.ok(
+    (await Identidade.arrancar({ chaves: soKek, env: { KAMBA_ENV: "prod" }, soLeEndpoints: true })) instanceof
+      Identidade,
   );
+  const soPesquisa = new EnvKeyProvider({ ambiente: "prod", env: ambienteDeChaves({ pesquisa: [K1] }) });
   await assert.rejects(
-    Identidade.arrancar({ chaves, env: { KAMBA_ENV: " prod " } }),
-    KeyProviderDeAmbienteError,
+    Identidade.arrancar({ chaves: soPesquisa, env: { KAMBA_ENV: "prod" }, soLeEndpoints: true }),
+    (erro: unknown) => erro instanceof ChavesDeIdentidadeEmFaltaError && erro.refs.join() === "kek_contact_dek",
   );
 });
 
+test("um provedor que não é o de ambiente também tem de ter as chaves em prod", async () => {
+  // Fecha parte do m8 da ANALISE-08: a recusa já não depende do nome do provedor.
+  const semKek = new SecretsKeyProvider({
+    segredos: new OpenBaoFakeProvider({ ambiente: "prod", dados: { pepper_contact_hmac: [K1] } }),
+  });
+  await assert.rejects(
+    Identidade.arrancar({ chaves: semKek, env: { KAMBA_ENV: "prod" } }),
+    ChavesDeIdentidadeEmFaltaError,
+  );
+});
+
+test("um cofre inacessível no arranque sobe como está, e também recusa", async () => {
+  const chaves = new SecretsKeyProvider({
+    segredos: new OpenBaoFakeProvider({ ambiente: "prod", dados: {}, selado: true }),
+  });
+  await assert.rejects(Identidade.arrancar({ chaves, env: { KAMBA_ENV: "prod" } }), CofreInacessivelError);
+});
+
 test("em prod, com as chaves no cofre, arranca", async () => {
-  assert.equal(exigirKeyProviderDeCofre(deCofre("prod"), { KAMBA_ENV: "prod" }), "prod");
+  assert.equal(exigirAmbienteDoKeyProvider(deCofre("prod"), { KAMBA_ENV: "prod" }), "prod");
   assert.ok(
     (await Identidade.arrancar({ chaves: deCofre("prod"), env: { KAMBA_ENV: "prod" } })) instanceof
       Identidade,
@@ -262,7 +311,7 @@ test("em prod, com as chaves no cofre, arranca", async () => {
 test("fora de prod, o KeyProvider de ambiente arranca", async () => {
   for (const ambiente of ["dev", "staging"] as const) {
     const chaves = new EnvKeyProvider({ ambiente, env: {} });
-    assert.equal(exigirKeyProviderDeCofre(chaves, { KAMBA_ENV: ambiente }), ambiente);
+    assert.equal(exigirAmbienteDoKeyProvider(chaves, { KAMBA_ENV: ambiente }), ambiente);
     assert.ok((await Identidade.arrancar({ chaves, env: { KAMBA_ENV: ambiente } })) instanceof Identidade);
   }
 });
@@ -270,7 +319,7 @@ test("fora de prod, o KeyProvider de ambiente arranca", async () => {
 test("KAMBA_ENV em falta ou desconhecida não vale como «não é produção»", async () => {
   const chaves = new EnvKeyProvider({ ambiente: "dev", env: {} });
   for (const env of [{}, { KAMBA_ENV: "" }, { KAMBA_ENV: "production" }, { KAMBA_ENV: "PROD" }]) {
-    assert.throws(() => exigirKeyProviderDeCofre(chaves, env), AmbienteDeIdentidadeError);
+    assert.throws(() => exigirAmbienteDoKeyProvider(chaves, env), AmbienteDeIdentidadeError);
     await assert.rejects(Identidade.arrancar({ chaves, env }), AmbienteDeIdentidadeError);
   }
 });
@@ -279,17 +328,17 @@ test("KAMBA_ENV tem de ser o ambiente do provedor: chaves de dev não arrancam e
   // O caso que contornava o critério 9: um provedor de ambiente que diz ser `dev`.
   assert.throws(
     () =>
-      exigirKeyProviderDeCofre(new EnvKeyProvider({ ambiente: "dev", env: {} }), {
+      exigirAmbienteDoKeyProvider(new EnvKeyProvider({ ambiente: "dev", env: {} }), {
         KAMBA_ENV: "prod",
       }),
     AmbienteDeIdentidadeError,
   );
   assert.throws(
-    () => exigirKeyProviderDeCofre(deCofre("prod"), { KAMBA_ENV: "dev" }),
+    () => exigirAmbienteDoKeyProvider(deCofre("prod"), { KAMBA_ENV: "dev" }),
     AmbienteDeIdentidadeError,
   );
   assert.throws(
-    () => exigirKeyProviderDeCofre(deCofre("staging"), { KAMBA_ENV: "prod" }),
+    () => exigirAmbienteDoKeyProvider(deCofre("staging"), { KAMBA_ENV: "prod" }),
     AmbienteDeIdentidadeError,
   );
 });
@@ -299,8 +348,9 @@ test("sem `env`, lê-se o ambiente do processo", async () => {
   try {
     process.env.KAMBA_ENV = "prod";
     const chaves = new EnvKeyProvider({ ambiente: "prod" });
-    assert.throws(() => exigirKeyProviderDeCofre(chaves), KeyProviderDeAmbienteError);
-    await assert.rejects(Identidade.arrancar({ chaves }), KeyProviderDeAmbienteError);
+    assert.equal(exigirAmbienteDoKeyProvider(chaves), "prod");
+    // O ambiente do processo dos testes não tem chaves: em prod, recusa.
+    await assert.rejects(Identidade.arrancar({ chaves }), ChavesDeIdentidadeEmFaltaError);
   } finally {
     if (anterior === undefined) delete process.env.KAMBA_ENV;
     else process.env.KAMBA_ENV = anterior;

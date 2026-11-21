@@ -300,6 +300,18 @@ function numeroDaTroca(corpo: Corpo): NumeroDaTroca | null {
   return bruto === "novo" || bruto === "antigo" ? bruto : null;
 }
 
+/** A única fase em que o teste ponta a ponta se abre (KAM-094, passo 9). */
+export const FASE_DO_TESTE = "aguarda_teste";
+
+/**
+ * O teste ponta a ponta pelo lado da página (KAM-202, critério 2): o `start` do
+ * `SmokeOwnerAssisted`, com o caso e o tenant **da sessão**. Quem o fecha é o
+ * processo de lote.
+ */
+export interface TesteDoPainel {
+  iniciar(onboardingId: string, tenantId: string): Promise<{ readonly instrucoes: string; readonly expiraEm: Date }>;
+}
+
 /** O que as rotas do painel precisam. */
 export interface OpcoesDoPainel {
   readonly comercio: Comercio;
@@ -322,6 +334,12 @@ export interface OpcoesDoPainel {
   readonly reentrada?: OpcoesDaReentrada | undefined;
   readonly troca?: OpcoesDaTroca | undefined;
   readonly conversa?: OpcoesDaConversa | undefined;
+  /**
+   * O início do teste ponta a ponta (KAM-202, critério 2): abre a tentativa pela
+   * ligação da aplicação. **Opcional**: sem ele, o `POST /painel/teste` responde
+   * 503 e o resto do painel serve igual.
+   */
+  readonly teste?: TesteDoPainel | undefined;
   /** O preço máximo em Kz (critério 5). */
   readonly precoMaximoKz?: bigint | undefined;
   readonly relogio?: (() => Date) | undefined;
@@ -1148,6 +1166,41 @@ export function rotasDoPainel(opcoes: OpcoesDoPainel): Hono {
     }
     log?.info({ outcome: "painel_conversa_enviada" });
     return json({ ok: true, mensagem: enviado.messageId }, 200, sessao.renovar);
+  });
+
+  /**
+   * Abre a tentativa do teste ponta a ponta (KAM-202, critério 2). O caso e o
+   * tenant são os da sessão, e só eles: um `onboarding_id` ou um `tenant_id` no
+   * corpo, na consulta ou num cabeçalho não é lido. Só na fase do teste; um
+   * segundo clique dentro da janela devolve a mesma janela (o `start`).
+   */
+  app.post("/painel/teste", async (c) => {
+    metricas.pedido("teste");
+    const t = opcoes.teste;
+    if (t === undefined) {
+      falhou("teste", "indisponivel");
+      return json({ erro: "indisponivel" }, 503);
+    }
+    const sessao = await sessaoDe(c.req.header("cookie"));
+    if (sessao === null) {
+      falhou("teste", "sem_sessao");
+      return json({ erro: "sessao" }, 401);
+    }
+    if (sessao.fase !== FASE_DO_TESTE) {
+      falhou("teste", "conflito");
+      return json({ erro: "fase" }, 409, sessao.renovar);
+    }
+    let aberta: { readonly instrucoes: string; readonly expiraEm: Date };
+    try {
+      aberta = await t.iniciar(sessao.s.dono, sessao.s.tenantId);
+    } catch {
+      // Sem a excepção no corpo nem no registo: o motivo de uma falha da base
+      // não é do dono. A fase mudou entre a sessão e o `start` também cai aqui.
+      falhou("teste", "indisponivel");
+      return json({ erro: "indisponivel" }, 503, sessao.renovar);
+    }
+    log?.info({ outcome: "painel_teste_iniciado" });
+    return json({ instrucoes: aberta.instrucoes, expira_em: aberta.expiraEm.toISOString() }, 200, sessao.renovar);
   });
 
   return app;

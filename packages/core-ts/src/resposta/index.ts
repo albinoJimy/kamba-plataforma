@@ -8,13 +8,21 @@ export {
   CONSUMIDORES_DA_RESPOSTA,
   DESFECHOS_DA_RESPOSTA,
   ESTADOS_QUE_SAIRAM,
+  CODIGOS_AMBIGUOS,
+  ESPERA_DO_REENVIO_S,
   MOTIVOS_DE_FALHA,
+  ReenvioAdiadoError,
+  SUFIXO_DO_REENVIO,
+  chaveDoReenvio,
+  decidirEnvio,
+  eAmbiguo,
   efeitoDoOutbound,
   efeitoDoPainel,
   pedidoDaResposta,
   respostaParaEnviar,
   type DesfechoDaResposta,
   type EnviarResposta,
+  type EstadoDoEnvio,
   type OpcoesDoEfeito,
 } from "./efeito.ts";
 export {
@@ -23,3 +31,22 @@ export {
   type LigacaoDoEnvio,
   type OpcoesDoEnvio,
 } from "./envio.ts";
+export {
+  CanalSemCredencialError,
+  MOTIVOS_SEM_CREDENCIAL,
+  SQL_TOKEN_REF_DO_CANAL,
+  clienteDaGraphPorCanal,
+  type CanalDoEnvio,
+  type ClienteDoCanal,
+  type CofreDeLeitura,
+  type MotivoSemCredencial,
+  type OpcoesDaCredencial,
+} from "./credencial.ts";
+export {
+  FINALIDADE_DA_RESPOSTA,
+  SEM_DESTINATARIO,
+  destinatarioPelaIdentidade,
+  escolherDestinatario,
+  type LeitorDeEndpoints,
+  type OpcoesDoDestinatario,
+} from "./destinatario.ts";

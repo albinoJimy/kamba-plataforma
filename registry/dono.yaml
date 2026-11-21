@@ -68,6 +68,14 @@ tools:
   - get_catalog_status
   # KAM-220: a resposta do dono a um pedido de orcamento (modulo `orcamento`).
   - submit_quote
+  # KAM-121: o modulo `social` — perfil de marca, ideias da semana e legendas.
+  # **Sem tool de publicacao nem de envio a terceiros** (criterio 7, D13): o
+  # dono publica a mao. Sem `registry/social.yaml`, pelo §21.4 do
+  # `docs/tecnica/02` (decisao do fundador de 2026-11-20 no bloco do KAM-119).
+  - get_brand_profile
+  - update_brand_profile
+  - generate_calendar
+  - generate_caption
 entitlements:
   limites:
     - msgs_ai_mes

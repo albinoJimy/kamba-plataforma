@@ -9,6 +9,12 @@ Duas coisas, e a segunda e a que o bloco nomeia nos Testes Requeridos:
    a base como estava; sem ele desce, o dominio volta as catorze, e volta a
    subir — a descida e reversivel.
 
+**Desde o KAM-230 a cabeca e a `finalidade_das_condicoes`**, que reescreve o
+mesmo `CHECK` com dezasseis. O que **esta** revisao escreve ja nao se le na
+cabeca: le-se subindo so ate ela (`upgrade <esta>`), e e ai que o ensaio da
+descida conta as quinze. Sem isso, a mutacao que lhe tira a
+`classificacao_de_catalogo` sobrevivia, porque a revisao de cima a repoe.
+
 A revisao descobre-se por *glob* e o `revision` e o `down_revision` leem-se do
 ficheiro: o numero e provisorio (a fila de integracao renumera), e nenhum
 literal daqui muda com ele.
@@ -69,7 +75,9 @@ class TestAFinalidadeDoScreening(ComBase):
         for finalidade in FINALIDADES:
             with self.subTest(finalidade=finalidade):
                 self.assertIn(f"'{finalidade}'", definicao)
-        self.assertEqual(definicao.count("'::text"), 15)
+        # Na cabeca ha mais (a `finalidade_das_condicoes`, KAM-230): as quinze
+        # desta revisao contam-se no ensaio da descida, subindo so ate ela.
+        self.assertGreaterEqual(definicao.count("'::text"), 15)
         tenant = factories.tenant(admin)
         sql = (
             f"INSERT INTO {DESTINOS} (tenant_id, provider, country, purpose, status, "
@@ -115,7 +123,7 @@ class TestDowngradeDaFinalidadeDoScreening(unittest.TestCase):
         return self._executar(SQL_DEFINICAO)  # type: ignore[return-value]
 
     def test_com_um_destino_recusa_e_sem_ele_desce_e_volta(self) -> None:
-        _, abaixo = _revisao()
+        esta, abaixo = _revisao()
         conexao = ligacao.ligar("admin")
         try:
             cursor = conexao.cursor()
@@ -151,11 +159,15 @@ class TestDowngradeDaFinalidadeDoScreening(unittest.TestCase):
             for finalidade in FINALIDADES_DA_FOTO:
                 self.assertIn(f"'{finalidade}'", definicao)
             self.assertEqual(definicao.count("'::text"), 14)
+            # O que **esta** revisao escreve: sobe-se so ate ela, e nao a
+            # cabeca, porque a de cima reescreve o mesmo `CHECK` (KAM-230).
+            alembic_ok("upgrade", esta)
+            definicao = self._definicao()
+            self.assertIn(f"'{FINALIDADE}'", definicao)
+            self.assertEqual(definicao.count("'::text"), 15)
         finally:
             alembic_ok("upgrade", "head")
-        definicao = self._definicao()
-        self.assertIn(f"'{FINALIDADE}'", definicao)
-        self.assertEqual(definicao.count("'::text"), 15)
+        self.assertIn(f"'{FINALIDADE}'", self._definicao())
 
 
 if __name__ == "__main__":

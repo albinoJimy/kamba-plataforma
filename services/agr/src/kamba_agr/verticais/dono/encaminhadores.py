@@ -31,6 +31,7 @@ CHAVE_DA_INTENCAO: Final = {
     "orcamento": "orcamento",
     "responder_orcamento": "resposta",
     "catalogo": "catalogo",
+    "social": "social",
 }
 
 

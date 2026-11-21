@@ -67,6 +67,10 @@ FONTE_DO_ORCAMENTO: Final = "KAM-220"
 #: `confirm`, e a 37 e nova.
 FONTE_DO_CATALOGO: Final = "KAM-119"
 
+#: A aresta da conversa social (KAM-121): perfil, ideias e legendas, como a
+#: do catalogo. **Uma aresta, e nenhum no**: a conversa corre no `confirm`.
+FONTE_DO_SOCIAL: Final = "KAM-121"
+
 #: O piso do criterio 10 do KAM-118: reutilizados / total.
 REAPROVEITAMENTO_MINIMO: Final = 0.70
 
@@ -129,6 +133,8 @@ NOS_REUTILIZADOS: Final = (
 #:              pre-visualizacao ja foi validada pelo validador do KAM-032 com o
 #:              *fact* `quote_price`, e e o mesmo caminho directo ao `send` das
 #:              frases do botao;
+#: `social`     o modulo social (KAM-121): perfil de marca, ideias da semana e
+#:              legendas. Vai ao `confirm`, como o `catalogo`;
 #: `outro`      tudo o resto, ao `safe_reply`.
 INTENCOES: Final = (
     "modulos",
@@ -138,6 +144,7 @@ INTENCOES: Final = (
     "orcamento",
     "responder_orcamento",
     "catalogo",
+    "social",
     "outro",
 )
 
@@ -168,6 +175,14 @@ ARESTAS: Final = (
         "catalogo",
         "botao, foto, PRD ou resposta a um rascunho do catalogo",
         fonte=FONTE_DO_CATALOGO,
+    ),
+    Aresta(
+        38,
+        "classify",
+        "confirm",
+        "social",
+        "botao, SOC, palavras das redes ou resposta ao perfil de marca",
+        fonte=FONTE_DO_SOCIAL,
     ),
     Aresta(34, "confirm", "send", None, "sempre (texto estatico)", fonte=FONTE_DO_BOTAO),
     Aresta(15, "tools_info", "compose", None, "sempre", fonte=FONTE_DO_ESQUELETO),

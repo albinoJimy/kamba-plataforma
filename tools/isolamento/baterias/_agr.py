@@ -566,6 +566,9 @@ def atacar_rota_do_screening(ctx) -> list[str]:  # noqa: ANN001
             # Uma folga larga: a guarda da fila nao e o que este caso mede, e
             # numa maquina carregada a de producao (2 s) faria a sonda falhar.
             folga_s=3600.0,
+            # Zero pela mesma razao: o prazo de quem chama (KAM-230) tem os
+            # seus ensaios em `test_llm_screening.py`.
+            minimo_s=0.0,
         )
     )
     canario_de_b = next(iter(ctx.oraculo.proibidos.values()))
@@ -578,6 +581,9 @@ def atacar_rota_do_screening(ctx) -> list[str]:  # noqa: ANN001
                 "trace_id": uuid.uuid4().hex,
                 "categoria_declarada": categoria,
                 "textos": textos,
+                # Os dois campos obrigatorios desde o KAM-230.
+                "finalidade": "classificacao_de_catalogo",
+                "prazo_ms": 15_000,
             }
         ).encode()
 

@@ -74,6 +74,9 @@
 import {
   assertPublishable,
   EscritorSql,
+  FINALIDADE_DAS_CONDICOES,
+  FINALIDADE_DO_CATALOGO,
+  FINALIDADE_DO_CONTEUDO,
   LeitorSql,
   NaoPublicavelError,
   SUJEITOS,
@@ -106,13 +109,49 @@ export const SUJEITO_DAS_CONDICOES = "condicoes";
 export const SUJEITO_DO_PRODUTO = "produto";
 
 /**
- * Os sujeitos que a rota aceita: o das condições e o do produto, lidos do
- * `SUJEITOS` do `tipos.ts` (que o ensaio da base compara com o `CHECK`). A
- * `categoria` nunca. Ver a nota do módulo.
+ * O sujeito do conteúdo do módulo social (KAM-121, decisão 1 do fundador de
+ * 2026-11-20): o tema ou a legenda de um item, com o `content_item_id` por
+ * referência. Nem a
+ * re-análise nem o `assertPublishable` o leem: é um rascunho do dono, e o que
+ * se entrega é do KAM-122.
+ */
+export const SUJEITO_DO_CONTEUDO = "conteudo";
+
+/**
+ * Os sujeitos que a rota aceita: o das condições, o do produto e o do
+ * conteúdo, lidos do `SUJEITOS` do `tipos.ts` (que o ensaio da base compara com
+ * o `CHECK`). A `categoria` nunca. Ver a nota do módulo.
  */
 export const SUJEITOS_DA_ROTA: readonly SujeitoTipo[] = SUJEITOS.filter(
-  (sujeito) => (sujeito as string) === SUJEITO_DAS_CONDICOES || (sujeito as string) === SUJEITO_DO_PRODUTO,
+  (sujeito) =>
+    (sujeito as string) === SUJEITO_DAS_CONDICOES ||
+    (sujeito as string) === SUJEITO_DO_PRODUTO ||
+    (sujeito as string) === SUJEITO_DO_CONTEUDO,
 );
+
+/**
+ * A finalidade de transferência de cada sujeito da rota (KAM-230). O
+ * classificador do AGR consulta o *gate* de destino com ela, e não com a do
+ * papel: as condições de um orçamento têm a sua (decisão do fundador de
+ * 2026-11-20, opção B), e a do catálogo nunca as cobre. O AGR manda a
+ * finalidade no pedido, e a operação confere-a com esta tabela: duas leituras
+ * que discordam recusam, em vez de uma escolher pela outra.
+ */
+export const FINALIDADE_DO_SUJEITO: Readonly<Record<string, string>> = {
+  [SUJEITO_DAS_CONDICOES]: FINALIDADE_DAS_CONDICOES,
+  [SUJEITO_DO_PRODUTO]: FINALIDADE_DO_CATALOGO,
+  [SUJEITO_DO_CONTEUDO]: FINALIDADE_DO_CONTEUDO,
+};
+
+/**
+ * O que fica do prazo de quem chama para gravar a decisão e responder, depois do
+ * classificador (KAM-230). *Proposta*: a gravação é uma instrução numa
+ * transacção curta, e o p99 dela não está medido.
+ */
+export const RESERVA_DA_GRAVACAO_MS = 300;
+
+/** O tecto do `prazo_ms` que a rota aceita: o `TEMPO_MAXIMO_MS` do adaptador Python. */
+export const PRAZO_MAXIMO_MS = 20_000;
 
 /** O pedido que a rota valida. `categoriaDeclarada` `null` quer dizer «a do tenant». */
 export interface PedidoDeScreen {
@@ -121,6 +160,10 @@ export interface PedidoDeScreen {
   readonly sujeitoRef: string;
   readonly categoriaDeclarada: string | null;
   readonly textos: readonly string[];
+  /** A finalidade que o chamador diz (KAM-230); tem de ser a do sujeito. */
+  readonly finalidade: string;
+  /** O que sobra a quem chama, em milissegundos, quando o pedido sai (KAM-230). */
+  readonly prazoMs: number;
 }
 
 /**
@@ -162,9 +205,22 @@ export function operacaoDeScreen(deps: DependenciasDoScreenDoCom): OperacaoDeScr
   return async (ctx, pedido) => {
     // Antes de qualquer ligação, como em todo o COM (ISO-09).
     const { tenantId } = exigirCtx(ctx);
+    // O prazo conta da chegada, e não de quando o classificador é chamado: a
+    // leitura da categoria do tenant também o gasta.
+    const limite = Date.now() + pedido.prazoMs - RESERVA_DA_GRAVACAO_MS;
     const aceites = SUJEITOS_DA_ROTA;
     if (!(aceites as readonly string[]).includes(pedido.sujeitoTipo)) return erro("VALIDATION_ERROR");
     const sujeitoTipo = pedido.sujeitoTipo as SujeitoTipo;
+    const finalidade = FINALIDADE_DO_SUJEITO[pedido.sujeitoTipo];
+    if (finalidade === undefined || pedido.finalidade !== finalidade) return erro("VALIDATION_ERROR");
+    const base = deps.classificador;
+    const classificador: ClassificadorDeCategorias | null =
+      base === null
+        ? null
+        : {
+            classificar: (entradaDoModelo, contexto) =>
+              base.classificar(entradaDoModelo, { ...contexto, finalidade, prazoMs: limite - Date.now() }),
+          };
     try {
       const categoria =
         pedido.categoriaDeclarada ??
@@ -179,7 +235,7 @@ export function operacaoDeScreen(deps: DependenciasDoScreenDoCom): OperacaoDeScr
         entrada,
         {
           politica: deps.politica,
-          classificador: deps.classificador,
+          classificador,
           escritor: {
             gravar: (linha) =>
               deps.comTenant(tenantId, (cliente) =>
@@ -317,6 +373,82 @@ export function operacaoDePublicar(deps: DependenciasDaPublicacao): OperacaoDePu
     } catch {
       return erro("UPSTREAM_DOWN");
     }
+  };
+}
+
+// ---------------------------------------- o nome novo de um publicado (KAM-202)
+
+/**
+ * O prazo do `screen` de um nome novo (KAM-202, depois do KAM-230). O rascunho
+ * não traz o prazo de quem chama, e por isso leva um fixo. ***Proposta***,
+ * dentro do `PRAZO_MAXIMO_MS`. Esgotado, o classificador conta como em baixo: a
+ * decisão sai `condicional`, a escrita segue, e a base tira o produto de
+ * `publicado`, que é o lado seguro.
+ */
+export const PRAZO_DO_NOME_NOVO_MS = 5_000;
+
+/**
+ * O `nome` e o `estado` de uma oferta do tenant, antes de um rascunho. **Sem
+ * tranca**, pela razão do `SQL_NOME_DA_OFERTA`: quem decide sob a tranca é a
+ * base, com o *trigger* `offer_terms_publicacao_segura`.
+ */
+export const SQL_OFERTA_ANTES_DO_RASCUNHO = `
+SELECT nome, estado FROM platform.offer_terms
+WHERE tenant_id = $1 AND sku = $2 AND deleted_at IS NULL`;
+
+export interface DependenciasDoNomeNovo {
+  readonly comTenant: ComTenant;
+  readonly screen: OperacaoDeScreen;
+}
+
+/**
+ * Repete o screening quando um rascunho muda o nome de um produto **publicado**
+ * (KAM-202, critério 5). Devolve `null` quando a escrita pode seguir, e a
+ * recusa quando não pode.
+ *
+ * ```text
+ * oferta nova, rascunho, ou o mesmo nome   null, sem screening
+ * publicado com nome novo                  screen do nome novo, e null
+ * base em baixo, ao ler ou no screen       UPSTREAM_DOWN, e nada se escreve
+ * ```
+ *
+ * **O screening corre antes da escrita, e o resultado dele não decide aqui.**
+ * Quem decide é a base: com o nome novo escrito, o *trigger*
+ * `offer_terms_publicacao_segura` deixa o produto em `publicado` se houver
+ * decisão que o permita para o conteúdo de agora, e tira-o para `rascunho` se
+ * não houver. Decidir aqui também era uma segunda regra para o mesmo facto.
+ * Correr o `screen` antes é o que faz o caminho certo ser possível: sem ele,
+ * nenhum nome novo tinha decisão, e toda a edição de um publicado o despublicava.
+ *
+ * **Falhar é não escrever.** Uma base em baixo ao ler ou ao gravar a decisão
+ * devolve `UPSTREAM_DOWN`; o chamador repete. Um classificador em baixo não é
+ * falha: o `screen` lê-o como `condicional`, a escrita segue, e a base tira o
+ * produto de `publicado`, que é o lado seguro.
+ */
+export function screeningDoNomeNovo(
+  deps: DependenciasDoNomeNovo,
+): (ctx: Ctx, sku: string, nome: string) => Promise<ResultadoFinal<never> | null> {
+  return async (ctx, sku, nome) => {
+    const { tenantId } = exigirCtx(ctx);
+    let antes: { nome: unknown; estado: unknown } | undefined;
+    try {
+      antes = await deps.comTenant(tenantId, async (cliente) => {
+        const { rows } = await cliente.query(SQL_OFERTA_ANTES_DO_RASCUNHO, [tenantId, sku]);
+        return rows[0] as { nome: unknown; estado: unknown } | undefined;
+      });
+    } catch {
+      return erro("UPSTREAM_DOWN");
+    }
+    if (antes === undefined || antes.estado !== "publicado" || antes.nome === nome) return null;
+    const decidido = await deps.screen(ctx, {
+      sujeitoTipo: SUJEITO_DO_PRODUTO,
+      sujeitoRef: sku,
+      categoriaDeclarada: null,
+      textos: [nome],
+      finalidade: FINALIDADE_DO_CATALOGO,
+      prazoMs: PRAZO_DO_NOME_NOVO_MS,
+    });
+    return decidido.tipo === "ok" ? null : erro(decidido.erro);
   };
 }
 

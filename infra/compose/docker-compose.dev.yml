@@ -334,9 +334,15 @@ services:
       <<: *service-env
       CONSUMIDOR_PORT: "3012"
       KAMBA_QUEUE_URL: redis://queue:6379
-      KAMBA_CONSUMER: ${KAMBA_CONSUMER:-dev}
+      # KAM-227: o consumidor e o `outbound`. Sem as chaves no `.env`, o
+      # arranque recusa e nomeia a que falta (`portasDoOutbound`).
+      KAMBA_CONSUMER: outbound
+      KAMBA_ENV: dev
       KAMBA_CONSUMIDOR_DB_URL: postgresql://kamba_app:${KAMBA_SECRET_DB_APP_PASSWORD:-}@postgres:5432/${KAMBA_DB_NAME:-kamba_platform}
       KAMBA_CONSUMIDOR_OPS_DB_URL: postgresql://kamba_batch:${KAMBA_SECRET_DB_BATCH_PASSWORD:-}@postgres:5432/${KAMBA_DB_NAME:-kamba_platform}
+      KAMBA_CONSUMIDOR_IDENTITY_DB_URL: postgresql://kamba_identity:${KAMBA_SECRET_DB_IDENTITY_PASSWORD:-}@postgres:5432/${KAMBA_DB_NAME:-kamba_platform}
+      KAMBA_SECRET_KEK_TOKEN_CLIENTE: ${KAMBA_SECRET_KEK_TOKEN_CLIENTE:-}
+      KAMBA_SECRET_KEK_CONTACT_DEK: ${KAMBA_SECRET_KEK_CONTACT_DEK:-}
     healthcheck:
       test:
         - CMD

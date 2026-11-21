@@ -4,7 +4,7 @@
 |---|---|
 | Produto | KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para Angola |
 | Documento | Epic — Core de Comércio |
-| Versão | 1.29 |
+| Versão | 1.30 |
 | Data | Outubro de 2026 |
 | Classificação | Documento de Referência — Interno |
 | Documento-fonte | `../docs/tecnica/03_Core_Comercio_Medusa.md`, `../docs/tecnica/00_Arquitectura_Solucao.md` |
@@ -2997,7 +2997,7 @@ execução; nenhuma caixa é marcada por memória do trabalho feito.
 | Prioridade | P1 |
 | Estimativa | L |
 | Dependências | KAM-094, KAM-119, KAM-198 |
-| Bloqueia | — |
+| Bloqueia | KAM-235, KAM-236 |
 | Responsável sugerido | Engenheiro de Comércio com Engenheiro de Plataforma (TEN) |
 | Documentos de referência | `EPIC-09_Onboarding_Governanca.md` (blocos KAM-094 e KAM-198), `EPIC-11_Modulos_Entrada.md` (bloco KAM-119), `../specs/02_Dicionario_de_Dados_Canonico.md` (§3.40, §3.58, §3.74), `../db/migrations/versions/0028_offer_terms_e_price_quotes.py`, `../docs/tecnica/10_Onboarding_Governanca.md` (§4.1 passos 8–10), ADR-015 |
 
@@ -3054,15 +3054,15 @@ produto imposta pela base.
 - [ ] O processo de lote do KAM-198 corre a `Activacao` (contagem, gate `catalogo_minimo`, activação)
   e o `verify` do teste, com os adaptadores SQL do KAM-094 e a `filaDoTeste` sobre o serviço da fila;
   a página do dono abre a tentativa pela ligação da aplicação.
-- [ ] As métricas, a golden e o Score excluem as conversas com `is_test`, cada leitor com um ensaio
+- [x] As métricas, a golden e o Score excluem as conversas com `is_test`, cada leitor com um ensaio
   que o prova.
-- [ ] A base recusa a entrada em `publicado` sem decisão `permitida` para o conteúdo de agora, e tira
+- [x] A base recusa a entrada em `publicado` sem decisão `permitida` para o conteúdo de agora, e tira
   de `publicado` um nome novo sem decisão; cada caminho de escrita da `offer_terms` continua a
   passar, provado com os ensaios dos módulos que os têm; nenhum 23514 aparece onde o COM não o
   espera.
-- [ ] A chave da decisão do KAM-049 e a do `assertPublishable` de um `sku` passam a ser a mesma, e a
+- [x] A chave da decisão do KAM-049 e a do `assertPublishable` de um `sku` passam a ser a mesma, e a
   mudança de nome pelo COM repete o screening.
-- [ ] A origem `humano`, e a `permitida` de `regra`, que a aplicação pode inserir na
+- [x] A origem `humano`, e a `permitida` de `regra`, que a aplicação pode inserir na
   `screening_decision` deixam de levantar uma recusa de produto — ou fica escrita a decisão de as
   aceitar.
 
@@ -3090,7 +3090,114 @@ produto imposta pela base.
 
 - [ ] Critérios de Aceitação satisfeitos; as caixas que o KAM-094 deixou com este credor marcadas
   com a evidência deste ticket.
-- [ ] Migração reversível; nenhuma suite de outro ticket vermelha; documentação actualizada.
+- [x] Migração reversível; nenhuma suite de outro ticket vermelha; documentação actualizada.
+
+### Decisões do fundador (2026-11-20)
+
+Quatro perguntas levadas ao fundador pela sessão coordenadora, com as opções e a recomendação; a
+**A** nas quatro. As recusadas ficam escritas para não voltarem.
+
+1. **O observador de produção (critério 1).** Em produção, hoje, nenhum serviço chama o
+   `Saida.ingerir` (os *statuses* não escrevem o `delivered_at`), o `ConsentGate` não está montado
+   (nada grava o `consent_event` do aviso de 1.º contacto) e o envio da resposta é do KAM-227.
+   **Decidido:** o observador SQL e o sinal do «teste» no `worker-canal` fazem-se aqui, como um
+   booleano sem texto nem telefone, e o observador **falha fechado** — o teste dá `sem_entrega` ou
+   `sem_consentimento` até esses factos se ligarem. O critério fica parcial, com um credor novo para
+   os *statuses* → `delivered_at`. Recusadas: ligar os *statuses* aqui (pisava o KAM-227) e um ticket
+   novo para o observador inteiro.
+2. **A página do dono (critério 2).** O `onboarding-web` recusa `prod` e não tinha ligação ao
+   `kamba_app`. **Decidido:** só a rota do início, com a ligação do `kamba_app` opcional e provada
+   contra a base; o critério fica parcial, com um credor para o `onboarding-web` em produção.
+   Recusada: o `onboarding-web` inteiro em `prod` neste ticket.
+3. **Os leitores de `is_test` (critério 3).** O bloco e o §3.74 não os nomeavam. **Decidido:**
+   filtram a conversa de teste o `churn_sinais` (o `cliente_at`), o `SQL_CLIENTES_NA_JANELA`, a
+   `v_draft_metrics`, os candidatos a golden e as queixas do `risco_ts`; **não** a filtram o custo e o
+   H6, o *metering* e a qualidade, porque a Meta factura a conversa de teste. Fica escrito que os
+   contadores Prometheus em memória não filtram (o `is_test` marca-se depois), que o Score não existe
+   (D11), e que a `conversations` é única por contacto e canal — a marca fica para sempre na conversa
+   do telefone do teste com a loja. Recusada: outra lista.
+4. **As decisões que a aplicação pode gravar (critério 6).** O `humano` era gravado pelo lote do
+   KAM-198 pela ligação do `kamba_app`. **Decidido:** um *trigger* na `screening_decision` aceita a
+   `origem = 'humano'` só do `kamba_batch`, e o escritor do lote passa à ligação do lote. A
+   `permitida` de `regra` e `llm` que a aplicação grava fica aceite, com a razão escrita: o COM é o
+   único motor do `screen`, e a barreira da base é contra defeitos e contra o que contorna o COM, não
+   contra uma aplicação comprometida. Recusadas: aceitar as duas só por escrito, e um papel próprio
+   para o escritor do `screen`.
+
+**E uma que era do ticket, e não do fundador** (os Detalhes Técnicos: «decidir se isto chega é parte
+do ticket»): a versão da política. A base lê a versão **mais recente que tem decisões** para o
+conteúdo de agora, e chega: a base apanha o que contorna o COM, o COM exige a versão corrente no
+`assertPublishable` antes de publicar, e um publicado com a decisão numa versão antiga é o caso da
+re-análise do KAM-088, que o vê e grava a nova.
+
+### Verificação dos Critérios de Aceitação
+
+Entregue no ramo `feature/KAM-202-teste-em-producao`:
+
+- a revisão [`0080`](../db/migrations/versions/0080_publicacao_segura_e_teste_em_producao.py), da fila
+  (depois da `0077`, da `0078` e da `0079`): as duas funções e o *trigger* da publicação segura, o sinal
+  `conversations.teste_recebido_at`, o *trigger* da decisão humana só do lote, e o `churn_sinais` e a
+  `v_draft_metrics` sem a conversa de teste;
+- o observador de produção ([`../packages/core-ts/src/activacao/observador_sql.ts`](../packages/core-ts/src/activacao/observador_sql.ts)),
+  o sinal na explosão e no CHR, e o ciclo da activação no lote
+  ([`../packages/core-ts/src/activacao/ciclo.ts`](../packages/core-ts/src/activacao/ciclo.ts)), montado no
+  `services/onboarding-web/src/lote/processo.ts` e agendado no `lote.ts`;
+- o início do teste pela página (`POST /painel/teste`, [`../services/onboarding-web/src/painel/teste.ts`](../services/onboarding-web/src/painel/teste.ts));
+- o nome novo de um publicado pelo COM a repetir o screening ([`../services/com/src/screening/index.ts`](../services/com/src/screening/index.ts), `screeningDoNomeNovo`);
+- os três leitores em código sem a conversa de teste (`SQL_CLIENTES_NA_JANELA`, `SQL_CANDIDATOS`, `SQL_QUEIXAS`);
+- o dicionário §3.74 (emenda 1.130), dois credores (**KAM-235** e **KAM-236**) e o bloco do KAM-094 revisto.
+
+**As quatro decisões do fundador estão acima.** Com elas, **quatro critérios satisfeitos e dois parciais**,
+que são os dois que o fundador mandou deixar parciais.
+
+| Critério | Estado | Evidência |
+|---|---|---|
+| 1 — observador de produção dos quatro factos, a partir de um sinal do `worker-canal`, sem texto nem telefone | **parcial — caixa vazia** (decisão 1) | **Feito:** a explosão marca o «teste» com um booleano e o corpo não segue (`KAM-202 — o sinal do teste sai da explosao`, dois ensaios); o CHR grava só o instante, na transacção que abre a conversa (`com eTeste, a conversa ganha o instante…`); o `ObservadorSql` lê os quatro factos pela ligação da aplicação (`test_o_observador_le_os_factos_pela_aplicacao`, e o de outro tenant não vê nada); a resposta tem de nomear o assistente e a loja, e a frase do assistente é a do registo do vendedor (`a frase do assistente e a da apresentacao do vendedor no registo`). **Falta:** em produção ninguém escreve o `delivered_at` (os *statuses*) nem o `consent_event` (o `ConsentGate`), e a apresentação do vendedor não nomeia a loja. O teste falha fechado até lá. Credor **KAM-235** |
+| 2 — o lote corre a `Activacao` e o `verify`, com os adaptadores SQL e a `filaDoTeste`; a página abre a tentativa pela aplicação | **parcial — caixa vazia** (decisão 2) | **Feito:** o `CicloDaActivacao` na montagem real do lote, contra a base: o catálogo mínimo fecha o gate e avança (`o lote conta o catalogo minimo…`), quatro elegíveis não avançam, o teste com os quatro factos fecha `ok`, marca o `e2e` e o `is_test`, e chama o `activar`, que recusa com os gates de outros tickets em falta (`a pagina abre a tentativa…`); sem entrega, fecha `falhou` com `sem_entrega` depois da janela. A página abre a tentativa pelo adaptador real, como `kamba_app`. A rota isola o tenant (bateria X-01, `teste=a`). **Falta:** o `onboarding-web` recusa `prod`. Credor **KAM-236** |
+| 3 — métricas, golden e Score sem `is_test`, cada leitor com um ensaio | **satisfeito** (decisão 3) | Os cinco leitores decididos, cada um com a conversa de teste que não conta, contra a base (`TestTesteForaDasLeituras`, cinco ensaios). A `v_draft_metrics` lê-se como `kamba_batch` e como `kamba_audit`. Escritos, por decisão: os contadores Prometheus não filtram, o Score não existe (D11), e a marca fica na conversa do telefone do teste |
+| 4 — a base recusa a entrada em `publicado` sem decisão e tira um nome novo sem decisão; os caminhos de escrita passam; nenhum `23514` inesperado | **satisfeito** | O *trigger* `offer_terms_publicacao_segura`: `TestPublicacao` (oito ensaios, com a decisão que o `SQL_GRAVAR` do `screen` grava), `TestCaminhosDoCom` (sete: o rascunho, os termos com o mesmo nome, o stock, o nome novo que sai de `publicado` sem erro e com o `RETURNING` a dizê-lo, o `INSERT` já publicado de um papel de serviço com `23514`, as sementes do dono). As suites dos módulos com o *trigger* ligado: `tests_produtos` (**185**), `tests_encomendas` (**217**), `tests_lote` (**11**, com a montagem real do lote) e `tests_agr` (**106**), verdes com o *trigger* ligado (`db/gate_bd.py`, nesta máquina). Os ensaios dos módulos que seguem com o *trigger* e o mudaram: o `test_trust_schema` do KAM-200 semeava como aplicação uma oferta já publicada (agora semeia-a o dono da tabela, e o pausado e o rascunho têm decisão, para que seja a limitação a recusar e não a falta dela); nenhum outro precisou |
+| 5 — a chave da decisão do KAM-049 e a do `assertPublishable` de um `sku` iguais; o nome novo pelo COM repete o screening | **satisfeito** | A chave é a mesma desde o KAM-119 (o `_screening_da_publicacao` do `pipeline.py` grava com o `sku`, a categoria do tenant e o nome). O nome novo de um publicado passa pelo `screen` **antes** da escrita, e o `product_changed` sai com o estado de depois (`services/com/tests/nome_novo.test.ts`, cinco ensaios) |
+| 6 — a `humano` e a `permitida` de `regra` que a aplicação grava deixam de levantar uma recusa, ou fica escrita a decisão de as aceitar | **satisfeito** (decisão 4) | A `humano` só do `kamba_batch` (`TestHumanoSoDoLote`, três ensaios; e no lote, `o screening de um caso de catálogo grava como kamba_batch…`, com a recusa da aplicação). A `permitida` de `regra` e `llm` fica aceite, com a razão escrita na decisão 4 e na revisão |
+
+### Verificação da Definition of Done
+
+| DoD | Estado | Evidência |
+|---|---|---|
+| Critérios satisfeitos; as caixas do KAM-094 com este credor marcadas | **parcial** | Quatro de seis (os dois parciais são decisão do fundador). No KAM-094, duas linhas da DoD passam a satisfeitas (a publicação protegida pela base e a conversa de teste fora das métricas), e os seis critérios ganham a evidência deste ticket sem mudar de estado: cada um ainda espera por outro credor |
+| Migração reversível; nenhuma suite de outro ticket vermelha; documentação actualizada | **satisfeito** | `TestDowngradeDaPublicacaoSegura` desce até à revisão anterior e volta, com as funções, os *triggers*, a coluna e as duas leituras. Nenhuma suite de outro ticket vermelha nas que correram aqui (as de cima e as listas fechadas do gate 8: `test_inventario`, `test_privilegios`, `test_modos_privilegios`, `test_catalogo`, `test_screening_schema`, `test_kpis_churn_schema`, `test_golden_candidates`, `test_conversas_schema`, `test_retencao_bd`); o `tests` inteiro e o `tests_isolamento` inteiro ficam para o CI. Documentação: o dicionário (emenda 1.130), o bloco do KAM-094, o `../docs/revisao.md` e os dois credores |
+
+**A revisão adversarial** correu numa passagem, sobre o ramo antes da primeira subida: **doze achados**, onze
+CONFIRMADOS e um PLAUSÍVEL. **Oito corrigidos neste ramo**, cada um com ensaio:
+
+- (1) a suite do KAM-200 vermelha com o *trigger* — a semente corrigida (acima);
+- (2) a versão da política era a da linha mais recente, e uma decisão humana numa versão antiga levantava a
+  `bloqueada` da versão do motor: agora é a da decisão mais recente do motor
+  (`test_uma_humana_numa_versao_antiga_nao_levanta_a_bloqueada_da_versao_do_motor`);
+- (4) o predicado de tenant da `oferta_publicavel` não era medido, porque a RLS o escondia: medido como
+  `kamba_batch`, que a ignora (`test_o_lote_que_ignora_a_rls…`), e o do observador como administrador;
+- (5) as mutações das barreiras novas: **doze** em `../db/mutacoes.py`, cada uma com o ensaio que a mata. O
+  `--aplicaveis` dá-as todas aplicáveis (1292 conferidas na árvore integrada com a `publico/main` em `d9472c40`).
+  **Doze apanhadas em doze** numa prova focada: cada mutação aplicada na árvore, o gate 8 focado no
+  `tests.test_publicacao_segura_schema` numa base descartável, e o ensaio nomeado no comentário dela em `FAIL`. Não
+  é o corredor do CI, que copia a árvore e corre a suite `tests` inteira: essa fica para a corrida de mutações;
+- (6) um cliente que escrevesse «teste» na janela era marcado `is_test` e saía das queixas do `risco_ts`: com duas
+  conversas com o sinal na janela, o observador não escolhe nenhuma (`test_duas_conversas_com_o_teste_na_janela…`);
+- (8) o `../docs/revisao.md` e o dicionário diziam que a decisão humana passava pela ligação da aplicação;
+- (10) o screening do nome novo corria antes da validação do rascunho (`um rascunho que o modulo recusa…`);
+- (11) uma segunda tentativa do mesmo telefone nunca tinha consentimento na janela: conta o do contacto até ao fim
+  dela (`test_o_consentimento_de_antes_da_janela_conta`).
+
+**Quatro ficam escritos, e não corrigidos:**
+
+- (3) **uma `condicional` num nome novo prende o nome.** O `/internal/screen` do COM grava pelo `EscritorSql`, que
+  não abre `review_case`, e sem decisão humana o `assertPublishable` não passa uma `condicional`. É a falta do
+  critério 2 do KAM-094 (a `condicional` pelo COM não vai à fila), que o `screeningDoNomeNovo` passa a alcançar
+  também. O lado é o seguro: o produto sai de `publicado` e não volta com esse nome sem decisão humana;
+- (7) o ensaio de ponta a ponta contra a base grava o sinal com a instrução do CHR e não pelo CHR (o processo de
+  lote não tem o papel do resolvedor); o `if` do CHR mede-o o `chr.teste.test.ts`;
+- (9) a despublicação pela base não fica no `audit_log`: sai no `catalog.product_changed` com o estado de depois;
+- (12) a volta do lote reconta os casos parados em `aguarda_catalogo` e os testes `ok` com a activação recusada,
+  em cada minuto. Não prende nenhum caso; o custo é uma leitura por caso e por volta.
 
 ### Handoff para Claude Code
 
@@ -3307,3 +3414,4 @@ e correm na suite `tests_encomendas` do *gate* 8, contra um PostgreSQL real, sob
 | 1.27 | Novembro 2026 | **KAM-204 acrescentado, no PR do KAM-096 (EPIC-09)**, que o abre e não o implementa: é o credor do critério 3 do KAM-096. O `entrega_confirmada_por = 'cliente'` e o `entregue_at` escrevem-se hoje à mão, pelo `transition` ou por um `UPDATE` de coluna do `kamba_app`, e o ticket prende-os ao actor e ao instante da transição, na base. O `Bloqueia` do KAM-044 passa a nomear o KAM-204. O epic passa a **16** tickets, seis na Fase 1. | Equipa KAMBÁ |
 | 1.28 | Novembro 2026 | **KAM-204 implementado.** A revisão `0071` prende o `entrega_confirmada_por` ao actor do `order_state_log` e o `entregue_at` ao instante da transacção, na base; o `transition` pede o papel ao `ctx`. Entram no bloco as duas decisões do fundador de 2026-11-18 — o agente fala pelo cliente, com a janela de 24 h aberta, e o mapa actor → papel — e as duas secções de verificação, com as sete caixas marcadas. | Equipa KAMBÁ |
 | 1.29 | Novembro 2026 | **KAM-119 (EPIC-11)**: no bloco do KAM-049, o credor dos critérios 1 e 2 passa do KAM-119 ao **KAM-231**, aberto no PR dele. O KAM-119 liga a ponte do screening (o `produto` pela rota do COM) e a `PortaDoRegisto` sobre o COM; a fonte, o descodificador e a visão reais ficam no credor. Nenhuma caixa deste epic muda. | Equipa KAMBÁ |
+| 1.30 | Novembro 2026 | **KAM-202 entregue em parte: o KAM-094 em produção.** Revisão `0080` (da fila, depois da `0079`), emenda 1.130 do dicionário, e as quatro decisões do fundador de 2026-11-20 registadas no bloco. Quatro critérios satisfeitos (o 3, o 4, o 5 e o 6) e dois parciais por decisão (o 1 e o 2), com os credores **KAM-235** (EPIC-02) e **KAM-236** (EPIC-09), que o `Bloqueia` do KAM-202 ganha. A revisão adversarial: doze achados, oito corrigidos e quatro escritos. Os credores foram escritos como KAM-232 e KAM-233, e a emenda como 1.125, e renumerados duas vezes na integração: para 233 e 234 depois do KAM-223, e para 235 e 236 depois do KAM-218 e do KAM-234 (EPIC-11), que tomaram o 233 e o 234. A emenda passou a 1.126 e depois a 1.130. | Equipa KAMBÁ |

@@ -1,4 +1,4 @@
-"""A porta do *screening* no `submit_quote` (KAM-228).
+"""A porta do *screening* no `submit_quote` (KAM-228, KAM-230).
 
 O KAM-222 entregou a ponte (`ScreeningPeloCom`, `test_screening_pelo_com.py`) e o
 `conferir_condicoes` que a chama (`test_orcamento.py`). Aqui mede-se a
@@ -25,19 +25,26 @@ exige a recusa **e** que o COM tenha chamado o AGR, chegando tarde: um COM de
 ensaio que nao chamasse ninguem deixava o canario vermelho (achado 4 da revisao
 adversarial, medido por mutacao).
 
-## A porta fechada (decisao B do fundador, 2026-11-20)
+## A finalidade das condicoes (decisao B do fundador, 2026-11-20; KAM-230)
 
-As condicoes tem finalidade de transferencia propria, e ela ainda nao existe
-(`FINALIDADE_DAS_CONDICOES`, credor **KAM-230**): em producao a porta esta
-fechada, e o `TestADecisaoB` mede-o sem remendo. Os outros ensaios abrem-na com
-uma finalidade de ensaio (`_abrir_a_porta`) para medir a montagem que o KAM-230
-liga.
+As condicoes tem finalidade de transferencia propria, a
+`classificacao_de_condicoes`. O `TestAFinalidade` mede-a a sair do AGR no corpo
+do COM e a chegar ao classificador pelo COM de ensaio; o *gate* de destino que
+a consulta e o `test_llm_screening.py`, e os dois processos juntos, com a base,
+o `db/tests_entrada/test_screen_com.py`.
+
+## O prazo e a tomada (achados 2, 3 e 9 da revisao do KAM-228; KAM-230)
+
+O `TestOPrazo` mede o prazo absoluto que a ToolLayer da ao executor, e o
+`TestATomada` mede o `screen` a correr sem a tomada: com uma so tomada, outra
+invocacao corre enquanto o COM responde devagar.
 """
 
 from __future__ import annotations
 
 import asyncio
 import contextlib
+import dataclasses
 import datetime
 import http.server
 import io
@@ -62,7 +69,7 @@ from kamba_agr.tls.catalogo import catalogo_do_piloto
 from kamba_agr.tls.com import CABECALHO_INTERNO, CABECALHO_TENANT, ClienteDoCom
 from kamba_agr.tls.erros import VALIDATION_ERROR
 from kamba_agr.tls.especificacoes import Catalogo, ErroDeBackend, Pedido
-from kamba_core.catalogo.screening import ScreeningPorLigar
+from kamba_core.destinos import FINALIDADE_CLASSIFICACAO, FINALIDADE_CONDICOES, FINALIDADES
 from test_tls import TENANT, _Ligacao, contexto
 from test_vendedor import LOJA
 
@@ -88,6 +95,8 @@ class _AgrNoCiclo:
 
     def __init__(self) -> None:
         self.chamadas = 0
+        #: Os corpos lidos, pela ordem (KAM-230: a finalidade que chegou).
+        self.corpos: list[dict[str, Any]] = []
         #: As ligacoes aceites, contadas a entrada: uma que chegue tarde, ja
         #: abandonada pelo COM, conta aqui e nao em `chamadas`.
         self.ligacoes = 0
@@ -117,7 +126,7 @@ class _AgrNoCiclo:
             nome, _, valor = linha.partition(":")
             if nome.strip().lower() == "content-length":
                 tamanho = int(valor.strip())
-        await leitor.readexactly(tamanho)
+        self.corpos.append(json.loads(await leitor.readexactly(tamanho)))
         self.chamadas += 1
         corpo = b'{"resultado":"classificado"}'
         escritor.write(
@@ -191,8 +200,14 @@ class _ComDeEnsaio:
             return False
         import urllib.request
 
+        # A finalidade e o prazo seguem para o classificador, como no COM real
+        # (`operacaoDeScreen`, KAM-230).
         pedido = urllib.request.Request(
-            self.url_do_agr, data=json.dumps({"textos": corpo["textos"]}).encode(), method="POST"
+            self.url_do_agr,
+            data=json.dumps(
+                {"textos": corpo["textos"], "finalidade": corpo["finalidade"], "prazo_ms": corpo["prazo_ms"]}
+            ).encode(),
+            method="POST",
         )
         try:
             with urllib.request.urlopen(pedido, timeout=TECTO_DO_CLASSIFICADOR_S) as resposta:
@@ -223,54 +238,33 @@ def _cliente(base: str) -> ClienteDoCom:
     return ClienteDoCom(base=base, credencial=lambda: CREDENCIAL)
 
 
-def _responder_sem_base(_ligacao, tenant, contacto, quote_id, valor_minor, validade, condicoes, agora, *, screening=None):  # noqa: ANN001, ANN202
-    """O `responder` ate a base: as condicoes pela porta recebida, e o eco sem escrita.
+def _gravar_sem_base(_ligacao, _tenant, _contacto, quote_id, valor_minor, validade, limpas, agora):  # noqa: ANN001, ANN202
+    """O `gravar_a_resposta_do_dono` sem a base: o eco, sem escrita.
 
-    A ordem e a do `responder` real (o `screen` antes da transaccao); o que fica
-    de fora e so a transaccao, que e do `db/tests_agr/test_quote_requests.py`.
+    As condicoes ja vem conferidas pelo executor (KAM-230: sem a tomada); o que
+    fica de fora e so a transaccao, que e do `db/tests_agr/test_quote_requests.py`.
     """
-    limpas = regras.conferir_condicoes(
-        condicoes,
-        screening=screening if screening is not None else ScreeningPorLigar(),
-        tenant_id=tenant,
-        quote_id=quote_id,
-    )
     validade = validade or regras.validade_por_omissao(agora)
     previsao = rep.texto_da_proposta(quote_id, "SKU-300", valor_minor, validade, limpas, agora)
     return rep.Resposta(quote_id, valor_minor, validade, limpas, "a" * 8 + "-1111-4111-8111-" + "1" * 12,
                         previsao, sku="SKU-300")
 
 
-def _abrir_a_porta(caso: unittest.TestCase) -> None:
-    """Da as condicoes uma finalidade de ensaio, como o KAM-230 lhes dara a real.
-
-    A porta esta fechada em producao (decisao B do fundador, 2026-11-20); estes
-    ensaios medem a montagem que o KAM-230 liga, e o fecho mede-se a parte
-    (`TestADecisaoB`), sem remendo.
-    """
-    remendo = mock.patch.object(orcamento_tools, "FINALIDADE_DAS_CONDICOES", "finalidade_de_ensaio")
-    remendo.start()
-    caso.addCleanup(remendo.stop)
-
-
 class _Montagem(unittest.TestCase):
     """O `submit_quote` ligado como o `__main__` o liga, pela ToolLayer."""
-
-    #: Abre a porta por remendo; o `TestADecisaoB` mede-a fechada.
-    PORTA_ABERTA = True
 
     def setUp(self) -> None:
         remendo = mock.patch.object(rep, "por_referencia", lambda _l, _t, referencia: QID if referencia == REFERENCIA else None)
         remendo.start()
         self.addCleanup(remendo.stop)
-        if self.PORTA_ABERTA:
-            _abrir_a_porta(self)
 
-    def _camada(self, cliente: ClienteDoCom | None) -> ToolLayer:
+    def _camada(self, cliente: ClienteDoCom | None, ligacoes: int | None = None) -> ToolLayer:
         especificacao = catalogo_do_piloto(
             orcamento_tools.executores(lambda: AGORA, cliente_do_com=cliente)
         )["submit_quote"]
-        return ToolLayer(Catalogo((especificacao,)), abrir_ligacao=_Ligacao(outro=LOJA).nova_vaga)
+        return ToolLayer(
+            Catalogo((especificacao,)), abrir_ligacao=_Ligacao(outro=LOJA).nova_vaga, ligacoes=ligacoes
+        )
 
     @staticmethod
     async def _invocar(camada: ToolLayer, condicoes: str | None = LIMPAS):
@@ -280,7 +274,7 @@ class _Montagem(unittest.TestCase):
         return await camada.invoke(contexto(vertical="dono"), "submit_quote", argumentos, allowed=("submit_quote",))
 
     def _sem_base(self) -> None:
-        remendo = mock.patch.object(rep, "responder", _responder_sem_base)
+        remendo = mock.patch.object(rep, "gravar_a_resposta_do_dono", _gravar_sem_base)
         remendo.start()
         self.addCleanup(remendo.stop)
 
@@ -316,6 +310,10 @@ class TestASegue(_Montagem):
             {"sujeito_tipo": "condicoes", "sujeito_ref": QID, "categoria_declarada": None, "textos": [LIMPAS]},
         )
         self.assertEqual(corpo["actor"], {"kind": "agente", "id": "grafo-dono"})
+        # KAM-230: a finalidade propria, e o prazo que sobra ao `screen`.
+        self.assertEqual(corpo["finalidade"], FINALIDADE_CONDICOES)
+        self.assertIsInstance(corpo["prazo_ms"], int)
+        self.assertLessEqual(corpo["prazo_ms"], 8_000 - orcamento_tools.RESERVA_DA_TRANSACCAO_MS)
 
     def test_com_o_ciclo_preso_as_condicoes_recusam(self) -> None:
         """O canario: o mesmo executor **no ciclo** deixa o COM sem AGR, e recusa."""
@@ -433,74 +431,181 @@ class TestRecusa(_Montagem):
         self.assertLess(decorrido, 3.5)
 
 
-class TestADecisaoB(_Montagem):
-    """A decisao do fundador de 2026-11-20 (opcao B): sem finalidade propria, fecha.
+class TestAFinalidade(_Montagem):
+    """A decisao do fundador de 2026-11-20 (opcao B): as condicoes tem finalidade propria.
 
-    Sem remendo nenhum na porta: e o modulo como corre em producao. Com o COM e
-    o AGR a responder, as condicoes recusam e o texto nao chega a nenhum dos dois
-    — nao vai ao modelo com a `classificacao_de_catalogo`. O KAM-230, ao dar a
-    finalidade, substitui este ensaio pelo que a faz viajar ate ao classificador.
+    Substitui o `test_sem_finalidade_as_condicoes_recusam_sem_ir_ao_com` do
+    KAM-228, que media a porta fechada: aqui a finalidade sai do AGR no corpo do
+    COM e chega ao classificador. O *gate* que a consulta — e que recusa as
+    condicoes a um tenant so com o destino do catalogo — e o
+    `test_llm_screening.py`; os dois processos com a base, o `db/tests_entrada/test_screen_com.py`.
     """
 
-    PORTA_ABERTA = False
+    def test_a_finalidade_e_propria_e_esta_no_dominio(self) -> None:
+        self.assertEqual(orcamento_tools.FINALIDADE_DAS_CONDICOES, "classificacao_de_condicoes")
+        self.assertEqual(orcamento_tools.FINALIDADE_DAS_CONDICOES, FINALIDADE_CONDICOES)
+        self.assertNotEqual(orcamento_tools.FINALIDADE_DAS_CONDICOES, FINALIDADE_CLASSIFICACAO)
+        self.assertIn(FINALIDADE_CONDICOES, FINALIDADES)
+        # O produto continua com a do catalogo.
+        self.assertEqual(ponte.FINALIDADE_DO_SUJEITO[ponte.SUJEITO_DO_PRODUTO], FINALIDADE_CLASSIFICACAO)
 
-    def test_sem_finalidade_as_condicoes_recusam_sem_ir_ao_com(self) -> None:
+    def test_a_finalidade_das_condicoes_chega_ao_classificador(self) -> None:
         self._sem_base()
-        self.assertIsNone(orcamento_tools.FINALIDADE_DAS_CONDICOES)
 
         async def turno():
             async with _AgrNoCiclo() as agr:
                 with _ComDeEnsaio(agr.url) as com:
-                    camada = self._camada(_cliente(com.base))
-                    com_condicoes = await self._invocar(camada)
-                    sem_condicoes = await self._invocar(camada, condicoes=None)
-                return com_condicoes, sem_condicoes, com.pedidos, agr.ligacoes
+                    resultado = await self._invocar(self._camada(_cliente(com.base)))
+                return resultado, agr.corpos
 
-        com_condicoes, sem_condicoes, pedidos, ligacoes = asyncio.run(turno())
-        self._assert_recusa(com_condicoes)
-        self.assertEqual((pedidos, ligacoes), ([], 0))
-        # Uma resposta sem condicoes segue: o dono envia o orcamento sem elas.
-        self.assertTrue(sem_condicoes.ok, sem_condicoes.error)
+        resultado, corpos = asyncio.run(turno())
+        self.assertTrue(resultado.ok, resultado.error)
+        self.assertEqual([c["finalidade"] for c in corpos], [FINALIDADE_CONDICOES])
 
-    def test_sem_finalidade_nao_ha_porta(self) -> None:
-        pedido = Pedido(
-            ctx=contexto(vertical="dono"),
-            args=orcamento_tools.ArgumentosDeSubmitQuote(referencia=REFERENCIA, valor="120 mil"),
-            timeout_ms=8_000,
+    def test_a_tabela_do_sujeito_e_a_do_com(self) -> None:
+        """A tabela do adaptador e a do `operacaoDeScreen`, lida do TypeScript.
+
+        O COM confere a finalidade que o AGR manda contra a dele: duas tabelas
+        que divergissem recusavam todas as condicoes (ou todos os produtos).
+        """
+        texto = (RAIZ / "services/com/src/screening/index.ts").read_text(encoding="utf-8")
+        bloco = texto.split("export const FINALIDADE_DO_SUJEITO", 1)[1].split("};", 1)[0]
+        self.assertIn("[SUJEITO_DAS_CONDICOES]: FINALIDADE_DAS_CONDICOES", bloco)
+        self.assertIn("[SUJEITO_DO_PRODUTO]: FINALIDADE_DO_CATALOGO", bloco)
+        # KAM-121: o conteudo do social, com a finalidade propria.
+        self.assertIn("[SUJEITO_DO_CONTEUDO]: FINALIDADE_DO_CONTEUDO", bloco)
+        classificador = (RAIZ / "packages/core-ts/src/screening/classificador.ts").read_text(encoding="utf-8")
+        self.assertIn(f'FINALIDADE_DAS_CONDICOES = "{FINALIDADE_CONDICOES}"', classificador)
+        self.assertIn(f'FINALIDADE_DO_CATALOGO = "{FINALIDADE_CLASSIFICACAO}"', classificador)
+        self.assertIn('FINALIDADE_DO_CONTEUDO = "classificacao_de_conteudo"', classificador)
+        self.assertEqual(ponte.FINALIDADE_DO_SUJEITO[ponte.SUJEITO_DO_CONTEUDO], "classificacao_de_conteudo")
+        self.assertEqual(set(ponte.FINALIDADE_DO_SUJEITO), set(ponte.SUJEITOS))
+
+
+class TestOPrazo(_Montagem):
+    """O `Pedido.prazo` conta do inicio da ToolLayer, e nao do executor (achado 3 do KAM-228)."""
+
+    def test_o_prazo_e_o_inicio_da_espera_mais_o_tecto(self) -> None:
+        vistos: list[tuple[float | None, int]] = []
+        especificacao = catalogo_do_piloto(
+            orcamento_tools.executores(lambda: AGORA, cliente_do_com=None)
+        )["submit_quote"]
+        executor = especificacao.executor
+
+        def espiao(pedido: Pedido):  # noqa: ANN202
+            vistos.append((pedido.prazo, pedido.timeout_ms))
+            return executor(pedido)
+
+        self._sem_base()
+        camada = ToolLayer(
+            Catalogo((dataclasses.replace(especificacao, executor=espiao),)),
+            abrir_ligacao=_Ligacao(outro=LOJA).nova_vaga,
         )
-        self.assertIsNone(orcamento_tools.porta_das_condicoes(_cliente("http://com:3002"), pedido, 0))
+        antes = time.monotonic()
+        resultado = asyncio.run(self._invocar(camada, condicoes=None))
+        self.assertTrue(resultado.ok, resultado.error)
+        ((prazo, timeout_ms),) = vistos
+        assert prazo is not None
+        # Entre o inicio do `invoke` e o do executor: o prazo ja corria.
+        self.assertGreaterEqual(prazo, antes + timeout_ms / 1000)
+        self.assertLess(prazo, antes + timeout_ms / 1000 + 1.0)
+
+    def test_o_restante_conta_do_prazo_e_nao_do_executor(self) -> None:
+        modelo = orcamento_tools.ArgumentosDeSubmitQuote(referencia=REFERENCIA, valor="120 mil")
+        agora = time.monotonic()
+        pedido = Pedido(ctx=contexto(vertical="dono"), args=modelo, timeout_ms=8_000, prazo=agora + 3.0)
+        # O executor acabou de comecar, mas a ToolLayer ja gastou 5 s.
+        self.assertLess(orcamento_tools.restante_ms(pedido, agora), 3_000)
+        self.assertGreater(orcamento_tools.restante_ms(pedido, agora), 2_500)
+        sem_prazo = Pedido(ctx=contexto(vertical="dono"), args=modelo, timeout_ms=8_000)
+        self.assertGreater(orcamento_tools.restante_ms(sem_prazo, agora), 7_500)
+
+    def test_passado_o_prazo_depois_do_screen_nao_grava(self) -> None:
+        """O `screen` acaba depois do prazo: nada se grava, e o dono ja teve o `UPSTREAM_TIMEOUT`."""
+        gravadas: list[Any] = []
+        self._sem_base()
+        remendo = mock.patch.object(rep, "gravar_a_resposta_do_dono", lambda *a: gravadas.append(a))
+        remendo.start()
+        self.addCleanup(remendo.stop)
+        modelo = orcamento_tools.ArgumentosDeSubmitQuote(referencia=REFERENCIA, valor="120 mil", condicoes=LIMPAS)
+        executor = orcamento_tools.executores(lambda: AGORA, cliente_do_com=None)["submit_quote"]
+        pedido = Pedido(
+            ctx=contexto(vertical="dono"), args=modelo, timeout_ms=8_000, ligacao=_Ligacao(),
+            prazo=time.monotonic() + 0.2,
+            largar_tomada=lambda trabalho: (time.sleep(0.3), (LIMPAS, _Ligacao()))[1],
+        )
+        with self.assertRaises(ErroDeBackend) as caso:
+            executor(pedido)
+        self.assertEqual(caso.exception.codigo, "UPSTREAM_TIMEOUT")
+        self.assertEqual(gravadas, [])
+
+
+class TestATomada(_Montagem):
+    """O `screen` corre sem a tomada da ToolLayer (achado 9 do KAM-228)."""
+
+    def test_com_uma_tomada_outra_invocacao_corre_durante_o_screen(self) -> None:
+        """Uma tomada so; o COM demora 1,5 s; a segunda invocacao acaba antes da primeira.
+
+        O canario e o mesmo executor sem largar a tomada: a segunda espera pela
+        primeira (`test_sem_largar_a_tomada_a_segunda_espera`).
+        """
+        self._sem_base()
+        ordem = asyncio.run(self._duas(largar=True))
+        self.assertEqual(ordem, ["sem_condicoes", "com_condicoes"])
+
+    def test_sem_largar_a_tomada_a_segunda_espera(self) -> None:
+        self._sem_base()
+        remendo = mock.patch.object(Pedido, "sem_tomada", lambda self, trabalho: (trabalho(), self.ligacao))
+        remendo.start()
+        self.addCleanup(remendo.stop)
+        ordem = asyncio.run(self._duas(largar=False))
+        self.assertEqual(ordem, ["com_condicoes", "sem_condicoes"])
+
+    async def _duas(self, *, largar: bool) -> list[str]:
+        del largar
+        ordem: list[str] = []
+        with _ComDeEnsaio(modo="lento", atraso_s=1.5) as com:
+            camada = self._camada(_cliente(com.base), ligacoes=1)
+
+            async def uma(nome: str, condicoes: str | None) -> None:
+                await self._invocar(camada, condicoes=condicoes)
+                ordem.append(nome)
+
+            primeira = asyncio.create_task(uma("com_condicoes", LIMPAS))
+            # A primeira ja tem a tomada e esta no `screen`.
+            while not com.pedidos:
+                await asyncio.sleep(0.01)
+            await asyncio.gather(primeira, uma("sem_condicoes", None))
+        return ordem
 
 
 # ------------------------------------------------------------------ a porta
 
 
 class TestAPortaDasCondicoes(unittest.TestCase):
-    def setUp(self) -> None:
-        _abrir_a_porta(self)
-
     def _pedido(self, timeout_ms: int = 8_000) -> Pedido:
         modelo = orcamento_tools.ArgumentosDeSubmitQuote(referencia=REFERENCIA, valor="120 mil")
         return Pedido(ctx=contexto(vertical="dono"), args=modelo, timeout_ms=timeout_ms)
 
     def test_sem_cliente_nao_ha_porta(self) -> None:
-        self.assertIsNone(orcamento_tools.porta_das_condicoes(None, self._pedido(), 0))
+        self.assertIsNone(orcamento_tools.porta_das_condicoes(None, self._pedido(), 8_000))
 
     def test_a_porta_e_a_do_sujeito_das_condicoes_com_a_vertical_do_turno(self) -> None:
-        porta = orcamento_tools.porta_das_condicoes(_cliente("http://com:3002"), self._pedido(), 0)
+        porta = orcamento_tools.porta_das_condicoes(_cliente("http://com:3002"), self._pedido(), 8_000)
         assert isinstance(porta, ponte.ScreeningPeloCom)
         self.assertEqual((porta.sujeito_tipo, porta.vertical), ("condicoes", "dono"))
         self.assertIn(orcamento_tools.SUJEITO_DAS_CONDICOES, ponte.SUJEITOS)
 
-    def test_o_tecto_e_o_do_executor_menos_o_que_correu_e_a_reserva(self) -> None:
+    def test_o_tecto_e_o_que_sobra_menos_a_reserva(self) -> None:
         cliente = _cliente("http://com:3002")
         reserva = orcamento_tools.RESERVA_DA_TRANSACCAO_MS
-        porta = orcamento_tools.porta_das_condicoes(cliente, self._pedido(8_000), 200)
-        self.assertEqual(porta.timeout_ms, 8_000 - 200 - reserva)
+        porta = orcamento_tools.porta_das_condicoes(cliente, self._pedido(), 7_800)
+        self.assertEqual(porta.timeout_ms, 7_800 - reserva)
         # Nunca acima dos 20 s do adaptador.
-        self.assertEqual(orcamento_tools.porta_das_condicoes(cliente, self._pedido(60_000), 0).timeout_ms,
+        self.assertEqual(orcamento_tools.porta_das_condicoes(cliente, self._pedido(), 60_000).timeout_ms,
                          ponte.TEMPO_MAXIMO_MS)
         # Sem tempo que sobre, nao ha porta, e as condicoes recusam.
-        self.assertIsNone(orcamento_tools.porta_das_condicoes(cliente, self._pedido(8_000), 8_000 - reserva))
+        self.assertIsNone(orcamento_tools.porta_das_condicoes(cliente, self._pedido(), reserva))
 
 
 class TestOArranque(unittest.TestCase):

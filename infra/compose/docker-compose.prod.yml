@@ -292,12 +292,9 @@ services:
     environment:
       <<: *node-env
       ENTRADA_PORT: "3013"
-      # **Em `prod` este processo NAO arranca hoje, e e medido.** O
-      # `Identidade.arrancar` do KAM-008 recusa o provedor de chaves de
-      # ambiente com `KAMBA_ENV=prod` (`exigirKeyProviderDeCofre`, criterio 9 do
-      # KAM-008), e nao ha provedor de cofre: e a contradicao do
-      # `docs/identidade.md` §8, linha 2, devolvida ao fundador. Nao se poe
-      # `dev` aqui para o fazer arrancar — isso era desligar a recusa.
+      # As chaves de identidade vem do ambiente que o lancador do cofre enche
+      # (ADR-L002; criterio 9 do KAM-008, emendado a 2026-11-20). Sem o *pepper*
+      # ou sem a KEK abaixo, o `Identidade.arrancar` recusa em `prod`.
       KAMBA_ENV: prod
       KAMBA_FASE: piloto
       KAMBA_QUEUE_URL: redis://queue:6379
@@ -433,17 +430,35 @@ services:
         KAMBA_COMMIT_SHA: ${KAMBA_COMMIT_SHA:?o deploy passa o SHA da release}
     command: ["node", "services/worker-canal/src/consumidor.ts"]
     environment:
-      <<: *node-env
+      # `*saida` desde o KAM-227: o `Saida` fala com a Graph API
+      # (`infra/egress/worker-canal-consumidor.yaml`), e so pelo `proxy-saida`.
+      <<: [*node-env, *saida]
       CONSUMIDOR_PORT: "3012"
+      # O `fetch` do Node 24 **ignora** o `HTTPS_PROXY` sem esta variavel (medido
+      # no KAM-227, `node:24.21.0`: sem ela o pedido vai directo e expira; com
+      # ela, vai ao proxy). Sem ela o `*saida` nao fazia nada.
+      NODE_USE_ENV_PROXY: "1"
       KAMBA_QUEUE_URL: redis://queue:6379
-      # A subscricao (`evt_subscricoes.consumer`). Obrigatoria: o processo
-      # recusa arrancar sem ela, e um nome por omissao era uma subscricao que
-      # ninguem configurou.
-      KAMBA_CONSUMER: ${KAMBA_CONSUMER:?o deploy nomeia a subscricao do consumidor}
-      # Dois papeis (cabecalho do `consumidor.ts`): o consumo como `kamba_app`,
-      # o reconciliador e o *gauge* da DLQ como `kamba_batch`.
+      # KAM-227: o consumidor e o `outbound`, a resposta do AGR ao WhatsApp.
+      # Tres papeis, tres ligacoes: `kamba_app` (o consumo e o `Saida`),
+      # `kamba_batch` (o reconciliador) e `kamba_identity` (o destinatario, pelo
+      # `lerEndpoints` do KAM-008, que so precisa da KEK das DEK: o *pepper*
+      # do HMAC nao entra). Os *tokens* de cada canal (as instancias de
+      # `meta_client_token`, uma por `token_ref`) nao se nomeiam aqui: sao por
+      # tenant, e chegam pelo lancador do cofre
+      # (ADR-L002, decisao 1). O valor de cada um e o criptograma, e abre com a
+      # `kek_token_cliente`.
+      # Sem a KEK das DEK de contacto o `Identidade.arrancar` recusa em `prod`
+      # (criterio 9 do KAM-008, emendado a 2026-11-20).
+      KAMBA_CONSUMER: outbound
+      KAMBA_ENV: prod
       KAMBA_CONSUMIDOR_DB_URL: ${KAMBA_CONSUMIDOR_DB_URL:?o deploy passa a cadeia de ligacao do kamba_app}
       KAMBA_CONSUMIDOR_OPS_DB_URL: ${KAMBA_CONSUMIDOR_OPS_DB_URL:?o deploy passa a cadeia de ligacao do kamba_batch}
+      KAMBA_CONSUMIDOR_IDENTITY_DB_URL: ${KAMBA_CONSUMIDOR_IDENTITY_DB_URL:?o deploy passa a cadeia de ligacao do kamba_identity}
+      KAMBA_SECRET_KEK_TOKEN_CLIENTE: ${KAMBA_SECRET_KEK_TOKEN_CLIENTE:?o cofre entrega a KEK dos tokens de cliente}
+      KAMBA_SECRET_KEK_TOKEN_CLIENTE_ANTERIOR: ${KAMBA_SECRET_KEK_TOKEN_CLIENTE_ANTERIOR:-}
+      KAMBA_SECRET_KEK_CONTACT_DEK: ${KAMBA_SECRET_KEK_CONTACT_DEK:?o cofre entrega a KEK das DEK de contacto}
+      KAMBA_SECRET_KEK_CONTACT_DEK_ANTERIOR: ${KAMBA_SECRET_KEK_CONTACT_DEK_ANTERIOR:-}
     # **Uma replica.** As dezasseis filas de particao garantem a ordem por
     # agregado com «concorrencia 1 por fila» (`docs/eventos.md` §4, *Fan-out*);
     # uma segunda replica punha dois *workers* na mesma particao.

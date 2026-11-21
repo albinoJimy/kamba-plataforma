@@ -732,8 +732,21 @@ class TestLimitacaoDoCatalogo(Base):
                            (self.tenant, f"t/{self.tenant}/catalogo/2026/11/{uuid.uuid4()}"))
 
     def test_com_limitacao_o_publicado_continua_e_o_rascunho_nao_se_publica(self) -> None:
-        self.como("kamba_app", self.tenant)
+        # KAM-202: o que ja estava publicado semeia-o o dono da tabela (o *trigger*
+        # `offer_terms_publicacao_segura` recusa a aplicacao a inserir um produto ja
+        # publicado), e o pausado e o rascunho tem a decisao `permitida` do conteudo
+        # deles. Sem ela, o *trigger* da publicacao segura (que corre antes, por ordem
+        # de nome) saltava a linha, e o que se via recusar era a falta de decisao e
+        # nao a limitacao.
+        self.como(None, self.tenant)
         self.oferta("antigo", "publicado")
+        for sku in ("pausado", "rascunho"):
+            self.cursor.execute(
+                "INSERT INTO platform.screening_decision (tenant_id, sujeito_tipo, sujeito_ref, decisao, regras, "
+                "versao_politica, origem, conteudo_sha256) VALUES (%s, 'produto', %s, 'permitida', ARRAY[]::text[], "
+                "'1.0.0+ensaio', 'regra', platform.conteudo_sha256_do_produto('', %s))",
+                (self.tenant, sku, f"produto {sku}"))
+        self.como("kamba_app", self.tenant)
         self.oferta("pausado", "pausado")
         self.oferta("rascunho")
         self.limitar()
@@ -741,6 +754,7 @@ class TestLimitacaoDoCatalogo(Base):
                             (self.tenant,))
         self.cursor.execute("UPDATE platform.offer_terms SET estado = 'publicado' "
                             "WHERE tenant_id = %s AND sku = 'pausado'", (self.tenant,))
+        self.assertEqual(self.cursor.rowcount, 1, "o pausado volta a publicado com a limitacao em vigor")
         self.assertErroSql(VIOLACAO_DE_CHECK, self.cursor,
                            "UPDATE platform.offer_terms SET estado = 'publicado' "
                            "WHERE tenant_id = %s AND sku = 'rascunho'", (self.tenant,))

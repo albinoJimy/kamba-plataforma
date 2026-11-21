@@ -85,8 +85,9 @@ import type { OpcoesDoGuia } from "./guia.ts";
 import { LigadorPorHttp } from "./ligador.ts";
 import { CanalPeloCom } from "./painel/canal.ts";
 import { ComercioPorHttp } from "./painel/comercio.ts";
-import type { OpcoesDaConversa, OpcoesDaTroca, OpcoesDoPainel } from "./painel/rotas.ts";
+import type { OpcoesDaConversa, OpcoesDaTroca, OpcoesDoPainel, TesteDoPainel } from "./painel/rotas.ts";
 import { RevogacoesEmMemoria } from "./painel/sessao.ts";
+import { testeDaActivacao } from "./painel/teste.ts";
 import { precoMaximoKz } from "./painel/validacao.ts";
 import { DEFAULT_PORT, SERVICE } from "./meta.ts";
 import { paginaDeRegisto } from "./pagina.ts";
@@ -354,6 +355,9 @@ function montarGuia(): OpcoesDoGuia | undefined {
  */
 const LIGACOES_DA_IDENTIDADE = 4;
 
+/** As ligações do teste do painel (KAM-202): um clique por dono, e curto. *Proposta*. */
+const LIGACOES_DO_TESTE = 2;
+
 /**
  * O registo de um aviso da troca (ganchos `DESTINOS_DO_AVISO` do KAM-118). **Não
  * entrega nada**: o aviso ao número antigo e ao e-mail é do KAM-115, que ainda
@@ -512,7 +516,25 @@ async function montarPainel(guia: PassoGuiado | undefined): Promise<OpcoesDoPain
     },
     troca: await montarTroca(guia !== undefined),
     conversa: await montarConversa(),
+    teste: montarTeste(),
   };
+}
+
+/**
+ * O teste ponta a ponta do painel (KAM-202, critério 2), **só com a ligação
+ * `kamba_app`** (a `ONBOARDING_APP_DB_URL` da conversa do KAM-223), num conjunto
+ * próprio e pequeno: a página do dono abre a tentativa por ela. Sem ela, o
+ * `POST /painel/teste` responde 503 e o resto do painel serve igual. Este processo
+ * continua a recusar `prod` pelos repositórios em memória (credor no bloco do
+ * KAM-202), e a rota fica provada contra a base em
+ * `packages/core-ts/tests_bd/activacao.bd.test.ts`.
+ */
+function montarTeste(): TesteDoPainel | undefined {
+  if (URL_DA_APP === "") {
+    log.info({ outcome: "painel_teste_desligado" });
+    return undefined;
+  }
+  return testeDaActivacao(poolDe(URL_DA_APP, "teste", LIGACOES_DO_TESTE));
 }
 
 // **A política de comunicação verifica-se no arranque**, e não só por resposta:

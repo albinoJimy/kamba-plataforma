@@ -81,17 +81,24 @@ VISTA = "platform.v_transfer_audit"
 #: Os **quatro** estados do dominio da `0036`.
 ESTADOS = ("pendente", "autorizado", "revogado", "negado")
 
-#: As **quinze** finalidades do dominio na cabeca: as treze da `0036`, a
+#: As **dezassete** finalidades do dominio na cabeca: as treze da `0036`, a
 #: `imagem`, que a revisao da Foto de produtos (KAM-120) acrescenta — o
 #: melhoramento de imagem nao cabe em nenhuma das treze, e a `visao` e a
-#: extraccao de campos do Catalogo AI —, e a `classificacao_de_catalogo`, que a
-#: revisao `finalidade_do_screening` (KAM-195) acrescenta. Os dominios de treze e
-#: de catorze, depois das descidas dessas revisoes, medem-nos o
-#: `db/tests/test_foto_schema.py` e o `db/tests/test_finalidade_do_screening_schema.py`.
+#: extraccao de campos do Catalogo AI —, a `classificacao_de_catalogo`, que a
+#: revisao `finalidade_do_screening` (KAM-195) acrescenta, e a
+#: `classificacao_de_condicoes`, que a `finalidade_das_condicoes` (KAM-230)
+#: acrescenta, e a `classificacao_de_conteudo`, que a `social_do_dono` (KAM-121)
+#: acrescenta. Os dominios de treze, catorze, quinze e dezasseis, depois das descidas dessas
+#: revisoes, medem-nos o `db/tests/test_foto_schema.py`, o
+#: `db/tests/test_finalidade_do_screening_schema.py` e o
+#: `db/tests/test_finalidade_das_condicoes_schema.py` e o
+#: `db/tests_agr/test_social_do_dono.py`.
 FINALIDADES = (
     "alojamento",
     "canal",
     "classificacao_de_catalogo",
+    "classificacao_de_condicoes",
+    "classificacao_de_conteudo",
     "conversa",
     "copias_de_seguranca",
     "embeddings",
@@ -621,9 +628,10 @@ class TestVistaDeAuditoriaDeTransferencias(ComBase):
         Uma juncao que exigisse `conversa` sozinha passava o caso negativo e
         deixava uma chamada de `embed` ou de `vision` eternamente em violacao —
         o inverso do defeito, e igualmente errado. As tres sao as de modelo da
-        `0036`; o `FINALIDADES` do AGR tem quatro desde o KAM-195 (a
-        `classificacao_de_catalogo` do `screening`), que a vista nao le — a
-        revisao `finalidade_do_screening` escreve o que isso custa.
+        `0036`; o `FINALIDADES` do AGR tem seis desde o KAM-121 (a
+        `classificacao_de_catalogo`, a `classificacao_de_condicoes` e a
+        `classificacao_de_conteudo` do `screening`), que a vista nao le — a revisao `finalidade_do_screening`
+        escreve o que isso custa.
         """
         from kamba_core.destinos import (
             FINALIDADE_CONVERSA,

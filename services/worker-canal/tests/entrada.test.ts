@@ -18,8 +18,10 @@ import {
   PORTA_POR_OMISSAO,
   ambienteDasChaves,
   criarApp,
+  identidadeDaEntrada,
 } from "../src/entrada.ts";
 import { SERVICE } from "../src/meta.ts";
+import { ChavesDeIdentidadeEmFaltaError, Identidade, gerarChaveVersionada } from "@kamba/core-ts/identity";
 import { METRICAS_DA_GUARDA, comTenant } from "@kamba/core-ts/tenant_guard";
 
 const WABA = "109876543210987";
@@ -137,7 +139,7 @@ describe("as rotas do processo de entrada", () => {
 
 describe("o ambiente das chaves de identidade (KAM-187)", () => {
   it("staging da um provedor de staging, e nao de dev", () => {
-    // Era `prod ? prod : dev`: o `exigirKeyProviderDeCofre` comparava `staging`
+    // Era `prod ? prod : dev`: o `exigirAmbienteDoKeyProvider` comparava `staging`
     // com `dev` e o processo nao arrancava no compose de *staging*.
     assert.equal(ambienteDasChaves({ KAMBA_ENV: "staging" }), "staging");
     assert.equal(ambienteDasChaves({ KAMBA_ENV: " prod " }), "prod");
@@ -145,10 +147,42 @@ describe("o ambiente das chaves de identidade (KAM-187)", () => {
   });
 
   it("um valor desconhecido nao vira staging nem prod", () => {
-    // A recusa de um valor desconhecido e do `exigirKeyProviderDeCofre`, que
+    // A recusa de um valor desconhecido e do `exigirAmbienteDoKeyProvider`, que
     // compara com o declarado; aqui so se prova que nao se promove nada.
     assert.equal(ambienteDasChaves({ KAMBA_ENV: "producao" }), "dev");
     assert.equal(ambienteDasChaves({}), "dev");
+  });
+});
+
+describe("o arranque da identidade em prod (KAM-227; criterio 9 do KAM-008 emendado)", () => {
+  const chave = (kid: string) => gerarChaveVersionada(kid);
+  const completo = (): NodeJS.ProcessEnv => ({
+    KAMBA_ENV: "prod",
+    KAMBA_SECRET_PEPPER_CONTACT_HMAC: chave("p1"),
+    KAMBA_SECRET_KEK_CONTACT_DEK: chave("k1"),
+  });
+
+  it("**arranca em prod**, com as chaves no ambiente do lancador (decisao do fundador, 2026-11-20)", async () => {
+    assert.ok((await identidadeDaEntrada(completo())) instanceof Identidade);
+  });
+
+  it("sem o pepper ou sem a KEK, ou com um deles vazio, nao arranca, e nomeia o que falta", async () => {
+    const casos: [string, string | undefined, string][] = [
+      ["KAMBA_SECRET_PEPPER_CONTACT_HMAC", undefined, "pepper_contact_hmac"],
+      ["KAMBA_SECRET_KEK_CONTACT_DEK", undefined, "kek_contact_dek"],
+      ["KAMBA_SECRET_PEPPER_CONTACT_HMAC", "", "pepper_contact_hmac"],
+      ["KAMBA_SECRET_KEK_CONTACT_DEK", "k1:curta", "kek_contact_dek"],
+    ];
+    for (const [variavel, valor, ref] of casos) {
+      const env = completo();
+      if (valor === undefined) delete env[variavel];
+      else env[variavel] = valor;
+      await assert.rejects(identidadeDaEntrada(env), (erro: unknown) => {
+        if (!(erro instanceof ChavesDeIdentidadeEmFaltaError)) return false;
+        assert.deepEqual(erro.refs, [ref]);
+        return true;
+      });
+    }
   });
 });
 
