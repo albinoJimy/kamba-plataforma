@@ -33,13 +33,14 @@
  * arranque**: sem uma delas, o primeiro evento falhava seis vezes e ia para a
  * DLQ, com o processo verde.
  *
- * ## O que não arranca em `prod`, e porquê
+ * ## Em `prod`
  *
- * O `Identidade.arrancar` recusa o `EnvKeyProvider` com `KAMBA_ENV=prod`
- * (`docs/identidade.md` §8, ponto 2) — a mesma recusa que o
- * `worker-canal-entrada` tem. A leitura das chaves do contacto do cofre em
- * `prod` é decisão do fundador de 2026-11-20 (ADR-L002, bloco do KAM-227) e não
- * deste ticket: este processo segue-a quando ela aterrar no `identity/`.
+ * Arranca, como o `worker-canal-entrada`: desde a decisão do fundador de
+ * 2026-11-20 (ADR-L002, critério 9 do KAM-008 emendado, bloco do KAM-227) as
+ * chaves do contacto vêm do ambiente que o lançador do cofre enche, e o
+ * `Identidade.arrancar` recusa em `prod` sem o *pepper* ou sem a KEK das DEK.
+ * Não está no *compose* de `prod` pelo orçamento de memória do conjunto
+ * reduzido, que é do fundador (bloco do KAM-215, decisões do executor).
  */
 
 import { healthz } from "@kamba/core-ts";

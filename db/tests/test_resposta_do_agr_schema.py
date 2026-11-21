@@ -29,6 +29,13 @@ def _anterior() -> str:
     return achado.group(1)
 
 
+def _propria() -> str:
+    """O `revision` da revisao, lido dela, pela mesma razao."""
+    achado = re.search(r'^revision = "(\d{4})"$', REVISAO.read_text(encoding="utf-8"), re.M)
+    assert achado is not None
+    return achado.group(1)
+
+
 class TestDowngradeDaRespostaDoAgr(unittest.TestCase):
     """Desce pelo numero da revisao anterior, lido da revisao, e volta.
 
@@ -68,16 +75,21 @@ class TestDowngradeDaRespostaDoAgr(unittest.TestCase):
             conexao.close()
 
     def test_desce_e_volta(self) -> None:
-        tabelas, subscricoes, todas = self._estado()
+        tabelas, subscricoes, na_cabeca = self._estado()
         self.assertEqual(tabelas, 1)
         self.assertEqual(subscricoes, [("outbound", "agent.replied"), ("painel", "agent.replied")])
+        # O «antes» mede-se **na propria revisao**, e nao na cabeca: uma revisao
+        # de dados por cima (a `*_subscricao_do_dono.py`, KAM-215) apaga as linhas
+        # dela na descida, e contadas na cabeca pareciam apagadas por esta.
+        alembic_ok("downgrade", _propria())
+        todas = self._estado()[2]
         alembic_ok("downgrade", _anterior())
         depois = self._estado()
         self.assertEqual(depois[:2], (0, []))
         # **So as duas**: as subscricoes das outras revisoes ficam.
         self.assertEqual(depois[2], todas - 2)
         alembic_ok("upgrade", "head")
-        self.assertEqual(self._estado(), (tabelas, subscricoes, todas))
+        self.assertEqual(self._estado(), (tabelas, subscricoes, na_cabeca))
 
     def test_as_subscricoes_sao_de_atendimento_sem_ordem_e_ate_a_v2(self) -> None:
         conexao = ligacao.ligar("admin")

@@ -833,9 +833,9 @@ services:
     # `onboarding-web`. `kamba_app` para o `consumir` e o telefone do caso,
     # `kamba_identity` para o contacto e a `platform.definir_dono`. A
     # `kek_telefone_do_caso` e so deste processo e do escritor do caso (decisao
-    # do fundador de 2026-11-20). **Fora do compose de `prod`**: la o
-    # `Identidade.arrancar` recusa o `EnvKeyProvider` (docs/identidade.md §8,
-    # ponto 2), e o processo nao arrancava.
+    # do fundador de 2026-11-20). **Fora do compose de `prod`** pelo orcamento
+    # de memoria do conjunto reduzido, e nao pelo arranque (bloco do KAM-215,
+    # decisoes do executor).
     <<: *node
     build:
       context: ../..
