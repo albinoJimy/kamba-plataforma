@@ -27,6 +27,18 @@
  * o primeiro. Uma reentrega que passe a primeira (o evento perdido a meio e
  * recuperado) não passa a segunda.
  *
+ * ## Um `statuses` antes da nossa escrita do `wamid`
+ *
+ * O `delivered` pode chegar antes de o `SQL_MARCAR_ENVIADA` do envio confirmar
+ * (a janela entre a resposta da Meta e essa instrução). O `Saida.ingerir` não
+ * encontra a mensagem, devolve `avancou: false` e **avisa**
+ * (`status_sem_mensagem`, pelo `log` que se lhe passa). O evento fica processado
+ * e não se repete: o `delivered_at` só aparece com um `statuses` seguinte (o
+ * `read`, que também o escreve). É o limite que o `Saida.ingerir` já escreve, e
+ * este estágio não o resolve: repetir obrigava a distinguir «não é nossa» de
+ * «ainda não é nossa», e um `statuses` de uma mensagem que nunca foi nossa
+ * repetia até esgotar as tentativas.
+ *
  * ## Uma falha sobe
  *
  * Uma leitura do canal ou uma escrita que falhe **lança**: o *job* falha, o
@@ -34,11 +46,14 @@
  * encaminhado (`recuperado`). Um canal que não existe não é falha: é um desfecho,
  * e não se repete.
  *
- * ## Sem o *free tier*
+ * ## Sem o *free tier*, e sem a métrica do custo
  *
  * O `Saida` monta-se com `freeTier: null`, que conta o custo de tudo (a nota do
  * `Dependencias.freeTier`). A contagem do *free tier* pela entrega
- * (`Metering.contar`) é do KAM-023, e não é deste estágio.
+ * (`Metering.contar`) é do KAM-023, e não é deste estágio. O `Saida` é um por
+ * evento, com as métricas dele: o custo de uma entrega fica no
+ * `outbound_messages.pricing` e **não** chega ao `/metrics` do processo. A métrica
+ * agregada é a que o critério 7 do KAM-080 ainda espera.
  *
  * ## Nem texto nem telefone
  *
@@ -101,13 +116,19 @@ export interface DependenciasDoEstagio {
   readonly comTenant: <T>(tenantId: string, trabalho: (bd: ClienteSql) => Promise<T>) => Promise<T>;
   /** O `Saida` sobre essa ligação. Por omissão, o `saidaQueSoIngere`. */
   readonly saidaDe?: (bd: ClienteSql) => Pick<Saida, "ingerir">;
+  /**
+   * O registo do processo, que o `Saida` usa para os dois avisos dele:
+   * `status_sem_mensagem` e `pricing_desconhecido`. Sem ele, um `statuses` que
+   * chega antes de o nosso `wamid` estar gravado perde-se **calado**.
+   */
+  readonly log?: Logger;
 }
 
 /** O braço `outbound` da entrada: um `statuses` → `Saida.ingerir`. */
 export function estagioDosStatuses(
   deps: DependenciasDoEstagio,
 ): (evento: EventoDeEntrada) => Promise<DesfechoDoEstagio> {
-  const saidaDe = deps.saidaDe ?? ((bd: ClienteSql) => saidaQueSoIngere(bd));
+  const saidaDe = deps.saidaDe ?? ((bd: ClienteSql) => saidaQueSoIngere(bd, deps.log));
   return async (evento) => {
     const estado = evento.estado;
     const phoneNumberId = evento.phoneNumberId;

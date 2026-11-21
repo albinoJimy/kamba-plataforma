@@ -8674,6 +8674,11 @@ MUTACOES = [
      '    if (!ESTADOS_DA_META.includes(estado.estado as Estado)) return "estado_desconhecido";',
      "",
      SAIDA),
+    # O `Saida` do estagio deixa de avisar um `statuses` sem mensagem: `o Saida do estagio avisa um statuses cuja mensagem ainda nao esta gravada`.
+    ('estagio: o Saida do estagio deixa de avisar', SAIDA_ESTAGIO,
+     "saidaQueSoIngere(bd, deps.log)",
+     "saidaQueSoIngere(bd)",
+     SAIDA),
     # O nome de outro tenant serve: `test_o_nome_de_outro_tenant_nao_serve`.
     ('apresentacao: o nome da loja de outro tenant serve', AG_GRAFOS,
      '    if lida is not None and lida[0] == estado.get("tenant_id"):',

@@ -186,7 +186,7 @@ MSG_ALTERNATIVAS: Final = (
     "um e-mail, ou passar por la; ou escrever-me outra vez por aqui."
 )
 
-#: A identificacao quando nao ha nome da loja para mostrar (ver a
+#: A identificacao quando a persona nao traz `apresentacao` (ver a
 #: `_apresentacao`). Identifica na mesma, que e o que o §8.4 pede.
 MSG_APRESENTACAO_SEM_NOME: Final = (
     "Sou o assistente automatico desta loja. Posso ajudar com produtos, precos "

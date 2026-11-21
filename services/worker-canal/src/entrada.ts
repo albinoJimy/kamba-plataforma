@@ -87,7 +87,7 @@ import { METRICAS, filasDe } from "@kamba/core-ts/eventos";
 import { criarTrabalhadores } from "@kamba/core-ts/eventos/trabalhador_bullmq";
 import { EnvKeyProvider, Identidade } from "@kamba/core-ts/identity";
 import { type Logger, instalar } from "@kamba/core-ts/logger";
-import { estagioDosStatuses } from "@kamba/core-ts/outbound";
+import { type ClienteSql as ClienteSqlDaSaida, estagioDosStatuses } from "@kamba/core-ts/outbound";
 import { type Ambiente, isAmbiente } from "@kamba/core-ts/secrets";
 import { METRICAS_DA_GUARDA, comTenant } from "@kamba/core-ts/tenant_guard";
 import { Hono } from "hono";
@@ -202,6 +202,39 @@ export class EncaminhadorDoCanal extends EncaminhadorQueSoRegista {
     this.entregues.push(evento);
     await this.#statuses?.(evento);
   }
+}
+
+/** O que o `encaminhadorDaEntrada` precisa do processo. */
+export interface MontagemDaEntrada {
+  readonly chr: Chr;
+  readonly resolvedor: Pick<ResolvedorDeCanal, "resolver">;
+  /** A ligação `kamba_app` do processo: a do CHR, e a do estágio. */
+  readonly bd: ClienteSqlDoTenant & ClienteSqlDaSaida;
+  readonly log: Logger;
+}
+
+type ClienteSqlDoTenant = Parameters<typeof comTenant>[0];
+
+/**
+ * O encaminhador que o processo monta (KAM-235): o CHR no braço `chr`, e o
+ * estágio dos `statuses` no `outbound`.
+ *
+ * **Os `statuses` escrevem o estado da mensagem**: o tenant pelo resolvedor de
+ * canal, e o `Saida.ingerir` na ligação `kamba_app` com o contexto dele. O
+ * desfecho vai ao registo como `outcome`; o `wamid` não. O `log` chega também
+ * ao `Saida`, que avisa um `statuses` sem mensagem (`status_sem_mensagem`).
+ * Exportada para se ensaiar a ligação sem levantar o processo.
+ */
+export function encaminhadorDaEntrada(m: MontagemDaEntrada): EncaminhadorDoCanal {
+  const estagio = estagioDosStatuses({
+    tenantDe: async (phoneNumberId) =>
+      (await m.resolvedor.resolver(phoneNumberId)).resolvido?.contexto.tenant_id ?? null,
+    comTenant: (tenant, trabalho) => comTenant(m.bd, tenant, () => trabalho(m.bd)),
+    log: m.log,
+  });
+  return new EncaminhadorDoCanal(m.chr, async (evento) => {
+    m.log.info({ outcome: `estado_${await estagio(evento)}` });
+  });
 }
 
 /**
@@ -411,17 +444,7 @@ async function principal(): Promise<void> {
     comTenant: (tenant, trabalho) => comTenant(bd, tenant, () => trabalho(bd)),
   });
 
-  // **Os `statuses` escrevem o estado da mensagem** (KAM-235): o tenant pelo
-  // resolvedor de canal, e o `Saida.ingerir` na ligação `kamba_app` com o
-  // contexto dele. O desfecho vai ao registo; o `wamid` não.
-  const estagio = estagioDosStatuses({
-    tenantDe: async (phoneNumberId) =>
-      (await resolvedor.resolver(phoneNumberId)).resolvido?.contexto.tenant_id ?? null,
-    comTenant: (tenant, trabalho) => comTenant(bd, tenant, () => trabalho(bd)),
-  });
-  const encaminhador = new EncaminhadorDoCanal(chr, async (evento) => {
-    log.info({ outcome: `estado_${await estagio(evento)}` });
-  });
+  const encaminhador = encaminhadorDaEntrada({ chr, resolvedor, bd, log });
   // O `log` da biblioteca tem *allowlist* de campos (`docs/tecnica/08` §7.3), e
   // é o `tratarCorpo` que escolhe o que lá cabe: o `outcome`, o `msg_id` já
   // opaco e o `wa_type` da lista fechada. **Nada do corpo passa por aqui**.

@@ -166,6 +166,24 @@ describe("KAM-235 — o estágio dos statuses", () => {
     assert.equal(m.chamadas.length, 0);
   });
 
+  it("o Saida do estagio avisa um statuses cuja mensagem ainda nao esta gravada", async () => {
+    // Sem `saidaDe`: o `saidaQueSoIngere` verdadeiro, sobre uma base que nao
+    // tem a mensagem. O aviso e o que o `Saida.ingerir` escreve para isto.
+    const avisos: Record<string, unknown>[] = [];
+    const log = { warn: (c: Record<string, unknown>) => avisos.push(c), info: () => {} } as never;
+    const vazia: ClienteSql = { query: async () => ({ rows: [] }) };
+    const estagio = estagioDosStatuses({
+      tenantDe: async () => TENANT,
+      comTenant: async (_t, trabalho) => trabalho(vazia),
+      log,
+    });
+    assert.equal(await estagio(eventoDe({ id: WAMID, status: "delivered" })), "nao_avancou");
+    assert.deepEqual(
+      avisos.map((a) => a.outcome),
+      ["status_sem_mensagem"],
+    );
+  });
+
   it("uma falha da base sobe, para o job repetir", async () => {
     const { estagio } = montar({ falha: new Error("ligacao perdida") });
     await assert.rejects(estagio(eventoDe({ id: WAMID, status: "delivered" })), /ligacao perdida/);

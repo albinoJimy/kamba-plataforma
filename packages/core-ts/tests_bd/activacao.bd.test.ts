@@ -240,7 +240,6 @@ async function linha<T>(sql: string, valores: readonly unknown[]): Promise<T | u
 const SIMULADOR = new Gerador("kam-235-bd");
 const CLIENTE_DO_TESTE = interlocutorDe(SIMULADOR);
 const VERSAO_DO_AVISO = "kam235-v1";
-let resolvedorBd: pg.Client;
 
 /** A apresentação do vendedor do registo, com o nome da loja: o que o AGR envia (KAM-235). */
 function apresentacaoDe(loja: string): string {
@@ -315,13 +314,18 @@ function comContexto(ligacao: pg.PoolClient, tenant: string) {
 /**
  * O corpo a entrar como no processo de entrada do `worker-canal`: o
  * `tratarCorpo` pela ligação da aplicação, e o braço `outbound` no estágio dos
- * `statuses`, com o tenant pelo resolvedor de canal (`kamba_resolver`) e o
- * `Saida.ingerir` sob o contexto dele. É a montagem do `entrada.ts`.
+ * `statuses`, com o tenant pelo resolvedor de canal e o `Saida.ingerir` sob o
+ * contexto dele. É a montagem do `entrada.ts`.
+ *
+ * **O resolvedor lê pelo administrador, e não pelo `kamba_resolver`**: esta
+ * suite não recebe a credencial dele (`db/tests_lote/node.py`), e o papel do
+ * resolvedor mede-o a `tests_chr`, com a mesma `SQL_CANAL`. O que se mede aqui é
+ * o estágio e a escrita do estado como `kamba_app`, que é a ligação dele.
  */
 async function entraOCorpo(corpo: unknown) {
   const ligacao = await app.connect();
   try {
-    const resolvedor = new ResolvedorDeCanal(resolvedorBd);
+    const resolvedor = new ResolvedorDeCanal(admin);
     const estagio = estagioDosStatuses({
       tenantDe: async (pnid) => (await resolvedor.resolver(pnid)).resolvido?.contexto.tenant_id ?? null,
       comTenant: (tenant, trabalho) => comTenant(ligacao, tenant, () => trabalho(ligacao)),
@@ -373,7 +377,6 @@ async function continuaNoAviso(tenant: string, contacto: string, conversa: strin
 describe("a activação no lote contra a base", () => {
   before(async () => {
     admin = await ligar("admin");
-    resolvedorBd = await ligar("resolver");
     lote = conjunto("batch");
     app = conjunto("app");
     // KAM-235: o texto do aviso de 1.º contacto, publicado como a operação o
@@ -394,7 +397,6 @@ describe("a activação no lote contra a base", () => {
       await admin.query("DELETE FROM platform.onboarding_gate WHERE tenant_id = $1", [tenant]);
     }
     await admin.query("DELETE FROM platform.consent_texts WHERE version = $1", [VERSAO_DO_AVISO]);
-    await resolvedorBd.end();
     await admin.end();
     await lote.end();
     await app.end();
