@@ -3781,7 +3781,7 @@ fica inteira, porque este nome não vem do modelo: vem da base. Recusadas:
   se nomear;
 - **C** — manter como estava. Uma loja com dígitos nunca passava o teste e nunca se activava.
 
-Data: 2026-11-21. Autor: o fundador.
+Data: 2026-11-21. Autor: o fundador (opção A; recusadas B e C).
 
 Os ensaios que a prendem: o caso «Kero 24» da *fixture* `apresentacao_do_vendedor.json`, que o AGR tem de
 produzir letra a letra e o observador tem de aceitar, e
