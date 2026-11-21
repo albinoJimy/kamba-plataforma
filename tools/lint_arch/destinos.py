@@ -179,6 +179,18 @@ CLIENTES_DE_SAIDA: dict[str, ClienteDeSaida] = {
             "cujos adaptadores reais nascem com a decisao do bake-off."
         ),
     ),
+    "services/agr/src/kamba_agr/social/fundos.py": ClienteDeSaida(
+        finalidades=("geracao_de_imagem",),
+        consulta_o_gate=True,
+        credor="",
+        razao=(
+            "O fundo gerado das artes do modulo social (KAM-122, decisao do "
+            "fundador de 2026-11-21). Chama `autorizar` com a finalidade "
+            "`geracao_de_imagem` antes de qualquer pedido ao gerador, e o pedido "
+            "so leva o tipo de negocio e o formato, escritos por codigo. Nao "
+            "escreve FQDN nenhum: o gerador real nao esta ligado e falha fechado."
+        ),
+    ),
     "libs/py-core/src/kamba_core/foto/bakeoff.py": ClienteDeSaida(
         finalidades=("imagem",),
         consulta_o_gate=True,
@@ -281,7 +293,8 @@ CLIENTES_DE_SAIDA: dict[str, ClienteDeSaida] = {
 #: decisao que as vai trazer. Nao e uma dispensa: e a conta que a caixa do
 #: criterio 4 leva, escrita onde um `grep` a encontra.
 #:
-#: **Sao seis, e eram cinco e erradas.** A revisao adversarial mostrou que a
+#: **Sao sete desde o KAM-122** (a `geracao_de_imagem`, a espera do cliente do
+#: proprio ticket). **Eram seis, e antes cinco e erradas.** A revisao adversarial mostrou que a
 #: lista anterior punha a `embeddings` aqui — quando o cliente de LLM ja a cobre
 #: pelo `papel: embed` — e deixava de fora quatro que nenhuma entrada serve. A
 #: causa era o `ClienteDeSaida.finalidade` ser **uma** cadeia: uma entrada que

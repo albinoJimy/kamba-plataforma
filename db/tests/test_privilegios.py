@@ -2646,6 +2646,8 @@ COLUNAS_POR_PAPEL = {
     ("kamba_app", "brand_profile", "UPDATE"): {
         "nome", "categoria", "tom", "cores", "publico", "slots_preferidos", "factos",
         "logo_asset_id", "versao", "atualizado_at",
+        # KAM-122: a hora dos termos da primeira entrega.
+        "termos_entrega_at",
     },
     ("kamba_app", "content_calendar", "INSERT"): {
         "calendar_id", "tenant_id", "semana_iso", "geracao", "decisao", "versao_politica",
@@ -2658,6 +2660,11 @@ COLUNAS_POR_PAPEL = {
     ("kamba_app", "content_items", "UPDATE"): {
         "legenda", "art_asset_id", "estado", "revisao_reforcada", "versao_politica", "versao",
         "atualizado_at",
+        # KAM-122 (revisao da arte e da aprovacao do social): as colunas da arte
+        # e da aprovacao, que o AGR escreve num item que ja existe. Nenhum
+        # `INSERT` novo, e continua sem `UPDATE` no `is_ai_generated`.
+        "arte_ref", "arte_sha256", "arte_fundo", "arte_tentativas", "arte_custo_usd",
+        "aprovacao_hash", "aprovado_at", "entregue_at",
     },
     ("kamba_app", "quote_requests", "INSERT"): {
         "tenant_id", "contact_id", "conversation_id", "sku", "quantidade",

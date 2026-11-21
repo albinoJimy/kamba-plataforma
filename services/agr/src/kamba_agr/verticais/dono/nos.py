@@ -97,6 +97,12 @@ TOOLS_DO_DONO: Final = (
     "update_brand_profile",
     "generate_calendar",
     "generate_caption",
+    # KAM-122: a arte, a aprovacao, a rejeicao e a entrega ao dono.
+    "generate_art",
+    "request_approval",
+    "approve_content",
+    "reject_content",
+    "deliver_content",
 )
 
 #: As palavras que decidem cada intencao, **pela ordem em que correm**: «quero
@@ -541,6 +547,11 @@ def confirm(deps: Dependencias):
                 frase = await catalogo.publicar(deps, estado, botao, action_id)
                 if frase is not None:
                     return _resposta_estatica(frase)
+                # KAM-122: nao e um produto; se for conteudo do social, aprova-se.
+                # Tambem num `ja_confirmada`: a aprovacao e idempotente pelo `hash`.
+                aprovado = await social.aprovar(deps, estado, botao, action_id)
+                if aprovado is not None:
+                    return aprovado
         return _resposta_estatica(FRASE_DA_CONFIRMACAO.get(desfecho, MSG_PEDIDO_NAO_ENCONTRADO))
 
     return no

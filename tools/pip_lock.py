@@ -130,6 +130,31 @@ def _compare(left: str, op: str, right: str) -> bool:
     }[op]
 
 
+def _conjuncao_de_topo(marker: str) -> list[str]:
+    """As clausulas de um `and` fora de parenteses."""
+    partes: list[str] = []
+    profundidade, inicio, i = 0, 0, 0
+    while i < len(marker):
+        letra = marker[i]
+        if letra == "(":
+            profundidade += 1
+        elif letra == ")":
+            profundidade -= 1
+        elif profundidade == 0 and marker.startswith(" and ", i):
+            partes.append(marker[inicio:i].strip())
+            inicio = i + len(" and ")
+            i = inicio
+            continue
+        i += 1
+    partes.append(marker[inicio:].strip())
+    return partes
+
+
+def _e_extra(clausula: str) -> bool:
+    casado = _MARKER_CLAUSE.fullmatch(clausula)
+    return bool(casado) and "extra" in (casado.group("left"), casado.group("right"))
+
+
 def marker_is_true(marker: str | None) -> bool:
     """Avalia um marcador PEP 508 no ambiente-alvo, de forma deliberadamente limitada.
 
@@ -140,6 +165,14 @@ def marker_is_true(marker: str | None) -> bool:
     """
     if not marker:
         return True
+    # Um `and extra == ...` **de topo** torna o marcador falso, seja o que for o
+    # resto — mesmo um `or` entre parenteses. O caso que obrigou a isto (KAM-122):
+    # o `pillow` 13.0.0 declara `psutil; (sys_platform == "linux" or
+    # sys_platform == "darwin") and extra == "tests"`, e o `or` levantava antes
+    # de se ver o `extra`. O corte e por parenteses: um `extra` **dentro** de um
+    # `or` continua indecidivel.
+    if any(_e_extra(c) for c in _conjuncao_de_topo(marker.strip())):
+        return False
     marker = marker.strip().strip("()")
     if " or " in marker:
         raise MarkerUndecided(marker)

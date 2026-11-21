@@ -6,6 +6,11 @@
 | `update_brand_profile` | `write`, passo 4 dispensado | uma resposta do dono a uma pergunta do perfil (decisao 2 do fundador, 2026-11-20) |
 | `generate_calendar` | `write`, passo 4 dispensado | o calendario da semana seguinte, 3 a 7 itens; «NOVA» regenera |
 | `generate_caption` | `write`, passo 4 dispensado | a legenda de um item, pelas quatro barreiras e pelo screening |
+| `generate_art` | `write`, passo 4 dispensado | a arte de um item em JPEG, gravada no STO (KAM-122) |
+| `request_approval` | `write`, passo 4 dispensado | a pre-visualizacao e a accao `aprovar_conteudo` (o botao Aprovar); com `legenda`, a edicao do dono |
+| `approve_content` | `write`, botao `confirm:{action_id}` | a aprovacao: `aprovado` e o `content.approved` na mesma transaccao |
+| `reject_content` | `write`, passo 4 dispensado | o dono rejeita o item |
+| `deliver_content` | `write`, passo 4 dispensado | o item aprovado passa a `entregue` e devolve as partes da entrega ao dono |
 
 As tres de escrita **so gravam** rascunhos na nossa base e nada sai para fora
 — nem para o cliente, nem para uma rede social: a dispensa do passo 4 e a dos
@@ -15,10 +20,21 @@ aprovacao do dono e a entrega sao do KAM-122 (`request_approval`, com o botao
 
 ## Nao ha tool de publicacao, e isso e criterio
 
-O modulo tem estas quatro, mais as duas do KAM-122 (`generate_art`,
-`request_approval`). Nenhuma publica, agenda numa rede ou envia a terceiros:
-o dono publica manualmente (D13). O `test_nao_ha_tool_de_publicacao_no_social`
+O modulo tem as quatro do KAM-121 e as cinco do KAM-122. Nenhuma publica,
+agenda numa rede ou envia a terceiros: o dono publica manualmente (D13), e o
+`deliver_content` so devolve as partes da mensagem que o no `send` do grafo
+manda **ao proprio dono**. O `test_nao_ha_tool_de_publicacao_no_social`
 enumera o catalogo pelo modulo e recusa um nome com cara de publicacao.
+
+## A aprovacao (KAM-122, criterio 5)
+
+O `request_approval` grava o `hash(legenda, arte, versao)` no item e propoe a
+accao `aprovar_conteudo` com `ref = {content_item_id}/{hash}` (decisao D4 do
+fundador, 2026-11-21): o botao Aprovar e o `confirm:{action_id}` dela, e o
+`approve_content` corre com esse botao no passo 4. Uma edicao muda o `hash`, e o
+botao antigo recusa com `aprovacao_invalidada`. Pedir a aprovacao duas vezes
+sem mudar nada devolve a mesma accao (a `UNIQUE (tenant_id, tipo, ref)`), e
+aprovar duas vezes da **um** `aprovado` e **um** `content.approved`.
 
 ## O tenant e o do contexto, e a categoria e a do tenant
 
@@ -39,6 +55,13 @@ texto do dono, e um dono nao desce a propria categoria escrevendo outra.
 | `posts_mes` esgotado | `LIMIT_EXCEEDED` (`sem_publicacoes`) |
 | o screening, o gerador ou a politica nao responderam | `UPSTREAM_DOWN` (`screening_indisponivel`, `legendas_por_ligar`, `gerador_indisponivel`, `politica_indisponivel`) |
 | outra escrita concorrente | `UPSTREAM_TIMEOUT` (`perfil_mudou`, `item_mudou`) |
+| a arte nao se compoe | `VALIDATION_ERROR` (`faltam_factos`, `texto_nao_cabe`, `perfil_incompleto`) |
+| tres tentativas de arte | `LIMIT_EXCEEDED` (`tentativas_esgotadas`) |
+| aprovacao sem arte ou sem legenda | `VALIDATION_ERROR` (`sem_arte`, `sem_legenda`) |
+| a legenda editada recusada | `VALIDATION_ERROR` (`faltam_factos`, `alegacao`, `categoria_bloqueada`) |
+| o botao de uma versao antiga | `VALIDATION_ERROR` (`aprovacao_invalidada`) |
+| entrega de um item nao aprovado | `VALIDATION_ERROR` (`por_aprovar`) |
+| o STO ou as fontes nao estao ligados | `UPSTREAM_DOWN` (`arte_por_ligar`, `fontes_em_falta`) |
 
 O `detalhe` e um codigo, nunca texto do dono.
 """
@@ -46,27 +69,52 @@ O `detalhe` e um codigo, nunca texto do dono.
 from __future__ import annotations
 
 import datetime
+import hashlib
+
 import uuid
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from typing import Any, Final, Literal
 
 from kamba_core.catalogo.screening import PERMITIDA, PortaDeScreening
+from kamba_core.storage.chave import nova_chave
+from kamba_core.storage.port import Ctx, ObjectMeta, StorageProvider
 from pydantic import BaseModel, ConfigDict, Field
 
+from ..dono import accoes
+from ..social import arte as arte_mod
 from ..social import regras
+from ..social.aprovacao import hash_da_aprovacao, ler_ref, ref_da_accao
+from ..social.desenho import FontesEmFaltaError, RenderizadorPillow
+from ..social.fundos import GRADIENTE, GeradorDeFundos, PedidoDeFundo, escolher_fundo
+from ..social.fundos import GeradorPorLigar as FundoPorLigar
+from ..social.fundos import PortaDeDestinos
 from ..social.geracao import GeradorDeLegendas, GeradorPorLigar, GeradorPorLigarError, PedidoDeLegenda, Recusa, gerar_legenda
+from ..social.numeros import numeros_fora_dos_factos
+from ..social.ocr import TesseractOcr, VerificadorDeTexto
 from ..social.politicas import Alegacoes, Lexico, PoliticaIndisponivelError
+from ..social.publicacao import ManualDelivery, PedidoDeEntrega
 from ..social.repositorio import (
+    APROVADO,
+    APROVAVEIS,
+    COM_ARTE_NOVA,
+    ENTREGUE,
+    MAXIMO_DE_TENTATIVAS,
+    PENDENTE_APROVACAO,
     RASCUNHO,
+    AprovacaoInvalidadaError,
+    Arte,
     ItemMudouError,
     ItemNovo,
     PerfilMudouError,
     RepositorioSocial,
+    SemImagensError,
     SemPublicacoesError,
+    TentativasEsgotadasError,
+    chave_da_imagem,
     vista_do_item,
 )
-from .erros import LIMIT_EXCEEDED, NOT_FOUND, UPSTREAM_DOWN, UPSTREAM_TIMEOUT, VALIDATION_ERROR
+from .erros import LIMIT_EXCEEDED, NOT_FOUND, TENANT_MISMATCH, UPSTREAM_DOWN, UPSTREAM_TIMEOUT, VALIDATION_ERROR
 from .especificacoes import ErroDeBackend, Executor, Pedido, Resposta
 
 BLOQUEADA: Final = "bloqueada"
@@ -100,12 +148,69 @@ class ArgumentosDeGenerateCaption(BaseModel):
     instrucao: str | None = Field(default=None, min_length=1, max_length=300)
 
 
+class ArgumentosDeGenerateArt(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    referencia: str = Field(pattern=regras.FORMA_DA_REFERENCIA)
+    formato: Literal["quadrado", "retrato"] = "quadrado"
+    nova: bool = False
+
+
+class ArgumentosDeRequestApproval(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    referencia: str = Field(pattern=regras.FORMA_DA_REFERENCIA)
+    legenda: str | None = Field(default=None, min_length=1, max_length=1000)
+
+
+class ArgumentosDeApproveContent(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    action_id: str = Field(pattern=r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
+
+
+class ArgumentosDeRejectContent(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    referencia: str = Field(pattern=regras.FORMA_DA_REFERENCIA)
+
+
+class ArgumentosDeDeliverContent(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    referencia: str = Field(pattern=regras.FORMA_DA_REFERENCIA)
+
+
 MODELOS: Final[Mapping[str, type[BaseModel]]] = {
     "get_brand_profile": ArgumentosDeGetBrandProfile,
     "update_brand_profile": ArgumentosDeUpdateBrandProfile,
     "generate_calendar": ArgumentosDeGenerateCalendar,
     "generate_caption": ArgumentosDeGenerateCaption,
+    "generate_art": ArgumentosDeGenerateArt,
+    "request_approval": ArgumentosDeRequestApproval,
+    "approve_content": ArgumentosDeApproveContent,
+    "reject_content": ArgumentosDeRejectContent,
+    "deliver_content": ArgumentosDeDeliverContent,
 }
+
+#: O tipo da accao sensivel do botao Aprovar (`owner_actions.tipo`, §21.2).
+TIPO_DA_ACCAO: Final = "aprovar_conteudo"
+
+#: Quantas accoes se tentam para o mesmo `hash`, quando a anterior expirou ou e
+#: de outro contacto (o `TENTATIVAS_DO_BOTAO` do catalogo). *Proposta*.
+TENTATIVAS_DO_BOTAO: Final = 50
+
+#: A classe do STO e o prazo da arte (*proposta*, o da versao do KAM-120).
+CLASSE_DA_ARTE: Final = "arte"
+RETENCAO_DA_ARTE: Final = datetime.timedelta(days=90)
+
+#: A partir de que tentativa o dono e avisado do custo (criterio 9): a penultima.
+ALERTA_DE_CUSTO_A_PARTIR_DE: Final = MAXIMO_DE_TENTATIVAS - 1
+
+SQL_ACCAO: Final = (
+    "SELECT tipo, ref, estado, contact_id::text, confirmada_at, expira_at FROM platform.owner_actions "
+    "WHERE tenant_id = %s::uuid AND action_id = %s::uuid"
+)
 
 
 def _lexico_por_omissao() -> Lexico:
@@ -114,6 +219,36 @@ def _lexico_por_omissao() -> Lexico:
 
 def _alegacoes_por_omissao() -> Alegacoes:
     return Alegacoes.carregar()
+
+
+class StoragePorLigar:
+    """O STO da arte sem adaptador (o do AGR, como o da foto do KAM-119): falha fechada."""
+
+    def __getattr__(self, nome: str) -> Any:
+        raise ArtePorLigarError("o armazenamento das artes nao esta ligado")
+
+
+class ArtePorLigarError(RuntimeError):
+    """Sem STO ligado, a arte nao se grava."""
+
+
+class DestinosPorLigar:
+    """A porta de destinos sem adaptador: **nada** esta autorizado."""
+
+    def autorizar(self, tenant_id: str, fornecedor: str, finalidade: str) -> None:
+        raise PermissionError("destino nao autorizado")
+
+
+def _ler_accao_sql(ligacao: Any, tenant_id: str, action_id: str) -> tuple[str, str, str, str, Any, Any] | None:
+    from kamba_core import tenant_guard
+
+    with tenant_guard.tx(ligacao, tenant_id) as cursor:
+        cursor.execute(SQL_ACCAO, (tenant_id, action_id))
+        linha = cursor.fetchone()
+    if linha is None:
+        return None
+    tipo, ref, estado, contacto, confirmada_at, expira_at = linha
+    return str(tipo), str(ref), str(estado), str(contacto).lower(), confirmada_at, expira_at
 
 
 @dataclass(frozen=True)
@@ -125,6 +260,15 @@ class PortasDoSocial:
     gerador: GeradorDeLegendas = field(default_factory=GeradorPorLigar)
     lexico: Callable[[], Lexico] = _lexico_por_omissao
     alegacoes: Callable[[], Alegacoes] = _alegacoes_por_omissao
+    # KAM-122: a arte e a aprovacao.
+    renderizador: Any = field(default_factory=RenderizadorPillow)
+    fundos: GeradorDeFundos = field(default_factory=FundoPorLigar)
+    ocr: VerificadorDeTexto = field(default_factory=TesseractOcr)
+    destinos: PortaDeDestinos = field(default_factory=DestinosPorLigar)
+    storage: StorageProvider = field(default_factory=StoragePorLigar)  # type: ignore[assignment]
+    #: A `owner_actions` do KAM-118: `propor` e a leitura de uma accao.
+    propor: Callable[..., str] = accoes.propor
+    ler_accao: Callable[[Any, str, str], tuple[str, str, str, str, Any, Any] | None] = _ler_accao_sql
 
 
 # ------------------------------------------------------------------ a vista
@@ -338,4 +482,327 @@ def executores(
         "update_brand_profile": update_brand_profile,
         "generate_calendar": generate_calendar,
         "generate_caption": generate_caption,
+        **_executores_da_arte(portas, agora),
     }
+
+
+# ------------------------------------------------------------------ a arte e a aprovacao (KAM-122)
+
+
+def _o_item(repositorio: RepositorioSocial, tenant: str, referencia: str) -> Any:
+    prefixo = regras.prefixo_da_referencia(referencia)
+    achados = repositorio.itens_por_prefixo(tenant, prefixo or "-")
+    if len(achados) != 1:
+        raise ErroDeBackend(NOT_FOUND, "item_desconhecido")
+    return achados[0]
+
+
+def _perfil_completo(repositorio: RepositorioSocial, tenant: str) -> regras.Perfil:
+    perfil = repositorio.ler_perfil(tenant)
+    if perfil is None or not perfil.completo or perfil.nome is None:
+        raise ErroDeBackend(VALIDATION_ERROR, "perfil_incompleto")
+    return perfil
+
+
+def _composicao(perfil: regras.Perfil, item: Any, formato: str, tentativa: int) -> Any:
+    """A composicao da arte: o *template* roda a cada tentativa, o texto e o dos factos."""
+    dia = regras.dia_local(item.agendado_at)
+    dados = arte_mod.dados_da_arte(perfil, item.tipo, dia)
+    templates = arte_mod.templates_do_tipo(arte_mod.tipo_de_negocio(perfil.categoria))
+    template = templates[(tentativa - 1) % len(templates)]
+    composicao = arte_mod.compor(dados, template, formato)
+    assert perfil.nome is not None
+    arte_mod.verificar_numeros(composicao, perfil.factos_validos(dia), perfil.nome)
+    return composicao
+
+
+def vista_da_arte(item: Any, referencia: str, composicao: Any | None = None, **extra: Any) -> dict[str, Any]:
+    dados = vista_do_item(item, referencia)
+    dados["tentativas_restantes"] = max(MAXIMO_DE_TENTATIVAS - item.arte_tentativas, 0)
+    if composicao is not None:
+        dados["template_id"] = composicao.template.template_id
+        dados["formato"] = composicao.formato
+        dados["texto_da_arte"] = [linha.texto for linha in composicao.linhas]
+    dados.update(extra)
+    return dados
+
+
+def _serve(accao: Any, contacto: str, instante: datetime.datetime) -> bool:
+    """A accao ainda serve ao dono deste turno: a dele, e pendente no prazo ou ja confirmada."""
+    if accao is None:
+        return False
+    _tipo, _ref, estado, dono, _confirmada_at, expira_at = accao
+    if dono != contacto.lower():
+        return False
+    if estado == "confirmada":
+        return True
+    return estado == "pendente" and expira_at is not None and expira_at > instante
+
+
+def _legenda_do_dono(portas: PortasDoSocial, perfil: regras.Perfil, item: Any, legenda: str) -> str:
+    """A legenda editada pelo dono pelas barreiras do criterio 6: numeros e alegacoes.
+
+    Os numeros da legenda tem de estar nos factos do dono (a guarda do KAM-121):
+    um numero novo entra primeiro como facto («FACTOS: …», com o eco do
+    perfil), e so depois na legenda. O screening corre a seguir, no executor.
+    """
+    # As quebras de linha do dono ficam; os espacos a mais de cada linha, nao.
+    texto = "\n".join(" ".join(linha.split()) for linha in legenda.strip().splitlines()).strip()
+    factos = perfil.factos_validos(regras.dia_local(item.agendado_at))
+    assert perfil.nome is not None
+    if numeros_fora_dos_factos(texto, [f.texto for f in factos] + [perfil.nome]):
+        raise ErroDeBackend(VALIDATION_ERROR, "faltam_factos")
+    try:
+        alegacoes = portas.alegacoes()
+    except PoliticaIndisponivelError:
+        raise ErroDeBackend(UPSTREAM_DOWN, "politica_indisponivel") from None
+    if alegacoes.avaliar(texto, [f.texto for f in factos]) is not None:
+        raise ErroDeBackend(VALIDATION_ERROR, "alegacao")
+    return texto
+
+
+def _propor_botao(portas: PortasDoSocial, pedido: Pedido, item: Any, instante: datetime.datetime, *, reforcada: bool) -> str:
+    """A accao `aprovar_conteudo` do `hash` do item que ainda serve a este dono."""
+    assert item.aprovacao_hash is not None
+    tenant = pedido.ctx.tenant_id
+    for tentativa in range(1, TENTATIVAS_DO_BOTAO + 1):
+        action_id = portas.propor(
+            pedido.ligacao,
+            tenant,
+            pedido.ctx.contact_id,
+            TIPO_DA_ACCAO,
+            ref_da_accao(item.content_item_id, item.aprovacao_hash, tentativa, reforcada=reforcada),
+            instante,
+        )
+        if _serve(portas.ler_accao(pedido.ligacao, tenant, action_id), pedido.ctx.contact_id, instante):
+            return action_id
+    raise ErroDeBackend(VALIDATION_ERROR, "botoes_esgotados")
+
+
+def _executores_da_arte(portas: PortasDoSocial, agora: Callable[[], datetime.datetime]) -> dict[str, Executor]:
+    def generate_art(pedido: Pedido) -> Resposta:
+        _exigir_ligacao(pedido)
+        args = pedido.args
+        assert isinstance(args, ArgumentosDeGenerateArt)
+        repositorio = portas.repositorio(pedido.ligacao)
+        tenant = pedido.ctx.tenant_id
+        item = _o_item(repositorio, tenant, args.referencia)
+        referencia = regras.referencia_do_item(item.content_item_id)
+        if item.estado not in COM_ARTE_NOVA:
+            raise ErroDeBackend(VALIDATION_ERROR, "item_fechado")
+        if isinstance(portas.storage, StoragePorLigar):
+            # Antes de pedir um fundo que se pagava e nao tinha onde ficar.
+            raise ErroDeBackend(UPSTREAM_DOWN, "arte_por_ligar")
+        perfil = _perfil_completo(repositorio, tenant)
+        if item.arte_ref is not None and not args.nova:
+            # **Renderizar duas vezes da uma arte** (idempotencia do bloco): sem
+            # `nova`, a arte que o item ja tem, e nenhuma tentativa conta.
+            composicao = _composicao(perfil, item, args.formato, max(item.arte_tentativas, 1))
+            return Resposta(data=vista_da_arte(item, referencia, composicao, nova=False))
+        if item.arte_tentativas >= MAXIMO_DE_TENTATIVAS:
+            raise ErroDeBackend(LIMIT_EXCEEDED, "tentativas_esgotadas")
+        tentativa = item.arte_tentativas + 1
+        try:
+            composicao = _composicao(perfil, item, args.formato, tentativa)
+        except arte_mod.Recusa as recusa:
+            raise ErroDeBackend(VALIDATION_ERROR, recusa.motivo) from None
+        tipo = arte_mod.tipo_de_negocio(perfil.categoria)
+        try:
+            escolha = escolher_fundo(
+                tenant,
+                PedidoDeFundo(tipo, args.formato),
+                portas.fundos,
+                portas.ocr,
+                portas.destinos,
+                antes_de_pedir=lambda: repositorio.consumir_imagem(
+                    tenant, chave_da_imagem(item.content_item_id, tentativa)
+                ),
+            )
+        except SemImagensError:
+            # O `imagens_mes` esgotado nao impede a arte: impede o fundo gerado.
+            escolha = escolher_fundo(tenant, PedidoDeFundo(tipo, args.formato), FundoPorLigar(), portas.ocr, portas.destinos)
+        try:
+            jpeg = portas.renderizador.desenhar(composicao, perfil.cores or (), escolha.imagem)
+        except arte_mod.Recusa as recusa:
+            raise ErroDeBackend(VALIDATION_ERROR, recusa.motivo) from None
+        except FontesEmFaltaError:
+            raise ErroDeBackend(UPSTREAM_DOWN, "fontes_em_falta") from None
+        instante = agora()
+        ctx = Ctx(tenant)
+        try:
+            chave = nova_chave(ctx, CLASSE_DA_ARTE, instante)
+            guardada = portas.storage.put(
+                ctx, chave, jpeg, ObjectMeta("image/jpeg", CLASSE_DA_ARTE, instante + RETENCAO_DA_ARTE)
+            )
+        except ArtePorLigarError:
+            raise ErroDeBackend(UPSTREAM_DOWN, "arte_por_ligar") from None
+        sha256 = guardada.sha256 or hashlib.sha256(jpeg).hexdigest()
+        try:
+            gravado = repositorio.gravar_arte(item, Arte(chave, sha256, escolha.fundo, escolha.custo_usd))
+        except TentativasEsgotadasError:
+            raise ErroDeBackend(LIMIT_EXCEEDED, "tentativas_esgotadas") from None
+        except ItemMudouError:
+            raise ErroDeBackend(UPSTREAM_TIMEOUT, "item_mudou") from None
+        return Resposta(
+            data=vista_da_arte(
+                gravado,
+                referencia,
+                composicao,
+                nova=True,
+                motivo_do_fundo=escolha.motivo,
+                alerta_de_custo=tentativa >= ALERTA_DE_CUSTO_A_PARTIR_DE,
+                custo_usd=str(gravado.arte_custo_usd),
+            )
+        )
+
+    def request_approval(pedido: Pedido) -> Resposta:
+        _exigir_ligacao(pedido)
+        args = pedido.args
+        assert isinstance(args, ArgumentosDeRequestApproval)
+        repositorio = portas.repositorio(pedido.ligacao)
+        tenant = pedido.ctx.tenant_id
+        item = _o_item(repositorio, tenant, args.referencia)
+        referencia = regras.referencia_do_item(item.content_item_id)
+        if item.estado not in APROVAVEIS:
+            raise ErroDeBackend(VALIDATION_ERROR, "item_fechado")
+        if item.arte_ref is None or item.arte_sha256 is None:
+            raise ErroDeBackend(VALIDATION_ERROR, "sem_arte")
+        perfil = _perfil_completo(repositorio, tenant)
+        legenda = item.legenda
+        if args.legenda is not None:
+            legenda = _legenda_do_dono(portas, perfil, item, args.legenda)
+            # O screening corre outra vez sobre a legenda do dono (criterio 6).
+            decisao = _screen(portas, tenant, item.content_item_id, [item.tema, legenda, *_do_perfil(perfil)])
+            if decisao.decisao == BLOQUEADA:
+                raise ErroDeBackend(VALIDATION_ERROR, "categoria_bloqueada")
+        if not legenda:
+            raise ErroDeBackend(VALIDATION_ERROR, "sem_legenda")
+        if item.estado == APROVADO and legenda == item.legenda:
+            raise ErroDeBackend(VALIDATION_ERROR, "ja_aprovado")
+        if item.estado == PENDENTE_APROVACAO and legenda == item.legenda and item.aprovacao_hash is not None:
+            # **Pedir duas vezes sem mudar nada nao escreve**: o mesmo `hash`, a
+            # mesma `ref`, a mesma accao.
+            gravado = item
+        else:
+            hash_ = hash_da_aprovacao(legenda, item.arte_sha256, item.versao + 1)
+            try:
+                gravado = repositorio.pedir_aprovacao(item, legenda, hash_)
+            except ItemMudouError:
+                raise ErroDeBackend(UPSTREAM_TIMEOUT, "item_mudou") from None
+        assert gravado.aprovacao_hash is not None
+        action_id = _propor_botao(portas, pedido, gravado, agora(), reforcada=False)
+        return Resposta(data=vista_da_arte(gravado, referencia, action_id=action_id, legenda=gravado.legenda))
+
+    def approve_content(pedido: Pedido) -> Resposta:
+        _exigir_ligacao(pedido)
+        args = pedido.args
+        assert isinstance(args, ArgumentosDeApproveContent)
+        repositorio = portas.repositorio(pedido.ligacao)
+        tenant = pedido.ctx.tenant_id
+        accao = portas.ler_accao(pedido.ligacao, tenant, args.action_id)
+        if accao is None:
+            raise ErroDeBackend(NOT_FOUND, "accao_desconhecida")
+        tipo, ref, estado, contacto, confirmada_at, _expira_at = accao
+        lido = ler_ref(ref)
+        if tipo != TIPO_DA_ACCAO or lido is None:
+            # Uma accao de outro modulo (a ref do catalogo tem dois pontos): quem
+            # fala e a frase da confirmacao.
+            raise ErroDeBackend(NOT_FOUND, "accao_nao_e_de_conteudo")
+        if contacto != pedido.ctx.contact_id.lower():
+            raise ErroDeBackend(TENANT_MISMATCH, "accao_de_outro_contacto")
+        if estado != "confirmada" or confirmada_at is None:
+            raise ErroDeBackend(VALIDATION_ERROR, "accao_por_confirmar")
+        content_item_id, hash_, reforcada = lido
+        item = repositorio.item(tenant, content_item_id)
+        if item is None:
+            raise ErroDeBackend(NOT_FOUND, "item_desconhecido")
+        # **A integridade do hash**: o que esta no item tem de dar o hash que o
+        # botao cita. Uma linha mexida por fora da tool nao se aprova.
+        if (
+            item.estado == PENDENTE_APROVACAO
+            and item.legenda is not None
+            and item.arte_sha256 is not None
+            and hash_da_aprovacao(item.legenda, item.arte_sha256, item.versao) != hash_
+        ):
+            raise ErroDeBackend(VALIDATION_ERROR, "aprovacao_invalidada")
+        if item.revisao_reforcada and not reforcada and item.estado == PENDENTE_APROVACAO:
+            # **A confirmacao a mais da revisao reforcada** (KAM-121, criterio 5):
+            # o primeiro botao nao aprova; propoe o segundo, do mesmo `hash`.
+            extra = _propor_botao(portas, pedido, item, agora(), reforcada=True)
+            referencia = regras.referencia_do_item(item.content_item_id)
+            return Resposta(data=vista_da_arte(item, referencia, confirmacao_extra=True, action_id=extra))
+        try:
+            aprovado, evento = repositorio.aprovar(item, hash_, confirmada_at)
+        except AprovacaoInvalidadaError:
+            raise ErroDeBackend(VALIDATION_ERROR, "aprovacao_invalidada") from None
+        except ItemMudouError:
+            raise ErroDeBackend(UPSTREAM_TIMEOUT, "item_mudou") from None
+        referencia = regras.referencia_do_item(aprovado.content_item_id)
+        return Resposta(data=vista_da_arte(aprovado, referencia, ja_aprovado=evento is None))
+
+    def reject_content(pedido: Pedido) -> Resposta:
+        _exigir_ligacao(pedido)
+        args = pedido.args
+        assert isinstance(args, ArgumentosDeRejectContent)
+        repositorio = portas.repositorio(pedido.ligacao)
+        item = _o_item(repositorio, pedido.ctx.tenant_id, args.referencia)
+        referencia = regras.referencia_do_item(item.content_item_id)
+        if item.estado == "rejeitado":
+            return Resposta(data=vista_da_arte(item, referencia))
+        if item.estado not in APROVAVEIS:
+            raise ErroDeBackend(VALIDATION_ERROR, "item_fechado")
+        try:
+            gravado = repositorio.rejeitar_pelo_dono(item)
+        except ItemMudouError:
+            raise ErroDeBackend(UPSTREAM_TIMEOUT, "item_mudou") from None
+        return Resposta(data=vista_da_arte(gravado, referencia))
+
+    def deliver_content(pedido: Pedido) -> Resposta:
+        _exigir_ligacao(pedido)
+        args = pedido.args
+        assert isinstance(args, ArgumentosDeDeliverContent)
+        repositorio = portas.repositorio(pedido.ligacao)
+        tenant = pedido.ctx.tenant_id
+        item = _o_item(repositorio, tenant, args.referencia)
+        referencia = regras.referencia_do_item(item.content_item_id)
+        if item.estado == ENTREGUE:
+            # **Entregar duas vezes da uma mensagem de entrega**: a segunda diz
+            # que ja foi, sem as partes.
+            return Resposta(data=vista_da_arte(item, referencia, ja_entregue=True))
+        if item.estado != APROVADO:
+            raise ErroDeBackend(VALIDATION_ERROR, "por_aprovar")
+        try:
+            entregue, primeira = repositorio.entregar(item, agora())
+        except ItemMudouError:
+            relido = repositorio.item(tenant, item.content_item_id)
+            if relido is not None and relido.estado == ENTREGUE:
+                return Resposta(data=vista_da_arte(relido, referencia, ja_entregue=True))
+            raise ErroDeBackend(UPSTREAM_TIMEOUT, "item_mudou") from None
+        assert entregue.legenda is not None
+        entrega = ManualDelivery().deliver(
+            PedidoDeEntrega(
+                content_item_id=entregue.content_item_id,
+                tenant_id=tenant,
+                legenda=entregue.legenda,
+                arte_ref=entregue.arte_ref,
+                is_ai_generated=entregue.is_ai_generated,
+                primeira_entrega=primeira,
+            )
+        )
+        return Resposta(
+            data=vista_da_arte(
+                entregue,
+                referencia,
+                ja_entregue=False,
+                entrega={"legenda": entrega.legenda, "nota": entrega.nota, "termos": entrega.termos},
+            )
+        )
+
+    return {
+        "generate_art": generate_art,
+        "request_approval": request_approval,
+        "approve_content": approve_content,
+        "reject_content": reject_content,
+        "deliver_content": deliver_content,
+    }
+

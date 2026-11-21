@@ -26,8 +26,10 @@ texto do dono, do perfil ou de uma legenda.
 
 from __future__ import annotations
 
+import datetime
 import json
 from collections.abc import Mapping, Sequence
+from decimal import Decimal
 from typing import Any, Final
 
 from kamba_core import tenant_guard
@@ -35,16 +37,28 @@ from kamba_core.ten.entitlements import Resultado, consume_limit
 
 from ..social import regras
 from ..social.repositorio import (
+    APROVADO,
+    APROVAVEIS,
+    CHAVE_DAS_IMAGENS,
     CHAVE_DE_LIMITE,
+    ENTREGUE,
+    MAXIMO_DE_TENTATIVAS,
     MODULO,
+    PENDENTE_APROVACAO,
     POR_APROVAR,
+    RASCUNHO,
     REJEITADO,
+    AprovacaoInvalidadaError,
+    Arte,
     Calendario,
+    EventoAprovado,
     Item,
     ItemMudouError,
     ItemNovo,
     PerfilMudouError,
+    SemImagensError,
     SemPublicacoesError,
+    TentativasEsgotadasError,
     chave_de_consumo,
 )
 
@@ -76,7 +90,8 @@ SQL_CALENDARIO_ACTIVO: Final = (
 
 SQL_ITENS_DO_CALENDARIO: Final = (
     "SELECT content_item_id::text, calendar_id::text, semana_iso, tipo, tema, agendado_at, legenda, estado, "
-    "is_ai_generated, revisao_reforcada, versao_politica, versao "
+    "is_ai_generated, revisao_reforcada, versao_politica, versao, arte_ref, arte_sha256, arte_fundo, "
+    "arte_tentativas, arte_custo_usd, aprovacao_hash, aprovado_at, entregue_at "
     "FROM platform.content_items WHERE tenant_id = %s::uuid AND calendar_id = %s::uuid "
     "ORDER BY agendado_at, content_item_id"
 )
@@ -107,7 +122,8 @@ SQL_INSERIR_ITEM: Final = (
 #: no tenant pelo prefixo do texto do `uuid`, que e o mesmo.
 SQL_ITENS_POR_PREFIXO: Final = (
     "SELECT content_item_id::text, calendar_id::text, semana_iso, tipo, tema, agendado_at, legenda, estado, "
-    "is_ai_generated, revisao_reforcada, versao_politica, versao "
+    "is_ai_generated, revisao_reforcada, versao_politica, versao, arte_ref, arte_sha256, arte_fundo, "
+    "arte_tentativas, arte_custo_usd, aprovacao_hash, aprovado_at, entregue_at "
     "FROM platform.content_items WHERE tenant_id = %s::uuid AND left(content_item_id::text, 8) = %s "
     "LIMIT 2"
 )
@@ -124,6 +140,68 @@ SQL_REJEITAR: Final = (
     "atualizado_at = now() "
     "WHERE tenant_id = %s::uuid AND content_item_id = %s::uuid AND versao = %s AND estado = 'rascunho' "
     "RETURNING versao"
+)
+
+
+#: Um item pelo `id`, no tenant (o `ref` de uma accao `aprovar_conteudo`). `FOR
+#: UPDATE`: a aprovacao e a entrega leem e escrevem na mesma transaccao.
+SQL_ITEM: Final = (
+    "SELECT content_item_id::text, calendar_id::text, semana_iso, tipo, tema, agendado_at, legenda, estado, "
+    "is_ai_generated, revisao_reforcada, versao_politica, versao, arte_ref, arte_sha256, arte_fundo, "
+    "arte_tentativas, arte_custo_usd, aprovacao_hash, aprovado_at, entregue_at "
+    "FROM platform.content_items WHERE tenant_id = %s::uuid AND content_item_id = %s::uuid"
+)
+SQL_ITEM_PARA_MUDAR: Final = SQL_ITEM + " FOR UPDATE"
+
+#: A arte: em `rascunho` ou `pendente_aprovacao`, com a versao lida e menos de
+#: tres tentativas. **Apaga o `hash`**: o botao da arte antiga deixa de aprovar.
+SQL_GRAVAR_ARTE: Final = (
+    "UPDATE platform.content_items SET arte_ref = %s, arte_sha256 = %s, arte_fundo = %s, "
+    "arte_tentativas = arte_tentativas + 1, arte_custo_usd = arte_custo_usd + %s, aprovacao_hash = NULL, "
+    "versao = versao + 1, atualizado_at = now() "
+    "WHERE tenant_id = %s::uuid AND content_item_id = %s::uuid AND versao = %s "
+    "AND estado IN ('rascunho', 'pendente_aprovacao') AND arte_tentativas < %s RETURNING versao"
+)
+
+#: O pedido de aprovacao: a legenda (a do dono, numa edicao) e o `hash` do que ele vai ver.
+SQL_PEDIR_APROVACAO: Final = (
+    "UPDATE platform.content_items SET estado = 'pendente_aprovacao', legenda = %s, aprovacao_hash = %s, "
+    "aprovado_at = NULL, versao = versao + 1, atualizado_at = now() "
+    "WHERE tenant_id = %s::uuid AND content_item_id = %s::uuid AND versao = %s AND estado = ANY(%s) "
+    "RETURNING versao"
+)
+
+#: A aprovacao: **so** o `hash` que a accao cita, e so de `pendente_aprovacao`.
+SQL_APROVAR: Final = (
+    "UPDATE platform.content_items SET estado = 'aprovado', aprovado_at = %s, versao = versao + 1, "
+    "atualizado_at = now() "
+    "WHERE tenant_id = %s::uuid AND content_item_id = %s::uuid AND estado = 'pendente_aprovacao' "
+    "AND aprovacao_hash = %s RETURNING versao"
+)
+
+#: O `content.approved` v1, na mesma transaccao (outbox, `docs/tecnica/06` §5).
+SQL_EMITIR_APROVADO: Final = (
+    "SELECT platform.evt_emitir('content.approved', 1::smallint, %s::uuid, 'content_item', %s, %s::jsonb, "
+    "'P0', '{transacao}'::text[])"
+)
+
+SQL_REJEITAR_PELO_DONO: Final = (
+    "UPDATE platform.content_items SET estado = 'rejeitado', versao = versao + 1, atualizado_at = now() "
+    "WHERE tenant_id = %s::uuid AND content_item_id = %s::uuid AND versao = %s AND estado = ANY(%s) "
+    "RETURNING versao"
+)
+
+SQL_ENTREGAR: Final = (
+    "UPDATE platform.content_items SET estado = 'entregue', entregue_at = %s, versao = versao + 1, "
+    "atualizado_at = now() "
+    "WHERE tenant_id = %s::uuid AND content_item_id = %s::uuid AND versao = %s AND estado = 'aprovado' "
+    "RETURNING versao"
+)
+
+#: Os termos da primeira entrega: so a primeira linha os grava (`RETURNING` vazio depois).
+SQL_TERMOS: Final = (
+    "UPDATE platform.brand_profile SET termos_entrega_at = %s "
+    "WHERE tenant_id = %s::uuid AND termos_entrega_at IS NULL RETURNING termos_entrega_at"
 )
 
 
@@ -188,7 +266,8 @@ def _colunas(perfil: regras.Perfil) -> tuple[Any, ...]:
 
 
 def _item(tenant_id: str, linha: Sequence[Any]) -> Item:
-    (item_id, calendar_id, semana, tipo, tema, agendado_at, legenda, estado, ia, reforcada, versao_politica, versao) = linha
+    (item_id, calendar_id, semana, tipo, tema, agendado_at, legenda, estado, ia, reforcada, versao_politica, versao) = linha[:12]
+    arte_ref, arte_sha256, arte_fundo, tentativas, custo, aprovacao_hash, aprovado_at, entregue_at = linha[12:20]
     return Item(
         content_item_id=str(item_id).lower(),
         tenant_id=tenant_id,
@@ -203,6 +282,14 @@ def _item(tenant_id: str, linha: Sequence[Any]) -> Item:
         revisao_reforcada=bool(reforcada),
         versao_politica=versao_politica,
         versao=int(versao),
+        arte_ref=arte_ref,
+        arte_sha256=arte_sha256,
+        arte_fundo=arte_fundo,
+        arte_tentativas=int(tentativas),
+        arte_custo_usd=Decimal(str(custo)),
+        aprovacao_hash=aprovacao_hash,
+        aprovado_at=aprovado_at,
+        entregue_at=entregue_at,
     )
 
 
@@ -331,3 +418,117 @@ class RepositorioSql:
                 raise ItemMudouError("item mudou")
         return _com(item, estado=REJEITADO, versao_politica=versao_politica, versao=int(linha[0]))
 
+    # ---------------------------------------------------------- a arte e a aprovacao (KAM-122)
+
+    def item(self, tenant_id: str, content_item_id: str) -> Item | None:
+        with tenant_guard.tx(self._ligacao, tenant_id) as cursor:
+            cursor.execute(SQL_ITEM, (tenant_id, content_item_id))
+            linha = cursor.fetchone()
+        return _item(tenant_id, linha) if linha is not None else None
+
+    def consumir_imagem(self, tenant_id: str, chave: str) -> None:
+        """Um `imagens_mes`, na sua transaccao, **antes** de o pedido sair."""
+        with tenant_guard.tx(self._ligacao, tenant_id) as cursor:
+            consumo = consume_limit(_ClienteDeCursor(cursor), tenant_id, CHAVE_DAS_IMAGENS, 1, chave, modulo=MODULO)
+            if not consumo.aceite:
+                raise SemImagensError("imagens_mes esgotado")
+
+    def gravar_arte(self, item: Item, arte: Arte) -> Item:
+        if item.arte_tentativas >= MAXIMO_DE_TENTATIVAS:
+            raise TentativasEsgotadasError("tentativas esgotadas")
+        with tenant_guard.tx(self._ligacao, item.tenant_id) as cursor:
+            cursor.execute(
+                SQL_GRAVAR_ARTE,
+                (
+                    arte.arte_ref,
+                    arte.arte_sha256,
+                    arte.fundo,
+                    arte.custo_usd,
+                    item.tenant_id,
+                    item.content_item_id,
+                    item.versao,
+                    MAXIMO_DE_TENTATIVAS,
+                ),
+            )
+            linha = cursor.fetchone()
+            if linha is None:
+                raise ItemMudouError("item mudou")
+        return _com(
+            item,
+            arte_ref=arte.arte_ref,
+            arte_sha256=arte.arte_sha256,
+            arte_fundo=arte.fundo,
+            arte_tentativas=item.arte_tentativas + 1,
+            arte_custo_usd=item.arte_custo_usd + arte.custo_usd,
+            aprovacao_hash=None,
+            versao=int(linha[0]),
+        )
+
+    def pedir_aprovacao(self, item: Item, legenda: str, hash_: str) -> Item:
+        with tenant_guard.tx(self._ligacao, item.tenant_id) as cursor:
+            cursor.execute(
+                SQL_PEDIR_APROVACAO,
+                (legenda, hash_, item.tenant_id, item.content_item_id, item.versao, list(APROVAVEIS)),
+            )
+            linha = cursor.fetchone()
+            if linha is None:
+                raise ItemMudouError("item mudou")
+        return _com(
+            item, estado=PENDENTE_APROVACAO, legenda=legenda, aprovacao_hash=hash_, aprovado_at=None, versao=int(linha[0])
+        )
+
+    def aprovar(self, item: Item, hash_: str, agora: datetime.datetime) -> tuple[Item, EventoAprovado | None]:
+        """A passagem a `aprovado` e o `content.approved`, **na mesma transaccao**.
+
+        Le o item com `FOR UPDATE`: dois toques concorrentes no mesmo botao
+        serializam-se, e o segundo le `aprovado` com o mesmo `hash` — uma
+        aprovacao e um evento (criterio 5).
+        """
+        tenant = item.tenant_id
+        with tenant_guard.tx(self._ligacao, tenant) as cursor:
+            cursor.execute(SQL_ITEM_PARA_MUDAR, (tenant, item.content_item_id))
+            linha = cursor.fetchone()
+            if linha is None:
+                raise ItemMudouError("item mudou")
+            actual = _item(tenant, linha)
+            if actual.estado in (APROVADO, ENTREGUE) and actual.aprovacao_hash == hash_:
+                return actual, None
+            if actual.estado != PENDENTE_APROVACAO or actual.aprovacao_hash != hash_:
+                raise AprovacaoInvalidadaError("aprovacao invalidada")
+            cursor.execute(SQL_APROVAR, (agora, tenant, actual.content_item_id, hash_))
+            versao = cursor.fetchone()
+            if versao is None:
+                raise ItemMudouError("item mudou")
+            evento = EventoAprovado(actual.content_item_id, int(versao[0]))
+            cursor.execute(
+                SQL_EMITIR_APROVADO,
+                (
+                    tenant,
+                    actual.content_item_id,
+                    json.dumps({"content_item_id": actual.content_item_id, "versao": evento.versao}, sort_keys=True),
+                ),
+            )
+            cursor.fetchone()
+        return _com(actual, estado=APROVADO, aprovado_at=agora, versao=evento.versao), evento
+
+    def rejeitar_pelo_dono(self, item: Item) -> Item:
+        with tenant_guard.tx(self._ligacao, item.tenant_id) as cursor:
+            cursor.execute(
+                SQL_REJEITAR_PELO_DONO,
+                (item.tenant_id, item.content_item_id, item.versao, [RASCUNHO, PENDENTE_APROVACAO, APROVADO]),
+            )
+            linha = cursor.fetchone()
+            if linha is None:
+                raise ItemMudouError("item mudou")
+        return _com(item, estado=REJEITADO, versao=int(linha[0]))
+
+    def entregar(self, item: Item, agora: datetime.datetime) -> tuple[Item, bool]:
+        """A passagem a `entregue` e, na primeira entrega do tenant, os termos (criterio 9)."""
+        with tenant_guard.tx(self._ligacao, item.tenant_id) as cursor:
+            cursor.execute(SQL_ENTREGAR, (agora, item.tenant_id, item.content_item_id, item.versao))
+            linha = cursor.fetchone()
+            if linha is None:
+                raise ItemMudouError("item mudou")
+            cursor.execute(SQL_TERMOS, (agora, item.tenant_id))
+            primeira = cursor.fetchone() is not None
+        return _com(item, estado=ENTREGUE, entregue_at=agora, versao=int(linha[0])), primeira

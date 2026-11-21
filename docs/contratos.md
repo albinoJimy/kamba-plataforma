@@ -4,7 +4,7 @@
 |---|---|
 | Documento | `docs/contratos.md` |
 | Ticket | KAM-007 — Catálogo de eventos: schemas versionados e teste de compatibilidade |
-| Estado | 45 tipos em `contratos/eventos/`, com `v1` e `v2` cada (90 contratos; o `screening.violation_detected` é do KAM-191, o `billing.cycle_paid` do KAM-059, os dois `quote.*` do KAM-123 e o `agent.replied` do KAM-224); gate 7 **activo** (`make ci-7`); tipos TS e modelos Python gerados; emendas 1.11, 1.83 e 1.96 do dicionário. As caixas marcadas e as vazias estão nomeadas na secção de verificação do bloco |
+| Estado | 46 tipos em `contratos/eventos/`, com `v1` e `v2` cada (92 contratos; o `screening.violation_detected` é do KAM-191, o `billing.cycle_paid` do KAM-059, os dois `quote.*` do KAM-123, o `agent.replied` do KAM-224 e o `content.approved` do KAM-122); gate 7 **activo** (`make ci-7`); tipos TS e modelos Python gerados; emendas 1.11, 1.83 e 1.96 do dicionário. As caixas marcadas e as vazias estão nomeadas na secção de verificação do bloco |
 | Âmbito | O **contrato** de um evento: o que um produtor pode emitir e o que um consumidor pode esperar, e o que impede isso de mudar sem versão. Não o laço de publicação (`docs/eventos.md`) nem o de consumo (`docs/consumo.md`) |
 | Fontes | `docs/tecnica/06` §4, §5, §6.6, §7.1, §7.3; `docs/tecnica/01` §6.3, §7.2; `specs/02` §3.5 (emenda 1.11); ADR-009, ADR-010, ADR-013 |
 
@@ -179,6 +179,24 @@ PII recusa um campo `texto`, e uma resposta a um cliente pode levar o nome
 dele. É emitido pelo AGR (`kamba_agr/saida.py`) na transacção que escreve a
 linha, e a linha é única por `(tenant_id, chave)`: um turno repetido não
 insere e não emite.
+
+### O `content.approved`, e porque não leva o conteúdo
+
+É a aprovação de um item do módulo social pelo dono (KAM-122), que o
+dicionário §3.7 já nomeava. Agrega por `content_item`, com o
+`content_item_id` da `platform.content_items`; classe P0. O *payload* leva
+só o `content_item_id` e a `versao` do item que o dono aprovou. **A legenda
+e a arte ficam na tabela e no STO**: a legenda é texto do dono, e um
+consumidor que precise dela lê-a pelo `content_item_id`. A `versao` é a do
+item, e não a do envelope: uma edição depois da aprovação muda-a e devolve
+o item a `pendente_aprovacao`, e a aprovação seguinte emite outro evento
+com a versão nova.
+
+É emitido pelo AGR (`kamba_agr/tls/social.py`) na transacção que passa o
+item a `aprovado`, depois do botão `confirm:{action_id}` da acção
+`aprovar_conteudo`: aprovar duas vezes o mesmo item dá **um** evento.
+**Não tem consumidor**: os publicadores de redes que o leriam são
+Diferidos (D13), e a entrega ao dono não precisa dele.
 
 ## 4. O que impede um contrato de partir
 
@@ -357,3 +375,4 @@ leu o nome da função.
 | 1.4 | Novembro 2026 | KAM-059: entra o `billing.cycle_paid`, com `v1` e `v2`, emitido pela projecção do *ledger*; 42 tipos e 84 contratos. Fica escrita a exposição dos UUID à guarda de telefone do `evt_emitir`, comum aos tipos com identificadores em hexadecimal. | Equipa KAMBÁ |
 | 1.5 | Novembro 2026 | KAM-123: entram o `quote.requested` e o `quote.sent`, com `v1` e `v2`, emitidos pelo AGR na transacção da `quote_requests`; 44 tipos e 88 contratos. O §3 diz o que cada *payload* leva e quando o `quote.sent` sai | Equipa KAMBÁ |
 | 1.6 | Novembro 2026 | KAM-224: entra o `agent.replied`, com `v1` e `v2`, emitido pelo AGR na transacção da `agent_replies`; 45 tipos e 90 contratos. O §3 diz o que o *payload* leva e porque o texto fica na tabela | Equipa KAMBÁ |
+| 1.7 | Novembro 2026 | KAM-122: entra o `content.approved`, com `v1` e `v2`, emitido pelo AGR na transacção que passa o item a `aprovado`; 46 tipos e 92 contratos. O §3 diz o que o *payload* leva, porque a legenda e a arte ficam fora e que não tem consumidor | Equipa KAMBÁ |

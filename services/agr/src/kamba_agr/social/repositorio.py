@@ -28,6 +28,7 @@ import datetime
 import uuid
 from collections.abc import Sequence
 from dataclasses import dataclass
+from decimal import Decimal
 from typing import Any, Final, Protocol
 
 from .regras import Perfil
@@ -43,6 +44,34 @@ ESTADOS_DO_ITEM: Final = (RASCUNHO, PENDENTE_APROVACAO, APROVADO, ENTREGUE, REJE
 
 #: Os estados que um «NOVA» expira: os que ainda nao foram aprovados.
 POR_APROVAR: Final = (RASCUNHO, PENDENTE_APROVACAO)
+
+#: As arestas da maquina do item (KAM-122), as mesmas do gatilho
+#: `content_items_transicao` da `0085` (o ensaio confronta as duas).
+TRANSICOES: Final = (
+    (RASCUNHO, PENDENTE_APROVACAO),
+    (RASCUNHO, REJEITADO),
+    (RASCUNHO, EXPIRADO),
+    (PENDENTE_APROVACAO, APROVADO),
+    (PENDENTE_APROVACAO, REJEITADO),
+    (PENDENTE_APROVACAO, EXPIRADO),
+    (APROVADO, ENTREGUE),
+    (APROVADO, PENDENTE_APROVACAO),
+    (APROVADO, REJEITADO),
+)
+FINAIS: Final = (ENTREGUE, REJEITADO, EXPIRADO)
+
+#: Os estados de onde o dono pede (ou volta a pedir) a aprovacao.
+APROVAVEIS: Final = (RASCUNHO, PENDENTE_APROVACAO, APROVADO)
+
+#: Os estados em que a arte se (re)gera. Num `pendente_aprovacao`, uma arte nova
+#: apaga o `hash`: o botao da arte antiga deixa de aprovar.
+COM_ARTE_NOVA: Final = (RASCUNHO, PENDENTE_APROVACAO)
+
+#: As tentativas de arte de um item (criterio 9, *proposta*).
+MAXIMO_DE_TENTATIVAS: Final = 3
+
+#: O contador do TEN que um fundo gerado consome (`kamba_core/foto`).
+CHAVE_DAS_IMAGENS: Final = "imagens_mes"
 
 # Os estados de um calendario.
 ACTIVO: Final = "activo"
@@ -64,6 +93,17 @@ def chave_de_consumo(content_item_id: str) -> str:
     return f"social:{content_item_id}"
 
 
+def chave_da_imagem(content_item_id: str, tentativa: int) -> str:
+    """Uma por tentativa de arte: regerar a arte e outra imagem, repetir a mesma nao e."""
+    return f"arte:{content_item_id}:{tentativa}"
+
+
+def transicao_permitida(de: str, para: str) -> bool:
+    if de == para:
+        return de not in FINAIS
+    return (de, para) in TRANSICOES
+
+
 class PerfilMudouError(RuntimeError):
     """O perfil mudou entre a leitura e a escrita (outra resposta concorrente)."""
 
@@ -74,6 +114,18 @@ class ItemMudouError(RuntimeError):
 
 class SemPublicacoesError(RuntimeError):
     """O `posts_mes` do plano esta esgotado: nada se gravou."""
+
+
+class SemImagensError(RuntimeError):
+    """O `imagens_mes` do plano esta esgotado: o fundo gerado nao se pede."""
+
+
+class TentativasEsgotadasError(RuntimeError):
+    """O item ja teve as tres tentativas de arte."""
+
+
+class AprovacaoInvalidadaError(RuntimeError):
+    """O `hash` da accao ja nao e o do item: houve uma edicao depois do botao."""
 
 
 @dataclass(frozen=True)
@@ -91,6 +143,33 @@ class Item:
     revisao_reforcada: bool = False
     versao_politica: str | None = None
     versao: int = 1
+    # A arte e a aprovacao (KAM-122, `0085`).
+    arte_ref: str | None = None
+    arte_sha256: str | None = None
+    arte_fundo: str | None = None
+    arte_tentativas: int = 0
+    arte_custo_usd: Decimal = Decimal(0)
+    aprovacao_hash: str | None = None
+    aprovado_at: datetime.datetime | None = None
+    entregue_at: datetime.datetime | None = None
+
+
+@dataclass(frozen=True)
+class Arte:
+    """O que o `generate_art` grava no item."""
+
+    arte_ref: str
+    arte_sha256: str
+    fundo: str
+    custo_usd: Decimal
+
+
+@dataclass(frozen=True)
+class EventoAprovado:
+    """O `content.approved` v1: so o `id` e a versao, sem conteudo (dicionario §3.5)."""
+
+    content_item_id: str
+    versao: int
 
 
 @dataclass(frozen=True)
@@ -147,16 +226,36 @@ class RepositorioSocial(Protocol):
 
     def rejeitar(self, item: Item, versao_politica: str) -> Item: ...
 
+    # KAM-122: a arte, a aprovacao e a entrega.
+
+    def item(self, tenant_id: str, content_item_id: str) -> Item | None: ...
+
+    def consumir_imagem(self, tenant_id: str, chave: str) -> None: ...
+
+    def gravar_arte(self, item: Item, arte: Arte) -> Item: ...
+
+    def pedir_aprovacao(self, item: Item, legenda: str, hash_: str) -> Item: ...
+
+    def aprovar(self, item: Item, hash_: str, agora: datetime.datetime) -> tuple[Item, EventoAprovado | None]: ...
+
+    def rejeitar_pelo_dono(self, item: Item) -> Item: ...
+
+    def entregar(self, item: Item, agora: datetime.datetime) -> tuple[Item, bool]: ...
+
 
 class RepositorioEmMemoria:
     """O `RepositorioSocial` em memoria, para os ensaios. Isola por tenant como a RLS."""
 
-    def __init__(self, *, limite_de_posts: int | None = 12) -> None:
+    def __init__(self, *, limite_de_posts: int | None = 12, limite_de_imagens: int | None = 20) -> None:
         self.perfis: dict[str, Perfil] = {}
         self.calendarios: dict[str, Calendario] = {}
         self.itens: dict[str, Item] = {}
         self.consumos: dict[str, set[str]] = {}
+        self.imagens: dict[str, set[str]] = {}
+        self.eventos: list[tuple[str, EventoAprovado]] = []
+        self.termos: dict[str, datetime.datetime] = {}
         self.limite_de_posts = limite_de_posts
+        self.limite_de_imagens = limite_de_imagens
 
     # ---------------------------------------------------------- o perfil
 
@@ -263,6 +362,73 @@ class RepositorioEmMemoria:
         self.itens[item.content_item_id] = novo
         return novo
 
+    # ---------------------------------------------------------- a arte e a aprovacao
+
+    def _mudar(self, item: Item, **mudancas: Any) -> Item:
+        """A escrita de um item com a guarda que o gatilho da `0085` faz na base."""
+        self._exigir_versao(item)
+        novo = _com(item, versao=item.versao + 1, **mudancas)
+        if not transicao_permitida(item.estado, novo.estado):
+            raise ItemMudouError("transicao recusada")
+        if novo.estado in (APROVADO, ENTREGUE) and any(
+            getattr(novo, c) != getattr(item, c) for c in ("legenda", "arte_ref", "arte_sha256", "aprovacao_hash")
+        ):
+            raise ItemMudouError("aprovado nao muda")
+        self.itens[item.content_item_id] = novo
+        return novo
+
+    def item(self, tenant_id: str, content_item_id: str) -> Item | None:
+        achado = self.itens.get(content_item_id.lower())
+        return achado if achado is not None and achado.tenant_id == tenant_id else None
+
+    def consumir_imagem(self, tenant_id: str, chave: str) -> None:
+        consumidas = self.imagens.setdefault(tenant_id, set())
+        if chave not in consumidas:
+            if self.limite_de_imagens is not None and len(consumidas) >= self.limite_de_imagens:
+                raise SemImagensError("imagens_mes esgotado")
+            consumidas.add(chave)
+
+    def gravar_arte(self, item: Item, arte: Arte) -> Item:
+        if item.estado not in COM_ARTE_NOVA:
+            raise ItemMudouError("item mudou")
+        if item.arte_tentativas >= MAXIMO_DE_TENTATIVAS:
+            raise TentativasEsgotadasError("tentativas esgotadas")
+        return self._mudar(
+            item,
+            arte_ref=arte.arte_ref,
+            arte_sha256=arte.arte_sha256,
+            arte_fundo=arte.fundo,
+            arte_tentativas=item.arte_tentativas + 1,
+            arte_custo_usd=item.arte_custo_usd + arte.custo_usd,
+            aprovacao_hash=None,
+        )
+
+    def pedir_aprovacao(self, item: Item, legenda: str, hash_: str) -> Item:
+        if item.estado not in APROVAVEIS:
+            raise ItemMudouError("item mudou")
+        return self._mudar(item, estado=PENDENTE_APROVACAO, legenda=legenda, aprovacao_hash=hash_, aprovado_at=None)
+
+    def aprovar(self, item: Item, hash_: str, agora: datetime.datetime) -> tuple[Item, EventoAprovado | None]:
+        actual = self.item(item.tenant_id, item.content_item_id) or item
+        if actual.estado in (APROVADO, ENTREGUE) and actual.aprovacao_hash == hash_:
+            return actual, None
+        if actual.estado != PENDENTE_APROVACAO or actual.aprovacao_hash != hash_:
+            raise AprovacaoInvalidadaError("aprovacao invalidada")
+        novo = self._mudar(actual, estado=APROVADO, aprovado_at=agora)
+        evento = EventoAprovado(novo.content_item_id, novo.versao)
+        self.eventos.append((novo.tenant_id, evento))
+        return novo, evento
+
+    def rejeitar_pelo_dono(self, item: Item) -> Item:
+        return self._mudar(item, estado=REJEITADO)
+
+    def entregar(self, item: Item, agora: datetime.datetime) -> tuple[Item, bool]:
+        novo = self._mudar(item, estado=ENTREGUE, entregue_at=agora)
+        primeira = item.tenant_id not in self.termos
+        if primeira:
+            self.termos[item.tenant_id] = agora
+        return novo, primeira
+
 
 def vista_do_item(item: Item, referencia: str) -> dict[str, Any]:
     return {
@@ -276,4 +442,6 @@ def vista_do_item(item: Item, referencia: str) -> dict[str, Any]:
         "is_ai_generated": item.is_ai_generated,
         "revisao_reforcada": item.revisao_reforcada,
         "versao_politica": item.versao_politica,
+        "arte_fundo": item.arte_fundo,
+        "arte_tentativas": item.arte_tentativas,
     }

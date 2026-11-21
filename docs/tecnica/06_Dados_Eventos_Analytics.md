@@ -4,7 +4,7 @@
 |---|---|
 | Produto | KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para Angola |
 | Documento | Técnica — Dados, Eventos e Analytics (EVT e DAT) |
-| Versão | 1.10 |
+| Versão | 1.11 |
 | Data | Outubro de 2026 |
 | Classificação | Documento de Referência — Interno |
 | Documento-fonte | `../exploracao/11-arquitetura-detalhada-engenharia.md` §2, §3, §8; `../exploracao/13-big-picture-ecossistema.md` §9.5; `../exploracao/06-expansao-plataforma.md` §3, §5 |
@@ -152,6 +152,7 @@ Chave de ordem = `agregado`. Consumidores marcados «†» exigem ordem por agre
 | `quote.requested` | AGR (pedido de orçamento de um produto `sob_consulta`, na transacção da `quote_requests`; um pedido repetido em dez minutos não emite; KAM-123) | DAT; o aviso ao dono é o credor KAM-220 | quote | P0 | P |
 | `quote.sent` | AGR (proposta enviada ao cliente depois do botão do dono, ou libertada quando a janela abre; KAM-123) | DAT | quote | P0 | P |
 | `agent.replied` | AGR (a resposta de um turno, no `enfileirar` da `PortaDeSaida`, na transacção que escreve a `agent_replies`; um turno repetido não emite; KAM-224) | o Outbound do `worker-canal` (canal `whatsapp`) e o painel do `onboarding-web` (canal `painel`) | conversation | P0 | P |
+| `content.approved` | AGR (o dono aprova um item do módulo social pelo botão `confirm:{action_id}`, na transacção que o passa a `aprovado`; uma segunda aprovação não emite; KAM-122) | nenhum no Piloto: os publicadores de redes que o leriam são Diferidos (D13) | content_item | P0 | P |
 | `review.requested` | REP (`order.delivered` + 2 h) | AGR (envia o pedido) | order | P1 | P |
 | `review.created` | AGR/REP (resposta do cliente) | REP, IDX, DAT | order | P1 | P |
 | `review.removed` | GOV/T&S (com motivo) | REP, IDX | order | P0 | C |
@@ -674,3 +675,4 @@ O Score tem contrato próprio com consentimento da PME por exportação, versão
 | 1.8 | Novembro 2026 | KAM-059: §5 — entra `billing.cycle_paid`, o evento do ciclo de facturação da assinatura da KAMBÁ. A `0035` fechou os cinco `payment.*` às cobranças de encomenda (agregam por `order`), pelo que o pagamento de um ciclo não tinha evento; este agrega por `billing_cycle` e é emitido pela projecção do ledger, na mesma transacção do pagamento. Sem PII: identificadores, o período e o valor em unidade menor. | Equipa KAMBÁ |
 | 1.9 | Novembro 2026 | KAM-123: §5 — entram `quote.requested` e `quote.sent`, os dois eventos do Orçamento expresso que o dicionário §3.7 já nomeava. Agregado `quote`, com o `quote_id`; classe **P0**: o *payload* leva identificadores, o `sku` e, no `quote.sent`, o valor que o dono digitou, e nunca texto nem telefone | Equipa KAMBÁ |
 | 1.10 | Novembro 2026 | KAM-224: §5 — entra o `agent.replied`, a resposta de um turno do AGR (decisão 2 do fundador de 2026-11-19, bloco do KAM-217). Agregado `conversation`, com o `conversation_id`; classe **P0**: o *payload* leva o `reply_id` e os identificadores, e **o texto fica na `platform.agent_replies`**, que os consumidores leem por ele — a regra do §7.1, sem PII crua em eventos | Equipa KAMBÁ |
+| 1.11 | Novembro 2026 | KAM-122: §5 — entra o `content.approved`, a aprovação de um item do módulo social pelo dono, que o dicionário §3.7 já nomeava (emenda 1.134, número provisório). Agregado `content_item`, com o `content_item_id`; classe **P0**: o *payload* leva o `content_item_id` e a `versao` do item, e **a legenda e a arte ficam na `platform.content_items` e no STO**. Sem consumidor no Piloto: os publicadores de redes são Diferidos (D13) | Equipa KAMBÁ |

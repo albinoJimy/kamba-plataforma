@@ -1323,7 +1323,7 @@ entradas:
     variantes_literais: []
   - seccao: "3.5"
     conceito: "Tipos do Piloto"
-    canonico: "order.created, order.paid, order.expired, order.cancelled, order.delivered, payment.reference_issued, payment.confirmed, payment.manual_confirmed, payment.failed, payment.expired, review.requested, review.created, query.resolved, query.unresolved, query.handoff, tenant.approved, tenant.provisioned, tenant.activated, tenant.suspended, tenant.reactivated, tenant.closed, catalog.product_changed, catalog.price_changed, stock.reserved, stock.released, stock.adjusted, stock.low, consent.recorded, consent.withdrawn, privacy.erasure_requested, privacy.erasure_applied, channel.updated, channel.inactivity_warning, contact.merged, conversation.mode_changed, booking.created, booking.reminder_due, booking.cancelled, order.exception, order.refund_requested, screening.violation_detected, billing.cycle_paid, quote.requested, quote.sent, agent.replied"
+    canonico: "order.created, order.paid, order.expired, order.cancelled, order.delivered, payment.reference_issued, payment.confirmed, payment.manual_confirmed, payment.failed, payment.expired, review.requested, review.created, query.resolved, query.unresolved, query.handoff, tenant.approved, tenant.provisioned, tenant.activated, tenant.suspended, tenant.reactivated, tenant.closed, catalog.product_changed, catalog.price_changed, stock.reserved, stock.released, stock.adjusted, stock.low, consent.recorded, consent.withdrawn, privacy.erasure_requested, privacy.erasure_applied, channel.updated, channel.inactivity_warning, contact.merged, conversation.mode_changed, booking.created, booking.reminder_due, booking.cancelled, order.exception, order.refund_requested, screening.violation_detected, billing.cycle_paid, quote.requested, quote.sent, agent.replied, content.approved"
     literais:
       - "order.created"
       - "order.paid"
@@ -1370,6 +1370,7 @@ entradas:
       - "quote.requested"
       - "quote.sent"
       - "agent.replied"
+      - "content.approved"
     nomes:
       - "order.created"
       - "order.paid"
@@ -1416,7 +1417,14 @@ entradas:
       - "quote.requested"
       - "quote.sent"
       - "agent.replied"
+      - "content.approved"
     nomes_nota:
+      - "content.approved"
+      - "content_item"
+      - "content_item_id"
+      - "versao"
+      - "content_items.versao"
+      - "aprovado"
       - "agent.replied"
       - "conversation"
       - "conversation_id"
@@ -1462,7 +1470,7 @@ entradas:
     variantes_literais: []
   - seccao: "3.5"
     conceito: "Campos de payload dos eventos"
-    canonico: "order_id, review_id, numero_publico, sku, qty, linhas, currency, nota, motivo, entrega_modo, entrega_confirmada_por, paga_via, expira_at, autenticacao, authn_ok, provider_event_id, plano, evento_pagamento_id, subscription_id, periodo_inicio, periodo_fim, kyc_nivel, tecto_inicial_minor, intervencao_humana, quote_id, quantidade, validade_ate, reply_id, canal"
+    canonico: "order_id, review_id, numero_publico, sku, qty, linhas, currency, nota, motivo, entrega_modo, entrega_confirmada_por, paga_via, expira_at, autenticacao, authn_ok, provider_event_id, plano, evento_pagamento_id, subscription_id, periodo_inicio, periodo_fim, kyc_nivel, tecto_inicial_minor, intervencao_humana, quote_id, quantidade, validade_ate, reply_id, canal, content_item_id"
     literais:
       - "order_id"
       - "review_id"
@@ -1493,6 +1501,7 @@ entradas:
       - "validade_ate"
       - "reply_id"
       - "canal"
+      - "content_item_id"
     nomes:
       - "order_id"
       - "review_id"
@@ -1523,7 +1532,10 @@ entradas:
       - "validade_ate"
       - "reply_id"
       - "canal"
+      - "content_item_id"
     nomes_nota:
+      - "content_item_id"
+      - "versao"
       - "reply_id"
       - "canal"
       - "quote_id"
@@ -13132,7 +13144,7 @@ entradas:
     variantes_literais: []
   - seccao: "3.49"
     conceito: "Finalidade de uma transferência"
-    canonico: "tenant_destinations.purpose ∈ {alojamento, canal, classificacao_de_catalogo, classificacao_de_condicoes, classificacao_de_conteudo, conversa, copias_de_seguranca, embeddings, entrega_de_conteudo, facturacao, imagem, observabilidade, otp_e_avisos_de_servico, pagamentos, segredos, transcricao, visao}"
+    canonico: "tenant_destinations.purpose ∈ {alojamento, canal, classificacao_de_catalogo, classificacao_de_condicoes, classificacao_de_conteudo, conversa, copias_de_seguranca, embeddings, entrega_de_conteudo, facturacao, geracao_de_imagem, imagem, observabilidade, otp_e_avisos_de_servico, pagamentos, segredos, transcricao, visao}"
     literais:
       - "tenant_destinations.purpose"
       - "alojamento"
@@ -13145,6 +13157,7 @@ entradas:
       - "embeddings"
       - "entrega_de_conteudo"
       - "facturacao"
+      - "geracao_de_imagem"
       - "imagem"
       - "observabilidade"
       - "otp_e_avisos_de_servico"
@@ -13164,6 +13177,7 @@ entradas:
       - "embeddings"
       - "entrega_de_conteudo"
       - "facturacao"
+      - "geracao_de_imagem"
       - "imagem"
       - "observabilidade"
       - "otp_e_avisos_de_servico"
@@ -13176,6 +13190,8 @@ entradas:
       - "classificacao_de_catalogo"
       - "classificacao_de_condicoes"
       - "classificacao_de_conteudo"
+      - "geracao_de_imagem"
+      - "social_do_dono"
       - "finalidade_das_condicoes"
       - "finalidade_do_screening"
       - "foto_de_produtos"
@@ -13184,7 +13200,8 @@ entradas:
       - "embeddings"
       - "FINALIDADES_ESCOLHIVEIS"
       - "social"
-      - "social_do_dono"
+      - "arte_e_aprovacao_do_social"
+      - "downgrade"
       - "FINALIDADES"
       - "otp_e_avisos_de_servico"
       - "FINALIDADE"
@@ -20598,6 +20615,7 @@ entradas:
       - "vers"
       - "do"
       - "resumo"
+      - "hash"
     variantes_literais: []
   - seccao: "3.78"
     conceito: "Estado de uma acção"
@@ -21462,7 +21480,7 @@ entradas:
     variantes_literais: []
   - seccao: "3.79"
     conceito: "Dispensa do passo 4"
-    canonico: "DISPENSAS_DO_PASSO_4 = (submit_quote, create_product_draft, update_brand_profile, generate_calendar, generate_caption); EspecificacaoDeTool.confirmacao_dispensada"
+    canonico: "DISPENSAS_DO_PASSO_4 = (submit_quote, create_product_draft, update_brand_profile, generate_calendar, generate_caption, generate_art, request_approval, reject_content, deliver_content); EspecificacaoDeTool.confirmacao_dispensada"
     literais:
       - "DISPENSAS_DO_PASSO_4"
       - "submit_quote"
@@ -21470,6 +21488,10 @@ entradas:
       - "update_brand_profile"
       - "generate_calendar"
       - "generate_caption"
+      - "generate_art"
+      - "request_approval"
+      - "reject_content"
+      - "deliver_content"
       - "EspecificacaoDeTool.confirmacao_dispensada"
     nomes:
       - "DISPENSAS_DO_PASSO_4"
@@ -21478,6 +21500,10 @@ entradas:
       - "update_brand_profile"
       - "generate_calendar"
       - "generate_caption"
+      - "generate_art"
+      - "request_approval"
+      - "reject_content"
+      - "deliver_content"
       - "EspecificacaoDeTool.confirmacao_dispensada"
     nomes_nota:
       - "write"
@@ -21488,6 +21514,8 @@ entradas:
       - "create_product_draft"
       - "publish_product"
       - "rascunho"
+      - "approve_content"
+      - "aprovar_conteudo"
     variantes_literais: []
   - seccao: "3.79"
     conceito: "Botão do pedido de orçamento"
@@ -22030,9 +22058,9 @@ entradas:
     variantes_literais: []
   - seccao: "3.82"
     conceito: "Perfil de marca"
-    canonico: "platform.brand_profile(tenant_id, nome, categoria, tom, cores, publico, slots_preferidos, factos, logo_asset_id, idioma, versao, criado_at, atualizado_at)"
+    canonico: "platform.brand_profile(tenant_id, nome, categoria, tom, cores, publico, slots_preferidos, factos, logo_asset_id, idioma, versao, criado_at, atualizado_at, termos_entrega_at)"
     literais:
-      - "platform.brand_profile(tenant_id, nome, categoria, tom, cores, publico, slots_preferidos, factos, logo_asset_id, idioma, versao, criado_at, atualizado_at)"
+      - "platform.brand_profile(tenant_id, nome, categoria, tom, cores, publico, slots_preferidos, factos, logo_asset_id, idioma, versao, criado_at, atualizado_at, termos_entrega_at)"
     nomes:
       - "platform.brand_profile"
       - "tenant_id"
@@ -22048,7 +22076,9 @@ entradas:
       - "versao"
       - "criado_at"
       - "atualizado_at"
+      - "termos_entrega_at"
     nomes_nota:
+      - "termos_entrega_at"
       - "FORCE"
       - "categoria"
       - "NULL"
@@ -22151,9 +22181,9 @@ entradas:
     variantes_literais: []
   - seccao: "3.82"
     conceito: "Item de conteúdo"
-    canonico: "platform.content_items(content_item_id, tenant_id, calendar_id, semana_iso, tipo, tema, legenda, art_asset_id, estado, is_ai_generated, revisao_reforcada, versao_politica, versao, agendado_at, criado_at, atualizado_at)"
+    canonico: "platform.content_items(content_item_id, tenant_id, calendar_id, semana_iso, tipo, tema, legenda, art_asset_id, estado, is_ai_generated, revisao_reforcada, versao_politica, versao, agendado_at, criado_at, atualizado_at, arte_ref, arte_sha256, arte_fundo, arte_tentativas, arte_custo_usd, aprovacao_hash, aprovado_at, entregue_at)"
     literais:
-      - "platform.content_items(content_item_id, tenant_id, calendar_id, semana_iso, tipo, tema, legenda, art_asset_id, estado, is_ai_generated, revisao_reforcada, versao_politica, versao, agendado_at, criado_at, atualizado_at)"
+      - "platform.content_items(content_item_id, tenant_id, calendar_id, semana_iso, tipo, tema, legenda, art_asset_id, estado, is_ai_generated, revisao_reforcada, versao_politica, versao, agendado_at, criado_at, atualizado_at, arte_ref, arte_sha256, arte_fundo, arte_tentativas, arte_custo_usd, aprovacao_hash, aprovado_at, entregue_at)"
     nomes:
       - "platform.content_items"
       - "content_item_id"
@@ -22172,6 +22202,14 @@ entradas:
       - "agendado_at"
       - "criado_at"
       - "atualizado_at"
+      - "arte_ref"
+      - "arte_sha256"
+      - "arte_fundo"
+      - "arte_tentativas"
+      - "arte_custo_usd"
+      - "aprovacao_hash"
+      - "aprovado_at"
+      - "entregue_at"
     nomes_nota:
       - "rascunho"
       - "is_ai_generated"
@@ -22225,6 +22263,7 @@ entradas:
       - "rascunho"
       - "rejeitado"
       - "expirado"
+      - "content_items_transicao"
     variantes_literais: []
   - seccao: "3.82"
     conceito: "Revisão reforçada"
@@ -22392,6 +22431,334 @@ entradas:
     nomes_nota:
       - "geracao.py"
       - "faltam_factos"
+    variantes_literais: []
+  - seccao: "3.82"
+    conceito: "Arte de um item"
+    canonico: "content_items.arte_ref"
+    literais:
+      - "content_items.arte_ref"
+    nomes:
+      - "content_items.arte_ref"
+    nomes_nota:
+      - "content_items_arte_ref_ck"
+      - "art_asset_id"
+      - "image_jobs"
+    variantes_literais: []
+  - seccao: "3.82"
+    conceito: "Resumo da arte"
+    canonico: "content_items.arte_sha256"
+    literais:
+      - "content_items.arte_sha256"
+    nomes:
+      - "content_items.arte_sha256"
+    nomes_nota:
+      - "content_items_arte_sha256_ck"
+    variantes_literais: []
+  - seccao: "3.82"
+    conceito: "Fundo da arte"
+    canonico: "content_items.arte_fundo ∈ {gerado, gradiente}"
+    literais:
+      - "content_items.arte_fundo"
+      - "gerado"
+      - "gradiente"
+    nomes:
+      - "content_items.arte_fundo"
+      - "gerado"
+      - "gradiente"
+    nomes_nota:
+      - "gerado"
+      - "geracao_de_imagem"
+      - "gradiente"
+      - "content_items_arte_completa_ck"
+    variantes_literais: []
+  - seccao: "3.82"
+    conceito: "Tentativas de arte"
+    canonico: "content_items.arte_tentativas, de 0 a 3"
+    literais:
+      - "content_items.arte_tentativas"
+    nomes:
+      - "content_items.arte_tentativas"
+    nomes_nota:
+      - "MAXIMO_DE_TENTATIVAS"
+      - "ALERTA_DE_CUSTO_A_PARTIR_DE"
+    variantes_literais: []
+  - seccao: "3.82"
+    conceito: "Custo da arte"
+    canonico: "content_items.arte_custo_usd, numeric(12, 6), não negativo"
+    literais:
+      - "content_items.arte_custo_usd"
+      - "numeric(12, 6)"
+    nomes:
+      - "content_items.arte_custo_usd"
+      - "numeric"
+    nomes_nota:
+      - "module_cost_ledger"
+    variantes_literais: []
+  - seccao: "3.82"
+    conceito: "Aprovação de um item"
+    canonico: "content_items.aprovacao_hash e content_items.aprovado_at"
+    literais:
+      - "content_items.aprovacao_hash"
+      - "content_items.aprovado_at"
+    nomes:
+      - "content_items.aprovacao_hash"
+      - "content_items.aprovado_at"
+    nomes_nota:
+      - "hash"
+      - "legenda"
+      - "arte"
+      - "versao"
+      - "hash_da_aprovacao"
+      - "content_items_pendente_ck"
+      - "pendente_aprovacao"
+      - "content_items_aprovado_ck"
+      - "aprovado"
+      - "entregue"
+    variantes_literais: []
+  - seccao: "3.82"
+    conceito: "Entrega de um item"
+    canonico: "content_items.entregue_at"
+    literais:
+      - "content_items.entregue_at"
+    nomes:
+      - "content_items.entregue_at"
+    nomes_nota:
+      - "content_items_entregue_ck"
+      - "entregue"
+    variantes_literais: []
+  - seccao: "3.82"
+    conceito: "Máquina de estados do item"
+    canonico: "trigger content_items_transicao, pela função platform.content_items_transicao()"
+    literais:
+      - "content_items_transicao"
+      - "platform.content_items_transicao()"
+    nomes:
+      - "content_items_transicao"
+      - "platform.content_items_transicao"
+    nomes_nota:
+      - "BEFORE"
+      - "UPDATE"
+      - "rascunho"
+      - "pendente_aprovacao"
+      - "rejeitado"
+      - "expirado"
+      - "aprovado"
+      - "entregue"
+      - "TRANSICOES"
+    variantes_literais: []
+  - seccao: "3.82"
+    conceito: "Escritas da arte e da aprovação"
+    canonico: "o kamba_app com UPDATE das oito colunas e da brand_profile.termos_entrega_at"
+    literais:
+      - "kamba_app"
+      - "UPDATE"
+      - "brand_profile.termos_entrega_at"
+    nomes:
+      - "kamba_app"
+      - "UPDATE"
+      - "brand_profile.termos_entrega_at"
+    nomes_nota:
+      - "INSERT"
+      - "DELETE"
+    variantes_literais: []
+  - seccao: "3.82"
+    conceito: "Termos da primeira entrega"
+    canonico: "brand_profile.termos_entrega_at"
+    literais:
+      - "brand_profile.termos_entrega_at"
+    nomes:
+      - "brand_profile.termos_entrega_at"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.82"
+    conceito: "Classe da arte no STO"
+    canonico: "arte (CLASSE_DA_ARTE), com RETENCAO_DA_ARTE"
+    literais:
+      - "arte"
+      - "CLASSE_DA_ARTE"
+      - "RETENCAO_DA_ARTE"
+    nomes:
+      - "arte"
+      - "CLASSE_DA_ARTE"
+      - "RETENCAO_DA_ARTE"
+    nomes_nota:
+      - "StoragePorLigar"
+    variantes_literais: []
+  - seccao: "3.82"
+    conceito: "Finalidade do fundo gerado"
+    canonico: "geracao_de_imagem, em tenant_destinations.purpose (§3.49)"
+    literais:
+      - "geracao_de_imagem"
+      - "tenant_destinations.purpose"
+    nomes:
+      - "geracao_de_imagem"
+      - "tenant_destinations.purpose"
+    nomes_nota:
+      - "descricao_do_fundo"
+      - "TENTATIVAS_DO_FUNDO"
+    variantes_literais: []
+  - seccao: "3.82"
+    conceito: "OCR dos fundos"
+    canonico: "TesseractOcr, OcrIndisponivelError, MINIMO_DE_CARACTERES"
+    literais:
+      - "TesseractOcr"
+      - "OcrIndisponivelError"
+      - "MINIMO_DE_CARACTERES"
+    nomes:
+      - "TesseractOcr"
+      - "OcrIndisponivelError"
+      - "MINIMO_DE_CARACTERES"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.82"
+    conceito: "Compositor das artes"
+    canonico: "TEMPLATES, TIPOS_DE_NEGOCIO, FORMATOS"
+    literais:
+      - "TEMPLATES"
+      - "TIPOS_DE_NEGOCIO"
+      - "FORMATOS"
+    nomes:
+      - "TEMPLATES"
+      - "TIPOS_DE_NEGOCIO"
+      - "FORMATOS"
+    nomes_nota:
+      - "kz_display"
+    variantes_literais: []
+  - seccao: "3.82"
+    conceito: "Desenho da arte"
+    canonico: "RenderizadorPillow, preservar_marcas"
+    literais:
+      - "RenderizadorPillow"
+      - "preservar_marcas"
+    nomes:
+      - "RenderizadorPillow"
+      - "preservar_marcas"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.82"
+    conceito: "Tool da arte"
+    canonico: "generate_art (tool generate_art)"
+    literais:
+      - "generate_art"
+    nomes:
+      - "generate_art"
+    nomes_nota:
+      - "write"
+      - "social"
+      - "referencia"
+      - "formato"
+      - "nova"
+      - "pendente_aprovacao"
+    variantes_literais: []
+  - seccao: "3.82"
+    conceito: "Tool do pedido de aprovação"
+    canonico: "request_approval (tool request_approval)"
+    literais:
+      - "request_approval"
+    nomes:
+      - "request_approval"
+    nomes_nota:
+      - "write"
+      - "pendente_aprovacao"
+      - "aprovar_conteudo"
+      - "legenda"
+    variantes_literais: []
+  - seccao: "3.82"
+    conceito: "Tool da aprovação"
+    canonico: "approve_content (tool approve_content)"
+    literais:
+      - "approve_content"
+    nomes:
+      - "approve_content"
+    nomes_nota:
+      - "write"
+      - "action_id"
+      - "confirm"
+      - "aprovado"
+      - "aprovacao_invalidada"
+    variantes_literais: []
+  - seccao: "3.82"
+    conceito: "Tool da rejeição"
+    canonico: "reject_content (tool reject_content)"
+    literais:
+      - "reject_content"
+    nomes:
+      - "reject_content"
+    nomes_nota:
+      - "write"
+    variantes_literais: []
+  - seccao: "3.82"
+    conceito: "Tool da entrega"
+    canonico: "deliver_content (tool deliver_content)"
+    literais:
+      - "deliver_content"
+    nomes:
+      - "deliver_content"
+    nomes_nota:
+      - "write"
+      - "aprovado"
+      - "entregue"
+    variantes_literais: []
+  - seccao: "3.82"
+    conceito: "Publicação nas redes"
+    canonico: "SocialPublisher, ManualDelivery, NotEnabled"
+    literais:
+      - "SocialPublisher"
+      - "ManualDelivery"
+      - "NotEnabled"
+    nomes:
+      - "SocialPublisher"
+      - "ManualDelivery"
+      - "NotEnabled"
+    nomes_nota:
+      - "deliver"
+      - "publish"
+      - "ManualDelivery"
+      - "NotEnabled"
+      - "lint_arch"
+    variantes_literais: []
+  - seccao: "3.82"
+    conceito: "Botões de um item"
+    canonico: "arte:{referencia}, editar:{referencia}, rejeitar:{referencia}, enviar:{referencia}"
+    literais:
+      - "arte:{referencia}"
+      - "editar:{referencia}"
+      - "rejeitar:{referencia}"
+      - "enviar:{referencia}"
+    nomes:
+      - "arte"
+      - "referencia"
+      - "editar"
+      - "rejeitar"
+      - "enviar"
+    nomes_nota:
+      - "confirm"
+      - "action_id"
+      - "SOC"
+    variantes_literais: []
+  - seccao: "3.82"
+    conceito: "Recusas da arte, da aprovação e da entrega"
+    canonico: "texto_nao_cabe, tentativas_esgotadas, sem_arte, sem_legenda, aprovacao_invalidada, por_aprovar, arte_por_ligar, fontes_em_falta"
+    literais:
+      - "texto_nao_cabe"
+      - "tentativas_esgotadas"
+      - "sem_arte"
+      - "sem_legenda"
+      - "aprovacao_invalidada"
+      - "por_aprovar"
+      - "arte_por_ligar"
+      - "fontes_em_falta"
+    nomes:
+      - "texto_nao_cabe"
+      - "tentativas_esgotadas"
+      - "sem_arte"
+      - "sem_legenda"
+      - "aprovacao_invalidada"
+      - "por_aprovar"
+      - "arte_por_ligar"
+      - "fontes_em_falta"
+    nomes_nota:
+      - "detalhe"
     variantes_literais: []
 
 tabelas:
@@ -23971,8 +24338,9 @@ tabelas:
       - "versao"
       - "criado_at"
       - "atualizado_at"
+      - "termos_entrega_at"
     aberta: false
-    assinatura: "platform.brand_profile(tenant_id, nome, categoria, tom, cores, publico, slots_preferidos, factos, logo_asset_id, idioma, versao, criado_at, atualizado_at)"
+    assinatura: "platform.brand_profile(tenant_id, nome, categoria, tom, cores, publico, slots_preferidos, factos, logo_asset_id, idioma, versao, criado_at, atualizado_at, termos_entrega_at)"
     seccao: "3.82"
     conceito: "Perfil de marca"
   - nome: "content_calendar"
@@ -24009,10 +24377,32 @@ tabelas:
       - "agendado_at"
       - "criado_at"
       - "atualizado_at"
+      - "arte_ref"
+      - "arte_sha256"
+      - "arte_fundo"
+      - "arte_tentativas"
+      - "arte_custo_usd"
+      - "aprovacao_hash"
+      - "aprovado_at"
+      - "entregue_at"
     aberta: false
-    assinatura: "platform.content_items(content_item_id, tenant_id, calendar_id, semana_iso, tipo, tema, legenda, art_asset_id, estado, is_ai_generated, revisao_reforcada, versao_politica, versao, agendado_at, criado_at, atualizado_at)"
+    assinatura: "platform.content_items(content_item_id, tenant_id, calendar_id, semana_iso, tipo, tema, legenda, art_asset_id, estado, is_ai_generated, revisao_reforcada, versao_politica, versao, agendado_at, criado_at, atualizado_at, arte_ref, arte_sha256, arte_fundo, arte_tentativas, arte_custo_usd, aprovacao_hash, aprovado_at, entregue_at)"
     seccao: "3.82"
     conceito: "Item de conteúdo"
+  - nome: "numeric"
+    esquema: ""
+    colunas: []
+    aberta: false
+    assinatura: "numeric(12, 6)"
+    seccao: "3.82"
+    conceito: "Custo da arte"
+  - nome: "content_items_transicao"
+    esquema: "platform"
+    colunas: []
+    aberta: false
+    assinatura: "platform.content_items_transicao()"
+    seccao: "3.82"
+    conceito: "Máquina de estados do item"
 
 dominios:
   - coluna: "consent_event.purpose"
@@ -25083,6 +25473,7 @@ dominios:
       - "embeddings"
       - "entrega_de_conteudo"
       - "facturacao"
+      - "geracao_de_imagem"
       - "imagem"
       - "observabilidade"
       - "otp_e_avisos_de_servico"
@@ -25899,6 +26290,13 @@ dominios:
       - "expirado"
     seccao: "3.82"
     conceito: "Estado de um item"
+    so_no_registo: false
+  - coluna: "content_items.arte_fundo"
+    valores:
+      - "gerado"
+      - "gradiente"
+    seccao: "3.82"
+    conceito: "Fundo da arte"
     so_no_registo: false
 
 variantes:
