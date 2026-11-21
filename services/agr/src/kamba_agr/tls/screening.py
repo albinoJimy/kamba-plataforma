@@ -52,7 +52,7 @@ from dataclasses import dataclass
 from typing import Any, Final
 
 from kamba_core.catalogo.screening import DECISOES, PERMITIDA, REGRA_REVISAO_PENDENTE, ResultadoDoScreen
-from kamba_core.destinos import FINALIDADE_CLASSIFICACAO, FINALIDADE_CONDICOES
+from kamba_core.destinos import FINALIDADE_CLASSIFICACAO, FINALIDADE_CONDICOES, FINALIDADE_CONTEUDO
 
 from .com import ClienteDoCom
 
@@ -60,18 +60,23 @@ from .com import ClienteDoCom
 ROTA: Final = "/internal/screen"
 
 #: Os sujeitos que o COM aceita na rota (`SUJEITOS_DA_ROTA`): o das condicoes
-#: (KAM-222) e o `produto` (KAM-119). Nunca a `categoria`, que e do onboarding.
-SUJEITOS: Final = ("condicoes", "produto")
+#: (KAM-222), o `produto` (KAM-119) e o `conteudo` do modulo social (KAM-121,
+#: decisao 1 do fundador de 2026-11-20). Nunca a `categoria`, que e do onboarding.
+SUJEITOS: Final = ("condicoes", "produto", "conteudo")
 
 #: O sujeito das condicoes de um orcamento, e o de um produto do Catalogo AI.
 SUJEITO_DAS_CONDICOES: Final = "condicoes"
 SUJEITO_DO_PRODUTO: Final = "produto"
+#: O de um item do social, o tema e depois a legenda, com o `content_item_id`
+#: como `sujeito_ref` (decisao 1 do fundador de 2026-11-20).
+SUJEITO_DO_CONTEUDO: Final = "conteudo"
 
 #: A finalidade de transferencia de cada sujeito (KAM-230). Igual a do
 #: `FINALIDADE_DO_SUJEITO` de `services/com/src/screening/index.ts`, que a
 #: confere: um ensaio le o TypeScript e exige a mesma tabela.
 FINALIDADE_DO_SUJEITO: Final = {
     SUJEITO_DAS_CONDICOES: FINALIDADE_CONDICOES,
+    SUJEITO_DO_CONTEUDO: FINALIDADE_CONTEUDO,
     SUJEITO_DO_PRODUTO: FINALIDADE_CLASSIFICACAO,
 }
 

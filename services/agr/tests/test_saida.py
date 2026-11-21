@@ -291,6 +291,7 @@ class TestTitulosDosBotoes(unittest.TestCase):
     def test_os_botoes_do_catalogo_tem_titulo_e_os_prefixos_sao_os_das_regras(self) -> None:
         # KAM-119: os quatro botoes da conversa do catalogo do dono.
         from kamba_agr.catalogo import regras
+        from kamba_agr.social import regras as social_regras
 
         ingestao = "11111111-2222-3333-4444-555555555555"
         for identificador in (
@@ -313,6 +314,8 @@ class TestTitulosDosBotoes(unittest.TestCase):
                 regras.PREFIXO_DE_CORRIGIR_STOCK,
                 regras.PREFIXO_DO_MESMO_PRODUTO,
                 regras.PREFIXO_DE_OUTRO_PRODUTO,
+                # KAM-121: a legenda de um item do social.
+                social_regras.PREFIXO_DA_LEGENDA,
             },
         )
         # O prefixo sozinho nao e botao.

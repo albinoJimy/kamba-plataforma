@@ -265,7 +265,12 @@ export function escritorComFila(escritor: EscritorDeDecisoes, servico: ServicoDe
     async gravar(linha: LinhaDeDecisao) {
       await escritor.gravar(linha);
       if (linha.decisao !== "condicional" || linha.origem === "humano") return;
-      if (linha.sujeitoTipo === "condicoes") return;
+      // O `conteudo` do social (KAM-121) também não abre caso: é um rascunho
+      // do dono, e a `condicional` marca o item com «revisão reforçada», que
+      // pede ao dono uma confirmação a mais na aprovação (KAM-122). Um caso de
+      // `catalogo` com o `id` de um item era uma revisão de um produto que
+      // não existe.
+      if (linha.sujeitoTipo === "condicoes" || linha.sujeitoTipo === "conteudo") return;
       const chave: ChaveDeScreening = {
         sujeitoTipo: linha.sujeitoTipo,
         sujeitoRef: linha.sujeitoRef,

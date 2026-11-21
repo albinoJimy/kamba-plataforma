@@ -147,10 +147,12 @@ CLIENTES_DE_SAIDA: dict[str, ClienteDeSaida] = {
         # classificador de screening do GOV chama pela rota do AGR, que passa
         # pelo mesmo `.autorizar(` deste ficheiro. A `classificacao_de_condicoes`
         # e a do mesmo papel quando le as condicoes de um orcamento (KAM-230,
-        # decisao do fundador de 2026-11-20): quem a escolhe e o pedido.
+        # decisao do fundador de 2026-11-20): quem a escolhe e o pedido. A
+        # `classificacao_de_conteudo` e a do modulo `social` (KAM-121).
         finalidades=(
             "classificacao_de_catalogo",
             "classificacao_de_condicoes",
+            "classificacao_de_conteudo",
             "conversa",
             "embeddings",
             "visao",

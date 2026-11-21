@@ -76,6 +76,7 @@ import {
   EscritorSql,
   FINALIDADE_DAS_CONDICOES,
   FINALIDADE_DO_CATALOGO,
+  FINALIDADE_DO_CONTEUDO,
   LeitorSql,
   NaoPublicavelError,
   SUJEITOS,
@@ -108,12 +109,24 @@ export const SUJEITO_DAS_CONDICOES = "condicoes";
 export const SUJEITO_DO_PRODUTO = "produto";
 
 /**
- * Os sujeitos que a rota aceita: o das condições e o do produto, lidos do
- * `SUJEITOS` do `tipos.ts` (que o ensaio da base compara com o `CHECK`). A
- * `categoria` nunca. Ver a nota do módulo.
+ * O sujeito do conteúdo do módulo social (KAM-121, decisão 1 do fundador de
+ * 2026-11-20): o tema ou a legenda de um item, com o `content_item_id` por
+ * referência. Nem a
+ * re-análise nem o `assertPublishable` o leem: é um rascunho do dono, e o que
+ * se entrega é do KAM-122.
+ */
+export const SUJEITO_DO_CONTEUDO = "conteudo";
+
+/**
+ * Os sujeitos que a rota aceita: o das condições, o do produto e o do
+ * conteúdo, lidos do `SUJEITOS` do `tipos.ts` (que o ensaio da base compara com
+ * o `CHECK`). A `categoria` nunca. Ver a nota do módulo.
  */
 export const SUJEITOS_DA_ROTA: readonly SujeitoTipo[] = SUJEITOS.filter(
-  (sujeito) => (sujeito as string) === SUJEITO_DAS_CONDICOES || (sujeito as string) === SUJEITO_DO_PRODUTO,
+  (sujeito) =>
+    (sujeito as string) === SUJEITO_DAS_CONDICOES ||
+    (sujeito as string) === SUJEITO_DO_PRODUTO ||
+    (sujeito as string) === SUJEITO_DO_CONTEUDO,
 );
 
 /**
@@ -127,6 +140,7 @@ export const SUJEITOS_DA_ROTA: readonly SujeitoTipo[] = SUJEITOS.filter(
 export const FINALIDADE_DO_SUJEITO: Readonly<Record<string, string>> = {
   [SUJEITO_DAS_CONDICOES]: FINALIDADE_DAS_CONDICOES,
   [SUJEITO_DO_PRODUTO]: FINALIDADE_DO_CATALOGO,
+  [SUJEITO_DO_CONTEUDO]: FINALIDADE_DO_CONTEUDO,
 };
 
 /**

@@ -43,7 +43,12 @@ from kamba_agr.llm import precos as precos_mod
 from kamba_agr.llm import screening
 from kamba_agr.llm.cliente import ClienteDeLlm
 from kamba_agr.llm.erros import RESULTADO_DESTINO, RESULTADO_OK, DestinoNegado
-from kamba_core.destinos import FINALIDADE_CLASSIFICACAO, FINALIDADE_CONDICOES, FINALIDADE_CONVERSA
+from kamba_core.destinos import (
+    FINALIDADE_CLASSIFICACAO,
+    FINALIDADE_CONDICOES,
+    FINALIDADE_CONTEUDO,
+    FINALIDADE_CONVERSA,
+)
 from kamba_core.destinos import PortaSobreDestinos
 from kamba_yaml import load_file
 from test_llm_cliente import _Ligacao, _Transporte
@@ -458,10 +463,13 @@ class TestAFinalidadeDasCondicoes(unittest.TestCase):
     def _pedido(self, finalidade: str) -> screening.PedidoDeScreening:
         return screening.PedidoDeScreening(TENANT, TRACE, "moda", ("entrega combinada",), finalidade)
 
-    def test_o_screening_admite_as_duas_e_mais_nenhuma(self) -> None:
+    def test_o_screening_admite_as_tres_e_mais_nenhuma(self) -> None:
+        # A terceira e a do conteudo do modulo `social` (KAM-121).
+        self.assertEqual(destinos_mod.finalidade_de("screening", FINALIDADE_CONTEUDO), FINALIDADE_CONTEUDO)
         self.assertEqual(destinos_mod.finalidade_de("screening", FINALIDADE_CONDICOES), FINALIDADE_CONDICOES)
         self.assertEqual(
-            screening.FINALIDADES_DO_PEDIDO, (FINALIDADE_CLASSIFICACAO, FINALIDADE_CONDICOES)
+            screening.FINALIDADES_DO_PEDIDO,
+            (FINALIDADE_CLASSIFICACAO, FINALIDADE_CONDICOES, FINALIDADE_CONTEUDO),
         )
         for papel, finalidade in (
             ("screening", FINALIDADE_CONVERSA),

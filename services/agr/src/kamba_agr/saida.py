@@ -119,6 +119,14 @@ TITULOS: Final = {
     "menu:pedido": "O meu pedido",
     "menu:loja": "Horario e morada",
     "menu:humano": "Falar com um colega",
+    # O modulo social do dono (KAM-121, `social/regras.py`): os tres tons do
+    # perfil e as duas accoes do calendario. Os titulos dos tons sao os
+    # `TITULO_DO_TOM`, e um ensaio confronta-os.
+    "tom:proximo": "Proximo e caloroso",
+    "tom:profissional": "Profissional",
+    "tom:divertido": "Divertido",
+    "social:ideias": "Ver as ideias",
+    "social:nova": "Outras ideias",
 }
 
 #: Os botoes de confirmacao levam a referencia no `id` (`confirm:{cart_id}`,
@@ -142,7 +150,14 @@ TITULOS_POR_PREFIXO: Final = {
     "stock_corrigir:": "Corrigir",
     "mesmo_produto:": "Sim, e o mesmo",
     "outro_produto:": "Nao, e outro",
+    # KAM-121: a legenda de um item do calendario, pela referencia `SOC-…`. O
+    # titulo leva a referencia (`titulo_do_botao`); este e o de reserva.
+    "legenda:": "Escrever a legenda",
 }
+
+#: O prefixo do botao de legenda do social (o `PREFIXO_DA_LEGENDA` de
+#: `social/regras.py`, que um ensaio confronta).
+PREFIXO_DA_LEGENDA: Final = "legenda:"
 
 
 def titulo_do_botao(identificador: str) -> str:
@@ -162,6 +177,14 @@ def titulo_do_botao(identificador: str) -> str:
         return TITULO_DE_CONFIRMACAO
     if identificador.startswith(PREFIXO_DO_ACEITO) and len(identificador) > len(PREFIXO_DO_ACEITO):
         return TITULO_DO_ACEITO
+    if identificador.startswith(PREFIXO_DA_LEGENDA):
+        # KAM-121: os botoes de legenda saem dois a dois, e com o mesmo titulo o
+        # dono nao sabia qual era a de cada ideia (achado M4 da revisao). A
+        # referencia `SOC-` e oito letras: «Legenda SOC-ABCDEFGH» tem vinte.
+        referencia = identificador[len(PREFIXO_DA_LEGENDA) :]
+        titulo = f"Legenda {referencia}"
+        if referencia and len(titulo) <= MAXIMO_DO_TITULO:
+            return titulo
     for prefixo, titulo_do_prefixo in TITULOS_POR_PREFIXO.items():
         if identificador.startswith(prefixo) and len(identificador) > len(prefixo):
             return titulo_do_prefixo

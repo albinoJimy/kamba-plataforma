@@ -221,6 +221,31 @@ def _executores_do_catalogo(credencial: CredencialDoCom) -> dict[str, Any]:
         )
     return catalogo_tools.executores(portas)
 
+
+def _executores_do_social(credencial: CredencialDoCom) -> dict[str, Any]:
+    """As quatro tools do modulo social do dono (KAM-121). **Ligam-se sempre.**
+
+    Escrevem na nossa base (`brand_profile`, `content_calendar`,
+    `content_items`). O screening do KAM-088 e do COM: com `KAMBA_COM_URL`, pela
+    ponte (`ScreeningPeloCom` com o sujeito `conteudo`); sem ele, pela porta por
+    ligar, que levanta — o calendario e a legenda recusam com
+    `screening_indisponivel` e nada se grava. **O gerador das legendas fica por
+    ligar nas duas** (`GeradorPorLigar`): o alias `social-text` nao existe, e o
+    credor esta no bloco do KAM-121. O perfil e o calendario respondem sem ele.
+    """
+    from kamba_core.catalogo.screening import ScreeningPorLigar
+
+    from .tls import social_tools
+    from .tls.screening import SUJEITO_DO_CONTEUDO, ScreeningPeloCom
+    from .tls.social import RepositorioSql
+
+    base = os.environ.get(VARIAVEL_DO_COM, "").strip()
+    screening: Any = ScreeningPorLigar()
+    if base:
+        cliente = ClienteDoCom(base=base, credencial=credencial)
+        screening = ScreeningPeloCom(cliente=cliente, sujeito_tipo=SUJEITO_DO_CONTEUDO, vertical="dono")
+    return social_tools.executores(social_tools.PortasDoSocial(repositorio=RepositorioSql, screening=screening))
+
 #: Codigo de saida de uma guarda do ADR-002 violada. Distinto do `2` do KAM-001
 #: (configuracao invalida), para que os dois se distingam num painel.
 SAIDA_GUARDA_ADR002 = 3
@@ -447,6 +472,8 @@ def main() -> int:
             **orcamento_tools.executores(cliente_do_com=cliente_do_com),
             # KAM-119. As quatro do catalogo do dono: ver o `_executores_do_catalogo`.
             **_executores_do_catalogo(credencial_do_com),
+            # KAM-121. As quatro do social: ver o `_executores_do_social`.
+            **_executores_do_social(credencial_do_com),
         }
     )
     # **A validacao (3) corre a serio desde o KAM-186**: o `construir_grafo`

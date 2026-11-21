@@ -32,11 +32,11 @@ porque sao dois erros e nao um: o `DestinoNegado` e o contrato entre o grafo e o
 **modelo**, e a `TransferenciaNegada` e a recusa de uma porta que nao sabe que
 existe um modelo do outro lado.
 
-## As cinco finalidades deste servico, e as dezasseis da coluna
+## As seis finalidades deste servico, e as dezassete da coluna
 
-A coluna `tenant_destinations.purpose` tem **dezasseis** valores (dicionario
+A coluna `tenant_destinations.purpose` tem **dezassete** valores (dicionario
 §3.49), porque o *gate* corre em sete pontos e so um e o *gateway* de modelos.
-Deste lado interessam **cinco**, e os literais vem do nucleo: duas copias das mesmas
+Deste lado interessam **seis**, e os literais vem do nucleo: duas copias das mesmas
 cadeias divergiam no dia em que uma delas mudasse, e foi para evitar isso que o
 dominio saiu daqui para a revisao que cria a coluna.
 """
@@ -48,6 +48,7 @@ from typing import Any, Final, Protocol, runtime_checkable
 from kamba_core.destinos import (
     FINALIDADE_CLASSIFICACAO,
     FINALIDADE_CONDICOES,
+    FINALIDADE_CONTEUDO,
     FINALIDADE_CONVERSA,
     FINALIDADE_EMBEDDINGS,
     FINALIDADE_VISAO,
@@ -64,7 +65,7 @@ AMBIENTE_PROD: Final = "prod"
 AMBIENTE_STAGING: Final = "staging"
 AMBIENTE_DEV: Final = "dev"
 
-#: As finalidades que **este servico** usa: cinco das dezasseis de
+#: As finalidades que **este servico** usa: seis das dezassete de
 #: `tenant_destinations.purpose` (revisao `0036`, dicionario §3.49).
 #:
 #: Os literais vem de `kamba_core.destinos` e nao se reescrevem aqui — ver a
@@ -74,6 +75,7 @@ AMBIENTE_DEV: Final = "dev"
 FINALIDADES: Final = (
     FINALIDADE_CLASSIFICACAO,
     FINALIDADE_CONDICOES,
+    FINALIDADE_CONTEUDO,
     FINALIDADE_CONVERSA,
     FINALIDADE_EMBEDDINGS,
     FINALIDADE_VISAO,
@@ -109,8 +111,11 @@ FINALIDADE_DO_PAPEL: Final = {
 #:
 #: **Lista fechada por papel.** Uma finalidade que o papel nao admita nega, e
 #: nao cai na do papel: cair era a opcao A, que o fundador recusou.
+#:
+#: **A `classificacao_de_conteudo` (KAM-121)** e a do mesmo classificador quando
+#: le os temas e as legendas do modulo `social`, pelo mesmo precedente.
 FINALIDADES_ESCOLHIVEIS: Final = {
-    "screening": (FINALIDADE_CLASSIFICACAO, FINALIDADE_CONDICOES),
+    "screening": (FINALIDADE_CLASSIFICACAO, FINALIDADE_CONDICOES, FINALIDADE_CONTEUDO),
 }
 
 

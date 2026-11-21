@@ -79,6 +79,14 @@ TOOLS_DECLARADAS = (
     "tool:ask_missing_fields",
     "tool:publish_product",
     "tool:get_catalog_status",
+    # KAM-121: as quatro do modulo `social` (`registry/dono.yaml`). O catalogo
+    # desta bateria nao leva os executores, como o das do catalogo: a camada
+    # tem de as recusar sem repetir nada de B. O isolamento delas pela base (a
+    # RLS `FORCE` das tres tabelas) mede-se no gate 8.
+    "tool:get_brand_profile",
+    "tool:update_brand_profile",
+    "tool:generate_calendar",
+    "tool:generate_caption",
 )
 
 
