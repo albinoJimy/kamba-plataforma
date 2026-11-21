@@ -4,7 +4,7 @@
 |---|---|
 | Produto | KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para Angola |
 | Documento | Epic — Onboarding e Governação |
-| Versão | 1.40 |
+| Versão | 1.41 |
 | Data | Outubro de 2026 |
 | Classificação | Documento de Referência — Interno |
 | Documento-fonte | `../docs/tecnica/10_Onboarding_Governanca.md`, `../docs/tecnica/00_Arquitectura_Solucao.md` (ADR-019) |
@@ -79,7 +79,8 @@ Fora deste epic (Clusters): estafetas, revendedores, rede de agentes de activaç
 | KAM-209 | Preço anómalo: a categoria do produto e os preços de referência por categoria | feature | M | P2 | KAM-200 |
 | KAM-219 | Alerta da escrita recusada em `platform.trust_level`: ver o `42501` que a base já dá | feature | S | P2 | KAM-203 |
 | KAM-225 | A recusa em `platform.trust_level` fora do `tenant_guard`: o registo do PostgreSQL recolhido | feature | M | P2 | KAM-219 |
-| KAM-236 | `onboarding-web` em produção: o caso, o registo e o guia sobre a base, para que a página do dono arranque em `prod` | feature | M | P1 | KAM-202 |
+| KAM-236 | `onboarding-web` em produção: o caso, o registo e o guia sobre a base, para que a página do dono arranque em `prod` | feature | L | P1 | KAM-202 |
+| KAM-238 | O guia do ES em `prod`: o estado do guia na base, e a lista de espera, a fila de revisão e os *gates* pelo processo de lote | feature | M | P1 | KAM-236 |
 
 ---
 
@@ -4374,9 +4375,9 @@ Testes: a ligação directa com o alerta, e o controlo.
 | Fase | 1 |
 | Tipo | feature |
 | Prioridade | P1 |
-| Estimativa | M |
+| Estimativa | L |
 | Dependências | KAM-202 |
-| Bloqueia | — |
+| Bloqueia | KAM-238 |
 | Responsável sugerido | Engenheiro de Plataforma (TEN) |
 | Documentos de referência | `EPIC-04_Core_Comercio.md` (bloco KAM-202), `EPIC-09_Onboarding_Governanca.md` (blocos KAM-086 e KAM-093), `../services/onboarding-web/src/server.ts` |
 
@@ -4403,6 +4404,43 @@ Que a página do dono corra em `prod` sobre a base, com os casos, o registo e o 
 
 - Pode pedir esquema (o desafio do OTP e o estado do guia): o número da revisão é da fila.
 
+### Decisões do fundador
+
+**Data: 2026-11-21. Autor: o fundador** (as três respondidas nesta sessão e confirmadas pela coordenação
+do lote 17; a D1 chegou primeiro com duas respostas, e o fundador confirmou a A à coordenação).
+
+| # | Pergunta | Escolha | Recusadas |
+|---|---|---|---|
+| D1 | As quatro buscas do registo que atravessam tenants (`porNifHmac`, `porTelefoneHmac`, `porChave`, `contarPorDispositivo`), com o `kamba_app` sob RLS | **A**: funções `SECURITY DEFINER` que devolvem só o caso e o tenant, com `EXECUTE` só para o `kamba_app`; o adaptador lê o resto pela RLS do tenant do caso | B, uma ligação `kamba_batch` no `onboarding-web` (dava `BYPASSRLS` ao processo virado para a Internet); C, um papel novo |
+| D2 | A lista de espera e a fila do guia correm como `kamba_batch` | **A**: o guia não se monta em `prod` até a reserva da lista, a fila e os *gates* passarem ao processo de lote, num credor (**KAM-238**) | B, uma terceira ligação `kamba_batch` no `onboarding-web` |
+| D3 | Os contadores do anti-abuso e as revogações do painel | **A**: tabelas no PostgreSQL | B, o Redis da fila |
+
+**A revisão** é a `0084`, sobre a `0083` (vaga dada pela coordenação do lote 17). **A estimativa** passa de M
+a L.
+
+**Duas consequências medidas, escritas aqui porque mudam o que as decisões entregam:**
+
+- *A D1-A pede uma política.* O dono das funções e das tabelas é o `kamba_migrator`, que é `NOBYPASSRLS`, e
+  o `FORCE` vincula-o (a nota da `0070`): uma função `SECURITY DEFINER` sozinha continuava a ver só o tenant
+  do contexto. A `0084` acrescenta a política `registo_busca`, só de leitura, só para o `kamba_migrator` e
+  **só com a variável `app.registo_busca` ligada**, que cada função liga antes da sua consulta e desliga
+  depois. A primeira versão era `USING (true)`, e o X-04 do *gate* 6 apanhou-a: o dono
+  das tabelas passava a ver os casos sem contexto. As funções são cinco e não quatro: a quinta
+  (`registo_tenant_do_caso`) dá o tenant de um caso por `id`, que todas as outras operações da porta
+  precisam antes de ler pela RLS.
+- *O `kamba_app` não apaga* (dicionário §2: «estado, nunca `DELETE`», medido pelo `test_privilegios`). O
+  desafio do OTP marca-se usado (`usado_at`) em vez de se apagar, e as chaves paradas dos contadores apaga-as
+  a retenção, como lote (classe `contadores_do_registo`, 25 h).
+- *A D2-A tira o guia inteiro de `prod`, e não só a lista e a fila.* Os dois *gates* do guia (`meta_es`,
+  `meta_pagamento`) só o `kamba_batch` os escreve (o `kamba_app` tem só `SELECT` na `onboarding_gate`,
+  revisão `0058`), e o estado do guia tem duas varreduras que atravessam tenants (`iniciadosAntesDe`,
+  `porPhoneNumberId`). O estado do guia na base vai, por isso, com o credor (KAM-238), que é quem o monta.
+
+**E uma pergunta que fica com o fundador:** a chave que cifra o `nif_enc` e o `email_enc` do caso. Nenhum
+código os escrevia, e o `nif_enc` é `NOT NULL`. Foi implementada a opção recomendada — uma KEK própria,
+`kek_dados_do_caso`, só para o `onboarding-web`, com o formato da `kek_telefone_do_caso` e o campo no
+contexto autenticado —, que se troca por outra numa linha do `server.ts` e numa entrada do inventário.
+
 ### Testes Requeridos
 
 - Integração: arranque em `prod` contra a base; o registo, o guia e o teste sobrevivem a um reinício.
@@ -4421,6 +4459,73 @@ Lê specs/EPIC-04_Core_Comercio.md (bloco KAM-202), services/onboarding-web/src/
 KAM-086 e KAM-093 de specs/EPIC-09_Onboarding_Governanca.md.
 Objectivo: o onboarding-web arranca em prod sobre a base.
 Regras: papéis mínimos por ligação; nenhum repositório em memória em prod.
+```
+
+---
+
+## KAM-238 — O guia do ES em `prod`: o estado do guia na base, e a lista de espera, a fila de revisão e os *gates* pelo processo de lote
+
+| Campo | Valor |
+|---|---|
+| Epic | EPIC-09 — Onboarding e Governação |
+| Fase | 1 |
+| Tipo | feature |
+| Prioridade | P1 |
+| Estimativa | M |
+| Dependências | KAM-236 |
+| Bloqueia | — |
+| Responsável sugerido | Engenheiro de Plataforma (TEN) |
+| Documentos de referência | `EPIC-09_Onboarding_Governanca.md` (blocos KAM-093, KAM-095, KAM-198 e KAM-236), `../services/onboarding-web/src/server.ts`, `../services/onboarding-web/src/lote/processo.ts` |
+
+### Contexto
+
+Credor do KAM-236, aberto no PR dele por decisão do fundador de 2026-11-21 (D2-A, trazida pela
+coordenação do lote 17). O KAM-236 pôs o `onboarding-web` em `prod` sobre a base — o caso, o registo, o
+OTP, os contadores e as revogações do painel, como `kamba_app` —, mas **o guia do ES não se monta em
+`prod`**: a reserva da lista de espera (`ListaSql`) e a fila de revisão (`RevisaoSql`) correm como
+`kamba_batch`, que o `onboarding-web` não tem (recusada a terceira ligação, D2-B), e os *gates* do guia
+(`meta_es`, `meta_pagamento`) só o `kamba_batch` os escreve — o `kamba_app` tem só `SELECT` na
+`onboarding_gate` (revisão `0058`). O estado do guia (`RepositorioDoGuia`) continua em memória, e tem duas
+varreduras que atravessam tenants (`iniciadosAntesDe` e `porPhoneNumberId`).
+
+### Objectivo
+
+Que o guia do ES corra em `prod`: o estado na base, e o que pede `kamba_batch` no processo de lote.
+
+### Critérios de Aceitação
+
+- [ ] O estado do guia vive na base, com o papel certo para cada operação, e as duas varreduras que
+  atravessam tenants correm no processo de lote ou pela forma da D1-A do KAM-236 (só o caso e o tenant).
+- [ ] A reserva da lista de espera, a abertura do caso na fila de revisão e os dois *gates* do guia correm
+  no `onboarding-lote` como `kamba_batch`; o `onboarding-web` não ganha ligação `kamba_batch`.
+- [ ] O `server.ts` monta o guia em `prod` (deixa de registar `es_guia_fora_de_prod`), e um reinício do
+  processo não perde o estado do guia de um caso.
+
+### Detalhes Técnicos
+
+- Pode pedir esquema (o estado do guia): o número da revisão é da fila.
+- A decisão de como o `onboarding-web` pede ao lote a reserva e a abertura (evento, tabela de pedidos ou
+  rota interna) é deste ticket, e leva-se à coordenação antes de escrever.
+
+### Testes Requeridos
+
+- Integração: o guia monta em `prod` contra a base; o estado sobrevive a um reinício; a reserva e o
+  *gate* `meta_es` chegam à base pelo lote.
+- Isolamento: as rotas do guia na bateria X-01, sobre os adaptadores SQL.
+
+### Definition of Done
+
+- [ ] Critérios de Aceitação satisfeitos; a linha do guia do critério 1 do KAM-236 revista com a evidência.
+- [ ] Nenhum segredo no compose; `make up && make smoke` verde.
+
+### Handoff para Claude Code
+
+```text
+És o executor do ticket KAM-238 da KAMBÁ (o guia do ES em prod).
+Lê os blocos KAM-093, KAM-095, KAM-198 e KAM-236 de specs/EPIC-09_Onboarding_Governanca.md,
+services/onboarding-web/src/server.ts e services/onboarding-web/src/lote/processo.ts.
+Objectivo: o guia monta em prod, com o estado na base e o kamba_batch só no lote.
+Regras: o onboarding-web não ganha kamba_batch (D2-A do KAM-236); papéis mínimos por ligação.
 ```
 
 ---
@@ -4505,3 +4610,4 @@ Regras: papéis mínimos por ligação; nenhum repositório em memória em prod.
 | 1.38 | Novembro 2026 | **KAM-218 entregue**, e **KAM-233** aberto no mesmo PR como credor do que ele devolve. Satisfeito o processo dos dados (o serviço `offboarding-dados` nos três *compose*, que arranca em `prod` e não arranca sem as credenciais); parciais o canal da Meta (ligado pelo cofre no processo de lote, sem caminho para o *token* por tenant até ao contentor), a revogação (a chave do LiteLLM pelo alias, à mão), a exportação (a prova de aceite e as ofertas) e a purga (os contactos pelo cofre); por satisfazer as provas do titular, a entrega do certificado e o simulacro. As caixas do KAM-210 revistas no bloco dele. O KAM-233 escrito como o número a seguir ao maior da `main` (232), *provisório* até à integração. | Equipa KAMBÁ |
 | 1.39 | Novembro 2026 | **KAM-236 acrescentado**, no PR do **KAM-202** (EPIC-04): o `onboarding-web` em produção, credor do critério 2 do KAM-202 (decisão do fundador de 2026-11-20). E o bloco do KAM-094 revisto com a evidência do KAM-202: a publicação protegida pela base, a mudança de nome pelo COM, o processo que corre o teste e a activação, e o filtro de `is_test`. Escrito como KAM-233 e renumerado duas vezes na integração: para 234 depois do KAM-223, e para 236 depois do KAM-218 e do KAM-234 (EPIC-11). | Equipa KAMBÁ |
 | 1.40 | Novembro 2026 | KAM-206 (o contacto da encomenda ao dono e a lista de produtos em 3G): as decisões do fundador de 2026-11-20 (o COM decifra como `kamba_identity`, opção A; a regra, a máscara e a acção) e as duas secções de verificação — os **seis** critérios e as duas caixas da DoD satisfeitos, com a revisão `0082` sobre a `0081` do KAM-215. As linhas 6 e 9 do KAM-099 e 1 e 3 do KAM-190 passam a satisfeitas, e a DoD 1 do KAM-190 também. Escrita como 1.38 e renumerada na integração, depois do KAM-218 e do KAM-202. | Equipa KAMBÁ |
+| 1.41 | Novembro 2026 | **KAM-236**: as três decisões do fundador de 2026-11-21 registadas no bloco (D1-A, D2-A e D3-A), e as duas secções de verificação. **KAM-238 acrescentado** no mesmo PR, credor da D2-A: o guia do ES em `prod`, com o estado na base e a lista, a fila e os *gates* pelo processo de lote. O `Bloqueia` do KAM-236 ganha-o. Número *provisório*, acertado na integração do lote 17. | Equipa KAMBÁ |

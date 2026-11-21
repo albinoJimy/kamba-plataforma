@@ -61,6 +61,9 @@ FICHEIROS = (
     # KAM-202: a activacao no processo de lote (o catalogo minimo, o teste e o
     # `activar`) e a pagina do dono a abrir a tentativa pela aplicacao.
     "tests_bd/activacao.bd.test.ts",
+    # KAM-236: o registo, o OTP, os contadores e as revogacoes do painel do
+    # `onboarding-web` sobre a `0084`, como `kamba_app`, e o reinicio.
+    "tests_bd/inscricao.bd.test.ts",
 )
 
 #: Os `describe` do ficheiro: os dezanove cenarios do processo de lote partilham as
@@ -75,6 +78,7 @@ GRUPOS = (
     "a confiança gradual a correr contra a base",
     "adversarial (f) do KAM-096, os dois lados: a recusa da base e o alerta (KAM-219)",
     "a activação no lote contra a base",
+    "a inscrição na base (KAM-236)",
 )
 
 #: Os testes que **tem** de ter corrido e passado, pelo nome. Sao a letra dos
@@ -154,6 +158,13 @@ TESTES_OBRIGATORIOS = (
     "KAM-202: com quatro elegiveis o gate fica vermelho e o caso nao avanca",
     "KAM-202: a pagina abre a tentativa pela ligacao da aplicacao, e o lote fecha-a ok com os quatro factos",
     "KAM-202: sem entrega, o lote fecha a tentativa falhada com sem_entrega depois da janela",
+    # KAM-236: o registo sobrevive a um reinicio do processo, as buscas que
+    # atravessam tenants so devolvem o caso e o tenant, e os contadores e as
+    # revogacoes sao partilhados entre processos.
+    "KAM-236: o registo cria o caso num processo e outro processo acerta o código, conclui e reconhece a chave",
+    "KAM-236: o kamba_app não lê o caso de outro tenant pela tabela, e as funções só devolvem o caso e o tenant",
+    "KAM-236: vinte anotações de dois processos somam vinte, e o trocarUltimo concorrente devolve null uma vez",
+    "KAM-236: uma sessão revogada continua revogada depois do reinício, e o corte de um tenant não toca o outro",
 )
 
 

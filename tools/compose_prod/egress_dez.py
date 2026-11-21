@@ -273,6 +273,15 @@ MARCADORES = {
     "KAMBA_SECRET_KEK_TOKEN_CLIENTE": "marcador",
     "KAMBA_SECRET_STORAGE_ACCESS_KEY_ID": "marcador",
     "KAMBA_SECRET_STORAGE_SECRET_ACCESS_KEY": "marcador",
+    # KAM-236: o `onboarding-web` arranca em `prod` sobre a base, com a ligacao
+    # do `kamba_app`, os segredos da inscricao e as duas KEK do caso. Mesma razao
+    # e mesmo sintoma.
+    "ONBOARDING_APP_DB_URL": "postgresql://marcador@marcador.invalid:5432/marcador",
+    "KAMBA_SECRET_PEPPER_ONBOARDING_IDENT": "marcador",
+    "KAMBA_SECRET_SEGREDO_ONBOARDING_ASSINATURA": "marcador",
+    "KAMBA_SECRET_PEPPER_SMS_DESTINO": "marcador",
+    "KAMBA_SECRET_KEK_TELEFONE_DO_CASO": "marcador",
+    "KAMBA_SECRET_KEK_DADOS_DO_CASO": "marcador",
     "KAMBA_STORAGE_ENDPOINT": "http://marcador.invalid:8333",
     "KAMBA_STORAGE_BUCKET": "marcador",
     "KAMBA_STORAGE_REGION": "marcador",

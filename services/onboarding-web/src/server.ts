@@ -7,27 +7,30 @@
  * correr o serviço à mão na máquina de alguém não abra uma porta na rede local
  * (`specs/01` §6, princípio 7, e o DoD do KAM-001: nada além de localhost).
  *
- * ## Em `prod` este processo **recusa arrancar**, e é a decisão mais importante
- * ## deste ficheiro
+ * ## Em `prod` arranca sobre a base, e só sobre ela (KAM-236)
  *
- * O KAM-086 entrega o registo, o OTP e o anti-abuso, e entrega-os sobre o
- * `RepositorioDeCasos` do `@kamba/core-ts/inscricao`. **O adaptador SQL desse
- * repositório não existe**: a tabela `platform.onboarding_case` não tem
- * migração — a vaga de revisão de base de dados deste lote é de outro ticket, e
- * a `onboarding_case.fase` do dicionário §3.2 tem seis valores onde o bloco
- * escreve catorze (emenda 1.64, com o KAM-086/087 nomeado como credor).
- *
- * O que existe é o `CasosEmMemoria`. Um registo em memória **perde-se no
- * reinício**: um dono angolano que preencheu o formulário, recebeu o SMS e
+ * Até ao KAM-236 este processo **recusava** `prod`: o caso, o desafio do OTP,
+ * os contadores do anti-abuso e as sessões revogadas do painel viviam em
+ * memória, e um reinício perdia-os — um dono que preencheu o formulário e
  * voltou dois minutos depois encontrava o caso desaparecido, e o `nif_hmac` que
- * devia bloquear o duplicado desaparecia com ele. Servir isso em produção é
- * pior do que não servir — por isso o arranque **aborta** em `prod`, com o
- * credor nomeado na mensagem.
+ * devia bloquear o duplicado desaparecia com ele.
  *
- * Em `dev` e `staging` arranca, e é o que torna o fluxo exercitável ponta a
- * ponta com o `FakeSmsProvider` (critério 8 do KAM-116: «CI e `staging` usam o
- * *fake*»). Isto não é um atalho escondido: é uma recusa escrita, com o sítio
- * onde ela cai no dia em que o adaptador existir.
+ * Agora vivem na base (revisão `0084`), pela ligação **`kamba_app`**
+ * (`ONBOARDING_APP_DB_URL`), e em `prod` essa ligação é **obrigatória**: sem
+ * ela o arranque recusa (`BaseEmFaltaEmProducaoError`), em vez de servir o
+ * registo sobre memória. As buscas do registo que atravessam tenants passam
+ * pelas funções `SECURITY DEFINER` da `0084`, que só devolvem o caso e o tenant
+ * (decisão do fundador de 2026-11-21, D1-A); o resto lê-se pela RLS do tenant
+ * do caso. Os contadores e as revogações são tabelas (D3-A).
+ *
+ * **O guia do ES não se monta em `prod`** (D2-A): a reserva da lista de espera e
+ * a fila de revisão correm como `kamba_batch`, que este processo não tem, e os
+ * *gates* do guia só o lote os escreve. Passam ao processo de lote num credor
+ * (KAM-238); até lá, o arranque di-lo numa linha (`es_guia_fora_de_prod`).
+ *
+ * Em `dev` e `staging` sem a ligação, arranca sobre memória, e é o que torna o
+ * fluxo exercitável ponta a ponta com o `FakeSmsProvider` (critério 8 do
+ * KAM-116). Com a ligação, usa a base como em `prod`.
  *
  * ## O que ele lê do cofre, e o que faz se não estiver lá
  *
@@ -66,9 +69,19 @@ import {
   OtpEmMemoria,
   OtpPorSmsLocal,
   REFERENCIAS,
+  REF_KEK_DO_TELEFONE,
   Registo,
   anelDaAssinatura,
   anelDoPepper,
+  anelDosDados,
+  casosNaBase,
+  cifraDoCaso,
+  contadoresNaBase,
+  lerAnelDoTelefone,
+  otpNaBase,
+  type Contadores,
+  type RepositorioDeCasos,
+  type RepositorioDeOtp,
 } from "@kamba/core-ts/inscricao";
 import { instalar } from "@kamba/core-ts/logger";
 import { versaoDaGraph } from "@kamba/core-ts/onboarding";
@@ -86,7 +99,8 @@ import { LigadorPorHttp } from "./ligador.ts";
 import { CanalPeloCom } from "./painel/canal.ts";
 import { ComercioPorHttp } from "./painel/comercio.ts";
 import type { OpcoesDaConversa, OpcoesDaTroca, OpcoesDoPainel, TesteDoPainel } from "./painel/rotas.ts";
-import { RevogacoesEmMemoria } from "./painel/sessao.ts";
+import { RevogacoesNaBase } from "./painel/revogacoes_sql.ts";
+import { RevogacoesEmMemoria, type Revogacoes } from "./painel/sessao.ts";
 import { testeDaActivacao } from "./painel/teste.ts";
 import { precoMaximoKz } from "./painel/validacao.ts";
 import { DEFAULT_PORT, SERVICE } from "./meta.ts";
@@ -163,17 +177,31 @@ const VARIAVEIS_DO_GUIA = {
   gwy: "ONBOARDING_GWY_INTERNO_URL",
 } as const;
 
-/** Levantado quando falta o adaptador SQL do repositório. Ver a nota do módulo. */
-export class RepositorioEmMemoriaEmProducaoError extends Error {
-  override readonly name = "RepositorioEmMemoriaEmProducaoError";
+/**
+ * A KEK do NIF e do e-mail do caso (`nif_enc`, `email_enc`). Ver o
+ * `@kamba/core-ts/inscricao` (`dados_do_caso.ts`).
+ */
+const REF_KEK_DOS_DADOS = "kek_dados_do_caso";
+
+/** As duas KEK do caso, obrigatórias quando o registo corre sobre a base. */
+const CHAVES_DO_CASO = [REF_KEK_DO_TELEFONE, REF_KEK_DOS_DADOS] as const;
+
+/**
+ * Quantas ligações do `kamba_app` o registo, o OTP, os contadores e as
+ * revogações abrem, no máximo. ***Proposta***: cada operação usa uma, por
+ * pouco tempo, e o tráfego do Piloto é de dezenas de registos por dia.
+ * Calibra-se com a carga real (KAM-084).
+ */
+const LIGACOES_DA_INSCRICAO = 6;
+
+/** Levantado em `prod` sem a ligação da aplicação. Ver a nota do módulo. */
+export class BaseEmFaltaEmProducaoError extends Error {
+  override readonly name = "BaseEmFaltaEmProducaoError";
 
   constructor() {
     super(
-      "o onboarding-web nao arranca em prod: o RepositorioDeCasos so tem a " +
-        "implementacao em memoria, e um registo que se perde no reinicio perde " +
-        "o nif_hmac que bloqueia o duplicado. Falta o adaptador SQL de " +
-        "platform.onboarding_case (credor: KAM-086; a tabela existe desde a " +
-        "revisao 0043)",
+      `o onboarding-web nao arranca em prod sem a ${VARIAVEL_DA_APP}: o registo, o OTP, os ` +
+        "contadores e as revogacoes do painel vivem na base, e em memoria perdiam-se no reinicio",
     );
   }
 }
@@ -212,7 +240,9 @@ function proxiesDeConfianca(): number {
 }
 
 const env = ambiente();
-if (env === "prod") throw new RepositorioEmMemoriaEmProducaoError();
+/** O registo corre sobre a base: sempre em `prod`, e em `dev` e `staging` com a ligação. */
+const NA_BASE = URL_DA_APP !== "";
+if (env === "prod" && !NA_BASE) throw new BaseEmFaltaEmProducaoError();
 
 const provider = new EnvSecretProvider({ ambiente: env });
 const secrets = await Secrets.arrancar({
@@ -228,6 +258,7 @@ const secrets = await Secrets.arrancar({
     REF_PEPPER_DO_SMS,
     ...(TROCA_MONTA ? CHAVES_DA_TROCA : []),
     ...(CONVERSA_MONTA ? [SEGREDO_DO_AGR] : []),
+    ...(NA_BASE ? CHAVES_DO_CASO : []),
   ],
 });
 
@@ -243,8 +274,28 @@ const [assinatura, assinaturaAnterior] = await anelDaAssinatura(secrets);
 // que este segredo existe — está na lista de obrigatórios.
 const [pepperDoDestino] = await anelDoPepperDoSms(provider);
 
-const casos = new CasosEmMemoria();
-const contadores = new ContadoresEmMemoria();
+/**
+ * O *pool* do registo: o caso, o desafio do OTP, os contadores e as revogações,
+ * como `kamba_app`. Só com a ligação; ver a nota do módulo.
+ */
+const poolDaInscricao = NA_BASE ? poolDe(URL_DA_APP, "inscricao", LIGACOES_DA_INSCRICAO) : null;
+
+const casos: RepositorioDeCasos =
+  poolDaInscricao === null
+    ? new CasosEmMemoria()
+    : casosNaBase({
+        pool: poolDaInscricao,
+        cifra: cifraDoCaso(
+          await lerAnelDoTelefone(secrets),
+          anelDosDados(REF_KEK_DOS_DADOS, await secrets.getRing(REF_KEK_DOS_DADOS)),
+        ),
+        anelDoPepper: [pepper, pepperAnterior],
+      });
+const contadores: Contadores = poolDaInscricao === null ? new ContadoresEmMemoria() : contadoresNaBase(poolDaInscricao);
+const repositorioDoOtp: RepositorioDeOtp = poolDaInscricao === null ? new OtpEmMemoria() : otpNaBase(poolDaInscricao);
+const revogacoes: Revogacoes =
+  poolDaInscricao === null ? new RevogacoesEmMemoria() : new RevogacoesNaBase(poolDaInscricao);
+log.info({ outcome: NA_BASE ? "registo_na_base" : "registo_em_memoria" });
 const antiabuso = new AntiAbuso({ contadores, chave: pepper });
 // O `FakeSmsProvider` é o que `staging` usa, por decisão do critério 8 do
 // KAM-116: **não há agregador escolhido** e escrever um adaptador para um
@@ -252,7 +303,7 @@ const antiabuso = new AntiAbuso({ contadores, chave: pepper });
 const provedorDoOtp = new OtpPorSmsLocal({ sms: new FakeSmsProvider(), pepperDoDestino });
 const alertaDoOtp = (motivo: string): void => log.error({ outcome: motivo, error_code: motivo });
 const otp = new Otp({
-  repositorio: new OtpEmMemoria(),
+  repositorio: repositorioDoOtp,
   contadores,
   provedor: provedorDoOtp,
   chave: pepper,
@@ -297,6 +348,13 @@ function montarGuia(): OpcoesDoGuia | undefined {
   ) as Record<keyof typeof VARIAVEIS_DO_GUIA, string>;
   if (Object.values(valores).some((v) => v === "")) {
     log.info({ outcome: "es_guia_desligado" });
+    return undefined;
+  }
+  // **Fora de `prod`** (D2-A, decisão do fundador de 2026-11-21): a lista, a
+  // fila e os *gates* do guia são do lote, como `kamba_batch`, e o estado do
+  // guia é em memória. Credor: KAM-238. Ver a nota do módulo.
+  if (env === "prod") {
+    log.info({ outcome: "es_guia_fora_de_prod" });
     return undefined;
   }
   // **A lista de espera (KAM-095) é o `CapacityGate`**, em memória como o
@@ -392,8 +450,8 @@ function poolDe(url: string, nome: string, ligacoes: number): pg.Pool {
   // Uma ligação que cai não pode derrubar o processo, e há dois sítios onde
   // ela cai. **Inactiva**: o `pg` emite `error` no *pool*. **Emprestada**: o
   // *pool* tira o seu ouvinte enquanto a empresta, e o `error` sai do cliente;
-  // sem ouvinte, é uma excepção por tratar e o processo sai — e com ele os casos
-  // em memória. O ouvinte de cada cliente põe-se quando ele nasce (achado 7 da
+  // sem ouvinte, é uma excepção por tratar e o processo sai — e com ele os pedidos
+  // em curso. O ouvinte de cada cliente põe-se quando ele nasce (achado 7 da
   // revisão adversarial do KAM-217); a instrução em curso falha na mesma.
   pool.on("error", (erro) => log.excepcao(erro, `${nome}_bd_falhou`));
   pool.on("connect", (cliente) => {
@@ -418,8 +476,9 @@ function poolDe(url: string, nome: string, ligacoes: number): pg.Pool {
  * prazo das 72 h e o desafio do OTP de cada número, na `owner_phone_changes`.
  * O `Otp` de cada operação é montado sobre o desafio dessa troca, com os
  * contadores, o fornecedor e a chave deste processo — os limites por destino e o
- * orçamento diário são os mesmos do registo. Os contadores continuam em memória
- * por processo, e é dito: duas réplicas têm dois orçamentos.
+ * orçamento diário são os mesmos do registo. Com o registo na base (KAM-236),
+ * os contadores também lá estão, e duas réplicas partilham o orçamento; sem a
+ * ligação da aplicação, ficam em memória por processo.
  */
 async function montarTroca(guiaMontado: boolean): Promise<OpcoesDaTroca | undefined> {
   if (URL_DA_IDENTIDADE === "") {
@@ -501,7 +560,7 @@ async function montarPainel(guia: PassoGuiado | undefined): Promise<OpcoesDoPain
   return {
     comercio,
     canal: new CanalPeloCom(comercio),
-    revogacoes: new RevogacoesEmMemoria(),
+    revogacoes,
     casos,
     anelDaAssinatura: [assinatura, assinaturaAnterior],
     precoMaximoKz: precoMaximoKz(process.env["PAINEL_PRECO_MAXIMO_KZ"]),
@@ -524,10 +583,11 @@ async function montarPainel(guia: PassoGuiado | undefined): Promise<OpcoesDoPain
  * O teste ponta a ponta do painel (KAM-202, critério 2), **só com a ligação
  * `kamba_app`** (a `ONBOARDING_APP_DB_URL` da conversa do KAM-223), num conjunto
  * próprio e pequeno: a página do dono abre a tentativa por ela. Sem ela, o
- * `POST /painel/teste` responde 503 e o resto do painel serve igual. Este processo
- * continua a recusar `prod` pelos repositórios em memória (credor no bloco do
- * KAM-202), e a rota fica provada contra a base em
- * `packages/core-ts/tests_bd/activacao.bd.test.ts`.
+ * `POST /painel/teste` responde 503 e o resto do painel serve igual. Em `prod` a
+ * ligação é obrigatória (KAM-236), e o caso que a sessão do painel lê está na
+ * base: um reinício não perde a tentativa aberta nem o caso. A rota fica provada
+ * contra a base em `packages/core-ts/tests_bd/activacao.bd.test.ts`, e o
+ * reinício em `packages/core-ts/tests_bd/inscricao.bd.test.ts`.
  */
 function montarTeste(): TesteDoPainel | undefined {
   if (URL_DA_APP === "") {
