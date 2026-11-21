@@ -12,7 +12,7 @@
 
 version: 1
 fonte: "specs/02_Dicionario_de_Dados_Canonico.md"
-versao_dicionario: "1.129"
+versao_dicionario: "1.130"
 entradas:
   - seccao: "3.1"
     conceito: "Contacto"
@@ -14881,6 +14881,7 @@ entradas:
       - "troca_cancelar"
       - "conversa"
       - "conversa_enviar"
+      - "teste"
       - "motivo"
       - "sem_sessao"
       - "nao_encontrado"
@@ -15511,6 +15512,8 @@ entradas:
       - "kamba_app"
       - "SELECT"
       - "INSERT"
+      - "kamba_batch"
+      - "humano"
       - "UPDATE"
       - "DELETE"
       - "onboarding_case"
@@ -19636,6 +19639,183 @@ entradas:
       - "FALHAS_ATE_A_FILA"
     nomes_nota: []
     variantes_literais: []
+  - seccao: "3.74"
+    conceito: "Resumo do conteúdo de um produto na base"
+    canonico: "platform.conteudo_sha256_do_produto(categoria, nome)"
+    literais:
+      - "platform.conteudo_sha256_do_produto(categoria, nome)"
+    nomes:
+      - "platform.conteudo_sha256_do_produto"
+      - "categoria"
+      - "nome"
+    nomes_nota:
+      - "conteudo_sha256"
+      - "sha256"
+      - "categoria_declarada"
+      - "nome"
+      - "conteudoSha256"
+    variantes_literais: []
+  - seccao: "3.74"
+    conceito: "A regra do assertPublishable na base"
+    canonico: "platform.oferta_publicavel(tenant, sku, nome)"
+    literais:
+      - "platform.oferta_publicavel(tenant, sku, nome)"
+    nomes:
+      - "assertPublishable"
+      - "platform.oferta_publicavel"
+      - "tenant"
+      - "sku"
+      - "nome"
+    nomes_nota:
+      - "NULL"
+      - "sem_decisao"
+      - "bloqueada"
+      - "por_rever"
+    variantes_literais: []
+  - seccao: "3.74"
+    conceito: "Publicação protegida pela base"
+    canonico: "trigger offer_terms_publicacao_segura"
+    literais:
+      - "offer_terms_publicacao_segura"
+    nomes:
+      - "offer_terms_publicacao_segura"
+    nomes_nota:
+      - "publicado"
+      - "rascunho"
+      - "INSERT"
+    variantes_literais: []
+  - seccao: "3.74"
+    conceito: "Sinal do teste ponta a ponta"
+    canonico: "conversations.teste_recebido_at, instante anulável"
+    literais:
+      - "conversations.teste_recebido_at"
+    nomes:
+      - "conversations.teste_recebido_at"
+    nomes_nota:
+      - "SQL_MARCAR_TESTE_RECEBIDO"
+      - "UPDATE"
+    variantes_literais: []
+  - seccao: "3.74"
+    conceito: "Marca do teste na entrada"
+    canonico: "EventoDeEntrada.eTeste, true ou ausente"
+    literais:
+      - "EventoDeEntrada.eTeste"
+      - "true"
+    nomes:
+      - "EventoDeEntrada.eTeste"
+      - "true"
+    nomes_nota:
+      - "message"
+      - "eMensagemDeTeste"
+    variantes_literais: []
+  - seccao: "3.74"
+    conceito: "Observador de produção do teste"
+    canonico: "ObservadorSql, sobre SQL_FACTOS_DO_TESTE"
+    literais:
+      - "ObservadorSql"
+      - "SQL_FACTOS_DO_TESTE"
+    nomes:
+      - "ObservadorSql"
+      - "SQL_FACTOS_DO_TESTE"
+    nomes_nota:
+      - "agent_replies"
+      - "outbound_messages.delivered_at"
+      - "consent_event"
+      - "ConsentGate"
+      - "sem_entrega"
+      - "sem_consentimento"
+    variantes_literais: []
+  - seccao: "3.74"
+    conceito: "Como o assistente se identifica"
+    canonico: "ASSISTENTE_DO_TESTE = assistente automatico"
+    literais:
+      - "ASSISTENTE_DO_TESTE"
+      - "assistente automatico"
+    nomes:
+      - "ASSISTENTE_DO_TESTE"
+      - "assistente"
+      - "automatico"
+    nomes_nota:
+      - "apresentacao"
+      - "tenants.nome"
+    variantes_literais: []
+  - seccao: "3.74"
+    conceito: "Activação no processo de lote"
+    canonico: "CicloDaActivacao; passos ∈ {listagem, catalogo, teste, activacao}"
+    literais:
+      - "CicloDaActivacao"
+      - "listagem"
+      - "catalogo"
+      - "teste"
+      - "activacao"
+    nomes:
+      - "CicloDaActivacao"
+      - "listagem"
+      - "catalogo"
+      - "teste"
+      - "activacao"
+    nomes_nota:
+      - "fecharCatalogo"
+      - "aguarda_catalogo"
+      - "verify"
+      - "activar"
+      - "aguarda_teste"
+      - "pendente"
+      - "ok"
+      - "kamba_batch"
+    variantes_literais: []
+  - seccao: "3.74"
+    conceito: "Início do teste pela página"
+    canonico: "POST /painel/teste; TesteDoPainel; ONBOARDING_APP_DB_URL"
+    literais:
+      - "TesteDoPainel"
+      - "ONBOARDING_APP_DB_URL"
+    nomes:
+      - "TesteDoPainel"
+      - "ONBOARDING_APP_DB_URL"
+    nomes_nota:
+      - "aguarda_teste"
+      - "kamba_app"
+    variantes_literais: []
+  - seccao: "3.74"
+    conceito: "Decisão humana só do lote"
+    canonico: "trigger screening_decision_humano_so_do_lote"
+    literais:
+      - "screening_decision_humano_so_do_lote"
+    nomes:
+      - "screening_decision_humano_so_do_lote"
+    nomes_nota:
+      - "origem"
+      - "humano"
+      - "kamba_batch"
+      - "permitida"
+      - "regra"
+      - "llm"
+      - "screen"
+    variantes_literais: []
+  - seccao: "3.74"
+    conceito: "Leitores sem a conversa de teste"
+    canonico: "churn_sinais (o cliente_at), SQL_CLIENTES_NA_JANELA, v_draft_metrics, SQL_CANDIDATOS da golden, SQL_QUEIXAS do risco_ts"
+    literais:
+      - "churn_sinais"
+      - "cliente_at"
+      - "SQL_CLIENTES_NA_JANELA"
+      - "v_draft_metrics"
+      - "SQL_CANDIDATOS"
+      - "SQL_QUEIXAS"
+      - "risco_ts"
+    nomes:
+      - "churn_sinais"
+      - "cliente_at"
+      - "SQL_CLIENTES_NA_JANELA"
+      - "v_draft_metrics"
+      - "SQL_CANDIDATOS"
+      - "SQL_QUEIXAS"
+      - "risco_ts"
+    nomes_nota:
+      - "is_test"
+      - "conversations"
+    variantes_literais: []
   - seccao: "3.75"
     conceito: "Nível de um tenant"
     canonico: "platform.trust_level, nove colunas"
@@ -23372,6 +23552,25 @@ tabelas:
     assinatura: "platform.aprovacao_em_falta(p_onboarding_id)"
     seccao: "3.70"
     conceito: "Agregador da aprovação"
+  - nome: "conteudo_sha256_do_produto"
+    esquema: "platform"
+    colunas:
+      - "categoria"
+      - "nome"
+    aberta: false
+    assinatura: "platform.conteudo_sha256_do_produto(categoria, nome)"
+    seccao: "3.74"
+    conceito: "Resumo do conteúdo de um produto na base"
+  - nome: "oferta_publicavel"
+    esquema: "platform"
+    colunas:
+      - "tenant"
+      - "sku"
+      - "nome"
+    aberta: false
+    assinatura: "platform.oferta_publicavel(tenant, sku, nome)"
+    seccao: "3.74"
+    conceito: "A regra do assertPublishable na base"
   - nome: "definir_dono"
     esquema: "platform"
     colunas:

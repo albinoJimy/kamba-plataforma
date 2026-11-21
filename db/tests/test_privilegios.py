@@ -1414,7 +1414,9 @@ ESPERADO_POR_TABELA.update(
     {
         "screening_decision": {
             "kamba_app": {"SELECT", "INSERT"},
-            "kamba_batch": {"SELECT"},
+            # KAM-202, criterio 6: a decisao humana grava-a o lote, e so ele
+            # (*trigger* `screening_decision_humano_so_do_lote`).
+            "kamba_batch": {"SELECT", "INSERT"},
             "kamba_resolver": set(),
             "kamba_identity": set(),
             "kamba_audit": {"SELECT"},
@@ -2135,7 +2137,13 @@ COLUNAS_POR_PAPEL = {
         "last_human_activity_at",
         "last_inbound_at",
         "window_expires_at",
+        # KAM-202: o sinal do teste, que o CHR grava.
+        "teste_recebido_at",
     },
+    # KAM-202: a `v_draft_metrics` e `security_invoker` e passou a excluir a
+    # conversa de teste; quem a le como auditoria precisa destas tres, e so
+    # destas.
+    ("kamba_audit", "conversations", "SELECT"): {"tenant_id", "contact_id", "is_test"},
     # KAM-015. Cinco colunas, e sao as que o ciclo de vida muda depois de a
     # linha existir. **O que nao esta aqui e o que importa**: `tenant_id`,
     # `channel_id`, `contact_id`, `conversation_id`, `idempotency_key`, `kind`,

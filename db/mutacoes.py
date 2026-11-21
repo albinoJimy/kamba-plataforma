@@ -354,6 +354,15 @@ REV_KPIS_DE_CHURN = _revisao_por_glob("*_kpis_de_churn.py")
 REV_CATALOGO_MINIMO = _revisao_por_glob("*_catalogo_minimo_e_teste.py")
 #: KAM-094: o SQL das tentativas do teste, que o mesmo ensaio executa.
 ACTIVACAO_SQL = "packages/core-ts/src/activacao/sql.ts"
+#: KAM-202: a revisao da publicacao segura e do teste em producao, pela razao da
+#: do Catalogo AI — o numero e da fila. O ensaio que a prova e o
+#: `db/tests/test_publicacao_segura_schema.py`, que tambem executa o SQL dos
+#: quatro ficheiros seguintes.
+REV_PUBLICACAO_SEGURA = _revisao_por_glob("*_publicacao_segura_e_teste_em_producao.py")
+OBSERVADOR_SQL = "packages/core-ts/src/activacao/observador_sql.ts"
+GOLDEN_CANDIDATOS = "db/golden_candidates.py"
+CHURN_PY = "libs/py-core/src/kamba_core/kpis/churn.py"
+TRUST_SQL = "packages/core-ts/src/trust/sql.ts"
 #: KAM-095: o adaptador SQL da lista. A tranca vive no `emTransaccao`, e so a
 #: bateria `tests_bd/capacidade.bd.test.ts` (suite `tests_lote`) o corre.
 CAPACIDADE_SQL = "packages/core-ts/src/capacidade/sql.ts"
@@ -8575,6 +8584,75 @@ MUTACOES = [
     ('catalogo minimo: as falhas nao recomecam na fila', ACTIVACAO_SQL,
      "WHERE b.resultado = 'ok' OR b.levou_a_fila)",
      "WHERE b.resultado = 'ok')",
+     "tests"),
+    # --------------------- KAM-202 (a publicacao segura e o teste em producao)
+    #
+    # Onze, uma por barreira nova. O modulo que as mata e o
+    # `db/tests/test_publicacao_segura_schema.py`, com o ensaio nomeado em cada uma.
+    # A publicacao sem decisao passa: `test_sem_decisao_zero_linhas_e_continua_rascunho`.
+    ('publicacao segura: sem decisao publica', REV_PUBLICACAO_SEGURA,
+     "          -- como recusa de dominio.\n          RETURN NULL;\n",
+     "          -- como recusa de dominio.\n          RETURN NEW;\n",
+     "tests"),
+    # O nome novo de um publicado continua visivel: `test_um_nome_novo_sem_decisao_tira_de_publicado_sem_erro_e_o_returning_diz_o_estado`.
+    ('publicacao segura: o nome novo fica publicado', REV_PUBLICACAO_SEGURA,
+     "            NEW.estado := 'rascunho';\n",
+     "",
+     "tests"),
+    # A versao le a decisao de outro tenant: `test_o_lote_que_ignora_a_rls_nao_le_a_decisao_nem_a_categoria_de_outro_tenant`.
+    ('publicacao segura: a versao de outro tenant', REV_PUBLICACAO_SEGURA,
+     "           WHERE d.tenant_id = p_tenant_id AND d.sujeito_tipo = 'produto'\n"
+     "             AND d.sujeito_ref = p_sku AND d.conteudo_sha256 = v_sha\n"
+     "           ORDER BY (d.origem = 'humano')",
+     "           WHERE d.sujeito_tipo = 'produto'\n"
+     "             AND d.sujeito_ref = p_sku AND d.conteudo_sha256 = v_sha\n"
+     "           ORDER BY (d.origem = 'humano')",
+     "tests"),
+    # A versao e a da linha mais recente, e uma humana antiga levanta a bloqueada:
+    # `test_uma_humana_numa_versao_antiga_nao_levanta_a_bloqueada_da_versao_do_motor`.
+    ('publicacao segura: a versao da humana', REV_PUBLICACAO_SEGURA,
+     "ORDER BY (d.origem = 'humano'), d.criado_at DESC",
+     "ORDER BY d.criado_at DESC",
+     "tests"),
+    # A aplicacao grava a decisao humana: `test_a_aplicacao_nao_grava_a_humana_e_grava_a_do_motor`.
+    ('publicacao segura: a humana da aplicacao', REV_PUBLICACAO_SEGURA,
+     "IF NEW.origem <> 'humano' OR current_user = 'kamba_batch' THEN",
+     "IF true THEN",
+     "tests"),
+    # O churn conta a conversa de teste como cliente: `test_o_churn_nao_conta_a_conversa_de_teste_como_cliente`.
+    ('is_test: o churn conta o teste', REV_PUBLICACAO_SEGURA,
+     'SEM_TESTE_NO_CHURN = "AND NOT cv.is_test "',
+     'SEM_TESTE_NO_CHURN = ""',
+     "tests"),
+    # A vista do concierge conta a conversa de teste: `test_a_vista_do_concierge_nao_conta_a_conversa_de_teste`.
+    ('is_test: a vista do concierge conta o teste', REV_PUBLICACAO_SEGURA,
+     '"WHERE cv.tenant_id = d.tenant_id AND cv.is_test "',
+     '"WHERE cv.tenant_id = d.tenant_id AND false "',
+     "tests"),
+    # A golden leva o rascunho da conversa de teste: `test_os_candidatos_a_golden_nao_contam_a_conversa_de_teste`.
+    ('is_test: a golden conta o teste', GOLDEN_CANDIDATOS,
+     "WHERE cv.tenant_id = d.tenant_id AND cv.is_test",
+     "WHERE cv.tenant_id = d.tenant_id AND false",
+     "tests"),
+    # A guarda do *job* do churn ve o teste como cliente: `test_a_guarda_do_job_nao_conta_a_conversa_de_teste`.
+    ('is_test: a guarda do churn conta o teste', CHURN_PY,
+     "WHERE c.tenant_id = %s AND NOT c.is_test",
+     "WHERE c.tenant_id = %s",
+     "tests"),
+    # A queixa na conversa de teste conta para o risco: `test_as_queixas_do_risco_nao_contam_a_conversa_de_teste`.
+    ('is_test: as queixas contam o teste', TRUST_SQL,
+     "\n     AND NOT cv.is_test\n",
+     "\n",
+     "tests"),
+    # Duas conversas com o «teste» na janela, e escolhe-se uma: `test_duas_conversas_com_o_teste_na_janela_nao_dao_nenhuma`.
+    ('observador: escolhe entre duas conversas', OBSERVADOR_SQL,
+     "WHERE (SELECT count(*) FROM sinais) = 1",
+     "WHERE true",
+     "tests"),
+    # O observador le a conversa de outro tenant: `test_o_observador_nao_ve_a_conversa_de_outro_tenant`.
+    ('observador: a conversa de outro tenant', OBSERVADOR_SQL,
+     "JOIN caso ON v.tenant_id = caso.tenant_id",
+     "CROSS JOIN caso",
      "tests"),
     # ------------------------------------- KAM-098 (revisao do off-boarding)
     #

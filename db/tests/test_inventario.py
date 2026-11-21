@@ -364,6 +364,9 @@ INVENTARIO = {
         # KAM-094 (revisao do catalogo minimo): a conversa do teste ponta a
         # ponta, fora das metricas, da golden e do Score.
         "is_test": ("boolean", NAO, "false", "nao"),
+        # KAM-202 (revisao da publicacao segura): o sinal do teste ponta a
+        # ponta, um instante. Nem texto nem telefone.
+        "teste_recebido_at": ("timestamp with time zone", SIM, None, "nao"),
     },
     # KAM-015. As duas tabelas da saida de canal.
     #

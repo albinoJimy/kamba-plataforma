@@ -58,6 +58,9 @@ FICHEIROS = (
     # depois do capacidade e antes do lote, e o `after` dele apaga os casos de
     # recurso que abriu, que o `limpar` do lote.bd nao sabe apagar.
     "tests_bd/confianca.bd.test.ts",
+    # KAM-202: a activacao no processo de lote (o catalogo minimo, o teste e o
+    # `activar`) e a pagina do dono a abrir a tentativa pela aplicacao.
+    "tests_bd/activacao.bd.test.ts",
 )
 
 #: Os `describe` do ficheiro: os dezanove cenarios do processo de lote partilham as
@@ -71,6 +74,7 @@ GRUPOS = (
     "Trust & Safety em produção contra a base",
     "a confiança gradual a correr contra a base",
     "adversarial (f) do KAM-096, os dois lados: a recusa da base e o alerta (KAM-219)",
+    "a activação no lote contra a base",
 )
 
 #: Os testes que **tem** de ter corrido e passado, pelo nome. Sao a letra dos
@@ -82,7 +86,7 @@ GRUPOS = (
 TESTES_OBRIGATORIOS = (
     "uma volta drena a triagem, dá o alerta atrasado uma vez e mede o que a base tem",
     "o efeito por reaplicar aplica a fase, e o aviso sem via deixa-o na lista",
-    "o screening de um caso de catálogo grava como kamba_app no tenant do caso, uma vez, e resolve",
+    "o screening de um caso de catálogo grava como kamba_batch no tenant do caso, uma vez, e resolve",
     "a quota de uma origem aguenta vinte processos a abrir ao mesmo tempo; sem o trinco, não",
     "a lista de efeitos por reaplicar sobrevive a um reinício do processo",
     "o serviço marca o caso na base antes dos efeitos: uma decisão cujo aviso falha fica marcada",
@@ -144,6 +148,12 @@ TESTES_OBRIGATORIOS = (
     "o recalculo com o kamba_app no lugar do lote e recusado na leitura do motivo, e a recusa conta uma vez",
     "o kamba_app a escrever o tecto do proprio tenant, com o contexto dele, leva 42501 e cada tentativa conta",
     "o controlo: o mesmo recalculo como kamba_batch escreve o tecto e nao conta",
+    # KAM-202: os criterios 1 e 2 contra a base, pela montagem real do lote e
+    # pelo adaptador real da pagina.
+    "KAM-202: o lote conta o catalogo minimo, grava o gate e tira o caso de aguarda_catalogo",
+    "KAM-202: com quatro elegiveis o gate fica vermelho e o caso nao avanca",
+    "KAM-202: a pagina abre a tentativa pela ligacao da aplicacao, e o lote fecha-a ok com os quatro factos",
+    "KAM-202: sem entrega, o lote fecha a tentativa falhada com sem_entrega depois da janela",
 )
 
 

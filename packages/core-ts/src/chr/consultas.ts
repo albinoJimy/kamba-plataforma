@@ -154,6 +154,23 @@ export const SQL_ABRIR_CONVERSA = `
 `;
 
 /**
+ * O sinal do teste ponta a ponta (KAM-202, critério 1): o instante em que chegou
+ * a palavra do teste a esta conversa. Como `kamba_app`, com contexto, na mesma
+ * transacção que abre a conversa e com o mesmo relógio (`$3`).
+ *
+ * É o que o observador de produção lê (`activacao/observador_sql.ts`): o texto
+ * da mensagem não se guarda (ADR-010), e sem este instante não havia forma de
+ * saber que o `inbound` era o «teste». Só o instante e mais nada: nem a palavra,
+ * nem o telefone. A aplicação tem `UPDATE` só nesta coluna (revisão da
+ * publicação segura).
+ */
+export const SQL_MARCAR_TESTE_RECEBIDO = `
+  UPDATE platform.conversations
+     SET teste_recebido_at = $3
+   WHERE tenant_id = $1 AND id = $2
+`;
+
+/**
  * O papel do contacto que escreveu (KAM-118). Como `kamba_app`, com contexto.
  *
  * Lê-se na **mesma** transacção que abre a conversa, e com o mesmo contexto: o

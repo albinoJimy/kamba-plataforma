@@ -60,7 +60,7 @@ import { personaDe } from "../dono/persona.ts";
 import type { EventoDeEntrada, Interlocutor } from "../entrada/explosao.ts";
 import { type Accao, type DecisaoDoGate, tenantGate } from "../ten/estados.ts";
 import type { ResolvedorDeCanal } from "./canal.ts";
-import { SQL_PAPEL } from "./consultas.ts";
+import { SQL_MARCAR_TESTE_RECEBIDO, SQL_PAPEL } from "./consultas.ts";
 import { abrirConversa, type Conversa } from "./conversas.ts";
 import {
   type AgentInvocation,
@@ -382,7 +382,14 @@ export class Chr {
     const { conversa, persona } = await this.#comTenant(
       contexto.tenant_id,
       async (cliente): Promise<{ conversa: Conversa; persona: Persona }> => {
-        const aberta = await abrirConversa(cliente, alvo, this.#agora());
+        const agora = this.#agora();
+        const aberta = await abrirConversa(cliente, alvo, agora);
+        // KAM-202: o sinal do teste, e só o instante. Antes de qualquer decisão
+        // sobre o modo ou o estado: o observador precisa dele mesmo quando a
+        // mensagem não vai ao AGR, e é isso que o faz dar a causa certa.
+        if (evento.eTeste === true) {
+          await cliente.query(SQL_MARCAR_TESTE_RECEBIDO, [contexto.tenant_id, aberta.id, agora]);
+        }
         const linhas = await cliente.query(SQL_PAPEL, [contexto.tenant_id, contactId]);
         return { conversa: aberta, persona: personaDe(linhas.rows[0]?.["papel"]) };
       },

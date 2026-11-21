@@ -369,14 +369,27 @@ async function actualizarTermos(
       "upsert_rascunho",
     );
   }
-  // O evento de produto sai com o estado que a linha **tem** — esta operação
-  // nunca o muda.
-  await emitirProdutoAlterado(r.emitir, r.ctx.tenantId, rascunho.sku, antes.estado);
+  // O evento de produto sai com o estado que a linha **tem depois** da escrita,
+  // lido do `RETURNING`. Esta operação não escreve o `estado`, mas a base pode
+  // mudá-lo (KAM-202): um nome novo num publicado, sem decisão de screening que
+  // o permita, sai para `rascunho` pelo *trigger* `offer_terms_publicacao_segura`,
+  // e o evento com o estado de antes dizia ao IDX que ele continuava visível.
+  const estadoDepois = escrita.valor[0]?.["estado"];
+  await emitirProdutoAlterado(
+    r.emitir,
+    r.ctx.tenantId,
+    rascunho.sku,
+    typeof estadoDepois === "string" ? (estadoDepois as TermosDaOferta["estado"]) : antes.estado,
+  );
   return ok({ sku: rascunho.sku, registoId: null });
 }
 
-/** O que o módulo recusa antes de falar com a base. */
-function validarRascunho(
+/**
+ * O que o módulo recusa antes de falar com a base. **Exportada** (KAM-202): o
+ * adaptador chama-a antes do screening do nome novo, para que um rascunho
+ * inválido não grave uma decisão nem chame o classificador por nada.
+ */
+export function validarRascunho(
   rascunho: RascunhoDeProduto,
 ): "VALIDATION_ERROR" | null {
   if (rascunho.sku.trim().length === 0) return "VALIDATION_ERROR";

@@ -260,7 +260,7 @@ const LINHA = {
   conteudoSha256: new Uint8Array(32).fill(7),
 };
 
-test("o screening grava como kamba_app dentro do comTenant do tenant da linha", async () => {
+test("o screening grava como kamba_batch dentro do comTenant do tenant da linha (KAM-202)", async () => {
   const app = new ConjuntoFalso();
   await escritorHumanoDeScreening(app).gravar(LINHA);
   const textos = app.textos();

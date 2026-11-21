@@ -46,6 +46,8 @@ export const ROTAS_DO_PAINEL = [
   "troca_cancelar",
   "conversa",
   "conversa_enviar",
+  // KAM-202: o início do teste ponta a ponta.
+  "teste",
 ] as const;
 export type RotaDoPainel = (typeof ROTAS_DO_PAINEL)[number];
 
