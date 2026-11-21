@@ -41,6 +41,7 @@ import {
   decifrarDadoDoCaso,
   decifrarTelefoneDoCaso,
   lerReferencia,
+  linhasDaInscricao,
   otpNaBase,
   resolverDesafio,
   type PoolDaInscricao,
@@ -244,9 +245,9 @@ describe("a inscrição na base (KAM-236)", () => {
       const semContexto = await ligacao.query("SELECT count(*)::int AS n FROM platform.onboarding_case WHERE id = $1", [id]);
       assert.equal(semContexto.rows[0].n, 0, "sem contexto, zero linhas");
       const outro = await comTenant(ligacao, randomUUID(), (tx) =>
-        tx.query<{ n: number }>("SELECT count(*)::int AS n FROM platform.onboarding_case WHERE id = $1", [id]),
+        linhasDaInscricao(tx, "SELECT count(*)::int AS n FROM platform.onboarding_case WHERE id = $1", [id]),
       );
-      assert.equal(outro.rows[0]?.n, 0, "com o contexto de outro tenant, zero linhas");
+      assert.equal(outro[0]?.["n"], 0, "com o contexto de outro tenant, zero linhas");
       const caso = await m.casos.porId(id);
       const porNif = await ligacao.query("SELECT * FROM platform.registo_caso_vivo_por_nif($1)", [caso!.nifHmac]);
       assert.deepEqual(porNif.fields.map((f) => f.name), ["id", "tenant_id"], "so o caso e o tenant");
@@ -261,6 +262,47 @@ describe("a inscrição na base (KAM-236)", () => {
     assert.equal(await m.casos.porNifHmac((await m.casos.porId(id))!.nifHmac), null);
   });
 
+  it("KAM-236: trinta verificações concorrentes de dois processos comparam no máximo cinco, e o código certo depois não entra", async () => {
+    const [um, dois] = [processo(novoPool()), processo(novoPool())];
+    const aceite = await um.registo.inscrever(
+      await pedido(um, { nif: nifDeEnsaio(), telefone: telefoneDeEnsaio(), chave: `kam-236-${randomUUID()}` }),
+    );
+    const id = lerReferencia("ticket", aceite.referencia, [ASSINATURA, null], um.relogio);
+    casosCriados.push(id);
+    const certo = ultimoCodigo(um);
+    const errado = certo === "000000" ? "111111" : "000000";
+    const veredictos = await Promise.all(
+      Array.from({ length: 30 }, (_, i) => (i % 2 === 0 ? um : dois).otp.verificar(id, errado)),
+    );
+    assert.ok(veredictos.filter((v) => v === "errou").length <= 4, JSON.stringify(veredictos));
+    assert.equal(veredictos.includes("acertou"), false);
+    assert.notEqual(await dois.otp.verificar(id, certo), "acertou", "o desafio esgotou-se");
+  });
+
+  it("KAM-236: dois registos concorrentes do mesmo NIF dão um caso, e a mesma chave concorrente também", async () => {
+    const [um, dois] = [processo(novoPool()), processo(novoPool())];
+    const nif = nifDeEnsaio();
+    const telefone = telefoneDeEnsaio();
+    const [a, b] = await Promise.all([
+      um.registo.inscrever(await pedido(um, { nif, telefone, chave: `kam-236-${randomUUID()}` })),
+      dois.registo.inscrever(await pedido(dois, { nif, telefone, chave: `kam-236-${randomUUID()}` })),
+    ]);
+    const [ida, idb] = [a, b].map((x) => lerReferencia("ticket", x.referencia, [ASSINATURA, null], um.relogio));
+    casosCriados.push(ida!, idb!);
+    assert.equal(ida, idb, "o segundo recupera o caso do primeiro");
+    const chave = `kam-236-${randomUUID()}`;
+    const outroNif = nifDeEnsaio();
+    const [c, d] = await Promise.all([
+      um.registo.inscrever(await pedido(um, { nif: outroNif, telefone: telefoneDeEnsaio(), chave })),
+      dois.registo.inscrever(await pedido(dois, { nif: outroNif, telefone: telefoneDeEnsaio(), chave })),
+    ]);
+    const [idc, idd] = [c, d].map((x) => lerReferencia("ticket", x.referencia, [ASSINATURA, null], um.relogio));
+    casosCriados.push(idc!, idd!);
+    assert.equal(idc, idd, "a mesma chave da o mesmo caso");
+    const n = await admin.query("SELECT 1 FROM platform.onboarding_case WHERE id = ANY ($1::uuid[])", [[ida, idc]]);
+    assert.equal(n.rowCount, 2);
+  });
+
   it("KAM-236: vinte anotações de dois processos somam vinte, e o trocarUltimo concorrente devolve null uma vez", async () => {
     const [a, b] = [contadoresNaBase(novoPool() as unknown as PoolDaInscricao), contadoresNaBase(novoPool() as unknown as PoolDaInscricao)];
     const chave = `ensaio:${randomUUID()}`;
@@ -270,8 +312,11 @@ describe("a inscrição na base (KAM-236)", () => {
     await Promise.all(Array.from({ length: 20 }, (_, i) => (i % 2 === 0 ? a : b).anotar(chave, new Date(em.getTime() + i), 3_600_000)));
     assert.equal(await a.contar(chave, new Date(em.getTime() + 100), 3_600_000), 20);
     assert.equal((await b.ultimo(chave))?.getTime(), em.getTime() + 19);
-    // Uma janela mais curta não apaga o que a mais longa conta (ver o duplo).
-    assert.equal(await b.contar(chave, new Date(em.getTime() + 100), 50), 20);
+    // Uma janela mais curta não apaga o que a mais longa conta (ver o duplo):
+    // a curta não vê nenhum (o corte é em+50 e todos estão antes), e a longa
+    // continua a ver os vinte.
+    assert.equal(await b.contar(chave, new Date(em.getTime() + 100), 50), 0);
+    assert.equal(await a.contar(chave, new Date(em.getTime() + 100), 3_600_000), 20);
     const anteriores = await Promise.all(
       Array.from({ length: 10 }, (_, i) => (i % 2 === 0 ? a : b).trocarUltimo(batida, new Date(em.getTime() + i * 1000))),
     );

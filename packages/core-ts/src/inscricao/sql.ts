@@ -39,8 +39,7 @@
 
 import { randomUUID } from "node:crypto";
 
-import type { ClienteSql } from "../screening/sql.ts";
-import { comTenant } from "../tenant_guard/index.ts";
+import { comTenant, type ClienteSql } from "../tenant_guard/index.ts";
 
 import {
   CasoDuplicadoError,
@@ -155,9 +154,10 @@ const INDICE_DA_CHAVE = "onboarding_case_chave_idem_uq";
 
 type Linha = Readonly<Record<string, unknown>>;
 
-async function linhas(bd: ClienteSql, sql: string, parametros: readonly unknown[]): Promise<readonly Linha[]> {
-  const { rows } = await bd.query<Linha>(sql, parametros);
-  return rows;
+/** As linhas de uma instrução. O `query` do `tenant_guard` devolve `unknown`, como o do `pg`. */
+export async function linhas(bd: ClienteSql, sql: string, parametros: readonly unknown[]): Promise<readonly Linha[]> {
+  const resposta = (await bd.query(sql, parametros)) as { readonly rows?: readonly Linha[] };
+  return resposta.rows ?? [];
 }
 
 function textoOuNulo(valor: unknown): string | null {

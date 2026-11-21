@@ -7,7 +7,7 @@
  * correr o serviço à mão na máquina de alguém não abra uma porta na rede local
  * (`specs/01` §6, princípio 7, e o DoD do KAM-001: nada além de localhost).
  *
- * ## Em `prod` arranca sobre a base, e só sobre ela (KAM-236)
+ * ## Em `prod` corre sobre a base, e só sobre ela (KAM-236) — e ainda recusa pelo SMS
  *
  * Até ao KAM-236 este processo **recusava** `prod`: o caso, o desafio do OTP,
  * os contadores do anti-abuso e as sessões revogadas do painel viviam em
@@ -27,6 +27,12 @@
  * a fila de revisão correm como `kamba_batch`, que este processo não tem, e os
  * *gates* do guia só o lote os escreve. Passam ao processo de lote num credor
  * (KAM-238); até lá, o arranque di-lo numa linha (`es_guia_fora_de_prod`).
+ *
+ * **E o arranque em `prod` continua a recusar**, agora por outra razão
+ * (`SmsFalsoEmProducaoError`): o SMS do OTP é o `FakeSmsProvider` em todos os
+ * ambientes, porque não há adaptador de agregador real. Os repositórios já não
+ * são o motivo; o fornecedor de SMS é. A decisão de como `prod` arranca sem ele
+ * está com a coordenação (bloco do KAM-236).
  *
  * Em `dev` e `staging` sem a ligação, arranca sobre memória, e é o que torna o
  * fluxo exercitável ponta a ponta com o `FakeSmsProvider` (critério 8 do
@@ -194,6 +200,26 @@ const CHAVES_DO_CASO = [REF_KEK_DO_TELEFONE, REF_KEK_DOS_DADOS] as const;
  */
 const LIGACOES_DA_INSCRICAO = 6;
 
+/**
+ * Levantado em `prod` enquanto o SMS for o `FakeSmsProvider` (KAM-236, achado 1
+ * da revisão adversarial). **Não há adaptador de agregador real** (KAM-116: «não
+ * há agregador escolhido»), e o `../../packages/core-ts/src/sms/fake.ts` promete
+ * que o falso nunca corre em `prod`. Com o registo na base, `prod` arrancava:
+ * o `Otp.enviar` dizia «enviado», nenhum SMS saía, os códigos ficavam em claro
+ * na memória do processo e cada caso parava em `otp_pendente`. Falha fechado até
+ * haver um fornecedor real ligado aqui.
+ */
+export class SmsFalsoEmProducaoError extends Error {
+  override readonly name = "SmsFalsoEmProducaoError";
+
+  constructor() {
+    super(
+      "o onboarding-web nao arranca em prod com o FakeSmsProvider: nao ha adaptador de " +
+        "agregador de SMS real, e o OTP do registo e da reentrada nao chegava a ninguem",
+    );
+  }
+}
+
 /** Levantado em `prod` sem a ligação da aplicação. Ver a nota do módulo. */
 export class BaseEmFaltaEmProducaoError extends Error {
   override readonly name = "BaseEmFaltaEmProducaoError";
@@ -243,6 +269,8 @@ const env = ambiente();
 /** O registo corre sobre a base: sempre em `prod`, e em `dev` e `staging` com a ligação. */
 const NA_BASE = URL_DA_APP !== "";
 if (env === "prod" && !NA_BASE) throw new BaseEmFaltaEmProducaoError();
+// O SMS é o falso em qualquer ambiente (ver o erro): em `prod`, recusa.
+if (env === "prod") throw new SmsFalsoEmProducaoError();
 
 const provider = new EnvSecretProvider({ ambiente: env });
 const secrets = await Secrets.arrancar({

@@ -181,6 +181,7 @@ export {
   PARADA_MS,
   casosNaBase,
   contadoresNaBase,
+  linhas as linhasDaInscricao,
   numaLigacaoDaInscricao,
   otpNaBase,
   type CifraDoCaso,

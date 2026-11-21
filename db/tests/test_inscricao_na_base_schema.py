@@ -168,6 +168,18 @@ class TestInscricaoNaBase(ComBase):
                 ("registo_tenant_do_caso",),
             ],
         )
+        # E nenhuma vista lê o caso com os direitos do dono: uma vista sem
+        # `security_invoker` avalia a RLS como o dono, e a variavel ligada pela
+        # aplicacao abria-lhe o caso de todos os tenants (achado 6 da revisao).
+        self.assertEqual(
+            self.consultar(
+                "SELECT c.relname::text FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace "
+                "WHERE c.relkind IN ('v', 'm') AND n.nspname NOT IN ('pg_catalog', 'information_schema') "
+                "AND pg_get_viewdef(c.oid) ILIKE '%%onboarding_case%%' "
+                "AND NOT coalesce('security_invoker=true' = ANY (c.reloptions), false) ORDER BY 1"
+            ),
+            [],
+        )
 
     # ------------------------------------------------------------ o desafio do OTP
 

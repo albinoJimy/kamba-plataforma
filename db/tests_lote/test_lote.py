@@ -163,6 +163,8 @@ TESTES_OBRIGATORIOS = (
     # revogacoes sao partilhados entre processos.
     "KAM-236: o registo cria o caso num processo e outro processo acerta o código, conclui e reconhece a chave",
     "KAM-236: o kamba_app não lê o caso de outro tenant pela tabela, e as funções só devolvem o caso e o tenant",
+    "KAM-236: trinta verificações concorrentes de dois processos comparam no máximo cinco, e o código certo depois não entra",
+    "KAM-236: dois registos concorrentes do mesmo NIF dão um caso, e a mesma chave concorrente também",
     "KAM-236: vinte anotações de dois processos somam vinte, e o trocarUltimo concorrente devolve null uma vez",
     "KAM-236: uma sessão revogada continua revogada depois do reinício, e o corte de um tenant não toca o outro",
 )

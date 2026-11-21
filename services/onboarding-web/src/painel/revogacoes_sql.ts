@@ -9,7 +9,7 @@
  * já é recusada pelos prazos, e a linha não revoga nada.
  */
 
-import { numaLigacaoDaInscricao, type PoolDaInscricao } from "@kamba/core-ts/inscricao";
+import { linhasDaInscricao, numaLigacaoDaInscricao, type PoolDaInscricao } from "@kamba/core-ts/inscricao";
 import { comTenant } from "@kamba/core-ts/tenant_guard";
 
 import { TECTO_DO_PAINEL_S, type Revogacoes, type SessaoDoPainel } from "./sessao.ts";
@@ -53,8 +53,8 @@ export class RevogacoesNaBase implements Revogacoes {
   async revogada(s: SessaoDoPainel): Promise<boolean> {
     return numaLigacaoDaInscricao(this.#pool, (bd) =>
       comTenant(bd, s.tenantId, async (tx) => {
-        const { rows } = await tx.query<{ revogada: boolean }>(SQL_REVOGADA, [s.tenantId, s.sid, s.emitida]);
-        return rows[0]?.revogada === true;
+        const [l] = await linhasDaInscricao(tx, SQL_REVOGADA, [s.tenantId, s.sid, s.emitida]);
+        return l?.["revogada"] === true;
       }),
     );
   }
