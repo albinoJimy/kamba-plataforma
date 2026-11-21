@@ -194,7 +194,7 @@ com a versão nova.
 
 É emitido pelo AGR (`kamba_agr/tls/social.py`) na transacção que passa o
 item a `aprovado`, depois do botão `confirm:{action_id}` da acção
-`aprovar_conteudo`: aprovar duas vezes o mesmo item dá **um** evento.
+`aprovar_conteudo`: aprovar duas vezes o mesmo `hash` dá **um** evento.
 **Não tem consumidor**: os publicadores de redes que o leriam são
 Diferidos (D13), e a entrega ao dono não precisa dele.
 

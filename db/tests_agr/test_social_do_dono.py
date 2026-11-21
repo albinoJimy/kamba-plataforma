@@ -161,7 +161,8 @@ class TestCalendario(ComSocial):
         # recusado pela base desde essa revisao.
         self.semente.execute(
             "UPDATE platform.content_items SET legenda = 'Legenda.', arte_ref = %s, "
-            "arte_sha256 = %s, arte_fundo = 'gradiente', aprovacao_hash = %s, "
+            "arte_sha256 = %s, arte_fundo = 'gradiente', arte_texto = 'Loja da Ana', "
+            "arte_formato = 'quadrado', aprovacao_hash = %s, "
             "estado = 'pendente_aprovacao' WHERE content_item_id = %s",
             (
                 f"t/{self.tenant}/social/2026/11/{uuid.uuid4()}",
@@ -293,7 +294,12 @@ def _hash(texto: str) -> str:
 class ComArte(ComSocial):
     def _arte(self, custo: str = "0.0336") -> Arte:
         return Arte(
-            f"t/{self.tenant}/social/2026/11/{uuid.uuid4()}", _hash(str(uuid.uuid4())), "gerado", Decimal(custo)
+            f"t/{self.tenant}/social/2026/11/{uuid.uuid4()}",
+            _hash(str(uuid.uuid4())),
+            "gerado",
+            Decimal(custo),
+            "Loja da Ana - 12.500 Kz",
+            "quadrado",
         )
 
     def _rascunho_com_arte(self, indice: int = 0) -> Item:
@@ -390,6 +396,35 @@ class TestAprovacao(ComArte):
             self.repo.aprovar(regerado, antigo, AGORA)
         self.assertEqual(self._linha(pendente)[0], "pendente_aprovacao")
         self.assertEqual(self._aprovados(), [])
+
+
+    def test_o_pedido_com_reforco_marca_a_revisao_reforcada_e_nao_a_desfaz(self) -> None:
+        item = self._rascunho_com_arte()
+        self.assertFalse(item.revisao_reforcada)
+        pedido = self.repo.pedir_aprovacao(item, item.legenda or "", _hash("reforcada"), reforcada=True)
+        self.semente.execute(
+            "SELECT revisao_reforcada FROM platform.content_items WHERE content_item_id = %s",
+            (item.content_item_id,),
+        )
+        self.assertIs(self.semente.fetchone()[0], True)
+        # Um pedido seguinte sem reforco nao o tira: e um `OR`.
+        self.repo.pedir_aprovacao(pedido, pedido.legenda or "", _hash("outra vez"))
+        self.semente.execute(
+            "SELECT revisao_reforcada FROM platform.content_items WHERE content_item_id = %s",
+            (item.content_item_id,),
+        )
+        self.assertIs(self.semente.fetchone()[0], True)
+
+    def test_a_arte_grava_o_texto_e_o_formato(self) -> None:
+        item = self._rascunho_com_arte()
+        self.semente.execute(
+            "SELECT arte_texto, arte_formato FROM platform.content_items WHERE content_item_id = %s",
+            (item.content_item_id,),
+        )
+        self.assertEqual(tuple(self.semente.fetchone()), ("Loja da Ana - 12.500 Kz", "quadrado"))
+        lido = self.repo.item(self.tenant, item.content_item_id)
+        assert lido is not None
+        self.assertEqual((lido.arte_texto, lido.arte_formato), (item.arte_texto, item.arte_formato))
 
 
 class TestEntrega(ComArte):

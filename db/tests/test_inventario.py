@@ -2928,6 +2928,8 @@ INVENTARIO["content_items"] = {
     "arte_ref": ("text", SIM, None, "nao — a chave do STO, presa ao tenant da linha"),
     "arte_sha256": ("text", SIM, None, "nao"),
     "arte_fundo": ("text", SIM, None, "nao — lista fechada de dois"),
+    "arte_texto": ("text", SIM, None, "nao — o texto que esta na imagem, composto por codigo dos factos da loja"),
+    "arte_formato": ("text", SIM, None, "nao — lista fechada de dois"),
     "arte_tentativas": ("smallint", NAO, "0", "nao"),
     "arte_custo_usd": ("numeric", NAO, "0", "nao"),
     "aprovacao_hash": ("text", SIM, None, "nao"),
@@ -4906,9 +4908,10 @@ class TestInventario(ComBase):
                     "content_items_versao_politica_ck",
                     # ---------- KAM-122 (revisao da arte e da aprovacao do social)
                     #
-                    # **Dez**, todas `CHECK` do item: a forma de cada coluna da
+                    # **Doze**, todas `CHECK` do item: a forma de cada coluna da
                     # arte e do hash (a chave do STO presa ao tenant da linha, o
-                    # sha256, o fundo, as tres tentativas, o custo nao negativo),
+                    # sha256, o fundo, o texto, o formato, as tres tentativas, o
+                    # custo nao negativo),
                     # a arte completa ou nenhuma, e as tres que ligam o estado as
                     # colunas: `pendente_aprovacao` com legenda e arte,
                     # `aprovado`/`entregue` com a prova da aprovacao, e
@@ -4917,10 +4920,12 @@ class TestInventario(ComBase):
                     "content_items_aprovado_ck",
                     "content_items_arte_completa_ck",
                     "content_items_arte_custo_ck",
+                    "content_items_arte_formato_ck",
                     "content_items_arte_fundo_ck",
                     "content_items_arte_ref_ck",
                     "content_items_arte_sha256_ck",
                     "content_items_arte_tentativas_ck",
+                    "content_items_arte_texto_ck",
                     "content_items_entregue_ck",
                     "content_items_pendente_ck",
                     "purge_log_classe_ck",

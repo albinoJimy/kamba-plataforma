@@ -361,9 +361,20 @@ class TestDispensaDoPasso4(unittest.TestCase):
     def test_a_lista_e_a_das_decisoes_do_fundador(self) -> None:
         # KAM-119: o `create_product_draft` so grava o rascunho (decisao do fundador).
         # KAM-121: as tres de escrita do social so gravam rascunhos (precedentes).
+        # KAM-122: as quatro da arte que nao sao a aprovacao (pelos mesmos).
         self.assertEqual(
             DISPENSAS_DO_PASSO_4,
-            ("submit_quote", "create_product_draft", "update_brand_profile", "generate_calendar", "generate_caption"),
+            (
+                "submit_quote",
+                "create_product_draft",
+                "update_brand_profile",
+                "generate_calendar",
+                "generate_caption",
+                "generate_art",
+                "request_approval",
+                "reject_content",
+                "deliver_content",
+            ),
         )
 
     def test_uma_write_sem_campo_e_sem_dispensa_continua_recusada(self) -> None:

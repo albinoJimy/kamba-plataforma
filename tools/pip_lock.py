@@ -140,6 +140,10 @@ def _conjuncao_de_topo(marker: str) -> list[str]:
             profundidade += 1
         elif letra == ")":
             profundidade -= 1
+        elif profundidade == 0 and marker.startswith(" or ", i):
+            # `A or B and extra` e `A or (B and extra)` (PEP 508): o `extra` nao
+            # decide, e o `A` pode ser verdadeiro. Nao se corta: levanta.
+            raise MarkerUndecided(marker)
         elif profundidade == 0 and marker.startswith(" and ", i):
             partes.append(marker[inicio:i].strip())
             inicio = i + len(" and ")

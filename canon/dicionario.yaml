@@ -1425,6 +1425,7 @@ entradas:
       - "versao"
       - "content_items.versao"
       - "aprovado"
+      - "hash"
       - "agent.replied"
       - "conversation"
       - "conversation_id"
@@ -22181,9 +22182,9 @@ entradas:
     variantes_literais: []
   - seccao: "3.82"
     conceito: "Item de conteúdo"
-    canonico: "platform.content_items(content_item_id, tenant_id, calendar_id, semana_iso, tipo, tema, legenda, art_asset_id, estado, is_ai_generated, revisao_reforcada, versao_politica, versao, agendado_at, criado_at, atualizado_at, arte_ref, arte_sha256, arte_fundo, arte_tentativas, arte_custo_usd, aprovacao_hash, aprovado_at, entregue_at)"
+    canonico: "platform.content_items(content_item_id, tenant_id, calendar_id, semana_iso, tipo, tema, legenda, art_asset_id, estado, is_ai_generated, revisao_reforcada, versao_politica, versao, agendado_at, criado_at, atualizado_at, arte_ref, arte_sha256, arte_fundo, arte_tentativas, arte_custo_usd, aprovacao_hash, aprovado_at, entregue_at, arte_texto, arte_formato)"
     literais:
-      - "platform.content_items(content_item_id, tenant_id, calendar_id, semana_iso, tipo, tema, legenda, art_asset_id, estado, is_ai_generated, revisao_reforcada, versao_politica, versao, agendado_at, criado_at, atualizado_at, arte_ref, arte_sha256, arte_fundo, arte_tentativas, arte_custo_usd, aprovacao_hash, aprovado_at, entregue_at)"
+      - "platform.content_items(content_item_id, tenant_id, calendar_id, semana_iso, tipo, tema, legenda, art_asset_id, estado, is_ai_generated, revisao_reforcada, versao_politica, versao, agendado_at, criado_at, atualizado_at, arte_ref, arte_sha256, arte_fundo, arte_tentativas, arte_custo_usd, aprovacao_hash, aprovado_at, entregue_at, arte_texto, arte_formato)"
     nomes:
       - "platform.content_items"
       - "content_item_id"
@@ -22210,6 +22211,8 @@ entradas:
       - "aprovacao_hash"
       - "aprovado_at"
       - "entregue_at"
+      - "arte_texto"
+      - "arte_formato"
     nomes_nota:
       - "rascunho"
       - "is_ai_generated"
@@ -22469,7 +22472,38 @@ entradas:
       - "gerado"
       - "geracao_de_imagem"
       - "gradiente"
+      - "CHECK"
+      - "IN"
       - "content_items_arte_completa_ck"
+    variantes_literais: []
+  - seccao: "3.82"
+    conceito: "Texto da arte"
+    canonico: "content_items.arte_texto, de 1 a 600 caracteres"
+    literais:
+      - "content_items.arte_texto"
+    nomes:
+      - "content_items.arte_texto"
+    nomes_nota:
+      - "content_items_arte_texto_ck"
+      - "request_approval"
+      - "approve_content"
+      - "arte_desactualizada"
+      - "aprovado"
+      - "entregue"
+    variantes_literais: []
+  - seccao: "3.82"
+    conceito: "Formato da arte"
+    canonico: "content_items.arte_formato ∈ {quadrado, retrato}"
+    literais:
+      - "content_items.arte_formato"
+      - "quadrado"
+      - "retrato"
+    nomes:
+      - "content_items.arte_formato"
+      - "quadrado"
+      - "retrato"
+    nomes_nota:
+      - "content_items_arte_formato_ck"
     variantes_literais: []
   - seccao: "3.82"
     conceito: "Tentativas de arte"
@@ -22548,7 +22582,7 @@ entradas:
     variantes_literais: []
   - seccao: "3.82"
     conceito: "Escritas da arte e da aprovação"
-    canonico: "o kamba_app com UPDATE das oito colunas e da brand_profile.termos_entrega_at"
+    canonico: "o kamba_app com UPDATE das dez colunas e da brand_profile.termos_entrega_at"
     literais:
       - "kamba_app"
       - "UPDATE"
@@ -22622,6 +22656,7 @@ entradas:
       - "TIPOS_DE_NEGOCIO"
       - "FORMATOS"
     nomes_nota:
+      - "faltam_factos"
       - "kz_display"
     variantes_literais: []
   - seccao: "3.82"
@@ -22649,6 +22684,8 @@ entradas:
       - "formato"
       - "nova"
       - "pendente_aprovacao"
+      - "imagens_mes"
+      - "sem_imagens"
     variantes_literais: []
   - seccao: "3.82"
     conceito: "Tool do pedido de aprovação"
@@ -22662,6 +22699,8 @@ entradas:
       - "pendente_aprovacao"
       - "aprovar_conteudo"
       - "legenda"
+      - "condicional"
+      - "arte_desactualizada"
     variantes_literais: []
   - seccao: "3.82"
     conceito: "Tool da aprovação"
@@ -22676,6 +22715,9 @@ entradas:
       - "confirm"
       - "aprovado"
       - "aprovacao_invalidada"
+      - "arte_desactualizada"
+      - "aprovar_conteudo"
+      - "ref"
     variantes_literais: []
   - seccao: "3.82"
     conceito: "Tool da rejeição"
@@ -22738,13 +22780,14 @@ entradas:
     variantes_literais: []
   - seccao: "3.82"
     conceito: "Recusas da arte, da aprovação e da entrega"
-    canonico: "texto_nao_cabe, tentativas_esgotadas, sem_arte, sem_legenda, aprovacao_invalidada, por_aprovar, arte_por_ligar, fontes_em_falta"
+    canonico: "texto_nao_cabe, tentativas_esgotadas, sem_arte, sem_legenda, aprovacao_invalidada, arte_desactualizada, por_aprovar, arte_por_ligar, fontes_em_falta"
     literais:
       - "texto_nao_cabe"
       - "tentativas_esgotadas"
       - "sem_arte"
       - "sem_legenda"
       - "aprovacao_invalidada"
+      - "arte_desactualizada"
       - "por_aprovar"
       - "arte_por_ligar"
       - "fontes_em_falta"
@@ -22754,6 +22797,7 @@ entradas:
       - "sem_arte"
       - "sem_legenda"
       - "aprovacao_invalidada"
+      - "arte_desactualizada"
       - "por_aprovar"
       - "arte_por_ligar"
       - "fontes_em_falta"
@@ -24385,8 +24429,10 @@ tabelas:
       - "aprovacao_hash"
       - "aprovado_at"
       - "entregue_at"
+      - "arte_texto"
+      - "arte_formato"
     aberta: false
-    assinatura: "platform.content_items(content_item_id, tenant_id, calendar_id, semana_iso, tipo, tema, legenda, art_asset_id, estado, is_ai_generated, revisao_reforcada, versao_politica, versao, agendado_at, criado_at, atualizado_at, arte_ref, arte_sha256, arte_fundo, arte_tentativas, arte_custo_usd, aprovacao_hash, aprovado_at, entregue_at)"
+    assinatura: "platform.content_items(content_item_id, tenant_id, calendar_id, semana_iso, tipo, tema, legenda, art_asset_id, estado, is_ai_generated, revisao_reforcada, versao_politica, versao, agendado_at, criado_at, atualizado_at, arte_ref, arte_sha256, arte_fundo, arte_tentativas, arte_custo_usd, aprovacao_hash, aprovado_at, entregue_at, arte_texto, arte_formato)"
     seccao: "3.82"
     conceito: "Item de conteúdo"
   - nome: "numeric"
@@ -26297,6 +26343,13 @@ dominios:
       - "gradiente"
     seccao: "3.82"
     conceito: "Fundo da arte"
+    so_no_registo: false
+  - coluna: "content_items.arte_formato"
+    valores:
+      - "quadrado"
+      - "retrato"
+    seccao: "3.82"
+    conceito: "Formato da arte"
     so_no_registo: false
 
 variantes:

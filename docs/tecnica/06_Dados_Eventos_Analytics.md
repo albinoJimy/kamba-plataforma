@@ -152,7 +152,7 @@ Chave de ordem = `agregado`. Consumidores marcados «†» exigem ordem por agre
 | `quote.requested` | AGR (pedido de orçamento de um produto `sob_consulta`, na transacção da `quote_requests`; um pedido repetido em dez minutos não emite; KAM-123) | DAT; o aviso ao dono é o credor KAM-220 | quote | P0 | P |
 | `quote.sent` | AGR (proposta enviada ao cliente depois do botão do dono, ou libertada quando a janela abre; KAM-123) | DAT | quote | P0 | P |
 | `agent.replied` | AGR (a resposta de um turno, no `enfileirar` da `PortaDeSaida`, na transacção que escreve a `agent_replies`; um turno repetido não emite; KAM-224) | o Outbound do `worker-canal` (canal `whatsapp`) e o painel do `onboarding-web` (canal `painel`) | conversation | P0 | P |
-| `content.approved` | AGR (o dono aprova um item do módulo social pelo botão `confirm:{action_id}`, na transacção que o passa a `aprovado`; uma segunda aprovação não emite; KAM-122) | nenhum no Piloto: os publicadores de redes que o leriam são Diferidos (D13) | content_item | P0 | P |
+| `content.approved` | AGR (o dono aprova um item do módulo social pelo botão `confirm:{action_id}`, na transacção que o passa a `aprovado`; uma segunda aprovação do mesmo `hash` não emite; KAM-122) | nenhum no Piloto: os publicadores de redes que o leriam são Diferidos (D13) | content_item | P0 | P |
 | `review.requested` | REP (`order.delivered` + 2 h) | AGR (envia o pedido) | order | P1 | P |
 | `review.created` | AGR/REP (resposta do cliente) | REP, IDX, DAT | order | P1 | P |
 | `review.removed` | GOV/T&S (com motivo) | REP, IDX | order | P0 | C |

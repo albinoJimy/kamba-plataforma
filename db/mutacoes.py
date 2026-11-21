@@ -7819,8 +7819,9 @@ MUTACOES = [
 
     # ------------------- KAM-122 (revisao da arte e da aprovacao do social)
     #
-    # Sete: a finalidade, a descida, tres ao gatilho (a aresta para `entregue`,
-    # os finais e a legenda de um aprovado) e duas as restricoes da arte. O alvo
+    # Oito: a finalidade, a descida, quatro ao gatilho (a aresta para
+    # `entregue`, os finais, a legenda e o texto da arte de um aprovado) e duas
+    # as restricoes da arte. O alvo
     # e a revisao descoberta pelo *glob* (`REV_ARTE_E_APROVACAO_DO_SOCIAL`), e o
     # ensaio que as mata e o `test_arte_e_aprovacao_do_social_schema.py`.
     ('arte e aprovacao: o dominio nao ganha a finalidade', REV_ARTE_E_APROVACAO_DO_SOCIAL,
@@ -7857,6 +7858,12 @@ MUTACOES = [
     # O criterio 5: a legenda mudava num item `aprovado` e a aprovacao deixava
     # de ser a do que o dono viu. O
     # `test_um_aprovado_nao_muda_a_legenda_a_arte_nem_o_hash` tem de a matar.
+    ('arte e aprovacao: o texto da arte de um aprovado muda', REV_ARTE_E_APROVACAO_DO_SOCIAL,
+     "               OR NEW.arte_texto IS DISTINCT FROM OLD.arte_texto\n",
+     "",
+     "tests"),
+    # O texto que esta na imagem (o preco em Kz, o nome) mudava num item
+    # `aprovado` sem nova aprovacao. O mesmo ensaio tem de a matar.
     ('arte e aprovacao: a arte de outro tenant', REV_ARTE_E_APROVACAO_DO_SOCIAL,
      "\n                   AND left(arte_ref, 38) = 't/' || tenant_id::text)),",
      ")),",

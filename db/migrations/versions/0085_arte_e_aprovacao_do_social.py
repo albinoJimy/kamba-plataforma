@@ -22,6 +22,9 @@ mensagem que o `alembic history` imprime.
 2. **As colunas da arte e da aprovacao em `platform.content_items`**:
    `arte_ref` (a chave do STO, `t/{tenant}/...`, presa ao tenant da linha por
    `CHECK`), `arte_sha256`, `arte_fundo` (`gerado` ou `gradiente`),
+   `arte_texto` e `arte_formato` (o texto e o formato **que estao na imagem**:
+   a pre-visualizacao mostra-os, e nao uma composicao refeita dos factos de
+   agora — achado 1 da revisao adversarial),
    `arte_tentativas` (0 a 3, criterio 9), `arte_custo_usd` (a soma das
    tentativas do fornecedor, o custo por item do ADR-018), `aprovacao_hash`
    (o `hash(legenda, arte, versao)` do criterio 5), `aprovado_at` e
@@ -115,6 +118,7 @@ FINALIDADES_DA_0079 = (
 )
 
 FUNDOS = ("'gerado'", "'gradiente'")
+FORMATOS = ("'quadrado'", "'retrato'")
 
 #: As arestas da maquina do item, **por extenso**: o *gate* 3b le o SQL das
 #: revisoes sem as executar. O ensaio `services/agr/tests/test_social_aprovacao.py`
@@ -131,6 +135,8 @@ UPDATE_DO_ITEM = (
     "arte_ref",
     "arte_sha256",
     "arte_fundo",
+    "arte_texto",
+    "arte_formato",
     "arte_tentativas",
     "arte_custo_usd",
     "aprovacao_hash",
@@ -160,6 +166,10 @@ def upgrade() -> None:
             CONSTRAINT content_items_arte_sha256_ck CHECK (arte_sha256 IS NULL OR arte_sha256 ~ {SHA256}),
           ADD COLUMN arte_fundo text
             CONSTRAINT content_items_arte_fundo_ck CHECK (arte_fundo IN ({_lista(FUNDOS)})),
+          ADD COLUMN arte_texto text
+            CONSTRAINT content_items_arte_texto_ck CHECK (char_length(arte_texto) BETWEEN 1 AND 600),
+          ADD COLUMN arte_formato text
+            CONSTRAINT content_items_arte_formato_ck CHECK (arte_formato IN ({_lista(FORMATOS)})),
           ADD COLUMN arte_tentativas smallint NOT NULL DEFAULT 0
             CONSTRAINT content_items_arte_tentativas_ck CHECK (arte_tentativas BETWEEN 0 AND 3),
           ADD COLUMN arte_custo_usd numeric(12, 6) NOT NULL DEFAULT 0
@@ -174,7 +184,8 @@ def upgrade() -> None:
         f"""
         ALTER TABLE {ITENS}
           ADD CONSTRAINT content_items_arte_completa_ck
-            CHECK ((arte_ref IS NULL) = (arte_sha256 IS NULL) AND (arte_ref IS NULL) = (arte_fundo IS NULL)),
+            CHECK ((arte_ref IS NULL) = (arte_sha256 IS NULL) AND (arte_ref IS NULL) = (arte_fundo IS NULL)
+                   AND (arte_ref IS NULL) = (arte_texto IS NULL) AND (arte_ref IS NULL) = (arte_formato IS NULL)),
           ADD CONSTRAINT content_items_pendente_ck
             CHECK (estado <> 'pendente_aprovacao' OR (legenda IS NOT NULL AND arte_ref IS NOT NULL)),
           ADD CONSTRAINT content_items_aprovado_ck
@@ -209,6 +220,7 @@ def upgrade() -> None:
                NEW.legenda IS DISTINCT FROM OLD.legenda
                OR NEW.arte_ref IS DISTINCT FROM OLD.arte_ref
                OR NEW.arte_sha256 IS DISTINCT FROM OLD.arte_sha256
+               OR NEW.arte_texto IS DISTINCT FROM OLD.arte_texto
                OR NEW.aprovacao_hash IS DISTINCT FROM OLD.aprovacao_hash
           ) THEN
             RAISE EXCEPTION 'a legenda e a arte de um item aprovado nao mudam sem nova aprovacao'
@@ -284,6 +296,8 @@ def downgrade() -> None:
           DROP COLUMN aprovacao_hash,
           DROP COLUMN arte_custo_usd,
           DROP COLUMN arte_tentativas,
+          DROP COLUMN arte_formato,
+          DROP COLUMN arte_texto,
           DROP COLUMN arte_fundo,
           DROP COLUMN arte_sha256,
           DROP COLUMN arte_ref

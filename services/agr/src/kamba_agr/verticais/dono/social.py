@@ -398,10 +398,9 @@ async def _entregar(deps: Dependencias, estado: Mapping[str, Any], referencia: s
     if not entregue.ok:
         return _resposta_estatica(_frase_do_erro(entregue.error))
     dados = entregue.data
-    if dados.get("ja_entregue"):
-        return _resposta_estatica(MSG_JA_ENTREGUE.format(referencia=referencia))
     partes = dados["entrega"]
-    linhas = [MSG_ENTREGA.format(referencia=referencia), "", str(partes["legenda"]), ""]
+    abertura = MSG_JA_ENTREGUE if dados.get("ja_entregue") else MSG_ENTREGA
+    linhas = [abertura.format(referencia=referencia), "", str(partes["legenda"]), ""]
     if partes.get("nota"):
         linhas.append(str(partes["nota"]))
     linhas.append(MSG_IMAGEM_POR_LIGAR)
@@ -496,7 +495,7 @@ MSG_BOTAO_JA_USADO: Final = (
     "Esse botao ja foi usado. Se mudou o conteudo depois, aprove-o no botao da pre-visualizacao mais recente."
 )
 MSG_ENTREGA: Final = "Aqui esta o conteudo {referencia} para publicar. A legenda vem a seguir, para copiar:"
-MSG_JA_ENTREGUE: Final = "O conteudo {referencia} ja lhe foi entregue."
+MSG_JA_ENTREGUE: Final = "O conteudo {referencia} ja lhe foi entregue. A legenda vai outra vez, para copiar:"
 MSG_TENTATIVAS_ESGOTADAS: Final = (
     "Este item ja teve as tentativas de arte do plano. Aprove uma das artes ou rejeite o item."
 )
@@ -537,6 +536,9 @@ FRASE_DA_RECUSA: Final = {
     ),
     "por_aprovar": "Esse conteudo ainda nao foi aprovado. Aprove-o primeiro no botao da pre-visualizacao.",
     "texto_nao_cabe": "O texto da arte nao cabe no modelo. Encurte o nome ou o facto e tente outra vez.",
+    "arte_desactualizada": (
+        "Os factos da loja mudaram depois desta arte, e ela tem um valor que ja nao vale. Escreva OUTRA ARTE e a referencia."
+    ),
     "arte_por_ligar": "As artes ainda nao estao disponiveis por aqui.",
     "fontes_em_falta": "As artes ainda nao estao disponiveis por aqui.",
     "accao_por_confirmar": "Esse botao ainda nao foi confirmado.",

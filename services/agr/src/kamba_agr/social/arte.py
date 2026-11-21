@@ -153,6 +153,7 @@ def formatar_telefone(texto: str) -> str | None:
 #: O espaco que une as partes de um valor ou de um telefone, para a quebra de
 #: linha nao os partir. Sai como espaco normal na linha composta.
 _UNE: Final = "\u00a0"
+_PERCENTAGEM: Final = re.compile(r"\d+(?:[.,]\d+)?\s*%")
 
 
 def normalizar_valores(texto: str) -> str:
@@ -294,7 +295,11 @@ def verificar_numeros(composicao: Composicao, factos: Sequence[Facto], nome: str
     # Cada facto entra como o dono o escreveu **e** na forma da arte: «1.500,00 Kz»
     # sai «1.500 Kz» e «+244 999 432 100» sai «999 432 100», e os algarismos
     # mudam. A forma da arte e derivada do facto, e nao abre a porta a outro numero.
-    fontes = [f.texto for f in factos] + [normalizar_valores(f.texto).replace(_UNE, " ") for f in factos] + [nome]
+    # **O nome so cobre o que nao e dinheiro**: «Tudo a 2.500 Kz» como nome da
+    # marca punha um preco na arte sem facto nenhum (achado 7 da revisao). Os
+    # valores em Kz e as percentagens saem do nome antes de ele servir de fonte.
+    nome_sem_dinheiro = _PERCENTAGEM.sub(" ", _VALOR_EM_KZ.sub(" ", nome))
+    fontes = [f.texto for f in factos] + [normalizar_valores(f.texto).replace(_UNE, " ") for f in factos] + [nome_sem_dinheiro]
     # **Linha a linha**: a guarda junta algarismos separados por um espaco antes
     # de um grupo de tres, e a quebra de linha e um espaco — «30/12» e um
     # telefone na linha seguinte liam-se como um so numero, que nenhum facto tem.

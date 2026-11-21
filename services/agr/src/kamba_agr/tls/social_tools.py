@@ -70,6 +70,7 @@ from __future__ import annotations
 
 import datetime
 import hashlib
+from decimal import Decimal
 
 import uuid
 from collections.abc import Callable, Mapping
@@ -86,7 +87,7 @@ from ..social import arte as arte_mod
 from ..social import regras
 from ..social.aprovacao import hash_da_aprovacao, ler_ref, ref_da_accao
 from ..social.desenho import FontesEmFaltaError, RenderizadorPillow
-from ..social.fundos import GRADIENTE, GeradorDeFundos, PedidoDeFundo, escolher_fundo
+from ..social.fundos import GRADIENTE, Escolha, GeradorDeFundos, PedidoDeFundo, escolher_fundo
 from ..social.fundos import GeradorPorLigar as FundoPorLigar
 from ..social.fundos import PortaDeDestinos
 from ..social.geracao import GeradorDeLegendas, GeradorPorLigar, GeradorPorLigarError, PedidoDeLegenda, Recusa, gerar_legenda
@@ -517,14 +518,32 @@ def _composicao(perfil: regras.Perfil, item: Any, formato: str, tentativa: int) 
 
 
 def vista_da_arte(item: Any, referencia: str, composicao: Any | None = None, **extra: Any) -> dict[str, Any]:
+    """A vista do item com a arte. **O texto da arte e o que esta na imagem** (`arte_texto`)."""
     dados = vista_do_item(item, referencia)
     dados["tentativas_restantes"] = max(MAXIMO_DE_TENTATIVAS - item.arte_tentativas, 0)
+    dados["formato"] = item.arte_formato
+    dados["texto_da_arte"] = item.arte_texto.split("\n") if item.arte_texto else []
     if composicao is not None:
         dados["template_id"] = composicao.template.template_id
-        dados["formato"] = composicao.formato
-        dados["texto_da_arte"] = [linha.texto for linha in composicao.linhas]
     dados.update(extra)
     return dados
+
+
+def _arte_ainda_vale(perfil: regras.Perfil, item: Any) -> None:
+    """O texto **guardado** da arte contra os factos validos de agora (criterios 2 e 5).
+
+    Um facto que mudou ou expirou depois da arte deixa-a com um numero que ja
+    nao tem fonte: a aprovacao recusa, e o dono pede outra arte.
+    """
+    if not item.arte_texto or perfil.nome is None:
+        raise ErroDeBackend(VALIDATION_ERROR, "sem_arte")
+    dia = regras.dia_local(item.agendado_at)
+    linhas = tuple(arte_mod.Linha("texto", t) for t in item.arte_texto.split("\n"))
+    composicao = arte_mod.Composicao(arte_mod.TEMPLATES[next(iter(arte_mod.TEMPLATES))], item.arte_formato or "quadrado", linhas)
+    try:
+        arte_mod.verificar_numeros(composicao, perfil.factos_validos(dia), perfil.nome)
+    except arte_mod.Recusa:
+        raise ErroDeBackend(VALIDATION_ERROR, "arte_desactualizada") from None
 
 
 def _serve(accao: Any, contacto: str, instante: datetime.datetime) -> bool:
@@ -561,6 +580,22 @@ def _legenda_do_dono(portas: PortasDoSocial, perfil: regras.Perfil, item: Any, l
     return texto
 
 
+def _partes(item: Any, primeira: bool) -> dict[str, Any]:
+    """As partes da mensagem de entrega, pela `ManualDelivery` (D13)."""
+    assert item.legenda is not None
+    entrega = ManualDelivery().deliver(
+        PedidoDeEntrega(
+            content_item_id=item.content_item_id,
+            tenant_id=item.tenant_id,
+            legenda=item.legenda,
+            arte_ref=item.arte_ref,
+            is_ai_generated=item.is_ai_generated,
+            primeira_entrega=primeira,
+        )
+    )
+    return {"legenda": entrega.legenda, "nota": entrega.nota, "termos": entrega.termos}
+
+
 def _propor_botao(portas: PortasDoSocial, pedido: Pedido, item: Any, instante: datetime.datetime, *, reforcada: bool) -> str:
     """A accao `aprovar_conteudo` do `hash` do item que ainda serve a este dono."""
     assert item.aprovacao_hash is not None
@@ -574,7 +609,13 @@ def _propor_botao(portas: PortasDoSocial, pedido: Pedido, item: Any, instante: d
             ref_da_accao(item.content_item_id, item.aprovacao_hash, tentativa, reforcada=reforcada),
             instante,
         )
-        if _serve(portas.ler_accao(pedido.ligacao, tenant, action_id), pedido.ctx.contact_id, instante):
+        accao = portas.ler_accao(pedido.ligacao, tenant, action_id)
+        # **Num item reforcado, uma accao ja confirmada nao serve** (achado 3 da
+        # revisao): o passo 5 guarda o resultado dela, e o toque seguinte
+        # devolvia-o sem aprovar. Propoe-se a tentativa seguinte, por confirmar.
+        if item.revisao_reforcada and accao is not None and accao[2] == "confirmada":
+            continue
+        if _serve(accao, pedido.ctx.contact_id, instante):
             return action_id
     raise ErroDeBackend(VALIDATION_ERROR, "botoes_esgotados")
 
@@ -596,9 +637,10 @@ def _executores_da_arte(portas: PortasDoSocial, agora: Callable[[], datetime.dat
         perfil = _perfil_completo(repositorio, tenant)
         if item.arte_ref is not None and not args.nova:
             # **Renderizar duas vezes da uma arte** (idempotencia do bloco): sem
-            # `nova`, a arte que o item ja tem, e nenhuma tentativa conta.
-            composicao = _composicao(perfil, item, args.formato, max(item.arte_tentativas, 1))
-            return Resposta(data=vista_da_arte(item, referencia, composicao, nova=False))
+            # `nova`, a arte que o item ja tem — o texto e o formato **guardados**
+            # com ela, e nao uma composicao refeita dos factos de agora (achado 1
+            # da revisao adversarial) —, e nenhuma tentativa conta.
+            return Resposta(data=vista_da_arte(item, referencia, nova=False))
         if item.arte_tentativas >= MAXIMO_DE_TENTATIVAS:
             raise ErroDeBackend(LIMIT_EXCEEDED, "tentativas_esgotadas")
         tentativa = item.arte_tentativas + 1
@@ -606,6 +648,15 @@ def _executores_da_arte(portas: PortasDoSocial, agora: Callable[[], datetime.dat
             composicao = _composicao(perfil, item, args.formato, tentativa)
         except arte_mod.Recusa as recusa:
             raise ErroDeBackend(VALIDATION_ERROR, recusa.motivo) from None
+        # **O texto cabe antes de se pagar o fundo** (achado 4 da revisao): o
+        # desenho sobre o fundo do *template* mede as linhas em pixeis e confere
+        # as fontes. So depois sai o pedido ao gerador.
+        try:
+            jpeg = portas.renderizador.desenhar(composicao, perfil.cores or (), None)
+        except arte_mod.Recusa as recusa:
+            raise ErroDeBackend(VALIDATION_ERROR, recusa.motivo) from None
+        except FontesEmFaltaError:
+            raise ErroDeBackend(UPSTREAM_DOWN, "fontes_em_falta") from None
         tipo = arte_mod.tipo_de_negocio(perfil.categoria)
         try:
             escolha = escolher_fundo(
@@ -620,13 +671,12 @@ def _executores_da_arte(portas: PortasDoSocial, agora: Callable[[], datetime.dat
             )
         except SemImagensError:
             # O `imagens_mes` esgotado nao impede a arte: impede o fundo gerado.
-            escolha = escolher_fundo(tenant, PedidoDeFundo(tipo, args.formato), FundoPorLigar(), portas.ocr, portas.destinos)
-        try:
-            jpeg = portas.renderizador.desenhar(composicao, perfil.cores or (), escolha.imagem)
-        except arte_mod.Recusa as recusa:
-            raise ErroDeBackend(VALIDATION_ERROR, recusa.motivo) from None
-        except FontesEmFaltaError:
-            raise ErroDeBackend(UPSTREAM_DOWN, "fontes_em_falta") from None
+            escolha = Escolha(None, GRADIENTE, Decimal(0), 0, "sem_imagens")
+        if escolha.imagem is not None:
+            try:
+                jpeg = portas.renderizador.desenhar(composicao, perfil.cores or (), escolha.imagem)
+            except Exception:  # noqa: BLE001 — uma cena ilegivel nao perde a arte paga
+                escolha = Escolha(None, GRADIENTE, escolha.custo_usd, escolha.pedidos, "cena_ilegivel")
         instante = agora()
         ctx = Ctx(tenant)
         try:
@@ -638,7 +688,10 @@ def _executores_da_arte(portas: PortasDoSocial, agora: Callable[[], datetime.dat
             raise ErroDeBackend(UPSTREAM_DOWN, "arte_por_ligar") from None
         sha256 = guardada.sha256 or hashlib.sha256(jpeg).hexdigest()
         try:
-            gravado = repositorio.gravar_arte(item, Arte(chave, sha256, escolha.fundo, escolha.custo_usd))
+            gravado = repositorio.gravar_arte(
+                item,
+                Arte(chave, sha256, escolha.fundo, escolha.custo_usd, arte_mod.texto_composto(composicao), args.formato),
+            )
         except TentativasEsgotadasError:
             raise ErroDeBackend(LIMIT_EXCEEDED, "tentativas_esgotadas") from None
         except ItemMudouError:
@@ -668,25 +721,35 @@ def _executores_da_arte(portas: PortasDoSocial, agora: Callable[[], datetime.dat
         if item.arte_ref is None or item.arte_sha256 is None:
             raise ErroDeBackend(VALIDATION_ERROR, "sem_arte")
         perfil = _perfil_completo(repositorio, tenant)
+        _arte_ainda_vale(perfil, item)
         legenda = item.legenda
+        reforcada = False
         if args.legenda is not None:
             legenda = _legenda_do_dono(portas, perfil, item, args.legenda)
             # O screening corre outra vez sobre a legenda do dono (criterio 6).
             decisao = _screen(portas, tenant, item.content_item_id, [item.tema, legenda, *_do_perfil(perfil)])
             if decisao.decisao == BLOQUEADA:
                 raise ErroDeBackend(VALIDATION_ERROR, "categoria_bloqueada")
+            # Uma `condicional` na edicao reforca o item, como na legenda gerada
+            # (achado 2 da revisao): a confirmacao a mais nao se salta editando.
+            reforcada = decisao.decisao != PERMITIDA
         if not legenda:
             raise ErroDeBackend(VALIDATION_ERROR, "sem_legenda")
         if item.estado == APROVADO and legenda == item.legenda:
             raise ErroDeBackend(VALIDATION_ERROR, "ja_aprovado")
-        if item.estado == PENDENTE_APROVACAO and legenda == item.legenda and item.aprovacao_hash is not None:
+        if (
+            item.estado == PENDENTE_APROVACAO
+            and legenda == item.legenda
+            and item.aprovacao_hash is not None
+            and not (reforcada and not item.revisao_reforcada)
+        ):
             # **Pedir duas vezes sem mudar nada nao escreve**: o mesmo `hash`, a
             # mesma `ref`, a mesma accao.
             gravado = item
         else:
             hash_ = hash_da_aprovacao(legenda, item.arte_sha256, item.versao + 1)
             try:
-                gravado = repositorio.pedir_aprovacao(item, legenda, hash_)
+                gravado = repositorio.pedir_aprovacao(item, legenda, hash_, reforcada)
             except ItemMudouError:
                 raise ErroDeBackend(UPSTREAM_TIMEOUT, "item_mudou") from None
         assert gravado.aprovacao_hash is not None
@@ -725,6 +788,9 @@ def _executores_da_arte(portas: PortasDoSocial, agora: Callable[[], datetime.dat
             and hash_da_aprovacao(item.legenda, item.arte_sha256, item.versao) != hash_
         ):
             raise ErroDeBackend(VALIDATION_ERROR, "aprovacao_invalidada")
+        if item.estado == PENDENTE_APROVACAO:
+            perfil = _perfil_completo(repositorio, tenant)
+            _arte_ainda_vale(perfil, item)
         if item.revisao_reforcada and not reforcada and item.estado == PENDENTE_APROVACAO:
             # **A confirmacao a mais da revisao reforcada** (KAM-121, criterio 5):
             # o primeiro botao nao aprova; propoe o segundo, do mesmo `hash`.
@@ -766,9 +832,11 @@ def _executores_da_arte(portas: PortasDoSocial, agora: Callable[[], datetime.dat
         item = _o_item(repositorio, tenant, args.referencia)
         referencia = regras.referencia_do_item(item.content_item_id)
         if item.estado == ENTREGUE:
-            # **Entregar duas vezes da uma mensagem de entrega**: a segunda diz
-            # que ja foi, sem as partes.
-            return Resposta(data=vista_da_arte(item, referencia, ja_entregue=True))
+            # **Entregar duas vezes da uma entrega**: o item nao muda e os termos
+            # nao se repetem. Mas a legenda volta, so para o dono: a entrega grava
+            # antes de a mensagem sair, e um envio que falhou nao a deixava
+            # chegar nunca (achado 6 da revisao).
+            return Resposta(data=vista_da_arte(item, referencia, ja_entregue=True, entrega=_partes(item, False)))
         if item.estado != APROVADO:
             raise ErroDeBackend(VALIDATION_ERROR, "por_aprovar")
         try:
@@ -778,25 +846,7 @@ def _executores_da_arte(portas: PortasDoSocial, agora: Callable[[], datetime.dat
             if relido is not None and relido.estado == ENTREGUE:
                 return Resposta(data=vista_da_arte(relido, referencia, ja_entregue=True))
             raise ErroDeBackend(UPSTREAM_TIMEOUT, "item_mudou") from None
-        assert entregue.legenda is not None
-        entrega = ManualDelivery().deliver(
-            PedidoDeEntrega(
-                content_item_id=entregue.content_item_id,
-                tenant_id=tenant,
-                legenda=entregue.legenda,
-                arte_ref=entregue.arte_ref,
-                is_ai_generated=entregue.is_ai_generated,
-                primeira_entrega=primeira,
-            )
-        )
-        return Resposta(
-            data=vista_da_arte(
-                entregue,
-                referencia,
-                ja_entregue=False,
-                entrega={"legenda": entrega.legenda, "nota": entrega.nota, "termos": entrega.termos},
-            )
-        )
+        return Resposta(data=vista_da_arte(entregue, referencia, ja_entregue=False, entrega=_partes(entregue, primeira)))
 
     return {
         "generate_art": generate_art,

@@ -147,6 +147,9 @@ class Item:
     arte_ref: str | None = None
     arte_sha256: str | None = None
     arte_fundo: str | None = None
+    #: O texto e o formato que estao na imagem (as linhas por `\n`).
+    arte_texto: str | None = None
+    arte_formato: str | None = None
     arte_tentativas: int = 0
     arte_custo_usd: Decimal = Decimal(0)
     aprovacao_hash: str | None = None
@@ -162,6 +165,8 @@ class Arte:
     arte_sha256: str
     fundo: str
     custo_usd: Decimal
+    texto: str
+    formato: str
 
 
 @dataclass(frozen=True)
@@ -234,7 +239,7 @@ class RepositorioSocial(Protocol):
 
     def gravar_arte(self, item: Item, arte: Arte) -> Item: ...
 
-    def pedir_aprovacao(self, item: Item, legenda: str, hash_: str) -> Item: ...
+    def pedir_aprovacao(self, item: Item, legenda: str, hash_: str, reforcada: bool = False) -> Item: ...
 
     def aprovar(self, item: Item, hash_: str, agora: datetime.datetime) -> tuple[Item, EventoAprovado | None]: ...
 
@@ -340,6 +345,8 @@ class RepositorioEmMemoria:
 
     def gravar_legenda(self, item: Item, legenda: str, revisao_reforcada: bool, versao_politica: str) -> Item:
         self._exigir_versao(item)
+        if item.estado != RASCUNHO:
+            raise ItemMudouError("item mudou")
         consumidas = self.consumos.setdefault(item.tenant_id, set())
         chave = chave_de_consumo(item.content_item_id)
         if chave not in consumidas:
@@ -358,6 +365,8 @@ class RepositorioEmMemoria:
 
     def rejeitar(self, item: Item, versao_politica: str) -> Item:
         self._exigir_versao(item)
+        if item.estado != RASCUNHO:
+            raise ItemMudouError("item mudou")
         novo = _com(item, estado=REJEITADO, versao_politica=versao_politica, versao=item.versao + 1)
         self.itens[item.content_item_id] = novo
         return novo
@@ -398,15 +407,24 @@ class RepositorioEmMemoria:
             arte_ref=arte.arte_ref,
             arte_sha256=arte.arte_sha256,
             arte_fundo=arte.fundo,
+            arte_texto=arte.texto,
+            arte_formato=arte.formato,
             arte_tentativas=item.arte_tentativas + 1,
             arte_custo_usd=item.arte_custo_usd + arte.custo_usd,
             aprovacao_hash=None,
         )
 
-    def pedir_aprovacao(self, item: Item, legenda: str, hash_: str) -> Item:
+    def pedir_aprovacao(self, item: Item, legenda: str, hash_: str, reforcada: bool = False) -> Item:
         if item.estado not in APROVAVEIS:
             raise ItemMudouError("item mudou")
-        return self._mudar(item, estado=PENDENTE_APROVACAO, legenda=legenda, aprovacao_hash=hash_, aprovado_at=None)
+        return self._mudar(
+            item,
+            estado=PENDENTE_APROVACAO,
+            legenda=legenda,
+            aprovacao_hash=hash_,
+            aprovado_at=None,
+            revisao_reforcada=item.revisao_reforcada or reforcada,
+        )
 
     def aprovar(self, item: Item, hash_: str, agora: datetime.datetime) -> tuple[Item, EventoAprovado | None]:
         actual = self.item(item.tenant_id, item.content_item_id) or item
@@ -443,5 +461,6 @@ def vista_do_item(item: Item, referencia: str) -> dict[str, Any]:
         "revisao_reforcada": item.revisao_reforcada,
         "versao_politica": item.versao_politica,
         "arte_fundo": item.arte_fundo,
+        "arte_formato": item.arte_formato,
         "arte_tentativas": item.arte_tentativas,
     }

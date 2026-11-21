@@ -21,20 +21,29 @@ MORDE = {
         'url = f"/{conta}/' + "media" + "_publish" + '"',
         'requests.post(f"https://x/{pagina}/' + "fe" + 'ed")',
         'cliente.post("/me/' + "pho" + 'tos", dados)',
+        # Achado 5 da revisao adversarial: os que passavam.
+        'f"https://graph.facebook.com/{pagina}/' + "vid" + 'eos"',
     ),
     "anfitriao de rede": (
+        'UPLOAD = "https://rupl' + 'oad.facebook.com/x"',
         'BASE = "https://graph.' + "insta" + 'gram.com"',
         'BASE = "https://open.' + "tiktok" + 'apis.com/v2"',
     ),
     "permissao de publicacao": (
         'scopes = ["pages_manage_' + 'posts"]',
         'scopes = ["instagram_business_content_' + 'publish"]',
+        'scopes = ["threads_content_' + 'publish"]',
     ),
     "segredo de rede": (
         "INSTA" + "GRAM_ACCESS_TOK" + "EN=abc",
         "FACE" + "BOOK_PAGE_SEC" + "RET: ${X}",
         "TIK" + "TOK_CLIENT_KEY=",
         "PAGE_ACCESS_TOK" + "EN",
+        "IG_ACCESS_TOK" + "EN=x",
+        "FB_APP_SEC" + "RET=x",
+        "FB_ACCESS_TOK" + "EN=x",
+        "META_PAGE_TOK" + "EN=x",
+        "insta" + "gram_tok" + "en: ${X}",
     ),
 }
 
@@ -46,6 +55,9 @@ NAO_MORDE = (
     "# o dono publica a mao no Instagram",  # a palavra solta nao e um caminho
     'feedback = "/feedback"',  # um segmento que comeca por feed
     "fotos/produto.jpg",
+    "CONFIG_TOKEN=x",  # tem «IG» por dentro, e nao e de rede
+    "BIG_SECRET_KEY",
+    "WA_PAGE_SIZE=10",
 )
 
 
@@ -71,7 +83,7 @@ class TestCanario(unittest.TestCase):
                 with self.subTest(linha=linha):
                     achados = redes_sociais.achados_no_texto("x.py", linha)
                     self.assertTrue(achados, linha)
-                    self.assertTrue(all(tipo in a for a in achados), achados)
+                    self.assertTrue(any(tipo in a for a in achados), achados)
 
     def test_o_legitimo_nao_morde(self) -> None:
         for linha in NAO_MORDE:

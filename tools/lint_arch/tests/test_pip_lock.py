@@ -103,6 +103,10 @@ class TestMarcadores(unittest.TestCase):
         self.assertFalse(
             marker_is_true('(sys_platform == "linux" or sys_platform == "darwin") and extra == "tests"')
         )
+        # Um `or` de topo nao se corta (achado 8 da revisao): `A or B and extra`
+        # e `A or (B and extra)`, e o `A` pode bastar.
+        with self.assertRaises(MarkerUndecided):
+            marker_is_true('sys_platform == "linux" or python_version < "3.9" and extra == "test"')
         # Um `extra` dentro do `or` nao decide nada: continua indecidivel.
         with self.assertRaises(MarkerUndecided):
             marker_is_true('(sys_platform == "linux" or extra == "x") and python_version < "3.13"')

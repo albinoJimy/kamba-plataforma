@@ -91,7 +91,7 @@ SQL_CALENDARIO_ACTIVO: Final = (
 SQL_ITENS_DO_CALENDARIO: Final = (
     "SELECT content_item_id::text, calendar_id::text, semana_iso, tipo, tema, agendado_at, legenda, estado, "
     "is_ai_generated, revisao_reforcada, versao_politica, versao, arte_ref, arte_sha256, arte_fundo, "
-    "arte_tentativas, arte_custo_usd, aprovacao_hash, aprovado_at, entregue_at "
+    "arte_tentativas, arte_custo_usd, aprovacao_hash, aprovado_at, entregue_at, arte_texto, arte_formato "
     "FROM platform.content_items WHERE tenant_id = %s::uuid AND calendar_id = %s::uuid "
     "ORDER BY agendado_at, content_item_id"
 )
@@ -123,7 +123,7 @@ SQL_INSERIR_ITEM: Final = (
 SQL_ITENS_POR_PREFIXO: Final = (
     "SELECT content_item_id::text, calendar_id::text, semana_iso, tipo, tema, agendado_at, legenda, estado, "
     "is_ai_generated, revisao_reforcada, versao_politica, versao, arte_ref, arte_sha256, arte_fundo, "
-    "arte_tentativas, arte_custo_usd, aprovacao_hash, aprovado_at, entregue_at "
+    "arte_tentativas, arte_custo_usd, aprovacao_hash, aprovado_at, entregue_at, arte_texto, arte_formato "
     "FROM platform.content_items WHERE tenant_id = %s::uuid AND left(content_item_id::text, 8) = %s "
     "LIMIT 2"
 )
@@ -148,7 +148,7 @@ SQL_REJEITAR: Final = (
 SQL_ITEM: Final = (
     "SELECT content_item_id::text, calendar_id::text, semana_iso, tipo, tema, agendado_at, legenda, estado, "
     "is_ai_generated, revisao_reforcada, versao_politica, versao, arte_ref, arte_sha256, arte_fundo, "
-    "arte_tentativas, arte_custo_usd, aprovacao_hash, aprovado_at, entregue_at "
+    "arte_tentativas, arte_custo_usd, aprovacao_hash, aprovado_at, entregue_at, arte_texto, arte_formato "
     "FROM platform.content_items WHERE tenant_id = %s::uuid AND content_item_id = %s::uuid"
 )
 SQL_ITEM_PARA_MUDAR: Final = SQL_ITEM + " FOR UPDATE"
@@ -157,7 +157,7 @@ SQL_ITEM_PARA_MUDAR: Final = SQL_ITEM + " FOR UPDATE"
 #: tres tentativas. **Apaga o `hash`**: o botao da arte antiga deixa de aprovar.
 SQL_GRAVAR_ARTE: Final = (
     "UPDATE platform.content_items SET arte_ref = %s, arte_sha256 = %s, arte_fundo = %s, "
-    "arte_tentativas = arte_tentativas + 1, arte_custo_usd = arte_custo_usd + %s, aprovacao_hash = NULL, "
+    "arte_texto = %s, arte_formato = %s, arte_tentativas = arte_tentativas + 1, arte_custo_usd = arte_custo_usd + %s, aprovacao_hash = NULL, "
     "versao = versao + 1, atualizado_at = now() "
     "WHERE tenant_id = %s::uuid AND content_item_id = %s::uuid AND versao = %s "
     "AND estado IN ('rascunho', 'pendente_aprovacao') AND arte_tentativas < %s RETURNING versao"
@@ -166,7 +166,7 @@ SQL_GRAVAR_ARTE: Final = (
 #: O pedido de aprovacao: a legenda (a do dono, numa edicao) e o `hash` do que ele vai ver.
 SQL_PEDIR_APROVACAO: Final = (
     "UPDATE platform.content_items SET estado = 'pendente_aprovacao', legenda = %s, aprovacao_hash = %s, "
-    "aprovado_at = NULL, versao = versao + 1, atualizado_at = now() "
+    "aprovado_at = NULL, revisao_reforcada = revisao_reforcada OR %s, versao = versao + 1, atualizado_at = now() "
     "WHERE tenant_id = %s::uuid AND content_item_id = %s::uuid AND versao = %s AND estado = ANY(%s) "
     "RETURNING versao"
 )
@@ -268,6 +268,7 @@ def _colunas(perfil: regras.Perfil) -> tuple[Any, ...]:
 def _item(tenant_id: str, linha: Sequence[Any]) -> Item:
     (item_id, calendar_id, semana, tipo, tema, agendado_at, legenda, estado, ia, reforcada, versao_politica, versao) = linha[:12]
     arte_ref, arte_sha256, arte_fundo, tentativas, custo, aprovacao_hash, aprovado_at, entregue_at = linha[12:20]
+    arte_texto, arte_formato = linha[20:22] if len(linha) >= 22 else (None, None)
     return Item(
         content_item_id=str(item_id).lower(),
         tenant_id=tenant_id,
@@ -285,6 +286,8 @@ def _item(tenant_id: str, linha: Sequence[Any]) -> Item:
         arte_ref=arte_ref,
         arte_sha256=arte_sha256,
         arte_fundo=arte_fundo,
+        arte_texto=arte_texto,
+        arte_formato=arte_formato,
         arte_tentativas=int(tentativas),
         arte_custo_usd=Decimal(str(custo)),
         aprovacao_hash=aprovacao_hash,
@@ -443,6 +446,8 @@ class RepositorioSql:
                     arte.arte_ref,
                     arte.arte_sha256,
                     arte.fundo,
+                    arte.texto,
+                    arte.formato,
                     arte.custo_usd,
                     item.tenant_id,
                     item.content_item_id,
@@ -458,23 +463,31 @@ class RepositorioSql:
             arte_ref=arte.arte_ref,
             arte_sha256=arte.arte_sha256,
             arte_fundo=arte.fundo,
+            arte_texto=arte.texto,
+            arte_formato=arte.formato,
             arte_tentativas=item.arte_tentativas + 1,
             arte_custo_usd=item.arte_custo_usd + arte.custo_usd,
             aprovacao_hash=None,
             versao=int(linha[0]),
         )
 
-    def pedir_aprovacao(self, item: Item, legenda: str, hash_: str) -> Item:
+    def pedir_aprovacao(self, item: Item, legenda: str, hash_: str, reforcada: bool = False) -> Item:
         with tenant_guard.tx(self._ligacao, item.tenant_id) as cursor:
             cursor.execute(
                 SQL_PEDIR_APROVACAO,
-                (legenda, hash_, item.tenant_id, item.content_item_id, item.versao, list(APROVAVEIS)),
+                (legenda, hash_, reforcada, item.tenant_id, item.content_item_id, item.versao, list(APROVAVEIS)),
             )
             linha = cursor.fetchone()
             if linha is None:
                 raise ItemMudouError("item mudou")
         return _com(
-            item, estado=PENDENTE_APROVACAO, legenda=legenda, aprovacao_hash=hash_, aprovado_at=None, versao=int(linha[0])
+            item,
+            estado=PENDENTE_APROVACAO,
+            legenda=legenda,
+            aprovacao_hash=hash_,
+            aprovado_at=None,
+            revisao_reforcada=item.revisao_reforcada or reforcada,
+            versao=int(linha[0]),
         )
 
     def aprovar(self, item: Item, hash_: str, agora: datetime.datetime) -> tuple[Item, EventoAprovado | None]:

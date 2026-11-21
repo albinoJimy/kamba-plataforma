@@ -27,7 +27,7 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
-from kamba_core.offboarding.exportacao import abrir_ligacao, ligacao_assinada
+from kamba_core.offboarding.exportacao import LigacaoRecusada, abrir_ligacao, ligacao_assinada
 from kamba_core.storage.fake import criar_storage_fake
 from PIL import Image, ImageDraw, ImageFont
 
@@ -568,7 +568,7 @@ class TestAsTools(unittest.TestCase):
         self.assertTrue(um.ok and dois.ok)
         self.assertFalse(um.data["ja_entregue"])
         self.assertTrue(dois.data["ja_entregue"])
-        self.assertNotIn("entrega", dois.data)
+        self.assertIsNone(dois.data["entrega"]["termos"])
         entrega = um.data["entrega"]
         self.assertEqual(entrega["legenda"], "Vestidos novos para a semana.")
         self.assertIn("rotulo de IA", entrega["nota"])
@@ -580,6 +580,95 @@ class TestAsTools(unittest.TestCase):
         self.mundo.accoes.confirmar(accao)
         self.mundo.aprovar(accao)
         self.assertIsNone(self.mundo.invocar("deliver_content", {"referencia": outro}).data["entrega"]["termos"])
+
+    # ------------------------------------------------------------ achados da revisao adversarial
+
+    def _com_factos(self, *factos: regras.Facto) -> None:
+        perfil = self.mundo.repo.perfis[A]
+        self.mundo.repo.perfis[A] = type(perfil)(**{**vars(perfil), "factos": factos})
+
+    def test_r1_a_pre_visualizacao_e_o_texto_guardado_e_nao_os_factos_de_agora(self) -> None:
+        self.assertTrue(self.mundo.invocar("generate_art", {"referencia": self.ref, "formato": "retrato"}).ok)
+        self._com_factos(regras.Facto("Vestido de capulana a 15.000 Kz"), TELEFONE)
+        r = self.mundo.invocar("generate_art", {"referencia": self.ref})
+        self.assertIn("12.500 Kz", r.data["texto_da_arte"])
+        self.assertNotIn("15.000 Kz", r.data["texto_da_arte"])
+        self.assertEqual(r.data["formato"], "retrato")
+        # E o preco que ja nao tem facto nao se aprova: nem no pedido, nem no botao.
+        r = self.mundo.invocar("request_approval", {"referencia": self.ref})
+        self.assertEqual(r.error.detalhe, "arte_desactualizada")
+
+    def test_r1_um_facto_que_muda_depois_do_pedido_trava_o_botao(self) -> None:
+        self.mundo.invocar("generate_art", {"referencia": self.ref})
+        action_id = self.mundo.invocar("request_approval", {"referencia": self.ref}).data["action_id"]
+        self._com_factos(regras.Facto("Vestido de capulana a 15.000 Kz"), TELEFONE)
+        self.mundo.accoes.confirmar(action_id)
+        self.assertEqual(self.mundo.aprovar(action_id).error.detalhe, "arte_desactualizada")
+        self.assertEqual(self._item().estado, PENDENTE_APROVACAO)
+
+    def test_r2_uma_edicao_condicional_pede_a_confirmacao_a_mais(self) -> None:
+        self.mundo.invocar("generate_art", {"referencia": self.ref})
+        self.mundo.screening.por_texto = {"festa": "condicional"}
+        r = self.mundo.invocar("request_approval", {"referencia": self.ref, "legenda": "Vestidos para a festa."})
+        self.assertTrue(r.ok, r.error)
+        self.assertTrue(self._item().revisao_reforcada)
+        self.mundo.accoes.confirmar(r.data["action_id"])
+        self.assertTrue(self.mundo.aprovar(r.data["action_id"]).data["confirmacao_extra"])
+        self.assertEqual(self._item().estado, PENDENTE_APROVACAO)
+
+    def test_r3_um_item_reforcado_nao_fica_preso_num_botao_ja_usado(self) -> None:
+        item = self._item()
+        self.mundo.repo.itens[item.content_item_id] = type(item)(**{**vars(item), "revisao_reforcada": True})
+        self.mundo.invocar("generate_art", {"referencia": self.ref})
+        primeira = self.mundo.invocar("request_approval", {"referencia": self.ref}).data["action_id"]
+        self.mundo.accoes.confirmar(primeira)
+        self.assertTrue(self.mundo.aprovar(primeira).data["confirmacao_extra"])
+        # A segunda perdeu-se (expirou, ou a resposta nao chegou). Um pedido novo
+        # nao devolve a primeira, ja confirmada e guardada pelo passo 5.
+        outra = self.mundo.invocar("request_approval", {"referencia": self.ref}).data["action_id"]
+        self.assertNotEqual(outra, primeira)
+        self.mundo.accoes.confirmar(outra)
+        extra = self.mundo.aprovar(outra)
+        self.assertTrue(extra.data["confirmacao_extra"], extra)
+        self.mundo.accoes.confirmar(extra.data["action_id"])
+        self.assertTrue(self.mundo.aprovar(extra.data["action_id"]).ok)
+        self.assertEqual(self._item().estado, APROVADO)
+
+    def test_r4_o_texto_que_nao_cabe_recusa_antes_de_pedir_o_fundo(self) -> None:
+        gerador = GeradorDeFundosDuplo(False)
+        mundo = MundoDaArte(gerador_de_fundos=gerador)
+        ref = mundo.item_com_legenda()
+        perfil = mundo.repo.perfis[A]
+        mundo.repo.perfis[A] = type(perfil)(**{**vars(perfil), "nome": "W" * 40})
+        r = mundo.invocar("generate_art", {"referencia": ref})
+        self.assertEqual(r.error.detalhe, "texto_nao_cabe")
+        self.assertEqual(gerador.pedidos, [])
+        self.assertEqual(mundo.repo.imagens.get(A, set()), set())
+
+    def test_r6_entregar_outra_vez_reenvia_a_legenda_sem_os_termos(self) -> None:
+        self.mundo.invocar("generate_art", {"referencia": self.ref})
+        action_id = self.mundo.invocar("request_approval", {"referencia": self.ref}).data["action_id"]
+        self.mundo.accoes.confirmar(action_id)
+        self.mundo.aprovar(action_id)
+        self.assertIsNotNone(self.mundo.invocar("deliver_content", {"referencia": self.ref}).data["entrega"]["termos"])
+        dois = self.mundo.invocar("deliver_content", {"referencia": self.ref}).data
+        self.assertTrue(dois["ja_entregue"])
+        self.assertEqual(dois["entrega"]["legenda"], "Vestidos novos para a semana.")
+        self.assertIsNone(dois["entrega"]["termos"])
+
+    def test_r7_dinheiro_no_nome_da_marca_nao_vai_a_arte(self) -> None:
+        perfil = self.mundo.repo.perfis[A]
+        self.mundo.repo.perfis[A] = type(perfil)(**{**vars(perfil), "nome": "Tudo a 2.500 Kz"})
+        r = self.mundo.invocar("generate_art", {"referencia": self.ref})
+        self.assertEqual(r.error.detalhe, "faltam_factos")
+        # Um numero que nao e dinheiro no nome continua a poder ir.
+        self.mundo.repo.perfis[A] = type(perfil)(**{**vars(perfil), "nome": "Loja 24"})
+        self.assertTrue(self.mundo.invocar("generate_art", {"referencia": self.ref}).ok)
+
+    def test_r9_o_imagens_mes_esgotado_diz_porque(self) -> None:
+        mundo = MundoDaArte(gerador_de_fundos=GeradorDeFundosDuplo(False), limite_de_imagens=0)
+        ref = mundo.item_com_legenda()
+        self.assertEqual(mundo.invocar("generate_art", {"referencia": ref}).data["motivo_do_fundo"], "sem_imagens")
 
     def test_rejeitar_fecha_o_item(self) -> None:
         self.mundo.invocar("generate_art", {"referencia": self.ref})
@@ -595,7 +684,7 @@ class TestAsTools(unittest.TestCase):
         self.mundo.invocar("generate_art", {"referencia": self.ref})
         chave = self._item().arte_ref
         token = ligacao_assinada(b"k" * 32, A, chave, AGORA)
-        with self.assertRaises(Exception):
+        with self.assertRaises(LigacaoRecusada):
             abrir_ligacao(b"k" * 32, token, B, AGORA, self.mundo.storage)
 
 
@@ -661,6 +750,7 @@ class TestOGrafo(unittest.TestCase):
         self.assertIn("rotulo de IA", texto)
         texto, _ = self._turno(mundo, botao=f"enviar:{ref}")
         self.assertIn("ja lhe foi entregue", texto)
+        self.assertIn("Vestidos novos para a semana.", texto)
         self.assertEqual(len(mundo.repo.eventos), 1)
 
     def test_o_botao_antigo_depois_de_uma_edicao_nao_diz_aprovado(self) -> None:

@@ -17,9 +17,20 @@ disco de um *worktree* ve os irmaos), excepto os `.md`:
                Graph API do Facebook **nao** esta aqui: e o da Cloud API do
                WhatsApp, e o Outbound usa-o.
   permissoes   os *scopes* de publicacao de paginas, do Instagram e de grupos.
-  segredos     um nome de variavel em maiusculas com uma rede e um TOKEN, SECRET
-               ou KEY. O segredo da Meta do WhatsApp nao casa: o nome dele nao
-               nomeia uma rede social.
+  segredos     um identificador (maiusculas ou minusculas, partido por `_`,
+               `-` ou `.`) com um segmento de rede (INSTAGRAM, FACEBOOK,
+               TIKTOK, THREADS, IG, FB, ou PAGE com ACCESS ou META) e um
+               segmento TOKEN, SECRET ou KEY. Le-se **por segmentos** e nao por
+               subcadeia: `CONFIG_TOKEN` tem «IG» la dentro e nao e de rede. O
+               segredo da Meta do WhatsApp (`META_ACCESS_TOKEN`) nao casa: nao
+               nomeia uma rede social nem uma pagina.
+
+## O que esta varredura nao apanha, e fica dito
+
+E um *lint* de texto, e nao uma prova: uma cadeia partida em pedacos no codigo
+(como este proprio ficheiro faz) passa, e um nome inventado que nao nomeie a
+rede tambem. O que ele fecha e o descuido; a ausencia de publicacao e tambem
+do desenho (so a `ManualDelivery` existe, e o `publish()` lanca `NotEnabled`).
 
 ## Porque os `.md` ficam de fora, e o que isso nao esconde
 
@@ -41,22 +52,33 @@ from pathlib import Path
 
 #: Os padroes, **por partes**: o texto inteiro nao aparece neste ficheiro.
 _MEDIA = "media" + "_" + "publish"
-_REDES = "INSTAGRAM|FACEBOOK|FB_PAGE|PAGE_ACCESS|TIKTOK"
+#: Os segmentos que nomeiam uma rede social num identificador (achado 5 da revisao).
+_SEGMENTOS_DE_REDE = frozenset({"INSTAGRAM", "FACEBOOK", "TIKTOK", "THREADS", "IG", "FB"})
+#: Os segmentos de um segredo.
+_SEGMENTOS_DE_SEGREDO = frozenset({"TOK" "EN", "SEC" "RET", "KEY"})
+_IDENTIFICADOR = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]*[A-Za-z0-9]")
+
+
+def _e_segredo_de_rede(identificador: str) -> bool:
+    segmentos = set(re.split(r"[_.-]", identificador.upper()))
+    if not segmentos & _SEGMENTOS_DE_SEGREDO:
+        return False
+    if segmentos & _SEGMENTOS_DE_REDE:
+        return True
+    # Uma pagina de rede: o de acesso a pagina, ou o da pagina da Meta.
+    return "PAGE" in segmentos and bool(segmentos & {"ACCESS", "META"})
+
 
 PADROES: tuple[tuple[str, re.Pattern[str]], ...] = (
     ("caminho de publicacao", re.compile(_MEDIA)),
-    ("caminho de publicacao", re.compile(r"/(?:fe" r"ed|pho" r"tos)\b")),
-    ("anfitriao de rede", re.compile(r"graph\.insta" r"gram\.com|tiktok" r"apis")),
+    ("caminho de publicacao", re.compile(r"/(?:fe" r"ed|pho" r"tos|vid" r"eos|live_vid" r"eos)\b|_sto" r"ries\b")),
+    ("anfitriao de rede", re.compile(r"graph\.insta" r"gram\.com|tiktok" r"apis|rupl" r"oad\.facebook")),
     (
         "permissao de publicacao",
         re.compile(
             r"pages_manage_" r"posts|instagram(?:_business)?_content_" r"publish"
-            r"|publish_to_" r"groups|publish_" r"video"
+            r"|threads_content_" r"publish|publish_to_" r"groups|publish_" r"video|publish_" r"actions"
         ),
-    ),
-    (
-        "segredo de rede",
-        re.compile(r"\b[A-Z0-9_]*(?:" + _REDES + r")[A-Z0-9_]*(?:TOK" r"EN|SEC" r"RET|KEY)[A-Z0-9_]*\b"),
     ),
 )
 
@@ -91,6 +113,8 @@ def achados_no_texto(caminho: str, texto: str) -> list[str]:
         for tipo, padrao in PADROES:
             if padrao.search(linha):
                 achados.append(f"{caminho}:{numero}: {tipo}")
+        if any(_e_segredo_de_rede(i) for i in _IDENTIFICADOR.findall(linha)):
+            achados.append(f"{caminho}:{numero}: segredo de rede")
     return achados
 
 

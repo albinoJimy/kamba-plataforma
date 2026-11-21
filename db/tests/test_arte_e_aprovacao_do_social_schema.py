@@ -60,10 +60,12 @@ COLUNAS_DO_ITEM = (
     "aprovacao_hash",
     "aprovado_at",
     "arte_custo_usd",
+    "arte_formato",
     "arte_fundo",
     "arte_ref",
     "arte_sha256",
     "arte_tentativas",
+    "arte_texto",
     "entregue_at",
 )
 COLUNA_DO_PERFIL = "termos_entrega_at"
@@ -86,6 +88,13 @@ SQL_DESTINO = (
 #: a forma recusa; o hexadecimal minusculo e o que o `hashlib` escreve.
 SHA_A = "a" * 64
 SHA_B = "b" * 64
+
+#: A arte inteira: a chave, o `sha256`, o fundo, o texto e o formato que estao na
+#: imagem. A `content_items_arte_completa_ck` exige as cinco ou nenhuma.
+ARTE = (
+    "arte_ref = %s, arte_sha256 = %s, arte_fundo = 'gerado', "
+    "arte_texto = 'Loja da Ana - 12.500 Kz', arte_formato = 'quadrado'"
+)
 
 
 def _abaixo() -> str:
@@ -154,8 +163,7 @@ class ComItem(ComBase):
         """A legenda, a arte, o hash e a hora da aprovacao, sem mudar o estado."""
         self._mudar(
             item,
-            "legenda = 'Uma legenda.', arte_ref = %s, arte_sha256 = %s, arte_fundo = 'gradiente', "
-            "aprovacao_hash = %s, aprovado_at = now()",
+            f"legenda = 'Uma legenda.', {ARTE}, aprovacao_hash = %s, aprovado_at = now()",
             (_chave(self.tenant), SHA_A, SHA_B),
         )
 
@@ -164,8 +172,7 @@ class ComItem(ComBase):
         item = self._novo()
         self._mudar(
             item,
-            "legenda = 'Uma legenda.', arte_ref = %s, arte_sha256 = %s, arte_fundo = 'gerado', "
-            "aprovacao_hash = %s, estado = 'pendente_aprovacao'",
+            f"legenda = 'Uma legenda.', {ARTE}, aprovacao_hash = %s, estado = 'pendente_aprovacao'",
             (_chave(self.tenant), SHA_A, SHA_B),
         )
         return item
@@ -242,6 +249,7 @@ class TestAsTransicoes(ComItem):
             ("legenda = 'Outra legenda.'", ()),
             ("arte_ref = %s", (_chave(self.tenant),)),
             ("arte_sha256 = %s", ("c" * 64,)),
+            ("arte_texto = 'Outro texto'", ()),
             ("aprovacao_hash = %s", ("c" * 64,)),
         ):
             with self.subTest(atribuicoes=atribuicoes):
@@ -273,7 +281,7 @@ class TestAsRestricoes(ComItem):
         outro = factories.tenant(self.c)
         factories.contexto(self.c, self.tenant)
         item = self._novo()
-        atribuicoes = "arte_ref = %s, arte_sha256 = %s, arte_fundo = 'gerado'"
+        atribuicoes = ARTE
         self._recusa(item, atribuicoes, (_chave(outro), SHA_A))
         self._recusa(item, atribuicoes, (f"t/{self.tenant}/social/2026/13/{uuid.uuid4()}", SHA_A))
         self._recusa(item, atribuicoes, (f"x/{self.tenant}/social/2026/11/{uuid.uuid4()}", SHA_A))
@@ -281,18 +289,37 @@ class TestAsRestricoes(ComItem):
 
     def test_a_arte_e_completa_ou_nenhuma_e_o_fundo_e_de_dois(self) -> None:
         item = self._novo()
-        self._recusa(item, "arte_ref = %s", (_chave(self.tenant),))
+        chave = _chave(self.tenant)
+        self._recusa(item, "arte_ref = %s", (chave,))
         self._recusa(item, "arte_sha256 = %s", (SHA_A,))
         self._recusa(item, "arte_fundo = 'gerado'")
+        self._recusa(item, "arte_texto = 'Loja da Ana'")
+        self._recusa(item, "arte_formato = 'quadrado'")
+        # Quatro das cinco: falta o texto, ou falta o formato.
         self._recusa(
-            item, "arte_ref = %s, arte_sha256 = %s, arte_fundo = 'liso'", (_chave(self.tenant), SHA_A)
+            item, "arte_ref = %s, arte_sha256 = %s, arte_fundo = 'gerado', arte_formato = 'quadrado'", (chave, SHA_A)
+        )
+        self._recusa(
+            item, "arte_ref = %s, arte_sha256 = %s, arte_fundo = 'gerado', arte_texto = 'Loja da Ana'", (chave, SHA_A)
+        )
+        self._recusa(item, ARTE.replace("'gerado'", "'liso'"), (chave, SHA_A))
+        self._mudar(item, ARTE, (chave, SHA_A))
+
+    def test_o_texto_e_o_formato_da_arte_tem_dominio(self) -> None:
+        item = self._novo()
+        chave = _chave(self.tenant)
+        self._recusa(item, ARTE.replace("'quadrado'", "'paisagem'"), (chave, SHA_A))
+        self._recusa(item, ARTE.replace("'Loja da Ana - 12.500 Kz'", "''"), (chave, SHA_A))
+        self._recusa(item, ARTE.replace("'Loja da Ana - 12.500 Kz'", "repeat('x', 601)"), (chave, SHA_A))
+        self._mudar(
+            item,
+            ARTE.replace("'quadrado'", "'retrato'").replace("'Loja da Ana - 12.500 Kz'", "repeat('x', 600)"),
+            (chave, SHA_A),
         )
 
     def test_os_sha256_tem_a_forma_do_hashlib(self) -> None:
         item = self._novo()
-        self._recusa(
-            item, "arte_ref = %s, arte_sha256 = %s, arte_fundo = 'gerado'", (_chave(self.tenant), "A" * 64)
-        )
+        self._recusa(item, ARTE, (_chave(self.tenant), "A" * 64))
         self._recusa(item, "aprovacao_hash = %s", ("a" * 63,))
         self._mudar(item, "aprovacao_hash = %s", (SHA_B,))
 
@@ -324,7 +351,7 @@ class TestOsPrivilegios(ComItem):
         factories.contexto(self.c, self.tenant)
         self._mudar(
             item,
-            "legenda = 'Uma legenda.', arte_ref = %s, arte_sha256 = %s, arte_fundo = 'gerado', "
+            f"legenda = 'Uma legenda.', {ARTE}, "
             "arte_tentativas = 1, arte_custo_usd = 0.0336, aprovacao_hash = %s, "
             "estado = 'pendente_aprovacao'",
             (_chave(self.tenant), SHA_A, SHA_B),
