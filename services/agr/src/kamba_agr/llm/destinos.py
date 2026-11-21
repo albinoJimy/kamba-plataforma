@@ -32,11 +32,11 @@ porque sao dois erros e nao um: o `DestinoNegado` e o contrato entre o grafo e o
 **modelo**, e a `TransferenciaNegada` e a recusa de uma porta que nao sabe que
 existe um modelo do outro lado.
 
-## As quatro finalidades deste servico, e as quinze da coluna
+## As cinco finalidades deste servico, e as dezasseis da coluna
 
-A coluna `tenant_destinations.purpose` tem **quinze** valores (dicionario §3.49),
-porque o *gate* corre em sete pontos e so um e o *gateway* de modelos. Deste
-lado interessam **quatro**, e os literais vem do nucleo: duas copias das mesmas
+A coluna `tenant_destinations.purpose` tem **dezasseis** valores (dicionario
+§3.49), porque o *gate* corre em sete pontos e so um e o *gateway* de modelos.
+Deste lado interessam **cinco**, e os literais vem do nucleo: duas copias das mesmas
 cadeias divergiam no dia em que uma delas mudasse, e foi para evitar isso que o
 dominio saiu daqui para a revisao que cria a coluna.
 """
@@ -47,6 +47,7 @@ from typing import Any, Final, Protocol, runtime_checkable
 
 from kamba_core.destinos import (
     FINALIDADE_CLASSIFICACAO,
+    FINALIDADE_CONDICOES,
     FINALIDADE_CONVERSA,
     FINALIDADE_EMBEDDINGS,
     FINALIDADE_VISAO,
@@ -63,7 +64,7 @@ AMBIENTE_PROD: Final = "prod"
 AMBIENTE_STAGING: Final = "staging"
 AMBIENTE_DEV: Final = "dev"
 
-#: As finalidades que **este servico** usa: quatro das quinze de
+#: As finalidades que **este servico** usa: cinco das dezasseis de
 #: `tenant_destinations.purpose` (revisao `0036`, dicionario §3.49).
 #:
 #: Os literais vem de `kamba_core.destinos` e nao se reescrevem aqui — ver a
@@ -72,6 +73,7 @@ AMBIENTE_DEV: Final = "dev"
 #: revisao de base de dados.
 FINALIDADES: Final = (
     FINALIDADE_CLASSIFICACAO,
+    FINALIDADE_CONDICOES,
     FINALIDADE_CONVERSA,
     FINALIDADE_EMBEDDINGS,
     FINALIDADE_VISAO,
@@ -94,6 +96,21 @@ FINALIDADE_DO_PAPEL: Final = {
     "vision": FINALIDADE_VISAO,
     "embed": FINALIDADE_EMBEDDINGS,
     "screening": FINALIDADE_CLASSIFICACAO,
+}
+
+#: As finalidades que **quem chama** pode escolher para um papel, alem da do
+#: `FINALIDADE_DO_PAPEL` (KAM-230). So o `screening` tem mais do que uma: o
+#: mesmo classificador le os textos de um produto (`classificacao_de_catalogo`)
+#: e as condicoes que o dono escreve num orcamento (`classificacao_de_condicoes`),
+#: e a **decisao do fundador de 2026-11-20 (opcao B)** e que o segundo
+#: tratamento tem finalidade propria no ADR-008. A rota do classificador recebe
+#: a finalidade no pedido, e o *gate* consulta essa, e nao a do papel: um tenant
+#: com destino autorizado so para o catalogo nao cobre as condicoes.
+#:
+#: **Lista fechada por papel.** Uma finalidade que o papel nao admita nega, e
+#: nao cai na do papel: cair era a opcao A, que o fundador recusou.
+FINALIDADES_ESCOLHIVEIS: Final = {
+    "screening": (FINALIDADE_CLASSIFICACAO, FINALIDADE_CONDICOES),
 }
 
 
@@ -204,8 +221,20 @@ def arrancar(
     )
 
 
-def finalidade_de(papel: str) -> str:
-    """A finalidade de um papel. Um papel desconhecido nao tem finalidade."""
+def finalidade_de(papel: str, escolhida: str | None = None) -> str:
+    """A finalidade de um papel. Um papel desconhecido nao tem finalidade.
+
+    Com `escolhida`, e essa — se o papel a admitir (`FINALIDADES_ESCOLHIVEIS`);
+    senao levanta `DestinoNegado`, sem cair na do papel (KAM-230).
+    """
+    if escolhida is not None:
+        if escolhida not in FINALIDADES_ESCOLHIVEIS.get(papel, ()):
+            raise DestinoNegado(
+                f"o papel `{papel}` nao admite a finalidade `{escolhida}` "
+                "(`FINALIDADES_ESCOLHIVEIS`, KAM-230): sem ela declarada nao ha "
+                "linha de `tenant_destinations` a consultar"
+            )
+        return escolhida
     try:
         return FINALIDADE_DO_PAPEL[papel]
     except KeyError:

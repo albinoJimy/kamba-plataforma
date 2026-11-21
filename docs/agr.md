@@ -39,7 +39,7 @@ esqueleto do serviço. Não há agente nenhum.
 | Modo determinístico e `agr_degraded_turns_total` | **KAM-037** |
 | *Compare-and-set* da retoma do *handoff* | KAM-034 |
 | As três portas `grafos` ligadas ao registo, e o `Dependencias` com as portas reais | **KAM-186** (§7-K) |
-| `POST /internal/screening`: o classificador de screening do GOV pelo *gateway* de LLM, com credencial e chave próprias ([`llm/screening.py`](../services/agr/src/kamba_agr/llm/screening.py); o desenho está no bloco do KAM-195) | **KAM-195** |
+| `POST /internal/screening`: o classificador de screening do GOV pelo *gateway* de LLM, com credencial e chave próprias ([`llm/screening.py`](../services/agr/src/kamba_agr/llm/screening.py); o desenho está no bloco do KAM-195). O COM chama-a pelo `screen` das condições de um orçamento (KAM-222), ligado nos três *compose* desde o KAM-228. **O pedido traz a finalidade e o prazo** (KAM-230): o *gate* de destino consulta a finalidade do pedido — a `classificacao_de_condicoes` para as condições, decisão do fundador de 2026-11-20 —, e a rota só chama o modelo se o que sobra do prazo de quem chama passar do mínimo (`MINIMO_PARA_CHAMAR_S`, 3 s, *proposta*) | **KAM-195** |
 
 **`/internal/turn` com uma invocação válida corre o grafo da vertical desde o
 KAM-186**: a porta `grafos` resolve-a pelo registo e pelo entitlement. Com uma
@@ -748,7 +748,7 @@ Papel `kamba_app` e não `kamba_agr`: o que ela toca é do `platform`, e o
 |---|---|---|
 | `KAMBA_TLS_LIGACOES` | `4` | Quantas tomadas a camada abre. Ver «As tomadas são uma fila» |
 | `KAMBA_TLS_TIMEOUT_READ_MS` | `2000` | O tecto de uma tool `read` (§6.5). Para o backend `plataforma` é um `SET LOCAL statement_timeout`, do lado do servidor |
-| `KAMBA_TLS_TIMEOUT_ESCRITA_MS` | `8000` | O tecto de uma `write` ou `money` |
+| `KAMBA_TLS_TIMEOUT_ESCRITA_MS` | `8000` | O tecto de uma `write` ou `money`. Fixa também o tecto do `screen` das condições do `submit_quote` (KAM-228): o que sobra do prazo da invocação, contado do início da ToolLayer (`Pedido.prazo`, KAM-230), depois de 1 s de reserva para a transacção. Abaixo de ~5,3 s (1 s de reserva aqui, 0,3 s no COM, 1 s de margem na rota e os 3 s do mínimo da rota), o que chega ao classificador já não passa do mínimo, e as condições recusam sempre |
 | `KAMBA_TLS_DISJUNTOR_FALHAS` | `5` | Falhas **consecutivas** por backend até abrir |
 | `KAMBA_TLS_DISJUNTOR_PAUSA_MS` | `30000` | Quanto fica aberto. Passada a pausa deixa passar **uma** tentativa |
 
@@ -2268,3 +2268,5 @@ contexto de quem chama o `ainvoke`; medido pela bateria).
 | 1.21 | 2026-11-12 | KAM-193 | §7-H: o credor da casca BullMQ → `/internal/event` passa a ser o KAM-194 (era o KAM-005/KAM-006, fechados). Sem alteração de conteúdo técnico. |
 | 1.22 | 2026-11-13 | KAM-194 | §7-H: a casca BullMQ → `/internal/event` e as linhas de `evt_subscricoes` do AGR passam a existir (revisão de dados `0052`, *provisória*), e o *job* do reconciliador sem envelope lê-se do `events_log`. Os credores escritos eram o KAM-005 e o KAM-006, fechados. |
 | 1.23 | 2026-11-17 | KAM-195 | §1: a quinta rota interna, `POST /internal/screening`, que serve o classificador de screening do GOV pelo `ClienteDeLlm` — o *gate* de destino, a linha de `dat.llm_call_log` e o custo dos outros papéis —, com a credencial `agr_screening_token` e a chave virtual da plataforma `litellm_screening_key`. O desenho e a razão estão no bloco do KAM-195 (EPIC-09). |
+| 1.24 | 2026-11-19 | KAM-228 | §1: o `POST /internal/screening` tem o COM como chamador previsto, ligado nos *compose*; as condições só lhe chegam com finalidade própria (decisão do fundador de 2026-11-20, KAM-230). A tabela das variáveis da ToolLayer: o `KAMBA_TLS_TIMEOUT_ESCRITA_MS` fixa também o tecto do `screen` das condições. |
+| 1.25 | 2026-11-20 | KAM-230 | §1: o `POST /internal/screening` recebe a finalidade e o prazo de quem chama, e o COM chama-a com as condições de um orçamento, com a finalidade própria delas. A tabela das variáveis da ToolLayer: o tecto do `screen` das condições conta do início da ToolLayer, com 1 s de reserva. |

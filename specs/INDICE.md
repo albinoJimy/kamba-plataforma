@@ -3,7 +3,7 @@
 **Produto:** KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para o mercado angolano
 **Natureza:** Produto/plataforma standalone (sem cliente institucional)
 **Documentos-fonte:** conjunto técnico [`../docs/tecnica/`](../docs/tecnica/INDICE.md) e [`../docs/exploracao/14-tese-minima-e-plano-de-validacao.md`](../docs/exploracao/14-tese-minima-e-plano-de-validacao.md)
-**Versão do conjunto:** 1.89
+**Versão do conjunto:** 1.94
 **Data de emissão:** Outubro de 2026
 **Classificação:** Documento de Referência — Interno
 **Estado:** backlog **proposto** (nenhum ticket ratificado; ver `00_KAMBA_Carta.md` §6)
@@ -12,7 +12,7 @@
 
 ## 1. Propósito
 
-Este conjunto materializa o **backlog executável** da KAMBÁ para a **Fase 0 (Fundação / esqueleto andante)** e a **Fase 1 (Piloto)**. Decompõe o trabalho em **229 tickets atómicos (KAM-001 a KAM-232)** distribuídos por **11 epics** (KAM-111 a KAM-117 foram acrescentados na consolidação, e o KAM-128 a KAM-148, e o KAM-149 depois dela; todos pertencem aos epics indicados no §3.1), cada um com critérios de aceitação SMART, Definition of Done, testes requeridos e prompt de handoff para o **Claude Code (CLI)**.
+Este conjunto materializa o **backlog executável** da KAMBÁ para a **Fase 0 (Fundação / esqueleto andante)** e a **Fase 1 (Piloto)**. Decompõe o trabalho em **234 tickets atómicos (KAM-001 a KAM-234)** distribuídos por **11 epics** (KAM-111 a KAM-117 foram acrescentados na consolidação, e o KAM-128 a KAM-148, e o KAM-149 depois dela; todos pertencem aos epics indicados no §3.1), cada um com critérios de aceitação SMART, Definition of Done, testes requeridos e prompt de handoff para o **Claude Code (CLI)**.
 
 O que **não** está aqui: a Fase 2 (Clusters) e a Fase 3 (Escala). Esses epics (geo e logística, estafetas, analytics e Score, índice federado, AdsEngine, vitrine SEO, API pública, Fluxo B) só se escrevem quando o **Gate do Piloto (KAM-110)** for verde. Está declarado em §6.
 
@@ -39,7 +39,7 @@ O backlog é a interface entre o conjunto técnico (`../docs/tecnica/`) e a exec
 | **EPIC-09 Onboarding e Governação** | Epic | onboarding-web, KYC K1 automático, screening, fila de excepções, saga, T&S, off-boarding | [EPIC-09_Onboarding_Governanca.md](EPIC-09_Onboarding_Governanca.md) |
 | **EPIC-10 Spikes, Validação e Gates** | Epic | Spikes (coexistência, voz), pedidos à Meta/bancos/jurídico, entrevistas, gates da Fase 0 e do Piloto | [EPIC-10_Spikes_Validacao_Gates.md](EPIC-10_Spikes_Validacao_Gates.md) |
 | **EPIC-11 Módulos de Entrada** | Epic | Canal do dono, Catálogo AI conversacional, Foto de produtos AI, Social AI (publicação manual), Orçamento expresso, planos e metering, experimento H10–H12 (ADR-020) | [EPIC-11_Modulos_Entrada.md](EPIC-11_Modulos_Entrada.md) |
-| **Tickets do EPIC-01** | Tickets | Um ficheiro por ticket (67 hoje): o bloco inteiro — campos, Contexto, Objectivo, Critérios, Detalhes, Testes, DoD, verificação e *handoff*. Convenção do KAM-155, por agora só neste epic | [tickets/](tickets/) |
+| **Tickets do EPIC-01** | Tickets | Um ficheiro por ticket (68 hoje): o bloco inteiro — campos, Contexto, Objectivo, Critérios, Detalhes, Testes, DoD, verificação e *handoff*. Convenção do KAM-155, por agora só neste epic | [tickets/](tickets/) |
 
 ---
 
@@ -49,7 +49,7 @@ O backlog é a interface entre o conjunto técnico (`../docs/tecnica/`) e a exec
 
 | Epic | Range | N.º tickets | Fase |
 |------|-------|-------------|------|
-| EPIC-01 Fundações e Dados | KAM-001 – KAM-012, KAM-111, KAM-128 – KAM-148, KAM-150 – KAM-174, KAM-177, KAM-180 – KAM-183, KAM-185, KAM-194, KAM-213 | 67 | 0–1 |
+| EPIC-01 Fundações e Dados | KAM-001 – KAM-012, KAM-111, KAM-128 – KAM-148, KAM-150 – KAM-174, KAM-177, KAM-180 – KAM-183, KAM-185, KAM-194, KAM-213, KAM-229 | 68 | 0–1 |
 | EPIC-02 Canais WhatsApp e Handoff | KAM-013 – KAM-024, KAM-115 | 13 | 0–1 |
 | EPIC-03 Agent Runtime e Verticais | KAM-025 – KAM-040, KAM-114, KAM-184, KAM-186, KAM-214 | 20 | 0–1 |
 | EPIC-04 Core de Comércio | KAM-041 – KAM-051, KAM-176, KAM-178, KAM-179, KAM-202, KAM-204 | 16 | 0–1 |
@@ -57,10 +57,10 @@ O backlog é a interface entre o conjunto técnico (`../docs/tecnica/`) e a exec
 | EPIC-06 Índice e Pesquisa | KAM-061 – KAM-064, KAM-193, KAM-199, KAM-212 | 7 | 1 |
 | EPIC-07 Segurança e Conformidade | KAM-065 – KAM-074, KAM-112, KAM-113, KAM-149, KAM-189, KAM-205 | 15 | 0–1 |
 | EPIC-08 Topologia e Operação | KAM-075 – KAM-085, KAM-187, KAM-188 | 13 | 0–1 |
-| EPIC-09 Onboarding e Governação | KAM-086 – KAM-099, KAM-116, KAM-117, KAM-190 – KAM-192, KAM-195, KAM-196, KAM-198, KAM-200, KAM-201, KAM-203, KAM-206 – KAM-210, KAM-218 – KAM-219, KAM-225 | 33 | 1 |
+| EPIC-09 Onboarding e Governação | KAM-086 – KAM-099, KAM-116, KAM-117, KAM-190 – KAM-192, KAM-195, KAM-196, KAM-198, KAM-200, KAM-201, KAM-203, KAM-206 – KAM-210, KAM-218 – KAM-219, KAM-225, KAM-233 | 34 | 1 |
 | EPIC-10 Spikes, Validação e Gates | KAM-100 – KAM-110 | 11 | 0–1 |
-| EPIC-11 Módulos de Entrada | KAM-118 – KAM-127, KAM-211, KAM-215 – KAM-217, KAM-220 – KAM-224, KAM-226 – KAM-228, KAM-232 | 23 | 1 |
-| **TOTAL** | **KAM-001 – KAM-232** | **229** | — |
+| EPIC-11 Módulos de Entrada | KAM-118 – KAM-127, KAM-211, KAM-215 – KAM-217, KAM-220 – KAM-224, KAM-226 – KAM-228, KAM-230 – KAM-232, KAM-234 | 26 | 1 |
+| **TOTAL** | **KAM-001 – KAM-234** | **234** | — |
 
 ### 3.2 Fases
 
@@ -150,6 +150,7 @@ Itens com tempo de espera externo (arrancam na **semana 1**, em paralelo ao cód
 | KAM-185 | A escolha do lote e a ordem de fecho fazem-se à mão, e as três superfícies que serializam a fusão atravessam os epics | feature | M | P1 | 0 | — |
 | KAM-194 | Ponte fila → consumidor Python: casca BullMQ → HTTP e registo de subscrições | feature | L | P1 | 1 | KAM-061, KAM-062, KAM-193 |
 | KAM-213 | Dois ensaios de base de dados do `core-ts` ficam vermelhos ao acaso: uma ordem ao milissegundo e uma corrida que o ensaio não forçava | fix | S | P1 | 1 | KAM-019, KAM-198 |
+| KAM-229 | A asserção de privacidade do `agent.replied` procura «999» num envelope de UUID, e o gate 8 cai em ~3% das corridas | fix | S | P1 | 1 | KAM-224 |
 
 ### EPIC-02 — Canais WhatsApp e Handoff
 
@@ -312,6 +313,7 @@ Itens com tempo de espera externo (arrancam na **semana 1**, em paralelo ao cód
 | KAM-203 | Recálculo da confiança gradual a correr: diário, em `order.delivered` e na aprovação | feature | M | P1 | 1 | KAM-096, KAM-198 |
 | KAM-210 | KAM-098 em produção: o processo que corre as fases, os adaptadores das portas e o cofre no encerramento | feature | L | P1 | 1 | KAM-098 |
 | KAM-218 | Off-boarding em produção, o que ficou: o processo dos dados, as portas de fora e o simulacro | feature | L | P1 | 1 | KAM-210 |
+| KAM-233 | Off-boarding, o que ficou do KAM-218: as provas do titular, a revogação automática, a entrega e o simulacro | feature | L | P1 | 1 | KAM-218 |
 | KAM-206 | Painel light: o contacto da encomenda ao dono, mascarado e auditado, e a lista de produtos em 3G | feature | M | P2 | 1 | KAM-190 |
 | KAM-207 | Religar o número de um tenant activo cujo canal caiu, a partir do painel | feature | M | P2 | 1 | KAM-190, KAM-093 |
 | KAM-208 | Correlação entre tenants por comprador: um identificador de comprador que não dependa do tenant | feature | M | P2 | 1 | KAM-200 |
@@ -361,7 +363,10 @@ Itens com tempo de espera externo (arrancam na **semana 1**, em paralelo ao cód
 | KAM-226 | Orçamento expresso: o aviso proactivo ao dono e o botão «Aceito» na proposta | feature | S | P2 | 1 | KAM-220, KAM-221, KAM-224 |
 | KAM-227 | Saída do AGR em produção: a credencial da Meta por canal, o destinatário e o consumidor `outbound` no compose | feature | L | P1 | 1 | KAM-224 |
 | KAM-228 | Orçamento expresso: a porta do *screening* no `submit_quote` e o classificador nos *compose* | feature | S | P2 | 1 | KAM-222 |
-| KAM-232 | O id da oferta do orçamento expresso leva dígitos que a guarda de entrada redige, e o ensaio das cem frases avermelha o *gate* 4 ao acaso | fix | S | P1 | 1 | KAM-220 |
+| KAM-230 | Orçamento expresso: a finalidade das condições, o nó do dono e o AGR contra o COM a correr | feature | M | P2 | 1 | KAM-228 |
+| KAM-231 | Catálogo do dono: a foto real — a média no `agent_invocation`, a fonte, o descodificador e a visão | feature | L | P1 | 1 | KAM-119, KAM-020, KAM-030 |
+| KAM-232 | Entrada do AGR: o texto do cliente do WhatsApp na fonte persistida e o `message_id` na invocação | feature | M | P1 | 1 | KAM-223 |
+| KAM-234 | O id da oferta do orçamento expresso leva dígitos que a guarda de entrada redige quando o toque chega pela janela | fix | S | P2 | 1 | KAM-220 |
 
 ---
 
@@ -490,4 +495,9 @@ Um defeito encontrado fora do escopo não é corrigido no meio de outro ticket: 
 | 1.86 | Novembro 2026 | **KAM-226** acrescentado ao **EPIC-11**, no PR do **KAM-220**, que o abre e não o implementa. É o credor de duas metades que o KAM-220 deixa: o aviso proactivo ao dono de um pedido novo, só dentro da janela (critério 5 do KAM-220, critério 2 do KAM-123), e o botão «Aceito» na proposta (critério 4). Depende do KAM-220, do KAM-221 (o envio real) e do KAM-224 (a saída do AGR), e entra no `Bloqueia` dos três. **O número é o maior da `main` mais um**, provisório: quem fundir em segundo renumera. **Superfícies:** a linha do §4, a gama e a contagem do §1, a linha do EPIC-11 (**20**) e o TOTAL do §3.1, a «Tabela Resumo» do EPIC-11, o `../README.md` e a prosa do `EPIC-07`. **226** tickets nesta árvore. | Equipa KAMBÁ |
 | 1.87 | Novembro 2026 | **KAM-227** acrescentado ao **EPIC-11**, no PR do **KAM-224**, que o abre e não o implementa. Aberto como KAM-226 e renumerado na integração, depois do KAM-220, que tomou o 226. É o credor dos critérios 3 e 4 do KAM-224, que ficam parciais: o consumidor `outbound` do `worker-canal` instancia o `Saida` e está medido contra a base e o `GraphFalso`, mas não arranca em produção sem o cliente da Graph de cada canal (o `tenant_channels.token_ref` sem leitor) e sem um `ObterDestinatario`, e a prova pela fila fica com ele. Dependência: KAM-224, que passa a bloqueá-lo | Equipa KAMBÁ |
 | 1.88 | Novembro 2026 | **KAM-228** acrescentado ao **EPIC-11**, no PR do **KAM-222**, que o abre e não o implementa. Aberto como KAM-227 e renumerado na integração, depois do KAM-224, que tomou o 227. É o credor do que o KAM-222 deixa por montar: a porta `ScreeningPeloCom` no `submit_quote`, numa *thread*, e o classificador do `screen` nos três *compose* (`KAMBA_AGR_URL` no COM e o `agr_screening_token` nos dois lados). O KAM-220 fundiu antes e não pode ser credor, e o KAM-226 não cobre o `submit_quote`. Depende do KAM-222. | Equipa KAMBÁ |
-| 1.89 | Novembro 2026 | **KAM-232** acrescentado ao **EPIC-11** e entregue no mesmo PR: o `test_cem_pedidos_de_conta_dao_zero_numeros_calculados` do KAM-220 avermelhava o *gate* 4 ao acaso, cerca de uma corrida em quatro. O id da oferta era hexadecimal, e de vez em quando levava uma corrida de dígitos que passa o Luhn, ou a forma de um IBAN, que a guarda de entrada redigia no toque. Passa a consoantes coladas ao `orc_`. Depende do KAM-220, que passa a bloqueá-lo. **O número é provisório**, dado pela coordenação: o 229, o 230 e o 231 estão tomados por PRs abertos, e na integração passa ao maior da `main` mais um. Até lá o buraco deixa vermelhos o *gate* 3, o 3c e as suites do `lint_backlog` e do `lint_refs` no 4. **Superfícies:** a linha do §4, a gama e a contagem do §1, a linha do EPIC-11 (**23**) e o TOTAL do §3.1, a «Tabela Resumo» do EPIC-11, o `../README.md` e a prosa do `EPIC-07`. **229** tickets nesta árvore. | Equipa KAMBÁ |
+| 1.89 | Novembro 2026 | **KAM-229** acrescentado ao **EPIC-01** e entregue no mesmo PR. O bloco vive em `tickets/KAM-229.md`, pela convenção do KAM-155. A asserção de privacidade do `agent.replied` (KAM-224) procurava «999» num envelope com cinco UUID aleatórios, e o gate 8 caía em ~3% das corridas: aconteceu no PR #232. Passa a procurar o número inteiro e o texto. A asserção do Vendedor que procurava «9999» num `uuid4` passa a igualdade. Dependência nova do KAM-224, com a reciprocidade no EPIC-11 | Equipa KAMBÁ No mesmo PR, uma terceira fonte de intermitência, no gate 4 e a mais frequente (~15% das corridas, no #232 e no #233): o `_Conversa` do `test_orcamento_grafos` (KAM-220) punha o toque na janela, onde a guarda de entrada redigia como PAN ou IBAN o identificador hexadecimal da oferta. O toque passa a ir pelo `botao` da invocação, como no processo, que não tinha o defeito. |
+| 1.90 | Novembro 2026 | **KAM-230** acrescentado ao **EPIC-11**, no PR do **KAM-228**, que o abre e não o implementa. Escrito sobre a 1.88 e renumerado na integração, depois do KAM-229 (PR #233): a contagem passa a **230**. É o credor do que o KAM-228 deixa: um nó do grafo do dono que passe as condições ao `submit_quote` — o `_responder_orcamento` chama a tool só com a referência e o valor, pelo que a porta do `screen` montada pelo KAM-228 não é alcançada no processo —, o ensaio do AGR contra o COM TypeScript a correr, com a base e um classificador falso; e, por decisão do fundador de 2026-11-20 (opção B), a finalidade de transferência própria das condições — o valor no dicionário e no ADR-008, a revisão `0078` e a linha no procedimento da APD —, sem a qual a porta do KAM-228 fica fechada. Depende do KAM-228. | Equipa KAMBÁ |
+| 1.91 | Novembro 2026 | **KAM-231** acrescentado ao **EPIC-11**, no PR do **KAM-119**, que o abre e não o implementa. É o credor do que o KAM-119 deixa por ligar: a média de uma foto do dono no `agent_invocation`, o MED montado, a fonte, o descodificador e a visão reais, a latência, a oferta de «melhorar foto», as métricas por tenant e a quantidade em stock no Registo. Depende do KAM-119, do KAM-020 e do KAM-030. Escrito como KAM-229 sobre a 1.88 e renumerado na integração, depois do KAM-229 (#233) e do KAM-230 (#234): a contagem passa a **231**. | Equipa KAMBÁ |
+| 1.92 | Novembro 2026 | **KAM-232** acrescentado ao **EPIC-11**, no PR do **KAM-223**, que o abre e não o implementa. Escrito como KAM-229 e renumerado na integração, depois do KAM-229 (PR #233), do KAM-230 (PR #234) e do KAM-231 (PR #236): é o número a seguir ao maior da `main`. É o credor da metade do critério 1 do KAM-223 que é do WhatsApp: a fonte persistida da mensagem (`agent_messages`), o `message_id` na invocação e a leitura no AGR estão escritos, e só o painel os usa — o CHR continua a publicar a invocação sem o identificador, e a janela de um turno do WhatsApp continua vazia. Depende do KAM-223. **232** tickets; o EPIC-11 passa a **25**. | Equipa KAMBÁ |
+| 1.93 | Novembro 2026 | **KAM-233** acrescentado ao **EPIC-09**, no PR do **KAM-218**, que o abre e não o implementa: é o credor dos seis critérios e da caixa da DoD que o KAM-218 devolve parciais ou por satisfazer — as provas do titular, a revogação automática (o LiteLLM pela saga, o Chatwoot, a Medusa e as sessões do painel), a exportação e a purga completas, a entrega do certificado e o simulacro. **Número *provisório***: o maior da `main` (232) mais um, e renumera-se na integração se outro PR fundir antes com o 233. **Superfícies:** a linha do §4, a gama e a contagem do §1, a linha do EPIC-09 (**34**) e o TOTAL do §3.1, a «Tabela Resumo» do EPIC-09, o `../README.md` e a prosa do `EPIC-07`. **Aresta recíproca:** o `Bloqueia` do KAM-218 ganha o KAM-233. **233** tickets em 11 epics. | Equipa KAMBÁ |
+| 1.94 | Novembro 2026 | **KAM-234** acrescentado ao **EPIC-11** e entregue no mesmo PR. Escrito como KAM-232 e renumerado na integração, depois do KAM-232 do PR do KAM-223 e do KAM-233 (o maior da `main` era o 233). O `_id_da_oferta` do KAM-220 era hexadecimal, e de vez em quando levava uma corrida de dígitos que passa o Luhn, ou a forma de um IBAN, que a guarda de entrada redige quando o toque chega pela janela `messages`. Passa a consoantes coladas ao `orc_`. O intermitente do `test_cem_pedidos_de_conta_dao_zero_numeros_calculados` que o motivou já tinha fechado pelo arnês no KAM-229 (PR #233); este fecha a forma do id. Depende do KAM-220, que passa a bloqueá-lo. **Superfícies:** a linha do §4, a gama e a contagem do §1, a linha do EPIC-11 (**26**) e o TOTAL do §3.1, a «Tabela Resumo» do EPIC-11, o `../README.md` e a prosa do `EPIC-07`. **234** tickets nesta árvore. | Equipa KAMBÁ |

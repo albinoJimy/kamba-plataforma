@@ -7,24 +7,33 @@ dele. **Nao ha segundo motor em Python.** Este adaptador chama o `screen` pela
 `services/com/src/screening/index.ts`), pelo mesmo `ClienteDoCom` das tools de
 comercio, com o `com_internal_token` e o `x-kamba-tenant`.
 
-## O sujeito e do adaptador, e hoje so ha um
+## O sujeito e do adaptador
 
 O `PortaDeScreening` nao tem sujeito na assinatura: foi escrito para o produto
-do Catalogo AI. O sujeito e do adaptador, e o unico que a rota aceita e o das
-condicoes de um orcamento (KAM-123). O `produto` fica fora pela razao que a nota
-de `services/com/src/screening/index.ts` escreve: uma decisao de produto gravada
-por aqui fazia a re-analise saltar o produto publicado. Abre-o o KAM-119. Por
-isso o `conferir_condicoes` nao pode receber, por engano, uma porta que grave
-`produto` com o `quote_id`.
-
-O sujeito das condicoes esta no `CHECK` da `screening_decision` desde a revisao
-`0074`.
+do Catalogo AI. O sujeito e do adaptador, e a rota aceita dois: o das condicoes
+de um orcamento (KAM-123, `CHECK` desde a revisao `0074`) e o `produto`
+(KAM-119). O `produto` abriu quando a re-analise passou a comparar o
+`conteudo_sha256` (`SQL_POR_REANALISAR`): uma decisao gravada por aqui com outro
+texto ja nao faz a re-analise saltar o produto publicado. O `conferir_condicoes`
+continua a so aceitar uma porta das condicoes (`orcamento/regras.py`), e por
+isso nao grava `produto` com o `quote_id`.
 
 ## A categoria declarada, quando nao ha
 
 `None` vai como `null`, e o COM usa a categoria declarada do tenant (a da
 decisao de categoria mais recente). E o caso das condicoes, que nao tem
 categoria propria.
+
+## A finalidade e o prazo viajam com o pedido (KAM-230)
+
+O adaptador manda ao COM a **finalidade de transferencia** do sujeito
+(`FINALIDADE_DO_SUJEITO`) e o **prazo** que lhe sobra (`prazo_ms`, o seu
+`timeout_ms`). O COM confere a finalidade com a tabela dele e passa-a ao
+classificador, cuja rota no AGR consulta o *gate* de destino com ela, e nao
+com a do papel: as condicoes de um orcamento tem finalidade propria (decisao do
+fundador de 2026-11-20, opcao B), e a do catalogo nunca as cobre. O prazo corta
+a espera do COM pelo classificador e a da rota pelo modelo, para que a decisao
+gravada seja a de uma resposta que alguem ainda le.
 
 ## *Fail-closed*, e sem texto
 
@@ -42,16 +51,29 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any, Final
 
-from kamba_core.catalogo.screening import DECISOES, ResultadoDoScreen
+from kamba_core.catalogo.screening import DECISOES, PERMITIDA, REGRA_REVISAO_PENDENTE, ResultadoDoScreen
+from kamba_core.destinos import FINALIDADE_CLASSIFICACAO, FINALIDADE_CONDICOES
 
 from .com import ClienteDoCom
 
 #: A rota do COM. Igual a da constante `ROTAS` de `services/com/src/api/interna.ts`.
 ROTA: Final = "/internal/screen"
 
-#: Os sujeitos que o COM aceita na rota (`SUJEITOS_DA_ROTA`): so o das condicoes,
-#: e so depois da revisao que o poe no `CHECK`.
-SUJEITOS: Final = ("condicoes",)
+#: Os sujeitos que o COM aceita na rota (`SUJEITOS_DA_ROTA`): o das condicoes
+#: (KAM-222) e o `produto` (KAM-119). Nunca a `categoria`, que e do onboarding.
+SUJEITOS: Final = ("condicoes", "produto")
+
+#: O sujeito das condicoes de um orcamento, e o de um produto do Catalogo AI.
+SUJEITO_DAS_CONDICOES: Final = "condicoes"
+SUJEITO_DO_PRODUTO: Final = "produto"
+
+#: A finalidade de transferencia de cada sujeito (KAM-230). Igual a do
+#: `FINALIDADE_DO_SUJEITO` de `services/com/src/screening/index.ts`, que a
+#: confere: um ensaio le o TypeScript e exige a mesma tabela.
+FINALIDADE_DO_SUJEITO: Final = {
+    SUJEITO_DAS_CONDICOES: FINALIDADE_CONDICOES,
+    SUJEITO_DO_PRODUTO: FINALIDADE_CLASSIFICACAO,
+}
 
 #: O tecto de uma chamada. O classificador do `screen` tem 15 s
 #: (`TEMPO_MAXIMO_MS` do `classificador.ts`), e o COM grava depois: vinte
@@ -72,8 +94,15 @@ class _Ctx:
     turn_id: str
 
 
-def _resultado(valor: Mapping[str, Any]) -> ResultadoDoScreen:
-    """O resultado do COM, lido contra a forma fechada, ou levanta."""
+def _resultado(valor: Mapping[str, Any], *, do_produto: bool = False) -> ResultadoDoScreen:
+    """O resultado do COM, lido contra a forma fechada, ou levanta.
+
+    **No `produto` le-se tambem o `publicavel`** (KAM-119): o `assertPublishable`
+    do mesmo conteudo, depois de gravada a decisao. Uma `permitida` que nao e
+    publicavel — uma `condicional` anterior do mesmo texto espera por humano —
+    chega ao pipeline como `condicional` com a `revisao_pendente` no fim, que e
+    o que o `publish-product` vai recusar. Sem o campo, levanta.
+    """
     decisao = valor.get("decisao")
     regras = valor.get("regras")
     versao = valor.get("versao_politica")
@@ -86,6 +115,17 @@ def _resultado(valor: Mapping[str, Any]) -> ResultadoDoScreen:
         raise ScreeningIndisponivelError("versao da politica em falta")
     if isinstance(confianca, bool) or not isinstance(confianca, (int, float)):
         raise ScreeningIndisponivelError("confianca fora da forma")
+    if do_produto:
+        publicavel = valor.get("publicavel")
+        if not isinstance(publicavel, bool):
+            raise ScreeningIndisponivelError("publicavel em falta")
+        if decisao == PERMITIDA and not publicavel:
+            return ResultadoDoScreen(
+                decisao="condicional",
+                regras=(*regras, REGRA_REVISAO_PENDENTE),
+                versao_politica=versao,
+                confianca=0.0,
+            )
     return ResultadoDoScreen(
         decisao=decisao, regras=tuple(regras), versao_politica=versao, confianca=float(confianca)
     )
@@ -120,6 +160,9 @@ class ScreeningPeloCom:
             "sujeito_ref": sujeito_ref,
             "categoria_declarada": categoria_declarada,
             "textos": list(textos),
+            "finalidade": FINALIDADE_DO_SUJEITO[self.sujeito_tipo],
+            # O mesmo tecto do transporte: e o que o COM tem para responder.
+            "prazo_ms": self.timeout_ms,
         }
         try:
             valor = self.cliente.chamar(ROTA, ctx, corpo, self.timeout_ms)
@@ -127,4 +170,4 @@ class ScreeningPeloCom:
             # O `ErroDeBackend` diz o codigo e a rota, e nao o corpo. Mesmo
             # assim nao se encadeia a mensagem: a classe basta a quem opera.
             raise ScreeningIndisponivelError(type(excepcao).__name__) from None
-        return _resultado(valor)
+        return _resultado(valor, do_produto=self.sujeito_tipo == SUJEITO_DO_PRODUTO)

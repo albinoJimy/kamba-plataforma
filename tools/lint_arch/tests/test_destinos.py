@@ -152,12 +152,13 @@ class TestRepositorio(unittest.TestCase):
             with self.subTest(finalidade=finalidade):
                 self.assertRegex(credor, r"^(KAM-[0-9]{3}|D[0-9]{1,2})$")
 
-    def test_o_cliente_de_llm_cobre_as_quatro_finalidades_de_modelo(self) -> None:
+    def test_o_cliente_de_llm_cobre_as_cinco_finalidades_de_modelo(self) -> None:
         """Achado 6: o mapa `papel` -> `finalidade` do AGR tem cinco papeis.
 
         `router` e `chat` dao `conversa`, `embed` da `embeddings`, `vision` da
-        `visao` e `screening` da `classificacao_de_catalogo` (KAM-195) — e os
-        cinco passam pelo mesmo `.autorizar(` do `cliente.py`. Declarar so
+        `visao` e `screening` da `classificacao_de_catalogo` (KAM-195) ou da
+        `classificacao_de_condicoes`, a que o pedido escolher (KAM-230) — e
+        todas passam pelo mesmo `.autorizar(` do `cliente.py`. Declarar so
         `conversa` dizia que o *gate* cobre menos do que cobre.
         """
         cliente = destinos.CLIENTES_DE_SAIDA[
@@ -165,7 +166,7 @@ class TestRepositorio(unittest.TestCase):
         ]
         self.assertEqual(
             set(cliente.finalidades),
-            {"classificacao_de_catalogo", "conversa", "embeddings", "visao"},
+            {"classificacao_de_catalogo", "classificacao_de_condicoes", "conversa", "embeddings", "visao"},
         )
 
 

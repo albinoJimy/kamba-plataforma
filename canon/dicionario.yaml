@@ -12,7 +12,7 @@
 
 version: 1
 fonte: "specs/02_Dicionario_de_Dados_Canonico.md"
-versao_dicionario: "1.120"
+versao_dicionario: "1.128"
 entradas:
   - seccao: "3.1"
     conceito: "Contacto"
@@ -5585,6 +5585,7 @@ entradas:
       - "KAMBA_AGR_URL"
       - "AGR_SHIM_PORT"
     nomes_nota:
+      - "KAMBA_AGR_URL"
       - "KAMBA_DB_HOST"
       - "KAMBA_DB_PORT"
       - "KAMBA_DB_NAME"
@@ -6381,6 +6382,7 @@ entradas:
       - "money"
       - "DISPENSAS_DO_PASSO_4"
       - "submit_quote"
+      - "create_product_draft"
       - "klass"
       - "class"
     variantes_literais: []
@@ -6459,6 +6461,8 @@ entradas:
       - "fact_id"
       - "sku"
       - "sob_consulta"
+      - "count"
+      - "get_catalog_status"
     variantes_literais: []
   - seccao: "3.27"
     conceito: "Prova de confirmação por botão"
@@ -10121,12 +10125,16 @@ entradas:
     variantes_literais: []
   - seccao: "3.39"
     conceito: "As rotas da API interna do COM"
-    canonico: "Doze, as do ROTAS de ../services/com/src/api/interna.ts: POST /internal/offer-view, /internal/propose-cart, /internal/create-order, /internal/get-order, /internal/list-orders, /internal/transition, /internal/request-owner-confirmation, /internal/list-offers, /internal/update-offer, /internal/get-offer, /internal/channel-view, /internal/screen"
+    canonico: "Catorze, as do ROTAS de ../services/com/src/api/interna.ts: POST /internal/offer-view, /internal/propose-cart, /internal/create-order, /internal/get-order, /internal/list-orders, /internal/transition, /internal/request-owner-confirmation, /internal/list-offers, /internal/update-offer, /internal/get-offer, /internal/channel-view, /internal/screen, /internal/upsert-product-draft, /internal/publish-product"
     literais:
       - "ROTAS"
     nomes:
       - "ROTAS"
     nomes_nota:
+      - "upsert"
+      - "product"
+      - "draft"
+      - "publish"
       - "list"
       - "offers"
       - "update"
@@ -13117,12 +13125,13 @@ entradas:
     variantes_literais: []
   - seccao: "3.49"
     conceito: "Finalidade de uma transferência"
-    canonico: "tenant_destinations.purpose ∈ {alojamento, canal, classificacao_de_catalogo, conversa, copias_de_seguranca, embeddings, entrega_de_conteudo, facturacao, imagem, observabilidade, otp_e_avisos_de_servico, pagamentos, segredos, transcricao, visao}"
+    canonico: "tenant_destinations.purpose ∈ {alojamento, canal, classificacao_de_catalogo, classificacao_de_condicoes, conversa, copias_de_seguranca, embeddings, entrega_de_conteudo, facturacao, imagem, observabilidade, otp_e_avisos_de_servico, pagamentos, segredos, transcricao, visao}"
     literais:
       - "tenant_destinations.purpose"
       - "alojamento"
       - "canal"
       - "classificacao_de_catalogo"
+      - "classificacao_de_condicoes"
       - "conversa"
       - "copias_de_seguranca"
       - "embeddings"
@@ -13140,6 +13149,7 @@ entradas:
       - "alojamento"
       - "canal"
       - "classificacao_de_catalogo"
+      - "classificacao_de_condicoes"
       - "conversa"
       - "copias_de_seguranca"
       - "embeddings"
@@ -13155,10 +13165,13 @@ entradas:
     nomes_nota:
       - "imagem"
       - "classificacao_de_catalogo"
+      - "classificacao_de_condicoes"
+      - "finalidade_do_screening"
       - "foto_de_produtos"
       - "screening"
       - "nano"
       - "embeddings"
+      - "FINALIDADES_ESCOLHIVEIS"
       - "FINALIDADES"
       - "otp_e_avisos_de_servico"
       - "FINALIDADE"
@@ -14856,6 +14869,12 @@ entradas:
       - "ligar"
       - "troca"
       - "troca_verificar"
+      - "religar"
+      - "troca_estado"
+      - "troca_concluir"
+      - "troca_cancelar"
+      - "conversa"
+      - "conversa_enviar"
       - "motivo"
       - "sem_sessao"
       - "nao_encontrado"
@@ -14864,7 +14883,6 @@ entradas:
       - "confirmacao"
       - "indisponivel"
       - "limite"
-      - "religar"
       - "activo"
     variantes_literais: []
   - seccao: "3.56"
@@ -15450,6 +15468,9 @@ entradas:
       - "produto"
       - "sku"
       - "offer_terms"
+      - "id"
+      - "assertPublishable"
+      - "conteudo_sha256"
       - "quote_id"
     variantes_literais: []
   - seccao: "3.58"
@@ -15583,9 +15604,16 @@ entradas:
       - "textos"
       - "LIMITES_DO_PEDIDO"
       - "classificador.ts"
+      - "finalidade"
+      - "screening"
+      - "FINALIDADES_ESCOLHIVEIS"
+      - "classificacao_de_catalogo"
+      - "classificacao_de_condicoes"
+      - "prazo_ms"
       - "resultado"
       - "dat.llm_call_log"
       - "sem_tempo"
+      - "MINIMO_PARA_CHAMAR_S"
       - "sem_conteudo"
       - "screen"
       - "condicional"
@@ -15602,6 +15630,7 @@ entradas:
     nomes_nota:
       - "agr_internal_token"
       - "obrigatorio_em"
+      - "KAMBA_AGR_URL"
     variantes_literais: []
   - seccao: "3.58"
     conceito: "Chave virtual do classificador"
@@ -15644,17 +15673,26 @@ entradas:
       - "null"
       - "categoria"
       - "textos"
+      - "finalidade"
+      - "FINALIDADE_DO_SUJEITO"
+      - "classificacao_de_condicoes"
+      - "produto"
+      - "classificacao_de_catalogo"
+      - "VALIDATION_ERROR"
+      - "prazo_ms"
+      - "RESERVA_DA_GRAVACAO_MS"
       - "decisao"
       - "regras"
       - "versao_politica"
       - "confianca"
+      - "CHECK"
       - "SUJEITOS_DA_ROTA"
       - "SUJEITOS"
       - "tipos.ts"
-      - "CHECK"
-      - "VALIDATION_ERROR"
-      - "produto"
-      - "sku"
+      - "conteudo_sha256"
+      - "SQL_POR_REANALISAR"
+      - "publicavel"
+      - "assertPublishable"
       - "UPSTREAM_DOWN"
       - "condicional"
       - "KAMBA_AGR_URL"
@@ -15676,6 +15714,11 @@ entradas:
       - "ScreeningIndisponivelError"
     nomes_nota:
       - "produto"
+      - "publicavel"
+      - "permitida"
+      - "condicional"
+      - "revisao_pendente"
+      - "conferir_condicoes"
       - "PortaDeScreening"
       - "categoria_declarada"
       - "None"
@@ -16915,7 +16958,9 @@ entradas:
       - "jogos"
       - "tabaco"
       - "alcool"
+      - "revisao_pendente"
       - "screening_indisponivel"
+      - "permitida"
       - "bloqueada_categoria"
       - "catalog_ingestions_bloqueada_ck"
       - "publicada"
@@ -19947,10 +19992,10 @@ entradas:
     variantes_literais: []
   - seccao: "3.77"
     conceito: "O pacote do titular"
-    canonico: "manifesto com VERSAO_DO_MANIFESTO = 1.0.0, num ZIP reproduzível na classe dsar do STO"
+    canonico: "manifesto com VERSAO_DO_MANIFESTO = 1.2.0, num ZIP reproduzível na classe dsar do STO"
     literais:
       - "VERSAO_DO_MANIFESTO"
-      - "1.0.0"
+      - "1.2.0"
       - "dsar"
     nomes:
       - "VERSAO_DO_MANIFESTO"
@@ -19958,6 +20003,12 @@ entradas:
     nomes_nota:
       - "sha256"
       - "audit_log"
+      - "ofertas"
+      - "offer_terms"
+      - "aceites"
+      - "contract_acceptance"
+      - "catalogo"
+      - "indisponivel"
     variantes_literais: []
   - seccao: "3.77"
     conceito: "A ligação de 24 h"
@@ -20003,6 +20054,105 @@ entradas:
       - "kid"
     nomes_nota:
       - "purge_log"
+    variantes_literais: []
+  - seccao: "3.77"
+    conceito: "Processo das fases de dados"
+    canonico: "python -m kamba_core.offboarding, serviço offboarding-dados, porta OFFBOARDING_DADOS_PORT (8062)"
+    literais:
+      - "offboarding-dados"
+      - "OFFBOARDING_DADOS_PORT"
+    nomes:
+      - "offboarding"
+      - "dados"
+      - "OFFBOARDING_DADOS_PORT"
+    nomes_nota:
+      - "kamba_batch"
+      - "kamba_app"
+      - "kamba_identity"
+      - "prod"
+    variantes_literais: []
+  - seccao: "3.77"
+    conceito: "Configuração do processo dos dados"
+    canonico: "KAMBA_OFFBOARDING_INTERVALO_S (900 por omissão), KAMBA_OFFBOARDING_COPIAS_DIAS (obrigatória)"
+    literais:
+      - "KAMBA_OFFBOARDING_INTERVALO_S"
+      - "KAMBA_OFFBOARDING_COPIAS_DIAS"
+    nomes:
+      - "KAMBA_OFFBOARDING_INTERVALO_S"
+      - "KAMBA_OFFBOARDING_COPIAS_DIAS"
+    nomes_nota:
+      - "retencao_dias"
+    variantes_literais: []
+  - seccao: "3.77"
+    conceito: "Chave do certificado"
+    canonico: "offboarding_certificate_key, na forma <kid>:<base64 de 32 octetos>"
+    literais:
+      - "offboarding_certificate_key"
+      - "<kid>:<base64 de 32 octetos>"
+    nomes:
+      - "offboarding_certificate_key"
+      - "kid"
+      - "base64"
+      - "de"
+      - "octetos"
+    nomes_nota:
+      - "kid"
+      - "true"
+    variantes_literais: []
+  - seccao: "3.77"
+    conceito: "Os contactos pelo cofre"
+    canonico: "apagar_contactos_pelo_cofre, a porta ApagarContactos da purga"
+    literais:
+      - "apagar_contactos_pelo_cofre"
+      - "ApagarContactos"
+    nomes:
+      - "apagar_contactos_pelo_cofre"
+      - "ApagarContactos"
+    nomes_nota:
+      - "purge_log"
+      - "erased_at"
+      - "kamba_identity"
+    variantes_literais: []
+  - seccao: "3.77"
+    conceito: "O token de cada WABA"
+    canonico: "tokenDoWabaPeloCofre, WabaSemTokenError com o motivo ∈ {sem_canal, ambiguo, sem_segredo, nao_abre}"
+    literais:
+      - "tokenDoWabaPeloCofre"
+      - "WabaSemTokenError"
+      - "sem_canal"
+      - "ambiguo"
+      - "sem_segredo"
+      - "nao_abre"
+    nomes:
+      - "tokenDoWabaPeloCofre"
+      - "WabaSemTokenError"
+      - "sem_canal"
+      - "ambiguo"
+      - "sem_segredo"
+      - "nao_abre"
+    nomes_nota:
+      - "token_ref"
+      - "tenant_channels"
+      - "encerrado"
+      - "kamba_batch"
+      - "kek_token_cliente"
+      - "ambiguo"
+      - "portasDoOffboarding"
+    variantes_literais: []
+  - seccao: "3.77"
+    conceito: "Revogação da chave do LiteLLM"
+    canonico: "o comando revogar do ../infra/llm/chaves.py, pelo alias tenant-<uuid>"
+    literais:
+      - "revogar"
+      - "tenant-<uuid>"
+    nomes:
+      - "revogar"
+      - "tenant"
+      - "uuid"
+    nomes_nota:
+      - "provisionar"
+      - "revogada"
+      - "inexistente"
     variantes_literais: []
   - seccao: "3.78"
     conceito: "Papel do contacto"
@@ -20052,14 +20202,15 @@ entradas:
     variantes_literais: []
   - seccao: "3.78"
     conceito: "A escritora do papel"
-    canonico: "platform.definir_dono(p_contact_id, p_origem), SECURITY DEFINER"
+    canonico: "platform.definir_dono(p_contact_id, p_origem, p_owner_channel_wa), SECURITY DEFINER"
     literais:
-      - "platform.definir_dono(p_contact_id, p_origem)"
+      - "platform.definir_dono(p_contact_id, p_origem, p_owner_channel_wa)"
       - "SECURITY DEFINER"
     nomes:
       - "platform.definir_dono"
       - "p_contact_id"
       - "p_origem"
+      - "p_owner_channel_wa"
       - "SECURITY"
       - "DEFINER"
     nomes_nota:
@@ -20068,6 +20219,7 @@ entradas:
       - "troca_de_telefone"
       - "app.tenant_id"
       - "cliente"
+      - "p_owner_channel_wa"
       - "EXECUTE"
       - "kamba_identity"
     variantes_literais: []
@@ -20112,7 +20264,14 @@ entradas:
       - "preco_stock_em_massa"
       - "aprovar_conteudo"
       - "enviar_proposta"
-    nomes_nota: []
+    nomes_nota:
+      - "aprovar_conteudo"
+      - "ref"
+      - "ingest"
+      - "o"
+      - "vers"
+      - "do"
+      - "resumo"
     variantes_literais: []
   - seccao: "3.78"
     conceito: "Estado de uma acção"
@@ -20177,18 +20336,29 @@ entradas:
     variantes_literais: []
   - seccao: "3.78"
     conceito: "Canal do dono"
-    canonico: "owner_channel_wa, no CanalDoDono de canalDoDono"
+    canonico: "tenants.owner_channel_wa (booleano, nulo), e o owner_channel_wa do CanalDoDono de canalDoDono e canalNoPainel"
     literais:
+      - "tenants.owner_channel_wa"
       - "owner_channel_wa"
       - "CanalDoDono"
       - "canalDoDono"
+      - "canalNoPainel"
     nomes:
+      - "tenants.owner_channel_wa"
       - "owner_channel_wa"
       - "CanalDoDono"
       - "canalDoDono"
+      - "canalNoPainel"
     nomes_nota:
       - "false"
-      - "numeroCoincide"
+      - "onboarding"
+      - "web"
+      - "phone_hmac"
+      - "numeroConfirmado"
+      - "definir_dono"
+      - "kamba_batch"
+      - "UPDATE"
+      - "ativo"
     variantes_literais: []
   - seccao: "3.78"
     conceito: "Política de proactivas"
@@ -20490,6 +20660,28 @@ entradas:
       - "resolveContact"
     variantes_literais: []
   - seccao: "3.78"
+    conceito: "A leitura do canal do dono"
+    canonico: "VistaDoCanal.ownerChannelWa, no SQL_CANAL_DO_PAINEL do COM; numeroDaLojaConfirmado das OpcoesDaTroca"
+    literais:
+      - "VistaDoCanal.ownerChannelWa"
+      - "SQL_CANAL_DO_PAINEL"
+      - "numeroDaLojaConfirmado"
+      - "OpcoesDaTroca"
+    nomes:
+      - "VistaDoCanal.ownerChannelWa"
+      - "SQL_CANAL_DO_PAINEL"
+      - "numeroDaLojaConfirmado"
+      - "OpcoesDaTroca"
+    nomes_nota:
+      - "channel"
+      - "view"
+      - "kamba_app"
+      - "JOIN"
+      - "kamba_identity"
+      - "tenants"
+      - "numeroDaLojaConfirmado"
+    variantes_literais: []
+  - seccao: "3.78"
     conceito: "A troca montada pelo processo"
     canonico: "ONBOARDING_IDENTITY_DB_URL, trocaPeloPool, numaLigacao, PoolDeIdentidade, LigacaoDoPool"
     literais:
@@ -20641,6 +20833,118 @@ entradas:
       - "orcamento_pronto"
     nomes_nota:
       - "utility"
+      - "orcamento"
+      - "mensagem"
+    variantes_literais: []
+  - seccao: "3.79"
+    conceito: "Template da mensagem neutra das 24 h"
+    canonico: "orcamento_em_espera"
+    literais:
+      - "orcamento_em_espera"
+    nomes:
+      - "orcamento_em_espera"
+    nomes_nota:
+      - "ORC"
+      - "orcamento"
+    variantes_literais: []
+  - seccao: "3.79"
+    conceito: "Espera do dono antes da mensagem neutra"
+    canonico: "vinte e quatro horas desde o pedido, com um horizonte de mais vinte e quatro"
+    literais: []
+    nomes: []
+    nomes_nota:
+      - "pedido"
+      - "respondido"
+      - "orcamento"
+      - "quote_id"
+      - "sem_resposta"
+    variantes_literais: []
+  - seccao: "3.79"
+    conceito: "Notificação ao cliente pela resposta do AGR"
+    canonico: "NotificacaoPelaResposta"
+    literais:
+      - "NotificacaoPelaResposta"
+    nomes:
+      - "NotificacaoPelaResposta"
+    nomes_nota:
+      - "PortaDeNotificacao"
+      - "agent_replies"
+      - "window_expires_at"
+      - "mode"
+      - "bot"
+      - "agent.replied"
+      - "livre"
+      - "template_nome"
+      - "template_parametros"
+      - "template"
+      - "sem_template"
+      - "orcamentos"
+    variantes_literais: []
+  - seccao: "3.79"
+    conceito: "Template de uma resposta do AGR"
+    canonico: "template_nome"
+    literais:
+      - "template_nome"
+    nomes:
+      - "template_nome"
+    nomes_nota:
+      - "agent_replies"
+      - "_"
+      - "agent_replies_template_nome_ck"
+      - "window_expires_at"
+    variantes_literais: []
+  - seccao: "3.79"
+    conceito: "Parâmetros do template de uma resposta"
+    canonico: "template_parametros"
+    literais:
+      - "template_parametros"
+    nomes:
+      - "template_parametros"
+    nomes_nota:
+      - "template_nome"
+      - "agent_replies_template_ck"
+      - "agent_replies_template_parametros_ck"
+      - "ORC"
+    variantes_literais: []
+  - seccao: "3.79"
+    conceito: "Reemissão de uma proposta pela janela"
+    canonico: "reemitir_pela_janela"
+    literais:
+      - "reemitir_pela_janela"
+    nomes:
+      - "reemitir_pela_janela"
+    nomes_nota:
+      - "Saida"
+      - "entregue_at"
+      - "agr_orcamento_sem_resposta"
+      - "orcamento_pronto"
+      - "enviado"
+      - "libertar_da_janela"
+      - "quote.sent"
+    variantes_literais: []
+  - seccao: "3.79"
+    conceito: "Trabalho de lote da mensagem das 24 h"
+    canonico: "agr_orcamento_sem_resposta"
+    literais:
+      - "agr_orcamento_sem_resposta"
+    nomes:
+      - "agr_orcamento_sem_resposta"
+    nomes_nota:
+      - "tx_batch"
+      - "kamba_batch"
+      - "quote_requests"
+      - "kamba_app"
+      - "agr_handoff_prazos"
+    variantes_literais: []
+  - seccao: "3.79"
+    conceito: "Trabalho de lote da expiração"
+    canonico: "agr_orcamento_expirar"
+    literais:
+      - "agr_orcamento_expirar"
+    nomes:
+      - "agr_orcamento_expirar"
+    nomes_nota:
+      - "expirado"
     variantes_literais: []
   - seccao: "3.79"
     conceito: "Desfecho de um envio"
@@ -20709,14 +21013,16 @@ entradas:
     variantes_literais: []
   - seccao: "3.79"
     conceito: "Dispensa do passo 4"
-    canonico: "DISPENSAS_DO_PASSO_4 = (submit_quote); EspecificacaoDeTool.confirmacao_dispensada"
+    canonico: "DISPENSAS_DO_PASSO_4 = (submit_quote, create_product_draft); EspecificacaoDeTool.confirmacao_dispensada"
     literais:
       - "DISPENSAS_DO_PASSO_4"
       - "submit_quote"
+      - "create_product_draft"
       - "EspecificacaoDeTool.confirmacao_dispensada"
     nomes:
       - "DISPENSAS_DO_PASSO_4"
       - "submit_quote"
+      - "create_product_draft"
       - "EspecificacaoDeTool.confirmacao_dispensada"
     nomes_nota:
       - "write"
@@ -20724,6 +21030,8 @@ entradas:
       - "submit_quote"
       - "confirm"
       - "action_id"
+      - "create_product_draft"
+      - "publish_product"
     variantes_literais: []
   - seccao: "3.79"
     conceito: "Botão do pedido de orçamento"
@@ -20810,13 +21118,25 @@ entradas:
     variantes_literais: []
   - seccao: "3.79"
     conceito: "Botão «Aceito» de uma proposta"
-    canonico: "aceitar_orcamento"
+    canonico: "aceitar_orcamento:{ORC-…}, com o texto «Aceito»"
     literais:
-      - "aceitar_orcamento"
+      - "aceitar_orcamento:{ORC-…}"
     nomes:
       - "aceitar_orcamento"
+      - "ORC"
     nomes_nota:
-      - "PortaDeNotificacao"
+      - "orcamento_pronto"
+    variantes_literais: []
+  - seccao: "3.79"
+    conceito: "Aviso proactivo ao dono de um pedido novo"
+    canonico: "orcamento:{quote_id}:aviso_ao_dono"
+    literais:
+      - "orcamento:{quote_id}:aviso_ao_dono"
+    nomes:
+      - "orcamento"
+      - "quote_id"
+      - "aviso_ao_dono"
+    nomes_nota: []
     variantes_literais: []
   - seccao: "3.79"
     conceito: "Avisos do orçamento"
@@ -20836,9 +21156,9 @@ entradas:
     variantes_literais: []
   - seccao: "3.80"
     conceito: "Resposta de um turno"
-    canonico: "platform.agent_replies(reply_id, tenant_id, chave, contact_id, conversation_id, canal, texto, botoes, turno_iniciado_em, criado_at, entregue_at)"
+    canonico: "platform.agent_replies(reply_id, tenant_id, chave, contact_id, conversation_id, canal, texto, botoes, turno_iniciado_em, criado_at, entregue_at, template_nome, template_parametros)"
     literais:
-      - "platform.agent_replies(reply_id, tenant_id, chave, contact_id, conversation_id, canal, texto, botoes, turno_iniciado_em, criado_at, entregue_at)"
+      - "platform.agent_replies(reply_id, tenant_id, chave, contact_id, conversation_id, canal, texto, botoes, turno_iniciado_em, criado_at, entregue_at, template_nome, template_parametros)"
     nomes:
       - "platform.agent_replies"
       - "reply_id"
@@ -20852,6 +21172,8 @@ entradas:
       - "turno_iniciado_em"
       - "criado_at"
       - "entregue_at"
+      - "template_nome"
+      - "template_parametros"
     nomes_nota:
       - "FORCE"
       - "kamba_app"
@@ -20874,6 +21196,7 @@ entradas:
       - "whatsapp"
       - "painel"
     nomes_nota:
+      - "painel"
       - "whatsapp"
     variantes_literais: []
   - seccao: "3.80"
@@ -20900,6 +21223,322 @@ entradas:
       - "platform.evt_subscricoes"
     nomes_nota:
       - "kamba_app"
+    variantes_literais: []
+  - seccao: "3.81"
+    conceito: "Mensagem que entra no AGR"
+    canonico: "platform.agent_messages(message_id, tenant_id, contact_id, conversation_id, canal, texto, criado_at)"
+    literais:
+      - "platform.agent_messages(message_id, tenant_id, contact_id, conversation_id, canal, texto, criado_at)"
+    nomes:
+      - "platform.agent_messages"
+      - "message_id"
+      - "tenant_id"
+      - "contact_id"
+      - "conversation_id"
+      - "canal"
+      - "texto"
+      - "criado_at"
+    nomes_nota:
+      - "FORCE"
+      - "kamba_app"
+      - "UPDATE"
+      - "DELETE"
+      - "conversas"
+      - "agent_replies"
+      - "CHECK"
+    variantes_literais: []
+  - seccao: "3.81"
+    conceito: "Canal de uma mensagem"
+    canonico: "agent_messages.canal ∈ {whatsapp, painel}"
+    literais:
+      - "agent_messages.canal"
+      - "whatsapp"
+      - "painel"
+    nomes:
+      - "agent_messages.canal"
+      - "whatsapp"
+      - "painel"
+    nomes_nota:
+      - "agent_replies.canal"
+    variantes_literais: []
+  - seccao: "3.81"
+    conceito: "Identificador da mensagem na invocação"
+    canonico: "agent_invocation.message_id"
+    literais:
+      - "agent_invocation.message_id"
+    nomes:
+      - "agent_invocation.message_id"
+    nomes_nota:
+      - "persona"
+      - "botao"
+      - "mensagem_do_cliente"
+      - "invocacao_invalida"
+    variantes_literais: []
+  - seccao: "3.81"
+    conceito: "O turno do painel"
+    canonico: "wamid = painel.{message_id}, type = text, persona = dono"
+    literais:
+      - "wamid"
+      - "painel.{message_id}"
+      - "type"
+      - "text"
+      - "persona"
+      - "dono"
+    nomes:
+      - "wamid"
+      - "painel"
+      - "message_id"
+      - "type"
+      - "text"
+      - "persona"
+      - "dono"
+    nomes_nota:
+      - "wamid"
+      - "turn_id"
+      - "botao"
+    variantes_literais: []
+  - seccao: "3.81"
+    conceito: "A leitura da mensagem no AGR"
+    canonico: "LeitorDeMensagens, ler_mensagem_sincrono, SQL_LER_MENSAGEM, MensagemNaoEncontradaError, ligar_para_mensagens (kamba-agr:mensagens)"
+    literais:
+      - "LeitorDeMensagens"
+      - "ler_mensagem_sincrono"
+      - "SQL_LER_MENSAGEM"
+      - "MensagemNaoEncontradaError"
+      - "ligar_para_mensagens"
+      - "kamba-agr:mensagens"
+    nomes:
+      - "LeitorDeMensagens"
+      - "ler_mensagem_sincrono"
+      - "SQL_LER_MENSAGEM"
+      - "MensagemNaoEncontradaError"
+      - "ligar_para_mensagens"
+      - "kamba"
+      - "agr"
+      - "mensagens"
+    nomes_nota:
+      - "kamba_app"
+      - "dono"
+      - "ainvoke"
+      - "invocacao_invalida"
+    variantes_literais: []
+  - seccao: "3.81"
+    conceito: "O canal da resposta de um turno"
+    canonico: "CANAL_DO_TURNO, canal_do_turno"
+    literais:
+      - "CANAL_DO_TURNO"
+      - "canal_do_turno"
+    nomes:
+      - "CANAL_DO_TURNO"
+      - "canal_do_turno"
+    nomes_nota:
+      - "SaidaPorEvento"
+      - "whatsapp"
+      - "canal_por_omissao"
+      - "main"
+      - "canal_do_turno"
+    variantes_literais: []
+  - seccao: "3.81"
+    conceito: "A admissão de um turno do painel"
+    canonico: "invocacao_do_painel_admitida, SEGREDO_DO_PAINEL"
+    literais:
+      - "invocacao_do_painel_admitida"
+      - "SEGREDO_DO_PAINEL"
+    nomes:
+      - "invocacao_do_painel_admitida"
+      - "SEGREDO_DO_PAINEL"
+    nomes_nota:
+      - "api_interna.py"
+      - "agr_painel_token"
+      - "dono"
+      - "message_id"
+      - "type"
+      - "text"
+      - "botao"
+      - "wamid"
+      - "painel"
+      - "invocacao_invalida"
+    variantes_literais: []
+  - seccao: "3.81"
+    conceito: "A conversa do dono pelo painel"
+    canonico: "GET /painel/conversa, POST /painel/conversa, ConversaDoDono, OpcoesDaConversa, PortasDaConversa, ContextoDoDono"
+    literais:
+      - "ConversaDoDono"
+      - "OpcoesDaConversa"
+      - "PortasDaConversa"
+      - "ContextoDoDono"
+    nomes:
+      - "ConversaDoDono"
+      - "OpcoesDaConversa"
+      - "PortasDaConversa"
+      - "ContextoDoDono"
+    nomes_nota:
+      - "OwnerPort"
+      - "thread_id"
+      - "NULL"
+      - "depois"
+      - "id"
+      - "MARGEM_DO_CURSOR_MS"
+      - "painel"
+    variantes_literais: []
+  - seccao: "3.81"
+    conceito: "A ligação da conversa"
+    canonico: "ONBOARDING_APP_DB_URL, conversaPeloPool, PoolDaApp"
+    literais:
+      - "ONBOARDING_APP_DB_URL"
+      - "conversaPeloPool"
+      - "PoolDaApp"
+    nomes:
+      - "ONBOARDING_APP_DB_URL"
+      - "conversaPeloPool"
+      - "PoolDaApp"
+    nomes_nota:
+      - "onboarding"
+      - "web"
+      - "kamba_app"
+      - "kamba_identity"
+      - "tenants"
+      - "tenant_channels"
+      - "KAMBA_AGR_URL"
+      - "agr_painel_token"
+    variantes_literais: []
+  - seccao: "3.81"
+    conceito: "Credencial do painel no AGR"
+    canonico: "segredo agr_painel_token, invocadorPorHttp"
+    literais:
+      - "agr_painel_token"
+      - "invocadorPorHttp"
+    nomes:
+      - "agr_painel_token"
+      - "invocadorPorHttp"
+    nomes_nota:
+      - "dono"
+      - "message_id"
+      - "nao_autorizado"
+    variantes_literais:
+      - "agr_internal_token"
+  - seccao: "3.81"
+    conceito: "Troca de telefone persistida"
+    canonico: "platform.owner_phone_changes(change_id, tenant_id, pedido, telefone_hmac, owner_channel_wa, estado, prazo, contact_id, antigo_hmac, desafio_chave, desafio_hmac, desafio_expira_em, desafio_tentativas, criado_at, decidido_at)"
+    literais:
+      - "platform.owner_phone_changes(change_id, tenant_id, pedido, telefone_hmac, owner_channel_wa, estado, prazo, contact_id, antigo_hmac, desafio_chave, desafio_hmac, desafio_expira_em, desafio_tentativas, criado_at, decidido_at)"
+    nomes:
+      - "platform.owner_phone_changes"
+      - "change_id"
+      - "tenant_id"
+      - "pedido"
+      - "telefone_hmac"
+      - "owner_channel_wa"
+      - "estado"
+      - "prazo"
+      - "contact_id"
+      - "antigo_hmac"
+      - "desafio_chave"
+      - "desafio_hmac"
+      - "desafio_expira_em"
+      - "desafio_tentativas"
+      - "criado_at"
+      - "decidido_at"
+    nomes_nota:
+      - "FORCE"
+      - "kamba_identity"
+      - "definir_dono"
+      - "desafio_"
+      - "owner_channel_wa"
+      - "canalDoDono"
+      - "concluir"
+    variantes_literais: []
+  - seccao: "3.81"
+    conceito: "Estado de uma troca"
+    canonico: "owner_phone_changes.estado ∈ {pedida, pendente, feita, cancelada, expirada}"
+    literais:
+      - "owner_phone_changes.estado"
+      - "pedida"
+      - "pendente"
+      - "feita"
+      - "cancelada"
+      - "expirada"
+    nomes:
+      - "owner_phone_changes.estado"
+      - "pedida"
+      - "pendente"
+      - "feita"
+      - "cancelada"
+      - "expirada"
+    nomes_nota:
+      - "pedida"
+      - "pendente"
+      - "prazo"
+      - "feita"
+      - "definir_dono"
+      - "owner_phone_changes_viva_uq"
+    variantes_literais: []
+  - seccao: "3.81"
+    conceito: "Espera da troca sem o número antigo"
+    canonico: "ESPERA_DA_TROCA_MS = 72 h"
+    literais:
+      - "ESPERA_DA_TROCA_MS"
+    nomes:
+      - "ESPERA_DA_TROCA_MS"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.81"
+    conceito: "As rotas da troca"
+    canonico: "GET /painel/telefone, POST /painel/telefone/concluir, POST /painel/telefone/cancelar, e o campo numero ∈ {novo, antigo} do POST /painel/telefone e do POST /painel/telefone/verificar"
+    literais:
+      - "numero"
+      - "novo"
+      - "antigo"
+    nomes:
+      - "numero"
+      - "novo"
+      - "antigo"
+    nomes_nota:
+      - "verificar"
+      - "pendente"
+      - "feita"
+      - "concluir"
+      - "cancelar"
+    variantes_literais: []
+  - seccao: "3.81"
+    conceito: "O repositório da troca"
+    canonico: "RepositorioDaTroca, TrocasEmMemoria, trocasNaBase, desafioNaTroca, otpDaTrocaNaBase, chaveDoDesafio, AlvoDoDesafio, AnteriorDiferenteError"
+    literais:
+      - "RepositorioDaTroca"
+      - "TrocasEmMemoria"
+      - "trocasNaBase"
+      - "desafioNaTroca"
+      - "otpDaTrocaNaBase"
+      - "chaveDoDesafio"
+      - "AlvoDoDesafio"
+      - "AnteriorDiferenteError"
+    nomes:
+      - "RepositorioDaTroca"
+      - "TrocasEmMemoria"
+      - "trocasNaBase"
+      - "desafioNaTroca"
+      - "otpDaTrocaNaBase"
+      - "chaveDoDesafio"
+      - "AlvoDoDesafio"
+      - "AnteriorDiferenteError"
+    nomes_nota:
+      - "TrocasEmMemoria"
+    variantes_literais: []
+  - seccao: "3.81"
+    conceito: "Os momentos do aviso"
+    canonico: "MOMENTOS_DO_AVISO ∈ {pendente, feita, cancelada}"
+    literais:
+      - "MOMENTOS_DO_AVISO"
+      - "pendente"
+      - "feita"
+      - "cancelada"
+    nomes:
+      - "MOMENTOS_DO_AVISO"
+      - "pendente"
+      - "feita"
+      - "cancelada"
+    nomes_nota:
+      - "AvisoDaTroca"
     variantes_literais: []
 
 tabelas:
@@ -22346,8 +22985,9 @@ tabelas:
     colunas:
       - "p_contact_id"
       - "p_origem"
+      - "p_owner_channel_wa"
     aberta: false
-    assinatura: "platform.definir_dono(p_contact_id, p_origem)"
+    assinatura: "platform.definir_dono(p_contact_id, p_origem, p_owner_channel_wa)"
     seccao: "3.78"
     conceito: "A escritora do papel"
   - nome: "owner_actions"
@@ -22401,10 +23041,48 @@ tabelas:
       - "turno_iniciado_em"
       - "criado_at"
       - "entregue_at"
+      - "template_nome"
+      - "template_parametros"
     aberta: false
-    assinatura: "platform.agent_replies(reply_id, tenant_id, chave, contact_id, conversation_id, canal, texto, botoes, turno_iniciado_em, criado_at, entregue_at)"
+    assinatura: "platform.agent_replies(reply_id, tenant_id, chave, contact_id, conversation_id, canal, texto, botoes, turno_iniciado_em, criado_at, entregue_at, template_nome, template_parametros)"
     seccao: "3.80"
     conceito: "Resposta de um turno"
+  - nome: "agent_messages"
+    esquema: "platform"
+    colunas:
+      - "message_id"
+      - "tenant_id"
+      - "contact_id"
+      - "conversation_id"
+      - "canal"
+      - "texto"
+      - "criado_at"
+    aberta: false
+    assinatura: "platform.agent_messages(message_id, tenant_id, contact_id, conversation_id, canal, texto, criado_at)"
+    seccao: "3.81"
+    conceito: "Mensagem que entra no AGR"
+  - nome: "owner_phone_changes"
+    esquema: "platform"
+    colunas:
+      - "change_id"
+      - "tenant_id"
+      - "pedido"
+      - "telefone_hmac"
+      - "owner_channel_wa"
+      - "estado"
+      - "prazo"
+      - "contact_id"
+      - "antigo_hmac"
+      - "desafio_chave"
+      - "desafio_hmac"
+      - "desafio_expira_em"
+      - "desafio_tentativas"
+      - "criado_at"
+      - "decidido_at"
+    aberta: false
+    assinatura: "platform.owner_phone_changes(change_id, tenant_id, pedido, telefone_hmac, owner_channel_wa, estado, prazo, contact_id, antigo_hmac, desafio_chave, desafio_hmac, desafio_expira_em, desafio_tentativas, criado_at, decidido_at)"
+    seccao: "3.81"
+    conceito: "Troca de telefone persistida"
 
 dominios:
   - coluna: "consent_event.purpose"
@@ -23467,6 +24145,7 @@ dominios:
       - "alojamento"
       - "canal"
       - "classificacao_de_catalogo"
+      - "classificacao_de_condicoes"
       - "conversa"
       - "copias_de_seguranca"
       - "embeddings"
@@ -24203,6 +24882,38 @@ dominios:
       - "painel"
     seccao: "3.80"
     conceito: "Canal de uma resposta"
+    so_no_registo: false
+  - coluna: "agent_messages.canal"
+    valores:
+      - "whatsapp"
+      - "painel"
+    seccao: "3.81"
+    conceito: "Canal de uma mensagem"
+    so_no_registo: false
+  - coluna: "owner_phone_changes.estado"
+    valores:
+      - "pedida"
+      - "pendente"
+      - "feita"
+      - "cancelada"
+      - "expirada"
+    seccao: "3.81"
+    conceito: "Estado de uma troca"
+    so_no_registo: false
+  - coluna: "numero"
+    valores:
+      - "novo"
+      - "antigo"
+    seccao: "3.81"
+    conceito: "As rotas da troca"
+    so_no_registo: false
+  - coluna: "MOMENTOS_DO_AVISO"
+    valores:
+      - "pendente"
+      - "feita"
+      - "cancelada"
+    seccao: "3.81"
+    conceito: "Os momentos do aviso"
     so_no_registo: false
 
 variantes:

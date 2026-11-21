@@ -4,7 +4,7 @@
  * A forma é a do `/internal/turn` e `/internal/resume` do AGR (KAM-025):
  * credencial no cabeçalho, comparação em **tempo constante**, autenticação
  * **antes** de se ler o corpo, e o segredo no inventário. «Mínima» é o
- * adjectivo, e cumpre-se: doze rotas, nenhuma de administração, nenhuma que
+ * adjectivo, e cumpre-se: catorze rotas, nenhuma de administração, nenhuma que
  * exista «para depois». A `/healthz` fica onde estava e **não** leva credencial
  * — é a sonda do *rolling deploy*, e uma sonda que precisa de segredo é uma
  * sonda que falha no dia em que o segredo roda.
@@ -70,11 +70,12 @@ import {
   type Erro,
   type OrderFilter,
   type OrderState,
+  type ProductDraft,
 } from "../port/index.ts";
 import type { OperacoesDoCom } from "../adapters/medusa/index.ts";
 import { exposicao, TIPO_DE_CONTEUDO } from "../metricas.ts";
 import type { AlteracaoDeOferta } from "../produtos/index.ts";
-import type { PedidoDeScreen } from "../screening/index.ts";
+import { PRAZO_MAXIMO_MS, type PedidoDePublicacao, type PedidoDeScreen } from "../screening/index.ts";
 import type {
   ErroDaCriacao,
   PedidoDeCriacao,
@@ -109,10 +110,32 @@ export const SEGREDO_DA_API = "com_internal_token";
 export const CORPO_MAXIMO = 8 * 1024;
 
 /**
- * As doze rotas: as sete pela ordem em que a cadeia grafo → TLS → COM as toca,
- * as duas do painel do dono (KAM-099), as duas leituras que o KAM-190 lhe
- * acrescenta — uma oferta só, e o estado do canal — e o `screen` do KAM-088
- * para quem não é TypeScript (KAM-222, `../screening/index.ts`).
+ * O tecto de uma rota que não cabe no `CORPO_MAXIMO`, em octetos (KAM-119).
+ *
+ * **Uma: o `/internal/screen`**, com 32 KiB. Os textos de um produto do
+ * Catálogo AI — até vinte e quatro valores de duzentos caracteres, em UTF-8 —
+ * passam os oito KiB, e um 413 ali recusava o produto antes de o motor o ler.
+ * O tecto global não sobe com ela: as outras rotas continuam sem pedido que o
+ * precise, e um tecto mais largo do que o pedido é `JSON.parse` de graça para
+ * quem não devia ter corpo grande. A limitação do `CORPO_MAXIMO` vale igual —
+ * mede-se depois de ler, e quem impede a leitura é o proxy (KAM-076).
+ */
+export const CORPO_MAXIMO_POR_ROTA: Readonly<Partial<Record<(typeof ROTAS)[number], number>>> = {
+  "/internal/screen": 32 * 1024,
+};
+
+/** O tecto do corpo de uma rota: o dela, ou o `CORPO_MAXIMO`. */
+export function corpoMaximo(rota: (typeof ROTAS)[number]): number {
+  return CORPO_MAXIMO_POR_ROTA[rota] ?? CORPO_MAXIMO;
+}
+
+/**
+ * As catorze rotas: as sete pela ordem em que a cadeia grafo → TLS → COM as
+ * toca, as duas do painel do dono (KAM-099), as duas leituras que o KAM-190 lhe
+ * acrescenta — uma oferta só, e o estado do canal —, o `screen` do KAM-088
+ * para quem não é TypeScript (KAM-222, `../screening/index.ts`) e as duas do
+ * Catálogo AI (KAM-119): o rascunho de um produto e a publicação com a decisão
+ * do screening conferida.
  *
  * **As duas do painel não são administração**, e é a distinção que o «nenhuma
  * de administração» acima defende: servem um dono a ler e a corrigir o **seu**
@@ -133,6 +156,8 @@ export const ROTAS = [
   "/internal/get-offer",
   "/internal/channel-view",
   "/internal/screen",
+  "/internal/upsert-product-draft",
+  "/internal/publish-product",
 ] as const;
 
 /**
@@ -332,9 +357,11 @@ function alteracaoDoCorpo(corpo: Record<string, unknown>): AlteracaoDeOferta | n
 /**
  * Quantos textos o `screen` recebe por pedido: o tecto de textos do
  * `LIMITES_DA_ENTRADA`. **Não** o tecto de caracteres: o corpo inteiro cabe nos
- * oito KiB do `CORPO_MAXIMO`, e um corpo maior é 413, que também fecha. Chega
- * para as condições de um orçamento (até 200 caracteres); o Catálogo AI, com
- * descrições longas, tem de o rever quando ligar o produto (KAM-119).
+ * 32 KiB que o `CORPO_MAXIMO_POR_ROTA` dá a esta rota, e um corpo maior é 413,
+ * que também fecha. Chega para as condições de um orçamento (até 200
+ * caracteres) e para os textos de um produto do Catálogo AI (KAM-119: até
+ * vinte e quatro valores de 200 caracteres) — foi o tecto do corpo que o
+ * KAM-119 reviu, e não este.
  */
 export const TEXTOS_MAXIMOS_DO_SCREEN = 50;
 
@@ -352,7 +379,13 @@ function pedidoDeScreenDoCorpo(corpo: Record<string, unknown>): PedidoDeScreen |
   const sujeitoRef = corpo["sujeito_ref"];
   const categoria = corpo["categoria_declarada"] ?? null;
   const textos = corpo["textos"];
+  const finalidade = corpo["finalidade"];
+  const prazoMs = corpo["prazo_ms"];
   if (typeof sujeitoTipo !== "string" || sujeitoTipo.length === 0) return null;
+  // KAM-230: a finalidade de transferência e o prazo de quem chama. A operação
+  // confere a finalidade com a do sujeito; aqui só a forma.
+  if (typeof finalidade !== "string" || finalidade.length === 0) return null;
+  if (!Number.isInteger(prazoMs) || (prazoMs as number) < 1 || (prazoMs as number) > PRAZO_MAXIMO_MS) return null;
   if (typeof sujeitoRef !== "string" || sujeitoRef.length === 0 || sujeitoRef.length > 200) return null;
   if (categoria !== null && typeof categoria !== "string") return null;
   if (!Array.isArray(textos) || textos.length === 0 || textos.length > TEXTOS_MAXIMOS_DO_SCREEN) return null;
@@ -362,7 +395,70 @@ function pedidoDeScreenDoCorpo(corpo: Record<string, unknown>): PedidoDeScreen |
     sujeitoRef,
     categoriaDeclarada: categoria,
     textos: textos as string[],
+    finalidade,
+    prazoMs: prazoMs as number,
   };
+}
+
+/**
+ * O rascunho de produto que o corpo descreve, como `ProductDraft` da porta, ou
+ * `null` (KAM-119).
+ *
+ * Os termos de preço vão no `atributos`, que é por onde o `rascunhoDoDraft` do
+ * adaptador os lê (o §3.39 fecha o `ProductDraft` em cinco campos). O
+ * `preco_minor` é obrigatório: `null` **explícito** para `sob_consulta` e uma
+ * cadeia de dígitos (ou inteiro seguro) para os outros, como no `update-offer`.
+ * O par modo/preço e o domínio do `preco_tipo` e do `stock_modo` são do
+ * adaptador e do módulo, que os recusam com o mesmo `VALIDATION_ERROR`.
+ */
+function rascunhoDeProdutoDoCorpo(corpo: Record<string, unknown>): ProductDraft | null {
+  const sku = corpo["sku"];
+  const nome = corpo["nome"];
+  const precoTipo = corpo["preco_tipo"];
+  const stockModo = corpo["stock_modo"];
+  if (typeof sku !== "string" || sku.length === 0) return null;
+  if (typeof nome !== "string" || nome.length === 0) return null;
+  if (typeof precoTipo !== "string") return null;
+  if (!("preco_minor" in corpo)) return null;
+  const bruto = corpo["preco_minor"];
+  const precoMinor = bruto === null ? null : emMinor(bruto);
+  if (bruto !== null && precoMinor === null) return null;
+  if (stockModo !== undefined && typeof stockModo !== "string") return null;
+  return {
+    sku,
+    nome,
+    atributos: {
+      preco_tipo: precoTipo,
+      // Cadeia de dígitos e não `bigint`: o `rascunhoDoDraft` aceita as duas, e
+      // um `atributos` é um registo aberto que não devia levar tipos que o JSON
+      // não tem.
+      preco_minor: precoMinor === null ? null : precoMinor.toString(),
+      ...(stockModo === undefined ? {} : { stock_modo: stockModo }),
+    },
+  };
+}
+
+/**
+ * O pedido de publicação que o corpo descreve, ou `null` (KAM-119).
+ *
+ * A confirmação é a do dono, e o `kind` **não** vem do corpo: é sempre `dono`,
+ * porque é a única que o `confirmacaoValida` aceita — um corpo que pudesse dizer
+ * `agente` só servia para ser recusado mais à frente. O `actor_id` é quem
+ * confirmou: o AGR manda o `contact_id` do dono, e não o id da mensagem que o
+ * critério 4 do KAM-043 descreve, porque a mesma confirmação repete-se com o
+ * mesmo botão quando o Registo não a recebeu, e o actor tem de ser o mesmo. O
+ * `em` é um instante ISO, que a operação confere.
+ */
+function pedidoDePublicacaoDoCorpo(corpo: Record<string, unknown>): PedidoDePublicacao | null {
+  const sku = corpo["sku"];
+  const confirmacao = corpo["confirmacao"];
+  if (typeof sku !== "string" || sku.length === 0) return null;
+  if (typeof confirmacao !== "object" || confirmacao === null || Array.isArray(confirmacao)) return null;
+  const actorId = (confirmacao as Record<string, unknown>)["actor_id"];
+  const em = (confirmacao as Record<string, unknown>)["em"];
+  if (typeof actorId !== "string" || actorId.length === 0) return null;
+  if (typeof em !== "string" || em.length === 0) return null;
+  return { sku, confirmacao: { actor: { kind: "dono", id: actorId }, em } };
 }
 
 /** O filtro do `listOrders` que o corpo descreve. A validação é do módulo. */
@@ -407,8 +503,8 @@ export function apiInterna(deps: DependenciasDaApi): Hono {
   /**
    * A autenticação, **antes** de o corpo ser lido.
    *
-   * Um `app.use` e não uma linha em cada rota: doze rotas e doze verificações
-   * era a décima terceira a nascer sem ela. O `/metrics` não passa por aqui — ver a nota
+   * Um `app.use` e não uma linha em cada rota: catorze rotas e catorze
+   * verificações era a décima quinta a nascer sem ela. O `/metrics` não passa por aqui — ver a nota
    * da rota.
    */
   api.use("/internal/*", async (c, next) => {
@@ -425,7 +521,7 @@ export function apiInterna(deps: DependenciasDaApi): Hono {
   for (const rota of ROTAS) {
     api.post(rota, async (c) => {
       const texto = await c.req.text();
-      if (Buffer.byteLength(texto, "utf8") > CORPO_MAXIMO) {
+      if (Buffer.byteLength(texto, "utf8") > corpoMaximo(rota)) {
         return json({ error: "payload_too_large" }, 413);
       }
       let corpo: Record<string, unknown>;
@@ -488,7 +584,7 @@ function responder(
   );
 }
 
-/** As doze rotas, uma a uma. O despacho é por igualdade e não por padrão. */
+/** As catorze rotas, uma a uma. O despacho é por igualdade e não por padrão. */
 async function despachar(
   rota: (typeof ROTAS)[number],
   ctx: Ctx,
@@ -594,6 +690,30 @@ async function despachar(
       return json({ tipo: "erro", erro: "VALIDATION_ERROR" }, 400);
     }
     return responder(await deps.operacoes.screen(ctx, pedido));
+  }
+
+  if (rota === "/internal/upsert-product-draft") {
+    const rascunho = rascunhoDeProdutoDoCorpo(corpo);
+    if (rascunho === null) {
+      return json({ tipo: "erro", erro: "VALIDATION_ERROR" }, 400);
+    }
+    const resultado = await porta.upsertProductDraft(ctx, rascunho);
+    if (resultado.tipo !== "ok") return responder(resultado);
+    return responder({
+      tipo: "ok",
+      valor: { sku: resultado.valor.sku, registo_id: resultado.valor.registoId },
+    });
+  }
+
+  if (rota === "/internal/publish-product") {
+    const pedido = pedidoDePublicacaoDoCorpo(corpo);
+    if (pedido === null) {
+      return json({ tipo: "erro", erro: "VALIDATION_ERROR" }, 400);
+    }
+    // `{tipo: "ok"}` sem `valor`: a operação devolve `void`, como o
+    // `publishProduct` da porta. **Não se ecoa o `sku` do pedido** — a resposta
+    // leva só o que a operação devolve, que é o que a bateria X-01 mede.
+    return responder(await deps.operacoes.publicarProduto(ctx, pedido));
   }
 
   if (rota === "/internal/update-offer") {

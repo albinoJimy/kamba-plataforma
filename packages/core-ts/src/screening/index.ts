@@ -49,6 +49,8 @@ export {
   ALIAS_DO_CLASSIFICADOR,
   cabeNoPedido,
   classificadorPeloAgr,
+  FINALIDADE_DAS_CONDICOES,
+  FINALIDADE_DO_CATALOGO,
   LIMITES_DO_PEDIDO,
   lerVeredicto,
   prepararPedido,

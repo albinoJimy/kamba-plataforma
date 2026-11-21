@@ -164,6 +164,8 @@ class TestCatalogoReal(ComBase):
                 # append-only — semea-lo obrigava a desligar o trigger na
                 # limpeza.
                 # KAM-224: a resposta do AGR, a primeira de `platform` («ag» < «au»).
+                # KAM-223: a mensagem que entra no AGR («agent_m» < «agent_r»).
+                ("platform", "agent_messages", "tenant_id"),
                 ("platform", "agent_replies", "tenant_id"),
                 ("platform", "audit_heads", "tenant_id"),
                 ("platform", "audit_log", "tenant_id"),
@@ -322,6 +324,8 @@ class TestCatalogoReal(ComBase):
                 # proprio a comecar por ele.
                 ("platform", "owner_contacts", "tenant_id"),
                 ("platform", "owner_notices", "tenant_id"),
+                # KAM-223: a troca de telefone do dono («owner_n» < «owner_p»).
+                ("platform", "owner_phone_changes", "tenant_id"),
                 # KAM-052: a conta de pagamento, **depois** das do aviso ao
                 # dono e antes de `tenant_channels` ('o' < 'p' < 't'). E a
                 # unica desta lista com `tenant_id` **anulavel**, e entra
@@ -520,6 +524,8 @@ class TestCatalogoReal(ComBase):
                 # KAM-012: o `audit_heads` nao aparece — nao tem politica, por
                 # excepcao declarada.
                 # KAM-224: a resposta do AGR, uma politica so («ag» < «au»).
+                # KAM-223: a mensagem que entra no AGR, uma politica so.
+                ("agent_messages", "tenant_iso", "ALL", "{public}"),
                 ("agent_replies", "tenant_iso", "ALL", "{public}"),
                 ("audit_log", "tenant_iso", "ALL", "{public}"),
                 # KAM-017: o estado de coexistencia, antes da de onboarding
@@ -645,6 +651,8 @@ class TestCatalogoReal(ComBase):
                 # `outbound_messages` («ou» < «ow»).
                 ("owner_contacts", "tenant_iso", "ALL", "{public}"),
                 ("owner_notices", "tenant_iso", "ALL", "{public}"),
+                # KAM-223: a troca de telefone do dono, uma politica so.
+                ("owner_phone_changes", "tenant_iso", "ALL", "{public}"),
                 # KAM-052: **uma** politica e nao duas. O `docs/tecnica/04`
                 # secao 6.2 diz que a conta da KAMBA e «acessivel so ao papel
                 # de billing» e a tentacao era acrescentar uma segunda
@@ -828,7 +836,9 @@ class TestCatalogoReal(ComBase):
         )
         self.assertEqual(
             [l[0] for l in linhas],
-            [# KAM-224: a resposta do AGR («ag» < «au»).
+            [# KAM-223: a mensagem que entra no AGR («agent_m» < «agent_r»).
+             "agent_messages",
+             # KAM-224: a resposta do AGR («ag» < «au»).
              "agent_replies",
              # KAM-012: o registo de auditoria. O `audit_heads` nao esta
              # aqui, por excepcao declarada em `ci/rls_exceptions.yaml`.
@@ -937,6 +947,8 @@ class TestCatalogoReal(ComBase):
              # corre o *gate* 6 **inteiro**, porque as quatro listas sao quatro
              # perguntas diferentes sobre a mesma tabela.
              "owner_contacts", "owner_notices",
+             # KAM-223: a troca de telefone do dono («owner_n» < «owner_p»).
+             "owner_phone_changes",
              # KAM-052: a coluna de isolamento e `tenant_id` como nas outras
              # (nao e um caso de `ISOLADAS_POR_OUTRA_COLUNA`), e o predicado
              # leva o `NULLIF` da `db/rls.py` como todos.
@@ -1475,7 +1487,10 @@ class TestFicheirosDePolitica(unittest.TestCase):
     #: `kamba_app`, que serve o turno onde chega o «sou o dono», leva `42501` —
     #: `test_so_a_identidade_executa_a_porta` de
     #: `../tests/test_canal_do_dono_schema.py`.
-    DONO_NA_ALLOWLIST = "platform.definir_dono(p_contact_id uuid, p_origem text)"
+    #: Com o terceiro argumento desde a `0075` (KAM-216): o `owner_channel_wa`.
+    DONO_NA_ALLOWLIST = (
+        "platform.definir_dono(p_contact_id uuid, p_origem text, p_owner_channel_wa boolean)"
+    )
 
     def test_os_ficheiros_reais_leem_se_e_tem_o_que_esta_declarado(self) -> None:
         """Os dois nasceram vazios e deixaram de o estar no KAM-012.

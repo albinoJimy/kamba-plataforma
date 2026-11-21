@@ -22,14 +22,19 @@ from __future__ import annotations
 
 import datetime
 import json
+import re
 import threading
+import types
 
+import ligacao as ligacao_bd
 from tests import factories
 from tests.base import PRIVILEGIO_INSUFICIENTE, VIOLACAO_DE_CHECK, sqlstate
 from tests_agr.base import ComAgr
 
 # O `tests_agr.base` poe o `services/agr/src` no caminho, e por isso vem antes.
 from kamba_agr.dono import accoes  # noqa: E402
+from kamba_agr.eventos.pela_resposta import NotificacaoPelaResposta  # noqa: E402
+from kamba_agr.saida import TIPO as TIPO_DA_RESPOSTA  # noqa: E402
 from kamba_agr.orcamento import regras  # noqa: E402
 from kamba_agr.tls import orcamento as rep  # noqa: E402
 
@@ -84,8 +89,8 @@ class ComOrcamento(ComAgr):
 
     def _limpar_orcamentos(self) -> None:
         for tenant in self._tenants:
-            for tabela in ("quote_requests", "owner_actions", "offer_terms", "usage_ledger", "tenant_usage",
-                           "entitlements", "events_outbox", "events_log", "evt_agregado_seq"):
+            for tabela in ("agent_replies", "quote_requests", "owner_actions", "offer_terms", "usage_ledger",
+                           "tenant_usage", "entitlements", "events_outbox", "events_log", "evt_agregado_seq"):
                 self.semente.execute(f"DELETE FROM platform.{tabela} WHERE tenant_id = %s", (tenant,))
 
     # -------------------------------------------------------------- leituras
@@ -750,3 +755,1044 @@ class TestOAceito(ComOrcamento):
         self.assertEqual((ultimo.quote_id, ultimo.estado), (outro.quote_id, "cancelado"))
         self.assertTrue(ultimo.fechado(_agora()))
         self.assertFalse(ultimo.aceitavel(_agora()))
+
+
+# ---------------------------------------------------------------- KAM-221
+
+
+class SaidaQueDeduplica(Saida):
+    """O Outbound como ele e: a mesma chave da **uma** mensagem.
+
+    O `Saida` do KAM-015 guarda a chave na `outbound_messages` e devolve o
+    resultado da primeira a uma repeticao, sem chamada HTTP. Este duplo faz o
+    mesmo, e conta as mensagens que **sairiam** — que e a medida do «uma
+    mensagem» quando duas chamadas concorrentes chegam as duas ao Outbound.
+    """
+
+    def __init__(self, desfecho: str = "livre") -> None:
+        super().__init__(desfecho)
+        self.mensagens: dict[str, object] = {}
+
+    def notificar(self, *, tenant_id, notificacao, chave):
+        desfecho = super().notificar(tenant_id=tenant_id, notificacao=notificacao, chave=chave)
+        with self._trinco:
+            self.mensagens.setdefault(chave, notificacao)
+        return desfecho
+
+
+class SaidaQueEspreita(Saida):
+    """Corre `durante(chave)` no instante do envio, e depois devolve o desfecho."""
+
+    def __init__(self, desfecho: str, durante) -> None:
+        super().__init__(desfecho)
+        self._durante = durante
+
+    def notificar(self, *, tenant_id, notificacao, chave):
+        self._durante(chave)
+        return super().notificar(tenant_id=tenant_id, notificacao=notificacao, chave=chave)
+
+
+def _contagem_do_lote(job: str) -> int:
+    from kamba_core import tenant_guard
+
+    return tenant_guard.CONTADORES.ler().get(f"{tenant_guard.METRICA_BATCH}:{job}", 0)
+
+
+class TestEnvioForaDaTransaccao(ComOrcamento):
+    """Credor do achado 2 da revisao do KAM-123: o Outbound fora da transaccao."""
+
+    def _confirmado(self) -> tuple[str, rep.Resposta]:
+        pedido = self._pedir()
+        resposta = self._responder(pedido.quote_id)
+        accoes.confirmar(self.app, self.tenant, self.dono, f"confirm:{resposta.action_id}", _agora())
+        return pedido.quote_id, resposta
+
+    def _outra(self):
+        """Outra sessao `kamba_app`, que desiste de uma tranca ao fim de 30 s.
+
+        O tecto existe para que um defeito pendure o ensaio por 30 s e nao para
+        sempre: a outra sessao espera pela tranca de quem a esta a chamar.
+        """
+        outra = self.ligar("app")
+        outra.cursor().execute("SET lock_timeout = '30s'")
+        outra.commit()
+        return outra
+
+    def _durante_o_envio(self, accao):
+        """Corre `accao` noutro fio durante o envio, e mede se ela esperou.
+
+        Devolve `(saida, fio)`: a porta lanca o fio, espera um segundo, regista
+        se ele ainda esta a espera e so depois devolve `livre`.
+        """
+        resultado: dict[str, object] = {}
+
+        def correr() -> None:
+            try:
+                resultado["valor"] = accao()
+            except BaseException as erro:  # noqa: BLE001 — o fio nao propaga
+                resultado["erro"] = erro
+
+        fio = threading.Thread(target=correr)
+
+        def durante(_chave) -> None:
+            fio.start()
+            fio.join(1.0)
+            resultado["esperou"] = fio.is_alive()
+
+        return SaidaQueEspreita("livre", durante), fio, resultado
+
+    def _trancar_sem_esperar(self, quote_id: str) -> None:
+        """Outra sessao tranca a linha com `NOWAIT`: levanta se alguem a tiver."""
+        from kamba_core import tenant_guard
+
+        outra = self.ligar("app")
+        with tenant_guard.tx(outra, self.tenant) as cursor:
+            cursor.execute(
+                "SELECT 1 FROM platform.quote_requests WHERE tenant_id = %s AND quote_id = %s "
+                "FOR UPDATE NOWAIT",
+                (self.tenant, quote_id),
+            )
+            self.assertIsNotNone(cursor.fetchone())
+
+    def test_no_instante_do_envio_a_linha_nao_esta_trancada(self) -> None:
+        """Com o Outbound dentro da transaccao, o `NOWAIT` dava `55P03`."""
+        quote_id, resposta = self._confirmado()
+        saida = SaidaQueEspreita("livre", lambda _chave: self._trancar_sem_esperar(quote_id))
+        envio = rep.enviar(self.app, self.tenant, self.dono, resposta.action_id, saida, _agora())
+        self.assertEqual(envio.desfecho, rep.ENVIADO)
+        self.assertEqual(self._linhas()[0][1], "enviado")
+        self.assertEqual(len(self._eventos(rep.EVENTO_ENVIADO)), 1)
+
+    def test_na_libertacao_tambem_nao(self) -> None:
+        quote_id, resposta = self._confirmado()
+        rep.enviar(self.app, self.tenant, self.dono, resposta.action_id, Saida("template"), _agora())
+        saida = SaidaQueEspreita("livre", lambda _chave: self._trancar_sem_esperar(quote_id))
+        envios = rep.libertar_da_janela(self.app, self.tenant, self.cliente, saida, _agora())
+        self.assertEqual(envios, [rep.Envio(rep.ENVIADO, quote_id)])
+
+    def test_um_cancelamento_durante_o_envio_espera_e_nao_cancela(self) -> None:
+        """Achado 1 da revisao: a proposta que saiu fica `enviado`, com o evento.
+
+        Sem a tranca do envio, o cancelamento corria debaixo da chamada ao
+        Outbound: o cliente recebia a proposta e o pedido ficava `cancelado`,
+        sem `quote.sent`.
+        """
+        quote_id, resposta = self._confirmado()
+        outra = self._outra()
+        saida, fio, resultado = self._durante_o_envio(
+            lambda: rep.cancelar(outra, self.tenant, self.dono, quote_id)
+        )
+        envio = rep.enviar(self.app, self.tenant, self.dono, resposta.action_id, saida, _agora())
+        fio.join(30)
+        self.assertTrue(resultado["esperou"])
+        self.assertEqual(envio.desfecho, rep.ENVIADO)
+        self.assertNotIn("erro", resultado)
+        self.assertIs(resultado["valor"], False)
+        self.assertEqual(self._linhas()[0][1], "enviado")
+        self.assertEqual(len(self._eventos(rep.EVENTO_ENVIADO)), 1)
+
+    def test_uma_correccao_durante_o_envio_espera_e_encontra_fechado(self) -> None:
+        """O dono corrige o valor enquanto a proposta sai: a correccao espera."""
+        quote_id, resposta = self._confirmado()
+        outra = self._outra()
+        saida, fio, resultado = self._durante_o_envio(
+            lambda: rep.responder(outra, self.tenant, self.dono, quote_id,
+                                  regras.ler_valor_do_dono("130 mil"), None, None, _agora())
+        )
+        envio = rep.enviar(self.app, self.tenant, self.dono, resposta.action_id, saida, _agora())
+        fio.join(30)
+        self.assertTrue(resultado["esperou"])
+        self.assertEqual(envio.desfecho, rep.ENVIADO)
+        self.assertIsInstance(resultado.get("erro"), rep.OrcamentoRecusadoError)
+        self.assertEqual(resultado["erro"].codigo, rep.FECHADO)
+        self.assertEqual(self._linhas()[0][1:], ("enviado", 12_000_000))
+        self.assertEqual(len(self._eventos(rep.EVENTO_ENVIADO)), 1)
+
+    def test_dois_envios_concorrentes_dao_uma_mensagem_e_um_evento(self) -> None:
+        """O no `confirm` chama o envio tambem num `ja_confirmada`: dois toques
+        concorrentes chegam os dois ao envio. A tranca do envio faz o segundo
+        esperar e ler `ja_enviado`: **uma** chamada ao Outbound e **um**
+        `quote.sent`."""
+        quote_id, resposta = self._confirmado()
+        saida = SaidaQueDeduplica("livre")
+        ligacoes = [self.ligar("app"), self.ligar("app")]
+        barreira = threading.Barrier(2)
+        erros: list[BaseException] = []
+        desfechos: list[str] = []
+
+        def enviar(ligacao) -> None:
+            try:
+                barreira.wait()
+                envio = rep.enviar(ligacao, self.tenant, self.dono, resposta.action_id, saida, _agora())
+                desfechos.append(envio.desfecho)
+            except BaseException as erro:  # noqa: BLE001 — o fio nao propaga
+                erros.append(erro)
+
+        fios = [threading.Thread(target=enviar, args=(c,)) for c in ligacoes]
+        for f in fios:
+            f.start()
+        for f in fios:
+            f.join(30)
+        self.assertEqual(erros, [])
+        self.assertEqual(sorted(desfechos), sorted([rep.ENVIADO, rep.JA_ENVIADO]))
+        self.assertEqual(len(saida.chamadas), 1)
+        self.assertEqual(self._linhas()[0][1], "enviado")
+        self.assertEqual(len(self._eventos(rep.EVENTO_ENVIADO)), 1)
+        self.assertEqual(self._eventos(rep.EVENTO_ENVIADO)[0]["payload"]["quote_id"], quote_id)
+
+    def test_a_reentrega_do_template_nao_sai_outra_vez(self) -> None:
+        _quote_id, resposta = self._confirmado()
+        saida = Saida("template")
+        self.assertEqual(
+            rep.enviar(self.app, self.tenant, self.dono, resposta.action_id, saida, _agora()).desfecho,
+            rep.AGUARDA_JANELA,
+        )
+        self.assertEqual(
+            rep.enviar(self.app, self.tenant, self.dono, resposta.action_id, saida, _agora()).desfecho,
+            rep.JA_ENVIADO,
+        )
+        self.assertEqual(len(saida.chamadas), 1)
+        self.assertEqual(self._linhas()[0][1], "aguarda_janela")
+
+
+class TestJanela(ComOrcamento):
+    """O criterio 2 do KAM-221, contra a base: o valor sai uma vez."""
+
+    def _a_espera(self) -> str:
+        pedido = self._pedir()
+        resposta = self._responder(pedido.quote_id)
+        self._tocar(resposta.action_id, Saida("template"))
+        return pedido.quote_id
+
+    def test_o_cliente_responde_duas_vezes_e_o_valor_sai_uma(self) -> None:
+        quote_id = self._a_espera()
+        saida = SaidaQueDeduplica("livre")
+        primeira = rep.libertar_da_janela(self.app, self.tenant, self.cliente, saida, _agora())
+        segunda = rep.libertar_da_janela(self.app, self.tenant, self.cliente, saida, _agora())
+        self.assertEqual(primeira, [rep.Envio(rep.ENVIADO, quote_id)])
+        self.assertEqual(segunda, [])
+        self.assertEqual(len(saida.chamadas), 1)
+        self.assertEqual(len(self._eventos(rep.EVENTO_ENVIADO)), 1)
+
+    def test_duas_mensagens_concorrentes_do_cliente_dao_um_valor(self) -> None:
+        quote_id = self._a_espera()
+        saida = SaidaQueDeduplica("livre")
+        ligacoes = [self.ligar("app"), self.ligar("app")]
+        barreira = threading.Barrier(2)
+        erros: list[BaseException] = []
+
+        def libertar(ligacao) -> None:
+            try:
+                barreira.wait()
+                rep.libertar_da_janela(ligacao, self.tenant, self.cliente, saida, _agora())
+            except BaseException as erro:  # noqa: BLE001 — o fio nao propaga
+                erros.append(erro)
+
+        fios = [threading.Thread(target=libertar, args=(c,)) for c in ligacoes]
+        for f in fios:
+            f.start()
+        for f in fios:
+            f.join(30)
+        self.assertEqual(erros, [])
+        self.assertEqual(len(saida.chamadas), 1)
+        self.assertEqual(len(self._eventos(rep.EVENTO_ENVIADO)), 1)
+        self.assertEqual(self._eventos(rep.EVENTO_ENVIADO)[0]["payload"]["quote_id"], quote_id)
+
+    def test_uma_proposta_que_falha_nao_para_as_outras_do_mesmo_cliente(self) -> None:
+        """Achado 3 da revisao: a primeira levanta, a segunda sai, a primeira espera."""
+        primeira = self._a_espera()
+        segundo = rep.pedir(self.app, self.tenant, self.cliente, self.conversa.conversation_id,
+                            "SKU-301", None, _agora())
+        resposta = self._responder(segundo.quote_id)
+        self._tocar(resposta.action_id, Saida("template"))
+
+        class Rebenta(Saida):
+            def notificar(self, *, tenant_id, notificacao, chave):
+                if chave.startswith(f"orcamento:{primeira}:"):
+                    raise RuntimeError("outbound em baixo")
+                return super().notificar(tenant_id=tenant_id, notificacao=notificacao, chave=chave)
+
+        envios = rep.libertar_da_janela(self.app, self.tenant, self.cliente, Rebenta("livre"), _agora())
+        self.assertEqual(
+            sorted(envios, key=lambda e: e.quote_id),
+            sorted([rep.Envio(rep.AGUARDA_JANELA, primeira), rep.Envio(rep.ENVIADO, segundo.quote_id)],
+                   key=lambda e: e.quote_id),
+        )
+        estados = {q: e for q, e, _v in self._linhas()}
+        self.assertEqual((estados[primeira], estados[segundo.quote_id]), ("aguarda_janela", "enviado"))
+
+    def test_a_mensagem_de_um_cliente_nao_expira_as_de_outro(self) -> None:
+        """Achado 6 da revisao: a expiracao da janela e so das propostas de quem escreveu."""
+        quote_id = self._a_espera()
+        outro = factories.contacto(self.semente, self.tenant)
+        factories.contexto(self.semente, None)
+        depois = _agora() + datetime.timedelta(days=9)
+        self.assertEqual(rep.libertar_da_janela(self.app, self.tenant, outro, Saida("livre"), depois), [])
+        self.assertEqual({q: e for q, e, _v in self._linhas()}[quote_id], "aguarda_janela")
+
+    def test_cancelado_durante_a_espera_nao_sai(self) -> None:
+        quote_id = self._a_espera()
+        self.assertTrue(rep.cancelar(self.app, self.tenant, self.dono, quote_id))
+        saida = Saida("livre")
+        self.assertEqual(rep.libertar_da_janela(self.app, self.tenant, self.cliente, saida, _agora()), [])
+        self.assertEqual(saida.chamadas, [])
+        self.assertEqual(self._eventos(rep.EVENTO_ENVIADO), [])
+
+    def test_outro_cliente_nao_liberta(self) -> None:
+        self._a_espera()
+        outro = factories.contacto(self.semente, self.tenant)
+        factories.contexto(self.semente, None)
+        saida = Saida("livre")
+        self.assertEqual(rep.libertar_da_janela(self.app, self.tenant, outro, saida, _agora()), [])
+        self.assertEqual(saida.chamadas, [])
+
+    def test_a_porta_do_processo_liberta_so_pela_mensagem_de_um_cliente(self) -> None:
+        """O `libertar` da `PortaDeOrcamento`, que e o que o `ExecutorDeTurnos` chama."""
+        import asyncio
+
+        from kamba_agr.contexto import PERSONA_CLIENTE, PERSONA_DONO
+        from kamba_agr.orcamento.porta import PortaDeOrcamento
+
+        quote_id = self._a_espera()
+        saida = Saida("livre")
+        # Uma ligacao que a porta abre **e fecha**: a do `self.ligar` fechava-se
+        # outra vez no `tearDown`.
+        porta = PortaDeOrcamento(lambda: ligacao_bd.ligar("app"), saida=saida)
+        invocacao = types.SimpleNamespace(tenant_id=self.tenant, contact_id=self.cliente, persona=PERSONA_DONO)
+        self.assertEqual(asyncio.run(porta.libertar(invocacao)), [])
+        self.assertEqual(saida.chamadas, [])
+        invocacao.persona = PERSONA_CLIENTE
+        self.assertEqual(asyncio.run(porta.libertar(invocacao)), [rep.Envio(rep.ENVIADO, quote_id)])
+        self.assertEqual(self._linhas()[0][1], "enviado")
+
+
+class TestSemRespostaDoDono(ComOrcamento):
+    """O criterio 3 do KAM-221: a mensagem neutra das 24 h, com relogio fixo."""
+
+    def _com_idade(self, quote_id: str, horas: float) -> None:
+        self.semente.execute(
+            "UPDATE platform.quote_requests SET criado_at = now() - %s::interval WHERE quote_id = %s",
+            (f"{horas} hours", quote_id),
+        )
+
+    def test_vinte_e_quatro_horas_dao_uma_mensagem_neutra_sem_numero(self) -> None:
+        pedido = self._pedir()
+        saida = Saida("template")
+        self._com_idade(pedido.quote_id, 23)
+        self.assertEqual(rep.avisar_sem_resposta(self.app, self.tenant, saida, _agora())["template"], 0)
+        self._com_idade(pedido.quote_id, 25)
+        contagem = rep.avisar_sem_resposta(self.app, self.tenant, saida, _agora())
+        self.assertEqual(contagem, {"livre": 0, "template": 1, "sem_template": 0, "falhou": 0})
+        tenant, notificacao, chave = saida.chamadas[0]
+        self.assertEqual(tenant, self.tenant)
+        self.assertEqual(chave, f"orcamento:{pedido.quote_id}:sem_resposta")
+        self.assertEqual(notificacao.template, rep.TEMPLATE_ORCAMENTO_EM_ESPERA)
+        self.assertEqual(notificacao.contact_id, self.cliente)
+        self.assertEqual(notificacao.conversation_id, self.conversa.conversation_id)
+        self.assertIsNone(re.search(r"\d", notificacao.texto))
+        self.assertIn(regras.PALAVRA_DE_HUMANO, notificacao.texto)
+        # O pedido nao muda e nada se emite: o dono ainda responde.
+        self.assertEqual(self._linhas()[0][1], "pedido")
+        self.assertEqual(self._eventos(rep.EVENTO_ENVIADO), [])
+
+    def test_a_volta_seguinte_repete_a_mesma_chave(self) -> None:
+        """A «uma mensagem» e a chave do Outbound, e nao uma coluna."""
+        pedido = self._pedir()
+        self._com_idade(pedido.quote_id, 25)
+        saida = SaidaQueDeduplica("livre")
+        rep.avisar_sem_resposta(self.app, self.tenant, saida, _agora())
+        rep.avisar_sem_resposta(self.app, self.tenant, saida, _agora())
+        self.assertEqual(len(saida.chamadas), 2)
+        self.assertEqual(list(saida.mensagens), [f"orcamento:{pedido.quote_id}:sem_resposta"])
+
+    def test_um_valor_escrito_e_nunca_enviado_tambem_recebe_a_mensagem(self) -> None:
+        """Achado 7 da revisao: para o cliente, o dono nao respondeu."""
+        pedido = self._pedir()
+        self._responder(pedido.quote_id)
+        self._com_idade(pedido.quote_id, 25)
+        saida = Saida("livre")
+        self.assertEqual(rep.avisar_sem_resposta(self.app, self.tenant, saida, _agora())["livre"], 1)
+        self.assertEqual(saida.chamadas[0][2], f"orcamento:{pedido.quote_id}:sem_resposta")
+
+    def test_o_tecto_serve_primeiro_os_que_acabaram_de_passar_as_24_horas(self) -> None:
+        """Achado 2 da revisao: com o tecto cheio, o mais novo nao fica para tras."""
+        velho = self._pedir()
+        self._com_idade(velho.quote_id, 40)
+        novo = rep.pedir(self.app, self.tenant, self.cliente, self.conversa.conversation_id,
+                         "SKU-301", None, _agora())
+        self._com_idade(novo.quote_id, 25)
+        saida = Saida("livre")
+        rep.avisar_sem_resposta(self.app, self.tenant, saida, _agora(), tecto=1)
+        self.assertEqual([c for _t, _n, c in saida.chamadas], [f"orcamento:{novo.quote_id}:sem_resposta"])
+
+    def test_enviado_a_espera_cancelado_ou_fora_do_horizonte_nao_recebem_nada(self) -> None:
+        enviado = self._pedir()
+        resposta = self._responder(enviado.quote_id)
+        self._com_idade(enviado.quote_id, 25)
+        self._tocar(resposta.action_id, Saida("template"))
+        cancelado = rep.pedir(self.app, self.tenant, self.cliente, self.conversa.conversation_id,
+                              "SKU-301", None, _agora())
+        # Envelhece-se antes de cancelar: um cancelado e final, e o gatilho
+        # recusa mudar-lhe a linha.
+        self._com_idade(cancelado.quote_id, 25)
+        rep.cancelar(self.app, self.tenant, self.dono, cancelado.quote_id)
+        saida = Saida("livre")
+        self.assertEqual(rep.avisar_sem_resposta(self.app, self.tenant, saida, _agora())["livre"], 0)
+        velho = self._pedir()
+        self._com_idade(velho.quote_id, 49)
+        self.assertEqual(rep.avisar_sem_resposta(self.app, self.tenant, saida, _agora())["livre"], 0)
+        self.assertEqual(saida.chamadas, [])
+
+    def test_uma_porta_que_levanta_conta_e_nao_para_as_outras(self) -> None:
+        primeiro = self._pedir()
+        segundo = rep.pedir(self.app, self.tenant, self.cliente, self.conversa.conversation_id,
+                            "SKU-301", None, _agora())
+        self._com_idade(primeiro.quote_id, 26)
+        self._com_idade(segundo.quote_id, 25)
+
+        class Rebenta(Saida):
+            def notificar(self, *, tenant_id, notificacao, chave):
+                if chave.startswith(f"orcamento:{primeiro.quote_id}"):
+                    raise RuntimeError("outbound em baixo")
+                return super().notificar(tenant_id=tenant_id, notificacao=notificacao, chave=chave)
+
+        saida = Rebenta("livre")
+        contagem = rep.avisar_sem_resposta(self.app, self.tenant, saida, _agora())
+        self.assertEqual((contagem["falhou"], contagem["livre"]), (1, 1))
+
+    def test_o_tenant_b_nao_avisa_os_clientes_de_a(self) -> None:
+        pedido = self._pedir()
+        self._com_idade(pedido.quote_id, 25)
+        outra = self.criar_conversa()
+        factories.contexto(self.semente, None)
+        saida = Saida("livre")
+        rep.avisar_sem_resposta(self.app, outra.tenant_id, saida, _agora())
+        self.assertEqual(saida.chamadas, [])
+
+
+class TestVarredura(ComOrcamento):
+    """Os dois *jobs* nomeados, com a listagem como `kamba_batch`.
+
+    **O tenant do ensaio fica em `onboarding`**, e de proposito: activa-lo exige
+    o aceite dos quatro documentos (revisao `0040`), que escreve linhas
+    *append-only* no `contract_acceptance` e no `tenant_state_log` que poluem as
+    descidas da suite. A orquestracao por *tenant* mede-se pelo *job* da
+    expiracao, que corre em todos menos os encerrados; o das 24 h mede-se a
+    **nao** avisar um *tenant* que nao esta activo, e o corpo dele por *tenant*
+    esta no `TestSemRespostaDoDono`.
+    """
+
+    def _varredura(self, saida, agora=None):
+        from kamba_agr.orcamento.varredura import VarreduraDeOrcamentos
+
+        # Ligacoes que a varredura abre **e fecha**: as do `self.ligar`
+        # fechavam-se outra vez no `tearDown`.
+        return VarreduraDeOrcamentos(
+            abrir_lote=lambda: ligacao_bd.ligar("batch"),
+            abrir_app=lambda: ligacao_bd.ligar("app"),
+            saida=saida,
+            relogio=lambda: agora or _agora(),
+        )
+
+    def test_o_job_das_vinte_e_quatro_horas_so_avisa_tenants_activos(self) -> None:
+        from kamba_agr.orcamento.varredura import JOB_SEM_RESPOSTA
+
+        pedido = self._pedir()
+        self.semente.execute(
+            "UPDATE platform.quote_requests SET criado_at = now() - interval '25 hours' WHERE quote_id = %s",
+            (pedido.quote_id,),
+        )
+        antes = _contagem_do_lote(JOB_SEM_RESPOSTA)
+        saida = Saida("livre")
+        varredura = self._varredura(saida)
+        self.assertNotIn(self.tenant, varredura.tenants(JOB_SEM_RESPOSTA, varredura_sql("SQL_TENANTS_ACTIVOS")))
+        contagem = varredura.sem_resposta()
+        self.assertEqual(contagem["falhou"], 0)
+        self.assertEqual([c for t, _n, c in saida.chamadas if t == self.tenant], [])
+        # A listagem correu como `kamba_batch`, pelo `tx_batch` com o nome do *job*.
+        self.assertEqual(_contagem_do_lote(JOB_SEM_RESPOSTA), antes + 2)
+
+    def test_o_job_da_expiracao_fecha_as_vencidas_sem_ninguem_tocar(self) -> None:
+        from kamba_agr.orcamento.varredura import JOB_EXPIRAR
+
+        pedido = self._pedir()
+        resposta = self._responder(pedido.quote_id)
+        self._tocar(resposta.action_id, Saida("template"))
+        aberto = rep.pedir(self.app, self.tenant, self.cliente, self.conversa.conversation_id,
+                           "SKU-301", None, _agora())
+        antes = _contagem_do_lote(JOB_EXPIRAR)
+        depois = _agora() + datetime.timedelta(days=9)
+        varredura = self._varredura(Saida(), depois)
+        self.assertIn(self.tenant, varredura.tenants(JOB_EXPIRAR, varredura_sql("SQL_TENANTS_POR_EXPIRAR")))
+        contagem = varredura.expirar()
+        self.assertEqual(contagem["falhou"], 0)
+        self.assertGreaterEqual(contagem["expirados"], 1)
+        self.assertEqual(_contagem_do_lote(JOB_EXPIRAR), antes + 2)
+        estados = {q: e for q, e, _v in self._linhas()}
+        self.assertEqual(estados[pedido.quote_id], "expirado")
+        # Um `pedido` sem resposta nao expira: continua visivel ao dono.
+        self.assertEqual(estados[aberto.quote_id], "pedido")
+
+
+
+class TestEnvioPelaResposta(ComOrcamento):
+    """O envio real: a proposta sai pela resposta do KAM-224 (`agent_replies` e `agent.replied`).
+
+    A porta e a do `main()`, a `NotificacaoPelaResposta`, sobre ligacoes
+    `kamba_app` como as da `ligar_para_saida`. O que o consumidor `outbound` faz
+    com o evento e do KAM-224 (`tests_bd/resposta.bd.test.ts`).
+    """
+
+    def _porta(self) -> NotificacaoPelaResposta:
+        return NotificacaoPelaResposta(lambda: ligacao_bd.ligar("app"))
+
+    def _respostas(self) -> list[tuple]:
+        self.semente.execute(
+            "SELECT chave, canal, texto, contact_id::text, conversation_id::text "
+            "FROM platform.agent_replies WHERE tenant_id = %s ORDER BY criado_at",
+            (self.tenant,),
+        )
+        return [tuple(linha) for linha in self.semente.fetchall()]
+
+    def _templates(self) -> list[tuple]:
+        self.semente.execute(
+            "SELECT chave, template_nome, template_parametros FROM platform.agent_replies "
+            "WHERE tenant_id = %s ORDER BY criado_at",
+            (self.tenant,),
+        )
+        return [(c, n, list(p)) for (c, n, p) in self.semente.fetchall()]
+
+    def _janela(self, expira: str, modo: str = "bot") -> None:
+        self.semente.execute(
+            # A ultima mensagem do cliente vinte e quatro horas antes do fim: o
+            # `conversations_janela_ck` exige-a antes, e uma janela no passado
+            # tem de ter uma mensagem mais antiga.
+            "UPDATE platform.conversations SET window_expires_at = now() + %s::interval, "
+            "last_inbound_at = now() + %s::interval - interval '24 hours', mode = %s "
+            "WHERE tenant_id = %s AND id = %s",
+            (expira, expira, modo, self.tenant, self.conversa.conversation_id),
+        )
+
+    def test_o_toque_grava_a_proposta_e_emite_a_resposta_e_o_quote_sent(self) -> None:
+        pedido = self._pedir()
+        resposta = self._responder(pedido.quote_id)
+        envio = self._tocar(resposta.action_id, self._porta())
+        self.assertEqual(envio.desfecho, rep.ENVIADO)
+        respostas = self._respostas()
+        self.assertEqual(len(respostas), 1)
+        chave, canal, texto, contacto, conversa = respostas[0]
+        self.assertTrue(chave.startswith(f"orcamento:{pedido.quote_id}:"))
+        self.assertEqual((canal, contacto, conversa), ("whatsapp", self.cliente, self.conversa.conversation_id))
+        # O texto da linha e o da pre-visualizacao que o dono confirmou.
+        self.assertEqual(texto, resposta.previsao)
+        self.assertEqual(len(self._eventos(TIPO_DA_RESPOSTA)), 1)
+        self.assertEqual(len(self._eventos(rep.EVENTO_ENVIADO)), 1)
+        self.assertEqual(self._linhas()[0][1], "enviado")
+
+    def test_o_duplo_toque_da_uma_resposta_e_um_evento(self) -> None:
+        pedido = self._pedir()
+        resposta = self._responder(pedido.quote_id)
+        porta = self._porta()
+        self._tocar(resposta.action_id, porta)
+        # O no `confirm` chama o envio tambem num `ja_confirmada`: o segundo
+        # toque chega ao `enviar`, e e ai que tem de parar.
+        segundo = rep.enviar(self.app, self.tenant, self.dono, resposta.action_id, porta, _agora())
+        self.assertEqual(segundo.desfecho, rep.JA_ENVIADO)
+        self.assertEqual(len(self._respostas()), 1)
+        self.assertEqual(len(self._eventos(TIPO_DA_RESPOSTA)), 1)
+        self.assertEqual(len(self._eventos(rep.EVENTO_ENVIADO)), 1)
+
+    def test_a_janela_dentro_da_margem_grava_o_template_e_o_pedido_aguarda(self) -> None:
+        """Opcao A: tres minutos de janela contam como fechada, e sai o *template*."""
+        self._janela("3 minutes")
+        pedido = self._pedir()
+        resposta = self._responder(pedido.quote_id)
+        envio = self._tocar(resposta.action_id, self._porta())
+        self.assertEqual(envio.desfecho, rep.AGUARDA_JANELA)
+        templates = self._templates()
+        self.assertEqual(len(templates), 1)
+        chave, nome, parametros = templates[0]
+        self.assertTrue(chave.startswith(f"orcamento:{pedido.quote_id}:"))
+        # Os **valores**: so a referencia, e nenhum numero (criterio 8 do KAM-123).
+        self.assertEqual(
+            (nome, parametros),
+            (rep.TEMPLATE_ORCAMENTO_PRONTO, [regras.referencia_interna(pedido.quote_id)]),
+        )
+        self.assertFalse(any(c.isdigit() for c in parametros[0]))
+        self.assertEqual(len(self._eventos(TIPO_DA_RESPOSTA)), 1)
+        self.assertEqual(self._eventos(rep.EVENTO_ENVIADO), [])
+        self.assertEqual(self._linhas()[0][1], "aguarda_janela")
+
+    def test_com_o_template_o_valor_sai_quando_o_cliente_escreve(self) -> None:
+        self._janela("-1 hour")
+        pedido = self._pedir()
+        resposta = self._responder(pedido.quote_id)
+        porta = self._porta()
+        self.assertEqual(self._tocar(resposta.action_id, porta).desfecho, rep.AGUARDA_JANELA)
+        # O cliente responde: a janela abre, e o valor sai pela chave `:janela`.
+        self._janela("23 hours")
+        for _ in range(2):
+            rep.libertar_da_janela(self.app, self.tenant, self.cliente, porta, _agora())
+        templates = self._templates()
+        self.assertEqual([n for _c, n, _p in templates], [rep.TEMPLATE_ORCAMENTO_PRONTO, None])
+        self.assertTrue(templates[1][0].endswith(":janela"))
+        self.assertEqual(self._respostas()[1][2], resposta.previsao)
+        self.assertEqual(len(self._eventos(TIPO_DA_RESPOSTA)), 2)
+        self.assertEqual(len(self._eventos(rep.EVENTO_ENVIADO)), 1)
+        self.assertEqual(self._linhas()[0][1], "enviado")
+
+    def test_uma_conversa_com_um_humano_nao_recebe_a_proposta_do_bot(self) -> None:
+        self._janela("3 hours", modo="humano")
+        pedido = self._pedir()
+        resposta = self._responder(pedido.quote_id)
+        envio = self._tocar(resposta.action_id, self._porta())
+        self.assertEqual(envio.desfecho, rep.NAO_ENVIADO)
+        self.assertEqual(self._respostas(), [])
+        self.assertEqual(self._linhas()[0][1], "respondido")
+
+    def test_a_mensagem_das_24_h_sai_pela_resposta_uma_vez(self) -> None:
+        pedido = self._pedir()
+        self.semente.execute(
+            "UPDATE platform.quote_requests SET criado_at = now() - interval '25 hours' WHERE quote_id = %s",
+            (pedido.quote_id,),
+        )
+        porta = self._porta()
+        contagens = [rep.avisar_sem_resposta(self.app, self.tenant, porta, _agora()) for _ in range(2)]
+        self.assertEqual([c["livre"] for c in contagens], [1, 1])
+        respostas = self._respostas()
+        self.assertEqual([r[0] for r in respostas], [f"orcamento:{pedido.quote_id}:sem_resposta"])
+        self.assertEqual(respostas[0][2], regras.texto_sem_resposta(pedido.quote_id))
+        self.assertEqual(len(self._eventos(TIPO_DA_RESPOSTA)), 1)
+        self.assertEqual(self._linhas()[0][1], "pedido")
+
+    def test_a_mensagem_das_24_h_com_a_janela_fechada_sai_como_template(self) -> None:
+        self._janela("-2 hours")
+        pedido = self._pedir()
+        self.semente.execute(
+            "UPDATE platform.quote_requests SET criado_at = now() - interval '25 hours' WHERE quote_id = %s",
+            (pedido.quote_id,),
+        )
+        contagem = rep.avisar_sem_resposta(self.app, self.tenant, self._porta(), _agora())
+        self.assertEqual(contagem["template"], 1)
+        self.assertEqual(
+            self._templates(),
+            [(
+                f"orcamento:{pedido.quote_id}:sem_resposta",
+                rep.TEMPLATE_ORCAMENTO_EM_ESPERA,
+                [regras.referencia_interna(pedido.quote_id)],
+            )],
+        )
+
+    # ----------------------------------------------- a corrida da margem
+
+    def _enviado_e_recusado(self) -> tuple[rep.Pedido, rep.Resposta]:
+        """Uma proposta de texto escolhida com a janela aberta, que nao chegou.
+
+        O `Saida` recusou-a com `WINDOW_CLOSED` (o efeito do KAM-224 regista
+        `recusada` e deixa a linha sem `entregue_at`); aqui a janela fecha e a
+        linha envelhece para la da margem.
+        """
+        pedido = self._pedir()
+        resposta = self._responder(pedido.quote_id)
+        self.assertEqual(self._tocar(resposta.action_id, self._porta()).desfecho, rep.ENVIADO)
+        self._janela("-1 minute")
+        self.semente.execute(
+            "UPDATE platform.agent_replies SET criado_at = now() - interval '10 minutes' "
+            "WHERE tenant_id = %s",
+            (self.tenant,),
+        )
+        return pedido, resposta
+
+    def test_a_corrida_da_margem_reemite_com_o_template_uma_vez(self) -> None:
+        pedido, _resposta = self._enviado_e_recusado()
+        porta = self._porta()
+        contagens = [rep.reemitir_pela_janela(self.app, self.tenant, porta, _agora()) for _ in range(3)]
+        self.assertEqual([c["template"] for c in contagens], [1, 0, 0])
+        templates = self._templates()
+        self.assertEqual(len(templates), 2)
+        texto, reemitida = templates
+        self.assertIsNone(texto[1])
+        self.assertEqual(reemitida[0], texto[0] + ":template")
+        self.assertEqual(
+            reemitida[1:],
+            (rep.TEMPLATE_ORCAMENTO_PRONTO, [regras.referencia_interna(pedido.quote_id)]),
+        )
+        self.assertEqual(len(self._eventos(TIPO_DA_RESPOSTA)), 2)
+        # O pedido nao muda, e o `quote.sent` nao se repete.
+        self.assertEqual(self._linhas()[0][1], "enviado")
+        self.assertEqual(len(self._eventos(rep.EVENTO_ENVIADO)), 1)
+
+    def test_depois_da_reemissao_o_valor_sai_quando_o_cliente_escreve_uma_vez(self) -> None:
+        _pedido, resposta = self._enviado_e_recusado()
+        porta = self._porta()
+        rep.reemitir_pela_janela(self.app, self.tenant, porta, _agora())
+        self._janela("23 hours")
+        envios = [rep.libertar_da_janela(self.app, self.tenant, self.cliente, porta, _agora()) for _ in range(2)]
+        self.assertEqual([[e.desfecho for e in lista] for lista in envios], [[rep.ENVIADO], []])
+        chaves = [c for c, _n, _p in self._templates()]
+        self.assertEqual(len(chaves), 3)
+        self.assertEqual(chaves[2], chaves[0] + ":janela")
+        self.assertEqual(self._respostas()[2][2], resposta.previsao)
+        self.assertEqual(len(self._eventos(rep.EVENTO_ENVIADO)), 1)
+
+    def test_uma_proposta_entregue_recente_ou_com_a_janela_aberta_nao_se_reemite(self) -> None:
+        casos = {
+            "entregue": "UPDATE platform.agent_replies SET entregue_at = now() WHERE tenant_id = %s",
+            "recente": "UPDATE platform.agent_replies SET criado_at = now() WHERE tenant_id = %s",
+            "aberta": (
+                "UPDATE platform.conversations SET window_expires_at = now() + interval '2 hours' "
+                "WHERE tenant_id = %s"
+            ),
+            "humano": "UPDATE platform.conversations SET mode = 'humano' WHERE tenant_id = %s",
+        }
+        for caso, sql in casos.items():
+            with self.subTest(caso=caso):
+                self._limpar_orcamentos()
+                self._oferta(self.tenant, SKU)
+                factories.entitlement(self.semente, self.tenant, modulo="orcamento",
+                                      limites={"orcamentos_mes": 500})
+                self._janela("3 hours")
+                self._enviado_e_recusado()
+                self.semente.execute(sql, (self.tenant,))
+                contagem = rep.reemitir_pela_janela(self.app, self.tenant, self._porta(), _agora())
+                self.assertEqual(sum(contagem.values()), 0)
+                self.assertEqual(len(self._templates()), 1)
+
+    def test_a_resposta_de_a_nao_se_le_no_tenant_b(self) -> None:
+        pedido = self._pedir()
+        resposta = self._responder(pedido.quote_id)
+        self._tocar(resposta.action_id, self._porta())
+        from kamba_core import tenant_guard
+
+        outra = self.criar_conversa()
+        b = self.ligar("app")
+        with tenant_guard.tx(b, outra.tenant_id) as cursor:
+            cursor.execute("SELECT count(*) FROM platform.agent_replies")
+            self.assertEqual(cursor.fetchone()[0], 0)
+
+
+class TestAvisoAoDono(ComOrcamento):
+    """KAM-226, criterio 1: um `quote.requested` novo da **um** aviso ao dono, so com a janela dele aberta.
+
+    O dono fala com o numero da loja (bloco do EPIC-11), e a conversa dele e uma
+    `conversations` do mesmo canal. O aviso sai pela resposta do AGR (a
+    `agent_replies` e o `agent.replied` do KAM-224) e nasce na transaccao do
+    pedido.
+    """
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.conversa_do_dono = self._conversa_do_dono(self.tenant, self.dono, self.conversa.canal_id)
+
+    def _conversa_do_dono(self, tenant: str, dono: str, canal: str) -> str:
+        import uuid
+
+        conversa = str(uuid.uuid4())
+        self.semente.execute(
+            "INSERT INTO platform.conversations "
+            "(id, tenant_id, contact_id, channel_id, mode, last_inbound_at, window_expires_at) "
+            "VALUES (%s, %s, %s, %s, 'bot', now(), now() + interval '24 hours')",
+            (conversa, tenant, dono, canal),
+        )
+        return conversa
+
+    def _janela_do_dono(self, expira: str, modo: str = "bot") -> None:
+        self.semente.execute(
+            "UPDATE platform.conversations SET window_expires_at = now() + %s::interval, "
+            "last_inbound_at = now() + %s::interval - interval '24 hours', mode = %s "
+            "WHERE tenant_id = %s AND id = %s",
+            (expira, expira, modo, self.tenant, self.conversa_do_dono),
+        )
+
+    def _avisos(self, tenant: str | None = None) -> list[tuple]:
+        self.semente.execute(
+            "SELECT chave, canal, texto, contact_id::text, conversation_id::text, botoes, "
+            "template_nome FROM platform.agent_replies WHERE tenant_id = %s ORDER BY criado_at",
+            (tenant or self.tenant,),
+        )
+        return [tuple(linha) for linha in self.semente.fetchall()]
+
+    def test_com_a_janela_aberta_sai_um_aviso_na_conversa_do_dono(self) -> None:
+        pedido = self._pedir()
+        avisos = self._avisos()
+        self.assertEqual(len(avisos), 1)
+        chave, canal, texto, contacto, conversa, botoes, template = avisos[0]
+        self.assertEqual(chave, f"orcamento:{pedido.quote_id}{rep.SUFIXO_DO_AVISO_AO_DONO}")
+        self.assertEqual((canal, contacto, conversa), ("whatsapp", self.dono, self.conversa_do_dono))
+        self.assertIn(regras.referencia_interna(pedido.quote_id), texto)
+        # Sem numero: nem `sku`, nem quantidade, nem valor.
+        self.assertIsNone(re.search(r"\d", texto))
+        # Uma *service message*: nunca *template* (KAM-118, criterio 8), sem botoes.
+        self.assertIsNone(template)
+        self.assertEqual(botoes if isinstance(botoes, list) else json.loads(botoes), [])
+        self.assertEqual(len(self._eventos(TIPO_DA_RESPOSTA)), 1)
+        self.assertEqual(len(self._eventos(rep.EVENTO_PEDIDO)), 1)
+        # O cliente nao recebeu nada: o aviso e so ao dono.
+        self.assertNotIn(self.conversa.conversation_id, [a[4] for a in avisos])
+
+    def test_fora_da_janela_nada_sai_e_o_pedido_fica_nos_pendentes(self) -> None:
+        casos = {
+            "fechada": ("-1 hour", "bot"),
+            "dentro da margem": ("3 minutes", "bot"),
+            "humano na conversa do dono": ("3 hours", "humano"),
+        }
+        for nome, (expira, modo) in casos.items():
+            with self.subTest(caso=nome):
+                self._limpar_orcamentos()
+                self._oferta(self.tenant, SKU)
+                factories.entitlement(self.semente, self.tenant, modulo="orcamento",
+                                      limites={"orcamentos_mes": 500})
+                self._janela_do_dono(expira, modo)
+                pedido = self._pedir()
+                self.assertEqual(self._avisos(), [])
+                self.assertEqual(self._eventos(TIPO_DA_RESPOSTA), [])
+                self.assertEqual(len(self._eventos(rep.EVENTO_PEDIDO)), 1)
+                self.assertIn(pedido.quote_id, [p.quote_id for p in rep.pendentes(self.app, self.tenant)])
+
+    def test_um_dono_sem_conversa_no_whatsapp_nao_recebe_nada(self) -> None:
+        """O dono que so fala pelo painel: nao ha janela, e o pedido fica nos pendentes."""
+        self.semente.execute(
+            "DELETE FROM platform.conversations WHERE tenant_id = %s AND id = %s",
+            (self.tenant, self.conversa_do_dono),
+        )
+        pedido = self._pedir()
+        self.assertEqual(self._avisos(), [])
+        self.assertIn(pedido.quote_id, [p.quote_id for p in rep.pendentes(self.app, self.tenant)])
+
+    def test_a_reentrega_do_pedido_nao_avisa_outra_vez(self) -> None:
+        """A mensagem do cliente reentregue (o mesmo turno, o mesmo `sku`) da o mesmo `quote_id`."""
+        primeiro = self._pedir()
+        for _ in range(3):
+            self.assertEqual(self._pedir().quote_id, primeiro.quote_id)
+        self.assertEqual(len(self._avisos()), 1)
+        self.assertEqual(len(self._eventos(TIPO_DA_RESPOSTA)), 1)
+        self.assertEqual(len(self._eventos(rep.EVENTO_PEDIDO)), 1)
+
+    def test_o_mesmo_aviso_escrito_duas_vezes_e_uma_linha_e_um_evento(self) -> None:
+        """A segunda barreira: a chave e o `UNIQUE` da `agent_replies`."""
+        from kamba_core import tenant_guard
+
+        pedido = self._pedir()
+        with tenant_guard.tx(self.app, self.tenant) as cursor:
+            self.assertIsNone(rep._avisar_o_dono(cursor, self.tenant, pedido.quote_id, _agora()))
+        self.assertEqual(len(self._avisos()), 1)
+        self.assertEqual(len(self._eventos(TIPO_DA_RESPOSTA)), 1)
+
+    def test_dois_pedidos_novos_dao_dois_avisos(self) -> None:
+        self._pedir()
+        rep.pedir(self.app, self.tenant, self.cliente, self.conversa.conversation_id, "SKU-301", None, _agora())
+        self.assertEqual(len(self._avisos()), 2)
+
+    def test_um_pedido_recusado_nao_avisa(self) -> None:
+        with self.assertRaises(rep.OrcamentoRecusadoError):
+            rep.pedir(self.app, self.tenant, self.cliente, self.conversa.conversation_id,
+                      "SKU-NAO-EXISTE", None, _agora())
+        self.assertEqual(self._avisos(), [])
+
+    def test_o_dono_de_b_nao_e_avisado_dos_pedidos_de_a(self) -> None:
+        outra = self.criar_conversa()
+        dono_b = factories.contacto(self.semente, outra.tenant_id)
+        self.semente.execute(
+            "UPDATE platform.contacts SET papel = 'dono' WHERE tenant_id = %s AND contact_id = %s",
+            (outra.tenant_id, dono_b),
+        )
+        self._conversa_do_dono(outra.tenant_id, dono_b, outra.canal_id)
+        self._pedir()
+        self.assertEqual(len(self._avisos()), 1)
+        self.assertEqual(self._avisos(outra.tenant_id), [])
+
+    def test_o_evento_leva_o_thread_id_do_dono_que_o_consumidor_exige(self) -> None:
+        """Achado 2 da revisao: o consumidor TS recusa um `thread_id` que nao seja `tenant:contacto`."""
+        self._pedir()
+        [envelope] = self._eventos(TIPO_DA_RESPOSTA)
+        payload = envelope["payload"]
+        self.assertEqual(payload["thread_id"], f"{self.tenant}:{self.dono}")
+        self.assertEqual(
+            (payload["contact_id"], payload["conversation_id"], payload["canal"]),
+            (self.dono, self.conversa_do_dono, "whatsapp"),
+        )
+        self.assertEqual(envelope["agregado"]["id"], self.conversa_do_dono)
+
+    def test_um_dono_apagado_ou_fundido_nao_e_avisado(self) -> None:
+        outro = factories.contacto(self.semente, self.tenant)
+        factories.contexto(self.semente, None)
+        casos = {
+            "apagado": (
+                "UPDATE platform.contacts SET erased_at = now(), phone_hmac = NULL "
+                "WHERE tenant_id = %s AND contact_id = %s",
+                (self.tenant, self.dono),
+            ),
+            "fundido": (
+                "UPDATE platform.contacts SET merged_into = %s, merged_at = now(), phone_hmac = NULL "
+                "WHERE tenant_id = %s AND contact_id = %s",
+                (outro, self.tenant, self.dono),
+            ),
+        }
+        for nome, (sql, args) in casos.items():
+            with self.subTest(caso=nome):
+                self._limpar_orcamentos()
+                self._oferta(self.tenant, SKU)
+                factories.entitlement(self.semente, self.tenant, modulo="orcamento",
+                                      limites={"orcamentos_mes": 500})
+                self.semente.execute(
+                    "UPDATE platform.contacts SET erased_at = NULL, merged_into = NULL, merged_at = NULL "
+                    "WHERE tenant_id = %s AND contact_id = %s",
+                    (self.tenant, self.dono),
+                )
+                self.semente.execute(sql, args)
+                self._pedir()
+                self.assertEqual(self._avisos(), [])
+
+    def test_com_dois_canais_a_conversa_do_humano_nao_esconde_a_do_bot(self) -> None:
+        """Achado 5: a janela mais tardia esta com um humano, e a outra conversa do dono e do bot."""
+        self._janela_do_dono("20 hours", "humano")
+        outro_canal = factories.canal(self.semente, self.tenant)
+        factories.contexto(self.semente, None)
+        conversa_bot = self._conversa_do_dono(self.tenant, self.dono, outro_canal)
+        self.semente.execute(
+            "UPDATE platform.conversations SET window_expires_at = now() + interval '3 hours', "
+            "last_inbound_at = now() - interval '21 hours' WHERE tenant_id = %s AND id = %s",
+            (self.tenant, conversa_bot),
+        )
+        self._pedir()
+        self.assertEqual([a[4] for a in self._avisos()], [conversa_bot])
+
+    def test_um_cliente_nao_e_tomado_pelo_dono(self) -> None:
+        """So o contacto `papel='dono'`: a conversa do cliente com a janela aberta nao conta."""
+        self.semente.execute(
+            "DELETE FROM platform.conversations WHERE tenant_id = %s AND id = %s",
+            (self.tenant, self.conversa_do_dono),
+        )
+        self._pedir()
+        self.assertEqual(self._avisos(), [])
+
+
+class TestBotaoNaProposta(ComOrcamento):
+    """KAM-226, criterio 2: a proposta de texto leva o `aceitar_orcamento:ORC-…` dela, e o *template* nao."""
+
+    @staticmethod
+    def aceito(quote_id: str) -> list[dict[str, str]]:
+        return [{"id": regras.botao_aceitar(quote_id), "titulo": "Aceito"}]
+
+    def _porta(self) -> NotificacaoPelaResposta:
+        return NotificacaoPelaResposta(lambda: ligacao_bd.ligar("app"))
+
+    def _botoes(self) -> list[tuple]:
+        self.semente.execute(
+            "SELECT chave, botoes, template_nome FROM platform.agent_replies "
+            "WHERE tenant_id = %s ORDER BY criado_at",
+            (self.tenant,),
+        )
+        return [(c, b if isinstance(b, list) else json.loads(b), t) for (c, b, t) in self.semente.fetchall()]
+
+    def _janela(self, expira: str) -> None:
+        self.semente.execute(
+            "UPDATE platform.conversations SET window_expires_at = now() + %s::interval, "
+            "last_inbound_at = now() + %s::interval - interval '24 hours' "
+            "WHERE tenant_id = %s AND id = %s",
+            (expira, expira, self.tenant, self.conversa.conversation_id),
+        )
+
+    def test_a_proposta_enviada_leva_o_botao_aceito(self) -> None:
+        pedido = self._pedir()
+        resposta = self._responder(pedido.quote_id)
+        envio = self._tocar(resposta.action_id, self._porta())
+        self.assertEqual(envio.desfecho, rep.ENVIADO)
+        [(chave, botoes, template)] = self._botoes()
+        self.assertTrue(chave.startswith(f"orcamento:{pedido.quote_id}:"))
+        self.assertIsNone(template)
+        self.assertEqual(botoes, self.aceito(pedido.quote_id))
+
+    def test_o_template_nao_leva_o_botao_e_o_valor_sai_depois_com_ele(self) -> None:
+        self._janela("3 minutes")
+        pedido = self._pedir()
+        resposta = self._responder(pedido.quote_id)
+        self.assertEqual(self._tocar(resposta.action_id, self._porta()).desfecho, rep.AGUARDA_JANELA)
+        [(_chave, botoes, template)] = self._botoes()
+        self.assertEqual((template, botoes), (rep.TEMPLATE_ORCAMENTO_PRONTO, []))
+        # O cliente escreve: a janela abre, e o valor sai com o botao.
+        self._janela("23 hours")
+        envios = rep.libertar_da_janela(self.app, self.tenant, self.cliente, self._porta(), _agora())
+        self.assertEqual([e.desfecho for e in envios], [rep.ENVIADO])
+        chave, botoes, template = self._botoes()[1]
+        self.assertTrue(chave.endswith(":janela"))
+        self.assertEqual((template, botoes), (None, self.aceito(pedido.quote_id)))
+
+    def test_a_mensagem_das_24_h_nao_leva_o_botao(self) -> None:
+        """So a proposta: a mensagem neutra nao tem nada para aceitar."""
+        pedido = self._pedir()
+        self.semente.execute(
+            "UPDATE platform.quote_requests SET criado_at = now() - interval '25 hours' "
+            "WHERE tenant_id = %s AND quote_id = %s",
+            (self.tenant, pedido.quote_id),
+        )
+        rep.avisar_sem_resposta(self.app, self.tenant, self._porta(), _agora())
+        [(chave, botoes, _template)] = self._botoes()
+        self.assertTrue(chave.endswith(":sem_resposta"))
+        self.assertEqual(botoes, [])
+
+
+class TestPedidoPelaReferenciaDoBotao(ComOrcamento):
+    """KAM-226, decisao do fundador de 2026-11-20 (opcao B): o botao decide o pedido que cita.
+
+    Os dois casos do achado 1 da revisao, contra a base: com o ultimo pedido do
+    cliente, o (a) nao se aceitava e o (b) aceitava a proposta errada.
+    """
+
+    def _enviado(self, sku: str, validade: datetime.date | None = None) -> str:
+        pedido = rep.pedir(self.app, self.tenant, self.cliente, self.conversa.conversation_id, sku, None, _agora())
+        resposta = self._responder(pedido.quote_id, validade=validade)
+        self.assertEqual(self._tocar(resposta.action_id, Saida("livre")).desfecho, rep.ENVIADO)
+        return pedido.quote_id
+
+    def _pela_referencia(self, quote_id: str, contacto: str | None = None):
+        return rep.pedido_por_referencia(
+            self.app, self.tenant, contacto or self.cliente, regras.referencia_interna(quote_id)
+        )
+
+    def test_caso_a_a_proposta_valida_le_se_com_um_pedido_mais_novo_em_curso(self) -> None:
+        q1 = self._enviado(SKU)
+        q2 = rep.pedir(self.app, self.tenant, self.cliente, self.conversa.conversation_id, "SKU-301", None,
+                       _agora()).quote_id
+        self.assertEqual(rep.ultimo_pedido(self.app, self.tenant, self.cliente).quote_id, q2)
+        lido = self._pela_referencia(q1)
+        self.assertEqual((lido.quote_id, lido.estado), (q1, "enviado"))
+        self.assertTrue(lido.aceitavel(_agora()))
+
+    def test_caso_b_a_proposta_vencida_nao_se_aceita_mesmo_com_uma_mais_nova_enviada(self) -> None:
+        # Q1 com a validade por omissao (sete dias), Q2 com trinta: daqui a nove
+        # dias, Q1 esta vencida e Q2 continua valida. O `enviado` e final, e o
+        # tempo anda pelo relogio, como no `test_um_enviado_vencido_ou_um_cancelado_nao_se_aceitam`.
+        q1 = self._enviado(SKU)
+        q2 = self._enviado("SKU-301", validade=regras.hoje_em_luanda(_agora()) + datetime.timedelta(days=30))
+        depois = _agora() + datetime.timedelta(days=9)
+        self.assertTrue(rep.ultimo_pedido(self.app, self.tenant, self.cliente).aceitavel(depois))
+        lido = self._pela_referencia(q1)
+        self.assertEqual((lido.quote_id, lido.estado), (q1, "enviado"))
+        self.assertFalse(lido.aceitavel(depois))
+        self.assertTrue(lido.fechado(depois))
+        self.assertNotEqual(lido.quote_id, q2)
+
+    def test_a_referencia_de_outro_cliente_nao_se_le(self) -> None:
+        q1 = self._enviado(SKU)
+        intruso = factories.contacto(self.semente, self.tenant)
+        factories.contexto(self.semente, None)
+        self.assertIsNone(self._pela_referencia(q1, intruso))
+
+    def test_a_referencia_de_outro_tenant_nao_se_le(self) -> None:
+        q1 = self._enviado(SKU)
+        outra = self.criar_conversa()
+        self.assertIsNone(
+            rep.pedido_por_referencia(self.app, outra.tenant_id, self.cliente, regras.referencia_interna(q1))
+        )
+
+    def test_uma_referencia_que_nao_se_le_nao_vai_a_base(self) -> None:
+        for referencia in ("", "ORC-12345678", "ORC-ABC", "nada"):
+            with self.subTest(referencia=referencia):
+                self.assertIsNone(rep.pedido_por_referencia(self.app, self.tenant, self.cliente, referencia))
+
+
+def varredura_sql(nome: str) -> str:
+    from kamba_agr.orcamento import varredura
+
+    return getattr(varredura, nome)

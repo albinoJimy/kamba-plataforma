@@ -352,7 +352,7 @@ class SaidaPorLigar:
     def __init__(self, aviso: Callable[[str], None] | None = None) -> None:
         self._aviso = aviso
 
-    def enfileirar(
+    async def enfileirar(
         self, estado: Mapping[str, Any], texto: str, *, chave: str, botoes: Any = ()
     ) -> None:
         if self._aviso is not None:

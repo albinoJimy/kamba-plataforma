@@ -1300,9 +1300,10 @@ async function lerPorContacto(
 
 // ------------------------------------------------------ a API interna do COM
 //
-// As catorze superficies da API interna do COM: as doze rotas `POST /internal/*`
-// (sete do KAM-178, as duas do painel do dono do KAM-099, as duas leituras do
-// KAM-190 e o `screen` do KAM-222), o `GET /metrics` e o
+// As dezasseis superficies da API interna do COM: as catorze rotas
+// `POST /internal/*` (sete do KAM-178, as duas do painel do dono do KAM-099, as
+// duas leituras do KAM-190, o `screen` do KAM-222 e as duas do Catalogo AI do
+// KAM-119), o `GET /metrics` e o
 // `ALL /internal/*` da app construida **sem** a API montada.
 //
 // ## A propriedade que este grupo mede, e a que ele **nao** mede
@@ -1346,9 +1347,10 @@ async function lerPorContacto(
 // `nota`.
 
 /**
- * As doze rotas, pela ordem de `services/com/src/api/interna.ts`: as sete do
- * KAM-178, as duas do painel do KAM-099, as duas leituras do KAM-190 e o
- * `screen` do KAM-222.
+ * As catorze rotas, pela ordem de `services/com/src/api/interna.ts`: as sete do
+ * KAM-178, as duas do painel do KAM-099, as duas leituras do KAM-190, o
+ * `screen` do KAM-222 e as duas do Catalogo AI do KAM-119 (o rascunho e a
+ * publicacao).
  */
 const ROTAS_DO_COM = [
   "/internal/offer-view",
@@ -1363,9 +1365,11 @@ const ROTAS_DO_COM = [
   "/internal/get-offer",
   "/internal/channel-view",
   "/internal/screen",
+  "/internal/upsert-product-draft",
+  "/internal/publish-product",
 ] as const;
 
-/** O `item` enumerado de uma das doze. Copiado do caso, nao derivado dele. */
+/** O `item` enumerado de uma das catorze. Copiado do caso, nao derivado dele. */
 function itemDoCom(rota: string): string {
   return `rota:com:api/interna:apiInterna:POST:${rota}`;
 }
@@ -1532,6 +1536,12 @@ function operacoesDeEnsaioDoCom(
     async requestOwnerConfirmation(ctx: unknown) {
       return servir("requestOwnerConfirmation", ctx, valorDeA({ estado: "pedida" }));
     },
+    // KAM-119: o rascunho de produto. A rota reescreve a resposta (`sku`,
+    // `registo_id`) e deixa cair o resto, e por isso o canario de A vai no
+    // `registoId`, que e o campo que ela leva.
+    async upsertProductDraft(ctx: unknown) {
+      return servir("upsertProductDraft", ctx, valorDeA({ sku: SKU_DE_A, registoId: canarioDeA }));
+    },
   };
 
   const operacoes: Record<string, unknown> = {
@@ -1586,6 +1596,11 @@ function operacoesDeEnsaioDoCom(
         ctx,
         valorDeA({ estado: "ativo", restrito: false, nivel: 1, tectoPedidoMinor: 5_000_000n, avisos: [canarioDeA] }),
       );
+    },
+    // KAM-119: a publicacao conferida. A real devolve `void`; a rota passa o
+    // valor tal como vem, e o canario de A vai nas `linhas` do `valorDeA`.
+    async publicarProduto(ctx: unknown) {
+      return servir("publicarProduto", ctx, valorDeA({ estado: "publicado" }));
     },
     // KAM-222: o `screen`. O canario de A vai numa regra, que a resposta leva.
     async screen(ctx: unknown) {
@@ -1713,7 +1728,21 @@ async function grupoDaApiInternaDoCom(relatorio: Relatorio): Promise<void> {
       return { sku: SKU_DE_A, preco_tipo: "fixo", preco_minor: "1000000", versao: VERSAO_DE_A };
     }
     if (rota === "/internal/screen") {
-      return { sujeito_tipo: "condicoes", sujeito_ref: ORDER_DE_A, textos: ["entrega de A"] };
+      // KAM-230: a finalidade (a das condicoes, que a operacao confere com o
+      // sujeito) e o prazo sao obrigatorios; sem eles a rota recusa antes da porta.
+      return {
+        sujeito_tipo: "condicoes",
+        sujeito_ref: ORDER_DE_A,
+        textos: ["entrega de A"],
+        finalidade: "classificacao_de_condicoes",
+        prazo_ms: 6_000,
+      };
+    }
+    if (rota === "/internal/upsert-product-draft") {
+      return { sku: SKU_DE_A, nome: "arroz de A", preco_tipo: "fixo", preco_minor: "1000000" };
+    }
+    if (rota === "/internal/publish-product") {
+      return { sku: SKU_DE_A, confirmacao: { actor_id: "mensagem-de-a", em: "2026-11-05T10:00:00.000Z" } };
     }
     if (rota === "/internal/propose-cart") return rascunho;
     if (rota === "/internal/create-order") {
@@ -1759,7 +1788,20 @@ async function grupoDaApiInternaDoCom(relatorio: Relatorio): Promise<void> {
       return { sku: canario, preco_tipo: "fixo", preco_minor: "1", versao: VERSAO_DE_A, stock: 1 };
     }
     if (rota === "/internal/screen") {
-      return { sujeito_tipo: "condicoes", sujeito_ref: canario, categoria_declarada: canario, textos: [canario] };
+      return {
+        sujeito_tipo: "condicoes",
+        sujeito_ref: canario,
+        categoria_declarada: canario,
+        textos: [canario],
+        finalidade: "classificacao_de_condicoes",
+        prazo_ms: 6_000,
+      };
+    }
+    if (rota === "/internal/upsert-product-draft") {
+      return { sku: canario, nome: canario, preco_tipo: "fixo", preco_minor: "1" };
+    }
+    if (rota === "/internal/publish-product") {
+      return { sku: canario, confirmacao: { actor_id: canario, em: "2026-11-05T10:00:00.000Z" } };
     }
     if (rota === "/internal/propose-cart") return rascunho;
     if (rota === "/internal/create-order") {
@@ -2677,6 +2719,25 @@ async function grupoDoGuia(relatorio: Relatorio): Promise<void> {
 //   troca=nenhuma           (KAM-211) o codigo certo do pedido de B, com a sessao
 //                           de A, nao trocou o dono: a verificacao chegou a troca
 //                           so com o pedido e o tenant de A
+//   estado=a                (KAM-223) o GET /painel/telefone, com o tenant de B na
+//                           consulta e no cabecalho, so perguntou pela troca de A,
+//                           e a resposta trouxe o prazo de A (a sonda)
+//   concluir=a              (KAM-223) o /painel/telefone/concluir so tentou a
+//                           troca de A, e a troca pendente de B continua pendente
+//   cancelar=a              (KAM-223) o /painel/telefone/cancelar so cancelou a de
+//                           A, e a troca pendente de B continua pendente
+//   conversa=a              (KAM-223) as tres mensagens do POST /painel/conversa,
+//                           com o tenant e o thread de B no pedido, gravaram-se e
+//                           invocaram o AGR no tenant e no thread de A, sem botao
+//   sonda=viva (conversa)   (KAM-223) o GET /painel/conversa: tres cursores de B
+//                           dao 404, e uma leitura legitima de A, fora das
+//                           entradas, traz o marcador de A
+//   dono=a                  (KAM-216) os tres ataques ao /painel/canal, com o
+//                           tenant de B na consulta e no cabecalho, so
+//                           perguntaram ao COM pelo canal de A, e a pagina mostra
+//                           o canal do dono de A: o WhatsApp, guardado em A com o
+//                           canal activo. O de B e o painel, com o canal
+//                           desligado, pelo que uma leitura de B mostrava o painel
 
 const ITENS_DO_PAINEL = [
   "rota:onboarding-web:painel/rotas:actor:GET:/painel/entrar",
@@ -2692,6 +2753,12 @@ const ITENS_DO_PAINEL = [
   // KAM-211: a troca de telefone do dono.
   "rota:onboarding-web:painel/rotas:actor:POST:/painel/telefone",
   "rota:onboarding-web:painel/rotas:actor:POST:/painel/telefone/verificar",
+  // KAM-223: a troca com prova de posse e a conversa do dono.
+  "rota:onboarding-web:painel/rotas:actor:GET:/painel/telefone",
+  "rota:onboarding-web:painel/rotas:actor:POST:/painel/telefone/concluir",
+  "rota:onboarding-web:painel/rotas:actor:POST:/painel/telefone/cancelar",
+  "rota:onboarding-web:painel/rotas:actor:GET:/painel/conversa",
+  "rota:onboarding-web:painel/rotas:actor:POST:/painel/conversa",
 ] as const;
 
 /** Os telefones da reentrada (KAM-190). Ficticios, com 999. */
@@ -2736,12 +2803,14 @@ async function grupoDoPainel(relatorio: Relatorio): Promise<void> {
   let comercioModulo: Record<string, unknown>;
   let canalModulo: Record<string, unknown>;
   let sessaoModulo: Record<string, unknown>;
+  let donoModulo: Record<string, unknown>;
   try {
     insc = await importarDoRepo("packages/core-ts/dist/inscricao/index.js");
     rotas = await importarDoRepo("services/onboarding-web/src/painel/rotas.ts");
     comercioModulo = await importarDoRepo("services/onboarding-web/src/painel/comercio.ts");
     canalModulo = await importarDoRepo("services/onboarding-web/src/painel/canal.ts");
     sessaoModulo = await importarDoRepo("services/onboarding-web/src/painel/sessao.ts");
+    donoModulo = await importarDoRepo("packages/core-ts/dist/dono/index.js");
   } catch (erro) {
     falhar(`nao se conseguiu importar o painel: ${razao(erro)}`);
     return;
@@ -2790,8 +2859,9 @@ async function grupoDoPainel(relatorio: Relatorio): Promise<void> {
 
     const canal = new (canalModulo["CanalEmMemoria"] as new () => { vistas: Map<string, unknown> })();
     const vazia = { restrito: false, escalao: null, nivel: 1, tectoPedidoMinor: 5_000_000n };
-    canal.vistas.set(TENANT_DE_A_NO_PAINEL, { ...vazia, estado: "ativo", qualidade: MARCADOR_DE_A, avisos: [] });
-    canal.vistas.set(TENANT_DE_B_NO_PAINEL, { ...vazia, estado: "desligado", qualidade: canario, avisos: [canario] });
+    // KAM-216: o canal do dono guardado, WhatsApp em A e painel em B.
+    canal.vistas.set(TENANT_DE_A_NO_PAINEL, { ...vazia, estado: "ativo", qualidade: MARCADOR_DE_A, avisos: [], ownerChannelWa: true });
+    canal.vistas.set(TENANT_DE_B_NO_PAINEL, { ...vazia, estado: "desligado", qualidade: canario, avisos: [canario], ownerChannelWa: false });
 
     // A reentrada (KAM-190): um OTP de duplo que regista quem verificou, e os
     // casos por HMAC de telefone. O de B acerta com o codigo de B — e nenhum
@@ -2870,23 +2940,83 @@ async function grupoDoPainel(relatorio: Relatorio): Promise<void> {
     const pedidosDaTroca: { pedido: string; tenant: string }[] = [];
     const verificacoesDaTroca: { pedido: string; tenant: string }[] = [];
     let trocasFeitas = 0;
+    // KAM-223: a troca de B esta pendente, e a de A tambem, com um prazo que e
+    // a sonda do GET. Quem pergunta, conclui e cancela fica registado.
+    const PRAZO_DE_A = new Date("2031-01-01T00:00:00.000Z");
+    const pendentes = new Set([TENANT_DE_A_NO_PAINEL, TENANT_DE_B_NO_PAINEL]);
+    const estadosPedidos: string[] = [];
+    const conclusoes: string[] = [];
+    const cancelamentos: string[] = [];
     const troca = {
       troca: {
         async pedir(pedido: string, tenant: string) {
           pedidosDaTroca.push({ pedido, tenant });
           return { enviado: true, expiraEm: new Date(agora.getTime() + 300_000) };
         },
-        async verificar(pedido: string, tenant: string, codigo: string) {
+        async verificar(pedido: string, tenant: string, _telefone: unknown, codigo: string) {
           verificacoesDaTroca.push({ pedido, tenant });
           if (pedido === pedidoDeB && tenant === TENANT_DE_B_NO_PAINEL && codigo === "424242") {
             trocasFeitas += 1;
-            return { trocado: true, contactId: "0000000b-0000-4000-8000-0000000000e1", anterior: null };
+            return { estado: "feita", contactId: "0000000b-0000-4000-8000-0000000000e1", anterior: null };
           }
-          return { trocado: false, veredicto: "sem_pedido" };
+          return { estado: "recusada", veredicto: "sem_pedido" };
+        },
+        async estado(tenant: string) {
+          estadosPedidos.push(tenant);
+          return pendentes.has(tenant) ? { estado: "pendente", prazo: tenant === TENANT_DE_A_NO_PAINEL ? PRAZO_DE_A : agora } : null;
+        },
+        async concluir(tenant: string) {
+          conclusoes.push(tenant);
+          return { estado: "recusada", veredicto: "cedo" };
+        },
+        async cancelar(tenant: string) {
+          cancelamentos.push(tenant);
+          // A de A fica viva, para os tres ataques medirem o mesmo; a de B so
+          // sai se um ataque chegar a ela, e e isso que a marca le.
+          return tenant === TENANT_DE_A_NO_PAINEL || pendentes.delete(tenant);
         },
       },
       anelDoPepper: [pepper, null],
       contadores: { anotar: async () => 1 },
+    };
+
+    // KAM-223: a conversa do dono, com uma entrada de A e uma de B. A de B leva
+    // o canario; o cursor dos ataques e o `id` dela.
+    const ENTRADA_DE_A = "0000000a-0000-4000-8000-0000000000f1";
+    const ENTRADA_DE_B = "0000000b-0000-4000-8000-0000000000f1";
+    const entradasDaConversa = new Map<string, { id: string; autor: string; texto: string; botoes: never[]; em: Date }[]>([
+      [TENANT_DE_A_NO_PAINEL, [{ id: ENTRADA_DE_A, autor: "assistente", texto: MARCADOR_DE_A, botoes: [], em: agora }]],
+      [TENANT_DE_B_NO_PAINEL, [{ id: ENTRADA_DE_B, autor: "assistente", texto: canario, botoes: [], em: agora }]],
+    ]);
+    // A `ConversaDoDono` **real**, sobre portas de duplo: a invocacao que se
+    // mede e a que o codigo do painel monta, e nao uma que o duplo inventa.
+    const mensagensGravadas: string[] = [];
+    const invocacoesDoAgr: Record<string, unknown>[] = [];
+    const ConversaDoDono = donoModulo["ConversaDoDono"] as new (p: unknown) => unknown;
+    const conversa = {
+      conversa: new ConversaDoDono({
+        contexto: async (tenant: string) => ({
+          contactId: `${tenant.slice(0, 8)}-0000-4000-8000-0000000000c9`,
+          conversationId: `${tenant.slice(0, 8)}-0000-4000-8000-0000000000ca`,
+          channelId: `${tenant.slice(0, 8)}-0000-4000-8000-0000000000cb`,
+          vertical: "vendedor",
+          modo: "bot",
+        }),
+        gravar: async ({ tenantId }: { tenantId: string }) => {
+          mensagensGravadas.push(tenantId);
+          return `${tenantId.slice(0, 8)}-0000-4000-8000-0000000000f2`;
+        },
+        invocar: async (invocacao: Record<string, unknown>) => {
+          invocacoesDoAgr.push(invocacao);
+          return { estado: 200, desfecho: "executado" };
+        },
+        ler: async ({ tenantId, depois }: { tenantId: string; depois: string | null }) => {
+          const todas = entradasDaConversa.get(tenantId) ?? [];
+          if (depois === null) return todas;
+          const i = todas.findIndex((e) => e.id === depois);
+          return i < 0 ? null : todas.slice(i + 1);
+        },
+      }),
     };
 
     const app = (rotas["rotasDoPainel"] as (o: unknown) => AppHono)({
@@ -2898,6 +3028,7 @@ async function grupoDoPainel(relatorio: Relatorio): Promise<void> {
       relogio,
       reentrada,
       troca,
+      conversa,
     });
     const cookieDeA = `kamba_painel=${cunharSessao(sessaoDeA, chave)}`;
 
@@ -2959,7 +3090,17 @@ async function grupoDoPainel(relatorio: Relatorio): Promise<void> {
     ] as const) {
       for (let vez = 0; vez < 3; vez += 1) {
         const [c, headers] = comTenantDeB(caminho, vez);
-        await empurrar(item, "GET", c, { headers }, sonda);
+        perguntados.length = 0;
+        // KAM-216: no canal, a marca do dono vai ao lado da sonda.
+        const marcas =
+          caminho === "/painel/canal"
+            ? (corpo: string): string => {
+                const so = perguntados.length > 0 && perguntados.every((t) => t === TENANT_DE_A_NO_PAINEL);
+                const deA = corpo.includes('data-canal-do-dono="whatsapp"');
+                return `${sonda(corpo)} dono=${so && deA ? "a" : "alheio"}`;
+              }
+            : sonda;
+        await empurrar(item, "GET", c, { headers }, marcas);
       }
     }
 
@@ -3157,7 +3298,12 @@ async function grupoDoPainel(relatorio: Relatorio): Promise<void> {
         {
           method: "POST",
           headers: { ...headers, "content-type": "application/json" },
-          body: JSON.stringify({ codigo: "424242", tenant_id: TENANT_DE_B_NO_PAINEL, pedido: pedidoDeB }),
+          body: JSON.stringify({
+            telefone: TELEFONE_DE_B_NO_PAINEL,
+            codigo: "424242",
+            tenant_id: TENANT_DE_B_NO_PAINEL,
+            pedido: pedidoDeB,
+          }),
         },
         () => "",
       );
@@ -3169,6 +3315,89 @@ async function grupoDoPainel(relatorio: Relatorio): Promise<void> {
     for (const entrada of relatorio.rotas) {
       if (entrada.item === ITENS_DO_PAINEL[11]) entrada.nota += semTroca ? " troca=nenhuma" : " troca=alheia";
     }
+
+    // ---- GET /painel/telefone (KAM-223): a sessao de A com o tenant de B na
+    // consulta, no cabecalho e nos dois. So a troca de A, e o prazo de A chega.
+    const marcarEm = (indice: number, marca: string): void => {
+      for (const entrada of relatorio.rotas) {
+        if (entrada.item === ITENS_DO_PAINEL[indice]) entrada.nota += ` ${marca}`;
+      }
+    };
+    for (let vez = 0; vez < 3; vez += 1) {
+      const [c, headers] = comTenantDeB("/painel/telefone", vez, cookieDaTroca);
+      await empurrar(ITENS_DO_PAINEL[12], "GET", c, { headers }, (corpo) =>
+        corpo.includes(PRAZO_DE_A.toISOString()) ? "sonda=viva" : "sonda=morta",
+      );
+    }
+    marcarEm(12, estadosPedidos.length === 3 && estadosPedidos.every((t) => t === TENANT_DE_A_NO_PAINEL) ? "estado=a" : "estado=alheio");
+
+    // ---- POST /painel/telefone/concluir e /cancelar (KAM-223): o tenant de B no
+    // corpo, na consulta e no cabecalho. So a troca de A, e a de B fica pendente.
+    for (const [indice, caminho, feitos, marca] of [
+      [13, "/painel/telefone/concluir", conclusoes, "concluir"],
+      [14, "/painel/telefone/cancelar", cancelamentos, "cancelar"],
+    ] as const) {
+      for (let vez = 0; vez < 3; vez += 1) {
+        const [c, headers] = comTenantDeB(caminho, vez, cookieDaTroca);
+        await empurrar(
+          ITENS_DO_PAINEL[indice],
+          "POST",
+          c,
+          {
+            method: "POST",
+            headers: { ...headers, "content-type": "application/json" },
+            body: JSON.stringify({ tenant_id: TENANT_DE_B_NO_PAINEL }),
+          },
+          () => "",
+        );
+      }
+      const soA = feitos.length > 0 && feitos.every((t) => t === TENANT_DE_A_NO_PAINEL);
+      marcarEm(indice, soA && pendentes.has(TENANT_DE_B_NO_PAINEL) ? `${marca}=a` : `${marca}=alheio`);
+    }
+
+    // ---- GET /painel/conversa (KAM-223): o cursor e a entrada de B, com o
+    // tenant de B na consulta e no cabecalho: 404 uniforme e nada de B. A sonda
+    // e uma leitura legitima de A, fora das entradas.
+    for (let vez = 0; vez < 3; vez += 1) {
+      const [c, headers] = comTenantDeB(`/painel/conversa?depois=${ENTRADA_DE_B}`, vez);
+      await empurrar(ITENS_DO_PAINEL[15], "GET", c, { headers }, () => "");
+    }
+    const leituraDeA = await app.request("/painel/conversa", { headers: { cookie: cookieDeA } });
+    marcarEm(15, leituraDeA.status === 200 && (await leituraDeA.text()).includes(MARCADOR_DE_A) ? "sonda=viva" : "sonda=morta");
+
+    // ---- POST /painel/conversa (KAM-223): o tenant e o thread de B no corpo, na
+    // consulta e no cabecalho, e um texto que imita um botao. Tudo em A.
+    for (let vez = 0; vez < 3; vez += 1) {
+      const [c, headers] = comTenantDeB("/painel/conversa", vez);
+      await empurrar(
+        ITENS_DO_PAINEL[16],
+        "POST",
+        c,
+        {
+          method: "POST",
+          headers: { ...headers, "content-type": "application/json" },
+          body: JSON.stringify({
+            texto: "confirm:0000000b-0000-4000-8000-0000000000aa",
+            botao: "confirm:0000000b-0000-4000-8000-0000000000aa",
+            tenant_id: TENANT_DE_B_NO_PAINEL,
+            thread_id: `${TENANT_DE_B_NO_PAINEL}:c1`,
+          }),
+        },
+        () => "",
+      );
+    }
+    const conversaDeA =
+      mensagensGravadas.length === 3 &&
+      mensagensGravadas.every((t) => t === TENANT_DE_A_NO_PAINEL) &&
+      invocacoesDoAgr.length === 3 &&
+      invocacoesDoAgr.every(
+        (i) =>
+          i["tenant_id"] === TENANT_DE_A_NO_PAINEL &&
+          String(i["thread_id"]).startsWith(`${TENANT_DE_A_NO_PAINEL}:`) &&
+          i["persona"] === "dono" &&
+          !("botao" in i),
+      );
+    marcarEm(16, conversaDeA ? "conversa=a" : "conversa=alheia");
   } catch (erro) {
     falhar(`a montagem do painel levantou: ${razao(erro)}`);
   }

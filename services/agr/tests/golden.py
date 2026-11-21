@@ -176,7 +176,7 @@ class Saida:
     def __init__(self) -> None:
         self.enviadas: list[tuple[str, str, tuple[str, ...]]] = []
 
-    def enfileirar(self, estado, texto, *, chave, botoes=()) -> None:  # noqa: ANN001
+    async def enfileirar(self, estado, texto, *, chave, botoes=()) -> None:  # noqa: ANN001
         self.enviadas.append((texto, chave, tuple(botoes)))
 
 

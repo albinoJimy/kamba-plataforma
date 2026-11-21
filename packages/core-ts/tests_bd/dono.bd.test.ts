@@ -1,19 +1,22 @@
 /**
- * A troca de telefone do dono contra o PostgreSQL (KAM-211, critério «Troca de
- * telefone»).
+ * O canal do dono contra o PostgreSQL: a troca de telefone com prova de posse
+ * (KAM-211, KAM-217 e KAM-223) e a conversa do dono pelo painel (KAM-223).
  *
- * **Pelo caminho real e sem superutilizador**: o contacto do número novo
- * resolve-se pelo `resolveContact` do KAM-008 e o papel move-se pela
- * `platform.definir_dono(…, 'troca_de_telefone')`, os dois como
- * `kamba_identity`, através dos adaptadores de `src/dono/sql.ts` — os que o
- * painel recebe. O `Otp` é o real do KAM-086 (repositório em memória, SMS
- * falso), e a `TrocaDeTelefone` a real do KAM-118. O administrador só cria o
- * tenant e lê o resultado.
+ * **Pelo caminho real e sem superutilizador**: o contacto resolve-se pelo
+ * `resolveContact` do KAM-008, a troca persiste na `owner_phone_changes` e o
+ * papel move-se pela `platform.definir_dono(…, 'troca_de_telefone')`, tudo como
+ * `kamba_identity` e pelo `trocaPeloPool` que o `server.ts` do `onboarding-web`
+ * chama. O `Otp` é o real do KAM-086, com o desafio **na troca**, e o SMS falso.
+ * A conversa corre como `kamba_app`, pelo `conversaPeloPool`. O administrador só
+ * cria o tenant, o canal e lê o resultado.
  *
- * O que só a base diz: que o papel **não** se move até o código acertar, que o
- * número novo é `cliente` até lá (a troca de SIM simulada), que a porta
- * despromove o antigo na mesma transacção e marca os dois, que o `kamba_app` não
- * a executa, e que o tenant é o do contexto.
+ * O que só a base diz: que o papel **não** se move com o código do número novo,
+ * que a troca e o código sobrevivem a um processo novo, que duas réplicas dão
+ * uma troca, que a recusa do número antigo desfaz a transacção inteira, que o
+ * tenant é o do contexto, e que a conversa de outro tenant não se lê nem se
+ * escreve.
+ *
+ * Os números são fictícios, com 999, e escritos com espaços.
  */
 
 import assert from "node:assert/strict";
@@ -23,44 +26,68 @@ import type pg from "pg";
 
 import { SQL_PAPEL } from "../src/chr/consultas.ts";
 import {
+  ConversaDoDono,
+  ESPERA_DA_TROCA_MS,
+  canalNoPainel,
   contactoDoNumero,
+  conversaPeloPool,
   definirDonoNaBase,
   numaLigacao,
   personaDe,
-  TrocaDeTelefone,
   trocaNaBase,
   trocaPeloPool,
   type DestinoDoAviso,
+  type MomentoDoAviso,
   type PoolDeIdentidade,
 } from "../src/dono/index.ts";
 import type { Identidade } from "../src/identity/index.ts";
-import { ContadoresEmMemoria, Otp, OtpEmMemoria, OtpPorSmsLocal, Telefone } from "../src/inscricao/index.ts";
+import {
+  ContadoresEmMemoria,
+  Otp,
+  OtpPorSmsLocal,
+  Telefone,
+  type RepositorioDeOtp,
+} from "../src/inscricao/index.ts";
 import { FakeSmsProvider } from "../src/sms/index.ts";
 import { comTenant } from "../src/tenant_guard/index.ts";
-import { ChavesDeTeste, criarTenant, ligar, poolDe } from "./apoio.ts";
+import { ChavesDeTeste, conversasDe, criarCanal, criarTenant, ligar, poolDe } from "./apoio.ts";
 
 /** Números fictícios, com 999. */
 const NUMERO_ANTIGO = "+244 999 000 501";
 const NUMERO_NOVO = "+244 999 000 502";
 const NUMERO_DE_B = "+244 999 000 503";
+const NUMERO_ALHEIO = "+244 999 000 504";
+/** Um quarto numero, para as replicas: o `Otp` limita os envios por destino. */
+const NUMERO_DA_REPLICA = "+244 999 000 505";
 
 const PEPPER = Buffer.alloc(32, 0x5a);
+/**
+ * O HMAC do número da loja (KAM-216): o do telefone do caso, que nestes ensaios
+ * é o do dono do provisionamento. O KAM-093 obriga os dois a coincidir.
+ */
+const LOJA_ANTIGA = new Telefone(NUMERO_ANTIGO, [PEPPER]).hmac;
+const LOJA_DE_B = new Telefone(NUMERO_DE_B, [PEPPER]).hmac;
 const PEPPER_DO_DESTINO = Buffer.alloc(32, 0x71);
+const INICIO = new Date("2026-11-19T10:00:00.000Z");
 
 let admin: pg.Client;
 let identidadeBd: pg.Client;
 let app: pg.Client;
 let identidade: Identidade;
+let pool: pg.Pool;
+let poolDaApp: pg.Pool;
 
 before(async () => {
   admin = await ligar("admin");
   identidadeBd = await ligar("identity");
   app = await ligar("app");
   identidade = await new ChavesDeTeste("k-chr").identidade();
+  pool = poolDe("identity", 4);
+  poolDaApp = poolDe("app", 4);
 });
 
 after(async () => {
-  await Promise.all([admin?.end(), identidadeBd?.end(), app?.end()]);
+  await Promise.all([admin?.end(), identidadeBd?.end(), app?.end(), pool?.end(), poolDaApp?.end()]);
 });
 
 /** O papel de cada contacto do tenant, lido pelo administrador. */
@@ -72,12 +99,7 @@ async function papeis(tenant: string): Promise<Map<string, { papel: string; mudo
   return new Map(rows.map((r) => [r.contact_id, { papel: r.papel, mudou: r.mudou }]));
 }
 
-/**
- * A persona com que o CHR trata uma mensagem deste contacto: a leitura do
- * `SQL_PAPEL` do CHR, como `kamba_app` no contexto do tenant, e o `personaDe`.
- * É o caminho que decide a persona de uma mensagem, e não uma leitura do
- * administrador.
- */
+/** A persona com que o CHR trata uma mensagem deste contacto (o `SQL_PAPEL`, como `kamba_app`). */
 async function personaPeloChr(tenant: string, contacto: string): Promise<string> {
   return comTenant(app, tenant, async (bd) => {
     const r = (await bd.query(SQL_PAPEL, [tenant, contacto])) as { rows: { papel?: unknown }[] };
@@ -93,6 +115,15 @@ async function donoDoTenant(tenant: string): Promise<string | null> {
   return rows[0]?.dono ?? null;
 }
 
+/** As trocas de um tenant, pelo administrador: o estado e se há telefone em claro. */
+async function trocasDe(tenant: string): Promise<{ estado: string; colunas: string }[]> {
+  const { rows } = await admin.query<{ estado: string; colunas: string }>(
+    "SELECT estado, row_to_json(t)::text AS colunas FROM platform.owner_phone_changes t WHERE tenant_id = $1 ORDER BY criado_at",
+    [tenant],
+  );
+  return rows;
+}
+
 /** Um tenant com o dono do provisionamento, pela porta e como `kamba_identity`. */
 async function tenantComDono(rotulo: string, numero: string): Promise<{ tenant: string; dono: string }> {
   const tenant = await criarTenant(admin, rotulo);
@@ -104,90 +135,185 @@ async function tenantComDono(rotulo: string, numero: string): Promise<{ tenant: 
   return { tenant, dono: contactId };
 }
 
-function montarTroca() {
-  const sms = new FakeSmsProvider({});
-  const otp = new Otp({
-    repositorio: new OtpEmMemoria(),
-    contadores: new ContadoresEmMemoria(),
-    provedor: new OtpPorSmsLocal({ sms, pepperDoDestino: PEPPER_DO_DESTINO }),
-    chave: PEPPER,
-  });
-  const avisos: { tenantId: string; destino: DestinoDoAviso }[] = [];
-  const troca = new TrocaDeTelefone({
-    otp,
-    contacto: contactoDoNumero(identidade, identidadeBd),
-    trocar: trocaNaBase(identidadeBd),
-    avisar: async (pedido) => {
-      avisos.push(pedido);
+/**
+ * Uma réplica do processo: o `trocaPeloPool` com o seu `Otp` e os seus
+ * contadores, sobre o mesmo *pool* e o mesmo SMS falso. Duas réplicas não
+ * partilham memória nenhuma — só a base.
+ */
+function replica(sms: FakeSmsProvider, relogio: { agora: Date }) {
+  const avisos: { tenantId: string; destino: DestinoDoAviso; momento: MomentoDoAviso }[] = [];
+  const contadores = new ContadoresEmMemoria();
+  const troca = trocaPeloPool({
+    pool,
+    identidade,
+    relogio: () => relogio.agora,
+    otp: (repositorio: RepositorioDeOtp) =>
+      new Otp({
+        repositorio,
+        contadores,
+        provedor: new OtpPorSmsLocal({ sms, pepperDoDestino: PEPPER_DO_DESTINO }),
+        chave: PEPPER,
+        relogio: () => relogio.agora,
+      }),
+    avisar: async (aviso) => {
+      avisos.push(aviso);
     },
   });
+  return { troca, avisos };
+}
+
+function montar() {
+  const relogio = { agora: INICIO };
+  const sms = new FakeSmsProvider({ relogio: () => relogio.agora });
   const codigo = (): string => {
     const achado = /([0-9]{6})/.exec(sms.enviados.at(-1)?.corpo ?? "")?.[1];
     assert.ok(achado, "o SMS do codigo nao saiu");
     return achado;
   };
-  return { troca, codigo, avisos };
+  const { troca, avisos } = replica(sms, relogio);
+  return { troca, avisos, codigo, relogio, sms, outra: () => replica(sms, relogio).troca };
 }
 
-describe("KAM-211 — a troca de telefone pelo caminho real", () => {
-  it("até o código acertar o número novo é cliente e o antigo é dono; depois, o contrário", async () => {
-    const { tenant, dono } = await tenantComDono("troca", NUMERO_ANTIGO);
-    const { troca, codigo, avisos } = montarTroca();
-    const pedido = "troca:sessao-de-ensaio-1";
+const novo = (): Telefone => new Telefone(NUMERO_NOVO, [PEPPER]);
+const antigo = (): Telefone => new Telefone(NUMERO_ANTIGO, [PEPPER]);
 
-    await troca.pedir(pedido, tenant, new Telefone(NUMERO_NOVO, [PEPPER]));
-    // A troca de SIM simulada: uma mensagem do número novo antes do código
-    // resolve o contacto como qualquer desconhecido — `cliente`.
-    const { contactId: novo } = await contactoDoNumero(identidade, identidadeBd)({
-      tenantId: tenant,
-      telefone: new Telefone(NUMERO_NOVO, [PEPPER]),
-    });
-    let antes = await papeis(tenant);
-    assert.deepEqual(antes.get(novo), { papel: "cliente", mudou: false });
-    assert.deepEqual(antes.get(dono), { papel: "dono", mudou: false });
-    // E pelo caminho do CHR: a mensagem do número novo é de um `cliente`.
-    assert.equal(await personaPeloChr(tenant, novo), "cliente");
+describe("KAM-223 — a troca com prova de posse, contra a base", () => {
+  it("o codigo do numero novo poe a troca pendente e NAO move o papel; passadas as 72 h, move", async () => {
+    const { tenant, dono } = await tenantComDono("pendente", NUMERO_ANTIGO);
+    const m = montar();
+    await m.troca.pedir("troca:sessao-1", tenant, novo(), LOJA_ANTIGA);
+    const errado = m.codigo() === "000000" ? "111111" : "000000";
+    assert.equal((await m.troca.verificar("troca:sessao-1", tenant, novo(), errado)).estado, "recusada");
+
+    const desfecho = await m.troca.verificar("troca:sessao-1", tenant, novo(), m.codigo());
+    assert.deepEqual(desfecho, { estado: "pendente", prazo: new Date(INICIO.getTime() + ESPERA_DA_TROCA_MS) });
+    const { contactId: contactoNovo } = await contactoDoNumero(identidade, identidadeBd)({ tenantId: tenant, telefone: novo() });
+    // A troca de SIM simulada: o numero novo e `cliente` enquanto a espera corre.
+    assert.equal((await papeis(tenant)).get(contactoNovo)?.papel, "cliente");
+    assert.equal(await personaPeloChr(tenant, contactoNovo), "cliente");
     assert.equal(await personaPeloChr(tenant, dono), "dono");
+    assert.deepEqual(m.avisos.map((a) => `${a.destino}:${a.momento}`), ["numero_antigo:pendente", "email:pendente"]);
 
-    const errado = codigo() === "000000" ? "111111" : "000000";
-    assert.equal((await troca.verificar(pedido, tenant, errado)).trocado, false);
-    antes = await papeis(tenant);
-    assert.equal(antes.get(novo)?.papel, "cliente");
-    assert.equal(antes.get(dono)?.papel, "dono");
-
-    const desfecho = await troca.verificar(pedido, tenant, codigo());
-    assert.deepEqual(desfecho, { trocado: true, contactId: novo, anterior: dono });
+    m.relogio.agora = new Date(INICIO.getTime() + ESPERA_DA_TROCA_MS - 1);
+    assert.deepEqual(await m.troca.concluir(tenant), { estado: "recusada", veredicto: "cedo" });
+    assert.equal(await donoDoTenant(tenant), dono);
+    m.relogio.agora = new Date(INICIO.getTime() + ESPERA_DA_TROCA_MS);
+    assert.deepEqual(await m.troca.concluir(tenant), { estado: "feita", contactId: contactoNovo, anterior: dono });
     const depois = await papeis(tenant);
-    assert.deepEqual(depois.get(novo), { papel: "dono", mudou: true });
+    assert.deepEqual(depois.get(contactoNovo), { papel: "dono", mudou: true });
     assert.deepEqual(depois.get(dono), { papel: "cliente", mudou: true });
-    assert.equal(await donoDoTenant(tenant), novo);
-    assert.equal(await personaPeloChr(tenant, novo), "dono");
-    assert.equal(await personaPeloChr(tenant, dono), "cliente");
-    assert.deepEqual(
-      avisos.map((a) => [a.tenantId, a.destino]),
-      [
-        [tenant, "numero_antigo"],
-        [tenant, "email"],
-      ],
-    );
+    assert.equal(await donoDoTenant(tenant), contactoNovo);
+    // Sem telefone em claro na linha: nem o numero, nem os digitos dele.
+    for (const { colunas } of await trocasDe(tenant)) {
+      assert.ok(!colunas.includes("999 000") && !colunas.includes("999000"), colunas);
+    }
   });
 
-  it("o pedido de um tenant não se verifica de outro, e o papel não se move", async () => {
-    const a = await tenantComDono("troca-a", NUMERO_ANTIGO);
-    const b = await tenantComDono("troca-b", NUMERO_DE_B);
-    const { troca, codigo } = montarTroca();
-    await troca.pedir("troca:sessao-de-a", a.tenant, new Telefone(NUMERO_NOVO, [PEPPER]));
-    const desfecho = await troca.verificar("troca:sessao-de-a", b.tenant, codigo());
-    assert.deepEqual(desfecho, { trocado: false, veredicto: "sem_pedido" });
+  it("com o codigo do numero antigo a troca e imediata", async () => {
+    const { tenant, dono } = await tenantComDono("imediata", NUMERO_ANTIGO);
+    const m = montar();
+    await m.troca.pedir("troca:sessao-1", tenant, novo(), LOJA_ANTIGA);
+    await m.troca.verificar("troca:sessao-1", tenant, novo(), m.codigo());
+    assert.equal((await m.troca.pedir("troca:sessao-1", tenant, antigo(), LOJA_ANTIGA, "antigo")).enviado, true);
+    const feita = await m.troca.verificar("troca:sessao-1", tenant, antigo(), m.codigo(), "antigo");
+    assert.equal(feita.estado, "feita");
+    assert.notEqual(await donoDoTenant(tenant), dono);
+    assert.deepEqual((await trocasDe(tenant)).map((t) => t.estado), ["feita"]);
+  });
+
+  it("o codigo certo de um numero que nao e o do dono desfaz a transaccao: papel e troca como estavam", async () => {
+    const { tenant, dono } = await tenantComDono("alheio", NUMERO_ANTIGO);
+    const m = montar();
+    await m.troca.pedir("troca:sessao-1", tenant, novo(), LOJA_ANTIGA);
+    await m.troca.verificar("troca:sessao-1", tenant, novo(), m.codigo());
+    const alheio = new Telefone(NUMERO_ALHEIO, [PEPPER]);
+    await m.troca.pedir("troca:sessao-1", tenant, alheio, LOJA_ANTIGA, "antigo");
+    assert.deepEqual(await m.troca.verificar("troca:sessao-1", tenant, alheio, m.codigo(), "antigo"), {
+      estado: "recusada",
+      veredicto: "antigo_diferente",
+    });
+    assert.equal(await donoDoTenant(tenant), dono);
+    assert.equal((await papeis(tenant)).get(dono)?.papel, "dono");
+    assert.deepEqual((await trocasDe(tenant)).map((t) => t.estado), ["pendente"]);
+  });
+
+  it("um processo novo a meio continua: o codigo do numero novo e a troca pendente estao na base", async () => {
+    const { tenant, dono } = await tenantComDono("reinicio", NUMERO_ANTIGO);
+    const m = montar();
+    await m.troca.pedir("troca:sessao-1", tenant, novo(), LOJA_ANTIGA);
+    // O processo reinicia entre o pedido e o codigo: outra replica, outra memoria.
+    const depoisDoReinicio = m.outra();
+    assert.equal((await depoisDoReinicio.verificar("troca:sessao-1", tenant, novo(), m.codigo())).estado, "pendente");
+    // E outra vez entre a espera e a conclusao.
+    m.relogio.agora = new Date(INICIO.getTime() + ESPERA_DA_TROCA_MS);
+    assert.equal((await m.outra().concluir(tenant)).estado, "feita");
+    assert.notEqual(await donoDoTenant(tenant), dono);
+  });
+
+  it("o mesmo pedido em duas replicas: uma troca, uma recusa, e um dono so", async () => {
+    const { tenant } = await tenantComDono("replicas", NUMERO_ANTIGO);
+    const m = montar();
+    await m.troca.pedir("troca:sessao-1", tenant, novo(), LOJA_ANTIGA);
+    await m.troca.verificar("troca:sessao-1", tenant, novo(), m.codigo());
+    m.relogio.agora = new Date(INICIO.getTime() + ESPERA_DA_TROCA_MS);
+    const desfechos = await Promise.all([m.troca.concluir(tenant), m.outra().concluir(tenant)]);
+    assert.deepEqual(desfechos.map((d) => d.estado).sort(), ["feita", "recusada"]);
+    assert.equal([...(await papeis(tenant)).values()].filter((p) => p.papel === "dono").length, 1);
+    // E duas sessoes a abrir ao mesmo tempo noutro tenant: uma troca viva.
+    const outro = await tenantComDono("replicas-abrir", NUMERO_DE_B);
+    const pedidos = await Promise.all([
+      m.troca.pedir("troca:sessao-x", outro.tenant, new Telefone(NUMERO_DA_REPLICA, [PEPPER]), LOJA_ANTIGA),
+      m.outra().pedir("troca:sessao-y", outro.tenant, new Telefone(NUMERO_ALHEIO, [PEPPER]), LOJA_ANTIGA),
+    ]);
+    assert.deepEqual(pedidos.map((p) => p.enviado).sort(), [false, true]);
+    assert.equal((await trocasDe(outro.tenant)).filter((t) => t.estado === "pedida").length, 1);
+  });
+
+  it("a sessao de A, com o tenant de B, nao verifica, nao conclui nem cancela a troca de B", async () => {
+    const a = await tenantComDono("cruzado-a", NUMERO_ANTIGO);
+    const b = await tenantComDono("cruzado-b", NUMERO_DE_B);
+    const m = montar();
+    await m.troca.pedir("troca:sessao-de-b", b.tenant, novo(), LOJA_ANTIGA);
+    const codigoDeB = m.codigo();
+    assert.deepEqual(await m.troca.verificar("troca:sessao-de-b", a.tenant, novo(), codigoDeB), {
+      estado: "recusada",
+      veredicto: "sem_pedido",
+    });
+    await m.troca.verificar("troca:sessao-de-b", b.tenant, novo(), codigoDeB);
+    m.relogio.agora = new Date(INICIO.getTime() + ESPERA_DA_TROCA_MS);
+    assert.equal((await m.troca.concluir(a.tenant)).estado, "recusada");
+    assert.equal(await m.troca.cancelar(a.tenant), false);
+    assert.deepEqual((await trocasDe(b.tenant)).map((t) => t.estado), ["pendente"]);
     assert.equal(await donoDoTenant(a.tenant), a.dono);
     assert.equal(await donoDoTenant(b.tenant), b.dono);
   });
 
-  it("a porta com o contacto de A no contexto de B recusa: o tenant é o do contexto", async () => {
+  it("cancelar a troca pendente impede a conclusao depois do prazo", async () => {
+    const { tenant, dono } = await tenantComDono("cancelada", NUMERO_ANTIGO);
+    const m = montar();
+    await m.troca.pedir("troca:sessao-1", tenant, novo(), LOJA_ANTIGA);
+    await m.troca.verificar("troca:sessao-1", tenant, novo(), m.codigo());
+    assert.equal(await m.outra().cancelar(tenant), true);
+    m.relogio.agora = new Date(INICIO.getTime() + ESPERA_DA_TROCA_MS + 1);
+    assert.equal((await m.troca.concluir(tenant)).estado, "recusada");
+    assert.equal(await donoDoTenant(tenant), dono);
+  });
+
+  it("o kamba_app nao le nem escreve a troca", async () => {
+    const { tenant } = await tenantComDono("app-troca", NUMERO_ANTIGO);
+    await assert.rejects(
+      comTenant(app, tenant, (bd) => bd.query("SELECT 1 FROM platform.owner_phone_changes")),
+      (erro: { code?: string }) => erro.code === "42501",
+    );
+  });
+});
+
+describe("KAM-211/217 — a porta do dono, contra a base", () => {
+  it("a porta com o contacto de A no contexto de B recusa: o tenant e o do contexto", async () => {
     const a = await tenantComDono("contexto-a", NUMERO_ANTIGO);
     const b = await tenantComDono("contexto-b", NUMERO_DE_B);
     await assert.rejects(
-      trocaNaBase(identidadeBd)({ tenantId: b.tenant, contactId: a.dono }),
+      trocaNaBase(identidadeBd)({ tenantId: b.tenant, contactId: a.dono, ownerChannelWa: true }),
       (erro: { code?: string }) => erro.code === "23503",
     );
     assert.equal(await donoDoTenant(b.tenant), b.dono);
@@ -196,99 +322,58 @@ describe("KAM-211 — a troca de telefone pelo caminho real", () => {
   it("com o papel da aplicação, a porta não executa", async () => {
     const { tenant, dono } = await tenantComDono("app", NUMERO_ANTIGO);
     await assert.rejects(
-      trocaNaBase(app)({ tenantId: tenant, contactId: dono }),
+      trocaNaBase(app)({ tenantId: tenant, contactId: dono, ownerChannelWa: true }),
       (erro: { code?: string }) => erro.code === "42501",
     );
   });
 
-  it("o provisionamento pela porta é idempotente e não troca o dono", async () => {
+  it("o provisionamento pela porta e idempotente e nao troca o dono", async () => {
     const { tenant, dono } = await tenantComDono("provisionamento", NUMERO_ANTIGO);
     for (let vez = 0; vez < 3; vez += 1) {
       await definirDonoNaBase(identidadeBd)({ tenantId: tenant, contactId: dono, origem: "provisionamento" });
     }
-    const { contactId: outro } = await contactoDoNumero(identidade, identidadeBd)({
-      tenantId: tenant,
-      telefone: new Telefone(NUMERO_NOVO, [PEPPER]),
-    });
+    const { contactId: outro } = await contactoDoNumero(identidade, identidadeBd)({ tenantId: tenant, telefone: novo() });
     await assert.rejects(
       definirDonoNaBase(identidadeBd)({ tenantId: tenant, contactId: outro, origem: "provisionamento" }),
       (erro: { code?: string }) => erro.code === "23505",
     );
-    const lidos = await papeis(tenant);
-    assert.deepEqual(
-      [...lidos.values()].filter((p) => p.papel === "dono").length,
-      1,
-    );
-    assert.deepEqual(lidos.get(dono), { papel: "dono", mudou: false });
+    assert.equal([...(await papeis(tenant)).values()].filter((p) => p.papel === "dono").length, 1);
   });
-});
-
-/**
- * A troca **montada como o processo a monta** (KAM-217): o `trocaPeloPool` que o
- * `server.ts` do `onboarding-web` chama, sobre um *pool* do `kamba_identity`.
- *
- * O que só isto prova: um servidor HTTP atende pedidos concorrentes, e a troca
- * é uma transacção com o tenant no `app.tenant_id`. Duas trocas de dois tenants
- * ao mesmo tempo têm de acabar cada uma no seu tenant. Com uma ligação
- * partilhada, o `tenant_guard` recusava a segunda (`LigacaoEmUsoError`), e o
- * dono que chegasse em segundo recebia um erro.
- */
-describe("KAM-217 — a troca montada pelo processo, sobre o pool", () => {
-  let pool: pg.Pool;
-
-  before(() => {
-    pool = poolDe("identity", 4);
-  });
-
-  after(async () => {
-    await pool?.end();
-  });
-
-  function montarPeloPool() {
-    const sms = new FakeSmsProvider({});
-    const otp = new Otp({
-      repositorio: new OtpEmMemoria(),
-      contadores: new ContadoresEmMemoria(),
-      provedor: new OtpPorSmsLocal({ sms, pepperDoDestino: PEPPER_DO_DESTINO }),
-      chave: PEPPER,
-    });
-    const troca = trocaPeloPool({ pool, identidade, otp, avisar: async () => {} });
-    const ultimoCodigo = (): string => {
-      const achado = /([0-9]{6})/.exec(sms.enviados.at(-1)?.corpo ?? "")?.[1];
-      assert.ok(achado, "o SMS do codigo nao saiu");
-      return achado;
-    };
-    return { troca, ultimoCodigo };
-  }
 
   it("cinco pares de trocas concorrentes em dois tenants acabam cada uma no seu tenant", async () => {
-    // A preparação em série: o `tenantComDono` usa a ligação única do ensaio, e
-    // o `tenant_guard` recusa duas transacções ao mesmo tempo nela.
+    // Revisto no KAM-223: a troca faz-se pelo código do número antigo (regra
+    // C), e são essas conclusões — as que movem o papel na base — que correm
+    // todas ao mesmo tempo. Um número por dono e por pedido: o `Otp` limita os
+    // envios por destino.
     const pares: { a: { tenant: string; dono: string }; b: { tenant: string; dono: string } }[] = [];
+    const numeros = new Map<string, string>();
     for (let i = 0; i < 5; i += 1) {
-      pares.push({
-        a: await tenantComDono(`pool-a-${i}`, NUMERO_ANTIGO),
-        b: await tenantComDono(`pool-b-${i}`, NUMERO_DE_B),
-      });
+      const deA = `+244 999 002 1${i}0`;
+      const deB = `+244 999 002 2${i}0`;
+      const par = { a: await tenantComDono(`pool-a-${i}`, deA), b: await tenantComDono(`pool-b-${i}`, deB) };
+      numeros.set(par.a.tenant, deA);
+      numeros.set(par.b.tenant, deB);
+      pares.push(par);
     }
-    const { troca, ultimoCodigo } = montarPeloPool();
-    // Os pedidos em série, para ler o código de cada um; as verificações — que
-    // são o que vai à base — todas ao mesmo tempo. Um número novo por pedido: o
-    // `Otp` limita os envios por destino.
-    const verificacoes: { pedido: string; tenant: string; codigo: string }[] = [];
+    const m = montar();
+    const conclusoes: { pedido: string; tenant: string; antigo: Telefone; codigo: string }[] = [];
     for (const [i, par] of pares.entries()) {
       for (const [lado, tenant] of [["a", par.a.tenant], ["b", par.b.tenant]] as const) {
         const pedido = `troca:sessao-${lado}-${i}`;
-        const numero = `+244 999 001 6${lado === "a" ? "0" : "5"}${i}`;
-        const envio = await troca.pedir(pedido, tenant, new Telefone(numero, [PEPPER]));
-        assert.equal(envio.enviado, true);
-        verificacoes.push({ pedido, tenant, codigo: ultimoCodigo() });
+        const novo = new Telefone(`+244 999 001 6${lado === "a" ? "0" : "5"}${i}`, [PEPPER]);
+        const antigo = new Telefone(numeros.get(tenant) ?? "", [PEPPER]);
+        assert.equal((await m.troca.pedir(pedido, tenant, novo, LOJA_ANTIGA)).enviado, true);
+        assert.equal((await m.troca.verificar(pedido, tenant, novo, m.codigo())).estado, "pendente");
+        assert.equal((await m.troca.pedir(pedido, tenant, antigo, LOJA_ANTIGA, "antigo")).enviado, true);
+        conclusoes.push({ pedido, tenant, antigo, codigo: m.codigo() });
       }
     }
-    const desfechos = await Promise.all(verificacoes.map((v) => troca.verificar(v.pedido, v.tenant, v.codigo)));
+    const desfechos = await Promise.all(
+      conclusoes.map((c) => m.troca.verificar(c.pedido, c.tenant, c.antigo, c.codigo, "antigo")),
+    );
     assert.deepEqual(
-      desfechos.map((d) => d.trocado),
-      verificacoes.map(() => true),
+      desfechos.map((d) => d.estado),
+      conclusoes.map(() => "feita"),
     );
     for (const par of pares) {
       for (const { tenant, dono } of [par.a, par.b]) {
@@ -302,13 +387,9 @@ describe("KAM-217 — a troca montada pelo processo, sobre o pool", () => {
     }
   });
 
-  it("uma porta que falha destrói a ligação, e uma que acerta devolve-a; a troca seguinte do pool passa", async () => {
+  it("uma operacao que falha destroi a ligacao do pool, e uma que acerta devolve-a", async () => {
     const a = await tenantComDono("pool-falha-a", NUMERO_ANTIGO);
     const b = await tenantComDono("pool-falha-b", NUMERO_DE_B);
-    // Um espião sobre o pool real: regista o que cada ligação recebe no
-    // `release`. O `ROLLBACK` do `comTenant` deixava a ligação limpa nos dois
-    // casos, pelo que só o argumento do `release` mede a destruição (achado 6 da
-    // revisão adversarial).
     const libertacoes: unknown[] = [];
     const espiao: PoolDeIdentidade = {
       async connect() {
@@ -321,29 +402,202 @@ describe("KAM-217 — a troca montada pelo processo, sobre o pool", () => {
         return ligacao;
       },
     };
-    // O contacto de A no contexto de B: `23503`, dentro de uma ligação do pool.
     await assert.rejects(
-      numaLigacao(espiao, (ligacao) => trocaNaBase(ligacao)({ tenantId: b.tenant, contactId: a.dono })),
+      numaLigacao(espiao, (ligacao) => trocaNaBase(ligacao)({ tenantId: b.tenant, contactId: a.dono, ownerChannelWa: true })),
       (erro: { code?: string }) => erro.code === "23503",
     );
     assert.deepEqual(await numaLigacao(espiao, async () => "ok"), "ok");
     assert.deepEqual(libertacoes, [true, false]);
-    const { troca, ultimoCodigo } = montarPeloPool();
-    await troca.pedir("troca:depois-da-falha", b.tenant, new Telefone(NUMERO_NOVO, [PEPPER]));
-    const desfecho = await troca.verificar("troca:depois-da-falha", b.tenant, ultimoCodigo());
-    assert.equal(desfecho.trocado, true);
-    assert.equal(await donoDoTenant(a.tenant), a.dono);
-    assert.notEqual(await donoDoTenant(b.tenant), b.dono);
+  });
+});
+
+describe("KAM-223 — a conversa do dono pelo painel, contra a base", () => {
+  /** Um tenant com dono e canal, e a conversa como o processo a monta. */
+  async function comCanal(rotulo: string, numero: string) {
+    const t = await tenantComDono(rotulo, numero);
+    const canal = await criarCanal(admin, t.tenant);
+    return { ...t, canal: canal.id };
+  }
+
+  function conversa(invocacoes: Record<string, unknown>[] = []) {
+    return new ConversaDoDono({
+      ...conversaPeloPool(poolDaApp),
+      invocar: async (invocacao) => {
+        invocacoes.push(invocacao as unknown as Record<string, unknown>);
+        return { estado: 200, desfecho: "executado" };
+      },
+    });
+  }
+
+  it("a conversa e a do dono no canal, abre-se sem janela, e a mensagem grava-se com o identificador na invocacao", async () => {
+    const t = await comCanal("conversa", NUMERO_ANTIGO);
+    const invocacoes: Record<string, unknown>[] = [];
+    const c = conversa(invocacoes);
+    const r = await c.enviar(t.tenant, "quanto vendi hoje?");
+    assert.equal(r.enviado, true);
+    const [linha] = await conversasDe(admin, t.tenant);
+    assert.equal(linha?.contact_id, t.dono);
+    assert.equal(linha?.channel_id, t.canal);
+    assert.equal(linha?.last_inbound_at, null);
+    assert.equal(linha?.window_expires_at, null);
+    assert.equal(invocacoes[0]?.["thread_id"], `${t.tenant}:${t.dono}`);
+    assert.equal(invocacoes[0]?.["conversation_id"], linha?.id);
+    const { rows } = await admin.query("SELECT canal, texto FROM platform.agent_messages WHERE message_id = $1", [
+      invocacoes[0]?.["message_id"],
+    ]);
+    assert.deepEqual(rows, [{ canal: "painel", texto: "quanto vendi hoje?" }]);
+    // Uma segunda mensagem e a mesma conversa.
+    await c.enviar(t.tenant, "e ontem?");
+    assert.equal((await conversasDe(admin, t.tenant)).length, 1);
   });
 
-  it("o pedido da sessão de A, verificado com o tenant de B, não troca nada em nenhum", async () => {
-    const a = await tenantComDono("pool-cruzado-a", NUMERO_ANTIGO);
-    const b = await tenantComDono("pool-cruzado-b", NUMERO_DE_B);
-    const { troca, ultimoCodigo } = montarPeloPool();
-    await troca.pedir("troca:sessao-de-a", a.tenant, new Telefone(NUMERO_NOVO, [PEPPER]));
-    const desfecho = await troca.verificar("troca:sessao-de-a", b.tenant, ultimoCodigo());
-    assert.deepEqual(desfecho, { trocado: false, veredicto: "sem_pedido" });
-    assert.equal(await donoDoTenant(a.tenant), a.dono);
-    assert.equal(await donoDoTenant(b.tenant), b.dono);
+  it("a leitura mostra as mensagens do dono e so as respostas entregues; o cursor de B da nao_encontrado", async () => {
+    const a = await comCanal("leitura-a", NUMERO_ANTIGO);
+    const b = await comCanal("leitura-b", NUMERO_DE_B);
+    const c = conversa();
+    const deA = await c.enviar(a.tenant, "ola de A");
+    const deB = await c.enviar(b.tenant, "ola de B");
+    assert.ok(deA.enviado && deB.enviado);
+    const [conversaDeA] = await conversasDe(admin, a.tenant);
+    // Duas respostas do AGR na conversa de A: uma entregue pelo consumidor `painel`, outra nao.
+    for (const [chave, entregue] of [["painel.x:0", true], ["painel.x:1", false]] as const) {
+      await admin.query(
+        // O `entregue_at` e o `now()` da base, como o do consumidor: um relogio
+        // do processo de ensaio desfasado do da base mudava a ordem.
+        "INSERT INTO platform.agent_replies (tenant_id, chave, contact_id, conversation_id, canal, texto, entregue_at) " +
+          "VALUES ($1, $2, $3, $4, 'painel', $5, CASE WHEN $6 THEN now() END)",
+        [a.tenant, chave, a.dono, conversaDeA?.id, `resposta ${chave}`, entregue],
+      );
+    }
+    const lidas = await c.ler(a.tenant, null);
+    assert.ok(Array.isArray(lidas));
+    assert.deepEqual(
+      (lidas as { autor: string; texto: string }[]).map((e) => `${e.autor}:${e.texto}`),
+      ["dono:ola de A", "assistente:resposta painel.x:0"],
+    );
+    assert.equal(await c.ler(a.tenant, deB.enviado ? deB.messageId : ""), "nao_encontrado");
+    // Com a margem do cursor, a leitura depois da mensagem de A repete-a e traz a
+    // resposta entregue; o painel deduplica pelo `id`.
+    assert.deepEqual(await c.ler(a.tenant, deA.enviado ? deA.messageId : ""), lidas);
+  });
+
+  it("sem dono, ou sem canal, nao ha conversa nem mensagem", async () => {
+    const semDono = await criarTenant(admin, "sem-dono");
+    await criarCanal(admin, semDono);
+    assert.deepEqual(await conversa().enviar(semDono, "ola"), { enviado: false, motivo: "sem_dono" });
+    const { tenant: semCanal } = await tenantComDono("sem-canal", NUMERO_ANTIGO);
+    assert.deepEqual(await conversa().enviar(semCanal, "ola"), { enviado: false, motivo: "sem_canal" });
+    const { rows } = await admin.query("SELECT count(*)::int AS n FROM platform.agent_messages WHERE tenant_id = ANY($1)", [
+      [semDono, semCanal],
+    ]);
+    assert.equal(rows[0].n, 0);
+  });
+
+  it("uma mensagem na conversa de B com o tenant de A no contexto recusa", async () => {
+    const a = await comCanal("fk-a", NUMERO_ANTIGO);
+    const b = await comCanal("fk-b", NUMERO_DE_B);
+    await conversa().enviar(b.tenant, "abre a conversa de B");
+    const [conversaDeB] = await conversasDe(admin, b.tenant);
+    await assert.rejects(
+      conversaPeloPool(poolDaApp).gravar({
+        tenantId: a.tenant,
+        contactId: b.dono,
+        conversationId: conversaDeB?.id ?? "",
+        texto: "x",
+      }),
+      (erro: { code?: string }) => erro.code === "23503",
+    );
+  });
+
+  it("o kamba_identity nao le a fonte persistida", async () => {
+    const t = await comCanal("identidade-mensagens", NUMERO_ANTIGO);
+    await assert.rejects(
+      comTenant(identidadeBd, t.tenant, (bd) => bd.query("SELECT 1 FROM platform.agent_messages")),
+      (erro: { code?: string }) => erro.code === "42501",
+    );
+  });
+});
+
+/**
+ * O canal do dono guardado (KAM-216, decisão do fundador de 2026-11-19): a troca
+ * escreve o `tenants.owner_channel_wa` pela `definir_dono`, na transacção que
+ * move o papel. Os dois cenários do critério 3 — telefone igual e diferente do
+ * número da loja — e o número ausente, pelo caminho real. A leitura do painel é a
+ * do COM, como `kamba_app`, e mede-se em `db/tests/test_canal_do_painel.py`.
+ */
+describe("KAM-216 — o canal do dono guardado, contra a base", () => {
+  async function guardado(tenant: string): Promise<boolean | null> {
+    const { rows } = await admin.query<{ v: boolean | null }>(
+      "SELECT owner_channel_wa AS v FROM platform.tenants WHERE id = $1",
+      [tenant],
+    );
+    return rows[0]?.v ?? null;
+  }
+
+  /**
+   * Revisto no KAM-223: a troca faz-se já com o código do número novo **e** o
+   * do número do dono actual (a regra C); o canal vai com o papel, no `concluir`.
+   */
+  async function trocar(tenant: string, numero: string, actual: string, loja: string | null): Promise<void> {
+    const m = montar();
+    const pedido = `troca:canal-${numero.replace(/\D/g, "")}`;
+    const novo = new Telefone(numero, [PEPPER]);
+    const antigo = new Telefone(actual, [PEPPER]);
+    await m.troca.pedir(pedido, tenant, novo, loja);
+    assert.equal((await m.troca.verificar(pedido, tenant, novo, m.codigo())).estado, "pendente");
+    assert.equal((await m.troca.pedir(pedido, tenant, antigo, loja, "antigo")).enviado, true);
+    assert.equal((await m.troca.verificar(pedido, tenant, antigo, m.codigo(), "antigo")).estado, "feita");
+  }
+
+  it("número ausente: o provisionamento deixa a coluna nula, e o painel mostra o painel", async () => {
+    const { tenant } = await tenantComDono("canal-nulo", NUMERO_ANTIGO);
+    assert.equal(await guardado(tenant), null);
+    assert.equal(canalNoPainel(await guardado(tenant), "ativo").canal, "painel");
+  });
+
+  it("telefone diferente do número da loja: a troca guarda o WhatsApp, e o painel lê-o", async () => {
+    const { tenant } = await tenantComDono("canal-diferente", NUMERO_ANTIGO);
+    await trocar(tenant, NUMERO_NOVO, NUMERO_ANTIGO, LOJA_ANTIGA);
+    assert.equal(await guardado(tenant), true);
+    assert.equal(canalNoPainel(await guardado(tenant), "ativo").canal, "whatsapp");
+  });
+
+  it("telefone igual ao número da loja: o dono que volta ao número do registo tem o painel", async () => {
+    const { tenant } = await tenantComDono("canal-igual", NUMERO_ANTIGO);
+    await trocar(tenant, NUMERO_NOVO, NUMERO_ANTIGO, LOJA_ANTIGA);
+    await trocar(tenant, NUMERO_ANTIGO, NUMERO_NOVO, LOJA_ANTIGA);
+    assert.equal(await guardado(tenant), false);
+    assert.equal(canalNoPainel(await guardado(tenant), "ativo").canal, "painel");
+  });
+
+  it("uma reentrega do provisionamento depois da troca não apaga o canal", async () => {
+    const { tenant } = await tenantComDono("canal-reentrega", NUMERO_ANTIGO);
+    await trocar(tenant, NUMERO_NOVO, NUMERO_ANTIGO, LOJA_ANTIGA);
+    const novo = await donoDoTenant(tenant);
+    assert.ok(novo);
+    // A reentrega com o dono de agora é idempotente; com o antigo, recusa.
+    await definirDonoNaBase(identidadeBd)({ tenantId: tenant, contactId: novo, origem: "provisionamento" });
+    assert.equal(await guardado(tenant), true);
+  });
+
+  it("isolamento: a troca de B não escreve o canal de A", async () => {
+    const a = await tenantComDono("canal-iso-a", NUMERO_ANTIGO);
+    const b = await tenantComDono("canal-iso-b", NUMERO_DE_B);
+    await trocar(b.tenant, NUMERO_NOVO, NUMERO_DE_B, LOJA_DE_B);
+    assert.equal(await guardado(a.tenant), null);
+    assert.equal(await guardado(b.tenant), true);
+  });
+
+  it("ninguém escreve a coluna por fora da porta: o kamba_identity e o kamba_app recebem 42501", async () => {
+    const { tenant } = await tenantComDono("canal-escrita", NUMERO_ANTIGO);
+    for (const cliente of [identidadeBd, app]) {
+      await assert.rejects(
+        comTenant(cliente, tenant, (bd) =>
+          bd.query("UPDATE platform.tenants SET owner_channel_wa = true WHERE id = $1::uuid", [tenant]),
+        ),
+        (erro: { code?: string }) => erro.code === "42501",
+      );
+    }
+    assert.equal(await guardado(tenant), null);
   });
 });

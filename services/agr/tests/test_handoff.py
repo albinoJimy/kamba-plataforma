@@ -206,7 +206,7 @@ class SaidaFalsa:
         self.falhar_na = falhar_na
         self.chamadas = 0
 
-    def enfileirar(self, estado, texto, *, chave, botoes=()) -> None:
+    async def enfileirar(self, estado, texto, *, chave, botoes=()) -> None:
         self.chamadas += 1
         if self.falhar_na is not None and self.chamadas == self.falhar_na:
             # **A falha injectada «entre o `openHandoff` e o enfileiramento»**

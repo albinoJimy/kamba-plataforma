@@ -39,23 +39,55 @@ WHERE tenant_id = $1 AND sujeito_tipo = $2 AND sujeito_ref = $3
 ORDER BY criado_at, id`;
 
 /**
- * Os produtos publicados sem decisão para a versão `$1`, até `$2`.
+ * Os produtos publicados sem decisão para a versão `$1` **e para o conteúdo
+ * publicado**, até `$2`.
  *
  * A categoria declarada do tenant é a `sujeito_ref` da sua decisão de
  * categoria mais recente; sem ela, vai vazia e o produto cai em
  * `condicional` — um tenant sem categoria avaliada não tem nada `permitida`.
+ *
+ * ## A decisão conta só se for sobre este conteúdo (KAM-119)
+ *
+ * Um produto publicado salta-se só se houver uma decisão `produto` do mesmo
+ * `sku` e da mesma versão **cujo `conteudo_sha256` é o da entrada que esta
+ * re-análise lhe daria** — `{categoria_declarada, textos: [nome]}`, a do
+ * `CatalogoSql.porReanalisar`. Até ao KAM-119 bastava o `sku` e a versão, e
+ * uma decisão gravada com outro texto (pela rota `/internal/screen` do COM,
+ * antes de o dono mudar o nome, ou com outra categoria) fazia a re-análise
+ * saltar o produto, e o `screening.violation_detected` nunca saía (achado 1
+ * da revisão adversarial do KAM-222).
+ *
+ * O resumo calcula-se aqui, em SQL, e tem de ser **octeto a octeto** o do
+ * `conteudoSha256` do `motor.ts`: `sha256` do UTF-8 de
+ * `JSON.stringify([categoria, [nome]])`. O `to_json(text)::text` do
+ * PostgreSQL escreve a cadeia como o `JSON.stringify`: escapa `"` e `\`, usa
+ * `\b \f \n \r \t` e `\u00xx` em minúsculas para os outros de controlo, e deixa
+ * tudo o resto cru — acentos, astrais, U+2028, `<` e `/`. O separador é a
+ * vírgula sem espaço, e por isso o vector monta-se à mão e não com o
+ * `json_build_array`, que escreve `", "`. O `NUL` e os substitutos soltos não
+ * chegam: uma coluna `text` não os guarda. A igualdade prova-se contra a base
+ * no `db/tests/test_screening_schema.py`, com os vectores fixados pelo
+ * `packages/core-ts/tests/screening.test.ts`.
+ *
+ * Mudou a categoria do tenant, ou o nome de um publicado? O resumo muda, e o
+ * produto volta a ser analisado nesta versão — que é o que se quer: a decisão
+ * antiga é sobre um conteúdo que já não é o publicado.
  */
 export const SQL_POR_REANALISAR = `
-SELECT o.tenant_id::text AS tenant_id, o.sku, o.nome,
-  coalesce((SELECT c.sujeito_ref FROM platform.screening_decision c
-            WHERE c.tenant_id = o.tenant_id AND c.sujeito_tipo = 'categoria'
-            ORDER BY c.criado_at DESC, c.id DESC LIMIT 1), '') AS categoria_declarada
-FROM platform.offer_terms o
-WHERE o.estado = 'publicado' AND o.deleted_at IS NULL
-  AND NOT EXISTS (SELECT 1 FROM platform.screening_decision d
-                  WHERE d.tenant_id = o.tenant_id AND d.sujeito_tipo = 'produto'
-                    AND d.sujeito_ref = o.sku AND d.versao_politica = $1)
-ORDER BY o.tenant_id, o.sku LIMIT $2`;
+SELECT p.tenant_id::text AS tenant_id, p.sku, p.nome, p.categoria_declarada
+FROM (
+  SELECT o.tenant_id, o.sku, o.nome,
+    coalesce((SELECT c.sujeito_ref FROM platform.screening_decision c
+              WHERE c.tenant_id = o.tenant_id AND c.sujeito_tipo = 'categoria'
+              ORDER BY c.criado_at DESC, c.id DESC LIMIT 1), '') AS categoria_declarada
+  FROM platform.offer_terms o
+  WHERE o.estado = 'publicado' AND o.deleted_at IS NULL
+) p
+WHERE NOT EXISTS (SELECT 1 FROM platform.screening_decision d
+                  WHERE d.tenant_id = p.tenant_id AND d.sujeito_tipo = 'produto'
+                    AND d.sujeito_ref = p.sku AND d.versao_politica = $1
+                    AND d.conteudo_sha256 = sha256(convert_to('[' || to_json(p.categoria_declarada)::text || ',[' || to_json(p.nome)::text || ']]', 'UTF8')))
+ORDER BY p.tenant_id, p.sku LIMIT $2`;
 
 export class EscritorSql implements EscritorDeDecisoes {
   readonly #cliente: ClienteSql;

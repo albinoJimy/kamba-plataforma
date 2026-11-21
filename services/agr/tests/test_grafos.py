@@ -196,6 +196,7 @@ class TestLigacaoDoArranque(unittest.TestCase):
                 "Decisor",
                 "compilar",
                 "_fechar_as_tomadas",
+                "rotas",
             )
         }
 
@@ -421,6 +422,44 @@ class TestLigacaoDoArranque(unittest.TestCase):
         self.assertIs(porta._abrir, arranque.ligar_para_saida)
         self.assertIsNot(porta._abrir, arranque.ligar_para_accoes)
 
+    def test_o_canal_da_resposta_e_o_do_turno(self) -> None:
+        """KAM-223: a `SaidaPorEvento` do processo le o canal do `CANAL_DO_TURNO`.
+        Com o `canal_por_omissao` no lugar, o turno do painel respondia pelo
+        WhatsApp."""
+        from kamba_agr.saida import canal_do_turno
+
+        portas = self.capturado["compilar"][0][1]
+        self.assertIs(portas["saida"]._canal_de, canal_do_turno)
+
+    def test_o_executor_le_a_mensagem_pela_ligacao_das_mensagens(self) -> None:
+        """KAM-223: sem a porta, um turno com `message_id` levanta; com a ligacao
+        errada, le com outro `application_name` (ou outro papel)."""
+        from kamba_agr.mensagens import LeitorDeMensagens
+
+        ler = self.capturado["ExecutorDeTurnos"][1]["ler_mensagem"]
+        self.assertIsInstance(ler.__self__, LeitorDeMensagens)
+        self.assertIs(ler.__self__._abrir, arranque.ligar_para_mensagens)
+
+    def test_a_credencial_do_painel_e_a_propria_e_nao_a_do_shim(self) -> None:
+        """KAM-223: a `credencial_do_painel` le o `agr_painel_token`, lido do
+        cofre a cada pedido. Ligada ao `agr_internal_token`, devolvia a
+        credencial do *shim*; sem a referencia no cofre, levanta (e a rota
+        fecha com 401)."""
+        argumentos = self.capturado["rotas"][1]
+        cofre = {
+            "KAMBA_SECRET_AGR_INTERNAL_TOKEN": "credencial do shim nas baterias",
+            "KAMBA_SECRET_AGR_PAINEL_TOKEN": "credencial do painel nas baterias",
+        }
+        with mock.patch.dict(os.environ, cofre):
+            self.assertEqual(
+                argumentos["credencial_do_painel"](), "credencial do painel nas baterias"
+            )
+            self.assertEqual(argumentos["credencial"](), "credencial do shim nas baterias")
+        with mock.patch.dict(os.environ, {}):
+            os.environ.pop("KAMBA_SECRET_AGR_PAINEL_TOKEN", None)
+            with self.assertRaises(Exception):
+                argumentos["credencial_do_painel"]()
+
     def test_o_detector_de_degradacao_le_a_admissao_do_processo(self) -> None:
         """Sem a admissao, os dois sinais de carga do KAM-037 nunca disparam."""
         portas = self.capturado["compilar"][0][1]
@@ -465,14 +504,16 @@ class TestToolsNoArranque(unittest.TestCase):
         # Quatro do COM, a `get_store_info` e, desde o KAM-061, o
         # `search_catalog` do IDX. O catalogo tem quinze desde o KAM-118: as
         # quatro do dono entram declaradas (credor KAM-119). Desde o KAM-220, as
-        # duas do orcamento ligam-se sempre, como a `get_store_info`: oito.
-        self.assertEqual(self._linha(KAMBA_COM_URL="http://com.interno:3000"), "ligadas_8_de_17")
+        # duas do orcamento ligam-se sempre, como a `get_store_info`: oito. E
+        # desde o KAM-119 as quatro do catalogo do dono tambem: doze.
+        self.assertEqual(self._linha(KAMBA_COM_URL="http://com.interno:3000"), "ligadas_12_de_17")
 
     def test_sem_o_com_a_da_plataforma_e_a_do_indice(self) -> None:
         # O `search_catalog` liga-se sem `KAMBA_COM_URL`: o indice vive na base
         # da plataforma, e nao depende do COM (KAM-061). E as duas do orcamento
-        # escrevem na mesma base (KAM-220).
-        self.assertEqual(self._linha(), "ligadas_4_de_17")
+        # escrevem na mesma base (KAM-220). As quatro do catalogo (KAM-119)
+        # ligam-se sem COM, com o screening e o Registo por ligar: oito.
+        self.assertEqual(self._linha(), "ligadas_8_de_17")
 
 
 class TestPesquisaSemExecutor(unittest.TestCase):
@@ -811,7 +852,7 @@ class TestSaidaPorLigar(unittest.TestCase):
         saida = grafos_mod.SaidaPorLigar(aviso=avisos.append)
         for chave in ("t:0", "t:1"):
             with self.assertRaises(SaidaPorLigarError):
-                saida.enfileirar({}, "ola", chave=chave)
+                asyncio.run(saida.enfileirar({}, "ola", chave=chave))
         self.assertEqual(avisos, ["saida_por_ligar", "saida_por_ligar"])
 
     def test_um_turno_sem_outbound_e_503_e_a_reentrega_nao_e_repetida(self) -> None:

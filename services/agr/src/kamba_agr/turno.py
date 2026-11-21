@@ -86,9 +86,15 @@ from dataclasses import dataclass
 from typing import Any, Protocol
 
 from .admissao import Admissao, Pendente
-from .saida import INICIO_DO_TURNO
+from .saida import CANAL_DO_TURNO, INICIO_DO_TURNO
 from .contexto import MODO_DO_BOT, InvocacaoDoAgente
 from .estado import estado_inicial
+from .guardas.entrada import mensagem_do_cliente
+from .mensagens import (
+    LeituraDeMensagensPorLigarError,
+    MensagemLida,
+    MensagemNaoEncontradaError,
+)
 from .metricas import METRICA_DURACAO, METRICA_TURNOS, METRICAS
 
 
@@ -189,6 +195,12 @@ def sem_grafos(_invocacao: InvocacaoDoAgente) -> Grafo:
     raise GrafoNaoRegistadoError("grafo_nao_registado")
 
 
+#: Quanto o turno espera pela libertacao das propostas da janela (KAM-221,
+#: *proposta*). E o tecto de uma ida a base e de uma chamada ao Outbound; o
+#: turno do cliente nao fica preso a mais do que isto.
+PRAZO_DA_LIBERTACAO_S: float = 10.0
+
+
 @dataclass(frozen=True, slots=True)
 class DesfechoDoTurno:
     """O que aconteceu. O `desfecho` e um dos `DESFECHOS` de `metricas.py`."""
@@ -210,6 +222,9 @@ class ExecutorDeTurnos:
         admissao: Admissao | None = None,
         relogio: Callable[[], float] = time.monotonic,
         substituir_rascunhos: Callable[[str], Awaitable[int]] | None = None,
+        ler_mensagem: Callable[[InvocacaoDoAgente], Awaitable[MensagemLida | None]]
+        | None = None,
+        ao_cliente_escrever: Callable[[InvocacaoDoAgente], Awaitable[Any]] | None = None,
     ) -> None:
         self._trancas = trancas
         self._ler_palavra = ler_palavra
@@ -223,6 +238,16 @@ class ExecutorDeTurnos:
         # substituir. (E diferente do `deps.rascunho`, que com a politica activa
         # e uma configuracao errada e levanta.)
         self._substituir_rascunhos = substituir_rascunhos
+        # KAM-223. A leitura da mensagem de texto pelo `message_id`
+        # (`mensagens.LeitorDeMensagens`). Por omissao `None`, e isso **nao**
+        # abre nada: um lote sem `message_id` nao a chama, e um com `message_id`
+        # sem porta levanta `LeituraDeMensagensPorLigarError` — o turno nao corre
+        # sem o texto que a invocacao diz ter.
+        self._ler_mensagem = ler_mensagem
+        # KAM-221, criterio 2: a mensagem de um cliente abre-lhe a janela, e as
+        # propostas de orcamento dele em `aguarda_janela` saem. `None` e um AGR
+        # sem orcamento ligado, que nao tem propostas a espera.
+        self._ao_cliente_escrever = ao_cliente_escrever
         # A chave e `(thread_id, conversation_id)` e nao o `thread_id`: ver a
         # *docstring* do modulo. A da tranca continua a ser o `thread_id`.
         self._pendentes: dict[tuple[str, str], list[Pendente]] = {}
@@ -241,6 +266,74 @@ class ExecutorDeTurnos:
             return
         try:
             await self._substituir_rascunhos(thread_id)
+        except asyncio.CancelledError:
+            raise
+        except BaseException:  # noqa: BLE001 — ver docstring
+            pass
+
+    async def _mensagens_do_lote(
+        self, lote: list[Pendente]
+    ) -> tuple[list[Pendente], list[dict[str, str]], str | None]:
+        """As mensagens do lote, redigidas, e o que fica do lote depois de as ler.
+
+        Devolve `(aceites, janela, canal)`: os pendentes que entram no grafo, as
+        mensagens para a janela `messages` **pela unica via**
+        (`guardas.mensagem_do_cliente`, com o `message_id` como `id`), e o canal
+        da **ultima** mensagem lida — `None` se nenhuma se leu.
+
+        **Uma invocacao cuja mensagem nao se encontra nao entra no grafo, e so
+        ela.** O seu pedido recebe `MensagemNaoEncontradaError` (400
+        `invocacao_invalida`) e sai do lote; as outras do mesmo lote correm. Uma
+        recusa do lote inteiro levava com ela as mensagens legitimas que
+        coalesceram ao lado, e o *shim* descartava-as com o 400. Uma invocacao
+        sem `message_id` (o WhatsApp de hoje) entra como ate aqui, sem texto.
+        """
+        aceites: list[Pendente] = []
+        janela: list[dict[str, str]] = []
+        canal: str | None = None
+        for pendente in lote:
+            invocacao = pendente.invocacao
+            if invocacao.message_id is None:
+                aceites.append(pendente)
+                continue
+            if self._ler_mensagem is None:
+                raise LeituraDeMensagensPorLigarError("mensagens_por_ligar")
+            lida = await self._ler_mensagem(invocacao)
+            if lida is None:
+                if not pendente.espera.done():
+                    pendente.espera.set_exception(MensagemNaoEncontradaError())
+                continue
+            aceites.append(pendente)
+            janela.append(mensagem_do_cliente(lida.texto, invocacao.message_id))
+            canal = lida.canal
+        return aceites, janela, canal
+
+    async def _cliente_escreveu(self, invocacao: InvocacaoDoAgente) -> None:
+        """O criterio 2 do KAM-221: a janela do cliente abriu.
+
+        Corre **dentro da tranca da conversa e antes do grafo**, e as duas
+        coisas importam. A tranca serializa duas mensagens seguidas do mesmo
+        cliente, e a segunda ja encontra a proposta `enviado`; antes do grafo,
+        porque o cliente respondeu ao «o seu orcamento esta pronto, responda para
+        ver», e o valor tem de chegar antes da resposta do bot.
+
+        **Uma falha aqui nao impede o turno**, pela razao do
+        `_substituir_pendentes`: a proposta fica `aguarda_janela` e a mensagem
+        seguinte do cliente tenta outra vez, com a mesma chave; perder o turno
+        por isso era perder a mensagem do cliente.
+
+        **E tem prazo** (`PRAZO_DA_LIBERTACAO_S`, achado 5 da revisao): uma
+        base ou um Outbound pendurados prendiam o turno do cliente dentro da
+        tranca da conversa. Passado o prazo o turno segue; o trabalho que ja
+        estava a correr acaba noutro fio, e o que nao acabar fica para a
+        mensagem seguinte.
+        """
+        if self._ao_cliente_escrever is None:
+            return
+        try:
+            await asyncio.wait_for(
+                self._ao_cliente_escrever(invocacao), PRAZO_DA_LIBERTACAO_S
+            )
         except asyncio.CancelledError:
             raise
         except BaseException:  # noqa: BLE001 — ver docstring
@@ -355,6 +448,10 @@ class ExecutorDeTurnos:
         ):
             raise LoteMisturadoError("lote_atravessou_conversas")
         marca_do_inicio = None
+        marca_do_canal = None
+        # A invocacao de que o turno parte. E a `primeira`, salvo se a mensagem
+        # dela nao se encontrar (KAM-223): ai e a primeira das que ficam.
+        base = primeira
         try:
             async with self._trancas.tomar(thread_id):
                 # KAM-224. O inicio do turno, para o `PreSendGuard` do KAM-018:
@@ -364,7 +461,26 @@ class ExecutorDeTurnos:
                 marca_do_inicio = INICIO_DO_TURNO.set(
                     datetime.datetime.now(datetime.UTC)
                 )
-                palavra = await self._ler_palavra(primeira)
+                # KAM-223. **As mensagens leem-se antes de se decidir pela
+                # palavra**, e nao so no ramo do grafo: uma invocacao com um
+                # `message_id` que nao se le (alheio, ou de um contacto que nao e
+                # o dono) e recusada com `invocacao_invalida` em **todos** os
+                # ramos. Lida so no ramo do grafo, numa conversa em `dono` ou
+                # `humano` ia ao HND com 200 — o 400 dependia do modo da conversa.
+                # O HND recebe so as invocacoes que ficam.
+                aceites, janela, canal = await self._mensagens_do_lote(lote)
+                if not aceites:
+                    # Todas as mensagens do lote foram recusadas: os pedidos ja
+                    # tem a sua 400, e o turno nao corre em ramo nenhum.
+                    raise MensagemNaoEncontradaError()
+                lote = aceites
+                invocacoes = [pendente.invocacao for pendente in aceites]
+                base = invocacoes[0]
+                if canal is not None:
+                    # O canal da resposta: os nos herdam-no, e o
+                    # `saida.canal_do_turno` le-o (`painel` ou `whatsapp`).
+                    marca_do_canal = CANAL_DO_TURNO.set(canal)
+                palavra = await self._ler_palavra(base)
                 if palavra is None:
                     # Zero linhas **nao** e «esta em `bot`». A conversa nao
                     # existe, foi apagada, ou o contexto de RLS e de outro
@@ -384,14 +500,29 @@ class ExecutorDeTurnos:
                     # janela pelo tempo de uma chamada ao HND.
                     await self._substituir_pendentes(thread_id)
                     await self._reencaminhar(invocacoes)
+                    # KAM-221: **depois** do HND, e nao antes do `substituir`,
+                    # para nao alargar a janela do KAM-114. Um cliente que escreve
+                    # a um humano tambem abriu a janela.
+                    await self._cliente_escreveu(base)
                     desfecho = "entregue_ao_hnd"
                 else:
-                    estado = estado_inicial(primeira)
+                    # KAM-221: antes do grafo, para o valor chegar antes da
+                    # resposta do bot.
+                    await self._cliente_escreveu(base)
+                    estado = estado_inicial(base)
+                    # KAM-223. **A janela enche-se aqui, e redigida, antes do
+                    # `ainvoke`**: o LangGraph grava a entrada no *checkpoint*
+                    # antes do primeiro no, e um PAN cru que entrasse aqui ficava
+                    # la mesmo com o `guard_in` a redigi-lo depois (cabecalho de
+                    # `guardas/entrada.py`). O texto vem da base pelo
+                    # `message_id` (lido acima), e nunca do contrato.
+                    if janela:
+                        estado["messages"] = janela
                     try:
                         # A porta do processo e `async` (KAM-186): le o
                         # entitlement, o contacto e o *checkpoint* antes de
                         # devolver o grafo. A sincrona continua a servir.
-                        grafo = self._grafos(primeira)
+                        grafo = self._grafos(base)
                         if inspect.isawaitable(grafo):
                             grafo = await grafo
                     except VerticalRecusadaError:
@@ -410,13 +541,15 @@ class ExecutorDeTurnos:
                 raise
             return
         finally:
+            if marca_do_canal is not None:
+                CANAL_DO_TURNO.reset(marca_do_canal)
             if marca_do_inicio is not None:
                 INICIO_DO_TURNO.reset(marca_do_inicio)
 
         METRICAS.contar(METRICA_TURNOS, desfecho)
         METRICAS.medir(METRICA_DURACAO, (self._agora() - comecou) * 1_000)
         resultado = DesfechoDoTurno(
-            desfecho=desfecho, turn_id=primeira.turn_id, coalescidos=len(lote) - 1
+            desfecho=desfecho, turn_id=base.turn_id, coalescidos=len(lote) - 1
         )
         for pendente in lote:
             if not pendente.espera.done():

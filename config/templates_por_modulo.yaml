@@ -5,12 +5,19 @@
 # `h12-export consolidar` que le este ficheiro e escreve a rubrica `mensagem`
 # do `platform.module_cost_ledger`.
 #
-# ESTA VAZIO, E DE PROPOSITO. Nenhum template dos modulos de entrada existe
-# ainda: os avisos do catalogo (KAM-119), a entrega das artes (KAM-122) e a
-# proposta do orcamento expresso (KAM-123) criam-nos. Um nome escrito aqui por
-# antecipacao seria inventado, e uma mensagem de outro template atribuida a um
-# modulo era custo no sitio errado. Quem criar um template de um modulo
-# acrescenta a linha, na forma:
+# Os dois do orcamento expresso entraram com o KAM-221: o `orcamento_pronto` (a
+# proposta com a janela do cliente fechada) e o `orcamento_em_espera` (a
+# mensagem neutra das 24 h). Os dois sao *proposta*: o nome e de codigo
+# (`kamba_agr.tls.orcamento`), e a aprovacao pela Meta e a categoria sao NAO
+# VERIFICADAS. Ate a Meta os aprovar nao ha linha deles na `outbound_messages`,
+# e a rubrica fica a zero. A consolidacao cobra a categoria que a Meta devolver
+# no `pricing`; no pior caso e `marketing`, a 0,0225 USD.
+#
+# Os outros modulos continuam por mapear, e de proposito: os avisos do
+# catalogo (KAM-119) e a entrega das artes (KAM-122) criam os seus. Um nome
+# escrito aqui por antecipacao seria inventado, e uma mensagem de outro
+# template atribuida a um modulo era custo no sitio errado. Quem criar um
+# template de um modulo acrescenta a linha, na forma:
 #
 #   templates:
 #     - template: <template_name da outbound_messages>
@@ -20,4 +27,8 @@
 # `v_tenant_cost_daily` (KAM-081), por tenant, sem modulo.
 
 version: 1
-templates: []
+templates:
+  - template: orcamento_pronto
+    modulo: orcamento
+  - template: orcamento_em_espera
+    modulo: orcamento

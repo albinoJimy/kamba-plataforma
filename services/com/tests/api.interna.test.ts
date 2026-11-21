@@ -36,6 +36,7 @@ import {
   CABECALHO_INTERNO,
   CABECALHO_TENANT,
   CORPO_MAXIMO,
+  CORPO_MAXIMO_POR_ROTA,
   ESTADO_POR_ERRO,
   ROTAS,
   type DependenciasDaApi,
@@ -44,7 +45,7 @@ import { TIPO_DE_CONTEUDO } from "../src/metricas.ts";
 import { METRICAS_DA_GUARDA, comTenant } from "@kamba/core-ts/tenant_guard";
 import type { OperacoesDoCom } from "../src/adapters/medusa/index.ts";
 import type { AlteracaoDeOferta } from "../src/produtos/index.ts";
-import type { PedidoDeScreen } from "../src/screening/index.ts";
+import type { PedidoDePublicacao, PedidoDeScreen } from "../src/screening/index.ts";
 import {
   conflito,
   erro,
@@ -52,6 +53,7 @@ import {
   ok,
   type CommerceRegistry,
   type Ctx,
+  type ProductDraft,
 } from "../src/port/index.ts";
 
 const TENANT = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
@@ -75,6 +77,10 @@ const tenantsDasOfertas: string[] = [];
 const leiturasDoPainel: { metodo: string; tenantId: string; sku?: string }[] = [];
 /** O `ctx` e o pedido de cada `screen` (KAM-222). */
 const pedidosDeScreen: { tenantId: string; pedido: PedidoDeScreen }[] = [];
+/** O `ctx` e o rascunho de cada `upsertProductDraft` (KAM-119). */
+const rascunhosDeProduto: { tenantId: string; d: ProductDraft }[] = [];
+/** O `ctx` e o pedido de cada `publicarProduto` (KAM-119). */
+const publicacoes: { tenantId: string; pedido: PedidoDePublicacao }[] = [];
 /** Os filtros que chegaram ao `listOrders`. */
 const filtrosDasEncomendas: unknown[] = [];
 
@@ -134,9 +140,10 @@ function operacoesDeEnsaio(): { operacoes: OperacoesDoCom; chamadas: Chamadas } 
       contar("createOrder");
       return naoImplementado();
     },
-    async upsertProductDraft() {
+    async upsertProductDraft(ctx: Ctx, d: ProductDraft) {
       contar("upsertProductDraft");
-      return erro("NOT_FOUND");
+      rascunhosDeProduto.push({ tenantId: ctx.tenantId, d });
+      return ok({ sku: d.sku, registoId: null });
     },
     async publishProduct() {
       contar("publishProduct");
@@ -222,6 +229,7 @@ function operacoesDeEnsaio(): { operacoes: OperacoesDoCom; chamadas: Chamadas } 
         tectoPedidoMinor: 5_000_000n,
         currency: "AOA",
         avisos: ["conduta_em_analise"],
+        ownerChannelWa: null,
       });
     },
     async alterarOferta(_ctx: Ctx, a) {
@@ -246,6 +254,11 @@ function operacoesDeEnsaio(): { operacoes: OperacoesDoCom; chamadas: Chamadas } 
       contar("screen");
       pedidosDeScreen.push({ tenantId: ctx.tenantId, pedido });
       return ok({ decisao: "permitida" as const, regras: ["moda"], versao_politica: "2026.11.0", confianca: 0.95 });
+    },
+    async publicarProduto(ctx: Ctx, pedido: PedidoDePublicacao) {
+      contar("publicarProduto");
+      publicacoes.push({ tenantId: ctx.tenantId, pedido });
+      return ok(undefined);
     },
   };
   return { operacoes, chamadas: { contagem } };
@@ -286,8 +299,8 @@ const BONS = {
 
 // ------------------------------------------------------------------- a credencial
 
-test("criterio 2: as doze rotas sem credencial dao 401, e nenhuma operacao corre", async () => {
-  assert.equal(ROTAS.length, 12);
+test("criterio 2: as catorze rotas sem credencial dao 401, e nenhuma operacao corre", async () => {
+  assert.equal(ROTAS.length, 14);
   const { aplicacao, chamadas } = app();
   for (const rota of ROTAS) {
     const r = await aplicacao.fetch(
@@ -590,7 +603,7 @@ test("um corpo com caracteres multi-octeto conta em octetos e nao em UTF-16", as
 });
 
 test("um GET numa rota /internal/* nao e servido, e nao devolve 200", async () => {
-  // As doze rotas são `POST`. Um `GET` que respondesse era uma superfície que
+  // As catorze rotas são `POST`. Um `GET` que respondesse era uma superfície que
   // ninguém desenhou — e um `GET` é o que um *crawler* tenta primeiro.
   const { aplicacao } = app();
   for (const rota of ROTAS) {
@@ -830,6 +843,8 @@ test("KAM-222: o screen recebe o tenant do cabecalho e o pedido do corpo", async
         sujeito_tipo: "condicoes",
         sujeito_ref: ORDER,
         textos: ["entrega combinada consigo"],
+        finalidade: "classificacao_de_condicoes",
+        prazo_ms: 6_000,
         // Um tenant no corpo não desloca o `ctx`.
         tenant_id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
       },
@@ -850,6 +865,8 @@ test("KAM-222: o screen recebe o tenant do cabecalho e o pedido do corpo", async
         sujeitoRef: ORDER,
         categoriaDeclarada: null,
         textos: ["entrega combinada consigo"],
+        finalidade: "classificacao_de_condicoes",
+        prazoMs: 6_000,
       },
     },
   ]);
@@ -858,7 +875,13 @@ test("KAM-222: o screen recebe o tenant do cabecalho e o pedido do corpo", async
 test("KAM-222: um corpo de screen que nao valida da 400, e o screen nao corre", async () => {
   const { aplicacao, chamadas } = app();
   // O sujeito aceite decide-o a operação (`screening.test.ts`); aqui, só a forma.
-  const bom = { sujeito_tipo: "condicoes", sujeito_ref: ORDER, textos: ["x"] };
+  const bom = {
+    sujeito_tipo: "condicoes",
+    sujeito_ref: ORDER,
+    textos: ["x"],
+    finalidade: "classificacao_de_condicoes",
+    prazo_ms: 6_000,
+  };
   const maus: Record<string, unknown>[] = [
     { ...bom, sujeito_tipo: "" },
     { ...bom, sujeito_tipo: 7 },
@@ -870,6 +893,16 @@ test("KAM-222: um corpo de screen que nao valida da 400, e o screen nao corre", 
     { ...bom, textos: "x" },
     { ...bom, textos: ["x", 1] },
     { ...bom, textos: Array.from({ length: 51 }, () => "x") },
+    // KAM-230: a finalidade e o prazo, obrigatórios. Que a finalidade seja a
+    // do sujeito decide-o a operação; aqui, só a forma.
+    { ...bom, finalidade: undefined },
+    { ...bom, finalidade: "" },
+    { ...bom, finalidade: 7 },
+    { ...bom, prazo_ms: undefined },
+    { ...bom, prazo_ms: 0 },
+    { ...bom, prazo_ms: 1.5 },
+    { ...bom, prazo_ms: "6000" },
+    { ...bom, prazo_ms: 20_001 },
   ];
   for (const corpo of maus) {
     const r = await aplicacao.fetch(pedido("/internal/screen", { ...CTX_DO_CORPO, ...corpo }, BONS));
@@ -886,8 +919,240 @@ test("KAM-222: um screen que falha sai 503 com o codigo, e nao 200", async () =>
     credencial: CREDENCIAL,
   });
   const r = await aplicacao.fetch(
-    pedido("/internal/screen", { ...CTX_DO_CORPO, sujeito_tipo: "condicoes", sujeito_ref: ORDER, textos: ["x"] }, BONS),
+    pedido(
+      "/internal/screen",
+      {
+        ...CTX_DO_CORPO,
+        sujeito_tipo: "condicoes",
+        sujeito_ref: ORDER,
+        textos: ["x"],
+        finalidade: "classificacao_de_condicoes",
+        prazo_ms: 6_000,
+      },
+      BONS,
+    ),
   );
   assert.equal(r.status, 503);
   assert.deepEqual(await r.json(), { tipo: "erro", erro: "UPSTREAM_DOWN" });
+});
+
+// ------------------------------------------------- KAM-119: o tecto do screen
+
+/** Um corpo de `screen` com `octetos` de texto, em caracteres de dois octetos. */
+function corpoDeScreenCom(octetos: number): string {
+  return JSON.stringify({
+    ...CTX_DO_CORPO,
+    sujeito_tipo: "produto",
+    sujeito_ref: "vestido-01",
+    finalidade: "classificacao_de_catalogo",
+    prazo_ms: 10_000,
+    // «é» tem dois octetos em UTF-8: o tecto mede-se em octetos.
+    textos: Array.from({ length: 24 }, () => "\u00e9".repeat(Math.floor(octetos / 48))),
+  });
+}
+
+test("KAM-119: o screen aceita um corpo de 20 KiB, e as outras rotas nao", async () => {
+  assert.equal(CORPO_MAXIMO_POR_ROTA["/internal/screen"], 32 * 1024);
+  pedidosDeScreen.length = 0;
+  const { aplicacao, chamadas } = app();
+  const corpo = corpoDeScreenCom(20 * 1024);
+  assert.ok(Buffer.byteLength(corpo, "utf8") > 20 * 1024 - 512);
+  assert.ok(Buffer.byteLength(corpo, "utf8") > CORPO_MAXIMO);
+  const r = await aplicacao.fetch(
+    new Request("http://127.0.0.1/internal/screen", {
+      method: "POST",
+      headers: { ...BONS, "content-type": "application/json" },
+      body: corpo,
+    }),
+  );
+  assert.equal(r.status, 200);
+  assert.equal(chamadas.contagem.get("screen"), 1);
+  assert.equal(pedidosDeScreen[0]?.pedido.sujeitoTipo, "produto");
+
+  // O mesmo tamanho noutra rota é 413, e não chega a operação nenhuma.
+  for (const rota of ["/internal/get-offer", "/internal/upsert-product-draft", "/internal/publish-product"]) {
+    const outra = await aplicacao.fetch(
+      new Request(`http://127.0.0.1${rota}`, {
+        method: "POST",
+        headers: { ...BONS, "content-type": "application/json" },
+        body: corpo,
+      }),
+    );
+    assert.equal(outra.status, 413, rota);
+  }
+  assert.equal(chamadas.contagem.get("obterOferta") ?? 0, 0);
+  assert.equal(chamadas.contagem.get("upsertProductDraft") ?? 0, 0);
+  assert.equal(chamadas.contagem.get("publicarProduto") ?? 0, 0);
+});
+
+test("KAM-119: acima dos 32 KiB o screen tambem e 413", async () => {
+  const { aplicacao, chamadas } = app();
+  const corpo = corpoDeScreenCom(33 * 1024);
+  assert.ok(Buffer.byteLength(corpo, "utf8") > 32 * 1024);
+  const r = await aplicacao.fetch(
+    new Request("http://127.0.0.1/internal/screen", {
+      method: "POST",
+      headers: { ...BONS, "content-type": "application/json" },
+      body: corpo,
+    }),
+  );
+  assert.equal(r.status, 413);
+  assert.equal(chamadas.contagem.get("screen") ?? 0, 0);
+});
+
+// ------------------------------------- KAM-119: /internal/upsert-product-draft
+
+const RASCUNHO_BOM = { sku: "vestido-01", nome: "Vestido de festa", preco_tipo: "fixo", preco_minor: "1250000" };
+
+test("KAM-119: o upsert-product-draft passa o tenant do cabecalho e os termos no atributos", async () => {
+  rascunhosDeProduto.length = 0;
+  const { aplicacao, chamadas } = app();
+  const r = await aplicacao.fetch(
+    pedido(
+      "/internal/upsert-product-draft",
+      { ...CTX_DO_CORPO, ...RASCUNHO_BOM, stock_modo: "garantido", tenant_id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb" },
+      BONS,
+    ),
+  );
+  assert.equal(r.status, 200);
+  assert.deepEqual(await r.json(), { tipo: "ok", valor: { sku: "vestido-01", registo_id: null } });
+  assert.equal(chamadas.contagem.get("upsertProductDraft"), 1);
+  assert.deepEqual(rascunhosDeProduto, [
+    {
+      tenantId: TENANT,
+      d: {
+        sku: "vestido-01",
+        nome: "Vestido de festa",
+        atributos: { preco_tipo: "fixo", preco_minor: "1250000", stock_modo: "garantido" },
+      },
+    },
+  ]);
+
+  // `sob_consulta`, com `preco_minor` nulo e sem `stock_modo`: o `atributos` não
+  // leva a chave, e quem decide a omissão é o módulo.
+  rascunhosDeProduto.length = 0;
+  const sob = await aplicacao.fetch(
+    pedido(
+      "/internal/upsert-product-draft",
+      { ...CTX_DO_CORPO, sku: "bolo", nome: "Bolo por encomenda", preco_tipo: "sob_consulta", preco_minor: null },
+      BONS,
+    ),
+  );
+  assert.equal(sob.status, 200);
+  assert.deepEqual(rascunhosDeProduto[0]?.d.atributos, { preco_tipo: "sob_consulta", preco_minor: null });
+});
+
+test("KAM-119: um corpo de upsert-product-draft que nao valida da 400, e a porta nao e chamada", async () => {
+  const { aplicacao, chamadas } = app();
+  const maus: Record<string, unknown>[] = [
+    { ...RASCUNHO_BOM, sku: "" },
+    { ...RASCUNHO_BOM, sku: 7 },
+    { ...RASCUNHO_BOM, nome: "" },
+    { ...RASCUNHO_BOM, nome: ["x"] },
+    { ...RASCUNHO_BOM, preco_tipo: 1 },
+    { ...RASCUNHO_BOM, preco_minor: undefined },
+    { ...RASCUNHO_BOM, preco_minor: "12,5" },
+    { ...RASCUNHO_BOM, preco_minor: 12.5 },
+    { ...RASCUNHO_BOM, preco_minor: "-1" },
+    { ...RASCUNHO_BOM, stock_modo: 3 },
+  ];
+  for (const corpo of maus) {
+    const r = await aplicacao.fetch(pedido("/internal/upsert-product-draft", { ...CTX_DO_CORPO, ...corpo }, BONS));
+    assert.equal(r.status, 400, JSON.stringify(corpo));
+    assert.deepEqual(await r.json(), { tipo: "erro", erro: "VALIDATION_ERROR" });
+  }
+  assert.equal(chamadas.contagem.get("upsertProductDraft") ?? 0, 0);
+});
+
+test("KAM-119: uma recusa do upsert-product-draft sai com o codigo e o estado da tabela", async () => {
+  const { operacoes } = operacoesDeEnsaio();
+  const aplicacao = createApp(undefined, {
+    operacoes: { ...operacoes, porta: { ...operacoes.porta, upsertProductDraft: async () => erro("VALIDATION_ERROR") } },
+    credencial: CREDENCIAL,
+  });
+  const r = await aplicacao.fetch(pedido("/internal/upsert-product-draft", { ...CTX_DO_CORPO, ...RASCUNHO_BOM }, BONS));
+  assert.equal(r.status, 400);
+  assert.deepEqual(await r.json(), { tipo: "erro", erro: "VALIDATION_ERROR" });
+});
+
+// ------------------------------------------- KAM-119: /internal/publish-product
+
+const PUBLICACAO_BOA = { sku: "vestido-01", confirmacao: { actor_id: "msg-1", em: "2026-11-19T10:00:00Z" } };
+
+test("KAM-119: o publish-product passa o tenant do cabecalho e a confirmacao como do dono", async () => {
+  publicacoes.length = 0;
+  const { aplicacao, chamadas } = app();
+  const r = await aplicacao.fetch(
+    pedido(
+      "/internal/publish-product",
+      // O `kind` do corpo não conta: a confirmação é sempre do dono.
+      { ...CTX_DO_CORPO, ...PUBLICACAO_BOA, confirmacao: { ...PUBLICACAO_BOA.confirmacao, kind: "agente" }, tenant_id: "b" },
+      BONS,
+    ),
+  );
+  assert.equal(r.status, 200);
+  assert.deepEqual(await r.json(), { tipo: "ok" });
+  assert.equal(chamadas.contagem.get("publicarProduto"), 1);
+  // A porta não é chamada: a publicação é a operação que confere a decisão.
+  assert.equal(chamadas.contagem.get("publishProduct") ?? 0, 0);
+  assert.deepEqual(publicacoes, [
+    {
+      tenantId: TENANT,
+      pedido: { sku: "vestido-01", confirmacao: { actor: { kind: "dono", id: "msg-1" }, em: "2026-11-19T10:00:00Z" } },
+    },
+  ]);
+});
+
+test("KAM-119: um corpo de publish-product que nao valida da 400, e a operacao nao corre", async () => {
+  const { aplicacao, chamadas } = app();
+  const maus: Record<string, unknown>[] = [
+    { ...PUBLICACAO_BOA, sku: "" },
+    { ...PUBLICACAO_BOA, sku: 1 },
+    { ...PUBLICACAO_BOA, confirmacao: undefined },
+    { ...PUBLICACAO_BOA, confirmacao: "msg-1" },
+    { ...PUBLICACAO_BOA, confirmacao: [] },
+    { ...PUBLICACAO_BOA, confirmacao: { em: "2026-11-19T10:00:00Z" } },
+    { ...PUBLICACAO_BOA, confirmacao: { actor_id: "", em: "2026-11-19T10:00:00Z" } },
+    { ...PUBLICACAO_BOA, confirmacao: { actor_id: "msg-1" } },
+    { ...PUBLICACAO_BOA, confirmacao: { actor_id: "msg-1", em: 7 } },
+  ];
+  for (const corpo of maus) {
+    const r = await aplicacao.fetch(pedido("/internal/publish-product", { ...CTX_DO_CORPO, ...corpo }, BONS));
+    assert.equal(r.status, 400, JSON.stringify(corpo));
+    assert.deepEqual(await r.json(), { tipo: "erro", erro: "VALIDATION_ERROR" });
+  }
+  assert.equal(chamadas.contagem.get("publicarProduto") ?? 0, 0);
+});
+
+test("KAM-119: o publish-product devolve a recusa e o conflito com o estado da tabela", async () => {
+  const { operacoes } = operacoesDeEnsaio();
+  for (const [resultado, estado, corpo] of [
+    [erro<void>("VALIDATION_ERROR"), 400, { tipo: "erro", erro: "VALIDATION_ERROR" }],
+    [erro<void>("NOT_FOUND"), 404, { tipo: "erro", erro: "NOT_FOUND" }],
+    [erro<void>("UPSTREAM_DOWN"), 503, { tipo: "erro", erro: "UPSTREAM_DOWN" }],
+    // O nome mudou entre a conferência e a tranca: «relê e reavalia».
+    [conflito<void>(undefined), 409, { tipo: "conflito" }],
+  ] as const) {
+    const aplicacao = createApp(undefined, {
+      operacoes: { ...operacoes, publicarProduto: async () => resultado },
+      credencial: CREDENCIAL,
+    });
+    const r = await aplicacao.fetch(pedido("/internal/publish-product", { ...CTX_DO_CORPO, ...PUBLICACAO_BOA }, BONS));
+    assert.equal(r.status, estado);
+    assert.deepEqual(await r.json(), corpo);
+  }
+});
+
+test("KAM-119: sem x-kamba-tenant, as duas rotas novas sao 400 e nada corre", async () => {
+  const { aplicacao, chamadas } = app();
+  for (const [rota, corpo] of [
+    ["/internal/upsert-product-draft", RASCUNHO_BOM],
+    ["/internal/publish-product", PUBLICACAO_BOA],
+  ] as const) {
+    const r = await aplicacao.fetch(pedido(rota, { ...CTX_DO_CORPO, ...corpo }, { [CABECALHO_INTERNO]: CREDENCIAL }));
+    assert.equal(r.status, 400, rota);
+    const semCredencial = await aplicacao.fetch(pedido(rota, { ...CTX_DO_CORPO, ...corpo }, { [CABECALHO_TENANT]: TENANT }));
+    assert.equal(semCredencial.status, 401, rota);
+  }
+  assert.equal(chamadas.contagem.size, 0);
 });

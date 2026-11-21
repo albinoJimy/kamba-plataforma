@@ -135,6 +135,13 @@ class Notificacao:
     conversation_id: str
     texto: str
     template: str
+    #: Os **valores** dos parametros do *template*, pela ordem (KAM-221). Ja
+    #: resolvidos por quem notifica: quem envia nao resolve nada.
+    parametros: tuple[str, ...] = ()
+    #: Os botoes da mensagem livre, por identificador (KAM-226: o «Aceito» da
+    #: proposta). **So no texto livre**: o *template* da janela fechada nao os
+    #: leva, e quem envia o *template* deixa-os cair.
+    botoes: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         if not self.template:

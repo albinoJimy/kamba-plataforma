@@ -16,6 +16,8 @@ from __future__ import annotations
 import asyncio
 import datetime
 import json
+import threading
+import re
 import unittest
 import uuid
 from typing import Any
@@ -70,8 +72,10 @@ class Cursor:
         if sql.startswith("SELECT set_config"):
             self.tenant = p[0]
             self.linhas = [(p[0],)]
-        elif sql is saida.SQL_INSERIR:
-            tenant, chave, contacto, conversa, canal, texto, botoes, inicio = p
+        elif sql is saida.SQL_INSERIR or sql is saida.SQL_INSERIR_COM_TEMPLATE:
+            # A do *template* (KAM-221) leva o nome e os valores no fim; o
+            # resto da semantica e a mesma.
+            tenant, chave, contacto, conversa, canal, texto, botoes, inicio = p[:8]
             # A RLS, pelo lado do duplo: o `WITH CHECK` recusa outro tenant.
             assert tenant == self.tenant, "tenant fora do contexto"
             unica = "ON CONFLICT (tenant_id, chave) DO NOTHING" in sql
@@ -151,6 +155,26 @@ class TestEmitirResposta(unittest.TestCase):
             },
         )
 
+    def test_com_template_o_payload_fica_nas_cinco_chaves(self) -> None:
+        """O *template* e os valores ficam na linha, e o evento nao muda (KAM-221).
+
+        O ADR-010 e a decisao B do KAM-224: o `agent.replied` leva so
+        identificadores, e os consumidores leem o resto por referencia.
+        """
+        reply_id = self.emitir(template="orcamento_pronto", parametros=("ORC-ABCDEFGH",))
+        _tipo, _tenant, _agregado, payload = self.base.eventos[0]
+        self.assertEqual(
+            json.loads(payload),
+            {
+                "reply_id": reply_id,
+                "thread_id": f"{TENANT}:{CONTACTO}",
+                "conversation_id": CONVERSA,
+                "contact_id": CONTACTO,
+                "canal": "whatsapp",
+            },
+        )
+        self.assertNotIn("ORC-ABCDEFGH", payload)
+
     def test_o_payload_nao_leva_o_texto_nem_os_botoes(self) -> None:
         self.emitir(texto="Ola Maria, temos em stock.", botoes=("falar_com_humano",))
         payload = self.base.eventos[0][3]
@@ -218,6 +242,17 @@ class TestEmitirResposta(unittest.TestCase):
         self.assertEqual((self.base.commits, self.base.rollbacks), (0, 1))
 
 
+class TestIteraveisDeUmaPassagem(unittest.TestCase):
+    """Achado 3 da revisao do KAM-226: a forma valida-se duas vezes, e um gerador so se le uma."""
+
+    def test_um_gerador_de_botoes_grava_os_botoes(self) -> None:
+        base = Base()
+        saida.emitir_resposta(
+            Ligacao(base), estado(), "ola", chave="k:0", botoes=(b for b in ["cancelar"])
+        )
+        self.assertEqual(json.loads(base.respostas[0]["botoes"]), [{"id": "cancelar", "titulo": "Cancelar"}])
+
+
 class TestTitulosDosBotoes(unittest.TestCase):
     def test_a_confirmacao_tem_um_titulo_so_seja_qual_for_a_referencia(self) -> None:
         self.assertEqual(saida.titulo_do_botao("confirm:3f1c2a9e"), "Confirmar")
@@ -244,12 +279,45 @@ class TestTitulosDosBotoes(unittest.TestCase):
             vendedor.BOTAO_HUMANO,
             vendedor.BOTAO_CANCELAR,
             vendedor.BOTAO_CONFIRMAR.format(cart_id="c1"),
+            # KAM-226: o «Aceito» que a proposta leva, com a referencia dela.
+            f"{vendedor.PREFIXO_DO_ACEITO_ORCAMENTO}ORC-ABCDEFGH",
             servicos.BOTAO_HUMANO,
             servicos.BOTAO_CANCELAR,
             f"{servicos.PREFIXO_DE_CONFIRMACAO}r1",
         ):
             with self.subTest(botao=identificador):
                 self.assertTrue(saida.titulo_do_botao(identificador))
+
+    def test_os_botoes_do_catalogo_tem_titulo_e_os_prefixos_sao_os_das_regras(self) -> None:
+        # KAM-119: os quatro botoes da conversa do catalogo do dono.
+        from kamba_agr.catalogo import regras
+
+        ingestao = "11111111-2222-3333-4444-555555555555"
+        for identificador in (
+            regras.botao_do_preco(ingestao, 4_500_000),
+            regras.botao_de_corrigir_preco(ingestao),
+            regras.botao_do_stock(ingestao, 12),
+            regras.botao_de_corrigir_stock(ingestao),
+            regras.botao_do_mesmo_produto(ingestao),
+            regras.botao_de_outro_produto(ingestao),
+        ):
+            with self.subTest(botao=identificador):
+                self.assertTrue(saida.titulo_do_botao(identificador))
+                self.assertIsNone(re.search(r"\d", saida.titulo_do_botao(identificador)))
+        self.assertEqual(
+            set(saida.TITULOS_POR_PREFIXO),
+            {
+                regras.PREFIXO_DO_PRECO,
+                regras.PREFIXO_DE_CORRIGIR_PRECO,
+                regras.PREFIXO_DO_STOCK,
+                regras.PREFIXO_DE_CORRIGIR_STOCK,
+                regras.PREFIXO_DO_MESMO_PRODUTO,
+                regras.PREFIXO_DE_OUTRO_PRODUTO,
+            },
+        )
+        # O prefixo sozinho nao e botao.
+        with self.assertRaises(saida.RespostaInvalidaError):
+            saida.titulo_do_botao(regras.PREFIXO_DO_PRECO)
 
 
 class TestSaidaPorEvento(unittest.TestCase):
@@ -262,20 +330,23 @@ class TestSaidaPorEvento(unittest.TestCase):
             aviso=self.avisos.append,
         )
 
+    def enviar(self, porta: SaidaPorEvento | None = None, *, chave: str = "k:0") -> None:
+        asyncio.run((porta or self.porta).enfileirar(estado(), "ola", chave=chave))
+
     def test_abre_e_fecha_uma_ligacao_por_envio(self) -> None:
-        self.porta.enfileirar(estado(), "ola", chave="k:0")
-        self.porta.enfileirar(estado(), "ola", chave="k:1")
+        self.enviar(chave="k:0")
+        self.enviar(chave="k:1")
         self.assertEqual(self.base.fechadas, 2)
         self.assertEqual(len(self.base.eventos), 2)
 
     def test_a_repeticao_avisa_e_nao_levanta(self) -> None:
-        self.porta.enfileirar(estado(), "ola", chave="k:0")
-        self.porta.enfileirar(estado(), "ola", chave="k:0")
+        self.enviar()
+        self.enviar()
         self.assertEqual(self.avisos, ["resposta_repetida"])
         self.assertEqual(len(self.base.eventos), 1)
 
     def test_fora_de_um_turno_o_inicio_e_o_instante_do_envio(self) -> None:
-        self.porta.enfileirar(estado(), "ola", chave="k:0")
+        self.enviar()
         self.assertEqual(
             self.base.respostas[0]["inicio"],
             datetime.datetime(2026, 11, 19, 12, 0, tzinfo=datetime.UTC),
@@ -287,7 +358,7 @@ class TestSaidaPorEvento(unittest.TestCase):
         async def no() -> None:
             # Uma tarefa nova, como as do LangGraph: herda o contexto.
             await asyncio.create_task(asyncio.to_thread(lambda: None))
-            self.porta.enfileirar(estado(), "ola", chave="k:0")
+            await self.porta.enfileirar(estado(), "ola", chave="k:0")
 
         async def turno() -> None:
             marca = INICIO_DO_TURNO.set(inicio)
@@ -301,12 +372,87 @@ class TestSaidaPorEvento(unittest.TestCase):
 
     def test_o_canal_e_o_da_funcao_dada(self) -> None:
         porta = SaidaPorEvento(lambda: Ligacao(self.base), canal_de=lambda _e: CANAL_PAINEL)
-        porta.enfileirar(estado(), "ola", chave="k:0")
+        self.enviar(porta)
         self.assertEqual(self.base.respostas[0]["canal"], "painel")
 
     def test_por_omissao_o_canal_e_o_whatsapp(self) -> None:
-        self.porta.enfileirar(estado(), "ola", chave="k:0")
+        self.enviar()
         self.assertEqual(self.base.respostas[0]["canal"], "whatsapp")
+
+
+class TestUmaBaseLenta(unittest.TestCase):
+    """KAM-227: a ida a base do envio sai da *event loop*.
+
+    **A base so responde quando o outro turno tiver andado.** O `INSERT` do
+    duplo espera por um `threading.Event` que so o outro turno — uma corrotina
+    na mesma *event loop* — pode soltar, depois de `PASSOS` voltas. Se o envio
+    corresse na *event loop*, o outro turno nao andava, e a base so se soltava
+    pelo prazo: o ensaio distingue «soltou-a o outro turno» de «soltou-a o
+    relogio», e nao depende de quantas voltas cabem num intervalo.
+
+    O controlo corre o mesmo corpo **na** *event loop* — a forma anterior ao
+    KAM-227 — e mostra que ai o outro turno nao da volta nenhuma. Sem ele, um
+    duplo que nunca esperasse deixava o primeiro ensaio verde por vacuidade.
+    """
+
+    PASSOS = 5
+
+    def correr(self, enviar: Any, *, prazo: float) -> tuple[bool, int, Base]:
+        base = Base()
+        solta = threading.Event()
+        visto: dict[str, bool] = {}
+
+        class CursorLento(Cursor):
+            def execute(self, sql: str, p: tuple = ()) -> None:
+                if sql is saida.SQL_INSERIR:
+                    visto["pelo_outro_turno"] = solta.wait(prazo)
+                super().execute(sql, p)
+
+        class LigacaoLenta(Ligacao):
+            def cursor(self) -> Cursor:
+                return CursorLento(self.base)
+
+        passos = 0
+
+        async def outro_turno() -> None:
+            nonlocal passos
+            while passos < self.PASSOS:
+                await asyncio.sleep(0.01)
+                passos += 1
+            solta.set()
+
+        async def principal() -> int:
+            outro = asyncio.create_task(outro_turno())
+            await asyncio.sleep(0)  # o outro turno arranca e fica no primeiro sleep
+            await enviar(lambda: LigacaoLenta(base))
+            durante = passos
+            await outro
+            return durante
+
+        durante = asyncio.run(principal())
+        return visto["pelo_outro_turno"], durante, base
+
+    def test_uma_base_lenta_nao_para_os_outros_turnos(self) -> None:
+        async def pela_porta(abrir: Any) -> None:
+            await SaidaPorEvento(abrir).enfileirar(estado(), "ola", chave="k:0")
+
+        pelo_outro_turno, durante, base = self.correr(pela_porta, prazo=5.0)
+        self.assertTrue(pelo_outro_turno, "a base soltou-se pelo prazo: o outro turno parou")
+        self.assertGreaterEqual(durante, self.PASSOS)
+        self.assertEqual((len(base.respostas), len(base.eventos), base.fechadas), (1, 1, 1))
+
+    def test_o_controlo_na_event_loop_para_os_outros_turnos(self) -> None:
+        async def na_event_loop(abrir: Any) -> None:
+            ligacao = abrir()
+            try:
+                emitir_resposta(ligacao, estado(), "ola", chave="k:0")
+            finally:
+                ligacao.close()
+
+        pelo_outro_turno, durante, base = self.correr(na_event_loop, prazo=0.3)
+        self.assertFalse(pelo_outro_turno)
+        self.assertEqual(durante, 0)
+        self.assertEqual(len(base.eventos), 1)
 
 
 class TestOTurnoPoeOInicio(unittest.TestCase):

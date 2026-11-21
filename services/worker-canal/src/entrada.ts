@@ -265,19 +265,34 @@ export function criarApp(registo?: Logger): Hono {
  * O ambiente do provedor de chaves de identidade, lido do `KAMBA_ENV`.
  *
  * **Era `KAMBA_ENV === "prod" ? "prod" : "dev"`, e isso impedia o arranque em
- * *staging* (KAM-187).** O `exigirKeyProviderDeCofre` do KAM-008 exige que o
+ * *staging* (KAM-187).** O `exigirAmbienteDoKeyProvider` do KAM-008 exige que o
  * ambiente declarado e o do provedor coincidam: `KAMBA_ENV=staging` dava um
  * provedor de `dev` e o processo saía com `AmbienteDeIdentidadeError`. Nenhum
  * compose corria este processo, pelo que ninguém o tinha visto.
  *
  * Um valor fora de `dev`/`staging`/`prod` devolve `dev` e **não** liga nada: o
- * `exigirKeyProviderDeCofre` recusa-o na mesma, porque compara com o valor
- * declarado e não com este. Em `prod` o provedor de ambiente continua recusado
- * — essa recusa é o critério 9 do KAM-008, e não se contorna aqui.
+ * `exigirAmbienteDoKeyProvider` recusa-o na mesma, porque compara com o valor
+ * declarado e não com este.
  */
 export function ambienteDasChaves(env: NodeJS.ProcessEnv): Ambiente {
   const declarado = (env.KAMBA_ENV ?? "").trim();
   return isAmbiente(declarado) ? declarado : "dev";
+}
+
+/**
+ * O módulo de identidade deste processo, ou a recusa do arranque.
+ *
+ * As chaves vêm do ambiente que o lançador do cofre enche (ADR-L002), também em
+ * `prod`: decisão do fundador, 2026-11-20, que emendou o critério 9 do KAM-008.
+ * Em `prod` o `Identidade.arrancar` recusa sem a KEK ou sem a chave de pesquisa
+ * — este processo resolve contactos, e usa as duas. Exportada para se medir o
+ * arranque sem levantar o processo.
+ */
+export async function identidadeDaEntrada(env: NodeJS.ProcessEnv): Promise<Identidade> {
+  return Identidade.arrancar({
+    chaves: new EnvKeyProvider({ ambiente: ambienteDasChaves(env), env }),
+    env,
+  });
 }
 
 async function principal(): Promise<void> {
@@ -301,9 +316,7 @@ async function principal(): Promise<void> {
   // faltar ou tiver outro valor — um valor desconhecido nao desliga a guarda.
   await verificarArranque(resolvedorBd, process.env);
 
-  const identidade = await Identidade.arrancar({
-    chaves: new EnvKeyProvider({ ambiente: ambienteDasChaves(process.env) }),
-  });
+  const identidade = await identidadeDaEntrada(process.env);
   // O gancho que reaponta conversas numa fusao de contactos. Corre **dentro** da
   // transacao da fusao, com a ligacao e o contexto que o modulo de identidade
   // abriu — e e por isso que o `kamba_identity` tem privilegios por coluna na

@@ -16,10 +16,13 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { describe, it } from "node:test";
 
+import { Adiar } from "../src/eventos/consumo.ts";
 import type { Envelope } from "../src/eventos/envelope.ts";
 import type { Pedido, Resultado } from "../src/outbound/contrato.ts";
 import {
   CANAIS_DA_RESPOSTA,
+  CanalSemCredencialError,
+  ReenvioAdiadoError,
   RespostaInexistenteError,
   RespostaInvalidaError,
   SQL_ESTADO_DO_ENVIO,
@@ -27,7 +30,11 @@ import {
   SQL_RESPOSTA_DO_PAINEL,
   SQL_RESPOSTA_DO_WHATSAPP,
   TIPO_DA_RESPOSTA,
+  ESPERA_DO_REENVIO_S,
   botoesDaLinha,
+  chaveDoReenvio,
+  decidirEnvio,
+  templateDaLinha,
   efeitoDoOutbound,
   efeitoDoPainel,
   envioPeloSaida,
@@ -49,6 +56,8 @@ interface Linha {
   chave: string;
   texto: string;
   botoes: unknown;
+  template_nome: string | null;
+  template_parametros: unknown;
   turno_iniciado_em: Date | null;
   entregue_at: Date | null;
 }
@@ -57,8 +66,8 @@ interface Linha {
 class BaseFalsa {
   readonly linhas: Linha[] = [];
   readonly instrucoes: string[] = [];
-  /** O estado da linha do Outbound por chave, para o `repetido`. */
-  readonly envios = new Map<string, string>();
+  /** A linha do Outbound por chave, para o `repetido`: o estado, ou a linha inteira. */
+  readonly envios = new Map<string, string | Record<string, unknown>>();
 
   nova(sobrepor: Partial<Linha> = {}): Linha {
     const linha: Linha = {
@@ -69,6 +78,8 @@ class BaseFalsa {
       chave: "wamid.ensaio:0",
       texto: "Temos em stock.",
       botoes: [],
+      template_nome: null,
+      template_parametros: [],
       turno_iniciado_em: new Date("2026-11-19T11:59:58Z"),
       entregue_at: null,
       ...sobrepor,
@@ -87,7 +98,13 @@ class BaseFalsa {
       l.tenant === tenant && l.reply_id === replyId && (!daConversa || l.conversa === conversa);
     if (sql === SQL_ESTADO_DO_ENVIO) {
       const estado = this.envios.get(`${tenant}|${String(replyId)}`);
-      const rows = estado === undefined ? [] : [{ state: estado }];
+      // O duplo só devolve o `wamid` e o `error_code` se o SQL os pedir.
+      const pede = /\bwamid\b/.test(sql) && /\berror_code\b/.test(sql);
+      const linha = typeof estado === "string" ? { state: estado } : estado;
+      const rows =
+        linha === undefined
+          ? []
+          : [pede ? linha : { state: linha["state"] }];
       return { rows, rowCount: rows.length };
     }
     if (sql === SQL_RESPOSTA_DO_WHATSAPP || sql === SQL_RESPOSTA_DO_PAINEL) {
@@ -101,6 +118,11 @@ class BaseFalsa {
           conversation_id: l.conversa,
           texto: l.texto,
           botoes: l.botoes,
+          // So com as colunas no texto da instrucao (KAM-221): sem elas, a
+          // resposta de *template* saia como texto e o ensaio fica vermelho.
+          ...(sql.includes("r.template_nome, r.template_parametros")
+            ? { template_nome: l.template_nome, template_parametros: l.template_parametros }
+            : {}),
           turno_iniciado_em: l.turno_iniciado_em,
           entregue_at: l.entregue_at,
           channel_id: CANAL,
@@ -161,6 +183,23 @@ function outbound(resultado: Resultado = { ok: true, id: "m1", wamid: "w1", kind
   };
 }
 
+/** O Outbound que devolve, por ordem, os resultados dados; o último repete-se. */
+function outboundEmSequencia(...resultados: (Resultado | Error)[]) {
+  const pedidos: Pedido[] = [];
+  return {
+    pedidos,
+    enviar: async (pedido: Pedido): Promise<Resultado> => {
+      pedidos.push(pedido);
+      const r = resultados[Math.min(pedidos.length, resultados.length) - 1]!;
+      if (r instanceof Error) throw r;
+      return r;
+    },
+  };
+}
+
+const ENVIADO: Resultado = { ok: true, id: "m1", wamid: "w1", kind: "service", repetido: false };
+const REPETIDO: Resultado = { ok: true, id: "m1", wamid: null, kind: "service", repetido: true };
+
 describe("lerResposta", () => {
   const base = { reply_id: randomUUID(), conversation_id: CONVERSA, contact_id: CONTACTO };
 
@@ -213,7 +252,59 @@ describe("botoesDaLinha", () => {
   });
 });
 
+describe("templateDaLinha", () => {
+  it("sem nome é texto livre; com nome leva os valores pela ordem", () => {
+    assert.equal(templateDaLinha(null, []), null);
+    assert.equal(templateDaLinha(undefined, undefined), null);
+    assert.deepEqual(templateDaLinha("orcamento_pronto", ["ORC-ABCDEFGH"]), {
+      nome: "orcamento_pronto",
+      parametros: ["ORC-ABCDEFGH"],
+    });
+  });
+
+  it("recusa parâmetros sem nome, um parâmetro que não é texto e um nome vazio", () => {
+    for (const [nome, parametros] of [
+      [null, ["x"]],
+      ["orcamento_pronto", [3]],
+      ["orcamento_pronto", "x"],
+      ["", []],
+    ] as const) {
+      assert.throws(() => templateDaLinha(nome, parametros), RespostaInvalidaError);
+    }
+  });
+});
+
 describe("efeitoDoOutbound", () => {
+  it("uma resposta de template sai como template, com os valores e o idioma base (KAM-221)", async () => {
+    const bd = new BaseFalsa();
+    const linha = bd.nova({ template_nome: "orcamento_pronto", template_parametros: ["ORC-ABCDEFGH"] });
+    const saida = outbound({ ok: true, id: "m1", wamid: "w1", kind: "utility", repetido: false });
+    const desfechos: DesfechoDaResposta[] = [];
+    await efeitoDoOutbound(saida.enviar, { aoTratar: (d) => desfechos.push(d) })(bd, envelope(payload(linha)));
+    assert.deepEqual(saida.pedidos[0]!.corpo, {
+      tipo: "template",
+      nome: "orcamento_pronto",
+      idioma: "pt_PT",
+      parametros: ["ORC-ABCDEFGH"],
+    });
+    assert.equal(saida.pedidos[0]!.idempotencyKey, linha.chave);
+    assert.notEqual(linha.entregue_at, null);
+    assert.deepEqual(desfechos, ["enviada"]);
+  });
+
+  it("o texto recusado com a janela fechada não troca para template: fica recusada (KAM-221)", async () => {
+    const bd = new BaseFalsa();
+    const linha = bd.nova({ chave: "orcamento:q1:1700000000000000" });
+    const saida = outbound({ ok: false, motivo: "WINDOW_CLOSED", codigo: null });
+    const desfechos: string[] = [];
+    await efeitoDoOutbound(saida.enviar, { aoTratar: (d, m) => desfechos.push(`${d}:${m}`) })(bd, envelope(payload(linha)));
+    // Um pedido so, e de texto: quem reemite com o *template* e o AGR.
+    assert.equal(saida.pedidos.length, 1);
+    assert.equal(saida.pedidos[0]!.corpo.tipo, "texto");
+    assert.equal(linha.entregue_at, null);
+    assert.deepEqual(desfechos, ["recusada:WINDOW_CLOSED"]);
+  });
+
   it("envia a resposta do WhatsApp uma vez, com a chave do turno, e marca-a entregue", async () => {
     const bd = new BaseFalsa();
     const linha = bd.nova({ botoes: [{ id: "falar_com_humano", titulo: "Falar com um colega" }] });
@@ -310,29 +401,176 @@ describe("efeitoDoOutbound", () => {
     assert.notEqual(linha.entregue_at, null);
   });
 
-  it("uma chave repetida cuja linha ficou queued ou failed não marca entregue", async () => {
+  it("uma chave repetida cuja linha ficou queued, failed ou sem linha reenvia uma vez, pela chave derivada (KAM-227)", async () => {
     for (const estado of ["queued", "failed", undefined]) {
       const bd = new BaseFalsa();
       const linha = bd.nova();
       if (estado !== undefined) bd.envios.set(`${TENANT}|${linha.chave}`, estado);
-      const saida = outbound({ ok: true, id: "m1", wamid: null, kind: "service", repetido: true });
+      const saida = outboundEmSequencia(REPETIDO, ENVIADO);
+      const desfechos: DesfechoDaResposta[] = [];
+      await efeitoDoOutbound(saida.enviar, { aoTratar: (d) => desfechos.push(d) })(bd, envelope(payload(linha)));
+      assert.deepEqual(
+        saida.pedidos.map((p) => p.idempotencyKey),
+        [linha.chave, chaveDoReenvio(linha.chave)],
+      );
+      assert.equal(chaveDoReenvio(linha.chave), `${linha.chave}:reenvio`);
+      assert.deepEqual(desfechos, ["reenviada"]);
+      assert.notEqual(linha.entregue_at, null);
+      // O reenvio é o mesmo pedido, só com outra chave.
+      assert.deepEqual({ ...saida.pedidos[1], idempotencyKey: linha.chave }, saida.pedidos[0]);
+    }
+  });
+
+  it("uma chave que saiu nunca se reenvia: a linha sent, delivered ou read conta como repetida", async () => {
+    for (const estado of ["sent", "delivered", "read"]) {
+      const bd = new BaseFalsa();
+      const linha = bd.nova();
+      bd.envios.set(`${TENANT}|${linha.chave}`, estado);
+      const saida = outboundEmSequencia(REPETIDO, ENVIADO);
+      const desfechos: DesfechoDaResposta[] = [];
+      await efeitoDoOutbound(saida.enviar, { aoTratar: (d) => desfechos.push(d) })(bd, envelope(payload(linha)));
+      assert.equal(saida.pedidos.length, 1);
+      assert.deepEqual(desfechos, ["repetida"]);
+    }
+  });
+
+  it("o reenvio é o último: falha, recusa ou repetida sem envio acabam ali, sem marcar", async () => {
+    const casos: [Resultado, string, string | null][] = [
+      [{ ok: false, motivo: "SEND_FAILED", codigo: 131000 }, "falhou:SEND_FAILED", null],
+      [{ ok: false, motivo: "WINDOW_CLOSED", codigo: null }, "recusada:WINDOW_CLOSED", null],
+      [REPETIDO, "repetida_sem_envio:queued", "queued"],
+      [REPETIDO, "repetida_sem_envio:sem_linha", null],
+    ];
+    for (const [segundo, esperado, estadoDaDerivada] of casos) {
+      const bd = new BaseFalsa();
+      const linha = bd.nova();
+      bd.envios.set(`${TENANT}|${linha.chave}`, "failed");
+      if (estadoDaDerivada !== null) bd.envios.set(`${TENANT}|${chaveDoReenvio(linha.chave)}`, estadoDaDerivada);
+      const saida = outboundEmSequencia(REPETIDO, segundo);
       const desfechos: string[] = [];
       await efeitoDoOutbound(saida.enviar, { aoTratar: (d, m) => desfechos.push(`${d}:${m}`) })(bd, envelope(payload(linha)));
-      assert.deepEqual(desfechos, [`repetida_sem_envio:${estado ?? "sem_linha"}`]);
+      assert.deepEqual(desfechos, [esperado]);
+      assert.equal(saida.pedidos.length, 2, "nunca uma terceira vez");
       assert.equal(linha.entregue_at, null);
     }
   });
 
-  it("uma falha de rede ou de débito é falhou, e não recusada; não marca entregue", async () => {
-    for (const motivo of ["SEND_FAILED", "RATE_LIMITED"] as const) {
+  it("uma chave derivada que já saiu conta como repetida, e marca", async () => {
+    const bd = new BaseFalsa();
+    const linha = bd.nova();
+    bd.envios.set(`${TENANT}|${linha.chave}`, "failed");
+    bd.envios.set(`${TENANT}|${chaveDoReenvio(linha.chave)}`, "sent");
+    const saida = outboundEmSequencia(REPETIDO, REPETIDO);
+    const desfechos: DesfechoDaResposta[] = [];
+    await efeitoDoOutbound(saida.enviar, { aoTratar: (d) => desfechos.push(d) })(bd, envelope(payload(linha)));
+    assert.deepEqual(desfechos, ["repetida"]);
+    assert.notEqual(linha.entregue_at, null);
+  });
+
+  it("uma falha que não saiu adia 60 s: o débito nosso, ou uma recusa da Meta com código", async () => {
+    for (const [motivo, codigo] of [["SEND_FAILED", 131026], ["SEND_FAILED", 130429], ["RATE_LIMITED", null]] as const) {
       const bd = new BaseFalsa();
       const linha = bd.nova();
-      const saida = outbound({ ok: false, motivo, codigo: null });
+      const saida = outbound({ ok: false, motivo, codigo });
       const desfechos: string[] = [];
-      await efeitoDoOutbound(saida.enviar, { aoTratar: (d, m) => desfechos.push(`${d}:${m}`) })(bd, envelope(payload(linha)));
-      assert.deepEqual(desfechos, [`falhou:${motivo}`]);
+      await assert.rejects(
+        efeitoDoOutbound(saida.enviar, { aoTratar: (d, m) => desfechos.push(`${d}:${m}`) })(bd, envelope(payload(linha))),
+        (erro: unknown) => {
+          assert.ok(erro instanceof ReenvioAdiadoError);
+          assert.equal(erro.motivo, motivo);
+          // Um `Adiar` do KAM-006, com a espera do minuto do *token bucket*.
+          assert.ok(erro instanceof Adiar);
+          assert.equal(erro.segundos, ESPERA_DO_REENVIO_S);
+          assert.equal(ESPERA_DO_REENVIO_S, 60);
+          // Sem chave nem texto na mensagem: só o motivo.
+          assert.doesNotMatch(erro.message, /wamid|stock/);
+          return true;
+        },
+      );
+      assert.deepEqual(desfechos, []);
+      assert.equal(saida.pedidos.length, 1);
       assert.equal(linha.entregue_at, null);
     }
+  });
+
+  it("**uma falha ambígua não se reenvia**: timeout, rede, 200 sem wamid ou erro interno da Meta são falhou", async () => {
+    for (const codigo of [-1, 1, 2]) {
+      const bd = new BaseFalsa();
+      const linha = bd.nova();
+      const saida = outboundEmSequencia({ ok: false, motivo: "SEND_FAILED", codigo }, ENVIADO);
+      const desfechos: string[] = [];
+      await efeitoDoOutbound(saida.enviar, { aoTratar: (d, m) => desfechos.push(`${d}:${m}`) })(bd, envelope(payload(linha)));
+      assert.deepEqual(desfechos, ["falhou:SEND_FAILED"]);
+      assert.equal(saida.pedidos.length, 1);
+      assert.equal(linha.entregue_at, null);
+    }
+  });
+
+  it("**uma linha com wamid nunca se reenvia**, nem failed: a Meta aceitou-a; nem um failed ambíguo", async () => {
+    const casos: [Record<string, unknown>, string][] = [
+      [{ state: "failed", wamid: "wamid.ACEITE", error_code: 131026 }, "repetida_sem_envio:failed"],
+      [{ state: "queued", wamid: "wamid.ACEITE", error_code: null }, "repetida_sem_envio:queued"],
+      [{ state: "failed", wamid: null, error_code: -1 }, "repetida_sem_envio:failed_ambiguo"],
+      [{ state: "failed", wamid: null, error_code: 2 }, "repetida_sem_envio:failed_ambiguo"],
+    ];
+    for (const [linhaDoOutbound, esperado] of casos) {
+      const bd = new BaseFalsa();
+      const linha = bd.nova();
+      bd.envios.set(`${TENANT}|${linha.chave}`, linhaDoOutbound);
+      const saida = outboundEmSequencia(REPETIDO, ENVIADO);
+      const desfechos: string[] = [];
+      await efeitoDoOutbound(saida.enviar, { aoTratar: (d, m) => desfechos.push(`${d}:${m}`) })(bd, envelope(payload(linha)));
+      assert.deepEqual(desfechos, [esperado]);
+      assert.equal(saida.pedidos.length, 1, "sem reenvio");
+      assert.equal(linha.entregue_at, null);
+    }
+  });
+
+  it("decidirEnvio: o wamid manda sobre o estado, e um código ambíguo não deixa reenviar", () => {
+    assert.deepEqual(decidirEnvio(undefined), { saiu: false, podeReenviar: true, estado: "sem_linha" });
+    assert.deepEqual(decidirEnvio({ state: "queued", wamid: null }), { saiu: false, podeReenviar: true, estado: "queued" });
+    assert.deepEqual(decidirEnvio({ state: "failed", wamid: null, error_code: 131026 }), {
+      saiu: false,
+      podeReenviar: true,
+      estado: "failed",
+    });
+    assert.deepEqual(decidirEnvio({ state: "failed", wamid: null, error_code: null }).podeReenviar, true);
+    assert.deepEqual(decidirEnvio({ state: "failed", wamid: null, error_code: -1 }).podeReenviar, false);
+    assert.deepEqual(decidirEnvio({ state: "failed", wamid: "w", error_code: 131026 }).podeReenviar, false);
+    for (const estado of ["sent", "delivered", "read"]) {
+      assert.deepEqual(decidirEnvio({ state: estado, wamid: "w" }), { saiu: true, podeReenviar: false, estado });
+    }
+    assert.equal(decidirEnvio({ state: "suppressed_by_human", wamid: null }).podeReenviar, false);
+  });
+
+  it("a falha na primeira tentativa reenvia na segunda: a linha failed da chave do turno passa à derivada", async () => {
+    // As duas tentativas do consumo, como a escada do KAM-006 as faz: a
+    // primeira levanta, e a segunda vê a chave do turno `failed` no `Saida`.
+    const bd = new BaseFalsa();
+    const linha = bd.nova();
+    const saida = outboundEmSequencia({ ok: false, motivo: "SEND_FAILED", codigo: 131000 }, REPETIDO, ENVIADO);
+    const desfechos: DesfechoDaResposta[] = [];
+    const efeito = efeitoDoOutbound(saida.enviar, { aoTratar: (d) => desfechos.push(d) });
+    await assert.rejects(efeito(bd, envelope(payload(linha))), ReenvioAdiadoError);
+    bd.envios.set(`${TENANT}|${linha.chave}`, "failed");
+    await efeito(bd, envelope(payload(linha)));
+    assert.deepEqual(
+      saida.pedidos.map((p) => p.idempotencyKey),
+      [linha.chave, linha.chave, chaveDoReenvio(linha.chave)],
+    );
+    assert.deepEqual(desfechos, ["reenviada"]);
+    assert.notEqual(linha.entregue_at, null);
+  });
+
+  it("um canal sem credencial é desfecho com o motivo: não lança, não reenvia, não marca", async () => {
+    const bd = new BaseFalsa();
+    const linha = bd.nova();
+    const saida = outboundEmSequencia(new CanalSemCredencialError("sem_segredo"));
+    const desfechos: string[] = [];
+    await efeitoDoOutbound(saida.enviar, { aoTratar: (d, m) => desfechos.push(`${d}:${m}`) })(bd, envelope(payload(linha)));
+    assert.deepEqual(desfechos, ["sem_credencial:sem_segredo"]);
+    assert.equal(saida.pedidos.length, 1);
+    assert.equal(linha.entregue_at, null);
   });
 
   it("o reply_id de outra conversa do mesmo tenant não se lê", async () => {
@@ -459,12 +697,12 @@ describe("envioPeloSaida", () => {
       devolver: (_l, erro) => {
         devolvidas.push(erro ?? "limpa");
       },
-      meta: {
+      meta: async () => ({
         enviar: async () => {
           chamadas += 1;
           return { ok: true, wamid: "w1" };
         },
-      },
+      }),
       destinatario: async () => ({ bsuid: "AO.ENSAIOENSAIOENSAIO0001", telefone: null }),
     });
     return { enviar, devolvidas, chamadas: () => chamadas };
@@ -502,6 +740,48 @@ describe("envioPeloSaida", () => {
     await montar(ligacao).enviar(pedido);
     assert.ok(vistos.length > 0);
     assert.deepEqual(new Set(vistos), new Set([TENANT]));
+  });
+
+  it("o cliente do canal lê-se com a ligação e o canal do pedido, antes do Saida", async () => {
+    const ligacao = new LigacaoFalsa();
+    const vistos: unknown[] = [];
+    const devolvidas: unknown[] = [];
+    const enviar = envioPeloSaida({
+      tomar: async () => ligacao,
+      devolver: (_l, erro) => {
+        devolvidas.push(erro ?? "limpa");
+      },
+      meta: async (l, canal) => {
+        vistos.push(l, canal.tenantId, canal.channelId, canal.phoneNumberId, ligacao.instrucoes.length);
+        throw new CanalSemCredencialError("nao_abre");
+      },
+      destinatario: async () => ({ bsuid: null, telefone: null }),
+    });
+    await assert.rejects(enviar(pedido), CanalSemCredencialError);
+    assert.deepEqual(vistos, [ligacao, TENANT, CANAL, pedido.phoneNumberId, 0]);
+    // Sem credencial, o Saida não chega a perguntar nada: a linha não nasce.
+    assert.deepEqual(ligacao.instrucoes, []);
+    // E a ligação volta limpa: a credencial em falta é do canal, não dela.
+    assert.deepEqual(devolvidas, ["limpa"]);
+  });
+
+  it("o destinatário lê-se antes do Saida: a identidade em baixo sobe sem linha do Outbound", async () => {
+    const ligacao = new LigacaoFalsa();
+    const devolvidas: unknown[] = [];
+    const enviar = envioPeloSaida({
+      tomar: async () => ligacao,
+      devolver: (_l, erro) => {
+        devolvidas.push(erro ?? "limpa");
+      },
+      meta: async () => ({ enviar: async () => ({ ok: true, wamid: "w1" }) }),
+      destinatario: async () => {
+        throw new Error("identidade em baixo");
+      },
+    });
+    await assert.rejects(enviar(pedido), /identidade em baixo/);
+    assert.deepEqual(ligacao.instrucoes, [], "o Saida não gravou linha nenhuma");
+    assert.equal(devolvidas.length, 1);
+    assert.ok(devolvidas[0] instanceof Error);
   });
 
   it("uma ligação que falha volta com o erro, e o erro sobe", async () => {

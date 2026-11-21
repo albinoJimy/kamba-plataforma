@@ -9,6 +9,9 @@
 /**
  * A resposta de canal `whatsapp`, com o canal e o `phone_number_id` da conversa.
  *
+ * Com o *template* que o AGR escolheu, quando o escolheu (`template_nome` e
+ * `template_parametros`, revisão `0076` do KAM-221).
+ *
  * O `tenant_id` e o `conversation_id` repetem-se no `WHERE` de propósito: o
  * `reply_id` do evento tem de ser **desta** conversa, e não só deste tenant. A
  * linha tranca-se (`FOR UPDATE OF r`): duas entregas concorrentes do mesmo
@@ -16,6 +19,7 @@
  */
 export const SQL_RESPOSTA_DO_WHATSAPP = `
   SELECT r.reply_id, r.chave, r.contact_id, r.conversation_id, r.texto, r.botoes,
+         r.template_nome, r.template_parametros,
          r.turno_iniciado_em, r.entregue_at, c.channel_id, tc.phone_number_id
     FROM platform.agent_replies r
     JOIN platform.conversations c
@@ -45,7 +49,11 @@ export const SQL_MARCAR_ENTREGUE = `
  * O `Saida` responde `ok` a uma chave que já passou **sem olhar ao estado** da
  * linha: uma linha `queued` (o processo morreu entre a linha e a rede) ou
  * `failed` também é «repetida». Só uma linha que saiu conta como entregue.
+ *
+ * O `wamid` e o `error_code` são do KAM-227: uma linha com `wamid` foi aceite
+ * pela Meta e nunca se reenvia, e um `failed` com código ambíguo pode ter saído
+ * (`decidirEnvio`, no `efeito.ts`).
  */
 export const SQL_ESTADO_DO_ENVIO = `
-  SELECT state FROM platform.outbound_messages
+  SELECT state, wamid, error_code FROM platform.outbound_messages
    WHERE tenant_id = $1 AND idempotency_key = $2`;

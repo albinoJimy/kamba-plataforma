@@ -13,15 +13,15 @@ escreveu: doze nos recebem aquele tipo, e um tipo proprio era um adaptador por
 no. O que muda por persona — a `persona` e a `tools_permitidas` — sao campos,
 vindos do `registry/dono.yaml` pelo `grafos.compilar`, como nas verticais.
 
-## O que o grafo diz hoje, e porque e honesto
+## O catalogo (KAM-119)
 
-As quatro tools do modulo `catalogo` estao `declaradas` (credor KAM-119): a
-ToolLayer recusa-as a todos. Por isso o `classify` **nao** as chama — uma
-chamada que se sabe recusada era uma linha de `tool_audit` por turno a dizer
-`TOOL_NOT_ALLOWED` ao proprio dono — e o `compose` diz-lhe que os modulos ainda
-nao estao activos. O que responde e a `get_store_info`, pelo `tools_info`
-reutilizado. **Nenhum texto deste ficheiro leva digitos** (o `_resposta_estatica`
-nao passa pelo validador), e ha ensaio que o mede.
+As quatro tools do modulo `catalogo` estao ligadas, e a conversa delas e o
+`catalogo.py` deste pacote: o `classify` da as intencoes `modulos` (palavras do
+catalogo) e `catalogo` (um botao do catalogo, uma foto, uma referencia `PRD-…`,
+ou uma resposta a um rascunho a espera), e as duas vao ao `confirm`, como a
+resposta a um orcamento. Num tenant sem o modulo, as tools recusam no passo 2 e
+o dono e avisado. **Nenhum texto deste ficheiro leva digitos** (o
+`_resposta_estatica` nao passa pelo validador), e ha ensaio que o mede.
 
 ## O botao chega; o texto ainda nao
 
@@ -38,7 +38,7 @@ from __future__ import annotations
 import re
 import unicodedata
 from collections.abc import Mapping
-from typing import Any, Final
+from typing import Any, Final, NamedTuple
 
 from ...dono import accoes
 from ...tls import orcamento as orcamento_repo
@@ -78,6 +78,7 @@ from ..vendedor.nos import (
 )
 from ...orcamento import regras
 from ...orcamento.regras import NOME_NEUTRO
+from . import catalogo
 from .arestas import INTENCOES
 
 #: As tools do Assistente do Dono, pela ordem do `registry/dono.yaml`. So para
@@ -150,10 +151,10 @@ def _botao_do_turno(estado: Mapping[str, Any]) -> str:
 def classify(deps: Dependencias):
     """Transicoes 11 a 14: a intencao. Regras primeiro, modelo so se preciso.
 
-    **Nenhuma intencao chama uma tool de escrita**, e nao e prudencia: as quatro
-    do catalogo estao declaradas e um texto («sim», «confirmo, podes publicar»)
-    nunca confirma nada — so o botao `confirm:{action_id}` do mesmo contacto, e
-    isso e o `dono/accoes.py`, fora do grafo.
+    **Nenhuma intencao chama uma tool de escrita**: um texto («sim», «confirmo,
+    podes publicar») nunca confirma nada — so o botao `confirm:{action_id}` do
+    mesmo contacto, e isso e o `dono/accoes.py`, fora do grafo. As leituras
+    do catalogo (KAM-119) decidem so se ha um rascunho a espera de resposta.
     """
 
     async def no(estado: dict[str, Any]) -> dict[str, Any]:
@@ -166,10 +167,28 @@ def classify(deps: Dependencias):
         if botao == BOTAO_HUMANO:
             return {"intent": "humano", "handoff_motivo": MOTIVO_PEDIDO}
         texto = _texto_do_cliente(estado)
+        if catalogo.e_do_catalogo(estado, texto):
+            # KAM-119: um botao do catalogo, uma foto, ou uma referencia `PRD-…`.
+            return {"intent": "catalogo"}
         if e_resposta_de_orcamento(texto):
             # KAM-220. **Antes das palavras e do modelo**: um valor escrito pelo
             # dono e a resposta a um pedido, e um classificador aqui era um
             # modelo a decidir se um numero e um preco.
+            #
+            # KAM-119: **sem referencia `ORC-…`, sem pedido de orcamento a
+            # espera e com um rascunho do catalogo a espera de resposta**, o
+            # valor e o preco desse rascunho — vai ao eco, e nao se grava.
+            partes = _partes_da_resposta(texto)
+            if (
+                partes.referencia is None
+                # Com condicoes e um orcamento, e nunca o preco de um rascunho
+                # (achado 11 da revisao): o catalogo lia o texto todo como valor.
+                and partes.condicoes is None
+                and partes.erro is None
+                and not await _ha_pendentes(deps, estado)
+                and await catalogo.ha_resposta_a_dar(deps, estado)
+            ):
+                return {"intent": "catalogo"}
             return {"intent": "responder_orcamento"}
         intencao = intencao_por_regras(texto)
         if intencao is None and deps.classificador is not None:
@@ -184,6 +203,18 @@ def classify(deps: Dependencias):
             # So no lugar do `outro`: um pedido de humano, de informacao ou do
             # catalogo continua a ser respondido pelo que e.
             resolvida = "orcamento"
+        if (
+            resolvida == "outro"
+            and catalogo.regras.parece_resposta(texto)
+            and await catalogo.ha_resposta_a_dar(deps, estado)
+        ):
+            # KAM-119: o dono a responder as perguntas de um rascunho («camisa
+            # polo», «azul») nao tem palavra que o diga. So no lugar do `outro`,
+            # e **nunca** um cumprimento ou uma pergunta (achado 3 da revisao):
+            # «bom dia» ia parar a `entrega`. A leitura custa uma linha de
+            # `tool_audit` por turno destes, e num tenant sem o modulo e um
+            # `ENTITLEMENT_DENIED` — o preco de nao guardar estado proprio.
+            resolvida = "catalogo"
         delta: dict[str, Any] = {"intent": resolvida}
         if resolvida == "humano":
             delta["handoff_motivo"] = MOTIVO_PEDIDO
@@ -205,13 +236,63 @@ _FORMA_DE_VALOR: Final = re.compile(r"\d|\bmil\b|\bmilh", re.IGNORECASE)
 _LIGACAO: Final = re.compile(r"\b(?:para|pro|o|do|ao|pedido|referencia|ref)\b|[:;,\-]", re.IGNORECASE)
 
 
-def _partes_da_resposta(texto: str) -> tuple[str | None, str]:
-    """`(referencia, texto_do_valor)`: a referencia tirada, e o resto limpo."""
+#: A marca que separa o valor das condicoes (KAM-230). **Decisao do fundador de
+#: 2026-11-20, opcao A**: o dono escreve «Condições:», com ou sem acento e sem
+#: distinguir maiusculas, e o que vem antes e o valor, e o que vem depois sao as
+#: condicoes. Recusadas a mudanca de linha (B), que uma quebra acidental mudava
+#: de sentido, e a separacao automatica (C), que era adivinhar onde acaba o valor.
+_MARCA_DAS_CONDICOES: Final = re.compile(r"\bcondi[cç][oõ]es\s*:", re.IGNORECASE)
+
+#: As duas formas de escrever mal a marca: duas vezes, ou sem nada a seguir.
+CONDICOES_REPETIDAS: Final = "condicoes_repetidas"
+CONDICOES_VAZIAS: Final = "condicoes_vazias"
+
+
+class _Resposta(NamedTuple):
+    """A resposta do dono partida: a referencia, o texto do valor, as condicoes.
+
+    `erro` e um de `CONDICOES_REPETIDAS` ou `CONDICOES_VAZIAS` quando a marca esta
+    mal escrita; entao o valor e as condicoes nao contam, e nada vai a tool.
+    """
+
+    referencia: str | None
+    valor: str
+    condicoes: str | None = None
+    erro: str | None = None
+
+
+def _partes_da_resposta(texto: str) -> _Resposta:
+    """A referencia, o texto do valor e as condicoes, separados pela marca.
+
+    **O valor e o que vem antes da marca, e so ele passa pelas palavras de
+    ligacao e pelo *parser***: as condicoes ficam como o dono as escreveu, e quem
+    as le e a guarda do KAM-033 e o `screen`. A referencia `ORC-…` tira-se do
+    texto inteiro, dos dois lados: e um identificador para o sistema, e nao
+    conteudo para o cliente.
+    """
+    # NFC antes de procurar a marca (achado 9 da revisao): «Condições» composta
+    # por letra e acento combinante nao casava, e o texto ia ao modelo.
+    texto = unicodedata.normalize("NFC", texto)
     achada = _REFERENCIA_NO_TEXTO.search(texto)
     referencia = f"ORC-{achada.group(1).upper()}" if achada else None
-    resto = _REFERENCIA_NO_TEXTO.sub(" ", texto)
-    resto = " ".join(_LIGACAO.sub(" ", resto).split())
-    return referencia, resto
+    sem_referencia = _REFERENCIA_NO_TEXTO.sub(" ", texto)
+    pedacos = _MARCA_DAS_CONDICOES.split(sem_referencia)
+    antes = pedacos[0]
+    if len(pedacos) > 1:
+        # O ponto que fecha a frase do valor antes da marca («120 mil.
+        # Condições: …») e pontuacao, e nao parte do valor: o *parser* lia
+        # «120 mil.» como ambiguo. Um so, e so com a marca.
+        antes = antes.rstrip()
+        antes = antes[:-1] if antes.endswith(".") else antes
+    valor = " ".join(_LIGACAO.sub(" ", antes).split())
+    if len(pedacos) > 2:
+        return _Resposta(referencia, valor, erro=CONDICOES_REPETIDAS)
+    if len(pedacos) == 2:
+        condicoes = " ".join(pedacos[1].split())
+        if not condicoes:
+            return _Resposta(referencia, valor, erro=CONDICOES_VAZIAS)
+        return _Resposta(referencia, valor, condicoes)
+    return _Resposta(referencia, valor)
 
 
 def e_resposta_de_orcamento(texto: str) -> bool:
@@ -221,13 +302,13 @@ def e_resposta_de_orcamento(texto: str) -> bool:
     nao uma pergunta ao modelo. «120 mil» e uma resposta; «quanto vendi hoje?»
     nao e, e segue o caminho de sempre.
     """
-    referencia, resto = _partes_da_resposta(texto)
-    if referencia is not None:
+    partes = _partes_da_resposta(texto)
+    if partes.referencia is not None:
         return True
-    if not _FORMA_DE_VALOR.search(resto):
+    if not _FORMA_DE_VALOR.search(partes.valor):
         return False
     try:
-        regras.ler_valor_do_dono(resto)
+        regras.ler_valor_do_dono(partes.valor)
     except regras.ValorRecusadoError:
         return False
     return True
@@ -273,19 +354,27 @@ async def _responder_orcamento(deps: Dependencias, estado: Mapping[str, Any]) ->
 
     O sistema nao le o valor aqui: passa o **texto** a tool, e e o *parser* do
     KAM-123 quem o le ou o recusa.
+
+    **As condicoes vem depois da marca «Condições:»** (KAM-230, decisao do
+    fundador de 2026-11-20): vao a tool no argumento `condicoes`, e a tool passa-as
+    pela guarda do KAM-033 e pelo `screen`. Uma marca repetida ou sem nada a
+    seguir recusa antes de chamar a tool, e nada se grava.
     """
-    referencia, resto = _partes_da_resposta(_texto_do_cliente(estado))
+    partes = _partes_da_resposta(_texto_do_cliente(estado))
+    if partes.erro is not None:
+        return _resposta_estatica(MSG_CONDICOES_MAL_ESCRITAS)
     try:
-        qual = await _qual_pedido(deps, estado, referencia)
+        qual = await _qual_pedido(deps, estado, partes.referencia)
     except Exception:  # noqa: BLE001 — a base em baixo diz-se, e nao rebenta
         return _resposta_estatica(MSG_PENDENTES_INDISPONIVEIS)
     if qual is None:
         return _resposta_estatica(MSG_QUAL_PEDIDO)
-    if not resto:
+    if not partes.valor:
         return _resposta_estatica(MSG_VALOR_POR_REESCREVER)
-    resultado = await _invocar(
-        deps, estado, "submit_quote", {"referencia": qual, "valor": resto}
-    )
+    argumentos = {"referencia": qual, "valor": partes.valor}
+    if partes.condicoes is not None:
+        argumentos["condicoes"] = partes.condicoes
+    resultado = await _invocar(deps, estado, "submit_quote", argumentos)
     if not resultado.ok:
         return _resposta_estatica(_frase_da_recusa(resultado.error))
     resposta = _resposta_estatica(
@@ -301,7 +390,8 @@ def _frase_da_recusa(erro: Any) -> str:
     if codigo == VALIDATION_ERROR and detalhe in regras.RECUSAS_DO_VALOR:
         return MSG_VALOR_POR_REESCREVER
     if codigo == VALIDATION_ERROR and detalhe in regras.RECUSAS_DAS_CONDICOES:
-        return MSG_VALOR_POR_REESCREVER
+        # KAM-230: as condicoes tem frase propria; o valor estava certo.
+        return MSG_CONDICOES_POR_REESCREVER
     if codigo == VALIDATION_ERROR and detalhe == orcamento_repo.FECHADO:
         return MSG_PEDIDO_FECHADO
     if codigo == NOT_FOUND:
@@ -383,6 +473,9 @@ def confirm(deps: Dependencias):
             # outro lado do mesmo botao — o eco que este ramo devolve e o botao
             # que o ramo de baixo confirma.
             return await _responder_orcamento(deps, estado)
+        if estado.get("intent") in ("modulos", "catalogo"):
+            # KAM-119, arestas 11 e 37: a conversa do catalogo (`catalogo.py`).
+            return await catalogo.tratar(deps, estado)
         porta = deps.accoes_do_dono
         if porta is None:
             return _resposta_estatica(MSG_CONFIRMACAO_INDISPONIVEL)
@@ -399,6 +492,14 @@ def confirm(deps: Dependencias):
             envio = await _enviar_orcamento(deps, estado, botao)
             if envio is not None:
                 return _resposta_estatica(FRASE_DO_ENVIO.get(envio, MSG_CONFIRMADA))
+            # KAM-119: nao e uma proposta; se for um produto, publica-se. Tambem
+            # num `ja_confirmada`, pela razao do envio: uma publicacao que o
+            # Registo nao recebeu repete-se com o mesmo botao, e e idempotente.
+            action_id = accoes.accao_do_botao(botao)
+            if action_id is not None:
+                frase = await catalogo.publicar(deps, estado, botao, action_id)
+                if frase is not None:
+                    return _resposta_estatica(frase)
         return _resposta_estatica(FRASE_DA_CONFIRMACAO.get(desfecho, MSG_PEDIDO_NAO_ENCONTRADO))
 
     return no
@@ -417,9 +518,10 @@ async def _enviar_orcamento(deps: Dependencias, estado: Mapping[str, Any], botao
     try:
         envio = await porta.enviar(estado["tenant_id"], estado["contact_id"], action_id)
     except Exception:  # noqa: BLE001 — o turno do dono nao rebenta por isto
-        # A base ou o Outbound falharam a meio. Nada mudou no pedido (o envio
-        # corre numa transaccao), e o mesmo botao tenta outra vez; a frase nao
-        # diz que a proposta saiu, e serve a qualquer tipo de accao.
+        # A base ou o Outbound falharam a meio. O pedido so muda depois de o
+        # Outbound responder (KAM-221: o registo e outra transaccao), e o mesmo
+        # botao tenta outra vez com a mesma chave; a frase nao diz que a
+        # proposta saiu, e serve a qualquer tipo de accao.
         return FALHA_DO_ENVIO
     if envio.desfecho == orcamento_repo.NAO_E_ORCAMENTO:
         return None
@@ -470,8 +572,6 @@ def compose(deps: Dependencias):
         for aviso in tuple(estado.get("avisos") or ()):
             blocos.append({"type": "text", "text": FRASE_DO_AVISO.get(aviso, MSG_NAO_CONSEGUI)})
         delta: dict[str, Any] = {}
-        if estado.get("intent") == "modulos":
-            blocos.append({"type": "text", "text": MSG_MODULOS_INACTIVOS})
         if estado.get("intent") == "orcamento":
             # KAM-220. As ofertas vao ao estado porque o `validate` reutilizado
             # so deixa citar um `sku` que esteja nelas.
@@ -495,13 +595,6 @@ def compose(deps: Dependencias):
 # `send` sem passar pelo validador, e os do `compose` sao blocos `text`, que o
 # *renderer* recusa com digitos.
 
-#: O que se diz a um pedido sobre o catalogo enquanto o KAM-119 nao liga as
-#: tools. **E a verdade e nao uma evasiva**: as quatro estao declaradas e a
-#: ToolLayer recusa-as.
-MSG_MODULOS_INACTIVOS: Final = (
-    "Os modulos do catalogo ainda nao estao activos para a sua loja. Quando "
-    "estiverem, trato daqui dos produtos e da publicacao."
-)
 MSG_FORA_DE_AMBITO: Final = (
     "Por aqui trato da sua loja: o catalogo e a informacao da loja. Prefere "
     "falar com uma pessoa?"
@@ -510,8 +603,8 @@ MSG_REPETIR: Final = (
     "Nao consegui ouvir bem a nota de voz. Pode escrever o que precisa?"
 )
 MSG_NAO_ENTENDI: Final = (
-    "Nao percebi o que precisa. Posso dar a informacao da loja, e os modulos do "
-    "catalogo ainda nao estao activos."
+    "Nao percebi o que precisa. Posso dar a informacao da loja e tratar do "
+    "catalogo: para um produto novo, mande uma foto dele."
 )
 MSG_NAO_CONSEGUI: Final = "Nao consegui tratar esse pedido por aqui."
 
@@ -535,8 +628,24 @@ MSG_QUAL_PEDIDO: Final = (
 MSG_PEDIDO_FECHADO: Final = "Esse pedido ja esta fechado e nao se responde."
 MSG_SEM_MODULO_DE_ORCAMENTO: Final = "O Orcamento expresso nao esta activo para a sua loja."
 MSG_COMO_RESPONDER: Final = (
-    "Para responder, escreva o valor final e a referencia do pedido. O valor so "
-    "segue ao cliente depois de o confirmar no botao."
+    "Para responder, escreva o valor final e a referencia do pedido. Se quiser "
+    "juntar condicoes, escreva-as no fim, a seguir a Condicoes: (por exemplo, "
+    "entrega combinada consigo). O valor so segue ao cliente depois de o "
+    "confirmar no botao."
+)
+#: KAM-230: a marca das condicoes escrita duas vezes, ou sem nada a seguir.
+MSG_CONDICOES_MAL_ESCRITAS: Final = (
+    "Nao percebi as condicoes. Escreva Condicoes: uma so vez, no fim, com o "
+    "texto a seguir, ou envie so o valor e a referencia."
+)
+#: KAM-230: as condicoes recusadas — numeros, tamanho, a guarda, o `screen`, ou
+#: o `screen` indisponivel (sem destino autorizado, o COM em baixo, sem prazo).
+#: **Nao culpa o texto**, porque a tool nao distingue as recusas para o no
+#: (achado 6 da revisao): diz o que o dono pode fazer nos dois casos. Nunca diz
+#: porque, pela razao da recusa do `screen`: a regra nao sai.
+MSG_CONDICOES_POR_REESCREVER: Final = (
+    "Nao consegui aceitar essas condicoes. Pode enviar o orcamento sem elas, so "
+    "com o valor e a referencia, ou reescreve-las sem numeros."
 )
 
 #: As frases do `confirm` (KAM-211). Sem digitos, pela razao dos outros textos.

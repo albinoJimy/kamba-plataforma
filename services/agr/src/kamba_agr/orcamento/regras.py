@@ -50,6 +50,7 @@ from kamba_core.catalogo.screening import (
 )
 
 from ..guardas.regras import veredicto_por_regras
+from ..saida import PREFIXO_DO_ACEITO
 from ..validador.normalizacao import (
     CENTIMOS_POR_KZ,
     sem_acento,
@@ -59,6 +60,9 @@ from ..validador.normalizacao import (
     para_centimos,
 )
 from ..validador.render import LUANDA, em_luanda
+
+#: O unico sujeito que o `conferir_condicoes` aceita na porta (`tls/screening.py`).
+SUJEITO_DAS_CONDICOES: Final = "condicoes"
 
 # ------------------------------------------------------------------ estados
 
@@ -119,6 +123,14 @@ VALIDADE_POR_OMISSAO: Final = datetime.timedelta(days=7)
 #: Quanto tempo um pedido espera o dono antes da mensagem neutra ao cliente e
 #: da oferta de humano (criterio 9, *proposta*).
 ESPERA_DO_DONO: Final = datetime.timedelta(hours=24)
+
+#: Durante quanto tempo, passada a `ESPERA_DO_DONO`, a varredura ainda procura
+#: um pedido para a mensagem neutra (KAM-221, *proposta*). A «uma mensagem» e a
+#: chave do Outbound (`orcamento:{quote_id}:sem_resposta`), e nao uma coluna: o
+#: horizonte so existe para que um pedido que o dono nunca responde nao seja
+#: relido em todas as voltas para sempre. Uma varredura parada mais do que isto
+#: perde a mensagem desse pedido; o pedido continua visivel ao dono.
+HORIZONTE_DO_AVISO: Final = datetime.timedelta(hours=24)
 
 
 def hoje_em_luanda(agora: datetime.datetime) -> datetime.date:
@@ -301,6 +313,16 @@ def _tem_numero_por_extenso(texto: str) -> bool:
     return _QUANTIFICADORES.search(normal) is not None
 
 
+def ha_condicoes(texto: object) -> bool:
+    """Se ha condicoes a conferir: tudo menos `None` e uma cadeia so de espacos.
+
+    O mesmo criterio do `conferir_condicoes`, que devolve `None` nesses dois
+    casos sem chamar o `screen`. Um valor que nao seja cadeia conta como
+    condicoes — e o `conferir_condicoes` recusa-o.
+    """
+    return texto is not None and not (isinstance(texto, str) and not texto.split())
+
+
 def conferir_condicoes(
     texto: object, *, screening: PortaDeScreening, tenant_id: str, quote_id: str
 ) -> str | None:
@@ -342,6 +364,11 @@ def conferir_condicoes(
         raise ValueError(CONDICOES_COM_NUMEROS)
     if veredicto_por_regras(limpo) in _VEREDICTOS_QUE_RECUSAM:
         raise ValueError(CONDICOES_RECUSADAS)
+    if getattr(screening, "sujeito_tipo", SUJEITO_DAS_CONDICOES) != SUJEITO_DAS_CONDICOES:
+        # KAM-119: o adaptador do COM passou a servir tambem o `produto`. Uma
+        # porta de produto aqui gravava uma decisao `produto` com o `quote_id`:
+        # e um defeito de montagem, e fecha como uma porta em baixo.
+        raise CondicoesRecusadasError(SCREENING_INDISPONIVEL)
     try:
         resultado = screening.screen(tenant_id, quote_id, None, (limpo,))
     except Exception:  # noqa: BLE001 — uma porta que falha recusa
@@ -455,6 +482,69 @@ def modelo_da_proposta(
     return "\n".join(linhas)
 
 
+def texto_sem_resposta(quote_id: str) -> str:
+    """A mensagem neutra ao cliente quando o dono nao respondeu (KAM-221).
+
+    **Sem numero nenhum**, nem o prazo: «vinte e quatro horas» numa mensagem
+    era um numero sem *fact*, e o que o cliente precisa de saber e que o pedido
+    nao se perdeu e que pode falar com uma pessoa. A referencia e so letras.
+    Nao promete valor nem prazo, porque nenhum dos dois e da plataforma.
+
+    A palavra que se sugere e a `PALAVRA_DE_HUMANO`, e nao «pessoa»: e uma que
+    o `classify` do Vendedor le como pedido de humano sozinha (o ensaio
+    `test_a_palavra_sugerida_e_um_pedido_de_humano` liga as duas).
+    """
+    return "\n".join(
+        (
+            f"O seu pedido de orçamento {referencia_interna(quote_id)} ainda está à espera da loja.",
+            f"Se preferir, responda «{PALAVRA_DE_HUMANO}» e alguém da loja fala consigo.",
+        )
+    )
+
+
+#: A resposta que a mensagem neutra sugere para a oferta de humano.
+PALAVRA_DE_HUMANO: Final = "atendente"
+
+
+def botao_aceitar(quote_id: object) -> str:
+    """O botao «Aceito» da proposta: `aceitar_orcamento:ORC-…` (KAM-226; dicionario §3.79).
+
+    **A referencia vai no identificador** (decisao do fundador de 2026-11-20,
+    opcao B do KAM-226): um botao esta preso a uma mensagem, e o toque aceita
+    **aquela** proposta, e nao o ultimo pedido do cliente. Sem a referencia, o
+    botao de uma proposta vencida aceitava a mais nova (achado 1 da revisao).
+    A referencia e so letras, e e a que a proposta mostra; o `quote_id` nunca
+    vai ao ecra. Vive aqui, e nao no grafo, porque a ToolLayer o poe na proposta
+    e nao importa das verticais.
+    """
+    return f"{PREFIXO_DO_ACEITO}{referencia_interna(quote_id)}"
+
+
+def referencia_do_aceito(botao: object) -> str | None:
+    """A referencia `ORC-…` de um botao «Aceito», ou `None` se o botao nao for um."""
+    if not isinstance(botao, str) or not botao.startswith(PREFIXO_DO_ACEITO):
+        return None
+    referencia = botao[len(PREFIXO_DO_ACEITO) :].strip().upper()
+    return referencia if prefixo_da_referencia(referencia) is not None else None
+
+
+def texto_do_aviso_ao_dono(quote_id: str) -> str:
+    """O aviso proactivo ao dono de um pedido novo (KAM-226).
+
+    **Sem numero nenhum**, nem o `sku` nem a quantidade: o aviso diz que ha um
+    pedido e qual e a referencia, e a lista dos pendentes (o `orcamento` do grafo
+    do dono, pela palavra «pendentes») mostra o resto pela forma que o validador
+    deixa citar. A referencia e so letras. Sem acentos, como os textos do grafo
+    do dono.
+    """
+    return "\n".join(
+        (
+            f"Tem um pedido de orcamento novo: {referencia_interna(quote_id)}.",
+            "Escreva «pendentes» para ver os pedidos em aberto.",
+        )
+    )
+
+
 def preencher(modelo: str, facts: tuple[Any, ...]) -> str:
     """O *renderer* por referencia da proposta: cada `{{…}}` pelo seu *fact*.
 
@@ -503,6 +593,7 @@ __all__ = [
     "ENVIADO",
     "ESPERA_DO_DONO",
     "ESTADOS",
+    "HORIZONTE_DO_AVISO",
     "EXPIRADO",
     "FINAIS",
     "JANELA_DE_REPETICAO",
@@ -519,6 +610,7 @@ __all__ = [
     "CondicoesRecusadasError",
     "data_display",
     "eco_do_valor",
+    "ha_condicoes",
     "hoje_em_luanda",
     "instante_da_validade",
     "ler_valor_do_dono",
@@ -526,5 +618,6 @@ __all__ = [
     "pode_passar",
     "preencher",
     "referencia_interna",
+    "texto_sem_resposta",
     "validade_por_omissao",
 ]

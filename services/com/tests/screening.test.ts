@@ -10,7 +10,8 @@
  * categoria do pedido ou a do tenant    a SQL corre so quando o pedido nao a traz
  * a decisao grava-se                    numa transaccao do tenant do ctx, e so depois responde
  * o escritor falha                      UPSTREAM_DOWN, nunca a decisao
- * sujeito categoria ou produto          VALIDATION_ERROR, e nenhuma ligacao se abre
+ * sujeito categoria ou desconhecido     VALIDATION_ERROR, e nenhuma ligacao se abre
+ * sujeito produto (KAM-119)             entra, com a categoria do tenant, e grava-se
  * o operacoesDoCom                      passa o classificador, e grava o sujeito das condicoes
  * texto de categoria restrita           bloqueada, com o id da politica
  * sem classificador                     condicional, nunca permitida
@@ -21,16 +22,22 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import {
+  conteudoSha256,
+  FINALIDADE_DAS_CONDICOES,
+  FINALIDADE_DO_CATALOGO,
   politicaCorrente,
+  SQL_DECISOES,
   type ClassificadorDeCategorias,
   type LinhaDeDecisao,
 } from "@kamba/core-ts/screening";
 
 import { operacoesDoCom } from "../src/adapters/medusa/index.ts";
 import {
+  FINALIDADE_DO_SUJEITO,
   operacaoDeScreen,
   SQL_CATEGORIA_DO_TENANT,
   SUJEITO_DAS_CONDICOES,
+  SUJEITO_DO_PRODUTO,
   SUJEITOS_DA_ROTA,
 } from "../src/screening/index.ts";
 import type { ClienteSql, ComTenant, Ctx } from "../src/port/index.ts";
@@ -40,6 +47,9 @@ const QUOTE = "0000000a-0000-4000-8000-00000000000a";
 /** O sujeito das condições, o único que a rota aceita (revisão `0074`). */
 const CONDICOES = SUJEITO_DAS_CONDICOES;
 const CTX: Ctx = { tenantId: TENANT, actor: { kind: "agente", id: "grafo-dono" }, traceId: "t-1" };
+/** A finalidade e o prazo de um pedido das condições, e de um do produto (KAM-230). */
+const COND = { finalidade: FINALIDADE_DAS_CONDICOES, prazoMs: 10_000 } as const;
+const PROD = { finalidade: FINALIDADE_DO_CATALOGO, prazoMs: 10_000 } as const;
 
 interface Base {
   readonly comTenant: ComTenant;
@@ -78,6 +88,22 @@ function base(opcoes: { categoriaDoTenant?: string; falhaAGravar?: boolean } = {
         });
         return { rows: [] };
       }
+      if (sql === SQL_DECISOES) {
+        // O `LeitorSql` do `assertPublishable` (KAM-119): as linhas gravadas
+        // deste sujeito, versao e conteudo, pela ordem em que se gravaram.
+        const [tenant, tipo, ref, versao, sha] = parametros as [string, string, string, string, Uint8Array];
+        const rows = gravadas
+          .filter(
+            (l) =>
+              l.tenantId === tenant &&
+              l.sujeitoTipo === tipo &&
+              l.sujeitoRef === ref &&
+              l.versaoPolitica === versao &&
+              Buffer.from(l.conteudoSha256).equals(Buffer.from(sha)),
+          )
+          .map((l) => ({ decisao: l.decisao, origem: l.origem }));
+        return { rows };
+      }
       throw new Error(`consulta inesperada: ${sql}`);
     },
   };
@@ -102,15 +128,16 @@ function classificador(decisao: "permitida" | "condicional" | "bloqueada"): Clas
   return duplo as unknown as ClassificadorDeCategorias & { chamadas: number };
 }
 
-test("KAM-222: so o sujeito das condicoes entra pela rota, e nenhuma ligacao se abre para os outros", async () => {
-  // A `categoria` mudava a categoria do tenant; o `produto` fazia a re-análise
-  // saltar um produto publicado (achado 1 da revisão adversarial). E o das
-  // condições está lá: sem ele, a rota recusava tudo.
-  assert.deepEqual(SUJEITOS_DA_ROTA, [SUJEITO_DAS_CONDICOES]);
+test("KAM-222 e KAM-119: entram as condicoes e o produto, nunca a categoria, e nenhuma ligacao se abre para os outros", async () => {
+  // A `categoria` mudava a categoria do tenant. O `produto` entrou com o
+  // KAM-119, quando a re-análise passou a comparar o conteúdo (achado 1 da
+  // revisão adversarial do KAM-222).
+  assert.deepEqual([...SUJEITOS_DA_ROTA].sort(), [SUJEITO_DAS_CONDICOES, SUJEITO_DO_PRODUTO].sort());
+  assert.ok(!(SUJEITOS_DA_ROTA as readonly string[]).includes("categoria"));
   const b = base();
   const operar = operacaoDeScreen({ comTenant: b.comTenant, politica: politicaCorrente(), classificador: null });
-  for (const sujeitoTipo of ["categoria", "produto", "outro", ""]) {
-    const r = await operar(CTX, { sujeitoTipo, sujeitoRef: "moda", categoriaDeclarada: "moda", textos: ["x"] });
+  for (const sujeitoTipo of ["categoria", "outro", ""]) {
+    const r = await operar(CTX, { ...COND, sujeitoTipo, sujeitoRef: "moda", categoriaDeclarada: "moda", textos: ["x"] });
     assert.deepEqual(r, { tipo: "erro", erro: "VALIDATION_ERROR" }, sujeitoTipo);
   }
   assert.equal(b.transaccoes.length, 0);
@@ -121,6 +148,7 @@ test("KAM-222: texto de categoria restrita sai bloqueada, com o id da politica, 
   const c = classificador("permitida");
   const operar = operacaoDeScreen({ comTenant: b.comTenant, politica: politicaCorrente(), classificador: c });
   const r = await operar(CTX, {
+    ...COND,
     sujeitoTipo: CONDICOES,
     sujeitoRef: QUOTE,
     categoriaDeclarada: null,
@@ -145,7 +173,7 @@ test("KAM-222: sem categoria no pedido, le-se a do tenant; com ela, nao se le", 
     politica: politicaCorrente(),
     classificador: classificador("permitida"),
   });
-  const r = await operar(CTX, { sujeitoTipo: CONDICOES, sujeitoRef: QUOTE, categoriaDeclarada: null, textos: ["entrega combinada consigo"] });
+  const r = await operar(CTX, { ...COND, sujeitoTipo: CONDICOES, sujeitoRef: QUOTE, categoriaDeclarada: null, textos: ["entrega combinada consigo"] });
   assert.equal(r.tipo, "ok");
   if (r.tipo === "ok") assert.equal(r.valor.decisao, "permitida");
   const lidas = semCategoria.consultas.filter((c) => c.sql === SQL_CATEGORIA_DO_TENANT);
@@ -160,14 +188,14 @@ test("KAM-222: sem categoria no pedido, le-se a do tenant; com ela, nao se le", 
     politica: politicaCorrente(),
     classificador: classificador("permitida"),
   });
-  await outra(CTX, { sujeitoTipo: CONDICOES, sujeitoRef: QUOTE, categoriaDeclarada: "moda", textos: ["vestido"] });
+  await outra(CTX, { ...COND, sujeitoTipo: CONDICOES, sujeitoRef: QUOTE, categoriaDeclarada: "moda", textos: ["vestido"] });
   assert.equal(comCategoria.consultas.filter((c) => c.sql === SQL_CATEGORIA_DO_TENANT).length, 0);
 });
 
 test("KAM-222: um tenant sem categoria avaliada nao tem nada permitida", async () => {
   const b = base();
   const operar = operacaoDeScreen({ comTenant: b.comTenant, politica: politicaCorrente(), classificador: classificador("permitida") });
-  const r = await operar(CTX, { sujeitoTipo: CONDICOES, sujeitoRef: QUOTE, categoriaDeclarada: null, textos: ["entrega combinada consigo"] });
+  const r = await operar(CTX, { ...COND, sujeitoTipo: CONDICOES, sujeitoRef: QUOTE, categoriaDeclarada: null, textos: ["entrega combinada consigo"] });
   assert.equal(r.tipo, "ok");
   if (r.tipo === "ok") {
     assert.equal(r.valor.decisao, "condicional");
@@ -178,7 +206,7 @@ test("KAM-222: um tenant sem categoria avaliada nao tem nada permitida", async (
 test("KAM-222: sem classificador, uma permitida das regras sai condicional", async () => {
   const b = base({ categoriaDoTenant: "moda" });
   const operar = operacaoDeScreen({ comTenant: b.comTenant, politica: politicaCorrente(), classificador: null });
-  const r = await operar(CTX, { sujeitoTipo: CONDICOES, sujeitoRef: QUOTE, categoriaDeclarada: null, textos: ["entrega combinada consigo"] });
+  const r = await operar(CTX, { ...COND, sujeitoTipo: CONDICOES, sujeitoRef: QUOTE, categoriaDeclarada: null, textos: ["entrega combinada consigo"] });
   assert.equal(r.tipo, "ok");
   if (r.tipo === "ok") {
     assert.equal(r.valor.decisao, "condicional");
@@ -192,6 +220,7 @@ test("KAM-222: a injeccao ao classificador e condicional pelas regras", async ()
   const c = classificador("permitida");
   const operar = operacaoDeScreen({ comTenant: b.comTenant, politica: politicaCorrente(), classificador: c });
   const r = await operar(CTX, {
+    ...COND,
     sujeitoTipo: CONDICOES,
     sujeitoRef: QUOTE,
     categoriaDeclarada: null,
@@ -207,7 +236,7 @@ test("KAM-222: a injeccao ao classificador e condicional pelas regras", async ()
 test("KAM-222: um escritor que falha da UPSTREAM_DOWN e nao a decisao", async () => {
   const b = base({ categoriaDoTenant: "moda", falhaAGravar: true });
   const operar = operacaoDeScreen({ comTenant: b.comTenant, politica: politicaCorrente(), classificador: classificador("permitida") });
-  const r = await operar(CTX, { sujeitoTipo: CONDICOES, sujeitoRef: QUOTE, categoriaDeclarada: null, textos: ["entrega combinada consigo"] });
+  const r = await operar(CTX, { ...COND, sujeitoTipo: CONDICOES, sujeitoRef: QUOTE, categoriaDeclarada: null, textos: ["entrega combinada consigo"] });
   assert.deepEqual(r, { tipo: "erro", erro: "UPSTREAM_DOWN" });
 });
 
@@ -215,7 +244,7 @@ test("KAM-222: um ctx sem tenant levanta antes de abrir ligacao", async () => {
   const b = base();
   const operar = operacaoDeScreen({ comTenant: b.comTenant, politica: politicaCorrente(), classificador: null });
   await assert.rejects(
-    operar({ ...CTX, tenantId: "nao-e-uuid" }, { sujeitoTipo: CONDICOES, sujeitoRef: QUOTE, categoriaDeclarada: "moda", textos: ["x"] }),
+    operar({ ...CTX, tenantId: "nao-e-uuid" }, { ...COND, sujeitoTipo: CONDICOES, sujeitoRef: QUOTE, categoriaDeclarada: "moda", textos: ["x"] }),
   );
   assert.equal(b.transaccoes.length, 0);
 });
@@ -227,7 +256,7 @@ test("KAM-222: o operacoesDoCom passa o classificador ao screen, e a decisao gra
   const com = base({ categoriaDoTenant: "moda" });
   const c = classificador("permitida");
   const ligado = operacoesDoCom({ comTenant: com.comTenant, anel, classificador: c });
-  const r = await ligado.screen(CTX, { sujeitoTipo: CONDICOES, sujeitoRef: QUOTE, categoriaDeclarada: null, textos: ["entrega combinada consigo"] });
+  const r = await ligado.screen(CTX, { ...COND, sujeitoTipo: CONDICOES, sujeitoRef: QUOTE, categoriaDeclarada: null, textos: ["entrega combinada consigo"] });
   assert.equal(r.tipo, "ok");
   if (r.tipo === "ok") assert.equal(r.valor.decisao, "permitida");
   assert.equal(c.chamadas, 1);
@@ -239,7 +268,116 @@ test("KAM-222: o operacoesDoCom passa o classificador ao screen, e a decisao gra
   // E sem classificador, a mesma montagem fecha.
   const sem = base({ categoriaDoTenant: "moda" });
   const desligado = operacoesDoCom({ comTenant: sem.comTenant, anel });
-  const fechado = await desligado.screen(CTX, { sujeitoTipo: CONDICOES, sujeitoRef: QUOTE, categoriaDeclarada: null, textos: ["entrega combinada consigo"] });
+  const fechado = await desligado.screen(CTX, { ...COND, sujeitoTipo: CONDICOES, sujeitoRef: QUOTE, categoriaDeclarada: null, textos: ["entrega combinada consigo"] });
   assert.equal(fechado.tipo, "ok");
   if (fechado.tipo === "ok") assert.notEqual(fechado.valor.decisao, "permitida");
+});
+
+test("KAM-119: o sujeito produto entra pela rota, com a categoria do tenant, e grava-se sobre o sku", async () => {
+  const b = base({ categoriaDoTenant: "moda" });
+  const c = classificador("permitida");
+  const operar = operacaoDeScreen({ comTenant: b.comTenant, politica: politicaCorrente(), classificador: c });
+  const r = await operar(CTX, {
+    ...PROD,
+    sujeitoTipo: SUJEITO_DO_PRODUTO,
+    sujeitoRef: "vestido-01",
+    categoriaDeclarada: null,
+    textos: ["Vestido de festa azul"],
+  });
+  assert.equal(r.tipo, "ok");
+  assert.equal(b.gravadas.length, 1);
+  assert.equal(b.gravadas[0]!.sujeitoTipo, SUJEITO_DO_PRODUTO);
+  assert.equal(b.gravadas[0]!.sujeitoRef, "vestido-01");
+  // O resumo é o da entrada da re-análise: a categoria do tenant e o nome.
+  assert.deepEqual(
+    Buffer.from(b.gravadas[0]!.conteudoSha256),
+    Buffer.from(conteudoSha256({ categoria_declarada: "moda", textos: ["Vestido de festa azul"] })),
+  );
+  // No `produto`, a resposta diz se o `assertPublishable` deixa publicar.
+  assert.equal(r.tipo === "ok" && r.valor.publicavel, true);
+});
+
+test("KAM-119: uma permitida nova sobre uma condicional anterior do mesmo conteudo nao e publicavel", async () => {
+  // Achado F03 do KAM-088: sem humano, todas as linhas tem de ser `permitida`.
+  // O Catalogo AI precisa de o saber antes de gravar a ingestao `publicada`.
+  const b = base({ categoriaDoTenant: "moda" });
+  const pedido = {
+    ...PROD,
+    sujeitoTipo: SUJEITO_DO_PRODUTO,
+    sujeitoRef: "vestido-01",
+    categoriaDeclarada: null,
+    textos: ["Vestido de festa azul"],
+  };
+  const sem = operacaoDeScreen({ comTenant: b.comTenant, politica: politicaCorrente(), classificador: null });
+  const primeira = await sem(CTX, pedido);
+  assert.equal(primeira.tipo === "ok" && primeira.valor.decisao, "condicional");
+  assert.equal(primeira.tipo === "ok" && primeira.valor.publicavel, false);
+  const com = operacaoDeScreen({
+    comTenant: b.comTenant,
+    politica: politicaCorrente(),
+    classificador: classificador("permitida"),
+  });
+  const segunda = await com(CTX, pedido);
+  assert.equal(segunda.tipo === "ok" && segunda.valor.decisao, "permitida");
+  assert.equal(segunda.tipo === "ok" && segunda.valor.publicavel, false);
+  // As condicoes nao levam o campo: nao sao um produto.
+  const condicoes = await com(CTX, { ...pedido, ...COND, sujeitoTipo: CONDICOES, sujeitoRef: QUOTE });
+  assert.equal(condicoes.tipo === "ok" && "publicavel" in condicoes.valor, false);
+});
+
+// ------------------------------------------------- KAM-230: a finalidade e o prazo
+
+/** Um classificador que guarda o contexto de cada chamada. */
+function espiao(): ClassificadorDeCategorias & { contextos: unknown[] } {
+  const duplo = {
+    contextos: [] as unknown[],
+    async classificar(_pedido: unknown, contexto: unknown) {
+      duplo.contextos.push(contexto);
+      return { decisao: "permitida" as const, confianca: 0.95 };
+    },
+  };
+  return duplo as unknown as ClassificadorDeCategorias & { contextos: unknown[] };
+}
+
+test("KAM-230: cada sujeito tem a sua finalidade, e as condicoes nao tem a do catalogo", () => {
+  assert.equal(FINALIDADE_DO_SUJEITO[CONDICOES], "classificacao_de_condicoes");
+  assert.equal(FINALIDADE_DO_SUJEITO[SUJEITO_DO_PRODUTO], "classificacao_de_catalogo");
+  assert.notEqual(FINALIDADE_DO_SUJEITO[CONDICOES], FINALIDADE_DO_SUJEITO[SUJEITO_DO_PRODUTO]);
+  assert.deepEqual(Object.keys(FINALIDADE_DO_SUJEITO).sort(), [...SUJEITOS_DA_ROTA].sort());
+});
+
+test("KAM-230: o classificador recebe a finalidade do sujeito e o prazo menos a reserva", async () => {
+  const b = base({ categoriaDoTenant: "moda" });
+  const c = espiao();
+  const operar = operacaoDeScreen({ comTenant: b.comTenant, politica: politicaCorrente(), classificador: c });
+  const r = await operar(CTX, { ...COND, prazoMs: 6_000, sujeitoTipo: CONDICOES, sujeitoRef: QUOTE, categoriaDeclarada: null, textos: ["entrega combinada consigo"] });
+  assert.equal(r.tipo, "ok");
+  assert.equal(c.contextos.length, 1);
+  const contexto = c.contextos[0] as { tenantId: string; finalidade: string; prazoMs: number };
+  assert.equal(contexto.tenantId, TENANT);
+  assert.equal(contexto.finalidade, FINALIDADE_DAS_CONDICOES);
+  // Os 300 ms por extenso, e nao a constante do alvo (achado 13 da revisão):
+  // com a reserva a zero, o prazo passava dos 5 700 e o ensaio ficava vermelho.
+  assert.ok(contexto.prazoMs <= 6_000 - 300, String(contexto.prazoMs));
+  assert.ok(contexto.prazoMs > 6_000 - 300 - 1_000, String(contexto.prazoMs));
+  // O produto vai com a do catalogo.
+  await operar(CTX, { ...PROD, sujeitoTipo: SUJEITO_DO_PRODUTO, sujeitoRef: "vestido-01", categoriaDeclarada: null, textos: ["Vestido"] });
+  assert.equal((c.contextos[1] as { finalidade: string }).finalidade, FINALIDADE_DO_CATALOGO);
+});
+
+test("KAM-230: uma finalidade que nao e a do sujeito recusa antes de abrir ligacao", async () => {
+  const b = base({ categoriaDoTenant: "moda" });
+  const c = espiao();
+  const operar = operacaoDeScreen({ comTenant: b.comTenant, politica: politicaCorrente(), classificador: c });
+  for (const [sujeitoTipo, finalidade] of [
+    [CONDICOES, FINALIDADE_DO_CATALOGO],
+    [SUJEITO_DO_PRODUTO, FINALIDADE_DAS_CONDICOES],
+    [CONDICOES, "conversa"],
+    [CONDICOES, ""],
+  ] as const) {
+    const r = await operar(CTX, { prazoMs: 10_000, finalidade, sujeitoTipo, sujeitoRef: QUOTE, categoriaDeclarada: null, textos: ["x"] });
+    assert.deepEqual(r, { tipo: "erro", erro: "VALIDATION_ERROR" }, `${sujeitoTipo} ${finalidade}`);
+  }
+  assert.equal(b.transaccoes.length, 0);
+  assert.equal(c.contextos.length, 0);
 });

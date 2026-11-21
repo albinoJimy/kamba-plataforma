@@ -1558,6 +1558,38 @@ ESPERADO_POR_TABELA.update(
     }
 )
 
+#: O canal do dono pelo painel (KAM-223). A mensagem que entra no AGR e **so da
+#: aplicacao**: o `onboarding-web` insere pela segunda ligacao dele e o AGR le,
+#: os dois como `kamba_app`; ninguem muda nem apaga. A troca de telefone e
+#: **so do `kamba_identity`**, que e o papel da `definir_dono`: a troca de
+#: estado e a porta correm na mesma transaccao. Ver `COLUNAS_POR_PAPEL`.
+ESPERADO_POR_TABELA.update(
+    {
+        "agent_messages": {
+            "kamba_app": {"SELECT"},
+            "kamba_batch": set(),
+            "kamba_resolver": set(),
+            "kamba_identity": set(),
+            "kamba_audit": set(),
+            "kamba_agr": set(),
+            "kamba_pay_hooks": set(),
+            "kamba_migrator": set(PRIVILEGIOS_DE_TABELA),
+            "public": set(),
+        },
+        "owner_phone_changes": {
+            "kamba_app": set(),
+            "kamba_batch": set(),
+            "kamba_resolver": set(),
+            "kamba_identity": {"SELECT"},
+            "kamba_audit": set(),
+            "kamba_agr": set(),
+            "kamba_pay_hooks": set(),
+            "kamba_migrator": set(PRIVILEGIOS_DE_TABELA),
+            "public": set(),
+        },
+    }
+)
+
 #: Os pedidos de orcamento (KAM-123, revisao do Orcamento expresso). **So a
 #: aplicacao**: o AGR corre como `kamba_app`, le, insere e actualiza por coluna
 #: (ver `COLUNAS_POR_PAPEL`). **Ninguem apaga**: um pedido fecha-se pelo
@@ -2520,11 +2552,28 @@ COLUNAS_POR_PAPEL = {
     # conteudo da resposta, sem o `reply_id` nem o `criado_at`, que vem do
     # `DEFAULT`, e sem o `entregue_at`, que nasce vazio. O `UPDATE` e **so** o
     # `entregue_at`: uma resposta emitida nao muda de texto nem de canal.
+    # KAM-221 (0076): o *template* e os valores dos parametros entram no
+    # `INSERT`, ao lado do texto; o `UPDATE` continua so o `entregue_at`.
     ("kamba_app", "agent_replies", "INSERT"): {
         "tenant_id", "chave", "contact_id", "conversation_id", "canal", "texto",
-        "botoes", "turno_iniciado_em",
+        "botoes", "turno_iniciado_em", "template_nome", "template_parametros",
     },
     ("kamba_app", "agent_replies", "UPDATE"): {"entregue_at"},
+    # KAM-223 (revisao do canal do dono pelo painel): a mensagem insere-se
+    # sem o `message_id` nem o `criado_at`, que vem do `DEFAULT`, e nao muda.
+    ("kamba_app", "agent_messages", "INSERT"): {
+        "tenant_id", "contact_id", "conversation_id", "canal", "texto",
+    },
+    # A troca insere a identidade do pedido e o canal do numero pedido, que
+    # nao mudam depois; o `UPDATE` e o estado, o prazo, o contacto, o HMAC do
+    # antigo e o desafio.
+    ("kamba_identity", "owner_phone_changes", "INSERT"): {
+        "tenant_id", "pedido", "telefone_hmac", "owner_channel_wa", "prazo",
+    },
+    ("kamba_identity", "owner_phone_changes", "UPDATE"): {
+        "estado", "prazo", "contact_id", "antigo_hmac", "desafio_chave", "desafio_hmac",
+        "desafio_expira_em", "desafio_tentativas", "decidido_at",
+    },
     ("kamba_app", "quote_requests", "INSERT"): {
         "tenant_id", "contact_id", "conversation_id", "sku", "quantidade",
     },
@@ -2651,6 +2700,11 @@ TABELAS_COM_MATRIZ_DE_COLUNA = (
     # `GRANT UPDATE (texto)` a mais deixava mudar o que o cliente vai ler depois
     # de o evento ter saido.
     "agent_replies",
+    # KAM-223: as duas do canal do dono pelo painel tem `INSERT` (e a troca
+    # `UPDATE`) por coluna. Um `GRANT UPDATE (telefone_hmac)` a mais deixava
+    # trocar o numero depois de o codigo o ter provado.
+    "agent_messages",
+    "owner_phone_changes",
     # KAM-054 (0032): as quatro. Duas tem privilegio por coluna — o
     # `payment_confirmers` (`papel`, `pode_segunda_aprovacao`, `ativo`) e a
     # `refund_cases` (`estado`, `prova_ref`, `fechado_at`) —, e as outras duas
@@ -2871,6 +2925,9 @@ IMUTAVEIS_PARA_A_APP = {
         # KAM-097: a auto-compra compara o comprador com o dono, e o dono
         # anulava-o antes de comprar a si proprio. Escreve-o o provisioning.
         "owner_contact_id",
+        # KAM-216: o canal do dono. So a `definir_dono` o escreve, quando o dono
+        # muda; com ele o servico punha o painel a mandar o dono para o WhatsApp.
+        "owner_channel_wa",
     },
     "tenant_channels": {
         "id",         # identidade

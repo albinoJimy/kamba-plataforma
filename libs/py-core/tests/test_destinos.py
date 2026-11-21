@@ -546,18 +546,18 @@ class TestConfiguracaoSintetica(unittest.TestCase):
 
 
 class TestDominios(unittest.TestCase):
-    def test_sao_quinze_finalidades_e_estao_ordenadas(self) -> None:
-        """O numero e o do dicionario §3.49 (quinze desde o KAM-195; catorze com o KAM-120), e a ordem e a da revisao `0036`.
+    def test_sao_dezasseis_finalidades_e_estao_ordenadas(self) -> None:
+        """O numero e o do dicionario §3.49 (dezasseis desde o KAM-230; quinze com o KAM-195), e a ordem e a da revisao `0036`.
 
         **Fixo no codigo e nao derivado**, que e a diferenca entre um teste e um
         espelho: `len(FINALIDADES)` contra `len(FINALIDADES)` passa sempre.
         """
-        self.assertEqual(len(FINALIDADES), 15)
+        self.assertEqual(len(FINALIDADES), 16)
         self.assertEqual(list(FINALIDADES), sorted(FINALIDADES))
-        self.assertEqual(len(set(FINALIDADES)), 15)
+        self.assertEqual(len(set(FINALIDADES)), 16)
 
     def test_sao_as_que_a_revisao_da_cabeca_escreve(self) -> None:
-        """Paridade com o `CHECK` da revisao `finalidade_do_screening` (KAM-195).
+        """Paridade com o `CHECK` da revisao `finalidade_das_condicoes` (KAM-230).
 
         A revisao que escreve o dominio da cabeca e a ultima que o reescreveu, e
         le-se pelo *glob* porque o numero e provisorio. Sem isto, uma finalidade
@@ -569,7 +569,7 @@ class TestDominios(unittest.TestCase):
         import re
 
         versoes = pathlib.Path(__file__).resolve().parents[3] / "db" / "migrations" / "versions"
-        (ficheiro,) = versoes.glob("*_finalidade_do_screening.py")
+        (ficheiro,) = versoes.glob("*_finalidade_das_condicoes.py")
         texto = ficheiro.read_text(encoding="utf-8")
         bloco = re.search(r"^FINALIDADES_DE_TRANSFERENCIA = \(([^)]*)\)", texto, re.M)
         assert bloco is not None

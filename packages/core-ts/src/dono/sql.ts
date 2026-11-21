@@ -21,14 +21,22 @@
  */
 
 import type { ClienteDeIdentidade, Identidade } from "../identity/contactos.ts";
+import type { DesafioGuardado, RepositorioDeOtp } from "../inscricao/contrato.ts";
 import type { Telefone } from "../inscricao/identificadores.ts";
+import type { ResultadoDeEnvio, Veredicto } from "../inscricao/otp.ts";
 import { comTenant, type ClienteSql } from "../tenant_guard/index.ts";
 import { ORIGEM_DO_PROVISIONAMENTO, type DefinirDono } from "./provisionamento.ts";
 import {
+  AnteriorDiferenteError,
   TrocaDeTelefone,
+  chaveDoDesafio,
+  type AlvoDoDesafio,
   type AvisoDaTroca,
   type ContactoDoNumero,
+  type EstadoDaTroca,
   type OtpDaTroca,
+  type RepositorioDaTroca,
+  type TrocaGuardada,
   type TrocaNaBase,
 } from "./troca.ts";
 
@@ -36,10 +44,15 @@ import {
 export const ORIGEM_DA_TROCA = "troca_de_telefone";
 
 /**
- * A única escrita do papel. O `::uuid` é explícito: o parâmetro chega como texto
- * e a função só tem a assinatura `(uuid, text)`.
+ * A única escrita do papel. Os *casts* são explícitos: os parâmetros chegam como
+ * texto, e a função tem a assinatura `(uuid, text, boolean)` desde a `0075`.
+ *
+ * O terceiro é o canal do dono novo, que a função escreve em
+ * `tenants.owner_channel_wa` quando o dono muda (KAM-216). O provisionamento
+ * manda `NULL`: o dono do provisionamento é o telefone do caso, que é o número da
+ * loja, e `NULL` dá painel (`canalNoPainel`).
  */
-export const SQL_DEFINIR_DONO = "SELECT platform.definir_dono($1::uuid, $2) AS anterior";
+export const SQL_DEFINIR_DONO = "SELECT platform.definir_dono($1::uuid, $2, $3::boolean) AS anterior";
 
 /** O resolver devolveu uma fusão onde não pode haver nenhuma. */
 export class FusaoNaTrocaError extends Error {
@@ -56,11 +69,12 @@ async function definir(
   tenantId: string,
   contactId: string,
   origem: string,
+  ownerChannelWa: boolean | null,
 ): Promise<string | null> {
   return comTenant(cliente, tenantId, async (bd) => {
     // O `ClienteSql` do `tenant_guard` devolve `unknown`: a forma e a do `pg`,
     // e le-se sem confiar nela.
-    const resposta = (await bd.query(SQL_DEFINIR_DONO, [contactId, origem])) as {
+    const resposta = (await bd.query(SQL_DEFINIR_DONO, [contactId, origem, ownerChannelWa])) as {
       readonly rows?: readonly { readonly anterior?: unknown }[];
     };
     const anterior = resposta.rows?.[0]?.anterior;
@@ -74,8 +88,8 @@ async function definir(
  * ser, ou `null` se não havia nenhum (ou se o contacto já era o dono).
  */
 export function trocaNaBase(identidade: ClienteSql): TrocaNaBase {
-  return async ({ tenantId, contactId }) => ({
-    anterior: await definir(identidade, tenantId, contactId, ORIGEM_DA_TROCA),
+  return async ({ tenantId, contactId, ownerChannelWa }) => ({
+    anterior: await definir(identidade, tenantId, contactId, ORIGEM_DA_TROCA, ownerChannelWa),
   });
 }
 
@@ -87,7 +101,7 @@ export function trocaNaBase(identidade: ClienteSql): TrocaNaBase {
  */
 export function definirDonoNaBase(identidade: ClienteSql): DefinirDono {
   return async ({ tenantId, contactId }) => {
-    await definir(identidade, tenantId, contactId, ORIGEM_DO_PROVISIONAMENTO);
+    await definir(identidade, tenantId, contactId, ORIGEM_DO_PROVISIONAMENTO, null);
   };
 }
 
@@ -133,26 +147,236 @@ export async function numaLigacao<T>(
   }
 }
 
+// ----------------------------------------------------- a troca persistida (KAM-223)
+
+/** A tabela da troca (revisão `0077`). */
+const TROCAS = "platform.owner_phone_changes";
+
+/** As `pedida` vencidas do tenant, e a da mesma sessão, deixam de contar. */
+export const SQL_EXPIRAR_PEDIDAS = `
+  UPDATE ${TROCAS} SET estado = 'expirada', decidido_at = $3
+   WHERE tenant_id = $1 AND estado = 'pedida' AND (prazo <= $3 OR pedido = $2)`;
+
 /**
- * A `TrocaDeTelefone` de um processo que atende pedidos concorrentes (KAM-217):
- * o contacto e a porta com uma ligação do *pool* do `kamba_identity` por
- * operação. É a montagem que o `server.ts` do `onboarding-web` usa, e a que o
- * ensaio contra a base corre.
+ * Uma troca viva por tenant: o índice único parcial `owner_phone_changes_viva_uq`
+ * faz a segunda réplica não inserir, e o `RETURNING` vazio diz-lho.
+ */
+export const SQL_ABRIR_TROCA = `
+  INSERT INTO ${TROCAS} (tenant_id, pedido, telefone_hmac, owner_channel_wa, prazo)
+  VALUES ($1, $2, $3, $4, $5)
+  ON CONFLICT (tenant_id) WHERE estado IN ('pedida', 'pendente') DO NOTHING
+  RETURNING change_id::text AS change_id`;
+
+export const SQL_TROCA_VIVA = `
+  SELECT change_id::text AS change_id, pedido, telefone_hmac, estado, prazo,
+         contact_id::text AS contact_id, antigo_hmac, owner_channel_wa
+    FROM ${TROCAS}
+   WHERE tenant_id = $1 AND (estado = 'pendente' OR (estado = 'pedida' AND prazo > $2))`;
+
+export const SQL_DESISTIR_DA_TROCA = `
+  UPDATE ${TROCAS} SET estado = 'expirada', decidido_at = now()
+   WHERE tenant_id = $1 AND change_id = $2 AND estado = 'pedida'`;
+
+/** `pedida` → `pendente`: o contacto novo, o prazo das 72 h, e o desafio gasto. */
+export const SQL_PENDER_TROCA = `
+  UPDATE ${TROCAS}
+     SET estado = 'pendente', contact_id = $3, prazo = $4,
+         desafio_chave = NULL, desafio_hmac = NULL, desafio_expira_em = NULL, desafio_tentativas = NULL
+   WHERE tenant_id = $1 AND change_id = $2 AND estado = 'pedida'
+  RETURNING change_id`;
+
+export const SQL_ANOTAR_ANTIGO = `
+  UPDATE ${TROCAS} SET antigo_hmac = $3
+   WHERE tenant_id = $1 AND change_id = $2 AND estado = 'pendente'
+  RETURNING change_id`;
+
+/**
+ * `pendente` → `feita`, condicional: com a prova do antigo (`$4` verdadeiro) a
+ * qualquer momento, sem ela só depois do prazo. A `definir_dono` corre a seguir
+ * na **mesma** transacção, e uma recusa desfaz as duas.
+ */
+export const SQL_CONCLUIR_TROCA = `
+  UPDATE ${TROCAS} SET estado = 'feita', decidido_at = $3
+   WHERE tenant_id = $1 AND change_id = $2 AND estado = 'pendente'
+     AND ($4::boolean OR prazo <= $3)
+  RETURNING contact_id::text AS contact_id, owner_channel_wa`;
+
+export const SQL_CANCELAR_TROCA = `
+  UPDATE ${TROCAS} SET estado = 'cancelada', decidido_at = $2
+   WHERE tenant_id = $1 AND (estado = 'pendente' OR (estado = 'pedida' AND prazo > $2))
+  RETURNING change_id`;
+
+/** O desafio do OTP de um número, guardado na troca. A chave leva o número e o HMAC do telefone. */
+export const SQL_GUARDAR_DESAFIO = `
+  UPDATE ${TROCAS}
+     SET desafio_chave = $3, desafio_hmac = $4, desafio_expira_em = $5, desafio_tentativas = $6
+   WHERE tenant_id = $1 AND change_id = $2 AND estado IN ('pedida', 'pendente')`;
+
+export const SQL_DESAFIO_ACTUAL = `
+  SELECT desafio_hmac, desafio_expira_em, desafio_tentativas FROM ${TROCAS}
+   WHERE tenant_id = $1 AND change_id = $2 AND desafio_chave = $3`;
+
+export const SQL_SOMAR_TENTATIVA = `
+  UPDATE ${TROCAS} SET desafio_tentativas = desafio_tentativas + 1
+   WHERE tenant_id = $1 AND change_id = $2 AND desafio_chave = $3
+  RETURNING desafio_tentativas`;
+
+export const SQL_APAGAR_DESAFIO = `
+  UPDATE ${TROCAS}
+     SET desafio_chave = NULL, desafio_hmac = NULL, desafio_expira_em = NULL, desafio_tentativas = NULL
+   WHERE tenant_id = $1 AND change_id = $2 AND desafio_chave = $3`;
+
+type Linha = Readonly<Record<string, unknown>>;
+
+async function linhas(bd: ClienteSql, sql: string, parametros: readonly unknown[]): Promise<readonly Linha[]> {
+  const resposta = (await bd.query(sql, parametros)) as { readonly rows?: readonly Linha[] };
+  return resposta.rows ?? [];
+}
+
+function opcional(valor: unknown): string | null {
+  return valor === null || valor === undefined ? null : String(valor);
+}
+
+function instante(valor: unknown): Date {
+  return valor instanceof Date ? valor : new Date(String(valor));
+}
+
+/** Uma operação da troca: uma ligação do *pool*, uma transacção, o tenant no contexto. */
+function naTroca<T>(pool: PoolDeIdentidade, tenantId: string, trabalho: (tx: ClienteSql) => Promise<T>): Promise<T> {
+  return numaLigacao(pool, (ligacao) => comTenant(ligacao, tenantId, trabalho));
+}
+
+/** O `RepositorioDaTroca` sobre a `owner_phone_changes`, como `kamba_identity`. */
+export function trocasNaBase(pool: PoolDeIdentidade): RepositorioDaTroca {
+  return {
+    abrir: ({ tenantId, pedido, telefoneHmac, ownerChannelWa, prazo, agora }) =>
+      naTroca(pool, tenantId, async (tx) => {
+        await tx.query(SQL_EXPIRAR_PEDIDAS, [tenantId, pedido, agora]);
+        const [linha] = await linhas(tx, SQL_ABRIR_TROCA, [tenantId, pedido, telefoneHmac, ownerChannelWa, prazo]);
+        return opcional(linha?.["change_id"]);
+      }),
+    viva: (tenantId, agora) =>
+      naTroca(pool, tenantId, async (tx) => {
+        const [l] = await linhas(tx, SQL_TROCA_VIVA, [tenantId, agora]);
+        if (l === undefined) return null;
+        const troca: TrocaGuardada = {
+          changeId: String(l["change_id"]),
+          tenantId,
+          pedido: String(l["pedido"]),
+          telefoneHmac: String(l["telefone_hmac"]),
+          estado: String(l["estado"]) as EstadoDaTroca,
+          prazo: instante(l["prazo"]),
+          contactId: opcional(l["contact_id"]),
+          antigoHmac: opcional(l["antigo_hmac"]),
+          ownerChannelWa: l["owner_channel_wa"] === true,
+        };
+        return troca;
+      }),
+    desistir: (tenantId, changeId) =>
+      naTroca(pool, tenantId, async (tx) => {
+        await tx.query(SQL_DESISTIR_DA_TROCA, [tenantId, changeId]);
+      }),
+    pender: ({ tenantId, changeId, contactId, prazo }) =>
+      naTroca(pool, tenantId, async (tx) => (await linhas(tx, SQL_PENDER_TROCA, [tenantId, changeId, contactId, prazo])).length === 1),
+    anotarAntigo: (tenantId, changeId, antigoHmac) =>
+      naTroca(pool, tenantId, async (tx) => (await linhas(tx, SQL_ANOTAR_ANTIGO, [tenantId, changeId, antigoHmac])).length === 1),
+    concluir: ({ tenantId, changeId, agora, exigirAnterior }) =>
+      naTroca(pool, tenantId, async (tx) => {
+        const [feita] = await linhas(tx, SQL_CONCLUIR_TROCA, [tenantId, changeId, agora, exigirAnterior !== undefined]);
+        const contactId = opcional(feita?.["contact_id"]);
+        if (contactId === null) return null;
+        const [porta] = await linhas(tx, SQL_DEFINIR_DONO, [contactId, ORIGEM_DA_TROCA, feita?.["owner_channel_wa"] === true]);
+        const anterior = opcional(porta?.["anterior"]);
+        // Lançar dentro do `comTenant` desfaz a troca de estado e a porta: o
+        // número provado não era o do dono, e nada mudou.
+        if (exigirAnterior !== undefined && anterior !== exigirAnterior) throw new AnteriorDiferenteError();
+        return { contactId, anterior };
+      }),
+    cancelar: (tenantId, agora) =>
+      naTroca(pool, tenantId, async (tx) => (await linhas(tx, SQL_CANCELAR_TROCA, [tenantId, agora])).length === 1),
+  };
+}
+
+/**
+ * O desafio do OTP de um número, **na troca** e não em memória: um reinício a
+ * meio não perde o código, e o código de uma troca não verifica outra, nem o de
+ * um telefone outro (a chave leva o `changeId`, o número e o HMAC do telefone, e
+ * uma chave que não é a guardada não se lê).
+ */
+export function desafioNaTroca(pool: PoolDeIdentidade, alvo: AlvoDoDesafio): RepositorioDeOtp {
+  const { tenantId, changeId } = alvo;
+  return {
+    guardar: (d: DesafioGuardado) =>
+      naTroca(pool, tenantId, async (tx) => {
+        await tx.query(SQL_GUARDAR_DESAFIO, [tenantId, changeId, d.onboardingId, d.codigoHmac, d.expiraEm, d.tentativas]);
+      }),
+    actual: (chave) =>
+      naTroca(pool, tenantId, async (tx) => {
+        const [l] = await linhas(tx, SQL_DESAFIO_ACTUAL, [tenantId, changeId, chave]);
+        if (l === undefined || l["desafio_hmac"] === null) return null;
+        return {
+          onboardingId: chave,
+          codigoHmac: String(l["desafio_hmac"]),
+          expiraEm: instante(l["desafio_expira_em"]),
+          tentativas: Number(l["desafio_tentativas"]),
+        };
+      }),
+    somarTentativa: (chave) =>
+      naTroca(pool, tenantId, async (tx) => {
+        const [l] = await linhas(tx, SQL_SOMAR_TENTATIVA, [tenantId, changeId, chave]);
+        return l === undefined ? null : Number(l["desafio_tentativas"]);
+      }),
+    apagar: (chave) =>
+      naTroca(pool, tenantId, async (tx) => {
+        await tx.query(SQL_APAGAR_DESAFIO, [tenantId, changeId, chave]);
+      }),
+  };
+}
+
+/** O `Otp` do KAM-086 sobre um repositório de desafios: a forma que a fábrica devolve. */
+export interface OtpSobreRepositorio {
+  enviar(chave: string, telefone: Telefone): Promise<ResultadoDeEnvio>;
+  verificar(chave: string, codigo: unknown): Promise<Veredicto>;
+}
+
+/**
+ * O `OtpDaTroca` com o desafio na troca. A `fabrica` monta um `Otp` sobre um
+ * repositório — o processo passa os contadores, o fornecedor e a chave dele —,
+ * e cada operação monta o seu, ligado à troca e ao número.
+ */
+export function otpDaTrocaNaBase(
+  pool: PoolDeIdentidade,
+  fabrica: (repositorio: RepositorioDeOtp) => OtpSobreRepositorio,
+): OtpDaTroca {
+  return {
+    enviar: (alvo, telefone) => fabrica(desafioNaTroca(pool, alvo)).enviar(chaveDoDesafio(alvo), telefone),
+    verificar: (alvo, codigo) => fabrica(desafioNaTroca(pool, alvo)).verificar(chaveDoDesafio(alvo), codigo),
+  };
+}
+
+/**
+ * A `TrocaDeTelefone` de um processo que atende pedidos concorrentes (KAM-217),
+ * com o estado na base (KAM-223): a troca, o prazo e os desafios na
+ * `owner_phone_changes`, e o contacto e a porta com uma ligação do *pool* do
+ * `kamba_identity` por operação. É a montagem que o `server.ts` do
+ * `onboarding-web` usa, e a que o ensaio contra a base corre.
  */
 export function trocaPeloPool(portas: {
   readonly pool: PoolDeIdentidade;
   readonly identidade: Pick<Identidade, "resolveContact">;
-  readonly otp: OtpDaTroca;
+  readonly otp: (repositorio: RepositorioDeOtp) => OtpSobreRepositorio;
   readonly avisar: AvisoDaTroca;
   readonly relogio?: () => Date;
+  readonly esperaMs?: number;
 }): TrocaDeTelefone {
   const { pool, identidade } = portas;
   return new TrocaDeTelefone({
-    otp: portas.otp,
+    otp: otpDaTrocaNaBase(pool, portas.otp),
     avisar: portas.avisar,
+    repositorio: trocasNaBase(pool),
     contacto: (pedido) => numaLigacao(pool, (ligacao) => contactoDoNumero(identidade, ligacao)(pedido)),
-    trocar: (pedido) => numaLigacao(pool, (ligacao) => trocaNaBase(ligacao)(pedido)),
     ...(portas.relogio === undefined ? {} : { relogio: portas.relogio }),
+    ...(portas.esperaMs === undefined ? {} : { esperaMs: portas.esperaMs }),
   });
 }
 

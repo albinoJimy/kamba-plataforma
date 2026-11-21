@@ -143,6 +143,8 @@ class TestAsListasCoincidemComAEnumeracao(unittest.TestCase):
             # de TypeScript que ninguem declarou.
             - set(x01_rotas.ROTA_INTERNA_DO_IDX)
             - set(x01_rotas.SONDAS_DO_IDX)
+            # KAM-218: a sonda do processo dos dados do off-boarding, idem.
+            - set(x01_rotas.SONDA_DO_OFFBOARDING)
         )
         self.assertEqual(set(declaradas), enumeradas)
 
@@ -152,14 +154,30 @@ class TestAsListasCoincidemComAEnumeracao(unittest.TestCase):
         Literais pela doutrina do `x01_rotas`: uma quarta rota no `processo.py`
         aparece aqui como item que ninguem declarou.
         """
-        do_idx = {item for item in self.itens if item.startswith("rota:py-core:")}
+        do_idx = {item for item in self.itens if item.startswith("rota:py-core:kamba_core/idx/")}
         self.assertEqual(
             do_idx, set(x01_rotas.ROTA_INTERNA_DO_IDX) | set(x01_rotas.SONDAS_DO_IDX)
         )
         self.assertEqual(len(do_idx), 3)
 
-    def test_as_catorze_superficies_da_api_interna_do_com(self) -> None:
-        """As catorze (KAM-178, KAM-099, KAM-190 e KAM-222) sao **exactamente** as que a enumeracao da ao COM.
+    def test_a_sonda_do_processo_dos_dados(self) -> None:
+        """KAM-218: o `servico.py` do off-boarding da **exactamente** uma rota, a sonda.
+
+        Uma segunda rota no `servidor` aparece aqui como item que ninguem declarou.
+        """
+        do_offboarding = {
+            item for item in self.itens if item.startswith("rota:py-core:kamba_core/offboarding/")
+        }
+        self.assertEqual(do_offboarding, set(x01_rotas.SONDA_DO_OFFBOARDING))
+        # E as rotas Python da biblioteca padrao sao so estas quatro.
+        self.assertEqual(
+            {item for item in self.itens if item.startswith("rota:py-core:")},
+            set(x01_rotas.ROTA_INTERNA_DO_IDX) | set(x01_rotas.SONDAS_DO_IDX)
+            | set(x01_rotas.SONDA_DO_OFFBOARDING),
+        )
+
+    def test_as_dezasseis_superficies_da_api_interna_do_com(self) -> None:
+        """As dezasseis (KAM-178, KAM-099, KAM-190, KAM-222 e KAM-119) sao **exactamente** as que a enumeracao da ao COM.
 
         A lista de cima ja apanharia uma divergencia, mas apanha-a somada as
         outras tres. Esta diz o que importa dizer: no dia em que uma decima rota
@@ -176,15 +194,15 @@ class TestAsListasCoincidemComAEnumeracao(unittest.TestCase):
         # ficheiro escreve: derivar esta lista da outra fazia uma sonda nova do
         # COM nascer coberta aqui. Quem apanha a divergencia entre a enumeracao
         # e a lista declarada e o `test_as_rotas_de_typescript`; o que este
-        # ensaio prende e as **catorze** superficies da API interna.
+        # ensaio prende e as **dezasseis** superficies da API interna.
         esperadas = set(x01_rotas.ROTAS_DA_API_INTERNA_DO_COM) | {
             "rota:com:app:createApp:GET:/healthz",
             "rota:com:payments/arranque:criarApp:GET:/healthz",
             "rota:com:payments/arranque:criarApp:GET:/metrics",
         }
         self.assertEqual(do_com, esperadas)
-        self.assertEqual(len(x01_rotas.ROTAS_DA_API_INTERNA_DO_COM), 14)
-        self.assertEqual(len(set(x01_rotas.ROTAS_DA_API_INTERNA_DO_COM)), 14)
+        self.assertEqual(len(x01_rotas.ROTAS_DA_API_INTERNA_DO_COM), 16)
+        self.assertEqual(len(set(x01_rotas.ROTAS_DA_API_INTERNA_DO_COM)), 16)
 
     def test_as_onze_tools(self) -> None:
         declaradas = set(x02_tools.TOOLS_LIGADAS) | set(x02_tools.TOOLS_DECLARADAS)

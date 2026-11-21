@@ -886,6 +886,22 @@ class TestCatalogo(_Base):
                 for suspeito in suspeitos:
                     self.assertNotIn(suspeito, nome)
 
+    def test_nao_existe_tool_de_pesquisa_de_imagens_nem_de_paginas(self) -> None:
+        """KAM-119, criterio 7: as fotos so vem do dono (E5 §7, obra de terceiros).
+
+        Enumera-se o catalogo e o registo, como no envio: nenhuma tool com nome
+        de pesquisa de imagens ou de paginas; e as quatro do catalogo do dono
+        falam so com a nossa base (`plataforma`), cujo egresso e a do processo.
+        """
+        suspeitos = ("image", "imagem", "web", "url", "browse", "crawl", "fetch", "pesquisa", "google", "bing")
+        for nome in sorted(self.catalogo.nomes() | self._tools_do_registo()):
+            with self.subTest(tool=nome):
+                for suspeito in suspeitos:
+                    self.assertNotIn(suspeito, nome)
+        for nome in ("create_product_draft", "ask_missing_fields", "publish_product", "get_catalog_status"):
+            with self.subTest(tool=nome):
+                self.assertEqual(self.catalogo[nome].backend, "plataforma")
+
     def test_nenhuma_tool_do_cliente_altera_preco_stock_ou_pagamento(self) -> None:
         """ADR-013 e §6.2: nem preco, nem stock, nem estado de pagamento.
 
@@ -1961,8 +1977,9 @@ class TestFactParaOKam032(_Base):
     def test_os_kinds_que_faltam_ao_kam032_estao_registados(self) -> None:
         """Nao se acrescentam por antecipacao, mas a divida fica escrita."""
         # O `quote_price` entrou com a tool que o produz (KAM-123, §3.7 do
-        # dicionario), que e a regra; os tres do KAM-032 continuam por entrar.
-        self.assertEqual(erros.KINDS, ("price", "stock", "total", "datetime", "quote_price"))
+        # dicionario), que e a regra, e o `count` com o `get_catalog_status`
+        # (KAM-119); os tres do KAM-032 continuam por entrar.
+        self.assertEqual(erros.KINDS, ("price", "stock", "total", "datetime", "quote_price", "count"))
         dividas = (_RAIZ / "docs/dividas-documentais.md").read_text(encoding="utf-8")
         for kind in ("`name`", "`qty`", "`discount`"):
             self.assertIn(kind, dividas)

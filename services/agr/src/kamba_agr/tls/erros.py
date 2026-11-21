@@ -129,7 +129,11 @@ VIOLACOES: Final = (ENTITLEMENT_DENIED, TOOL_NOT_ALLOWED, TENANT_MISMATCH)
 #: `fact_id` e o `sku` do pedido. Esta no §3.7 do dicionario desde que o
 #: conjunto nomeou o modulo, e entra aqui com a tool que o produz
 #: (`submit_quote`), que e a regra de cima.
-KINDS: Final = ("price", "stock", "total", "datetime", "quote_price")
+#:
+#: **O `count` e o sexto** (KAM-119): uma contagem do catalogo do dono
+#: (rascunhos, publicados, bloqueados), que o `get_catalog_status` devolve como
+#: *fact* pelo criterio 9 do bloco. Nao e dinheiro nem stock, e nao tem `sku`.
+KINDS: Final = ("price", "stock", "total", "datetime", "quote_price", "count")
 
 
 class CodigoDesconhecidoError(ValueError):

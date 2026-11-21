@@ -209,7 +209,7 @@ funcoes:
       sem `detalhe`. Nao contorna o `FORCE`: e por o respeitar que poe o
       contexto. `db/tests/test_trust_schema.py` mede os dois escritores, o
       antes e o depois da activacao, e que o contexto do lote volta ao que era.
-  - funcao: platform.definir_dono(p_contact_id uuid, p_origem text)
+  - funcao: platform.definir_dono(p_contact_id uuid, p_origem text, p_owner_channel_wa boolean)
     adr: ADR-010
     razao: >-
       E a unica porta que muda `platform.contacts.papel` (KAM-118, criterio 2:
@@ -230,5 +230,12 @@ funcoes:
       provisionamento e idempotente e nao troca um dono existente (`23505`); e
       a tranca da linha do tenant serializa duas trocas concorrentes, com o
       indice `contacts_um_dono` como segunda barreira.
+      **Desde a `0075` (KAM-216) escreve tambem o `tenants.owner_channel_wa`**,
+      com o terceiro argumento (nulo por omissao), na transaccao em que o dono
+      muda. Nao alarga a excepcao: e a mesma linha do tenant que ja escrevia
+      (`owner_contact_id`), e nenhum papel de aplicacao tem `UPDATE
+      (owner_channel_wa)` — o dono e o canal dele tem um escritor de producao
+      so. O `kamba_batch` mantem o `UPDATE` de tabela da `0001`, como para o
+      `owner_contact_id`. A reentrega idempotente nao toca em nada.
       `db/tests/test_canal_do_dono_schema.py` mede as recusas, o isolamento e o
       `42501` dos outros papeis.

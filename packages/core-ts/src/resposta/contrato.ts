@@ -47,6 +47,15 @@ export interface BotaoDaResposta {
   readonly titulo: string;
 }
 
+/**
+ * O *template* de uma resposta (KAM-221, revisão `0076`): o nome e os
+ * **valores** dos parâmetros, pela ordem, já resolvidos pelo AGR.
+ */
+export interface TemplateDaResposta {
+  readonly nome: string;
+  readonly parametros: readonly string[];
+}
+
 /** A linha da `agent_replies` que o consumidor do WhatsApp lê. */
 export interface RespostaParaEnviar {
   readonly replyId: string;
@@ -57,6 +66,8 @@ export interface RespostaParaEnviar {
   readonly phoneNumberId: string;
   readonly texto: string;
   readonly botoes: readonly BotaoDaResposta[];
+  /** `null` numa resposta de texto livre. Quem escolhe é o AGR, nunca o consumidor. */
+  readonly template: TemplateDaResposta | null;
   readonly turnoIniciadoEm: Date | null;
   readonly entregueEm: Date | null;
 }
@@ -134,6 +145,25 @@ export function lerResposta(tenantId: string, bruto: unknown): PayloadDaResposta
 }
 
 /** Os botões da linha (`jsonb`), na forma do `Corpo` do Outbound. */
+/**
+ * O *template* da linha, ou `null`. Um parâmetro que não seja texto não vira
+ * texto aqui: a forma é da `0076` e do AGR, e uma linha fora dela é defeito.
+ */
+export function templateDaLinha(nome: unknown, parametros: unknown): TemplateDaResposta | null {
+  const lista = parametros ?? [];
+  if (!Array.isArray(lista) || !lista.every((p) => typeof p === "string")) {
+    throw new RespostaInvalidaError("template_parametros nao e uma lista de texto");
+  }
+  if (nome === null || nome === undefined) {
+    if (lista.length > 0) throw new RespostaInvalidaError("parametros sem template");
+    return null;
+  }
+  if (typeof nome !== "string" || nome === "") {
+    throw new RespostaInvalidaError("template_nome sem forma");
+  }
+  return { nome, parametros: lista as string[] };
+}
+
 export function botoesDaLinha(bruto: unknown): readonly BotaoDaResposta[] {
   const lista = typeof bruto === "string" ? (JSON.parse(bruto) as unknown) : bruto;
   if (!Array.isArray(lista)) throw new RespostaInvalidaError("botoes nao e uma lista");

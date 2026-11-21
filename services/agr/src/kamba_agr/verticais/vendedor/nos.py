@@ -63,6 +63,8 @@ from ...guardas import contadores as contadores_mod
 from ...guardas.classificador import VEREDICTOS_DO_CLASSIFICADOR
 from ...guardas.entrada import substituicao_na_janela
 from ...llm.erros import ErroDeLlm
+from ...orcamento.regras import referencia_do_aceito
+from ...saida import PREFIXO_DO_ACEITO
 from ...concierge.portas import ConciergeSemServicoError
 from ...handoff.portas import HandoffIndisponivel
 from ...tls.contexto import PREFIXO_DE_CONFIRMACAO, Confirmation, ToolContext
@@ -326,9 +328,14 @@ class PortaDeHandoff(Protocol):
 
 
 class PortaDeSaida(Protocol):
-    """O Outbound (`01` §8). O unico caminho para o cliente e o no `send`."""
+    """O Outbound (`01` §8). O unico caminho para o cliente e o no `send`.
 
-    def enfileirar(
+    **`async` desde o KAM-227**: a porta ligada vai a base, e um no que a
+    chamasse sem `await` corria essa ida na *event loop* e parava os outros
+    turnos do processo enquanto a base respondesse.
+    """
+
+    async def enfileirar(
         self,
         estado: Mapping[str, Any],
         texto: str,
@@ -889,16 +896,18 @@ def pediu_cancelamento(texto: str) -> bool:
 _ACEITO: Final = re.compile(r"\b(?:aceito|aceitamos|aceite|esta aceite)\b")
 _NAO_ACEITO: Final = re.compile(r"\bnao\s+(?:\w+\s+)?aceit")
 
-#: O botao «Aceito» de uma proposta. **Nenhuma proposta o leva ainda**: a
-#: proposta sai pela `PortaDeNotificacao`, que so leva texto, e o botao nela e do
-#: credor do envio real (bloco do KAM-220). O grafo reconhece-o ja, pela razao
-#: do `menu:*` do KAM-037: um identificador nosso decide antes do texto.
-BOTAO_ACEITAR_ORCAMENTO: Final = "aceitar_orcamento"
+#: O botao «Aceito» de uma proposta, `aceitar_orcamento:ORC-…`. A proposta de
+#: texto leva-o desde o KAM-226 (`_notificar` do `tls/orcamento.py`), com a
+#: referencia **daquela** proposta (decisao do fundador de 2026-11-20, opcao B);
+#: o *template* da janela fechada nao leva botoes. O grafo reconhece-o pela
+#: razao do `menu:*` do KAM-037: um identificador nosso decide antes do texto.
+#: A forma e a do `regras.botao_aceitar`, que e quem o poe na proposta.
+PREFIXO_DO_ACEITO_ORCAMENTO: Final = PREFIXO_DO_ACEITO
 
 
 def pediu_para_aceitar(texto: str, botao: str = "") -> bool:
     """Se o cliente aceitou uma proposta, pelo botao ou por palavras."""
-    if botao == BOTAO_ACEITAR_ORCAMENTO:
+    if referencia_do_aceito(botao) is not None:
         return True
     from ...validador.normalizacao import sem_acento
 
@@ -976,16 +985,52 @@ async def _ultimo_sob_consulta(deps: "Dependencias", estado: Mapping[str, Any]) 
     return {"referencia": ultimo.referencia, "estado": ultimo.estado, "sku": ultimo.sku}
 
 
-async def _decidir_o_aceito(deps: "Dependencias", estado: Mapping[str, Any]) -> dict[str, Any] | None:
+async def _ler_pela_referencia(
+    deps: "Dependencias", estado: Mapping[str, Any], referencia: str
+) -> tuple[bool, Any]:
+    """`(lido, pedido)`: o pedido deste cliente com a referencia do botao (KAM-226).
+
+    `lido` falso e a porta sem a leitura, o modulo inactivo ou a base em baixo:
+    o turno segue o fluxo normal, como no `_ler_o_ultimo`. `lido` verdadeiro com
+    `None` e uma referencia que nao e de nenhum pedido **deste** cliente.
+    """
+    ler = getattr(deps.orcamentos, "pedido_por_referencia", None)
+    if ler is None:
+        return False, None
+    try:
+        if not await _modulo_activo(deps, estado):
+            return False, None
+        return True, await ler(estado["tenant_id"], estado["contact_id"], referencia)
+    except Exception:  # noqa: BLE001 — a base em baixo nao rebenta o turno
+        return False, None
+
+
+async def _decidir_o_aceito(
+    deps: "Dependencias", estado: Mapping[str, Any], referencia: str | None = None
+) -> dict[str, Any] | None:
     """O delta do `classify` para um «aceito», ou `None` se nao houver o que aceitar.
 
     **Nenhum caminho daqui cria um pedido** (criterio 9 do KAM-123). Sem porta,
     ou sem pedido nenhum deste cliente, o turno segue o fluxo normal.
+
+    **Com a `referencia` do botao** (KAM-226, decisao do fundador de 2026-11-20,
+    opcao B), decide o pedido **daquela** proposta e daquele cliente, e nao o
+    ultimo: o botao de uma proposta vencida diz que ja nao esta valida, mesmo
+    com um pedido mais novo; o de uma valida aceita-a, mesmo com um mais novo
+    em curso. Uma referencia que nao e deste cliente tambem ja nao vale. A
+    palavra escrita continua a decidir pelo ultimo pedido.
     """
     porta = deps.orcamentos
-    ultimo = await _ler_o_ultimo(deps, estado)
-    if ultimo is None:
-        return None
+    if referencia is not None:
+        lido, ultimo = await _ler_pela_referencia(deps, estado, referencia)
+        if not lido:
+            return None
+        if ultimo is None:
+            return {"intent": "outro", "avisos": _avisos_com(estado, ORCAMENTO_FECHADO)}
+    else:
+        ultimo = await _ler_o_ultimo(deps, estado)
+        if ultimo is None:
+            return None
     agora = porta.agora()
     contexto = {"referencia": ultimo.referencia, "estado": ultimo.estado}
     if ultimo.aceitavel(agora):
@@ -1390,9 +1435,11 @@ def classify(deps: Dependencias):
             return {"intent": "outro", "cart": None, "stage": "browsing"}
 
         # KAM-220. O botao «Aceito» decide como os outros identificadores
-        # nossos, antes do texto e do modo degradado.
-        if botao == BOTAO_ACEITAR_ORCAMENTO:
-            aceito = await _decidir_o_aceito(deps, estado)
+        # nossos, antes do texto e do modo degradado. Desde o KAM-226 leva a
+        # referencia da proposta, e decide por ela.
+        referencia_do_botao = referencia_do_aceito(botao)
+        if referencia_do_botao is not None:
+            aceito = await _decidir_o_aceito(deps, estado, referencia_do_botao)
             if aceito is not None:
                 return aceito
 
@@ -2080,10 +2127,12 @@ def _id_da_oferta(estado: Mapping[str, Any], sku: str) -> str:
     retencao devolvia o primeiro (achado 1 da revisao adversarial).
 
     **Consoantes coladas ao `orc_`, e nao hexadecimal depois de `orc-`**
-    (KAM-232). Medido em duzentas mil: o hexadecimal saia mudado do
+    (KAM-234). Medido em duzentas mil: o hexadecimal saia mudado do
     `texto_seguro` uma vez em ~600 — uma corrida de treze ou mais digitos que
-    passa o Luhn, ou a forma de um IBAN com o *mod 97* certo —, e o toque
-    chegava como `confirm:orc-…[cartao removido]` e dava `STALE_CONFIRMATION`.
+    passa o Luhn, ou a forma de um IBAN com o *mod 97* certo. O processo
+    entrega o toque no `botao`, que a guarda nao redige; mas um toque lido da
+    janela (a segunda leitura do `_botao_do_turno`) chegava como
+    `confirm:orc-…[cartao removido]` e dava `STALE_CONFIRMATION`.
     Sem digitos nao casa o PAN, o IBAN nem o BI. **E sem o hifen**, porque ele
     abria uma fronteira de palavra antes das letras: com `orc-` e consoantes, o
     prefixo `lgbt` do lexico sensivel casava uma vez em ~28 mil. O `_` conta
@@ -2094,7 +2143,7 @@ def _id_da_oferta(estado: Mapping[str, Any], sku: str) -> str:
     return "orc_" + hashlib.sha256(cru.encode()).hexdigest()[:24].translate(_CONSOANTES_DA_OFERTA)
 
 
-#: Dezasseis consoantes para os dezasseis valores de um hexadecimal (KAM-232).
+#: Dezasseis consoantes para os dezasseis valores de um hexadecimal (KAM-234).
 _CONSOANTES_DA_OFERTA: Final = str.maketrans("0123456789abcdef", "bcdfghjklmnpqrst")
 
 
@@ -2402,7 +2451,7 @@ def send(deps: Dependencias):
             # decisao que nao envia. Se um dia encaminhar, **nao sai mensagem**.
             return {}
 
-        deps.saida.enfileirar(
+        await deps.saida.enfileirar(
             estado,
             com_apresentacao(deps, estado, texto),
             chave=_chave_de_envio(estado, concierge),
@@ -2469,7 +2518,7 @@ def handoff_prepare(deps: Dependencias):
             # O §11: `HandoffUnavailable` -> `degraded` -> aresta 37 -> `send`.
             # O §14 acrescenta a conversa em `pausada`, que e do CHR e nao daqui.
             return _degradado(estado, hid)
-        deps.saida.enfileirar(
+        await deps.saida.enfileirar(
             estado,
             com_apresentacao(deps, estado, MSG_HUMANO_A_CAMINHO),
             chave=f"{hid}:msg",
@@ -2572,7 +2621,7 @@ def handoff_close(deps: Dependencias):
     async def no(estado: dict[str, Any]) -> dict[str, Any]:
         handoff = dict(estado.get("handoff") or {})
         if handoff.get("outcome") == "timeout":
-            deps.saida.enfileirar(
+            await deps.saida.enfileirar(
                 estado, MSG_ALTERNATIVAS, chave=f"{handoff.get('id')}:timeout"
             )
         return {"stage": "done"}

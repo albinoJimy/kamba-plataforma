@@ -31,6 +31,8 @@
  * das 23h30 de Luanda no dia seguinte da lista e no dia certo do filtro.
  */
 
+import type { CanalDoDono } from "@kamba/core-ts/dono";
+
 import { cabecalhos } from "../pagina.ts";
 import type { VistaDoCanal } from "./canal.ts";
 import { ESTADOS_DA_ENCOMENDA, type Encomenda, type Oferta } from "./comercio.ts";
@@ -254,14 +256,26 @@ export function paginaDaEncomenda(nonce: string, e: Encomenda): string {
   );
 }
 
+/** O canal do dono por omissão: o painel, que funciona sempre (KAM-216). */
+const PAINEL_DO_DONO: CanalDoDono = { owner_channel_wa: false, canal: "painel" };
+
 /**
- * O estado do canal (critério 7).
+ * Onde o dono fala com o Assistente do Dono (KAM-216). **Literal e sem número**:
+ * a página diz o canal, e não mostra o telefone da loja nem o do dono.
+ */
+const TEXTOS_DO_CANAL_DO_DONO: Readonly<Record<CanalDoDono["canal"], string>> = {
+  whatsapp: "Fale com o assistente da loja pelo WhatsApp: escreva do seu telemóvel para o número da loja.",
+  painel: "Fale com o assistente da loja aqui no painel.",
+};
+
+/**
+ * O estado do canal (critério 7), e o canal do dono (KAM-216).
  *
  * **A ligação de reconexão é o `/painel/ligar`** (KAM-190), e não o `/ligar` do
  * KAM-093: este exige a sessão do registo, de 24 h, e um dono que só tinha a do
  * painel recebia 403. A rota do painel cunha a do registo e reencaminha.
  */
-export function paginaDoCanal(nonce: string, v: VistaDoCanal): string {
+export function paginaDoCanal(nonce: string, v: VistaDoCanal, dono: CanalDoDono = PAINEL_DO_DONO): string {
   const religar =
     (v.estado === "desligado" || v.estado === "sem_canal") && !v.restrito
       ? '<p><a href="/painel/ligar">Ligar o número de WhatsApp</a></p>'
@@ -282,7 +296,8 @@ export function paginaDoCanal(nonce: string, v: VistaDoCanal): string {
 <p>Qualidade do número: ${escapar(v.qualidade ?? "—")}</p>
 <p>Escalão de conversas: ${escapar(v.escalao ?? "—")}</p>
 <p>Nível de confiança: ${v.nivel === null ? "—" : escapar(String(v.nivel))}</p>
-<p>Tecto por pedido: ${v.tectoPedidoMinor === null ? "—" : escapar(kz(v.tectoPedidoMinor))}</p>${religar}</div>
+<p>Tecto por pedido: ${v.tectoPedidoMinor === null ? "—" : escapar(kz(v.tectoPedidoMinor))}</p>
+<p data-canal-do-dono="${dono.canal}">${TEXTOS_DO_CANAL_DO_DONO[dono.canal]}</p>${religar}</div>
 <h2>Avisos</h2>${avisos}`,
   );
 }

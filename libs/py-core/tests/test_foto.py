@@ -23,7 +23,7 @@ from pathlib import Path
 from catalogo_apoio import A, B, DONO, GPS, DestinosFake, png
 
 from kamba_core.catalogo.exif import tem_metadados
-from kamba_core.destinos import FINALIDADE_CLASSIFICACAO, FINALIDADE_IMAGEM, FINALIDADES
+from kamba_core.destinos import FINALIDADE_CLASSIFICACAO, FINALIDADE_CONDICOES, FINALIDADE_IMAGEM, FINALIDADES
 from kamba_core.foto import bakeoff, estados
 from kamba_core.foto.fornecedor import (
     ETIQUETA_GERADA,
@@ -766,11 +766,12 @@ class TestEstadosERevisao(unittest.TestCase):
             self._tupla(texto, "MOTIVOS_DO_TRABALHO"), estados.MOTIVOS_DO_BLOQUEIO + estados.MOTIVOS_DA_FALHA
         )
         # As catorze que esta revisao escreve: as do nucleo menos a
-        # `classificacao_de_catalogo`, que a `finalidade_do_screening` (KAM-195)
-        # acrescenta por cima. A paridade da cabeca e a desses ensaios.
+        # `classificacao_de_catalogo` e a `classificacao_de_condicoes`, que a
+        # `finalidade_do_screening` (KAM-195) e a `finalidade_das_condicoes`
+        # (KAM-230) acrescentam por cima. A paridade da cabeca e a desses ensaios.
         self.assertEqual(
             self._tupla(texto, "FINALIDADES_DE_TRANSFERENCIA"),
-            tuple(f for f in FINALIDADES if f != FINALIDADE_CLASSIFICACAO),
+            tuple(f for f in FINALIDADES if f not in (FINALIDADE_CLASSIFICACAO, FINALIDADE_CONDICOES)),
         )
 
     def test_a_tabela_de_transicoes_da_revisao_e_a_do_codigo(self) -> None:

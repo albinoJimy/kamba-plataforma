@@ -136,9 +136,14 @@ import {
   politicaCorrente,
   type ClassificadorDeCategorias,
   type PoliticaCompilada,
-  type ResultadoDoScreen,
 } from "@kamba/core-ts/screening";
-import { operacaoDeScreen, type PedidoDeScreen } from "../../screening/index.ts";
+import {
+  operacaoDePublicar,
+  operacaoDeScreen,
+  type PedidoDePublicacao,
+  type PedidoDeScreen,
+  type ResultadoDoScreenDoCom,
+} from "../../screening/index.ts";
 
 import { vistaDoCanal as vistaDoCanalDoModulo, type VistaDoCanal } from "../../canal/vista.ts";
 import { SQL_GRAFO } from "../../orders/consultas.ts";
@@ -976,7 +981,15 @@ export interface OperacoesDoCom {
    * da porta**, pela razão do `proposeCart`: o §3.39 fecha-a em doze. A nota
    * está no `../../screening/index.ts`.
    */
-  screen(ctx: Ctx, pedido: PedidoDeScreen): Promise<Resultado<ResultadoDoScreen>>;
+  screen(ctx: Ctx, pedido: PedidoDeScreen): Promise<Resultado<ResultadoDoScreenDoCom>>;
+  /**
+   * Publica com a decisão do screening conferida (KAM-119): o
+   * `assertPublishable` sobre o `nome` e a categoria do tenant, e o
+   * `publishProduct` do módulo com esse `nome` sob a tranca. **Não é o
+   * `porta.publishProduct`**, que não confere decisão nenhuma e cuja
+   * assinatura o §3.39 fecha. A nota está no `../../screening/index.ts`.
+   */
+  publicarProduto(ctx: Ctx, pedido: PedidoDePublicacao): Promise<Resultado<void>>;
 }
 
 /**
@@ -1005,6 +1018,12 @@ export function operacoesDoCom(
     comTenant: deps.comTenant,
     politica: deps.politica ?? politicaCorrente(),
     classificador: deps.classificador ?? null,
+  });
+  const publicarDoCom = operacaoDePublicar({
+    comTenant: deps.comTenant,
+    politica: deps.politica ?? politicaCorrente(),
+    publicar: (ctx, ref, c, nomeEsperado) =>
+      comRegisto(deps, ctx, (r) => publishProductDoModulo(r, ref, c, { nomeEsperado })),
   });
   return {
     porta: adaptadorMedusa(deps, agora),
@@ -1084,6 +1103,10 @@ export function operacoesDoCom(
 
     async screen(ctx: Ctx, pedido: PedidoDeScreen) {
       return screenDoCom(ctx, pedido);
+    },
+
+    async publicarProduto(ctx: Ctx, pedido: PedidoDePublicacao) {
+      return publicarDoCom(ctx, pedido);
     },
   };
 }

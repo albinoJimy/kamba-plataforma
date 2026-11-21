@@ -38,9 +38,19 @@ chave e a mesma, e o `INSERT` nao insere: a resposta sai uma vez.
 ## Uma ligacao por envio
 
 Pela razao da `PortaDeConfirmacao` do KAM-211: o `tenant_guard` recusa uma
-segunda transaccao na mesma ligacao, e uma tomada guardada pedia um trinco. O
-`enfileirar` e **sincrono** (a `PortaDeSaida` do grafo e sincrona desde o
-KAM-031) e corre a ida a base dentro do no, como a ToolLayer.
+segunda transaccao na mesma ligacao, e uma tomada guardada pedia um trinco.
+
+**A ida a base corre fora da *event loop*** (KAM-227). A `PortaDeSaida` do grafo
+e `async`, os tres nos que enviam (`send`, `handoff_prepare`, `handoff_close`)
+fazem `await`, e o `enfileirar` passa a ligacao, as duas instrucoes e o `COMMIT`
+a uma *thread* com o `asyncio.to_thread` — a travessia do `conversa.py` e do
+`checkpointer.py`. Uma base lenta atrasa o turno que envia e nao os outros. O
+`emitir_resposta` continua sincrono: e o corpo que corre na *thread*.
+
+Um cancelamento a meio nao corta a *thread* (o `to_thread` nao cancela), mas
+nao ha nada partilhado a proteger: a ligacao e so deste envio, e a *thread*
+fecha-a. Se o `COMMIT` chegou, o turno repete-se com a mesma chave e o `INSERT`
+nao insere.
 
 ## O inicio do turno
 
@@ -53,9 +63,11 @@ vale o instante do envio, que e quando a retoma comecou a responder.
 
 from __future__ import annotations
 
+import asyncio
 import contextvars
 import datetime
 import json
+import re
 from collections.abc import Callable, Mapping, Sequence
 from typing import Any, Final
 
@@ -114,6 +126,24 @@ TITULOS: Final = {
 PREFIXO_DE_CONFIRMACAO: Final = "confirm:"
 TITULO_DE_CONFIRMACAO: Final = "Confirmar"
 
+#: O botao «Aceito» da proposta do Orcamento expresso leva a referencia da
+#: proposta no `id` (`aceitar_orcamento:ORC-…`; decisao do fundador de
+#: 2026-11-20, opcao B do KAM-226), e o titulo e um so, como o da confirmacao.
+PREFIXO_DO_ACEITO: Final = "aceitar_orcamento:"
+TITULO_DO_ACEITO: Final = "Aceito"
+
+#: Os botoes do catalogo do dono (KAM-119) levam a ingestao no `id` (e o valor,
+#: no do preco), pela razao do `confirm:`; o titulo e um por prefixo. Os
+#: prefixos sao os de `catalogo/regras.py`, e um ensaio confronta-os.
+TITULOS_POR_PREFIXO: Final = {
+    "preco:": "Sim, esta certo",
+    "preco_corrigir:": "Corrigir",
+    "stock:": "Sim, esta certo",
+    "stock_corrigir:": "Corrigir",
+    "mesmo_produto:": "Sim, e o mesmo",
+    "outro_produto:": "Nao, e outro",
+}
+
 
 def titulo_do_botao(identificador: str) -> str:
     """O titulo de um botao. Um `id` que a tabela nao tem **levanta**.
@@ -130,6 +160,11 @@ def titulo_do_botao(identificador: str) -> str:
         PREFIXO_DE_CONFIRMACAO
     ):
         return TITULO_DE_CONFIRMACAO
+    if identificador.startswith(PREFIXO_DO_ACEITO) and len(identificador) > len(PREFIXO_DO_ACEITO):
+        return TITULO_DO_ACEITO
+    for prefixo, titulo_do_prefixo in TITULOS_POR_PREFIXO.items():
+        if identificador.startswith(prefixo) and len(identificador) > len(prefixo):
+            return titulo_do_prefixo
     titulo = TITULOS.get(identificador)
     if titulo is None:
         raise RespostaInvalidaError(f"botao sem titulo: {identificador[:40]!r}")
@@ -141,6 +176,30 @@ SQL_INSERIR: Final = (
     "VALUES (%s, %s, %s, %s, %s, %s, %s::jsonb, %s) "
     "ON CONFLICT (tenant_id, chave) DO NOTHING RETURNING reply_id"
 )
+
+#: A mesma linha **com** o *template* (KAM-221, revisao `0076`). Instrucao a
+#: parte, e nao duas colunas a mais no `SQL_INSERIR`: a resposta de texto livre
+#: de um turno continua a escrever exactamente o que escrevia, e as colunas do
+#: *template* so aparecem quando quem notifica as escolheu.
+SQL_INSERIR_COM_TEMPLATE: Final = (
+    "INSERT INTO platform.agent_replies "
+    "(tenant_id, chave, contact_id, conversation_id, canal, texto, botoes, turno_iniciado_em, "
+    "template_nome, template_parametros) "
+    "VALUES (%s, %s, %s, %s, %s, %s, %s::jsonb, %s, %s, %s::text[]) "
+    "ON CONFLICT (tenant_id, chave) DO NOTHING "
+    "RETURNING reply_id"
+)
+
+#: A forma de um nome de *template* da Meta: minusculas, algarismos e `_`. A
+#: mesma do `agent_replies_template_nome_ck` da `0076`.
+FORMA_DO_TEMPLATE: Final = re.compile(r"[a-z0-9_]{1,512}")
+
+#: Quantos parametros um *template* desta casa leva, no maximo (*proposta*).
+MAXIMO_DE_PARAMETROS: Final = 10
+
+#: O tamanho de um parametro (*proposta*). A Meta recusa um parametro vazio, e
+#: recusa uma quebra de linha ou um tab dentro dele.
+MAXIMO_DO_PARAMETRO: Final = 1024
 
 #: O `evt_emitir` da `0004`, com classe `P0` e finalidade `atendimento`: o
 #: *payload* leva identificadores, nunca o texto nem o telefone.
@@ -163,15 +222,92 @@ def _agora() -> datetime.datetime:
     return datetime.datetime.now(datetime.UTC)
 
 
-def canal_por_omissao(_estado: Mapping[str, Any]) -> str:
-    """O canal de uma resposta: hoje, sempre o WhatsApp.
+#: O canal da mensagem que o turno em curso leu (KAM-223), ou `None`.
+#:
+#: Posto pelo `ExecutorDeTurnos` com o `canal` da **ultima** mensagem que leu
+#: da `platform.agent_messages` no lote, e reposto no fim do turno, como o
+#: `INICIO_DO_TURNO`. Os nos herdam-no, e o `canal_do_turno` le-o. Um turno sem
+#: mensagem lida (o do WhatsApp de hoje, que nao traz `message_id`) deixa-o a
+#: `None`, e a resposta sai pelo WhatsApp.
+CANAL_DO_TURNO: contextvars.ContextVar[str | None] = contextvars.ContextVar(
+    "kamba_agr_canal_do_turno", default=None
+)
 
-    **O painel nao tem entrada no AGR ainda.** A fonte persistida da mensagem do
-    dono e a `OwnerPort` sao do KAM-223, e e ele que passa a esta porta um
-    `canal_de` que reconheca o turno do painel. Ate la, nenhum turno chega pelo
-    painel, e escrever aqui uma regra para ele era decidir pelo KAM-223.
+
+def canal_por_omissao(_estado: Mapping[str, Any]) -> str:
+    """O canal de uma resposta quando ninguem sabe outro: o WhatsApp.
+
+    Ja nao e o `canal_de` do processo: desde o KAM-223 o `main()` passa o
+    `canal_do_turno`, que reconhece o turno do painel. Fica como omissao da
+    `SaidaPorEvento` para quem a monta sem executor (os ensaios dos grafos), e
+    e o que o `canal_do_turno` devolve fora de um turno.
     """
     return CANAL_WHATSAPP
+
+
+def canal_do_turno(estado: Mapping[str, Any]) -> str:
+    """O canal da resposta deste turno: o da mensagem que o turno leu (KAM-223).
+
+    Le o `CANAL_DO_TURNO`, que o executor pos. **Fora de um turno, ou num turno
+    sem mensagem lida, e o WhatsApp** — a retoma do *handoff* e a decisao do
+    concierge nao passam pelo executor, e sao respostas a um cliente. Um valor
+    fora dos `CANAIS` tambem cai no WhatsApp: nao pode, porque a coluna da
+    `agent_messages` tem o mesmo `CHECK`, e se acontecer a `emitir_resposta`
+    nao recebe um canal que a tabela recusava.
+    """
+    canal = CANAL_DO_TURNO.get()
+    if canal in CANAIS:
+        return canal
+    return canal_por_omissao(estado)
+
+
+def _parametros_do_template(
+    template: str | None, parametros: Sequence[str], botoes: Sequence[str]
+) -> list[str]:
+    """Os parametros validados, em lista; levanta antes da base."""
+    parametros = list(parametros)
+    if template is None:
+        if parametros:
+            raise RespostaInvalidaError("parametros sem template")
+        return parametros
+    if not isinstance(template, str) or FORMA_DO_TEMPLATE.fullmatch(template) is None:
+        raise RespostaInvalidaError("o nome do template nao tem a forma da Meta")
+    if botoes:
+        raise RespostaInvalidaError("um template nao leva botoes")
+    if len(parametros) > MAXIMO_DE_PARAMETROS:
+        raise RespostaInvalidaError("demasiados parametros no template")
+    for valor in parametros:
+        if (
+            not isinstance(valor, str)
+            or not 1 <= len(valor) <= MAXIMO_DO_PARAMETRO
+            or "\n" in valor
+            or "\t" in valor
+        ):
+            raise RespostaInvalidaError("um parametro do template sem a forma da Meta")
+    return parametros
+
+
+def _forma(
+    texto: str,
+    *,
+    chave: str,
+    botoes: Sequence[str],
+    canal: str,
+    template: str | None,
+    parametros: Sequence[str],
+) -> tuple[list[dict[str, str]], list[str]]:
+    """Os pares `{id, titulo}` e os parametros validados; levanta antes da base."""
+    if canal not in CANAIS:
+        raise RespostaInvalidaError(f"canal fora de {CANAIS}: {canal!r}")
+    if not isinstance(texto, str) or not 1 <= len(texto) <= MAXIMO_DO_TEXTO:
+        raise RespostaInvalidaError("o texto tem de ter entre 1 e 4096 caracteres")
+    if not isinstance(chave, str) or not 1 <= len(chave) <= MAXIMO_DA_CHAVE:
+        raise RespostaInvalidaError("a chave tem de ter entre 1 e 300 caracteres")
+    botoes = tuple(botoes)
+    if len(botoes) > MAXIMO_DE_BOTOES or not all(isinstance(b, str) and b for b in botoes):
+        raise RespostaInvalidaError("no maximo tres botoes, cada um um identificador")
+    pares = [{"id": b, "titulo": titulo_do_botao(b)} for b in botoes]
+    return pares, _parametros_do_template(template, parametros, botoes)
 
 
 def emitir_resposta(
@@ -183,58 +319,98 @@ def emitir_resposta(
     botoes: Sequence[str] = (),
     canal: str = CANAL_WHATSAPP,
     turno_iniciado_em: datetime.datetime | None = None,
+    template: str | None = None,
+    parametros: Sequence[str] = (),
 ) -> str | None:
     """Grava a resposta e emite o `agent.replied`. Devolve o `reply_id`, ou `None`.
 
     `None` e a repeticao: a chave ja tinha uma resposta deste tenant, e nao se
     emite nada. Os identificadores vem **todos** do estado do turno, que os
     tirou da invocacao (`estado_inicial`): nenhum vem do texto.
-    """
-    if canal not in CANAIS:
-        raise RespostaInvalidaError(f"canal fora de {CANAIS}: {canal!r}")
-    if not isinstance(texto, str) or not 1 <= len(texto) <= MAXIMO_DO_TEXTO:
-        raise RespostaInvalidaError("o texto tem de ter entre 1 e 4096 caracteres")
-    if not isinstance(chave, str) or not 1 <= len(chave) <= MAXIMO_DA_CHAVE:
-        raise RespostaInvalidaError("a chave tem de ter entre 1 e 300 caracteres")
-    botoes = tuple(botoes)
-    if len(botoes) > MAXIMO_DE_BOTOES or not all(isinstance(b, str) and b for b in botoes):
-        raise RespostaInvalidaError("no maximo tres botoes, cada um um identificador")
-    pares = [{"id": b, "titulo": titulo_do_botao(b)} for b in botoes]
 
+    Com `template` (KAM-221), a resposta sai como esse *template*, com os
+    `parametros` pela ordem: **valores** ja resolvidos, que o consumidor poe no
+    corpo sem os ler. O `texto` continua obrigatorio: e o que a notificacao
+    diria com a janela aberta, e o consumidor do WhatsApp nao o envia com o
+    *template*. Um *template* nao leva botoes.
+    """
+    # A forma valida-se antes de abrir a transaccao, e outra vez no
+    # `gravar_resposta`: o custo e nada, e a base nao ve uma resposta sem forma.
+    # **Materializa-se uma vez**: um gerador passado aos dois chegava vazio ao
+    # segundo, e a linha gravava-se sem botoes nem parametros (achado 3 da
+    # revisao do KAM-226).
+    botoes, parametros = tuple(botoes), tuple(parametros)
+    _forma(texto, chave=chave, botoes=botoes, canal=canal, template=template, parametros=parametros)
+    with tenant_guard.tx(ligacao, estado["tenant_id"]) as cursor:
+        return gravar_resposta(
+            cursor,
+            estado,
+            texto,
+            chave=chave,
+            botoes=botoes,
+            canal=canal,
+            turno_iniciado_em=turno_iniciado_em,
+            template=template,
+            parametros=parametros,
+        )
+
+
+def gravar_resposta(
+    cursor: Any,
+    estado: Mapping[str, Any],
+    texto: str,
+    *,
+    chave: str,
+    botoes: Sequence[str] = (),
+    canal: str = CANAL_WHATSAPP,
+    turno_iniciado_em: datetime.datetime | None = None,
+    template: str | None = None,
+    parametros: Sequence[str] = (),
+) -> str | None:
+    """O `emitir_resposta` sobre um cursor **ja** dentro do `tenant_guard.tx`.
+
+    Para quem escreve a resposta na transaccao de outra coisa (KAM-226): o
+    aviso ao dono nasce na transaccao do `quote.requested`, e o `tenant_guard`
+    recusa uma segunda transaccao na mesma ligacao. A forma valida-se antes do
+    `INSERT`, e quem chama leva o `ROLLBACK` se ela levantar.
+    """
+    pares, parametros = _forma(
+        texto, chave=chave, botoes=botoes, canal=canal, template=template, parametros=parametros
+    )
     tenant_id = estado["tenant_id"]
     contact_id = estado["contact_id"]
     conversation_id = estado["conversation_id"]
     thread_id = estado["thread_id"]
-    with tenant_guard.tx(ligacao, tenant_id) as cursor:
-        cursor.execute(
-            SQL_INSERIR,
-            (
-                tenant_id,
-                chave,
-                contact_id,
-                conversation_id,
-                canal,
-                texto,
-                json.dumps(pares, ensure_ascii=False),
-                turno_iniciado_em,
-            ),
-        )
-        linha = cursor.fetchone()
-        if linha is None:
-            return None
-        reply_id = str(linha[0])
-        payload = {
-            "reply_id": reply_id,
-            "thread_id": thread_id,
-            "conversation_id": str(conversation_id),
-            "contact_id": str(contact_id),
-            "canal": canal,
-        }
-        cursor.execute(
-            SQL_EMITIR,
-            (TIPO, tenant_id, str(conversation_id), json.dumps(payload, sort_keys=True)),
-        )
-        cursor.fetchone()
+    linha_nova = (
+        tenant_id,
+        chave,
+        contact_id,
+        conversation_id,
+        canal,
+        texto,
+        json.dumps(pares, ensure_ascii=False),
+        turno_iniciado_em,
+    )
+    if template is None:
+        cursor.execute(SQL_INSERIR, linha_nova)
+    else:
+        cursor.execute(SQL_INSERIR_COM_TEMPLATE, (*linha_nova, template, parametros))
+    linha = cursor.fetchone()
+    if linha is None:
+        return None
+    reply_id = str(linha[0])
+    payload = {
+        "reply_id": reply_id,
+        "thread_id": thread_id,
+        "conversation_id": str(conversation_id),
+        "contact_id": str(contact_id),
+        "canal": canal,
+    }
+    cursor.execute(
+        SQL_EMITIR,
+        (TIPO, tenant_id, str(conversation_id), json.dumps(payload, sort_keys=True)),
+    )
+    cursor.fetchone()
     return reply_id
 
 
@@ -260,7 +436,7 @@ class SaidaPorEvento:
         self._relogio = relogio
         self._aviso = aviso
 
-    def enfileirar(
+    async def enfileirar(
         self,
         estado: Mapping[str, Any],
         texto: str,
@@ -268,21 +444,39 @@ class SaidaPorEvento:
         chave: str,
         botoes: Sequence[str] = (),
     ) -> None:
-        # shortcut: a ligacao, as duas instrucoes e o COMMIT correm na event loop,
-        # porque a `PortaDeSaida` do grafo e sincrona e os nos chamam-na sem
-        # `await`; com a base lenta, o processo para. Passar a porta a `async`
-        # (com `asyncio.to_thread`, como a `PortaDeConfirmacao`) muda os tres
-        # nos e os duplos; revê-se no KAM-227, antes de o `outbound` arrancar.
+        # O inicio e o canal leem-se aqui, na tarefa do no: o `to_thread` copia
+        # o contexto, mas o `INICIO_DO_TURNO` fica lido onde o turno o pos, e a
+        # *thread* recebe valores e nao um `ContextVar`.
         inicio = INICIO_DO_TURNO.get() or self._relogio()
+        canal = self._canal_de(estado)
+        reply_id = await asyncio.to_thread(
+            self._gravar, estado, texto, chave, tuple(botoes), canal, inicio
+        )
+        if reply_id is None and self._aviso is not None:
+            # Uma repeticao nao e erro: e o turno a voltar sobre a mesma chave.
+            # Conta-se para se ver quantas vezes o *shim* repete um turno que ja
+            # tinha respondido.
+            self._aviso("resposta_repetida")
+
+    def _gravar(
+        self,
+        estado: Mapping[str, Any],
+        texto: str,
+        chave: str,
+        botoes: Sequence[str],
+        canal: str,
+        inicio: datetime.datetime,
+    ) -> str | None:
+        """O corpo sincrono do envio, na *thread*: abre, grava e emite, fecha."""
         ligacao = self._abrir()
         try:
-            reply_id = emitir_resposta(
+            return emitir_resposta(
                 ligacao,
                 estado,
                 texto,
                 chave=chave,
                 botoes=botoes,
-                canal=self._canal_de(estado),
+                canal=canal,
                 turno_iniciado_em=inicio,
             )
         finally:
@@ -290,26 +484,28 @@ class SaidaPorEvento:
                 ligacao.close()
             except Exception:  # noqa: BLE001 — a resposta ja ficou ou ja falhou
                 pass
-        if reply_id is None and self._aviso is not None:
-            # Uma repeticao nao e erro: e o turno a voltar sobre a mesma chave.
-            # Conta-se para se ver quantas vezes o *shim* repete um turno que ja
-            # tinha respondido.
-            self._aviso("resposta_repetida")
 
 
 __all__ = [
     "AGREGADO",
     "CANAIS",
     "CANAL_PAINEL",
+    "CANAL_DO_TURNO",
     "CANAL_WHATSAPP",
     "FINALIDADE",
+    "FORMA_DO_TEMPLATE",
     "INICIO_DO_TURNO",
+    "MAXIMO_DE_PARAMETROS",
+    "MAXIMO_DO_PARAMETRO",
     "RespostaInvalidaError",
     "SaidaPorEvento",
     "TIPO",
     "VERSAO",
+    "PREFIXO_DO_ACEITO",
     "TITULOS",
+    "canal_do_turno",
     "canal_por_omissao",
     "emitir_resposta",
+    "gravar_resposta",
     "titulo_do_botao",
 ]
