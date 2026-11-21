@@ -907,7 +907,14 @@ class TestDowngradeDa0003(unittest.TestCase):
         # `INSERT` e `UPDATE` por coluna — cinco colunas no `INSERT`, nove no
         # `UPDATE`, com o `prazo` nos dois: treze colunas com ACL (27 -> 40).
         # Nada disto e da `0003`, e a descida da `0077` larga-o com a tabela.
-        self.assertEqual(em_head["identidade"], (True, 12, 40, 8))
+        #
+        # **(12, 48, 8) e nao (12, 40, 8) desde o KAM-206.** A revisao do
+        # contacto da encomenda da ao `kamba_identity` o `INSERT` por coluna nas
+        # oito colunas que o `audit_append` escreve (40 -> 48), e o `EXECUTE` na
+        # funcao, que nao entra em nenhuma das tres contagens. Nenhuma concessao
+        # de tabela: o papel continua sem ler o `audit_log`. A descida da `0082`
+        # larga-as.
+        self.assertEqual(em_head["identidade"], (True, 12, 48, 8))
         self.assertEqual(
             em_head["politicas"],
             [

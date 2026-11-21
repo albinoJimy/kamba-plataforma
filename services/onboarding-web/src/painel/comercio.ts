@@ -27,6 +27,14 @@
  * 50%), em vez de o procurar na lista de 200; e o `channel-view` dá ao painel o
  * estado do canal — ver o `./canal.ts`. O `list-orders` passa a levar o
  * intervalo de criação, que o COM aplica na consulta e prende ao cursor.
+ *
+ * ## O contacto de uma encomenda (KAM-206)
+ *
+ * O `order-contact` dá o telefone do cliente **mascarado** (os últimos três
+ * dígitos) de uma encomenda do tenant, quando o dono o pede com o botão. O
+ * telefone decifra-se no COM e não sai de lá em claro; o COM escreve a linha de
+ * `audit_log` antes de responder. Fora dos estados da regra, ou numa encomenda
+ * de outro tenant, a resposta é a mesma `NOT_FOUND`.
  */
 
 import type { VistaDoCanal } from "./canal.ts";
@@ -57,6 +65,27 @@ export const ESTADOS_DA_ENCOMENDA = [
   "cancelada",
 ] as const;
 export type EstadoDaEncomenda = (typeof ESTADOS_DA_ENCOMENDA)[number];
+
+/**
+ * Os estados em que o painel oferece o botão do contacto (KAM-206, decisão do
+ * fundador de 2026-11-20). **Uma cópia da regra do COM**
+ * (`services/com/src/orders/contacto.ts`), pela razão da lista de cima, e o
+ * ensaio confronta-a com o texto de lá. Quem decide é o COM: um botão a mais dá
+ * 404, e um a menos esconde um contacto que o dono podia ver.
+ */
+export const ESTADOS_COM_CONTACTO: readonly EstadoDaEncomenda[] = [
+  "pendente_confirmacao",
+  "paga",
+  "em_entrega",
+  "entrega_falhada",
+];
+
+/** O contacto de uma encomenda, como o COM o devolve: **só** a máscara. */
+export interface ContactoDaEncomenda {
+  readonly orderId: string;
+  /** `••• ••• 789`, ou `null` se a encomenda não tem telefone a mostrar. */
+  readonly telefoneMascarado: string | null;
+}
 
 /** Uma oferta, como a lista do painel a mostra. */
 export interface Oferta {
@@ -126,6 +155,8 @@ export interface Comercio {
     filtro: FiltroDeEncomendas,
   ): Promise<Resposta<{ itens: readonly Encomenda[]; proximo: string | null }>>;
   obterEncomenda(tenantId: string, a: Actor, orderId: string): Promise<Resposta<Encomenda>>;
+  /** O contacto mascarado de uma encomenda (KAM-206). Auditado no COM. */
+  contactoDaEncomenda(tenantId: string, a: Actor, orderId: string): Promise<Resposta<ContactoDaEncomenda>>;
 }
 
 // ------------------------------------------------------------ o adaptador HTTP
@@ -299,7 +330,23 @@ export class ComercioPorHttp implements Comercio {
     if (r.tipo !== "ok") return r as Resposta<never>;
     return { tipo: "ok" as const, valor: encomenda(r.valor as Record<string, unknown>) };
   }
+
+  async contactoDaEncomenda(tenantId: string, a: Actor, orderId: string): Promise<Resposta<ContactoDaEncomenda>> {
+    const r = await this.#chamar("/internal/order-contact", tenantId, a, { order_id: orderId });
+    if (r.tipo !== "ok") return r as Resposta<never>;
+    const v = r.valor as Record<string, unknown>;
+    const mascara = v["telefoneMascarado"];
+    // **Só passa uma máscara**: o que não tiver a forma dela não se mostra. Um
+    // COM que, por defeito, devolvesse o telefone inteiro parava aqui.
+    if (mascara !== null && (typeof mascara !== "string" || !FORMA_DA_MASCARA.test(mascara))) {
+      return { tipo: "erro", erro: "UPSTREAM_DOWN" };
+    }
+    return { tipo: "ok", valor: { orderId: String(v["orderId"]), telefoneMascarado: mascara } };
+  }
 }
+
+/** A forma da máscara do COM: três pontos, três pontos e os três últimos dígitos. */
+export const FORMA_DA_MASCARA = /^••• ••• [0-9]{3}$/;
 
 // ------------------------------------------------------------- o duplo
 
@@ -376,5 +423,18 @@ export class ComercioEmMemoria implements Comercio {
   async obterEncomenda(tenantId: string, _a: Actor, orderId: string): Promise<Resposta<Encomenda>> {
     const e = (this.encomendas.get(tenantId) ?? []).find((x) => x.orderId === orderId);
     return e === undefined ? { tipo: "erro", erro: "NOT_FOUND" } : { tipo: "ok", valor: e };
+  }
+
+  /** As máscaras do duplo, por `orderId`. Sem entrada, a encomenda não tem telefone. */
+  readonly mascaras = new Map<string, string>();
+  /** Os pedidos de contacto que o duplo recebeu, com o tenant: o que as baterias medem. */
+  readonly contactosPedidos: { tenantId: string; orderId: string }[] = [];
+
+  async contactoDaEncomenda(tenantId: string, _a: Actor, orderId: string): Promise<Resposta<ContactoDaEncomenda>> {
+    this.contactosPedidos.push({ tenantId, orderId });
+    const e = (this.encomendas.get(tenantId) ?? []).find((x) => x.orderId === orderId);
+    // A regra como o COM a aplica: fora dela, o mesmo `NOT_FOUND`.
+    if (e === undefined || !ESTADOS_COM_CONTACTO.includes(e.estado)) return { tipo: "erro", erro: "NOT_FOUND" };
+    return { tipo: "ok", valor: { orderId, telefoneMascarado: this.mascaras.get(orderId) ?? null } };
   }
 }

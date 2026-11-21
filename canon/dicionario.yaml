@@ -12,7 +12,7 @@
 
 version: 1
 fonte: "specs/02_Dicionario_de_Dados_Canonico.md"
-versao_dicionario: "1.131"
+versao_dicionario: "1.132"
 entradas:
   - seccao: "3.1"
     conceito: "Contacto"
@@ -711,7 +711,7 @@ entradas:
     variantes_literais: []
   - seccao: "3.2"
     conceito: "Acções auditadas"
-    canonico: "action ∈ {price.update, stock.adjust, payment.manual_confirm, access.conversation, batch.run, breakglass.open, audit.read, privacy.dsar_recusado, privacy.dsar_rectificado, retention.hold_aplicado, retention.hold_levantado, order.refund_record, review.acesso, review.recusa, llm.orcamento_zerado, llm.orcamento_reposto, trust.tecto, secret.rotate, secret.revoke}"
+    canonico: "action ∈ {price.update, stock.adjust, payment.manual_confirm, access.conversation, batch.run, breakglass.open, audit.read, privacy.dsar_recusado, privacy.dsar_rectificado, retention.hold_aplicado, retention.hold_levantado, order.refund_record, review.acesso, review.recusa, llm.orcamento_zerado, llm.orcamento_reposto, trust.tecto, secret.rotate, secret.revoke, order.contact_view}"
     literais:
       - "action"
       - "price.update"
@@ -733,6 +733,7 @@ entradas:
       - "trust.tecto"
       - "secret.rotate"
       - "secret.revoke"
+      - "order.contact_view"
     nomes:
       - "action"
       - "price.update"
@@ -754,9 +755,13 @@ entradas:
       - "trust.tecto"
       - "secret.rotate"
       - "secret.revoke"
+      - "order.contact_view"
     nomes_nota:
-      - "entity"
+      - "kamba_identity"
+      - "order_id"
       - "entity_id"
+      - "payload_hash"
+      - "entity"
       - "trust.tecto"
       - "order.refund_record"
       - "audit.read"
@@ -10125,12 +10130,14 @@ entradas:
     variantes_literais: []
   - seccao: "3.39"
     conceito: "As rotas da API interna do COM"
-    canonico: "Catorze, as do ROTAS de ../services/com/src/api/interna.ts: POST /internal/offer-view, /internal/propose-cart, /internal/create-order, /internal/get-order, /internal/list-orders, /internal/transition, /internal/request-owner-confirmation, /internal/list-offers, /internal/update-offer, /internal/get-offer, /internal/channel-view, /internal/screen, /internal/upsert-product-draft, /internal/publish-product"
+    canonico: "Quinze, as do ROTAS de ../services/com/src/api/interna.ts: POST /internal/offer-view, /internal/propose-cart, /internal/create-order, /internal/get-order, /internal/list-orders, /internal/transition, /internal/request-owner-confirmation, /internal/list-offers, /internal/update-offer, /internal/get-offer, /internal/channel-view, /internal/screen, /internal/upsert-product-draft, /internal/publish-product, /internal/order-contact"
     literais:
       - "ROTAS"
     nomes:
       - "ROTAS"
     nomes_nota:
+      - "order"
+      - "contact"
       - "upsert"
       - "product"
       - "draft"
@@ -10146,7 +10153,6 @@ entradas:
       - "propose"
       - "cart"
       - "create"
-      - "order"
       - "OrderIntent"
       - "ctx"
       - "NOT_IMPLEMENTED"
@@ -14748,7 +14754,7 @@ entradas:
     variantes_literais: []
   - seccao: "3.56"
     conceito: "As rotas do painel"
-    canonico: "GET /painel/entrar, POST /painel/sair, GET /painel/produtos, PATCH /painel/produtos/:id, GET /painel/encomendas, GET /painel/encomendas/:id, GET /painel/canal"
+    canonico: "GET /painel/entrar, POST /painel/sair, GET /painel/produtos, GET /painel/produtos/:id, PATCH /painel/produtos/:id, GET /painel/encomendas, GET /painel/encomendas/:id, POST /painel/encomendas/:id/contacto, GET /painel/canal"
     literais: []
     nomes: []
     nomes_nota:
@@ -14882,6 +14888,8 @@ entradas:
       - "conversa"
       - "conversa_enviar"
       - "teste"
+      - "produto"
+      - "contacto"
       - "motivo"
       - "sem_sessao"
       - "nao_encontrado"
@@ -15061,6 +15069,81 @@ entradas:
       - "limite"
       - "proxy"
       - "tls"
+    variantes_literais: []
+  - seccao: "3.76"
+    conceito: "O contacto da encomenda no COM"
+    canonico: "contactoDaEncomenda, servido por POST /internal/order-contact (order_id no corpo), com a resposta ContactoDaEncomenda = orderId e telefoneMascarado"
+    literais:
+      - "contactoDaEncomenda"
+      - "order_id"
+      - "ContactoDaEncomenda"
+      - "orderId"
+      - "telefoneMascarado"
+    nomes:
+      - "contactoDaEncomenda"
+      - "order_id"
+      - "ContactoDaEncomenda"
+      - "orderId"
+      - "telefoneMascarado"
+    nomes_nota:
+      - "OperacoesDoCom"
+      - "actor.kind"
+      - "dono"
+      - "kamba_app"
+      - "getOrder"
+      - "NOT_FOUND"
+      - "kamba_identity"
+      - "Identidade.lerEndpoints"
+      - "antes"
+      - "soTelefones"
+      - "null"
+    variantes_literais: []
+  - seccao: "3.76"
+    conceito: "A regra do contacto"
+    canonico: "ESTADOS_COM_CONTACTO ∈ {pendente_confirmacao, paga, em_entrega, entrega_falhada}; finalidade contacto_pedido (primeiro) ou entrega, por expirar"
+    literais:
+      - "ESTADOS_COM_CONTACTO"
+      - "pendente_confirmacao"
+      - "paga"
+      - "em_entrega"
+      - "entrega_falhada"
+    nomes:
+      - "ESTADOS_COM_CONTACTO"
+      - "pendente_confirmacao"
+      - "paga"
+      - "em_entrega"
+      - "entrega_falhada"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.76"
+    conceito: "A máscara do telefone"
+    canonico: "••• ••• NNN: os últimos três algarismos e dois grupos fixos de pontos, sem indicativo nem comprimento"
+    literais:
+      - "••• ••• NNN"
+    nomes:
+      - "NNN"
+    nomes_nota:
+      - "UPSTREAM_DOWN"
+    variantes_literais: []
+  - seccao: "3.76"
+    conceito: "A ligação do COM ao cofre de contacto"
+    canonico: "KAMBA_COM_IDENTITY_DB_URL (papel kamba_identity), com a kek_contact_dek"
+    literais:
+      - "KAMBA_COM_IDENTITY_DB_URL"
+      - "kamba_identity"
+      - "kek_contact_dek"
+    nomes:
+      - "KAMBA_COM_IDENTITY_DB_URL"
+      - "kamba_identity"
+      - "kek_contact_dek"
+    nomes_nota:
+      - "UPSTREAM_DOWN"
+      - "db_identity_password"
+      - "kek_contact_dek"
+      - "kamba_identity"
+      - "EXECUTE"
+      - "audit_append"
+      - "INSERT"
     variantes_literais: []
   - seccao: "3.57"
     conceito: "Caso de onboarding"
@@ -23932,6 +24015,7 @@ dominios:
       - "trust.tecto"
       - "secret.rotate"
       - "secret.revoke"
+      - "order.contact_view"
     seccao: "3.2"
     conceito: "Acções auditadas"
     so_no_registo: false
@@ -25117,6 +25201,15 @@ dominios:
       - "sem_canal"
     seccao: "3.56"
     conceito: "O estado do canal no painel"
+    so_no_registo: false
+  - coluna: "ESTADOS_COM_CONTACTO"
+    valores:
+      - "pendente_confirmacao"
+      - "paga"
+      - "em_entrega"
+      - "entrega_falhada"
+    seccao: "3.76"
+    conceito: "A regra do contacto"
     so_no_registo: false
   - coluna: "onboarding_case.fase"
     valores:

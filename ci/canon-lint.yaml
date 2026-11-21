@@ -694,6 +694,21 @@ dominios_historicos:
       0074; esta entrada cobre a segunda. O passo de descida apaga as decisoes
       conteudo antes de repor o dominio, pela regra da 0074. Renumerar a
       revisao e mudar tambem o caminho desta entrada.
+  - revisao: "db/migrations/versions/0082_contacto_da_encomenda.py"
+    tabela: "audit_log"
+    coluna: "action"
+    ticket: "KAM-206"
+    data: "2026-11-21"
+    razao: >-
+      A 0082 (KAM-206, decisao do fundador de 2026-11-20, opcao A) acrescenta
+      ao dominio order.contact_view, o dono viu o contacto de uma encomenda,
+      mascarado, e o dicionario §3.2 passa a declarar vinte (emenda 1.132). O
+      upgrade escreve as vinte; o downgrade repoe as dezanove da 0066, que e o
+      que a base passa a ter quando se desce, e e essa declaracao que esta
+      entrada cobre. O passo de descida recusa-se se houver linhas
+      order.contact_view escritas, porque o audit_log e append-only e nenhum
+      papel tem DELETE. Renumerar a revisao e mudar tambem o caminho desta
+      entrada.
 
 # ------------------------------------------------ unicidades que o §3 proibe
 #

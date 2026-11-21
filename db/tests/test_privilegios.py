@@ -2076,6 +2076,13 @@ COLUNAS_POR_PAPEL = {
         "tenant_id", "actor_type", "actor_id", "action", "entity", "entity_id",
         "turn_id", "payload_hash",
     },
+    # KAM-206 (revisao `0082`, decisao do fundador de 2026-11-20): o
+    # `kamba_identity` escreve a linha `order.contact_view` na transaccao da
+    # decifra, pelo `audit_append`. As mesmas oito, e sem `SELECT`.
+    ("kamba_identity", "audit_log", "INSERT"): {
+        "tenant_id", "actor_type", "actor_id", "action", "entity", "entity_id",
+        "turn_id", "payload_hash",
+    },
     # KAM-090: o lote publica as versoes **sem** o `publicado_em` nem o
     # `document_id`. A data de publicacao e a omissao `now()`, e e isso que da
     # dentes ao `contract_document_sem_retroactivo_ck`: com a coluna concedida,

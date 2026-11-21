@@ -132,7 +132,11 @@ class TestDowngradeDaRotacao(unittest.TestCase):
         ticket (o `trust.tecto` da `0065`) passava o `_tem_as_accoes`.
         """
         definicao = self._definicao()
-        esperadas = [a for a in ACCOES if not a.startswith("secret.")]
+        # **Sem as de cima tambem**: descer a `0066` desce primeiro as revisoes
+        # por cima dela, e a `0082` (KAM-206) tira o `order.contact_view`. Sem
+        # esta exclusao o oraculo esperava vinte e a base tinha dezoito.
+        posteriores = {"order.contact_view"}
+        esperadas = [a for a in ACCOES if not a.startswith("secret.") and a not in posteriores]
         for accao in esperadas:
             self.assertIn(f"'{accao}'", definicao)
         self.assertEqual(definicao.count("'::text"), len(esperadas))

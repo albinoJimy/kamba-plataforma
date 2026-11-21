@@ -35,7 +35,13 @@ import type { CanalDoDono } from "@kamba/core-ts/dono";
 
 import { cabecalhos } from "../pagina.ts";
 import type { VistaDoCanal } from "./canal.ts";
-import { ESTADOS_DA_ENCOMENDA, type Encomenda, type Oferta } from "./comercio.ts";
+import {
+  ESTADOS_COM_CONTACTO,
+  ESTADOS_DA_ENCOMENDA,
+  type ContactoDaEncomenda,
+  type Encomenda,
+  type Oferta,
+} from "./comercio.ts";
 
 export { cabecalhos };
 
@@ -179,29 +185,51 @@ function opcoesDoModo(actual: string): string {
     .join("");
 }
 
-/** A lista de produtos, com o formulário de cada um (critério 2). */
+function stockLegivel(o: Oferta): string {
+  return o.stockQuantidade === null
+    ? `stock ${escapar(o.stockModo)}, sem quantidade declarada`
+    : `${o.stockQuantidade} em stock (${o.stockReservada} reservadas)`;
+}
+
+/**
+ * A lista de produtos (critério 2 do KAM-099), **sem formulários e sem guião**
+ * (KAM-206).
+ *
+ * O KAM-190 mediu esta página em 3G simulado com 200 produtos e um formulário
+ * por produto: 1,7 a 4,5 s até o DOM estar pronto, e o peso era de CPU e não de
+ * rede (com gzip não melhorava). Uma linha de tabela por produto, com a ligação
+ * para a página dele, é o que o telemóvel desenha sem montar 600 controlos; o
+ * formulário e o guião vivem na página de **um** produto (`paginaDoProduto`).
+ */
 export function paginaDeProdutos(nonce: string, ofertas: readonly Oferta[], truncada: boolean): string {
-  const cartoes = ofertas
-    .map((o) => {
-      // **Um preço com cêntimos não se pré-preenche.** O campo é em Kz inteiros
-      // (critério 5), e pôr lá o valor arredondado fazia uma gravação qualquer
-      // cortar os cêntimos sem o dono ver. Fica vazio, e o preço exacto está no
-      // texto ao lado. Achado da revisão adversarial.
-      const kzActual = o.precoMinor === null || o.precoMinor % 100n !== 0n ? "" : (o.precoMinor / 100n).toString();
-      const stock =
-        o.stockQuantidade === null
-          ? `stock ${escapar(o.stockModo)}, sem quantidade declarada`
-          : `${o.stockQuantidade} em stock (${o.stockReservada} reservadas)`;
-      return `<form class="oferta cartao" data-sku="${escapar(o.sku)}" data-versao="${escapar(o.versao)}" data-tipo="${escapar(o.precoTipo)}" data-kz="${escapar(kzActual)}">
-<h2>${escapar(o.nome)}</h2><p>${escapar(precoLegivel(o))} · ${stock}</p>
+  const linhas = ofertas
+    .map(
+      (o) =>
+        `<tr><td><a href="/painel/produtos/${escapar(encodeURIComponent(o.sku))}">${escapar(o.nome)}</a></td><td>${escapar(precoLegivel(o))}</td><td>${stockLegivel(o)}</td></tr>`,
+    )
+    .join("\n");
+  const tabela =
+    ofertas.length === 0
+      ? "<p>Ainda não há produtos no catálogo.</p>"
+      : `<table><thead><tr><th>Produto</th><th>Preço</th><th>Stock</th></tr></thead><tbody>${linhas}</tbody></table>`;
+  const aviso = truncada ? '<p class="aviso">A lista mostra os primeiros 200 produtos.</p>' : "";
+  return moldura(nonce, "Produtos", `${aviso}${tabela}`);
+}
+
+/** Um produto, com o formulário do preço (critério 2 do KAM-099; KAM-206). */
+export function paginaDoProduto(nonce: string, o: Oferta): string {
+  // **Um preço com cêntimos não se pré-preenche.** O campo é em Kz inteiros
+  // (critério 5), e pôr lá o valor arredondado fazia uma gravação qualquer
+  // cortar os cêntimos sem o dono ver. Fica vazio, e o preço exacto está no
+  // texto ao lado. Achado da revisão adversarial.
+  const kzActual = o.precoMinor === null || o.precoMinor % 100n !== 0n ? "" : (o.precoMinor / 100n).toString();
+  const formulario = `<form class="oferta cartao" data-sku="${escapar(o.sku)}" data-versao="${escapar(o.versao)}" data-tipo="${escapar(o.precoTipo)}" data-kz="${escapar(kzActual)}">
+<p>${escapar(precoLegivel(o))} · ${stockLegivel(o)}</p>
 <label>Modo do preço <select name="preco_tipo">${opcoesDoModo(o.precoTipo)}</select></label>
 <label>Preço em Kz <input name="preco_kz" inputmode="numeric" pattern="[0-9]*" value="${escapar(kzActual)}"></label>
-<button type="submit">Gravar</button> <span class="saida" role="status"></span></form>`;
-    })
-    .join("\n");
-  const vazia = ofertas.length === 0 ? "<p>Ainda não há produtos no catálogo.</p>" : "";
-  const aviso = truncada ? '<p class="aviso">A lista mostra os primeiros 200 produtos.</p>' : "";
-  return moldura(nonce, "Produtos", `${aviso}${vazia}${cartoes}`, `<script nonce="${escapar(nonce)}">${GUIAO_DOS_PRODUTOS}</script>`);
+<button type="submit">Gravar</button> <span class="saida" role="status"></span></form>
+<p><a href="/painel/produtos">Voltar aos produtos</a></p>`;
+  return moldura(nonce, o.nome, formulario, `<script nonce="${escapar(nonce)}">${GUIAO_DOS_PRODUTOS}</script>`);
 }
 
 /** Os filtros da lista de encomendas, já validados. */
@@ -246,14 +274,30 @@ export function paginaDeEncomendas(
   return moldura(nonce, "Encomendas", `${filtro}${tabela}${seguinte}`);
 }
 
-/** Uma encomenda. O contacto **não** aparece: ver a verificação do bloco. */
-export function paginaDaEncomenda(nonce: string, e: Encomenda): string {
-  return moldura(
-    nonce,
-    `Encomenda ${e.numeroPublico}`,
-    `<div class="cartao"><p>Estado: ${escapar(NOMES_DOS_ESTADOS[e.estado] ?? e.estado)}</p>
-<p>Valor: ${escapar(kz(e.totalMinor))}</p><p>Data: ${escapar(diaEmLuanda(e.criadoAt))}</p></div>`,
-  );
+/**
+ * Uma encomenda. **O contacto não vem por omissão** (KAM-206): nos estados em
+ * que o dono age, a página tem o botão que o pede, e só a resposta a esse pedido
+ * — auditada no COM — traz o telefone, mascarado. O `contactId` nunca aparece.
+ */
+export function paginaDaEncomenda(
+  nonce: string,
+  e: Encomenda,
+  contacto: ContactoDaEncomenda | null = null,
+): string {
+  const dados = `<div class="cartao"><p>Estado: ${escapar(NOMES_DOS_ESTADOS[e.estado] ?? e.estado)}</p>
+<p>Valor: ${escapar(kz(e.totalMinor))}</p><p>Data: ${escapar(diaEmLuanda(e.criadoAt))}</p></div>`;
+  let parteDoContacto = "";
+  if (contacto !== null) {
+    parteDoContacto =
+      contacto.telefoneMascarado === null
+        ? '<div class="cartao"><p>Esta encomenda não tem telefone do cliente para mostrar.</p></div>'
+        : `<div class="cartao"><p>Telefone do cliente: <strong data-contacto>${escapar(contacto.telefoneMascarado)}</strong></p>
+<p>Mostramos só os últimos três algarismos. Responda ao cliente pela conversa da loja.</p></div>`;
+  } else if (ESTADOS_COM_CONTACTO.includes(e.estado)) {
+    parteDoContacto = `<form method="post" action="/painel/encomendas/${escapar(encodeURIComponent(e.orderId))}/contacto" class="cartao">
+<p>Precisa de reconhecer o cliente? O pedido fica registado.</p><button type="submit">Ver o contacto do cliente</button></form>`;
+  }
+  return moldura(nonce, `Encomenda ${e.numeroPublico}`, `${dados}${parteDoContacto}`);
 }
 
 /** O canal do dono por omissão: o painel, que funciona sempre (KAM-216). */
