@@ -3794,7 +3794,7 @@ existem desde a `0010`):
   `consultas.py`, `__main__.py`) e o `_apresentacao` do vendedor;
 - a *fixture* partilhada [`../packages/core-ts/tests/fixtures/apresentacao_do_vendedor.json`](../packages/core-ts/tests/fixtures/apresentacao_do_vendedor.json):
   o AGR tem de a produzir letra a letra e o observador tem de a aceitar;
-- o dicionário §3.74 (emenda 1.133), a linha do critério 1 do KAM-202 (EPIC-04) e a do critério 7 do KAM-080
+- o dicionário §3.74 (emenda 1.134), a linha do critério 1 do KAM-202 (EPIC-04) e a do critério 7 do KAM-080
   (EPIC-08) revistas.
 
 | Critério | Estado | Evidência |
@@ -3813,12 +3813,15 @@ existem desde a `0010`):
 **Os gates, nesta máquina, na árvore do ramo:**
 
 - 3, 3b (os três comandos: `dict_export --check`, `canon_lint check`, `canon_lint canario`) e 3c: verdes;
-- as **30** suites de `tools/`, verdes (o `log_policy` com o `libs/py-core/src` no caminho: sem ele dá 69 em vez de 114, por ambiente), com o `lint_bloco` incluído: o piso sobe de 85 para **86**, porque este bloco é o
-  172.º medido (provisório, renumera-se na integração);
+- as **30** suites de `tools/`, verdes (o `log_policy` com o `libs/py-core/src` no caminho: sem ele dá 69 em vez de 114, por ambiente), com o `lint_bloco` incluído: o piso fica em **86**: este bloco é o 173.º
+  medido na árvore integrada com a `publico/main` em `b37d1ffe`, e quem o subiu foi o KAM-232 (#246), que fundiu primeiro;
 - `core-ts`: *typecheck* e **3533** ensaios de unidade a passar (um saltado, que não é deste ticket), 0 falhas; `worker-canal`: *typecheck* e **58**, 0 falhas;
   AGR: `test_grafos`, `test_vendedor` e `test_arranque`, **190**, verdes;
 - gate 8 (`db/gate_bd.py`): `tests_lote` (**11**, com os três ensaios KAM-235 pelo nome), `tests_agr` (**417**),
   `tests_entrada` (**38**) e `tests_outbound` (**10**, que passa a levar o ensaio do estágio) verdes. O `tests` inteiro e o `tests_isolamento` ficam para o CI.
+- **depois da integração** com a `publico/main` em `b37d1ffe` (o #246 do KAM-232): os linters de cima, o
+  `lint_bloco` e a suite dele, o `core-ts` (**3556**), o `worker-canal` (**58**) e o AGR (**245**, com o
+  `test_mensagens` do KAM-232) verdes; o gate 8 dessa árvore fica para o CI.
 
 **Oito mutações novas** em `../db/mutacoes.py` (secção KAM-235), todas aplicáveis (`--aplicaveis`: 1300
 conferidas, 0 não aplicáveis). **Oito apanhadas em oito** numa prova focada nesta máquina: cada mutação
@@ -3921,4 +3924,4 @@ bloquear. **Seis corrigidos neste ramo:**
 | 1.20 | Novembro 2026 | **Aresta recíproca, sem alteração de conteúdo: o `Bloqueia` do KAM-019 ganha o KAM-213** (EPIC-01), que torna determinístico o ensaio «duas chamadas concorrentes: o ON CONFLICT da conta» do `handoff.bd.test.ts` — uma barreira no provedor falso força as duas chamadas a passarem a leitura antes do `INSERT`, em vez de o deixar ao `Promise.all`. | Equipa KAMBÁ |
 | 1.21 | Novembro 2026 | **Aresta recíproca, sem alteração de conteúdo:** o `Bloqueia` do KAM-020 ganha o **KAM-231** (EPIC-11), aberto no PR do KAM-119: a foto do dono chega ao catálogo pelo MED. | Equipa KAMBÁ |
 | 1.22 | Novembro 2026 | **KAM-235 acrescentado**, no PR do **KAM-202** (EPIC-04), que o abre e não o implementa: o credor dos factos do teste ponta a ponta que em produção ninguém escreve — o `delivered_at` dos *statuses* e o nome da loja na apresentação do vendedor. Decisão do fundador de 2026-11-20, no bloco do KAM-202. Escrito como KAM-232 e renumerado duas vezes na integração: para 233 depois do KAM-223, e para 235 depois do KAM-218 e do KAM-234 (EPIC-11), que tomaram o 233 e o 234. | Equipa KAMBÁ |
-| 1.23 | Novembro 2026 | **KAM-235 entregue.** Os *statuses* escrevem o `delivered_at` pelo estágio do `worker-canal` (o `Saida.ingerir` do KAM-015, sem esquema novo), a apresentação do vendedor nomeia a loja pelo `tenants.nome` do turno, com ou sem dígitos (proposta levada à coordenação, no bloco), e o teste ponta a ponta com o simulador passa com o `ConsentGate` montado e dá `sem_consentimento` sem ele. Três critérios e as duas caixas da DoD satisfeitos. Emenda 1.133 do dicionário; a linha do critério 1 do KAM-202 (EPIC-04) e a do critério 7 do KAM-080 (EPIC-08) revistas | Equipa KAMBÁ |
+| 1.23 | Novembro 2026 | **KAM-235 entregue.** Os *statuses* escrevem o `delivered_at` pelo estágio do `worker-canal` (o `Saida.ingerir` do KAM-015, sem esquema novo), a apresentação do vendedor nomeia a loja pelo `tenants.nome` do turno, com ou sem dígitos (proposta levada à coordenação, no bloco), e o teste ponta a ponta com o simulador passa com o `ConsentGate` montado e dá `sem_consentimento` sem ele. Três critérios e as duas caixas da DoD satisfeitos. Emenda 1.134 do dicionário; a linha do critério 1 do KAM-202 (EPIC-04) e a do critério 7 do KAM-080 (EPIC-08) revistas | Equipa KAMBÁ |

@@ -75,6 +75,8 @@ describe("explosao: mensagens", () => {
         // interlocutor sai com os dois a `null` em vez de nao sair — e o que
         // faz o CHR poder recusar o evento em vez de o resolver as cegas.
         interlocutor: { bsuid: null, telefone: null },
+        // KAM-232: o corpo de uma `text` sai no evento, para o CHR o gravar.
+        texto: "ola",
       },
     ]);
   });

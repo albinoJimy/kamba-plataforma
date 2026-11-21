@@ -286,7 +286,8 @@ class ExecutorDeTurnos:
         `invocacao_invalida`) e sai do lote; as outras do mesmo lote correm. Uma
         recusa do lote inteiro levava com ela as mensagens legitimas que
         coalesceram ao lado, e o *shim* descartava-as com o 400. Uma invocacao
-        sem `message_id` (o WhatsApp de hoje) entra como ate aqui, sem texto.
+        sem `message_id` (do WhatsApp, uma que nao e `text`; desde o KAM-232 o
+        CHR grava as `text`) entra como ate aqui, sem texto.
         """
         aceites: list[Pendente] = []
         janela: list[dict[str, str]] = []

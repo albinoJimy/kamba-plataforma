@@ -119,8 +119,11 @@ describe("KAM-202 — o sinal do teste sai da explosao", () => {
     for (const body of ["teste", "Teste", "TESTE", "  teste  ", "teste!", "«Teste».", "tésté"]) {
       const e = evento(texto(body));
       assert.equal(e.eTeste, true, JSON.stringify(body));
-      const { eTeste: _sinal, ...resto } = e;
-      assert.ok(!JSON.stringify(resto).toLowerCase().includes("test"), "o corpo nao entra no evento");
+      // KAM-232: o corpo de uma `text` segue no `texto`, para o CHR o gravar na
+      // fonte persistida; fora desse campo continua a nao entrar no evento.
+      const { eTeste: _sinal, texto: corpo, ...resto } = e;
+      assert.equal(typeof corpo, "string", JSON.stringify(body));
+      assert.ok(!JSON.stringify(resto).toLowerCase().includes("test"), "o corpo so entra no `texto`");
     }
   });
 

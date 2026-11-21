@@ -2216,12 +2216,13 @@ contexto de quem chama o `ainvoke`; medido pela bateria).
 
 ### O que falta para conversar
 
-- **A janela chega vazia.** O texto do cliente vive no *job* da `wa-inbound` e
-  não em `inbound_events`, e o `agent_invocation` não o leva. As duas rotas — o
-  corpo na `agr-inbound` (emenda ao §3.13, redacção do lado do CHR) ou uma fonte
-  persistida por identificador (esquema novo) — mudam o canon, e estão
-  **devolvidas ao fundador** com a medição na secção de verificação do KAM-186.
-  Com a janela vazia o grafo vai a `safe_reply`.
+- **A janela chegava vazia** (KAM-186). O fundador decidiu a 2026-11-19 a fonte
+  persistida por identificador (decisão 1 do bloco do KAM-217): o painel grava
+  o texto do dono desde o KAM-223, e o CHR o de uma mensagem `text` do WhatsApp
+  desde o KAM-232, na `platform.agent_messages`; a invocação leva o
+  `message_id`, e o executor põe o texto na janela pela via única, redigido,
+  antes do `ainvoke`. As mensagens que não são `text` (a foto, o áudio)
+  continuam sem texto: a foto é do KAM-231.
 - **A resposta não sai do processo.** A `PortaDeSaida` do grafo não tem
   implementação: o Outbound é o `Saida` de `packages/core-ts/src/outbound/`
   (KAM-015), e **nenhum serviço o instancia**. A porta ligada é a

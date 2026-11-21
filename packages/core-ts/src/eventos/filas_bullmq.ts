@@ -39,6 +39,7 @@ import { Queue } from "bullmq";
 // no gate 2).
 import { Redis } from "ioredis";
 
+import { FILA_ENTRADA, PRAZO_DO_CORPO_S } from "../entrada/contrato.ts";
 import type { Filas, Trabalho } from "./filas.ts";
 import { REPETICAO } from "./filas.ts";
 
@@ -52,6 +53,35 @@ import { REPETICAO } from "./filas.ts";
  */
 export const MANTER_CONCLUIDOS = 10_000;
 export const MANTER_FALHADOS = 10_000;
+
+/**
+ * As filas cujos *jobs* têm prazo além da contagem, em segundos.
+ *
+ * Só a `wa-inbound`, cujo corpo é o webhook bruto com o texto do cliente
+ * (KAM-232, decisão do fundador de 2026-11-20). **Está aqui e não em quem
+ * enche a fila**, para que nenhum produtor — o GWY, um ensaio, o simulador — a
+ * encha sem prazo por se esquecer de o passar.
+ */
+export const PRAZO_POR_FILA: Readonly<Record<string, number>> = {
+  [FILA_ENTRADA]: PRAZO_DO_CORPO_S,
+};
+
+/**
+ * O que o BullMQ guarda de um *job* da fila `nome` depois de acabar: os últimos
+ * `MANTER_*` e, numa fila com prazo, só os que têm menos de `age` segundos.
+ * O BullMQ aplica os dois limites, e cai o primeiro que se cumprir.
+ */
+export function retencaoDoJob(nome: string): {
+  readonly removeOnComplete: { readonly count: number; readonly age?: number };
+  readonly removeOnFail: { readonly count: number; readonly age?: number };
+} {
+  const prazo = PRAZO_POR_FILA[nome];
+  const age = prazo === undefined ? {} : { age: prazo };
+  return {
+    removeOnComplete: { count: MANTER_CONCLUIDOS, ...age },
+    removeOnFail: { count: MANTER_FALHADOS, ...age },
+  };
+}
 
 /**
  * O que obriga o cliente a **falhar** quando a fila está em baixo.
@@ -262,8 +292,8 @@ export class FilasBullmq implements Filas {
             // `REPETICAO.atraso` fica a ser o primeiro degrau da escada, e o
             // teste `test_o_job_pede_a_escada_do_consumidor` prende os dois.
             backoff: { type: "custom" },
-            removeOnComplete: { count: MANTER_CONCLUIDOS },
-            removeOnFail: { count: MANTER_FALHADOS },
+            // KAM-232: a contagem, e o prazo da fila se o tiver.
+            ...retencaoDoJob(nome),
           },
         })),
       ),
