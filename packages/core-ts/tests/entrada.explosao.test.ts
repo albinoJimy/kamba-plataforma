@@ -161,6 +161,8 @@ describe("explosao: estados (criterio 4)", () => {
         phoneNumberId: PNID,
         waType: null,
         interlocutor: null,
+        // KAM-235: o que o estágio de saída precisa, e nada do destinatário.
+        estado: { wamid: "wamid.XYZ", estado: "delivered", pricing: null },
       },
     ]);
   });

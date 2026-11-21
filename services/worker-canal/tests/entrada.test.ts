@@ -14,6 +14,7 @@ import { sha256Hex, tratarCorpo } from "@kamba/core-ts/entrada";
 import type { ClienteSql } from "@kamba/core-ts/entrada";
 
 import {
+  EncaminhadorDoCanal,
   EncaminhadorQueSoRegista,
   PORTA_POR_OMISSAO,
   ambienteDasChaves,
@@ -91,6 +92,45 @@ describe("o encaminhador do esqueleto", () => {
     );
     assert.equal(resultado.emQuarentena, 1);
     assert.deepEqual(encaminhador.entregues, []);
+  });
+});
+
+describe("KAM-235: o braco outbound do encaminhador de producao", () => {
+  const corpo = mudanca("messages", { statuses: [{ id: "wamid.A", status: "delivered" }] });
+
+  it("um statuses vai ao estagio dos statuses, com o wamid e o estado, e nunca ao CHR", async () => {
+    const recebidos: unknown[] = [];
+    const chr = {
+      tratar: async () => {
+        throw new Error("um statuses nao vai ao CHR");
+      },
+    } as unknown as ConstructorParameters<typeof EncaminhadorDoCanal>[0];
+    const encaminhador = new EncaminhadorDoCanal(chr, async (evento) => {
+      recebidos.push(evento.estado);
+    });
+    const { trabalho, resumo } = trabalhoDe(corpo);
+    const resultado = await tratarCorpo(new BaseQueAceita(), trabalho, encaminhador, resumo);
+    assert.deepEqual(resultado.destinos, ["outbound"]);
+    assert.deepEqual(recebidos, [{ wamid: "wamid.A", estado: "delivered", pricing: null }]);
+    assert.equal(encaminhador.entregues.length, 1);
+  });
+
+  it("uma falha do estagio sobe, para o job repetir", async () => {
+    const chr = {} as unknown as ConstructorParameters<typeof EncaminhadorDoCanal>[0];
+    const encaminhador = new EncaminhadorDoCanal(chr, async () => {
+      throw new Error("base em baixo");
+    });
+    const { trabalho, resumo } = trabalhoDe(corpo);
+    await assert.rejects(tratarCorpo(new BaseQueAceita(), trabalho, encaminhador, resumo), /base em baixo/);
+  });
+
+  it("sem estagio, o braco conta e mais nada, como no esqueleto", async () => {
+    const chr = {} as unknown as ConstructorParameters<typeof EncaminhadorDoCanal>[0];
+    const encaminhador = new EncaminhadorDoCanal(chr);
+    const { trabalho, resumo } = trabalhoDe(corpo);
+    const resultado = await tratarCorpo(new BaseQueAceita(), trabalho, encaminhador, resumo);
+    assert.deepEqual(resultado.destinos, ["outbound"]);
+    assert.equal(encaminhador.entregues.length, 1);
   });
 });
 

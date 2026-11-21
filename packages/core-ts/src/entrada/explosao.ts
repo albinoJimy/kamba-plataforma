@@ -42,6 +42,7 @@
 import { createHash } from "node:crypto";
 
 import { eMensagemDeTeste } from "../activacao/smoke.ts";
+import type { Pricing } from "../outbound/contrato.ts";
 import {
   CAMPO_DAS_MENSAGENS,
   FORMA_DO_BOTAO,
@@ -159,6 +160,22 @@ export interface EventoDeEntrada {
    * telefone também não (ADR-010).
    */
   readonly eTeste?: true;
+  /**
+   * Só num `statuses` com `id` e `status` legíveis (KAM-235): o que o estágio de
+   * saída precisa para escrever o estado da mensagem pelo `Saida.ingerir`.
+   * **Ausente** em tudo o resto. O `recipient_id` (o telefone) e o
+   * `recipient_user_id` não saem daqui: a mensagem acha-se pelo `wamid`.
+   */
+  readonly estado?: EstadoDaMeta;
+}
+
+/** O estado de uma mensagem nossa, como um item de `statuses[]` o traz. */
+export interface EstadoDaMeta {
+  readonly wamid: string;
+  /** O `status` da Meta, tal e qual. Quem o valida é o estágio de saída. */
+  readonly estado: string;
+  /** O `pricing`, ou `null` quando falta ou não se lê (um `failed` não o traz). */
+  readonly pricing: Pricing | null;
 }
 
 /** Um evento que não se conseguiu encaminhar, a registar em `unrouted_events`. */
@@ -474,9 +491,32 @@ function explodirMensagens(
       // Um `statuses` vai ao *stage* de *outbound* (KAM-015) e nunca ao CHR:
       // nao ha contacto a resolver.
       interlocutor: null,
+      ...(wamid !== null && situacao !== null
+        ? { estado: { wamid, estado: situacao, pricing: pricingDe(estado.pricing) } }
+        : {}),
     });
     quantos += 1;
   }
 
   return quantos;
+}
+
+/**
+ * O `pricing` de um `statuses`, ou `null` (KAM-235).
+ *
+ * Sem o `billable` booleano ou sem a `category`, `null`: o `Saida.ingerir` não
+ * cobra um `pricing` que não lê, e o custo de uma categoria desconhecida é o
+ * `microUsdDe` que o decide. O `pricing_model` e o `type` não decidem nada aqui.
+ */
+function pricingDe(valor: unknown): Pricing | null {
+  const p = objecto(valor);
+  if (p === null || typeof p.billable !== "boolean") return null;
+  const categoria = texto(p.category, ID_META_MAXIMO);
+  if (categoria === null) return null;
+  return {
+    billable: p.billable,
+    pricing_model: texto(p.pricing_model, ID_META_MAXIMO) ?? "",
+    type: texto(p.type, ID_META_MAXIMO) ?? "",
+    category: categoria,
+  };
 }

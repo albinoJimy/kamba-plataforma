@@ -14,21 +14,23 @@
  *    encaixa. A decisão toda está em `@kamba/core-ts/entrada`; aqui monta-se.
  * 3. Serve `/healthz` e `/metrics`, como os outros dois.
  *
- * ## Um dos quatro destinos já encaminha; os outros três continuam costura
+ * ## Dois dos quatro destinos já encaminham; os outros dois continuam costura
  *
  * O braço `chr` é o **CHR** (KAM-014): resolve o canal, aplica a guarda do
  * ADR-011 e a matriz de estados, resolve o contacto, abre a conversa e entrega
- * ao AGR ou ao dono. Os outros três continuam a existir como costura — o
- * *stage* de *outbound* é KAM-015, a ingestão de coexistência é KAM-017 e a
- * gestão de canal está repartida entre KAM-016 e KAM-021 —, e o que o KAM-013
+ * ao AGR ou ao dono. O braço `outbound` é o **estágio dos `statuses`**
+ * (KAM-235): o `Saida.ingerir` do KAM-015 escreve o estado da mensagem e o
+ * `delivered_at`. Os outros dois continuam a existir como costura — a ingestão
+ * de coexistência é KAM-017 e a gestão de canal está repartida entre KAM-016 e
+ * KAM-021 —, e o que o KAM-013
  * entregou e continua a valer é a decisão de **para onde** cada `kind` vai,
  * incluindo as duas propriedades negativas que importam: um `statuses` nunca
  * vai ao AGR, e um `history` nunca dispara resposta.
  *
  * O `EncaminhadorQueSoRegista` fica, e é com ele que o teste do critério 8 do
  * KAM-013 continua a correr. Em produção o que se monta é o
- * `EncaminhadorDoCanal`, que delega `chr` no CHR e mantém os outros três a
- * contar.
+ * `EncaminhadorDoCanal`, que delega `chr` no CHR e `outbound` no estágio dos
+ * `statuses`, e mantém os outros dois a contar.
  *
  * ## Quatro ligações, três papéis, e nenhuma faz o trabalho de outra
  *
@@ -85,6 +87,7 @@ import { METRICAS, filasDe } from "@kamba/core-ts/eventos";
 import { criarTrabalhadores } from "@kamba/core-ts/eventos/trabalhador_bullmq";
 import { EnvKeyProvider, Identidade } from "@kamba/core-ts/identity";
 import { type Logger, instalar } from "@kamba/core-ts/logger";
+import { estagioDosStatuses } from "@kamba/core-ts/outbound";
 import { type Ambiente, isAmbiente } from "@kamba/core-ts/secrets";
 import { METRICAS_DA_GUARDA, comTenant } from "@kamba/core-ts/tenant_guard";
 import { Hono } from "hono";
@@ -167,24 +170,37 @@ export class EncaminhadorQueSoRegista implements Encaminhador {
 }
 
 /**
- * O encaminhador de producao: o braco `chr` e o CHR, os outros tres contam.
+ * O encaminhador de producao: o braco `chr` e o CHR, o `outbound` e o estagio
+ * dos `statuses` (KAM-235), os outros dois contam.
  *
- * Herda do esqueleto de proposito, e nao o substitui: os tres destinos que ainda
+ * Herda do esqueleto de proposito, e nao o substitui: os destinos que ainda
  * nao tem tratador continuam a contar exactamente como contavam, e o teste do
  * criterio 8 do KAM-013 — «`statuses` vai a `outbound` e nao ao CHR», «`history`
  * nao dispara resposta» — continua a valer sobre esta classe.
  */
 export class EncaminhadorDoCanal extends EncaminhadorQueSoRegista {
   readonly #chr: Chr;
+  readonly #statuses: ((evento: EventoDeEntrada) => Promise<unknown>) | null;
 
-  constructor(chr: Chr) {
+  /**
+   * `statuses` é o braço `outbound` (KAM-235): o `estagioDosStatuses`, que
+   * escreve o estado da mensagem e o `delivered_at` pelo `Saida.ingerir`. Sem
+   * ele, o braço conta e mais nada, como antes.
+   */
+  constructor(chr: Chr, statuses?: (evento: EventoDeEntrada) => Promise<unknown>) {
     super();
     this.#chr = chr;
+    this.#statuses = statuses ?? null;
   }
 
   override async chr(evento: EventoDeEntrada): Promise<void> {
     this.entregues.push(evento);
     await this.#chr.tratar(evento);
+  }
+
+  override async outbound(evento: EventoDeEntrada): Promise<void> {
+    this.entregues.push(evento);
+    await this.#statuses?.(evento);
   }
 }
 
@@ -395,7 +411,17 @@ async function principal(): Promise<void> {
     comTenant: (tenant, trabalho) => comTenant(bd, tenant, () => trabalho(bd)),
   });
 
-  const encaminhador = new EncaminhadorDoCanal(chr);
+  // **Os `statuses` escrevem o estado da mensagem** (KAM-235): o tenant pelo
+  // resolvedor de canal, e o `Saida.ingerir` na ligação `kamba_app` com o
+  // contexto dele. O desfecho vai ao registo; o `wamid` não.
+  const estagio = estagioDosStatuses({
+    tenantDe: async (phoneNumberId) =>
+      (await resolvedor.resolver(phoneNumberId)).resolvido?.contexto.tenant_id ?? null,
+    comTenant: (tenant, trabalho) => comTenant(bd, tenant, () => trabalho(bd)),
+  });
+  const encaminhador = new EncaminhadorDoCanal(chr, async (evento) => {
+    log.info({ outcome: `estado_${await estagio(evento)}` });
+  });
   // O `log` da biblioteca tem *allowlist* de campos (`docs/tecnica/08` §7.3), e
   // é o `tratarCorpo` que escolhe o que lá cabe: o `outcome`, o `msg_id` já
   // opaco e o `wa_type` da lista fechada. **Nada do corpo passa por aqui**.

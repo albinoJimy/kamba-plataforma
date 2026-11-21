@@ -31,9 +31,17 @@ import { after, before, describe, it } from "node:test";
 
 import pg from "pg";
 
+import { readFileSync } from "node:fs";
+
+import { Gerador, estado as estadoDoSimulador, interlocutorDe } from "@kamba/meta-sim";
+
 import { BASE_DESCARTAVEL, criarCanal, ligar } from "./apoio.ts";
-import { SQL_ABRIR_CONVERSA, SQL_MARCAR_TESTE_RECEBIDO } from "../src/chr/index.ts";
+import { ObservadorSql } from "../src/activacao/index.ts";
+import { ResolvedorDeCanal, SQL_ABRIR_CONVERSA, SQL_MARCAR_TESTE_RECEBIDO } from "../src/chr/index.ts";
+import { ConsentGate, resumoDoTexto } from "../src/consentimento/index.ts";
+import { sha256Hex, tratarCorpo, type Encaminhador } from "../src/entrada/index.ts";
 import { explodir } from "../src/entrada/explosao.ts";
+import { estagioDosStatuses } from "../src/outbound/index.ts";
 import { conteudoSha256, politicaCorrente } from "../src/screening/index.ts";
 import type { ConjuntoSql } from "../src/revisao/index.ts";
 import { comTenant } from "../src/tenant_guard/index.ts";
@@ -227,11 +235,155 @@ async function linha<T>(sql: string, valores: readonly unknown[]): Promise<T | u
   return (await admin.query(sql, valores as unknown[])).rows[0] as T | undefined;
 }
 
+// ------------------------------------------------- KAM-235: os factos em produção
+
+const SIMULADOR = new Gerador("kam-235-bd");
+const CLIENTE_DO_TESTE = interlocutorDe(SIMULADOR);
+const VERSAO_DO_AVISO = "kam235-v1";
+let resolvedorBd: pg.Client;
+
+/** A apresentação do vendedor do registo, com o nome da loja: o que o AGR envia (KAM-235). */
+function apresentacaoDe(loja: string): string {
+  const registo = readFileSync(new URL("../../../registry/vendedor.yaml", import.meta.url), "utf8");
+  return /^\s*apresentacao:\s*"([^"]+)"/m.exec(registo)![1]!.replace("{loja}", loja);
+}
+
+/** Um instante de agora, ao segundo, menos `ms`: o `delivered_at` é o `now()` da base. */
+function haPouco(ms: number): Date {
+  return new Date(Math.floor(Date.now() / 1000) * 1000 - ms);
+}
+
+/** A resposta que saiu e espera pelos *statuses*: a linha que o `Saida.enviar` deixa em `sent`. */
+async function saiu(tenant: string, contacto: string, conversa: string): Promise<string> {
+  const canal = (
+    await admin.query<{ channel_id: string }>("SELECT channel_id::text AS channel_id FROM platform.conversations WHERE id = $1", [conversa])
+  ).rows[0]!.channel_id;
+  const wamid = `wamid.HBgLOTk5.kam235.${randomUUID()}`;
+  await admin.query(
+    `INSERT INTO platform.outbound_messages (tenant_id, channel_id, contact_id, conversation_id, idempotency_key,
+       kind, state, wamid)
+     VALUES ($1, $2, $3, $4, $5, 'service', 'sent', $6)`,
+    [tenant, canal, contacto, conversa, `ik-${randomUUID()}`, wamid],
+  );
+  return wamid;
+}
+
+/** O canal da conversa: o `id` e o `phone_number_id`. */
+async function canalDa(conversa: string): Promise<{ id: string; pnid: string }> {
+  return (
+    await admin.query<{ id: string; pnid: string }>(
+      `SELECT c.id::text AS id, c.phone_number_id AS pnid FROM platform.conversations v
+         JOIN platform.tenant_channels c ON c.id = v.channel_id WHERE v.id = $1`,
+      [conversa],
+    )
+  ).rows[0]!;
+}
+
+/** O corpo da Meta com o estado da resposta, pelo simulador do KAM-024. */
+function corpoDoEstado(phoneNumberId: string, wamid: string, e: "delivered" | "read"): unknown {
+  return {
+    object: "whatsapp_business_account",
+    entry: [
+      {
+        id: "waba-kam235-ensaio",
+        changes: [
+          {
+            field: "messages",
+            value: {
+              messaging_product: "whatsapp",
+              metadata: { phone_number_id: phoneNumberId },
+              statuses: [estadoDoSimulador(SIMULADOR, { wamid, estado: e, recipienteId: CLIENTE_DO_TESTE.waId! })],
+            },
+          },
+        ],
+      },
+    ],
+  };
+}
+
+/** Um `ClienteSql` que corre cada instrução numa transacção com o contexto do tenant. */
+function comContexto(ligacao: pg.PoolClient, tenant: string) {
+  return {
+    query: <T,>(texto: string, valores?: readonly unknown[]) =>
+      comTenant(ligacao, tenant, async () => {
+        const r = await ligacao.query(texto, valores === undefined ? [] : [...valores]);
+        return { rows: r.rows as readonly T[] };
+      }),
+  };
+}
+
+/**
+ * O corpo a entrar como no processo de entrada do `worker-canal`: o
+ * `tratarCorpo` pela ligação da aplicação, e o braço `outbound` no estágio dos
+ * `statuses`, com o tenant pelo resolvedor de canal (`kamba_resolver`) e o
+ * `Saida.ingerir` sob o contexto dele. É a montagem do `entrada.ts`.
+ */
+async function entraOCorpo(corpo: unknown) {
+  const ligacao = await app.connect();
+  try {
+    const resolvedor = new ResolvedorDeCanal(resolvedorBd);
+    const estagio = estagioDosStatuses({
+      tenantDe: async (pnid) => (await resolvedor.resolver(pnid)).resolvido?.contexto.tenant_id ?? null,
+      comTenant: (tenant, trabalho) => comTenant(ligacao, tenant, () => trabalho(ligacao)),
+    });
+    const desfechos: string[] = [];
+    const encaminhador: Encaminhador = {
+      chr: async () => assert.fail("um statuses nao vai ao CHR"),
+      outbound: async (evento) => {
+        desfechos.push(await estagio(evento));
+      },
+      ingestao: async () => {},
+      gestaoDeCanal: async () => {},
+    };
+    const bytes = Buffer.from(JSON.stringify(corpo), "utf8");
+    const r = await tratarCorpo(
+      ligacao,
+      { corpo: bytes.toString("base64"), recebidoEm: 0 },
+      encaminhador,
+      sha256Hex(new Uint8Array(bytes)),
+    );
+    return { ...r, desfechos };
+  } finally {
+    ligacao.release();
+  }
+}
+
+/** O `ConsentGate` montado, sobre a ligação da aplicação: o «Continuar» do aviso. */
+async function continuaNoAviso(tenant: string, contacto: string, conversa: string): Promise<boolean> {
+  const ligacao = await app.connect();
+  try {
+    const canal = await canalDa(conversa);
+    const gate = new ConsentGate({ bd: comContexto(ligacao, tenant), enviar: async () => null });
+    const r = await gate.tratar({
+      tenantId: tenant,
+      contactId: contacto,
+      conversationId: conversa,
+      channelId: canal.id,
+      phoneNumberId: canal.pnid,
+      wamid: `wamid.HBgLOTk5.botao.${randomUUID()}`,
+      hora: new Date().toISOString(),
+      entrada: { tipo: "botao", id: "continuar" },
+    });
+    return r.registou;
+  } finally {
+    ligacao.release();
+  }
+}
+
 describe("a activação no lote contra a base", () => {
   before(async () => {
     admin = await ligar("admin");
+    resolvedorBd = await ligar("resolver");
     lote = conjunto("batch");
     app = conjunto("app");
+    // KAM-235: o texto do aviso de 1.º contacto, publicado como a operação o
+    // publica, para o `ConsentGate` montado ter o que mostrar.
+    const aviso = "Ensaio KAM-235: aviso de primeiro contacto.";
+    await admin.query(
+      `INSERT INTO platform.consent_texts (version, purpose, texto, hash, vigente_desde)
+       VALUES ($1, 'transacao', $2, $3, '2026-01-01T00:00:00Z') ON CONFLICT DO NOTHING`,
+      [VERSAO_DO_AVISO, aviso, Buffer.from(resumoDoTexto(aviso))],
+    );
   });
 
   after(async () => {
@@ -241,6 +393,8 @@ describe("a activação no lote contra a base", () => {
       await admin.query("DELETE FROM platform.onboarding_smoke WHERE tenant_id = $1", [tenant]);
       await admin.query("DELETE FROM platform.onboarding_gate WHERE tenant_id = $1", [tenant]);
     }
+    await admin.query("DELETE FROM platform.consent_texts WHERE version = $1", [VERSAO_DO_AVISO]);
+    await resolvedorBd.end();
     await admin.end();
     await lote.end();
     await app.end();
@@ -330,5 +484,87 @@ describe("a activação no lote contra a base", () => {
       await linha("SELECT ok FROM platform.onboarding_gate WHERE onboarding_id = $1 AND gate = 'e2e'", [onb]),
       { ok: false },
     );
+  });
+  it("KAM-235: o delivered do simulador escreve o delivered_at pelo estagio, uma vez, e o observador da entregue", async () => {
+    const t = haPouco(5_000);
+    agora = t;
+    const [onb, tenant] = await caso("aguarda_teste");
+    const { conversa, contacto } = await chegaOTeste(tenant, new Date(t.getTime() + 1_000));
+    const wamid = await saiu(tenant, contacto, conversa);
+    const { pnid } = await canalDa(conversa);
+    const ate = new Date(t.getTime() + 60_000);
+    const entregue = async (): Promise<boolean> => {
+      const ligacao = await app.connect();
+      try {
+        return (await new ObservadorSql(comContexto(ligacao, tenant)).factos(onb, t, ate)).entregue;
+      } finally {
+        ligacao.release();
+      }
+    };
+    assert.equal(await entregue(), false, "sem statuses, sem entrega");
+
+    const r = await entraOCorpo(corpoDoEstado(pnid, wamid, "delivered"));
+    assert.equal(r.registados, 1);
+    assert.deepEqual(r.desfechos, ["avancou"]);
+    const escrita = await linha<{ state: string; delivered_at: Date | null; pricing: { category?: string } | null }>(
+      "SELECT state, delivered_at, pricing FROM platform.outbound_messages WHERE tenant_id = $1 AND wamid = $2",
+      [tenant, wamid],
+    );
+    assert.equal(escrita?.state, "delivered");
+    assert.ok(escrita?.delivered_at instanceof Date, "o delivered_at escreveu-se");
+    assert.equal(escrita?.pricing?.category, "service");
+
+    // A reentrega do mesmo `wamid:delivered` e duplicada, e o `read` nao muda o
+    // instante da entrega: o primeiro fica.
+    const outra = await entraOCorpo(corpoDoEstado(pnid, wamid, "delivered"));
+    assert.equal(outra.duplicados, 1);
+    assert.deepEqual(outra.desfechos, []);
+    assert.deepEqual((await entraOCorpo(corpoDoEstado(pnid, wamid, "read"))).desfechos, ["avancou"]);
+    const depois = await linha<{ state: string; delivered_at: Date }>(
+      "SELECT state, delivered_at FROM platform.outbound_messages WHERE tenant_id = $1 AND wamid = $2",
+      [tenant, wamid],
+    );
+    assert.equal(depois?.state, "read");
+    assert.equal(depois?.delivered_at.getTime(), escrita?.delivered_at?.getTime());
+    assert.equal(await entregue(), true);
+  });
+
+  it("KAM-235: ponta a ponta com o simulador, o ConsentGate montado e o lote fecha ok", async () => {
+    const t = haPouco(5_000);
+    agora = t;
+    const [onb, tenant] = await caso("aguarda_teste");
+    await testeDaActivacao(app as unknown as ConjuntoSql, relogio).iniciar(onb, tenant);
+    const { conversa, contacto } = await chegaOTeste(tenant, new Date(t.getTime() + 1_000));
+    assert.equal(await continuaNoAviso(tenant, contacto, conversa), true, "o gate registou o consentimento");
+    await responde(tenant, contacto, conversa, new Date(t.getTime() + 2_000), `${apresentacaoDe(LOJA)}\nEm que posso ajudar?`);
+    const wamid = await saiu(tenant, contacto, conversa);
+    const { pnid } = await canalDa(conversa);
+    assert.deepEqual((await entraOCorpo(corpoDoEstado(pnid, wamid, "delivered"))).desfechos, ["avancou"]);
+
+    agora = new Date(t.getTime() + 50_000);
+    await processo().cicloDaActivacao.correr();
+    assert.deepEqual(await linha("SELECT resultado, causa FROM platform.onboarding_smoke WHERE onboarding_id = $1", [onb]), {
+      resultado: "ok",
+      causa: null,
+    });
+  });
+
+  it("KAM-235: ponta a ponta com o simulador e sem o ConsentGate, o lote fecha falhou com sem_consentimento", async () => {
+    const t = haPouco(5_000);
+    agora = t;
+    const [onb, tenant] = await caso("aguarda_teste");
+    await testeDaActivacao(app as unknown as ConjuntoSql, relogio).iniciar(onb, tenant);
+    const { conversa, contacto } = await chegaOTeste(tenant, new Date(t.getTime() + 1_000));
+    await responde(tenant, contacto, conversa, new Date(t.getTime() + 2_000), `${apresentacaoDe(LOJA)}\nEm que posso ajudar?`);
+    const wamid = await saiu(tenant, contacto, conversa);
+    const { pnid } = await canalDa(conversa);
+    assert.deepEqual((await entraOCorpo(corpoDoEstado(pnid, wamid, "delivered"))).desfechos, ["avancou"]);
+
+    agora = new Date(t.getTime() + 61_000);
+    await processo().cicloDaActivacao.correr();
+    assert.deepEqual(await linha("SELECT resultado, causa FROM platform.onboarding_smoke WHERE onboarding_id = $1", [onb]), {
+      resultado: "falhou",
+      causa: "sem_consentimento",
+    });
   });
 });

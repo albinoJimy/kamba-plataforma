@@ -1382,24 +1382,37 @@ class TestOutrosNos(unittest.TestCase):
         self.assertEqual(nos_mod.quantidade_pedida("quero o SKU-100"), 1)
         self.assertEqual(nos_mod.quantidade_pedida("quero 200 camisas"), 1)
 
-    def test_a_apresentacao_cai_para_uma_frase_sem_nome_se_a_loja_tiver_digitos(self) -> None:
-        """O defeito que uma loja chamada «Kero 24» provocava na camada 1."""
-        com_digito = Dependencias(
-            tools=None,
-            saida=Saida(),
-            persona={"apresentacao": "Sou o assistente de {loja}.", "loja": "Kero 24"},
-        )
-        self.assertEqual(
-            nos_mod._apresentacao(com_digito), nos_mod.MSG_APRESENTACAO_SEM_NOME
-        )
-        sem_digito = Dependencias(
+    def test_a_apresentacao_nomeia_a_loja_com_ou_sem_digitos(self) -> None:
+        """KAM-235: «Kero 24» entra tal como e.
+
+        Caia para a frase sem nome quando a apresentacao era um bloco `text` do
+        `compose`; junta-se no `send`, depois do *renderer*, e ja nao o ve.
+        """
+        for loja in ("Kero 24", "Casa Bela"):
+            with self.subTest(loja=loja):
+                deps = Dependencias(
+                    tools=None,
+                    saida=Saida(),
+                    persona={"apresentacao": "Sou o assistente de {loja}.", "loja": loja},
+                )
+                self.assertEqual(nos_mod._apresentacao(deps), f"Sou o assistente de {loja}.")
+
+    def test_a_loja_do_turno_vence_a_da_persona_e_sem_nenhuma_nao_ha_nome(self) -> None:
+        """KAM-235: a porta `loja` da o `tenants.nome`; a persona e o recurso."""
+        estado = {"tenant_id": "t-1"}
+        deps = Dependencias(
             tools=None,
             saida=Saida(),
             persona={"apresentacao": "Sou o assistente de {loja}.", "loja": "Casa Bela"},
+            loja=lambda e: "Kero 24" if e.get("tenant_id") == "t-1" else None,
         )
-        self.assertEqual(
-            nos_mod._apresentacao(sem_digito), "Sou o assistente de Casa Bela."
+        self.assertEqual(nos_mod._apresentacao(deps, estado), "Sou o assistente de Kero 24.")
+        self.assertEqual(nos_mod._apresentacao(deps, {"tenant_id": "t-2"}), "Sou o assistente de Casa Bela.")
+        sem_nome = Dependencias(
+            tools=None, saida=Saida(), persona={"apresentacao": "Sou o assistente de {loja}."}
         )
+        self.assertEqual(nos_mod._apresentacao(sem_nome, estado), "Sou o assistente.")
+        self.assertIs(sem_nome.loja, nos_mod._sem_loja)
 
     def test_o_resumo_do_handoff_nao_leva_o_texto_do_cliente(self) -> None:
         """O que vai ao humano e o porque, nao o conteudo (§6.4)."""
