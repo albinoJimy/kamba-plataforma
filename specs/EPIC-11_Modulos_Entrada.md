@@ -4,7 +4,7 @@
 |---|---|
 | Produto | KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para Angola |
 | Documento | Epic — Módulos de Entrada |
-| Versão | 1.25 |
+| Versão | 1.26 |
 | Data | Novembro de 2026 |
 | Classificação | Documento de Referência — Interno |
 | Documento-fonte | `../docs/tecnica/00_Arquitectura_Solucao.md` (ADR-020, §13.3 D13), `../docs/tecnica/02_Agent_Runtime_Verticais.md` (§21), `../docs/exploracao/14-tese-minima-e-plano-de-validacao.md` (H10–H12) |
@@ -69,6 +69,7 @@ Estado da evidência (E5): **CONFIRMADO** — preços e termos publicados dos fo
 | KAM-230 | Orçamento expresso: a finalidade das condições, o nó do dono e o AGR contra o COM a correr | feature | M | P2 | KAM-228 |
 | KAM-231 | Catálogo do dono: a foto real — a média no `agent_invocation`, a fonte, o descodificador e a visão | feature | L | P1 | KAM-119, KAM-020, KAM-030 |
 | KAM-232 | Entrada do AGR: o texto do cliente do WhatsApp na fonte persistida e o `message_id` na invocação | feature | M | P1 | KAM-223 |
+| KAM-234 | O id da oferta do orçamento expresso leva dígitos que a guarda de entrada redige quando o toque chega pela janela | fix | S | P2 | KAM-220 |
 
 ---
 
@@ -570,13 +571,14 @@ Não implementes artes e entrega (KAM-122) nem planos (KAM-124). Testes: unit, i
 
 ### Decisões do fundador
 
-As três perguntas foram à coordenação do lote a 2026-11-20, cada uma com a opção recomendada. **O fundador respondeu às três no mesmo dia, e a coordenação do lote trouxe-as a este PR: A nas três.** O código já seguia a A; a única mudança foi a da letra da 1, que fixa o `sujeito_ref` no `content_item_id` — os temas passaram a ir ao *screening* um a um, e não num pedido por calendário.
+As três perguntas foram à coordenação do lote a 2026-11-20, cada uma com a opção recomendada. **O fundador respondeu às três no mesmo dia, e a coordenação do lote trouxe-as a este PR: A nas três.** A quarta, a finalidade de transferência do conteúdo, foi ao fundador a 2026-11-21 com o PR por abrir, e ficou como o executor a tinha escrito. O código já seguia a A; a única mudança foi a da letra da 1, que fixa o `sujeito_ref` no `content_item_id` — os temas passaram a ir ao *screening* um a um, e não num pedido por calendário.
 
 | Data | Autor | Pergunta | Decisão |
 |---|---|---|---|
 | 2026-11-20 | Fundador (Armando Albino), pela coordenação do lote | **1. O sujeito do screening do conteúdo.** O critério 5 pede «decisão gravada com `versao_politica`», e o `screening_decision.sujeito_tipo` só aceitava `categoria`, `produto` e `condicoes`. A opção A é um sujeito novo, `conteudo`, com o `id` do calendário ou do item por referência, no `CHECK` (revisão `0079`), no `SUJEITOS` do core-ts e na rota do COM. A re-análise não o lê. A B reaproveita o `produto` com o `id` do item, e contamina a re-análise do catálogo. A C faz o screening sem gravar a decisão, e falha a letra do critério | **Opção A** (o fundador, 2026-11-20). Um `sujeito_tipo` novo, `conteudo`, com o `sujeito_ref` igual ao `content_item_id`: no `CHECK` pela revisão `0079`, no `SUJEITOS` do core-ts e na rota `/internal/screen`; a re-análise não o lê. Recusadas a B e a C |
 | 2026-11-20 | Fundador (Armando Albino), pela coordenação do lote | **2. Quem escreve o `brand_profile`.** O §21.3 dá ao social `get_brand_profile` (read), `generate_calendar`, `generate_caption`, `generate_art` e `request_approval`, e nenhuma grava o perfil. Mas o critério 1 pede uma conversa guiada, e a TLS é a única via de escrita dos agentes (ADR-015, `lint_arch`). A opção A é uma tool nova, `update_brand_profile` (write, módulo `social`), com a dispensa do passo 4 pelos precedentes do KAM-220 e do KAM-119, porque só grava o perfil e nada sai. A B deixa o perfil só pelo painel, e o critério 1 fica por cumprir | **Opção A** (o fundador, 2026-11-20). A tool nova `update_brand_profile`, `write` do módulo `social`, com a dispensa do passo 4 escrita; emendam-se o §21.3 e o §6.1 passo 4 do `docs/tecnica/02` e o §3.26 do dicionário. Recusada a B |
 | 2026-11-20 | Fundador (Armando Albino), pela coordenação do lote | **3. Quando se consome o `posts_mes`** (o critério 9 pede o consumo idempotente neste ticket; o plano de teste tem 12 por mês). A opção A consome um por `content_item` na primeira legenda, com a chave `social:{content_item_id}`: regerar não conta, e o calendário sozinho não consome. A B consome um por item ao criar o calendário, e um «NOVA» volta a consumir — com três a sete itens por semana, os doze esgotam-se na segunda semana. A C só consome na aprovação ou na entrega (KAM-122), e aqui só se confere o limite | **Opção A** (o fundador, 2026-11-20). Um `posts_mes` por `content_item` na primeira legenda, com a chave `social:{content_item_id}`; regerar não conta, e o calendário sozinho não consome. Recusadas a B e a C |
+| 2026-11-21 | Fundador (Armando Albino), pela coordenação do lote | **4. A finalidade de transferência do conteúdo.** Desde o KAM-230 a rota do `screen` exige a finalidade de cada sujeito (`FINALIDADE_DO_SUJEITO`), e o `conteudo` não tinha nenhuma. A opção de uma finalidade própria, `classificacao_de_conteudo`, aplica o precedente da opção B do KAM-228: o mesmo classificador lê os temas e as legendas, que são outro tratamento. A alternativa reutilizava a `classificacao_de_catalogo` | **Finalidade própria, `classificacao_de_conteudo`** (o fundador, 2026-11-21): no domínio de `tenant_destinations.purpose` pela revisão `0079` (dezassete), no ADR-008, no inventário dos subprocessadores e no `FINALIDADE_DO_SUJEITO` do AGR e do COM. Recusada a reutilização da `classificacao_de_catalogo` |
 
 ### Decisões do executor
 
@@ -584,7 +586,7 @@ As três perguntas foram à coordenação do lote a 2026-11-20, cada uma com a o
 - **O calendário planeia a semana seguinte.** «IDEIAS» na semana *N* devolve o calendário da semana *N+1*, em `Africa/Luanda`. Um calendário da semana corrente nascia com metade das horas no passado. A chave do critério 2 é a `semana_iso` planeada, e repetir «IDEIAS» na mesma semana dá a mesma chave.
 - **Os temas são do código, e as legendas do modelo.** Os temas saem de modelos fixos por tipo (três por tipo, rodados pela geração de um «NOVA»), com o nome e a categoria do perfil e, num item `promocao`, o texto da promoção do dono. Assim o calendário responde no processo sem modelo nenhum. As horas são do código, pelos slots do perfil: um item por slot, e os que faltam até três vão para os dias seguintes à hora do primeiro.
 - **Um screening por tema, e outro pela legenda, os dois com o `content_item_id`** (decisão 1 do fundador). Um tema `bloqueada` não gera o item; uma `condicional` marca-o com revisão reforçada; a decisão do calendário é a mais restritiva dos temas. Se um *screen* falha, nada se grava. **O tecto de uma `write` na ToolLayer (8 s, §6.5) é mais curto** do que vários *screens* com o classificador: um calendário que o passe acaba na *thread*, e o «IDEIAS» seguinte lê-o — é a limitação que o KAM-119 escreveu para a publicação, e alterar o tecto é do §6.5. A categoria é a **do tenant** (`categoria_declarada` nula), e não a do perfil: o perfil é texto do dono, e um dono não muda a própria categoria escrevendo outra.
-- **O conteúdo tem finalidade de transferência própria, `classificacao_de_conteudo`**, pelo precedente da opção B do KAM-228 (decisão do fundador de 2026-11-20, aplicada no KAM-230): o mesmo classificador lê os temas e as legendas, que são outro tratamento, e um destino autorizado só para o catálogo ou para as condições não os cobre. A rota do `screen` do COM exige-a desde o KAM-230 (`FINALIDADE_DO_SUJEITO`), e a revisão `0079` acrescenta-a ao domínio de `tenant_destinations.purpose` (dezassete), com a descida a recusar-se com um destino dela, como a `0078`. O nome é *proposta* do executor.
+- **A descida da `0079` recusa-se com um destino `classificacao_de_conteudo`**, como a da `0078` com o das condições. A finalidade é a decisão 4 do fundador; a forma da descida é do executor. Sem destino, a descida apaga só as decisões `conteudo` e larga as três tabelas.
 - **O `screening_ref` do DDL do bloco não entra.** O `id` da `screening_decision` é `uuid` e não `bigint`, e a rota do COM não o devolve. O item guarda a `versao_politica`, e a decisão liga-se a ele pelo sujeito `conteudo` com o `content_item_id`.
 - **Quatro barreiras depois do gerador, e uma antes.** A instrução do dono passa primeiro pela guarda de números: «põe 50% de desconto» sem a promoção nos factos nem chega ao gerador, e o dono recebe o pedido dos dados. Depois do gerador vêm, por esta ordem, o *lexicon* (corrige o que corrige; o que fica, como o «você», volta ao gerador uma vez com o marcador nomeado), a política de alegações e a guarda de números. Cada uma tem uma volta. A guarda de números é **mais estrita do que a letra**: lê todo o número, em algarismos ou por extenso, e não só o valor, a percentagem, a data e o telefone. Distinguir os quatro a máquina era abrir a porta a um quinto que a regra não via. Um número só casa com os mesmos algarismos **e a mesma unidade** de um facto válido ou do nome da marca, e cada palavra de promoção tem de estar numa promoção do dono (achados I1 a I3 da revisão).
 - **Uma promoção só entra no perfil com a validade.** Um facto com percentagem ou palavra de promoção, sem «até DD/MM», ou com a data já passada, é recusado e a pergunta volta. Um preço («Camisas a 8.000 Kz») é um facto e entra sem validade. Um item `promocao` só nasce num dia em que a promoção vale.
@@ -2071,7 +2073,7 @@ Uma revisão independente recebeu o diff e os requisitos, e não o raciocínio d
 | Prioridade | P1 |
 | Estimativa | M |
 | Dependências | KAM-123 |
-| Bloqueia | KAM-226 |
+| Bloqueia | KAM-226, KAM-234 |
 | Responsável sugerido | Engenheiro de Runtime/IA (AGR, TLS) com Engenheiro do painel (onboarding-web) |
 | Documentos de referência | `EPIC-11_Modulos_Entrada.md` (bloco KAM-123, critérios 1, 2, 3, 6 e 9), `02_Dicionario_de_Dados_Canonico.md` (§3.79), `../docs/tecnica/02_Agent_Runtime_Verticais.md` (§6.2, §9, §21.3) |
 
@@ -2963,6 +2965,105 @@ Testes: integração e adversarial (reentrega, message_id alheio, PAN no texto).
 ```
 ---
 
+## KAM-234 — O id da oferta do orçamento expresso leva dígitos que a guarda de entrada redige quando o toque chega pela janela
+
+| Campo | Valor |
+|---|---|
+| Epic | EPIC-11 — Módulos de Entrada |
+| Fase | 1 |
+| Tipo | fix |
+| Prioridade | P2 |
+| Estimativa | S |
+| Dependências | KAM-220 |
+| Bloqueia | — |
+| Responsável sugerido | Engenheiro de Runtime/IA |
+| Documentos de referência | `../services/agr/src/kamba_agr/verticais/vendedor/nos.py` (`_id_da_oferta`, `_botao_do_turno`), `../services/agr/src/kamba_agr/guardas/regras.py` e `../services/agr/src/kamba_agr/guardas/entrada.py`, `../services/agr/tests/test_orcamento_grafos.py`, bloco KAM-220, `tickets/KAM-229.md` |
+
+### Contexto
+
+**O `test_cem_pedidos_de_conta_dao_zero_numeros_calculados` do KAM-220 avermelhava o *gate* 4 de PRs alheios.** Reproduziu-se em processo sobre a `publico/main` em `242e225c`: as cem frases do ensaio, em ciclo, deram **6 falhas em 25 rodadas**.
+
+**O intermitente já fechou, pelo arnês, no KAM-229** (PR #233). O `_Conversa` passou a entregar o toque no `botao` da invocação, que é o caminho do processo. **Este ticket fecha a outra metade, a forma do id.** O `_id_da_oferta` devolvia `"orc-" + sha256(…).hexdigest()[:24]`. De vez em quando o hexadecimal tem uma corrida de treze ou mais dígitos que passa o Luhn, ou começa com duas letras e dois dígitos e passa o *mod 97* de um IBAN. Um toque lido da janela `messages` passa pelo `guard_in`, que o redige pelo `texto_seguro`. O botão chega então como `confirm:orc-77ad6c[cartao removido]e`, não cita a oferta, e dá `STALE_CONFIRMATION`. O pedido ao dono não abre.
+
+**Em produção, o toque não passa por aí hoje.** O botão chega pelo `agent_invocation.botao` (KAM-211), o `estado_inicial` põe-no no estado e não na janela, e o `_botao_do_turno` lê-o primeiro. A janela só leva texto lido pelo `message_id` (KAM-223, e o KAM-232 para o WhatsApp), e só de mensagens de texto. A janela é a **segunda** leitura do `_botao_do_turno`. Fica aberta no produto, e é por ela que um id com dígitos se perde.
+
+**Os ids de botão e a guarda, medidos em duzentas mil amostras** do `texto_seguro` sobre `confirm:{id}`:
+
+| Id | Forma | Sai mudado | Por |
+|---|---|---|---|
+| a oferta, antes | `orc-` e 24 hexadecimais | 1 em 593 | PAN 228, IBAN 109 |
+| a oferta, só com consoantes depois de `orc-` | `orc-` e 24 consoantes | 1 em 28 571 | o `lgbt` do léxico sensível |
+| a oferta, agora | `orc_` e 24 consoantes | 0 em 600 000 | — |
+| o `cart_id` (COM) | 26 de Crockford base32 | 1 em 1 869 | IBAN |
+| um `uuid4` (o `action_id` do `confirm:{action_id}`, o `hold_id`) | 8-4-4-4-12 hexadecimais | 1 em 305 | IBAN 371, PAN 283 |
+| o `slot_id` (COM), aproximado | 168 de base64url aleatório, `.` e 22 | 18 em 100 000 | IBAN 15, léxico sensível 3 |
+
+O hífen do `uuid` é separador no `_SEPARADOR`, e por isso um PAN atravessa os grupos. O `slot_id` real tem o corpo em JSON e não aleatório, pelo que a linha dele é só uma ordem de grandeza.
+
+### Objectivo
+
+O toque numa oferta abre o pedido ao dono pelas duas leituras do `_botao_do_turno`, para qualquer id.
+
+### Critérios de Aceitação
+
+- [x] 1. A falha reproduz-se na `publico/main`, e a causa fica nomeada com o mecanismo e com um id que a guarda redige.
+- [x] 2. O id da oferta não tem dígitos nem fronteira de palavra depois do `orc`. Nenhuma regra da guarda de entrada o muda, nem o PAN, nem o IBAN, nem o BI, nem o léxico sensível.
+- [x] 3. Um ensaio determinista põe o toque na janela, com dois pares (tenant, contacto) cujo id antigo a guarda redigia, um por PAN e outro por IBAN. Falha com a correcção revertida e passa com ela.
+- [x] 4. A guarda de entrada não muda. O texto livre do cliente continua a ser redigido como antes.
+- [x] 5. A suite `services/agr/tests` fica verde.
+
+### Detalhes Técnicos
+
+- **Onde.** `_id_da_oferta`, em `../services/agr/src/kamba_agr/verticais/vendedor/nos.py`: os mesmos 24 hexadecimais do `sha256`, traduzidos para dezasseis consoantes (`bcdfghjklmnpqrst`), colados a `orc_`. São os mesmos 96 bits. É o caminho que o `regras.referencia_interna` do KAM-123 já tinha tomado para a referência `ORC-…`, que o dono escreve.
+- **Porque não a guarda.** A outra saída era a guarda não redigir o id de um botão do sistema. Mas isso afrouxava uma barreira que existe para o texto livre do cliente, e a janela leva hoje esse texto pelo `message_id`. E a impressão da política mudava, com o *golden* atrás dela. Mudar a forma do id fecha a classe para este id sem tocar na guarda.
+- **Porque `orc_` e não `orc-`.** O hífen abre uma fronteira de palavra antes das letras. Com consoantes depois de `orc-`, o `\blgbt\w*` do léxico sensível casava uma vez em ~28 mil, e o toque saía como `[assunto sensivel removido]`. O `_` conta como letra para o `\b`, e por isso a única fronteira que sobra é antes do `orc`. Só uma palavra do léxico começada por `orc` casaria.
+- **Compatibilidade.** O toque compara o botão com a oferta guardada no *checkpoint*, e não a recalcula. Uma oferta antiga, se a houver, continua a valer até expirar. O `oferta` do `request_quote` aceita até 64 caracteres, e o novo id tem 28. O ensaio do KAM-229, com uma oferta forjada em hexadecimal, continua verde.
+- **O que não se faz:** não se afrouxa a guarda, e não se marca o ensaio como instável.
+- **O que fica, sem credor de produção.** O `cart_id`, os `uuid` e o `slot_id` continuam expostos à mesma redacção se alguém os puser na janela. Hoje nenhum caminho do processo o faz, e nos ensaios os duplos dão-lhes formas fixas. O `action_id` é a chave da `owner_actions`, e o `cart_id` e o `slot_id` são do COM. Mudar-lhes a forma é outro ticket.
+
+### Testes Requeridos
+
+- Unidade: `test_o_toque_pela_janela_numa_oferta_que_a_guarda_redigia_pede`, com os dois pares fixos e o toque na janela. O canário de cada um calcula o id antigo no próprio ensaio, sem passar pelo `_id_da_oferta`, e confirma que a guarda o redige.
+- Unidade: `test_o_id_da_oferta_e_uma_palavra_sem_digitos_e_passa_a_guarda`, com o caso do `lgbt` e duas mil ofertas deterministas.
+- Suite: `services/agr/tests` inteira.
+
+### Definition of Done
+
+- [x] Critérios de Aceitação satisfeitos, com a verificação escrita neste bloco.
+- [x] Nenhuma asserção afrouxada, e a guarda de entrada intacta.
+- [x] Documentação actualizada (este bloco, o `INDICE.md` e as contagens); sem migração.
+
+### Verificação dos Critérios de Aceitação
+
+Ramo `feature/KAM-232-id-da-oferta-sem-digitos`, escrito como KAM-232 sobre `242e225c` e integrado com a `publico/main` em `33edaf63`, onde passa a KAM-234. Python 3.13 do Windows, com o `PYTHONPATH` em `tools`, `libs/py-core/src`, `services/agr/src` e `services/agr/tests`, separado por `;`.
+
+| # | Critério | Estado | O que se mediu, e com que comando |
+|---|---|---|---|
+| 1 | Reprodução e causa | satisfeito | Em `242e225c`, o ensaio em ciclo, em processo, com `unittest.TextTestRunner`: **6 falhas em 25**. A procura de pares fixos deu `orc-77ad6c52844792157208318e` (PAN, `confirm:orc-77ad6c[cartao removido]e`) e `orc-bc445d64ba68de667b242014` (IBAN, `confirm:orc-[conta removida]`). Com o id novo e antes do KAM-229, **0 falhas em 30** |
+| 2 | Sem dígitos nem fronteira | satisfeito | O `texto_seguro` sobre `confirm:{id}`, com o id do `_id_da_oferta` corrigido e `thread_id` aleatórios: **0 mudados em 600 000** |
+| 3 | O ensaio morde | satisfeito | Em `33edaf63`, com o `return` do `_id_da_oferta` reposto à forma antiga: **3 falhas**, `[] != ['orc-77ad6c52844792157208318e']`, `[] != ['orc-bc445d64ba68de667b242014']` e a forma. Com a correcção, passam |
+| 4 | A guarda intacta | satisfeito | `git diff --stat publico/main -- services/agr/src/kamba_agr/guardas` sai vazio |
+| 5 | Suite verde | satisfeito | `python -m unittest discover -s services/agr/tests -t services/agr/tests`, em `33edaf63` com o ramo: **Ran 2157 OK** |
+
+**Portões, medidos nesta árvore.** *Gate* 3: `lint_refs`, `lint_handoff` e `lint_contagens` dão 0. *Gate* 3b: o `dict_export --check`, o `canon_lint check` e o `canon_lint canario` dão 0. *Gate* 3c: o `lint_backlog` dá 0, com 234 linhas no §4, 234 blocos e 234 linhas de §3. O `lint_bloco check` dá 0 achados, com 167 emparelhados, e o piso de 83 da `main` já é metade deles. As suites do `lint_backlog`, do `lint_bloco` e do `lint_refs` passam. As mutações do `db/mutacoes.py` não tocam no `_id_da_oferta`. Sem emenda do dicionário.
+
+### Handoff para Claude Code
+
+```text
+És o executor do ticket KAM-234 da KAMBÁ (a forma do id da oferta do orçamento expresso).
+Lê specs/EPIC-11_Modulos_Entrada.md (blocos KAM-220 e KAM-234), specs/tickets/KAM-229.md,
+o _id_da_oferta e o _botao_do_turno em services/agr/src/kamba_agr/verticais/vendedor/nos.py,
+a guarda de entrada em services/agr/src/kamba_agr/guardas/ e o ensaio em
+services/agr/tests/test_orcamento_grafos.py.
+Objectivo: o toque numa oferta abre o pedido ao dono pelas duas leituras do _botao_do_turno,
+para qualquer id.
+Regras: reproduz antes de corrigir; a guarda de entrada não muda; nenhuma asserção afrouxada.
+Testes: os dois ensaios deterministas e a suite services/agr/tests.
+```
+
+
+---
+
 ## Riscos do Epic e itens NÃO VERIFICADOS
 
 | Risco / item | Estado | Impacto | Mitigação / critério de saída | Decisão |
@@ -3026,4 +3127,5 @@ Testes: integração e adversarial (reentrega, message_id alheio, PAN no texto).
 | 1.22 | Novembro 2026 | **KAM-226 entregue: o aviso proactivo ao dono e o botão «Aceito» na proposta.** Sem migração. Emenda 1.126 do dicionário (§3.79), escrita como 1.124 e renumerada na integração, depois do KAM-119 e do KAM-223; e esta linha, escrita como 1.20. Bloco do KAM-226: **a decisão do fundador de 2026-11-20** (opção B: o botão «Aceito» leva a referência da proposta, `aceitar_orcamento:{ORC-…}`, e o critério 2 lê-se com o prefixo), as decisões do executor (o aviso na transacção do `quote.requested` e não num consumidor, que pedia uma revisão de dados; a regra do `decidirProactiva` lida em Python, com a margem; a conversa do dono em modo do bot; a referência do botão na guarda de entrada), a verificação (**os dois critérios e as duas caixas da DoD marcados**) e a revisão adversarial. As notas dos critérios 4 e 5 do KAM-220 e do critério 2 do KAM-123 revistas; o 5 do KAM-220 continua vazio, porque este ticket não mede o painel do **KAM-223**; e a nota do aviso ao dono pelo painel corrigida. | Equipa KAMBÁ |
 | 1.23 | Novembro 2026 | **KAM-227 entregue em parte: a saída do AGR em produção.** Sem migração e sem emenda do dicionário. Bloco do KAM-227: as decisões do executor (o cliente da Graph do canal do pedido, lido antes do `Saida` pelo `token_ref` e pela `kek_token_cliente`; o `sem_credencial` como desfecho e não como motivo do Outbound; o destinatário pelo `lerEndpoints` numa ligação `kamba_identity`; o reenvio uma vez pela chave `:reenvio`; a `PortaDeSaida` `async`; o arranque que monta as portas e recusa; o compose com `KAMBA_CONSUMER: outbound` e a saída pelo `proxy-saida`) e a verificação (**cinco de seis** critérios marcados; o 2 fica na leitura do `revelar()`) e a revisão adversarial. **A decisão do fundador de 2026-11-20** (opção B): a contradição 2 do `../docs/identidade.md` §8 resolvida pelo ADR-L002, o critério 9 do KAM-008 emendado (o arranque em `prod` recusa sem as chaves, e não pelo provedor de ambiente), e o `outbound` e o `worker-canal-entrada` a arrancar em `prod`, medidos; o critério 3 marcado. Os critérios 3 e 4 do KAM-224 revistos e marcados — o 4 com a prova pela fila —, e a primeira caixa da DoD dele também | Equipa KAMBÁ |
 | 1.24 | Novembro 2026 | **KAM-230 entregue: a finalidade das condições, o nó do dono e o AGR contra o COM a correr.** Revisão `0078` (sobre a `0077` do KAM-223) e emenda 1.128 do dicionário. Bloco do KAM-230: a decisão do fundador de 2026-11-20 sobre a forma da resposta do dono (opção A, a marca «Condições:»; recusadas a B e a C), as decisões do executor (a finalidade viaja pelo pedido e escolhe-se pelo sujeito, sem papel novo; o prazo absoluto no `Pedido`, a viajar até à rota do classificador; a reserva da transacção baixa para 1 s; o `screen` sem a tomada) e as secções de verificação. Revistos com a evidência: o critério 1 e os achados 2, 3 e 9 do KAM-228, a verificação e o critério 1 do KAM-222 e a nota do critério 4 do KAM-123 | Equipa KAMBÁ |
-| 1.25 | Novembro 2026 | **KAM-121 entregue em parte: o módulo `social` do dono.** Revisão `0079` (sobre a `0078` do KAM-230): o perfil de marca, o calendário semanal e os itens, o sujeito `conteudo` do screening e a finalidade `classificacao_de_conteudo`. Emenda 1.129 do dicionário (§3.82, nova), escrita como 1.125 e renumerada na integração, depois do KAM-223, do KAM-226, do KAM-218 e do KAM-230. Bloco do KAM-121: as três decisões do fundador de 2026-11-20 (A nas três), as decisões do executor, a verificação dos critérios (três marcados, cinco parciais, um não satisfeito, todos com credor), da DoD e da revisão adversarial. | Equipa KAMBÁ |
+| 1.25 | Novembro 2026 | **KAM-234** acrescentado e entregue no mesmo PR. Escrito como KAM-232 e renumerado na integração, depois do KAM-232 do PR do KAM-223 e do KAM-233. O `_id_da_oferta` do KAM-220 era hexadecimal, e de vez em quando levava uma corrida de dígitos que passa o Luhn, ou a forma de um IBAN. Um toque lido da janela, que é a segunda leitura do `_botao_do_turno`, era redigido pelo `guard_in`, e o pedido ao dono não abria. Passa a 24 consoantes coladas ao `orc_`, com os mesmos 96 bits, e a guarda de entrada não muda. O intermitente do `test_cem_pedidos_…` que o motivou já tinha fechado pelo arnês no KAM-229 (PR #233). O bloco mede ainda o `cart_id`, os `uuid` e o `slot_id` contra a mesma redacção. Entra no `Bloqueia` do KAM-220. | Equipa KAMBÁ |
+| 1.26 | Novembro 2026 | **KAM-121 entregue em parte: o módulo `social` do dono.** Revisão `0079` (sobre a `0078` do KAM-230): o perfil de marca, o calendário semanal e os itens, o sujeito `conteudo` do screening e a finalidade `classificacao_de_conteudo`. Emenda 1.129 do dicionário (§3.82, nova), escrita como 1.125 e renumerada na integração, depois do KAM-223, do KAM-226, do KAM-218 e do KAM-230; e esta linha, escrita como 1.25, renumerada depois do KAM-234. Bloco do KAM-121: as três decisões do fundador de 2026-11-20 (A nas três) e a de 2026-11-21 (a finalidade própria `classificacao_de_conteudo`; recusada a reutilização da `classificacao_de_catalogo`), as decisões do executor, a verificação dos critérios (três marcados, cinco parciais, um não satisfeito, todos com credor), da DoD e da revisão adversarial. | Equipa KAMBÁ |

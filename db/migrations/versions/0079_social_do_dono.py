@@ -34,7 +34,8 @@ mensagem que o `alembic history` imprime.
    `social`. **Pelo precedente da `finalidade_das_condicoes` (`0078`, decisao do
    fundador de 2026-11-20, opcao B)**: o mesmo classificador, outro tratamento,
    outra finalidade no ADR-008 — um destino autorizado so para o catalogo ou
-   para as condicoes nao cobre o conteudo. O **nome** e *proposta* do executor.
+   para as condicoes nao cobre o conteudo. **Decisao do fundador de 2026-11-21**:
+   a finalidade propria, recusada a reutilizacao da `classificacao_de_catalogo`.
    A `v_transfer_audit` nao se recria, pela razao que a `0078` escreve.
 
 ## Os privilegios do `kamba_app`
