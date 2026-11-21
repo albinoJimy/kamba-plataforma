@@ -12,13 +12,18 @@ from __future__ import annotations
 import asyncio
 import dataclasses
 import datetime
+import hashlib
 import re
 import unittest
 import uuid
-from typing import Any
+from typing import Any, Final
 
 from langgraph.checkpoint.memory import InMemorySaver
 
+from apoio import thread_id_de
+from kamba_agr.guardas import regras as regras_da_guarda
+from kamba_agr.guardas.entrada import texto_seguro
+from kamba_agr.guardas.regras import MARCA_CARTAO, MARCA_CONTA
 from kamba_agr.orcamento import regras
 from kamba_agr.tls import orcamento as rep
 from kamba_agr.verticais.dono import build_graph as grafo_do_dono
@@ -557,6 +562,59 @@ class TestOPedidoDoCliente(unittest.TestCase):
                 sem_pedido.append(frase)
         self.assertEqual(com_numero, [])
         self.assertEqual(sem_pedido, [])
+
+    #: KAM-234. Dois pares (tenant, contacto) fixos cujo id da oferta, na forma
+    #: hexadecimal de antes, a guarda redigia: o primeiro por um PAN (dezassete
+    #: digitos seguidos com uma corrida Luhn-valida de treze ou mais), o segundo
+    #: por um IBAN com o *mod 97* certo. Achados por procura, e o canario de cada
+    #: um confirma-o abaixo **sem** passar pelo `_id_da_oferta`.
+    _REDIGIDOS: Final = (
+        ("00000000-0000-4000-8000-0000000015ff", "00000000-0000-4000-8000-0000000025ff", MARCA_CARTAO),
+        ("00000000-0000-4000-8000-0000000010bb", "00000000-0000-4000-8000-0000000020bb", MARCA_CONTA),
+    )
+
+    def test_o_toque_pela_janela_numa_oferta_que_a_guarda_redigia_pede(self) -> None:
+        """KAM-234: o toque lido da janela, a segunda leitura do `_botao_do_turno`.
+
+        O `_Conversa` entrega o toque no `botao` desde o KAM-229, que e o caminho
+        do processo e nao passa pela redaccao. Este ensaio poe-no **na janela**,
+        de proposito: e o caminho que o `guard_in` redige, e onde o id
+        hexadecimal saia `confirm:orc-…[cartao removido]…`, dava
+        `STALE_CONFIRMATION`, e o pedido ao dono nao abria.
+        """
+        for tenant, contacto, marca in self._REDIGIDOS:
+            with self.subTest(marca=marca):
+                # O canario: o id **antigo** desta conversa, calculado aqui e nao
+                # pelo produto, e redigido pela guarda com esta marca.
+                cru = f"{thread_id_de(tenant, contacto)}:1:SKU-300"
+                antigo = "orc-" + hashlib.sha256(cru.encode()).hexdigest()[:24]
+                self.assertIn(marca, texto_seguro(f"confirm:{antigo}"))
+
+                pedidos = _Pedidos()
+                grafo, _saida, _ = _vendedor(pedidos)
+                conversa = _Conversa(grafo)
+                conversa.tenant, conversa.contacto = tenant, contacto
+                oferta = conversa.turno("quanto custa o fato por medida?")["orcamento_oferecido"]["oferta"]
+                pela_janela = estado_de(f"confirm:{oferta}", tipo="interactive", tenant_id=tenant, contact_id=contacto)
+                self.assertIsNone(pela_janela["botao"])
+                asyncio.run(grafo.ainvoke(pela_janela, conversa.config))
+                self.assertEqual([c["args"]["oferta"] for c in pedidos.chamadas], [oferta])
+
+    def test_o_id_da_oferta_e_uma_palavra_sem_digitos_e_passa_a_guarda(self) -> None:
+        """KAM-234: a classe, e nao so os dois casos achados.
+
+        Sem digitos nao casa o PAN, o IBAN nem o BI. Sem separador entre o `orc`
+        e as letras nao ha fronteira de palavra no meio, e o lexico sensivel so
+        podia casar uma palavra comecada por `orc`: com `orc-`, o `lgbt` casava.
+        O caso achado vai primeiro; depois, duas mil ofertas deterministas.
+        """
+        self.assertTrue(regras_da_guarda.e_sensivel("confirm:orc-lgbtgbtdpqljjqfqgsqqbgdd"))
+        self.assertFalse(regras_da_guarda.e_sensivel("confirm:orc_lgbtgbtdpqljjqfqgsqqbgdd"))
+        for i in range(2000):
+            estado = {"thread_id": f"t-{i}", "turn_seq": i % 7}
+            oferta = nos_mod._id_da_oferta(estado, "SKU-300")
+            self.assertRegex(oferta, r"\Aorc_[b-df-hj-np-tv-z]{24}\Z")
+            self.assertEqual(texto_seguro(f"confirm:{oferta}"), f"confirm:{oferta}")
 
     def test_uma_oferta_com_algarismos_de_cartao_continua_a_pedir(self) -> None:
         """KAM-229: o id opaco pode trazer um PAN com Luhn, e o toque continua a valer.
