@@ -554,10 +554,12 @@ class TestPipelineReal(_ComTls):
         catalogo real sao dezasseis, e isso mede-se na bateria de unidade. Eram
         nove antes do KAM-118, que declara as quatro tools do dono com credor
         KAM-119, e treze antes do KAM-123, que declara o `request_quote` e o
-        `submit_quote` com credor KAM-220.
+        `submit_quote` com credor KAM-220. **Dezanove desde o KAM-121**, que
+        acrescenta ao catalogo as quatro do modulo `social` (vinte e uma ao
+        todo), e o catalogo de ensaio nao as liga.
         """
         declaradas = sorted(self.catalogo().declaradas())
-        self.assertEqual(len(declaradas), 15)
+        self.assertEqual(len(declaradas), 19)
         for nome in declaradas:
             with self.subTest(tool=nome):
                 resultado = self.invocar(nome, {})

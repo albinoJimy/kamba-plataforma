@@ -103,7 +103,18 @@ NOME_DE_TOOL: Final = re.compile(r"^[a-z][a-z0-9_]{1,62}$")
 #:   Registo, que nasce inactivo (`upsertProductDraft` nunca publica); o preco
 #:   so entra pelo botao do eco, e publicar e o `publish_product`, com o botao
 #:   `confirm:{action_id}`. O §21.3 da-lhe a classe `write` sem confirmacao.
-DISPENSAS_DO_PASSO_4: Final = ("submit_quote", "create_product_draft")
+#: * `update_brand_profile`, `generate_calendar` e `generate_caption` (KAM-121,
+#:   pelos mesmos precedentes) — **so gravam** o perfil de marca e os itens do
+#:   calendario em `rascunho`, no proprio tenant; nada se publica nem se envia
+#:   (nao ha tool de publicacao, D13), e a aprovacao e a entrega sao do KAM-122,
+#:   com o botao `confirm:{action_id}` da accao `aprovar_conteudo`.
+DISPENSAS_DO_PASSO_4: Final = (
+    "submit_quote",
+    "create_product_draft",
+    "update_brand_profile",
+    "generate_calendar",
+    "generate_caption",
+)
 
 #: A forma de um credor: um ticket do backlog mestre. O *gate* 3 (referencias
 #: cruzadas) le os `KAM-NNN` deste ficheiro como le os de qualquer outro, pelo
@@ -181,6 +192,28 @@ class Pedido:
     #:
     #: `None` numa tool que nao o use, que sao todas menos duas.
     rascunho: Mapping[str, Any] | None = None
+    #: O **prazo absoluto** da invocacao, em `time.monotonic()` (KAM-230): o
+    #: inicio da espera da ToolLayer mais o `timeout_ms`. O `timeout_ms` diz
+    #: quanto o executor tinha **ao inicio da ToolLayer**, e nao quando ele
+    #: comeca: os passos 1 a 5 ja gastaram uma parte (achado 3 da revisao do
+    #: KAM-228). `None` num `Pedido` feito a mao.
+    prazo: float | None = None
+    #: Quem larga a tomada durante um trabalho que nao a precisa e a retoma
+    #: depois (KAM-230). Devolve o resultado e a ligacao retomada, que pode nao
+    #: ser a mesma. `None` num `Pedido` feito a mao: o trabalho corre com ela.
+    largar_tomada: Callable[[Callable[[], Any]], tuple[Any, Any]] | None = None
+
+    def sem_tomada(self, trabalho: Callable[[], Any]) -> tuple[Any, Any]:
+        """Corre `trabalho` sem segurar a tomada; devolve `(resultado, ligacao)`.
+
+        **Depois disto, a ligacao e a devolvida**, e nao a `self.ligacao`: a
+        outra pode estar ja noutra invocacao. Para um trabalho que espera pela
+        rede sem tocar na base — o `screen` das condicoes, que espera pelo COM e
+        pelo classificador ate seis segundos (achado 9 da revisao do KAM-228).
+        """
+        if self.largar_tomada is None:
+            return trabalho(), self.ligacao
+        return self.largar_tomada(trabalho)
 
 
 @dataclass(frozen=True, slots=True)

@@ -790,7 +790,8 @@ class TestCatalogo(_Base):
         # KAM-118: as quatro do modulo `catalogo` do `docs/tecnica/02` §21.3.
         # KAM-123: as duas do `orcamento` que sao tools (o `send_quote` e o
         # botao, e nao tool: ver `tls/catalogo.py`).
-        self.assertEqual(len(self.catalogo.nomes()), 17)
+        # KAM-121: as quatro do `social` (§21.3, com a `update_brand_profile`).
+        self.assertEqual(len(self.catalogo.nomes()), 21)
         self.assertEqual(
             self.catalogo.nomes(),
             frozenset(
@@ -802,6 +803,8 @@ class TestCatalogo(_Base):
                     "create_product_draft", "ask_missing_fields",
                     "publish_product", "get_catalog_status",
                     "request_quote", "submit_quote",
+                    "get_brand_profile", "update_brand_profile",
+                    "generate_calendar", "generate_caption",
                 }
             ),
         )
@@ -809,7 +812,11 @@ class TestCatalogo(_Base):
     def test_uma_esta_ligada_e_catorze_estao_declaradas_com_credor(self) -> None:
         self.assertEqual(self.catalogo.ligadas(), ("get_store_info",))
         declaradas = self.catalogo.declaradas()
-        self.assertEqual(len(declaradas), 16)
+        self.assertEqual(len(declaradas), 20)
+        self.assertEqual(
+            {nome for nome, credor in declaradas.items() if credor == "KAM-121"},
+            {"get_brand_profile", "update_brand_profile", "generate_calendar", "generate_caption"},
+        )
         self.assertEqual(
             {nome for nome, credor in declaradas.items() if credor == "KAM-220"},
             {"request_quote", "submit_quote"},
@@ -861,10 +868,13 @@ class TestCatalogo(_Base):
                 "create_product_draft", "publish_product",
                 # KAM-123, §21.3: o pedido e a resposta de orcamento.
                 "request_quote", "submit_quote",
+                # KAM-121, §21.3: as tres de escrita do social, que so gravam.
+                "update_brand_profile", "generate_calendar", "generate_caption",
             },
         )
-        # As restantes nove sao `read`: as sete do §6.2 e as duas do §21.3.
-        self.assertEqual(sum(1 for k in por_nome.values() if k == "read"), 9)
+        # As restantes dez sao `read`: as sete do §6.2, as duas do catalogo do
+        # §21.3 e a `get_brand_profile` do social.
+        self.assertEqual(sum(1 for k in por_nome.values() if k == "read"), 10)
 
     def test_nenhum_esquema_do_catalogo_expoe_parametro_proibido(self) -> None:
         for nome in sorted(self.catalogo.nomes()):
@@ -1601,9 +1611,9 @@ class TestImportacaoIsolada(unittest.TestCase):
         )
 
         # Dezassete desde o KAM-123 (as duas do orcamento; quinze desde o
-        # KAM-118), e o numero segue o catalogo sem ninguem tocar no
-        # `metricas.py`.
-        self.assertEqual(len(_valores_derivados(METRICA_TOOL_INVOCACOES)), 17)
+        # KAM-118), vinte e uma desde o KAM-121 (as quatro do social), e o
+        # numero segue o catalogo sem ninguem tocar no `metricas.py`.
+        self.assertEqual(len(_valores_derivados(METRICA_TOOL_INVOCACOES)), 21)
         # Onze desde o KAM-029, e derivados: confronta-se com `CODIGOS` e nao
         # com um numero, que e o que «continuam derivadas» quer dizer.
         self.assertEqual(

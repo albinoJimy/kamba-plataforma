@@ -75,7 +75,7 @@ import {
 import type { OperacoesDoCom } from "../adapters/medusa/index.ts";
 import { exposicao, TIPO_DE_CONTEUDO } from "../metricas.ts";
 import type { AlteracaoDeOferta } from "../produtos/index.ts";
-import type { PedidoDePublicacao, PedidoDeScreen } from "../screening/index.ts";
+import { PRAZO_MAXIMO_MS, type PedidoDePublicacao, type PedidoDeScreen } from "../screening/index.ts";
 import type {
   ErroDaCriacao,
   PedidoDeCriacao,
@@ -379,7 +379,13 @@ function pedidoDeScreenDoCorpo(corpo: Record<string, unknown>): PedidoDeScreen |
   const sujeitoRef = corpo["sujeito_ref"];
   const categoria = corpo["categoria_declarada"] ?? null;
   const textos = corpo["textos"];
+  const finalidade = corpo["finalidade"];
+  const prazoMs = corpo["prazo_ms"];
   if (typeof sujeitoTipo !== "string" || sujeitoTipo.length === 0) return null;
+  // KAM-230: a finalidade de transferência e o prazo de quem chama. A operação
+  // confere a finalidade com a do sujeito; aqui só a forma.
+  if (typeof finalidade !== "string" || finalidade.length === 0) return null;
+  if (!Number.isInteger(prazoMs) || (prazoMs as number) < 1 || (prazoMs as number) > PRAZO_MAXIMO_MS) return null;
   if (typeof sujeitoRef !== "string" || sujeitoRef.length === 0 || sujeitoRef.length > 200) return null;
   if (categoria !== null && typeof categoria !== "string") return null;
   if (!Array.isArray(textos) || textos.length === 0 || textos.length > TEXTOS_MAXIMOS_DO_SCREEN) return null;
@@ -389,6 +395,8 @@ function pedidoDeScreenDoCorpo(corpo: Record<string, unknown>): PedidoDeScreen |
     sujeitoRef,
     categoriaDeclarada: categoria,
     textos: textos as string[],
+    finalidade,
+    prazoMs: prazoMs as number,
   };
 }
 

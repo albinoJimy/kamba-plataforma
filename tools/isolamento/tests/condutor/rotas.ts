@@ -1728,7 +1728,15 @@ async function grupoDaApiInternaDoCom(relatorio: Relatorio): Promise<void> {
       return { sku: SKU_DE_A, preco_tipo: "fixo", preco_minor: "1000000", versao: VERSAO_DE_A };
     }
     if (rota === "/internal/screen") {
-      return { sujeito_tipo: "condicoes", sujeito_ref: ORDER_DE_A, textos: ["entrega de A"] };
+      // KAM-230: a finalidade (a das condicoes, que a operacao confere com o
+      // sujeito) e o prazo sao obrigatorios; sem eles a rota recusa antes da porta.
+      return {
+        sujeito_tipo: "condicoes",
+        sujeito_ref: ORDER_DE_A,
+        textos: ["entrega de A"],
+        finalidade: "classificacao_de_condicoes",
+        prazo_ms: 6_000,
+      };
     }
     if (rota === "/internal/upsert-product-draft") {
       return { sku: SKU_DE_A, nome: "arroz de A", preco_tipo: "fixo", preco_minor: "1000000" };
@@ -1780,7 +1788,14 @@ async function grupoDaApiInternaDoCom(relatorio: Relatorio): Promise<void> {
       return { sku: canario, preco_tipo: "fixo", preco_minor: "1", versao: VERSAO_DE_A, stock: 1 };
     }
     if (rota === "/internal/screen") {
-      return { sujeito_tipo: "condicoes", sujeito_ref: canario, categoria_declarada: canario, textos: [canario] };
+      return {
+        sujeito_tipo: "condicoes",
+        sujeito_ref: canario,
+        categoria_declarada: canario,
+        textos: [canario],
+        finalidade: "classificacao_de_condicoes",
+        prazo_ms: 6_000,
+      };
     }
     if (rota === "/internal/upsert-product-draft") {
       return { sku: canario, nome: canario, preco_tipo: "fixo", preco_minor: "1" };

@@ -46,9 +46,11 @@ destinos:
     porta: 443
     protocolo: https
     razao: >-
-      Declarado por `gwy`. Graph API da Meta; o ADR-001 faz do GWY o unico
-      servico que lhe fala, e o doc 09 §3.2 regra 2 nomeia este FQDN na
-      allowlist.
+      Declarado por `gwy`; desde o KAM-218, pelo `onboarding-lote` (a fase
+      `canal` do off-boarding: so o `subscribed_apps` do WABA); e desde o
+      KAM-227, pelo `worker-canal-consumidor` (o envio do Outbound). Graph API
+      da Meta; o ADR-001 faz do GWY o unico endpoint de *webhook* dela (a
+      entrada), e o doc 09 §3.2 regra 2 nomeia este FQDN na allowlist.
     ticket: KAM-076
 
   - fqdn: api.anthropic.com

@@ -50,11 +50,38 @@ export interface VeredictoDoClassificador {
 }
 
 /**
+ * A finalidade de transferência dos textos de um produto e da categoria
+ * declarada (KAM-195): a de omissão do classificador.
+ */
+export const FINALIDADE_DO_CATALOGO = "classificacao_de_catalogo";
+
+/**
+ * A finalidade de transferência das condições que o dono escreve num orçamento
+ * (KAM-230). **Decisão do fundador de 2026-11-20, opção B**: o mesmo
+ * classificador, outro tratamento, e por isso outra finalidade no ADR-008 — um
+ * destino autorizado só para o catálogo não cobre as condições.
+ */
+export const FINALIDADE_DAS_CONDICOES = "classificacao_de_condicoes";
+
+/**
+ * A finalidade de transferência dos temas e das legendas do módulo `social`
+ * (KAM-121): o mesmo classificador, outro tratamento, pelo precedente da
+ * opção B do KAM-230.
+ */
+export const FINALIDADE_DO_CONTEUDO = "classificacao_de_conteudo";
+
+/**
  * De quem é a decisão: a linha de `dat.llm_call_log` e o *gate* de destino são
  * por tenant (KAM-195). Não vai ao modelo.
+ *
+ * `finalidade` e `prazoMs` entraram com o KAM-230. A finalidade é a que o *gate*
+ * de destino do AGR consulta (omissão: `FINALIDADE_DO_CATALOGO`); o prazo é o
+ * que sobra a quem chama, e corta o tecto da chamada (omissão: o tecto todo).
  */
 export interface ContextoDoClassificador {
   readonly tenantId: string;
+  readonly finalidade?: string;
+  readonly prazoMs?: number;
 }
 
 /** A porta. O `screen` trata qualquer excepção como «indisponível». */
@@ -212,6 +239,11 @@ function traceIdAleatorio(): string {
 export function classificadorPeloAgr(opcoes: OpcoesDoAgr): ClassificadorDeCategorias {
   return {
     async classificar(pedido, contexto) {
+      // O prazo de quem chama corta o tecto (KAM-230), e o AGR recebe-o: a rota
+      // dele não chama o modelo se o que sobra não cobrir uma tentativa. Sem
+      // tempo nenhum, nem se pergunta — é «indisponível», que dá `condicional`.
+      const prazo = Math.floor(Math.min(opcoes.tempoMaximoMs ?? TEMPO_MAXIMO_MS, contexto.prazoMs ?? Infinity));
+      if (!(prazo > 0)) throw new VeredictoInvalidoError("sem prazo");
       const resposta = await opcoes.fetch(`${opcoes.url}${ROTA_DO_SCREENING}`, {
         method: "POST",
         headers: { "content-type": "application/json", "x-kamba-interno": await opcoes.credencial() },
@@ -220,8 +252,10 @@ export function classificadorPeloAgr(opcoes: OpcoesDoAgr): ClassificadorDeCatego
           trace_id: (opcoes.novoTraceId ?? traceIdAleatorio)(),
           categoria_declarada: pedido.categoria_declarada,
           textos: pedido.textos,
+          finalidade: contexto.finalidade ?? FINALIDADE_DO_CATALOGO,
+          prazo_ms: prazo,
         }),
-        signal: AbortSignal.timeout(opcoes.tempoMaximoMs ?? TEMPO_MAXIMO_MS),
+        signal: AbortSignal.timeout(prazo),
       });
       if (!resposta.ok) throw new VeredictoInvalidoError(`HTTP ${resposta.status}`);
       const corpo = (await resposta.json()) as { outcome?: unknown; conteudo?: unknown };

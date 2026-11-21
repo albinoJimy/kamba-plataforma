@@ -566,8 +566,9 @@ class TestOGateDeDestino(unittest.TestCase):
     def test_o_screening_sem_destino_de_classificacao_nega_e_grava_a_linha(self) -> None:
         """O papel do KAM-192, com os aliases do repositorio.
 
-        Desde o KAM-195 o papel tem finalidade (`classificacao_de_catalogo`), e
-        a recusa vem do destino: a porta do nucleo, com a `conversa` autorizada
+        Desde o KAM-195 o papel tem finalidade (`classificacao_de_catalogo`, a de
+        omissao; desde o KAM-230 o pedido pode escolher a
+        `classificacao_de_condicoes`), e a recusa vem do destino: a porta do nucleo, com a `conversa` autorizada
         e a classificacao nao, nega o `screening` e deixa sair o `router`. Nada
         sai para o proxy, e a recusa fica registada com o papel `screening`, que
         o `CHECK` da `0047` aceita.

@@ -119,17 +119,17 @@ class TestTraducaoDoErro(unittest.TestCase):
 
 
 class TestFinalidades(unittest.TestCase):
-    def test_as_quatro_deste_servico_sao_quatro_das_do_nucleo(self) -> None:
+    def test_as_seis_deste_servico_sao_seis_das_do_nucleo(self) -> None:
         """O dominio e da coluna e nao do servico (dicionario §3.49).
 
-        Deste lado interessam quatro (a `classificacao_de_catalogo` do screening
-        desde o KAM-195); a coluna tem quinze, porque o *gate* corre em
-        sete pontos e so um e o *gateway* de modelos. **Subconjunto proprio**, e
-        afirma-se nos dois sentidos: um valor daqui que a coluna nao conheca
-        nunca teria linha a consultar, e a coluna ter mais do que estes quatro e o
-        desenho.
+        Deste lado interessam seis (a `classificacao_de_catalogo` do screening
+        desde o KAM-195, a `classificacao_de_condicoes` do mesmo papel desde o
+        KAM-230 e a `classificacao_de_conteudo` desde o KAM-121); a coluna tem dezassete, porque o *gate* corre em sete pontos e
+        so um e o *gateway* de modelos. **Subconjunto proprio**, e afirma-se nos
+        dois sentidos: um valor daqui que a coluna nao conheca nunca teria linha
+        a consultar, e a coluna ter mais do que estes seis e o desenho.
         """
-        self.assertEqual(len(destinos_mod.FINALIDADES), 4)
+        self.assertEqual(len(destinos_mod.FINALIDADES), 6)
         self.assertTrue(set(destinos_mod.FINALIDADES) < set(FINALIDADES_DO_NUCLEO))
 
     def test_cada_papel_tem_finalidade_e_um_papel_estranho_nao(self) -> None:

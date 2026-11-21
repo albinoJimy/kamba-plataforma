@@ -1,0 +1,81 @@
+# Lexicon de marcadores de portugues do Brasil nas legendas — KAM-121.
+#
+# Partilhado com o KAM-125 (golden PT-AO). SemVer: o conteudo e selado em
+# `versoes.lock`, e o gate 4 recusa um conteudo que mude sem a `versao` subir
+# (`services/agr/tests/test_social_dono.py`, `TestPoliticasSeladas`).
+#
+# O QUE ESTE FICHEIRO E.
+#
+# **Proposta**, e nao um levantamento: as entradas vem do proprio bloco do
+# ticket («celular», «voce», «onibus», «tela») e de conhecimento geral da
+# variante europeia/angolana, e nao de ocorrencias contadas em legendas reais
+# de PME angolanas. Nenhuma entrada aqui foi revista por um falante angolano:
+# isso e o criterio 3 do bloco (dois revisores, >= 85% «naturais»), NAO
+# VERIFICADO ate medir. A grafia segue a do conjunto (pre-acordo de 1990:
+# «accao», «facto», «optimo»), que e a convencao deste repositorio; se a grafia
+# oficial em Angola e esta e INDICIO, e confirma-se com os mesmos revisores.
+#
+# Como se le uma entrada:
+#
+# * `padrao`: expressao regular sobre o texto **original**, sem distinguir
+#   maiusculas, com fronteiras de palavra ja postas pelo leitor (`\b...\b`);
+# * `correccao`: o texto que a substitui, ou `null` quando a correccao depende
+#   da frase e nao se faz a maquina — a legenda volta ao gerador uma vez com o
+#   marcador nomeado e, se o trouxer outra vez, nao se entrega;
+# * `tipo`: `vocabulario`, `grafia` ou `gerundio`. No `gerundio` a correccao e
+#   a regra `estar + a + infinitivo`, e nao um texto;
+# * `nota`: a razao, quando a entrada nao e obvia.
+#
+# Ficam DE FORA, de proposito, palavras com dois sentidos no comercio angolano:
+# «fato» (em PT-AO e tambem a roupa), «legal» (licito), «beleza» (a categoria),
+# «grama», «massa», «cara», «moca», e o «pro» (que casava «pro-activo»).
+# Corrigi-las estragava legendas certas.
+
+versao: "1.1.0"
+estado: proposta
+
+marcadores:
+  - {id: celular, tipo: vocabulario, padrao: "celular", correccao: "telemóvel"}
+  - {id: celulares, tipo: vocabulario, padrao: "celulares", correccao: "telemóveis"}
+  - {id: onibus, tipo: vocabulario, padrao: "[oô]nibus", correccao: "autocarro"}
+  - {id: tela, tipo: vocabulario, padrao: "tela", correccao: "ecrã", nota: "do bloco do ticket; num tecido a palavra e outra, e o risco esta aceite"}
+  - {id: telas, tipo: vocabulario, padrao: "telas", correccao: "ecrãs"}
+  - {id: trem, tipo: vocabulario, padrao: "trem", correccao: "comboio"}
+  - {id: geladeira, tipo: vocabulario, padrao: "geladeira", correccao: "frigorífico"}
+  - {id: banheiro, tipo: vocabulario, padrao: "banheiro", correccao: "casa de banho"}
+  - {id: cafe_da_manha, tipo: vocabulario, padrao: "caf[eé] da manh[aã]", correccao: "pequeno-almoço"}
+  - {id: xicara, tipo: vocabulario, padrao: "x[ií]cara", correccao: "chávena"}
+  - {id: suco, tipo: vocabulario, padrao: "suco", correccao: "sumo"}
+  - {id: sucos, tipo: vocabulario, padrao: "sucos", correccao: "sumos"}
+  - {id: sorvete, tipo: vocabulario, padrao: "sorvete", correccao: "gelado"}
+  - {id: acougue, tipo: vocabulario, padrao: "a[cç]ougue", correccao: "talho"}
+  - {id: cardapio, tipo: vocabulario, padrao: "card[aá]pio", correccao: "ementa"}
+  - {id: caminhao, tipo: vocabulario, padrao: "caminh[aã]o", correccao: "camião"}
+  - {id: usuario, tipo: vocabulario, padrao: "usu[aá]rio", correccao: "utilizador"}
+  - {id: usuarios, tipo: vocabulario, padrao: "usu[aá]rios", correccao: "utilizadores"}
+  - {id: aplicativo, tipo: vocabulario, padrao: "aplicativo", correccao: "aplicação"}
+  - {id: equipe, tipo: vocabulario, padrao: "equipe", correccao: "equipa"}
+  - {id: esporte, tipo: vocabulario, padrao: "esporte", correccao: "desporto"}
+  - {id: registro, tipo: vocabulario, padrao: "registro", correccao: "registo"}
+  - {id: pra, tipo: vocabulario, padrao: "pra", correccao: "para"}
+  - {id: acao, tipo: grafia, padrao: "a[cç][aã]o", correccao: "acção"}
+  - {id: acoes, tipo: grafia, padrao: "a[cç][oõ]es", correccao: "acções"}
+  - {id: direcao, tipo: grafia, padrao: "dire[cç][aã]o", correccao: "direcção"}
+  - {id: atual, tipo: grafia, padrao: "atual", correccao: "actual"}
+  - {id: atualmente, tipo: grafia, padrao: "atualmente", correccao: "actualmente"}
+  - {id: otimo, tipo: grafia, padrao: "[oó]timo", correccao: "óptimo"}
+  - {id: otima, tipo: grafia, padrao: "[oó]tima", correccao: "óptima"}
+  - {id: contato, tipo: grafia, padrao: "contato", correccao: "contacto"}
+  - {id: contatos, tipo: grafia, padrao: "contatos", correccao: "contactos"}
+  - {id: colecao, tipo: grafia, padrao: "cole[cç][aã]o", correccao: "colecção"}
+  - {id: selecao, tipo: grafia, padrao: "sele[cç][aã]o", correccao: "selecção"}
+  - {id: excecao, tipo: grafia, padrao: "exce[cç][aã]o", correccao: "excepção"}
+  - {id: objetivo, tipo: grafia, padrao: "objetivo", correccao: "objectivo"}
+  - {id: projeto, tipo: grafia, padrao: "projeto", correccao: "projecto"}
+  - {id: eletrico, tipo: grafia, padrao: "el[eé]trico", correccao: "eléctrico"}
+  - {id: voce, tipo: vocabulario, padrao: "voc[eê]s?", correccao: null, nota: "do bloco do ticket; a forma de tratamento depende da frase"}
+  - {id: a_gente, tipo: vocabulario, padrao: "a gente", correccao: null, nota: "«nos»; muda a concordancia do verbo"}
+  - {id: galera, tipo: vocabulario, padrao: "galera", correccao: null}
+  - {id: bacana, tipo: vocabulario, padrao: "bacana", correccao: null}
+  - {id: show_de_bola, tipo: vocabulario, padrao: "show de bola", correccao: null}
+  - {id: gerundio, tipo: gerundio, padrao: "(estou|estamos|est[aá]|est[aã]o|estava|est[aá]vamos|estavam)\\s+(\\w+?)([aei])ndo", correccao: null, nota: "estar + gerundio -> estar + a + infinitivo; a regra esta no leitor, com radical de tres letras e sem as excepcoes", excepcoes: [lindo, linda, lindos, lindas, tremendo, tremenda, tremendos, tremendas, estupendo, estupenda, horrendo, horrenda, fecundo, fecunda, profundo, profunda, rotundo, segundo, segunda, oriundo, oriunda, nauseabundo, moribundo, vagabundo, iracundo, jucundo, venerando, nefando, infando, memorando, educando, formando, doutorando, mestrando, orientando, graduando, vestibulando]}

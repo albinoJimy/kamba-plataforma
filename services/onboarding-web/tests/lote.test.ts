@@ -69,7 +69,10 @@ import {
   SUBSCRICAO_DO_PAINEL,
   SUBSCRICAO_DO_TRUST,
   depoisDoTrust,
+  portasDoOffboarding,
 } from "../src/lote/processo.ts";
+import { CanalDaMetaPelaGraph, REVOGACAO_SEM_ADAPTADOR, SQL_TOKENS_DO_WABA } from "@kamba/core-ts/offboarding";
+import { cifrarToken } from "@kamba/core-ts/onboarding";
 
 const URL_LOTE = "postgresql://kamba_batch@lote.invalid:5432/kamba";
 const URL_APP = "postgresql://kamba_app@app.invalid:5432/kamba";
@@ -872,4 +875,37 @@ test("o consumidor do painel (KAM-224): as dezasseis filas do painel, sem ordem,
   assert.match(instrucoes[0] ?? "", /r\.canal = 'painel'/);
   assert.match(instrucoes[1] ?? "", /UPDATE platform\.agent_replies SET entregue_at/);
   assert.deepEqual(registos, ["painel_entregue_ao_painel"]);
+});
+
+// ------------------------------------------------ as portas do off-boarding (KAM-218)
+
+test("as portas do off-boarding: a Meta ligada pelo cofre e pela Graph de produção, a revogação sem adaptador", async () => {
+  const tenant = "11111111-1111-4111-8111-111111111111";
+  const kek = Buffer.alloc(32, 7).toString("base64");
+  // Montada: um literal com a forma de uma referência parece um segredo ao gate 9.
+  const ref = ["meta_client_token", "c1"].join("/");
+  const lote = new ConjuntoFalso((texto) =>
+    texto === SQL_TOKENS_DO_WABA ? { rows: [{ tenant_id: tenant, token_ref: ref }] } : undefined,
+  );
+  const pedidos: { url: string; method: string | undefined; auth: string | null }[] = [];
+  const buscar = (async (url: string, o: RequestInit) => {
+    pedidos.push({ url, method: o.method, auth: new Headers(o.headers).get("authorization") });
+    return new Response(JSON.stringify({ success: true }), { status: 200 });
+  }) as unknown as typeof fetch;
+  const portas = portasDoOffboarding({
+    lote,
+    ambiente: "prod",
+    env: {
+      KAMBA_SECRET_KEK_TOKEN_CLIENTE: kek,
+      KAMBA_SECRET_META_CLIENT_TOKEN__c1: cifrarToken(kek, "actual", tenant, "EAAG-ensaio"),
+    },
+    buscar,
+  });
+  assert.ok(portas.canal instanceof CanalDaMetaPelaGraph, "a Meta deixa de estar sem adaptador");
+  assert.equal(portas.revogacao, REVOGACAO_SEM_ADAPTADOR);
+  await portas.canal.cancelarSubscricao("w1");
+  assert.deepEqual(pedidos, [
+    { url: "https://graph.facebook.com/v21.0/w1/subscribed_apps", method: "DELETE", auth: "Bearer EAAG-ensaio" },
+  ]);
+  assert.ok(lote.consultas.some((c) => c.texto === SQL_TOKENS_DO_WABA), "o token lê-se pela ligação do lote");
 });

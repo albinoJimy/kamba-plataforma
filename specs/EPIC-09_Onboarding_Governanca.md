@@ -4,7 +4,7 @@
 |---|---|
 | Produto | KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para Angola |
 | Documento | Epic — Onboarding e Governação |
-| Versão | 1.38 |
+| Versão | 1.39 |
 | Data | Outubro de 2026 |
 | Classificação | Documento de Referência — Interno |
 | Documento-fonte | `../docs/tecnica/10_Onboarding_Governanca.md`, `../docs/tecnica/00_Arquitectura_Solucao.md` (ADR-019) |
@@ -72,13 +72,14 @@ Fora deste epic (Clusters): estafetas, revendedores, rede de agentes de activaç
 | KAM-203 | Recálculo da confiança gradual a correr: diário, em `order.delivered` e na aprovação | feature | M | P1 | KAM-096, KAM-198 |
 | KAM-210 | KAM-098 em produção: o processo que corre as fases, os adaptadores das portas e o cofre no encerramento | feature | L | P1 | KAM-098 |
 | KAM-218 | Off-boarding em produção, o que ficou: o processo dos dados, as portas de fora e o simulacro | feature | L | P1 | KAM-210 |
+| KAM-233 | Off-boarding, o que ficou do KAM-218: as provas do titular, a revogação automática, a entrega e o simulacro | feature | L | P1 | KAM-218 |
 | KAM-206 | Painel light: o contacto da encomenda ao dono, mascarado e auditado, e a lista de produtos em 3G | feature | M | P2 | KAM-190 |
 | KAM-207 | Religar o número de um tenant activo cujo canal caiu, a partir do painel | feature | M | P2 | KAM-190, KAM-093 |
 | KAM-208 | Correlação entre tenants por comprador: um identificador de comprador que não dependa do tenant | feature | M | P2 | KAM-200 |
 | KAM-209 | Preço anómalo: a categoria do produto e os preços de referência por categoria | feature | M | P2 | KAM-200 |
 | KAM-219 | Alerta da escrita recusada em `platform.trust_level`: ver o `42501` que a base já dá | feature | S | P2 | KAM-203 |
 | KAM-225 | A recusa em `platform.trust_level` fora do `tenant_guard`: o registo do PostgreSQL recolhido | feature | M | P2 | KAM-219 |
-| KAM-234 | `onboarding-web` em produção: o caso, o registo e o guia sobre a base, para que a página do dono arranque em `prod` | feature | M | P1 | KAM-202 |
+| KAM-236 | `onboarding-web` em produção: o caso, o registo e o guia sobre a base, para que a página do dono arranque em `prod` | feature | M | P1 | KAM-202 |
 
 ---
 
@@ -1396,7 +1397,7 @@ Dois passaram para o KAM-202:
 | 1 — ≥ 5 publicados (`catalogo_minimo = 5`, configurável), cada um com `preco_modo`, nome, categoria e confirmação do dono; fotografia por web ou por WhatsApp | **parcial** | **Feito:** a contagem exige a oferta publicada, o `preco_tipo`, o nome, a categoria e a confirmação, que é a ingestão do KAM-049 em `publicada` (`motivoDeExclusao`, `cinco publicados e permitidos cumprem; quatro nao`). Exige também o `assertPublishable` para o conteúdo actual (`publicado sem decisao para o conteudo de agora nao conta…`). O mínimo é configurável e nunca zero. O `SQL_PRODUTOS` corre contra a base (`test_os_produtos_com_a_confirmacao_da_ingestao_e_a_categoria_declarada`). **Falta:** os dois canais de fotografia, que são do KAM-119 (D10), e a contagem num processo, que é do **KAM-202**. **KAM-202:** a contagem corre num processo, o `CicloDaActivacao` do lote (`o lote conta o catalogo minimo, grava o gate e tira o caso de aguarda_catalogo`). Fica a fotografia por web e por WhatsApp, do KAM-119 e do KAM-231 |
 | 2 — `screen` antes de publicar; `permitida` publica, `bloqueada` rejeita com motivo, `condicional` abre `review_case` `catalogo`; a transição de `offer_terms` chama `assert_publishable` e falha fechado | **parcial** | **Feito:** o `CatalogoMinimo.publicar` corre o `screen` do KAM-088 quando ainda não há decisão para o conteúdo, e depois o `assertPublishable`. Só então escreve. A `bloqueada` devolve o motivo e a escrita não acontece (`(a) cinco moda com um alcool disfarcado…`). A `condicional` abre o `review_case` `catalogo` pelo `escritorComFila` do KAM-089, que entra como escritor. **Falta:** a restrição na base e o screening no `publishProduct` do COM, credor **KAM-202**. Hoje o COM publica sem decisão. **KAM-202:** a transição de `offer_terms` falha fechado na base (o *trigger* `offer_terms_publicacao_segura`), e o COM publica pelo `assertPublishable` desde o KAM-119. Fica a `condicional` gravada pelo `/internal/screen` do COM, que não abre o `review_case` `catalogo` (o escritor dele não é o `escritorComFila`) |
 | 3 — mudar o título ou a categoria de um publicado repete o screening antes de continuar visível; publicar com título neutro e editar depois é apanhado | **parcial** | **Feito:** o `CatalogoMinimo.renomear` avalia o nome novo **antes** de ele ficar visível. Se não passar, o produto sai de `publicado` e só depois muda de nome (`(b) editar o titulo…`, `(b) a ordem…`, `(b) uma edicao inocente…`). Uma categoria declarada nova muda o resumo, e o produto deixa de contar até ser reavaliado. **Falta:** a mudança de nome pelo `SQL_ACTUALIZAR_TERMOS` do COM, que não passa por aqui, e a re-análise do KAM-088, que não volta a ver um `sku` que já tem decisão. Credor **KAM-202**. **KAM-202:** o nome novo pelo COM repete o screening antes de se escrever (`screeningDoNomeNovo`), e a base tira de `publicado` um nome novo sem decisão (`test_um_nome_novo_sem_decisao_tira_de_publicado…`). Fica a categoria: um produto continua visível até a re-análise do KAM-088 o ver |
-| 4 — `SmokeProbe.owner_assisted`: o dono manda «teste»; validação em ≤ 60 s de `inbound`, resposta identificada, `delivered` e aviso de 1.º contacto com `consent_event`; conversa `is_test` fora de métricas, golden e Score | **parcial** | **Feito:** a porta à letra, a janela de 60 s (*proposta*) e os quatro factos pela ordem do bloco, sobre corpos do simulador. O «ainda não» dentro da janela não conta como falha, e factos fora da janela não contam (`dentro da janela…`, `factos fora da janela…`, `uma resposta sem a identificacao…`, `o «teste» noutro numero…`). A conversa marca-se `is_test` quando houve entrada. A coluna nasce falsa e só o lote a escreve (`test_a_aplicacao_nao_cria_uma_conversa_ja_marcada`, `test_o_lote_marca_e_a_aplicacao_nao`). **Falta:** o observador de produção, porque a base não guarda o texto do «teste» nem o da resposta (ADR-010), e o filtro de `is_test` nos leitores. Credor **KAM-202**. **KAM-202:** o observador de produção (`ObservadorSql`) e o sinal do «teste» no `worker-canal` (`conversations.teste_recebido_at`), e o filtro de `is_test` em cinco leitores. Falha fechado em produção até os *statuses* escreverem o `delivered_at` e o `ConsentGate` estar montado: credor **KAM-233** |
+| 4 — `SmokeProbe.owner_assisted`: o dono manda «teste»; validação em ≤ 60 s de `inbound`, resposta identificada, `delivered` e aviso de 1.º contacto com `consent_event`; conversa `is_test` fora de métricas, golden e Score | **parcial** | **Feito:** a porta à letra, a janela de 60 s (*proposta*) e os quatro factos pela ordem do bloco, sobre corpos do simulador. O «ainda não» dentro da janela não conta como falha, e factos fora da janela não contam (`dentro da janela…`, `factos fora da janela…`, `uma resposta sem a identificacao…`, `o «teste» noutro numero…`). A conversa marca-se `is_test` quando houve entrada. A coluna nasce falsa e só o lote a escreve (`test_a_aplicacao_nao_cria_uma_conversa_ja_marcada`, `test_o_lote_marca_e_a_aplicacao_nao`). **Falta:** o observador de produção, porque a base não guarda o texto do «teste» nem o da resposta (ADR-010), e o filtro de `is_test` nos leitores. Credor **KAM-202**. **KAM-202:** o observador de produção (`ObservadorSql`) e o sinal do «teste» no `worker-canal` (`conversations.teste_recebido_at`), e o filtro de `is_test` em cinco leitores. Falha fechado em produção até os *statuses* escreverem o `delivered_at` e o `ConsentGate` estar montado: credor **KAM-235** |
 | 5 — 3 falhas ⇒ `review_case` `es_falhado`/`saga` e caso em `aguarda_teste`; o dono vê a causa genérica e repete sem custo | **parcial** | **Feito:** à terceira falha seguida abre-se o caso, `es_falhado` quando nada chegou e `saga` nos outros. O caso fica em `aguarda_teste` e a contagem recomeça (`3 falhas seguidas vao a fila…`). As pendentes vencidas contam como falhas (achado 6), e dois `verify` abrem um caso (achado 11). A `filaDoTeste` abre-o pelo serviço do KAM-089 e encadeia depois de decidido. A base guarda as tentativas: a aplicação abre, só o lote fecha, e uma fechada não muda (`TestTentativas`, oito ensaios). O dono lê uma mensagem igual para as quatro causas. **Falta:** um processo que o corra, credor **KAM-202**. **KAM-202:** o processo existe, o `CicloDaActivacao` do lote, com a `filaDoTeste` sobre o serviço da fila; a falha depois da janela fecha `falhou` com a causa (`sem entrega, o lote fecha a tentativa falhada…`) |
 | 6 — gates `catalogo_minimo` e `e2e` em `onboarding_gate`; com os 6 verdes, `tenant.provisioned` e depois `tenant.activated`, **uma vez** | **parcial** | **Feito:** o gate `catalogo_minimo` segue a contagem nos dois sentidos e o `e2e` grava-se no `verify`. O `GatesSql` e o `MaquinaSql` correm contra a base até `aguarda_teste` (`test_gates_e_maquina_ate_aguarda_teste`). A activação passa pelo `advance_case` do KAM-092 e reconta antes (achado 3). Repetir o clique não duplica o evento (`o caminho feliz emite tenant.activated uma vez`). O `tenant.provisioned` é do KAM-092 (divergência 1). **Falta:** a ligação ao lote do KAM-198, credor **KAM-202**. **KAM-202:** a ligação ao lote do KAM-198 está feita; o `activar` corre no processo e recusa com os gates de outros tickets em falta (`a pagina abre a tentativa…`). Chegar a `activo` contra a base pede a sequência do KAM-092 |
 | 7 — custo LLM ≤ US$ 0,02 por produto com *virtual key*; até 12 perguntas | **por fazer** | O tecto das 12 perguntas é do KAM-049 (`catalog_ingestions_perguntas_ck`). O custo por produto mede-se com o modelo de visão real em staging, e isso pede as respostas da Meta sobre AI Provider. Credores **`ext:KAM-101`** e **KAM-109**, a caixa que o critério 9 do KAM-049 já deixou |
@@ -3895,6 +3896,14 @@ volta di-lo no registo (`contagem`).
 | 1 | Critérios satisfeitos; as caixas 1, 4, 5, 6 e 8 do KAM-098, e a 1 e a 6 da DoD dele, revistas | **parcial** | Nenhum critério satisfeito. As cinco caixas do KAM-098 continuam **parciais**, revistas: a 4 ganha os bytes, a 6 o STO, a 8 o escopo do STO no certificado; a 1 e a 5 não mudam. A caixa 1 da DoD dele espera o simulacro, e a 6 tem agora o *runbook* da fase parada. Todas passam ao **KAM-218** |
 | 2 | *Runbook* de produção; métricas e alertas nascem com o processo; sem segredos | **parcial** | As métricas e o alerta nascem com o processo, e o *runbook* da fase parada está escrito ([`../docs/runbooks/offboarding.md`](../docs/runbooks/offboarding.md)). **Sem segredos**: o *token* de cada WABA entra por função, e a chave do certificado pelas portas. **Falta** o *runbook* de produção do processo dos dados, que nasce com ele — credor **KAM-218** |
 
+**Revistas pelo KAM-218.** Nenhuma caixa deste bloco muda de estado — cada uma pede mais do que o
+KAM-218 fechou —, e o que cada uma ganhou fica escrito: a **1** ganha o processo das fases de dados
+(`offboarding-dados`, `python -m kamba_core.offboarding`), que deixa de ser a falta dela; a **3** ganha o
+canal da Meta ligado pelo cofre no processo de lote e a revogação manual da chave do LiteLLM pelo alias
+(`infra/llm/chaves.py revogar`); a **4** ganha a prova de aceite e as ofertas no pacote; a **5** ganha os
+contactos pelo cofre (o *crypto-shredding* do KAM-008, como `kamba_identity`). A 2, a 6 e a 7 não mudam.
+O resto passa ao **KAM-233**.
+
 ### Handoff para Claude Code
 
 ```text
@@ -3919,7 +3928,7 @@ Testes: integração com duplos, contrato por adaptador, e o simulacro em stagin
 | Prioridade | P1 |
 | Estimativa | L |
 | Dependências | KAM-210 |
-| Bloqueia | — |
+| Bloqueia | KAM-233 |
 | Responsável sugerido | Engenheiro de Plataforma (TEN), com o Responsável de Segurança |
 | Documentos de referência | `EPIC-09_Onboarding_Governanca.md` (blocos KAM-098 e KAM-210), `../docs/offboarding.md`, `../docs/runbooks/offboarding.md`, `../docs/tecnica/10_Onboarding_Governanca.md` (§15.2) |
 
@@ -3939,7 +3948,7 @@ por cada porta, e o simulacro em *staging*.
 
 ### Critérios de Aceitação
 
-- [ ] **O processo dos dados.** Um processo (`python -m kamba_core.offboarding`, serviço de *compose*) corre o `correr_volta` agendado, como `kamba_batch` e `kamba_app`, com o armazenamento, a chave do certificado e o ciclo das cópias da configuração; arranca em `prod` e não arranca sem as credenciais.
+- [x] **O processo dos dados.** Um processo (`python -m kamba_core.offboarding`, serviço de *compose*) corre o `correr_volta` agendado, como `kamba_batch` e `kamba_app`, com o armazenamento, a chave do certificado e o ciclo das cópias da configuração; arranca em `prod` e não arranca sem as credenciais.
 - [ ] **As provas do titular.** Um adaptador da `ProvasDoTitular`: o OTP ao telefone provado (com o agregador do KAM-116) e a ligação ao e-mail registado, cada um com validade e uso único, persistidos (esquema novo), e nenhum dado do dono no `resultado`.
 - [ ] **O canal da Meta ligado.** Um leitor do cofre para o *token* de cada WABA no processo de lote, e o `CanalDaMetaPelaGraph` montado no lugar do `CANAL_SEM_ADAPTADOR`.
 - [ ] **A revogação ligada.** Clientes do LiteLLM (revogar a chave), da Medusa (arquivar o canal, D3) e do Chatwoot (desligar a *inbox* e arquivar a conta, com um método novo no `HandoffProvider`), cada um idempotente do lado de fora; e as revogações do painel do dono persistidas e chamadas no encerramento.
@@ -3963,7 +3972,89 @@ por cada porta, e o simulacro em *staging*.
 ### Definition of Done
 
 - [ ] Critérios satisfeitos; as caixas do KAM-210 revistas com a evidência.
-- [ ] O *runbook* do processo dos dados no `../docs/offboarding.md`; sem segredos.
+- [x] O *runbook* do processo dos dados no `../docs/offboarding.md`; sem segredos.
+
+### Verificação dos Critérios de Aceitação
+
+**Um dos oito critérios fica satisfeito — o processo dos dados —, quatro parciais e três por
+satisfazer; das duas caixas da DoD fecha a do *runbook*.** O que este ticket entrega é o que não
+precisa de nada de fora: o processo `offboarding-dados` nos três *compose*, a Meta ligada pelo cofre no
+processo de lote, as ofertas e a prova de aceite no pacote, os contactos pelo cofre na purga, e a
+revogação manual da chave do LiteLLM. O que fica, fica por uma de cinco razões, e cada linha diz qual:
+**uma escolha do fundador** (o agregador de SMS do KAM-116 e o fornecedor de e-mail do KAM-115, sem os
+quais não há OTP, ligação ao e-mail nem entrega do certificado; a D3, sem a qual não há Medusa),
+**esquema novo** (pedida a vaga de migração à coordenação, e por conceder no fecho deste PR: o registo
+dos desafios, os `GRANT DELETE` às tabelas `sem_caminho` e as revogações do painel persistidas), **uma
+porta sem cliente que a saga use** (o Chatwoot e a chave do LiteLLM na revogação automática), **o
+caminho dos segredos por tenant até ao contentor** (o mecanismo do lançador do cofre do ADR-L002, que
+nenhum *compose* exprime), e **um ambiente ou uma acção externa** (o simulacro em *staging*, e o pedido de eliminação aos fornecedores de
+LLM e STT, que é contactar subprocessadores). Credor de tudo: **KAM-233**, aberto neste PR.
+
+**Onde vive.** O processo em
+[`../libs/py-core/src/kamba_core/offboarding/servico.py`](../libs/py-core/src/kamba_core/offboarding/servico.py)
+e [`__main__.py`](../libs/py-core/src/kamba_core/offboarding/__main__.py), com o serviço
+`offboarding-dados` em [`../infra/compose/`](../infra/compose/docker-compose.prod.yml) e a lista de
+saídas vazia em [`../infra/egress/offboarding-dados.yaml`](../infra/egress/offboarding-dados.yaml); os
+contactos pelo cofre em [`cofre.py`](../libs/py-core/src/kamba_core/offboarding/cofre.py); o leitor do
+*token* em [`../packages/core-ts/src/offboarding/meta.ts`](../packages/core-ts/src/offboarding/meta.ts),
+montado pelo `portasDoOffboarding` do
+[`../services/onboarding-web/src/lote/processo.ts`](../services/onboarding-web/src/lote/processo.ts); a
+revogação da chave em [`../infra/llm/chaves.py`](../infra/llm/chaves.py); o *runbook* do processo no
+[`../docs/offboarding.md`](../docs/offboarding.md) §7. **Sem esquema novo**; a emenda **1.127** do
+dicionário regista os nomes novos no §3.77.
+
+**Quatro decisões de desenho que os critérios não escreviam, e a razão de cada uma.**
+
+* **Os contactos saem como `kamba_identity`, e o processo dos dados recebe a terceira credencial.** As
+  três tabelas do cofre não dão `DELETE` ao lote (o ensaio do KAM-098 di-lo), e o *crypto-shredding* do
+  KAM-008 é SQL sem decifra — destrói o embrulho da DEK —, pelo que cabe no Python sem o `KeyProvider`
+  do TypeScript. A credencial só serve esse passo, numa transacção sob a RLS do tenant; o controlo
+  (`test_o_lote_nao_tem_o_privilegio_que_o_cofre_usa`) mostra que com o papel do lote a mesma porta falha.
+* **Um WABA de dois tenants recusa.** A leitura do `token_ref` é do lote, sem tenant do pedido que a
+  filtre, e cancelar a subscrição de um WABA que outro tenant ainda usa desligava-lhe o canal. Duas
+  referências do **mesmo** tenant (um WABA com dois números) não recusam: a primeira que abre ganha.
+* **As ofertas não fingem ser o catálogo da Medusa.** O registo de produtos da opção B da D3 não existe;
+  a `offer_terms` (termos comerciais por SKU) sai na colecção `ofertas`, e o `catalogo` continua
+  `indisponivel` no manifesto, com a razão. O manifesto sobe a **1.2.0**.
+* **A chave do LiteLLM revoga-se pelo alias, à mão, no D7.** As chaves dos tenants nascem pelo
+  `chaves.py provisionar` (Fase 0, KAM-030) e não ficam no `provisioning_step`, pelo que a revogação
+  automática as dava por `sem_recurso` **e elas continuavam vivas** — achado deste ticket. O
+  `chaves.py revogar <tenant>` apaga-a e confirma pela listagem; o passo automático é do credor, com o
+  adaptador da saga.
+
+**O que a revisão adversarial mudou.** Uma revisão independente levantou onze achados; nove
+CONFIRMADOS e dois PLAUSÍVEIS. Fecharam-se com ensaio: com o cofre, a purga escrevia só a linha dos
+contactos, e as DEK destruídas e os endpoints apagados saíam do `purge_log` e do certificado (hoje uma
+linha por tabela do cofre); o processo tinha 128 MiB com um tecto de 256 MiB de bytes no pacote, que
+vivem três vezes em memória — o tecto desce a **48 MiB** e o processo sobe a 256 MiB, o que a folga do
+orçamento de memória de produção comporta; a ligação de cada papel da base não tinha ensaio, e quatro
+mutações (a senha do cofre trocada, a ordem dos ligadores, o papel do cofre, o `apagar_contactos`
+tirado do arranque) passavam verdes; e a linha `encerrado` de um tenant que já saiu fazia `ambiguo`
+para sempre o WABA de quem ficou. Corrigidos no texto: o *runbook* dizia o certificado `em_curso` e o
+mesmo documento em cada volta (fica `pendente`, e a entrega manual tem três passos), a rotação da
+chave prometia uma versão anterior que o processo não lê, a revogação da chave do LiteLLM não estava em
+*runbook* nenhum, e o dicionário tinha duas linhas a dar duas versões do pacote. **O que desmarcou uma
+caixa:** o critério 3 estava marcado com o leitor ligado no código e o *token* sem caminho até ao
+contentor (achado 2). **Fica escrito, sem ensaio:** um tenant com o mesmo WABA que só tenha a linha do
+onboarding de canal não conta para a recusa (PLAUSÍVEL); e um armazenamento gerido fora da rede `data`
+(a D6 aberta) deixava o processo saudável e a falhar em cada volta — a lista de saídas é de quem fechar
+a D6.
+
+| # | Critério | Estado | O que se mediu, e com que comando |
+|---|---|---|---|
+| 1 | O processo dos dados: `python -m kamba_core.offboarding`, serviço de *compose*, como `kamba_batch` e `kamba_app`, com o armazenamento, a chave do certificado e o ciclo das cópias; arranca em `prod` e não arranca sem as credenciais | **satisfeito** | `test_o_processo_arranca_em_prod_e_responde_na_sonda` (o processo de verdade, num subprocesso, com `KAMBA_ENV=prod`: arranca, regista `service_started` e responde na `/healthz`); `test_sem_cada_segredo_obrigatorio_sai_com_2` e `test_sem_a_base_ou_com_a_chave_sem_kid_sai_com_2` (pelo `main`, que é o código de saída que o *compose* vê); `test_sem_cada_credencial_nao_arranca_e_a_mensagem_diz_qual_sem_o_valor`; `test_em_prod_o_armazenamento_fora_de_angola_sem_apd_ref_nao_arranca`; `test_o_servico_esta_nos_tres_ambientes_com_o_que_o_codigo_le` (o comando, a porta, os segredos, e o ciclo das cópias confrontado com o `infra/backup/cobertura.yaml`). `compose_prod lint`: **0 achados**; `compose_prod egress-dez`: a interpolação do serviço novo passa |
+| 2 | As provas do titular: OTP ao telefone provado e ligação ao e-mail, persistidos, sem dado do dono no `resultado` | **não satisfeito** | Nada entregue. Esquema (a vaga pedida e por conceder) e a escolha do agregador e do fornecedor de e-mail (fundador, KAM-116 e KAM-115). Credor **KAM-233** |
+| 3 | O canal da Meta ligado: leitor do cofre para o *token* de cada WABA, e o `CanalDaMetaPelaGraph` no lugar do `CANAL_SEM_ADAPTADOR` | **parcial** — ligado no código, e o *token* não chega ao contentor | `as portas do off-boarding: a Meta ligada pelo cofre e pela Graph de produção, a revogação sem adaptador` (o `DELETE` sai para `graph.facebook.com/v21.0/<waba>/subscribed_apps` com o *token* que o cofre abriu); `lê a referência do WABA, abre o criptograma com a KEK e o tenant da linha`; `um criptograma de outro tenant copiado para a linha não abre`; `um WABA de dois tenants recusa sem ler o cofre`. A lista de saídas do `onboarding-lote` declara a Graph, e o serviço sai pelo `proxy-saida` com `NODE_USE_ENV_PROXY`. **A falta, que desmarca a caixa:** o leitor procura o criptograma no ambiente do processo (`KAMBA_SECRET_META_CLIENT_TOKEN__<instância>`, ADR-L002), e o *compose* só passa ao contentor as variáveis que nomeia — nenhum nomeia as instâncias por tenant, nem embrulha o comando no lançador do cofre; em `prod`, hoje, a fase `canal` falha com `sem_segredo` e pára com alerta (achado 2 da revisão adversarial, medido no *compose*). É o mesmo caminho que o KAM-227 usa para o envio. E o 404 como «já não subscrito» continua **NÃO VERIFICADO** contra a Graph real. Credor dos dois **KAM-233** |
+| 4 | A revogação ligada: LiteLLM, Medusa e Chatwoot idempotentes; as revogações do painel persistidas e chamadas | **parcial** — só a chave do LiteLLM, e à mão | `TestARevogacao` (`revoga_so_a_chave_do_tenant_pelo_token_e_confirma_pela_listagem`, `repetir_e_o_sucesso_de_uma_repeticao`, `um_200_com_a_chave_ainda_la_levanta`). **A falta:** o adaptador da saga para a chave (o passo automático), o Chatwoot (a *inbox* e o arquivo da conta, com o método novo no `HandoffProvider`; nada instancia hoje o cliente do Chatwoot), a Medusa (a D3 por ratificar: não há Medusa nenhuma), e as revogações do painel persistidas (esquema). Credor **KAM-233** |
+| 5 | A exportação completa: o catálogo da Medusa, os telefones pelo cofre com auditoria, a prova de aceite do KAM-090 | **parcial** — a prova de aceite, e as ofertas | `test_a_exportacao_de_a_nunca_contem_dados_de_b` (contra a base: as ofertas e o signatário dos aceites de A no pacote, os de B fora); `test_gera_o_pacote_e_conclui_e_audita`. **A falta:** o catálogo da Medusa (D3), e os telefones — a decifra é do cofre de identidade, que vive no TypeScript (`lerEndpoints`), e a exportação é Python. Credor **KAM-233** |
+| 6 | A purga completa: os contactos pelo cofre; o `DELETE` do lote nas `sem_caminho`; o Chatwoot, os *traces*, as *caches* e o pedido aos fornecedores, cada um no `purge_log` | **parcial** — os contactos | `TestPurgaPeloCofre` contra a base: `os_contactos_de_a_saem_pelo_cofre_e_os_de_b_ficam` (os endpoints a zero, o embrulho de cada DEK destruído, os contactos datados; B intacto; **as três tabelas do cofre, cada uma com a sua linha `ok` no `purge_log`** — a das DEK é a prova do *crypto-shredding* que o certificado mostra), `repetir_nao_marca_nada_de_novo`, e o controlo do papel; `TestApagarContactosPeloCofre` e `TestAPurgaRegistaAsTresTabelas` sem base; `TestOsPapeisDaBase` (cada fábrica abre com o seu papel e a sua senha, e as portas de produção apagam os contactos pelo papel do cofre). **A falta:** os `GRANT DELETE` (esquema), o Chatwoot, os *traces* e as *caches* (sem caminho de eliminação por tenant), e o pedido aos fornecedores de LLM e STT, que é contactar subprocessadores — acção externa. Credor **KAM-233** |
+| 7 | A entrega do certificado pelo canal disponível, registada | **não satisfeito** | A entrega continua `entrega_sem_adaptador`, e o processo di-lo no arranque (`offboarding_entrega`). Sem agregador nem fornecedor de e-mail (fundador). O *runbook* (§7 do `../docs/offboarding.md`) diz a entrega manual. Credor **KAM-233** |
+| 8 | O simulacro em *staging* | **não satisfeito** | Não há *staging* nesta máquina, e o simulacro espera as portas. Credor **KAM-233** |
+
+| # | Definition of Done | Estado | O que se mediu |
+|---|---|---|---|
+| 1 | Critérios satisfeitos; as caixas do KAM-210 revistas com a evidência | **parcial** | Um de oito. As caixas do KAM-210 revistas no bloco dele (a nota «Revistas pelo KAM-218»): a 1 ganha o processo dos dados, a 3 o canal da Meta ligado e a chave do LiteLLM à mão, a 4 a prova de aceite, a 5 os contactos; a 2, a 6 e a 7 não mudam |
+| 2 | O *runbook* do processo dos dados no `../docs/offboarding.md`; sem segredos | **satisfeito** | O §7 do `../docs/offboarding.md` (arrancar, cada volta, o certificado por entregar, rodar a chave, correr à mão), e o *runbook* da fase parada actualizado. **Sem segredos**: os nomes no `../ops/secrets-inventory.yaml` (`offboarding_certificate_key`, `kid: true`), os valores pelo lançador do cofre (ADR-L002), e o ensaio do arranque confirma que nenhuma credencial vai ao registo |
 
 ### Handoff para Claude Code
 
@@ -3975,6 +4066,78 @@ Objectivo: o processo dos dados a correr, um adaptador ligado por cada porta, e 
 Regras: nunca apagar o WABA nem o número; uma porta sem adaptador falha e nunca finge; idempotente do lado
 de fora; nenhum dado pessoal no resultado das fases; esquema novo só com a vaga de migração.
 Testes: contrato por adaptador, integração com o processo, e o simulacro em staging.
+```
+
+---
+
+## KAM-233 — Off-boarding, o que ficou do KAM-218: as provas do titular, a revogação automática, a entrega e o simulacro
+
+| Campo | Valor |
+|---|---|
+| Epic | EPIC-09 — Onboarding e Governação |
+| Fase | 1 |
+| Tipo | feature |
+| Prioridade | P1 |
+| Estimativa | L |
+| Dependências | KAM-218 |
+| Bloqueia | — |
+| Responsável sugerido | Engenheiro de Plataforma (TEN), com o Responsável de Segurança |
+| Documentos de referência | `EPIC-09_Onboarding_Governanca.md` (blocos KAM-098, KAM-210 e KAM-218), `../docs/offboarding.md`, `../docs/runbooks/offboarding.md` |
+
+### Contexto
+
+O KAM-218 pôs a correr o processo das fases de dados (`offboarding-dados`), ligou a Meta pelo cofre no
+processo de lote, juntou ao pacote as ofertas e a prova de aceite, apagou os contactos pelo cofre na
+purga, e deu ao `infra/llm/chaves.py` a revogação manual da chave do tenant. **Sete dos oito critérios
+dele não fecharam**, por uma de quatro razões: uma escolha do fundador (o agregador de SMS do KAM-116,
+o fornecedor de e-mail do KAM-115, a D3), esquema novo, uma porta sem cliente que a saga use, ou um
+ambiente e uma acção externa. Este ticket é o credor de tudo isso, e nasce no PR que o devolve.
+
+### Objectivo
+
+O off-boarding de ponta a ponta em `prod`, sem passos à mão: as provas do titular, a revogação
+automática de cada recurso, a exportação e a purga completas, a entrega do certificado e o simulacro.
+
+### Critérios de Aceitação
+
+- [ ] **As provas do titular.** Um adaptador da `ProvasDoTitular`: o OTP ao telefone provado (com o agregador do KAM-116) e a ligação ao e-mail registado (com o fornecedor do KAM-115), cada um com validade e uso único, persistidos (esquema novo), e nenhum dado do dono no `resultado`.
+- [ ] **A revogação automática.** O adaptador da saga para a chave do LiteLLM (o passo automático, pelo alias quando a saga não registou o recurso), o Chatwoot (a *inbox* desligada e a conta arquivada, com um método novo no `HandoffProvider`) e a Medusa (arquivar o canal, depois da D3), cada um idempotente do lado de fora; e as revogações do painel do dono persistidas (esquema) e chamadas no encerramento.
+- [ ] **A exportação completa.** O catálogo da Medusa (depois da D3) e os telefones dos clientes decifrados só para os campos exportáveis, pelo cofre e com auditoria.
+- [ ] **A purga completa.** O `DELETE` do `kamba_batch` (esquema) nas tabelas da classe `relacao` que ficam `sem_caminho`; o Chatwoot, os *traces* e as *caches* por tenant; e o pedido de eliminação aos fornecedores de LLM e STT onde se aplique — cada um no `purge_log`.
+- [ ] **A entrega do certificado** pelo canal disponível, registada, no lugar da `entrega_sem_adaptador`.
+- [ ] **O simulacro** em *staging* com um tenant sintético, como o critério 7 do KAM-210 o descreve.
+- [ ] **O *token* de cada WABA no processo de lote.** As instâncias de `meta_client_token` de cada tenant chegam ao contentor do `onboarding-lote` pelo mecanismo do lançador do cofre (ADR-L002), e a fase `canal` cancela a subscrição em `prod`; o mesmo caminho que o envio do KAM-227 usa.
+- [ ] **As duas respostas de fora, medidas.** O que a Graph responde ao `DELETE` de uma subscrição que já não existe (hoje o 404 é tratado como sucesso, NÃO VERIFICADO) e a forma do corpo do `/key/delete` do LiteLLM na imagem fixada (NÃO VERIFICADO), cada uma com o seu registo de evidência.
+
+### Detalhes Técnicos
+
+- **Componentes:** GOV (lote e processo dos dados), TEN, HND, COM, LLM, STO, CHR, e o cofre de identidade.
+- **Esquema:** o registo dos desafios do OTP, os `GRANT DELETE` ao `kamba_batch` e as revogações do painel pedem revisão de base de dados — com a vaga de migração do lote em que entrar.
+- **Acção externa:** o pedido de eliminação aos fornecedores de LLM e STT é contactar subprocessadores, e não se faz por código sem o fundador; o simulacro pede o ambiente de *staging*.
+- **Fora deste ticket:** o prazo fiscal do CGT (NÃO VERIFICADO); a assinatura assimétrica do certificado e a aresta `restrito → encerrado`, que são decisões do fundador.
+
+### Testes Requeridos
+
+- Contrato: cada adaptador contra o seu duplo, que lê o texto do pedido.
+- Integração: as provas do titular contra o PostgreSQL do *gate* 8; o pedido do titular ao certificado.
+- *Staging*: o simulacro, documentado e repetível.
+
+### Definition of Done
+
+- [ ] Critérios satisfeitos; as caixas do KAM-218 revistas com a evidência.
+- [ ] O *runbook* sem passos à mão no `../docs/offboarding.md`; sem segredos.
+
+### Handoff para Claude Code
+
+```text
+És o executor do ticket KAM-233 da KAMBÁ (o off-boarding em produção, o que ficou do KAM-218).
+Lê specs/EPIC-09_Onboarding_Governanca.md (blocos KAM-098, KAM-210, KAM-218 e KAM-233), docs/offboarding.md,
+packages/core-ts/src/offboarding/, libs/py-core/src/kamba_core/offboarding/ e infra/llm/chaves.py.
+Objectivo: as provas do titular, a revogação automática, a exportação e a purga completas, a entrega e o simulacro.
+Regras: nunca apagar o WABA nem o número; uma porta sem adaptador falha e nunca finge; idempotente do lado
+de fora; nenhum dado pessoal no resultado das fases; esquema novo só com a vaga de migração; contactar
+um fornecedor é do fundador.
+Testes: contrato por adaptador, integração com a base, e o simulacro em staging.
 ```
 
 ---
@@ -4151,7 +4314,7 @@ Testes: a ligação directa com o alerta, e o controlo.
 
 ---
 
-## KAM-234 — `onboarding-web` em produção: o caso, o registo e o guia sobre a base, para que a página do dono arranque em `prod`
+## KAM-236 — `onboarding-web` em produção: o caso, o registo e o guia sobre a base, para que a página do dono arranque em `prod`
 
 | Campo | Valor |
 |---|---|
@@ -4201,7 +4364,7 @@ Que a página do dono corra em `prod` sobre a base, com os casos, o registo e o 
 ### Handoff para Claude Code
 
 ```text
-És o executor do ticket KAM-234 da KAMBÁ (o onboarding-web em produção).
+És o executor do ticket KAM-236 da KAMBÁ (o onboarding-web em produção).
 Lê specs/EPIC-04_Core_Comercio.md (bloco KAM-202), services/onboarding-web/src/server.ts e os blocos
 KAM-086 e KAM-093 de specs/EPIC-09_Onboarding_Governanca.md.
 Objectivo: o onboarding-web arranca em prod sobre a base.
@@ -4287,4 +4450,5 @@ Regras: papéis mínimos por ligação; nenhum repositório em memória em prod.
 | 1.35 | Novembro 2026 | **KAM-207 entregue**: religar o número de um tenant activo cujo canal caiu, a partir do painel. As cinco caixas e as duas da DoD marcadas, com a secção de verificação no bloco. A ponte `GET /painel/ligar` abre ao caso `activo` com o canal `desligado` e não restrito, o guia reabre o passo do ES pelo `desligado` sem mudar a fase do caso, e o GWY religa o número sem criar canal. A verificação do KAM-099 (critério 7) e a do KAM-190 (critério 2 e DoD) dizem-no. Dicionário emenda 1.115. **Sem revisão de base de dados.** O número desta linha é provisório e acerta-se na integração do lote 12. | Equipa KAMBÁ |
 | 1.36 | Novembro 2026 | **KAM-219 entregue**: a recusa `42501` da base sobre `platform.trust_level` passa a ver-se do lado de quem recebe o erro — o `catch` do `comTenant` e do `comBatch` conta-a em `tenant_guard_tecto_recusado_total` (módulo novo `../packages/core-ts/src/tenant_guard/metricas.ts`, servido pelo `onboarding-lote`, pelo `com` e pelo `worker-canal-entrada`) —, e a regra `confianca_tecto_escrita_recusada` dispara na primeira, com o runbook no `trust-e-safety.md` §5. Secção de verificação no bloco: os critérios 2 e 3 marcados e o 1 **parcial**, porque uma ligação directa, um processo Python, uma transacção aberta à mão (o `consumir` dos eventos, entre outras) ou uma consulta solta num *pool* não chegam ao contador. A revisão adversarial mudou três coisas: a regra ganhou o ramo da recusa anterior ao primeiro *scrape*, o caso do recálculo com o papel errado passou a dizer que mede uma leitura recusada (a escrita mede-se no caso do `comTenant`, com o `SQL_DEFINIR_NIVEL`), e a afirmação de que toda a transacção passa pelos *helpers* saiu. A caixa 7 do KAM-096 e a do KAM-203 revistas com a evidência, as duas ainda parciais, e o item 1 da DoD de cada um. **KAM-225** acrescentado, credor desse resto: depende do KAM-219 e entra no `Bloqueia` dele. O número é o que a coordenação do lote 12 lhe deu na fila de fusão: os cinco abaixo dele são dos credores do KAM-123 e do KAM-217, já fundidos, e a gama é contígua. | Equipa KAMBÁ |
 | 1.37 | Novembro 2026 | KAM-228 (EPIC-11): a nota do KAM-195 sobre quem chama a rota do classificador em produção revista — o COM, desde o KAM-222, ligado nos *compose* desde o KAM-228, e sem condições que lhe cheguem até terem finalidade própria (KAM-230). Nenhuma caixa deste epic muda. | Equipa KAMBÁ |
-| 1.38 | Novembro 2026 | **KAM-234 acrescentado**, no PR do **KAM-202** (EPIC-04): o `onboarding-web` em produção, credor do critério 2 do KAM-202 (decisão do fundador de 2026-11-20). E o bloco do KAM-094 revisto com a evidência do KAM-202: a publicação protegida pela base, a mudança de nome pelo COM, o processo que corre o teste e a activação, e o filtro de `is_test`. Escrito como KAM-233 e renumerado na integração, depois do KAM-223. | Equipa KAMBÁ |
+| 1.38 | Novembro 2026 | **KAM-218 entregue**, e **KAM-233** aberto no mesmo PR como credor do que ele devolve. Satisfeito o processo dos dados (o serviço `offboarding-dados` nos três *compose*, que arranca em `prod` e não arranca sem as credenciais); parciais o canal da Meta (ligado pelo cofre no processo de lote, sem caminho para o *token* por tenant até ao contentor), a revogação (a chave do LiteLLM pelo alias, à mão), a exportação (a prova de aceite e as ofertas) e a purga (os contactos pelo cofre); por satisfazer as provas do titular, a entrega do certificado e o simulacro. As caixas do KAM-210 revistas no bloco dele. O KAM-233 escrito como o número a seguir ao maior da `main` (232), *provisório* até à integração. | Equipa KAMBÁ |
+| 1.39 | Novembro 2026 | **KAM-236 acrescentado**, no PR do **KAM-202** (EPIC-04): o `onboarding-web` em produção, credor do critério 2 do KAM-202 (decisão do fundador de 2026-11-20). E o bloco do KAM-094 revisto com a evidência do KAM-202: a publicação protegida pela base, a mudança de nome pelo COM, o processo que corre o teste e a activação, e o filtro de `is_test`. Escrito como KAM-233 e renumerado duas vezes na integração: para 234 depois do KAM-223, e para 236 depois do KAM-218 e do KAM-234 (EPIC-11). | Equipa KAMBÁ |

@@ -42,6 +42,7 @@ import {
   consumidorDoTrust,
   lerConfiguracao,
   opcoesDoConjunto,
+  portasDoOffboarding,
   registarVolta,
   registarVoltaDaActivacao,
   registarVoltaDaConfianca,
@@ -72,6 +73,8 @@ async function principal(): Promise<void> {
       app,
       log,
       inicioDaAmostragem: config.inicioDaAmostragem,
+      // KAM-218: a Meta ligada, com o *token* de cada WABA lido do cofre.
+      portasDoOffboarding: portasDoOffboarding({ lote, ambiente: config.ambiente, env: process.env }),
     });
     // **Espera-se pela porta aberta antes de dizer `service_started`.** O
     // `serve` devolve antes de o `listen` acabar, e uma porta ocupada chegava
