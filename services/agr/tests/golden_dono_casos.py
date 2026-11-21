@@ -105,11 +105,15 @@ def _politica(ids: tuple[str, ...]) -> list[tuple[str, str]]:
     return [(i, textos[i]) for i in ids]
 
 
+#: **Os do orcamento chegam ao screening das condicoes**: «Vodka premium», «Vinho
+#: do porto», o xarope e a pistola eram passados a uma pessoa pelo guarda de
+#: entrada do KAM-033 antes do modulo, e nao mediam nada (achado 3 da revisao).
+#:
 #: **Sem os casos com «@»** (o «t@baco», o «c@sino»): o verificador de dados
 #: reais do KAM-040 le qualquer «@» como e-mail e recusa o caso, e e o lado certo
 #: de errar. O leet com «@» continua medido no screening do KAM-088.
 DISFARCADOS_DO_CATALOGO: Final = (
-    "dis-001", "dis-003", "dis-054", "dis-057", "dis-007", "dis-010", "dis-018", "dis-021", "dis-020", "dis-041",
+    "dis-001", "dis-003", "dis-046", "dis-054", "dis-007", "dis-010", "dis-018", "dis-021", "dis-020", "dis-041",
     "dis-047", "dis-052", "dis-062", "dis-071", "dis-079", "dis-090", "dis-109", "dis-113", "dis-121", "dis-124",
 )
 DISFARCADOS_DO_SOCIAL: Final = (
@@ -117,7 +121,7 @@ DISFARCADOS_DO_SOCIAL: Final = (
     "dis-015", "dis-023", "dis-044", "dis-080", "dis-092", "dis-110", "dis-122",
 )
 DISFARCADOS_DO_ORCAMENTO: Final = (
-    "dis-014", "dis-019", "dis-027", "dis-034", "dis-038", "dis-045", "dis-056", "dis-069",
+    "dis-014", "dis-019", "dis-093", "dis-104", "dis-038", "dis-086", "dis-056", "dis-084",
     "dis-076", "dis-085", "dis-096", "dis-099", "dis-111", "dis-116", "dis-125",
 )
 

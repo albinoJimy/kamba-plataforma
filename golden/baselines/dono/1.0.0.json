@@ -3,8 +3,8 @@
   "alegacoes": "440643074280740e",
   "alias_social_text": "ausente",
   "aliases": "1.2.1",
-  "codigo": "9dec5cdead3aa5feb7fb99e6a8f34bd966860b799885384f4cb80941770da4b6",
-  "dataset": "1.0.0:8c11fa2e4cbf9638c4921ea5c3ea2667a6e951cdb4faf236e05fa30a43c92e81",
+  "codigo": "84e9c5f73f86f8a4b97ec49a0b2aa8b330ae8ae4f4e5c2397e71be26f5d626ac",
+  "dataset": "1.0.0:15a5919de62881e9fefde27a7ea81e98021c8f6946b383a50062687feb49718a",
   "gate": "1.0.0",
   "grafo": "1.0.0",
   "langgraph": "1.2.17",
@@ -79,8 +79,8 @@
  "monitorizado": {
   "chamadas_a_modelo": 0,
   "custo_usd": 0.0,
-  "latencia_p95_s": 0.2225,
-  "segundos": 35.13
+  "latencia_p95_s": 0.244,
+  "segundos": 32.6
  },
  "persona": "dono",
  "por_caso": {
