@@ -3176,8 +3176,10 @@ CONFIRMADOS e um PLAUSÍVEL. **Oito corrigidos neste ramo**, cada um com ensaio:
 - (4) o predicado de tenant da `oferta_publicavel` não era medido, porque a RLS o escondia: medido como
   `kamba_batch`, que a ignora (`test_o_lote_que_ignora_a_rls…`), e o do observador como administrador;
 - (5) as mutações das barreiras novas: **doze** em `../db/mutacoes.py`, cada uma com o ensaio que a mata. O
-  `--aplicaveis` dá-as todas aplicáveis; correr a prova aqui custava uma suite `tests` inteira por mutação, e fica
-  para a corrida de mutações do CI — **NÃO VERIFICADO** aqui;
+  `--aplicaveis` dá-as todas aplicáveis (1292 conferidas na árvore integrada com a `publico/main` em `d9472c40`).
+  **Doze apanhadas em doze** numa prova focada: cada mutação aplicada na árvore, o gate 8 focado no
+  `tests.test_publicacao_segura_schema` numa base descartável, e o ensaio nomeado no comentário dela em `FAIL`. Não
+  é o corredor do CI, que copia a árvore e corre a suite `tests` inteira: essa fica para a corrida de mutações;
 - (6) um cliente que escrevesse «teste» na janela era marcado `is_test` e saía das queixas do `risco_ts`: com duas
   conversas com o sinal na janela, o observador não escolhe nenhuma (`test_duas_conversas_com_o_teste_na_janela…`);
 - (8) o `../docs/revisao.md` e o dicionário diziam que a decisão humana passava pela ligação da aplicação;
