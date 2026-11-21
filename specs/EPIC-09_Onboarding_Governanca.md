@@ -4462,7 +4462,7 @@ Entregue neste ramo:
   e a cifra do NIF e do e-mail ([`../packages/core-ts/src/inscricao/dados_do_caso.ts`](../packages/core-ts/src/inscricao/dados_do_caso.ts),
   `kek_dados_do_caso`, decisão do fundador de 2026-11-21);
 - o `server.ts` sobre a base, o compose de `prod`, o inventário dos segredos, a política de retenção, a emenda
-  1.134 do dicionário (§3.83) e o credor **KAM-238** (o guia em `prod`, D2-A).
+  1.135 do dicionário (§3.83) e o credor **KAM-238** (o guia em `prod`, D2-A).
 
 **A D2-A, lida pela coordenação.** Que o estado do guia, os *gates*, a lista e a fila vão **todos** para o
 KAM-238, e não só a lista e a fila, é **decisão da coordenação do lote 17**, derivada da D2-A («até lá o guia

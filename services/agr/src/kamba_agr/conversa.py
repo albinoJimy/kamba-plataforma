@@ -32,7 +32,7 @@ from typing import Any
 
 from kamba_core import tenant_guard
 
-from .consultas import SQL_CONTACTO_BLOQUEADO, SQL_PALAVRA_DA_CONVERSA
+from .consultas import SQL_CONTACTO_BLOQUEADO, SQL_NOME_DA_LOJA, SQL_PALAVRA_DA_CONVERSA
 from .contexto import InvocacaoDoAgente
 from .dono.accoes import SQL_PAPEL_DO_CONTACTO
 from .turno import Palavra
@@ -180,3 +180,39 @@ def leitor_de_papel(
         return await asyncio.to_thread(ler, tenant_id, contact_id)
 
     return papel
+
+
+def nome_da_loja_sincrono(ligacao: Any, tenant_id: str) -> str | None:
+    """O `tenants.nome` do *tenant* (KAM-235), ou `None` se nao se ve.
+
+    `None` nao e erro: a apresentacao cai para a frase sem nome, e o teste ponta
+    a ponta da `sem_resposta` — o lado seguro. Um erro de base **sobe**.
+    """
+    with tenant_guard.tx(ligacao, tenant_id) as cursor:
+        cursor.execute(SQL_NOME_DA_LOJA, (tenant_id,))
+        linha = cursor.fetchone()
+    return None if linha is None or linha[0] is None else str(linha[0])
+
+
+def leitor_da_loja(
+    abrir_ligacao: Callable[[], Any],
+) -> Callable[[str], Any]:
+    """A porta `nome_da_loja` da `PortaDeGrafos.do_turno` (KAM-235).
+
+    Uma ligacao por leitura, num *executor*, pela razao do `leitor_de_contacto`.
+    """
+
+    def ler(tenant_id: str) -> str | None:
+        ligacao = abrir_ligacao()
+        try:
+            return nome_da_loja_sincrono(ligacao, tenant_id)
+        finally:
+            try:
+                ligacao.close()
+            except Exception:  # noqa: BLE001 — a leitura ja aconteceu
+                pass
+
+    async def nome(tenant_id: str) -> str | None:
+        return await asyncio.to_thread(ler, tenant_id)
+
+    return nome

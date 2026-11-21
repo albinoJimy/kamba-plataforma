@@ -12,7 +12,7 @@
 
 version: 1
 fonte: "specs/02_Dicionario_de_Dados_Canonico.md"
-versao_dicionario: "1.134"
+versao_dicionario: "1.135"
 entradas:
   - seccao: "3.1"
     conceito: "Contacto"
@@ -19901,6 +19901,54 @@ entradas:
     nomes_nota:
       - "is_test"
       - "conversations"
+    variantes_literais: []
+  - seccao: "3.74"
+    conceito: "Estado de uma mensagem nossa na entrada"
+    canonico: "EventoDeEntrada.estado, do tipo EstadoDaMeta, ou ausente"
+    literais:
+      - "EventoDeEntrada.estado"
+      - "EstadoDaMeta"
+    nomes:
+      - "EventoDeEntrada.estado"
+      - "EstadoDaMeta"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.74"
+    conceito: "Estágio dos statuses"
+    canonico: "estagioDosStatuses; desfechos ∈ {sem_estado, estado_desconhecido, canal_desconhecido, avancou, nao_avancou}; ESTADOS_DA_META ∈ {sent, delivered, read, failed}"
+    literais:
+      - "estagioDosStatuses"
+      - "sem_estado"
+      - "estado_desconhecido"
+      - "canal_desconhecido"
+      - "avancou"
+      - "nao_avancou"
+      - "ESTADOS_DA_META"
+    nomes:
+      - "estagioDosStatuses"
+      - "sem_estado"
+      - "estado_desconhecido"
+      - "canal_desconhecido"
+      - "avancou"
+      - "nao_avancou"
+      - "ESTADOS_DA_META"
+    nomes_nota:
+      - "outbound_messages.state"
+      - "outbound_messages.delivered_at"
+    variantes_literais: []
+  - seccao: "3.74"
+    conceito: "O nome da loja na apresentação"
+    canonico: "loja_do_turno (a porta loja das dependências do vendedor); nome_da_loja da PortaDeGrafos; SQL_NOME_DA_LOJA do AGR"
+    literais:
+      - "loja_do_turno"
+      - "nome_da_loja"
+      - "SQL_NOME_DA_LOJA"
+    nomes:
+      - "loja_do_turno"
+      - "nome_da_loja"
+      - "SQL_NOME_DA_LOJA"
+    nomes_nota:
+      - "tenants.nome"
     variantes_literais: []
   - seccao: "3.75"
     conceito: "Nível de um tenant"

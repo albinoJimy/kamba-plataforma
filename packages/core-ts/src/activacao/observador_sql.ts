@@ -35,15 +35,15 @@
  *
  * ## Falha fechado, e é o que se quer
  *
- * Em produção, hoje, dois dos factos não têm quem os escreva: nenhum serviço
- * chama o `Saida.ingerir`, pelo que os `statuses` não escrevem o `delivered_at`;
- * e o `ConsentGate` não está montado, pelo que nada grava o `consent_event` do
- * aviso de 1.º contacto. O observador não os inventa: o teste dá `sem_entrega`
- * ou `sem_consentimento` até eles se ligarem, e nenhuma loja fica activa sem eles
- * (decisão do fundador, 2026-11-20, bloco do KAM-202). E a apresentação do
- * vendedor não nomeia a loja enquanto a persona não tiver o nome dela
- * (`registry/vendedor.yaml`, a frase cai para «desta loja»): até lá, a resposta
- * não identifica a loja, e o teste dá `sem_resposta`.
+ * Em produção, hoje, um dos factos não tem quem o escreva: o `ConsentGate` não
+ * está montado, pelo que nada grava o `consent_event` do aviso de 1.º contacto
+ * (EPIC-02, KAM-022, linha 9b). O observador não o inventa: o teste dá
+ * `sem_consentimento` até ele se ligar, e nenhuma loja fica activa sem ele
+ * (decisão do fundador, 2026-11-20, bloco do KAM-202). Os outros dois que
+ * faltavam ligou-os o KAM-235: os `statuses` escrevem o `delivered_at` pelo
+ * estágio do `worker-canal` (`outbound/estagio.ts`), e a apresentação do
+ * vendedor nomeia a loja pelo `tenants.nome` do turno — a mesma coluna que esta
+ * consulta lê.
  *
  * ## Pela ligação da aplicação
  *

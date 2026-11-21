@@ -552,6 +552,9 @@ CX_CONTRATO = "packages/core-ts/src/coexistencia/contrato.ts"
 CX_MODULO = "packages/core-ts/src/coexistencia/coexistencia.ts"
 CX_METRICAS = "packages/core-ts/src/coexistencia/metricas.ts"
 CX_EXPLOSAO = "packages/core-ts/src/entrada/explosao.ts"
+#: KAM-235. O estagio dos `statuses`: o que o `worker-canal` passa ao
+#: `Saida.ingerir`. Corre na `tests_outbound`, que leva o ensaio de unidade dele.
+SAIDA_ESTAGIO = "packages/core-ts/src/outbound/estagio.ts"
 REV18 = "db/migrations/versions/0018_coexistencia.py"
 
 # -------------------------------------------------------------- KAM-115
@@ -8654,6 +8657,53 @@ MUTACOES = [
      "JOIN caso ON v.tenant_id = caso.tenant_id",
      "CROSS JOIN caso",
      "tests"),
+    # ------------------------------------------------------------- KAM-235
+    #
+    # Os factos do teste em producao. As duas primeiras na ligacao dos
+    # `statuses` (o estado que a explosao da e o filtro dos quatro da Meta), as
+    # outras na apresentacao do vendedor (o nome lido antes do turno, o do
+    # tenant certo, a porta que o le e a ligacao dela no arranque).
+    #
+    # O estado sai da explosao sem o `wamid` e o `status`: `um statuses do simulador traz wamid, status e pricing…`.
+    ('estagio: a explosao deixa de dar o estado da mensagem', CX_EXPLOSAO,
+     "      ...(wamid !== null && situacao !== null\n        ? { estado:",
+     "      ...(false\n        ? { estado:",
+     SAIDA),
+    # Um `status` que nao e da Meta chega ao `ingerir`: `os tres desfechos que nao escrevem nao chamam o ingerir`.
+    ('estagio: um status fora dos quatro da Meta chega ao ingerir', SAIDA_ESTAGIO,
+     '    if (!ESTADOS_DA_META.includes(estado.estado as Estado)) return "estado_desconhecido";',
+     "",
+     SAIDA),
+    # O `Saida` do estagio deixa de avisar um `statuses` sem mensagem: `o Saida do estagio avisa um statuses cuja mensagem ainda nao esta gravada`.
+    ('estagio: o Saida do estagio deixa de avisar', SAIDA_ESTAGIO,
+     "saidaQueSoIngere(bd, deps.log)",
+     "saidaQueSoIngere(bd)",
+     SAIDA),
+    # O nome de outro tenant serve: `test_o_nome_de_outro_tenant_nao_serve`.
+    ('apresentacao: o nome da loja de outro tenant serve', AG_GRAFOS,
+     '    if lida is not None and lida[0] == estado.get("tenant_id"):',
+     "    if lida is not None:",
+     AGR_UNIT),
+    # O nome deixa de se ler antes do turno: `test_a_primeira_resposta_comeca_pela_frase_da_fixture`.
+    ('apresentacao: o nome da loja deixa de se ler antes do turno', AG_GRAFOS,
+     "            loja = (invocacao.tenant_id, await self._loja(invocacao.tenant_id))",
+     "            loja = None",
+     AGR_UNIT),
+    # O no ignora a porta `loja`: `test_a_loja_do_turno_vence_a_da_persona_e_sem_nenhuma_nao_ha_nome`.
+    ('apresentacao: a porta loja deixa de ser lida', AG_VEN_NOS,
+     "    lido = deps.loja(estado) if estado is not None else None",
+     "    lido = None",
+     AGR_UNIT),
+    # O arranque liga a porta na omissao: `test_a_loja_le_se_pela_ligacao_de_leitura_e_chega_ao_dependencias`.
+    ('apresentacao: o arranque liga a porta loja na omissao', AG_MAIN,
+     '        "loja": loja_do_turno,',
+     '        "loja": __import__("kamba_agr.verticais.vendedor.nos").verticais.vendedor.nos._sem_loja,',
+     AGR_UNIT),
+    # O nome le-se pela ligacao da tranca: o mesmo ensaio.
+    ('apresentacao: o nome da loja le-se pela ligacao da tranca', AG_MAIN,
+     "        nome_da_loja=leitor_da_loja(ligar_para_leitura),",
+     "        nome_da_loja=leitor_da_loja(ligar_para_tranca),",
+     AGR_UNIT),
     # ------------------------------------- KAM-098 (revisao do off-boarding)
     #
     # Seis, e cada uma tira uma barreira que so a base tem. O alvo e a revisao

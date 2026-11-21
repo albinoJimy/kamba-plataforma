@@ -158,6 +158,11 @@ TESTES_OBRIGATORIOS = (
     "KAM-202: com quatro elegiveis o gate fica vermelho e o caso nao avanca",
     "KAM-202: a pagina abre a tentativa pela ligacao da aplicacao, e o lote fecha-a ok com os quatro factos",
     "KAM-202: sem entrega, o lote fecha a tentativa falhada com sem_entrega depois da janela",
+    # KAM-235: os *statuses* do simulador escrevem o `delivered_at` pelo estagio
+    # do `worker-canal` (1), e o teste ponta a ponta com e sem o `ConsentGate` (3).
+    "KAM-235: o delivered do simulador escreve o delivered_at pelo estagio, uma vez, e o observador da entregue",
+    "KAM-235: ponta a ponta com o simulador, o ConsentGate montado e o lote fecha ok",
+    "KAM-235: ponta a ponta com o simulador e sem o ConsentGate, o lote fecha falhou com sem_consentimento",
     # KAM-236: o registo sobrevive a um reinicio do processo, as buscas que
     # atravessam tenants so devolvem o caso e o tenant, e os contadores e as
     # revogacoes sao partilhados entre processos.
