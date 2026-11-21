@@ -8,7 +8,7 @@
 | Dataset | [`golden/dono/v1/`](../golden/dono/v1/), gerado por [`golden_dono_casos.py`](../services/agr/tests/golden_dono_casos.py) |
 | Gate | [`gates/dono.yaml`](../gates/dono.yaml); baseline em [`golden/baselines/dono/1.0.0.json`](../golden/baselines/dono/1.0.0.json) |
 | Verificações | [`services/agr/tests/test_golden_dono.py`](../services/agr/tests/test_golden_dono.py) no *gate* 4 (AGR) |
-| Estado | O instrumento está completo e corre em ~30 s sem modelo. **A corrida inteira não está ligada ao CI**, por decisão do fundador (2026-11-21, opção A), como no KAM-040. A baseline está **vermelha** por três achados do gate duro 3 (§5) |
+| Estado | O instrumento está completo e corre em ~30 s sem modelo. **A corrida inteira não está ligada ao CI**, por decisão do fundador (2026-11-21, opção A), como no KAM-040. A baseline está **vermelha** por três achados do gate duro 3 (§5), com credor no KAM-237 |
 
 > **O que este documento é.** O que o golden do dono mede, como se corre, o que
 > entra gravado e porquê, e o que ele hoje reprova. Os limiares são todos
@@ -144,10 +144,12 @@ de publicação é chamada:
 
 O ticket proíbe alterar os módulos (KAM-119, KAM-121 e KAM-123) para além dos
 ganchos de teste. Por isso a baseline fica **vermelha**, como a do Vendedor no
-KAM-040, e a correcção é devolvida com o PR.
+KAM-040. O fundador decidiu assim a 2026-11-21 (opção A, no bloco do KAM-125),
+e a correcção é do credor **KAM-237**, cujo critério é esta baseline verde nos
+três casos.
 
 Achado de qualidade, que não bloqueia: o *parser* do orçamento recusa «75k», que
-o do catálogo aceita (`don-orc-005`).
+o do catálogo aceita (`don-orc-005`). Vai também com o KAM-237.
 
 ## 6. O teste do próprio gate
 
