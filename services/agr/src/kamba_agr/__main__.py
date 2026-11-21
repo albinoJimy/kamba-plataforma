@@ -61,7 +61,7 @@ from .admissao import Admissao, Tectos
 from .api_interna import SEGREDO_DA_API, SEGREDO_DO_PAINEL, rotas
 from .app import create_app
 from .checkpointer import CheckpointerDoAgr
-from .conversa import leitor, leitor_de_contacto, leitor_de_papel
+from .conversa import leitor, leitor_da_loja, leitor_de_contacto, leitor_de_papel
 from .dono.accoes import PortaDeConfirmacao
 from .handoff.autenticacao import verificador
 from .concierge.politica import PoliticaDeConcierge
@@ -75,6 +75,7 @@ from .grafos import (
     PortasIncoerentesError,
     admitir,
     compilar,
+    loja_do_turno,
     para_validar,
 )
 from .handoff.servico import ServicoDeHandoff
@@ -784,6 +785,9 @@ def main() -> int:
         "hnd": ServicoDeHandoff(metricas=METRICAS),
         "metricas": METRICAS,
         "admitir": admitir,
+        # KAM-235: o nome da loja na apresentacao, lido pela `PortaDeGrafos`
+        # antes do turno (`nome_da_loja`, mais abaixo).
+        "loja": loja_do_turno,
         "checkpointer": checkpointer,
         "concierge": PoliticaDoTurno(
             PoliticaDeConcierge(evt.LeitorDeEntitlements(ligar_para_eventos).ler)
@@ -823,6 +827,8 @@ def main() -> int:
         contacto_bloqueado=leitor_de_contacto(ligar_para_leitura),
         # KAM-211, «Retoma»: a retoma resolve o grafo pelo papel de agora.
         papel_do_contacto=leitor_de_papel(ligar_para_leitura),
+        # KAM-235: o `tenants.nome` da apresentacao, pela ligacao de leitura.
+        nome_da_loja=leitor_da_loja(ligar_para_leitura),
         politica=portas_do_grafo["concierge"],
     )
     log.info(outcome="grafos_ligados", error_code=f"verticais_{len(grafos_do_processo)}")

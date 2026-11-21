@@ -136,3 +136,13 @@ export {
   codigoParaRegisto,
   type Dependencias,
 } from "./adapter.ts";
+
+export {
+  DESFECHOS_DO_ESTAGIO,
+  ESTADOS_DA_META,
+  EstagioNaoEnviaError,
+  estagioDosStatuses,
+  saidaQueSoIngere,
+  type DependenciasDoEstagio,
+  type DesfechoDoEstagio,
+} from "./estagio.ts";
