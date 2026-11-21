@@ -60,7 +60,7 @@ import { personaDe } from "../dono/persona.ts";
 import type { EventoDeEntrada, Interlocutor } from "../entrada/explosao.ts";
 import { type Accao, type DecisaoDoGate, tenantGate } from "../ten/estados.ts";
 import type { ResolvedorDeCanal } from "./canal.ts";
-import { SQL_MARCAR_TESTE_RECEBIDO, SQL_PAPEL } from "./consultas.ts";
+import { SQL_GRAVAR_MENSAGEM_DO_WHATSAPP, SQL_MARCAR_TESTE_RECEBIDO, SQL_PAPEL } from "./consultas.ts";
 import { abrirConversa, type Conversa } from "./conversas.ts";
 import {
   type AgentInvocation,
@@ -72,7 +72,7 @@ import {
   type MotivoDoChr,
 } from "./contrato.ts";
 import { recusaDoFluxoB } from "./fluxo_b.ts";
-import { montarInvocacao } from "./invocacao.ts";
+import { messageIdDe, montarInvocacao } from "./invocacao.ts";
 import {
   METRICA_EM_QUARENTENA,
   METRICA_RESOLUCOES,
@@ -377,8 +377,9 @@ export class Chr {
     };
     // **A persona lê-se na mesma transacção que abre a conversa** (KAM-118,
     // critério 1). É o papel do contacto resolvido **neste** tenant, e mais
-    // nada: o texto da mensagem não chega aqui, pelo que «sou o dono» não tem
-    // por onde mudar coisa nenhuma (critério 2). Ver `SQL_PAPEL`.
+    // nada: o texto da mensagem não entra nesta decisão (o KAM-232 só o grava,
+    // mais abaixo, depois de a persona estar lida), pelo que «sou o dono» não
+    // tem por onde mudar coisa nenhuma (critério 2). Ver `SQL_PAPEL`.
     const { conversa, persona } = await this.#comTenant(
       contexto.tenant_id,
       async (cliente): Promise<{ conversa: Conversa; persona: Persona }> => {
@@ -429,6 +430,34 @@ export class Chr {
       });
     }
 
+    // ------------------------------------- 6a. o texto na fonte persistida
+    //
+    // KAM-232. Uma `message` `text` grava o corpo na `agent_messages`, e a
+    // invocação leva só o identificador — o `agent_invocation` nunca leva o
+    // corpo (KAM-186; decisão 1 do fundador, bloco do KAM-217). **Só aqui**, com
+    // a conversa em `bot` e a matriz a deixar processar: uma mensagem que não
+    // vai ao AGR não precisa de o texto ficar guardado para ele.
+    //
+    // O identificador é determinístico (`messageIdDe`), e a reentrega do mesmo
+    // `wamid` não grava segunda linha. Grava-se **antes** de entregar: se a
+    // entrega falhar, o *job* da `wa-inbound` repete, a linha fica a mesma, e o
+    // AGR nunca recebe um identificador que não se lê.
+    let messageId: string | null = null;
+    const corpo = evento.texto;
+    if (evento.kind === "message" && typeof corpo === "string" && corpo !== "") {
+      const id = messageIdDe(contexto.tenant_id, evento.eventKey);
+      await this.#comTenant(contexto.tenant_id, (cliente) =>
+        cliente.query(SQL_GRAVAR_MENSAGEM_DO_WHATSAPP, [
+          id,
+          contexto.tenant_id,
+          contactId,
+          conversa.id,
+          corpo,
+        ]),
+      );
+      messageId = id;
+    }
+
     const invocacao = montarInvocacao({
       contexto,
       contactId,
@@ -438,6 +467,7 @@ export class Chr {
       modo: conversa.mode,
       persona,
       botao: evento.botao ?? null,
+      messageId,
     });
     await this.#entrega.agr(invocacao);
     this.#metricas.contar(METRICA_RESOLUCOES, "encaminhado");
@@ -462,7 +492,10 @@ export class Chr {
     motivo: MotivoDoChr,
     contexto: ChannelContext | null,
   ): Promise<ResultadoDoChr> {
-    await this.#quarentena(evento, motivo);
+    // KAM-232: o texto do cliente não vai à quarentena, seja qual for o
+    // adaptador. O de produção já só copia campos nomeados; este é o segundo.
+    const { texto: _texto, ...semTexto } = evento;
+    await this.#quarentena(semTexto, motivo);
     this.#metricas.contar(METRICA_EM_QUARENTENA, motivo);
     this.#metricas.contar(METRICA_RESOLUCOES, "em_quarentena");
     // O que este módulo escreve é o `outcome` e um `error_code` da sua própria

@@ -25,6 +25,20 @@ export const FILA_ENTRADA = "wa-inbound";
 export const JOB_ENTRADA = "wa";
 
 /**
+ * Quanto tempo o corpo de um *job* da `wa-inbound` fica no Redis depois de
+ * concluído ou falhado, em segundos: **24 h**.
+ *
+ * Decisão do fundador de 2026-11-20 (opção B, bloco do KAM-232): o corpo é o
+ * webhook bruto, com o texto do cliente — e o PAN, se ele o escrever —, e até
+ * aqui só a contagem (`MANTER_CONCLUIDOS`) o limitava, sem prazo nenhum. Depois
+ * das 24 h o `jobId` deixa de absorver a re-entrega byte-a-byte da Meta, e quem
+ * deduplica é o `UNIQUE (kind, event_key)` da `inbound_events`, que é a segunda
+ * barreira e já existia (`registo.ts`). O valor é *proposta* de calibração, e
+ * o prazo aplica-o o `FilasBullmq` a esta fila, seja quem for que a encha.
+ */
+export const PRAZO_DO_CORPO_S = 24 * 60 * 60;
+
+/**
  * O que o GWY põe na fila.
  *
  * `corpo` é **base64** dos bytes recebidos, e não o JSON já interpretado. Duas

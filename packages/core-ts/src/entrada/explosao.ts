@@ -58,6 +58,16 @@ import {
 export const EVENT_KEY_MAXIMO = 256;
 /** Tecto dos identificadores da Meta. O mesmo do `CHECK` da revisão `0008`. */
 export const ID_META_MAXIMO = 64;
+/**
+ * Tecto do texto de uma mensagem `text` que entra na fonte persistida
+ * (KAM-232), em pontos de código: o `CHECK` `agent_messages_texto_ck` da revisão
+ * `0077` (`char_length`). **Não é o tecto do que um cliente pode escrever**: o
+ * 4096 é o do texto que a Cloud API *envia*, e o de uma mensagem recebida é
+ * maior (**INDÍCIO**, não lido em fonte primária). Um texto acima dele é
+ * **cortado** aqui, e não largado: o AGR lê os primeiros 4096 pontos, em vez de
+ * correr o turno com a janela vazia.
+ */
+export const TEXTO_MAXIMO = 4096;
 
 /**
  * Até que profundidade o resumo canónico desce.
@@ -152,11 +162,22 @@ export interface EventoDeEntrada {
    */
   readonly botao?: string;
   /**
+   * O `text.body` de uma `message` de `waType` `text`, aparado, com 1 a
+   * `TEXTO_MAXIMO` caracteres (KAM-232). **Ausente** em tudo o resto.
+   *
+   * Vai ao CHR, que o grava na fonte persistida (`platform.agent_messages`) e
+   * passa ao AGR só o identificador: o `agent_invocation` nunca leva o corpo
+   * (KAM-186; decisão 1 do fundador de 2026-11-19, bloco do KAM-217). **Nunca
+   * vai ao registo, à quarentena nem a uma métrica** — o texto do cliente pode
+   * trazer um PAN, e a redacção é uma só, no AGR, antes da janela.
+   */
+  readonly texto?: string;
+  /**
    * `true` numa `message` de texto cujo corpo é a palavra do teste ponta a ponta
    * (KAM-202, critério 1): o sinal que o observador do teste lê, gravado pelo CHR
    * como o instante `conversations.teste_recebido_at`. **Ausente** em tudo o
-   * resto. É um booleano e mais nada: o texto da mensagem não sai daqui, e o
-   * telefone também não (ADR-010).
+   * resto. É um booleano e mais nada; o corpo, quando segue, segue em `texto`
+   * (KAM-232), e o telefone não sai daqui (ADR-010).
    */
   readonly eTeste?: true;
 }
@@ -217,6 +238,23 @@ export function resumoCanonico(...partes: readonly unknown[]): string {
   const texto = canonico(partes);
   const resumo = createHash("sha256").update(texto, "utf8").digest("hex");
   return `${PREFIXO_DO_RESUMO}${resumo.slice(0, 32)}`;
+}
+
+/**
+ * O `text.body` de uma mensagem `text`, ou `null` (KAM-232). O tipo é que
+ * manda: um `text` colado a uma mensagem de outro tipo não conta.
+ *
+ * Sem `U+0000` (o PostgreSQL recusa-o num `text`, e a recusa repetia o *job*
+ * até o esgotar, com a mensagem perdida), aparado, e cortado a `TEXTO_MAXIMO`
+ * pontos de código — e não unidades UTF-16, que contavam um emoji por dois.
+ */
+function textoDaMensagem(mensagem: Record<string, unknown>): string | null {
+  if (mensagem.type !== "text") return null;
+  const corpo = objecto(mensagem.text)?.body;
+  if (typeof corpo !== "string") return null;
+  const pontos = Array.from(corpo.replaceAll("\u0000", "").trim());
+  if (pontos.length === 0) return null;
+  return pontos.slice(0, TEXTO_MAXIMO).join("").trimEnd();
 }
 
 /** O texto, se for texto não vazio dentro do tecto; senão `null`. */
@@ -429,8 +467,9 @@ function explodirMensagens(
     if (mensagem === null) continue;
     const wamid = texto(mensagem.id, EVENT_KEY_MAXIMO);
     const botao = botaoDaResposta(mensagem);
-    // KAM-202: só um texto, e só a palavra do teste. O corpo compara-se aqui e
-    // não segue.
+    const corpo = textoDaMensagem(mensagem);
+    // KAM-202: só um texto, e só a palavra do teste. O corpo compara-se aqui, e
+    // o sinal é só o booleano.
     const eTeste = mensagem.type === "text" && eMensagemDeTeste(objecto(mensagem.text)?.body);
     eventos.push({
       kind: "message",
@@ -447,6 +486,7 @@ function explodirMensagens(
         telefone: texto(mensagem.from, ID_META_MAXIMO),
       },
       ...(botao === null ? {} : { botao }),
+      ...(corpo === null ? {} : { texto: corpo }),
       ...(eTeste ? { eTeste: true as const } : {}),
     });
     quantos += 1;

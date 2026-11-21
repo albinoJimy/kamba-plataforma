@@ -87,6 +87,9 @@ GRUPOS = (
     # KAM-215: o dono do provisionamento, a reentrega, o isolamento e os dois
     # adversariais do bloco.
     "KAM-215 — o dono nasce do provisionamento, contra a base",
+    # KAM-232: o texto do WhatsApp na fonte persistida, a reentrega e o
+    # isolamento.
+    "KAM-232 — o texto do WhatsApp na `agent_messages`, contra a base",
 )
 
 #: Testes que **tem** de ter corrido e passado, pelo nome. Lista curta, com os
@@ -140,6 +143,10 @@ TESTES_OBRIGATORIOS = (
     "adversarial: um phone_enc ilegível vai à DLQ e não cria dono",
     "adversarial: um phone_enc copiado de outro caso (de outro tenant) não decifra, e vai à DLQ",
     "um passo da saga com o onboarding_id deste caso e o tenant de outro não avança o caso",
+    # KAM-232: a reentrega da uma linha, o isolamento e a linha imutavel.
+    "a reentrega 3x grava uma linha, como `kamba_app`, e a invocacao leva o identificador dela",
+    "duas mensagens sao duas linhas; o mesmo `wamid` noutro tenant e outra linha, invisivel a este",
+    "o `kamba_app` continua sem `UPDATE` nem `DELETE` na linha que gravou",
 )
 
 #: Os ficheiros do modulo. A cobertura mede-se em **cada um**.

@@ -1,0 +1,17 @@
+{
+  "_nota": "KAM-232, criterios 1 e 2. O agent_invocation que o CHR monta para uma mensagem text do WhatsApp com um PAN de teste (Luhn valido, o do test_guardas.py). O chr.mensagem.test.ts prova que o caminho webhook -> explosao -> Chr.tratar grava o texto na agent_messages com este message_id e entrega EXACTAMENTE este corpo, sem o texto; o services/agr/tests/test_mensagens.py (TestDoWhatsAppAoCheckpoint) le o mesmo ficheiro, grava a linha whatsapp e corre o turno com o grafo do Vendedor e um checkpointer, e o PAN nao fica em nenhum checkpoint. E a ponte entre as duas linguagens, como a invocacao_do_botao.json. Identificadores ficticios; o telefone do corpo usa o indicativo 999.",
+  "texto": "o meu cartao e 4111111111111111, fica registado?",
+  "corpo": {
+    "tenant_id": "11111111-1111-4111-8111-111111111111",
+    "contact_id": "c0c0c0c0-0000-4000-8000-000000000232",
+    "conversation_id": "44444444-4444-4444-8444-444444444444",
+    "channel_id": "22222222-2222-4222-8222-222222222222",
+    "wamid": "wamid.HBgLOTk5MDAwMDAwMDAyFQIAEhgUM0EyMzJFTlNBSU9XSEFUU0FQUAA",
+    "type": "text",
+    "modo": "bot",
+    "thread_id": "11111111-1111-4111-8111-111111111111:c0c0c0c0-0000-4000-8000-000000000232",
+    "vertical": "vendedor",
+    "persona": "cliente",
+    "message_id": "3b6879d6-7c2a-882f-9fe1-0d7bac5ff1e0"
+  }
+}

@@ -23,7 +23,9 @@ import json
 import re
 import unittest
 import uuid
+from pathlib import Path
 from typing import Any
+from unittest import mock
 
 from apoio import CREDENCIAL, TrancaFalsa, como_json, invocacao_crua, pedir
 from test_saida import Base as BaseDeRespostas
@@ -39,6 +41,7 @@ from kamba_agr.api_interna import (
 )
 from kamba_agr.app import create_app
 from kamba_agr.contexto import InvocacaoInvalidaError, ler_invocacao
+from kamba_agr.guardas import regras
 from kamba_agr.mensagens import (
     CODIGO_NAO_ENCONTRADA,
     LeitorDeMensagens,
@@ -49,6 +52,8 @@ from kamba_agr.mensagens import (
 from kamba_agr.metricas import METRICAS
 from kamba_agr.saida import CANAL_DO_TURNO, SaidaPorEvento, canal_do_turno
 from kamba_agr.turno import DesfechoDoTurno, ExecutorDeTurnos, Palavra
+from langgraph.checkpoint.memory import InMemorySaver
+from test_vendedor import montar as montar_vendedor
 
 #: A credencial do painel nas baterias. **Nao e um segredo**, pela razao da
 #: `CREDENCIAL` do `apoio.py`: tem espacos, e o *gate* 9 recusa cadeias com
@@ -955,6 +960,80 @@ class TestARecusaChegaComo400(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(estado, 200)
         self.assertEqual(json.loads(resposta)["outcome"], "executado")
         self.assertEqual(len(grafo.entradas), 1)
+
+
+class TestDoWhatsAppAoCheckpoint(unittest.TestCase):
+    """KAM-232, criterio 2: o texto do WhatsApp chega a janela redigido, e um PAN
+    escrito pelo cliente nao fica em claro em nenhum *checkpoint*.
+
+    A invocacao e a de `packages/core-ts/tests/fixtures/invocacao_do_whatsapp.json`,
+    que o `chr.mensagem.test.ts` prova ser **exactamente** o que o CHR entrega
+    para essa mensagem — a ponte entre as duas linguagens, como a do botao do
+    KAM-211. O grafo e o do Vendedor a serio (`test_vendedor.montar`), com um
+    `InMemorySaver`: o que se varre e o que o LangGraph gravou, entrada incluida.
+    """
+
+    def setUp(self) -> None:
+        METRICAS.repor()
+        caminho = (
+            Path(__file__).resolve().parents[3]
+            / "packages" / "core-ts" / "tests" / "fixtures" / "invocacao_do_whatsapp.json"
+        )
+        fixture = json.loads(caminho.read_text(encoding="utf-8"))
+        self.texto: str = fixture["texto"]
+        self.corpo: dict[str, Any] = fixture["corpo"]
+
+    def _turno(self, saver: InMemorySaver) -> tuple[Any, Any, list[str | None]]:
+        base = BaseDeMensagens()
+        invocacao = ler_invocacao(self.corpo)
+        base.gravar(invocacao, self.texto, canal="whatsapp", papel="cliente")
+        grafo, _deps, _backend, saida, _ = montar_vendedor(checkpointer=saver)
+        canais: list[str | None] = []
+
+        class ComCanal:
+            async def ainvoke(self, estado: dict[str, Any], config: dict[str, Any]) -> Any:
+                canais.append(CANAL_DO_TURNO.get())
+                return await grafo.ainvoke(estado, config)
+
+        [desfecho] = asyncio.run(correr_lote(executor_com(base, ComCanal()), [invocacao]))
+        return desfecho, saida, canais
+
+    @staticmethod
+    def _guardado(saver: InMemorySaver) -> str:
+        return repr(saver.storage) + repr(saver.writes) + repr(getattr(saver, "blobs", {}))
+
+    def test_a_fixture_e_um_turno_do_cliente_com_mensagem_e_sem_o_texto(self) -> None:
+        invocacao = ler_invocacao(self.corpo)
+        self.assertEqual(invocacao.persona, "cliente")
+        self.assertIsNotNone(invocacao.message_id)
+        self.assertFalse(invocacao.wamid.startswith("painel."))
+        # A credencial do painel nao corre um turno do WhatsApp.
+        self.assertFalse(invocacao_do_painel_admitida(invocacao))
+        self.assertIn(PAN, self.texto)
+        self.assertNotIn(PAN, json.dumps(self.corpo))
+
+    def test_o_pan_do_cliente_nao_fica_em_nenhum_checkpoint(self) -> None:
+        saver = InMemorySaver()
+        desfecho, saida, canais = self._turno(saver)
+        self.assertEqual(desfecho.desfecho, "executado")
+        self.assertEqual(canais, ["whatsapp"])
+        guardado = self._guardado(saver)
+        self.assertTrue(saver.storage, "o turno nao gravou checkpoint nenhum")
+        self.assertNotIn(PAN, guardado)
+        self.assertNotIn(PAN[:8], guardado)
+        # A mensagem entrou, redigida: a marca esta no que se guardou.
+        self.assertIn(regras.MARCA_CARTAO, guardado)
+        self.assertTrue(saida.textos)
+        self.assertFalse(any(PAN in texto for texto in saida.textos))
+
+    def test_o_canario_sem_a_via_unica_o_pan_ficava_no_checkpoint(self) -> None:
+        """Muta a **ligacao**, e nao a funcao: o executor a por o texto cru na
+        janela. Se isto ficasse verde, o ensaio de cima nao media nada."""
+        saver = InMemorySaver()
+        crua = lambda texto, id_: {"role": "user", "content": texto, "id": id_}  # noqa: E731
+        with mock.patch("kamba_agr.turno.mensagem_do_cliente", crua):
+            self._turno(saver)
+        self.assertIn(PAN, self._guardado(saver))
 
 
 if __name__ == "__main__":

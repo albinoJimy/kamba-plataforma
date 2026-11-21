@@ -190,6 +190,26 @@ export const SQL_PAPEL = `
 `;
 
 /**
+ * O texto de uma mensagem `text` do WhatsApp na fonte persistida (KAM-232),
+ * como `kamba_app` e com o tenant do canal resolvido no `app.tenant_id`.
+ *
+ * Parâmetros: `message_id` (o `messageIdDe` do `wamid`), `tenant_id`,
+ * `contact_id`, `conversation_id` e o texto. O canal é o literal `whatsapp`, e
+ * não um parâmetro: esta instrução não escreve uma mensagem do painel.
+ *
+ * **A reentrega não grava segunda linha**: o `message_id` é determinístico, e o
+ * `ON CONFLICT (message_id) DO NOTHING` deixa a primeira. Sem `RETURNING`: o
+ * identificador já é conhecido, e uma linha que ficou da primeira entrega é a
+ * mesma mensagem. O `INSERT` do `message_id` é a revisão `0083` (só o `GRANT`).
+ */
+export const SQL_GRAVAR_MENSAGEM_DO_WHATSAPP = `
+  INSERT INTO platform.agent_messages
+         (message_id, tenant_id, contact_id, conversation_id, canal, texto)
+  VALUES ($1, $2, $3, $4, 'whatsapp', $5)
+  ON CONFLICT (message_id) DO NOTHING
+`;
+
+/**
  * As conversas do contacto absorvido numa fusão. Como `kamba_identity`, dentro
  * da transacção da fusão.
  *
