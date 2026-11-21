@@ -4398,7 +4398,7 @@ Que a página do dono corra em `prod` sobre a base, com os casos, o registo e o 
 - [ ] Os repositórios do caso, do registo e do guia do `onboarding-web` são SQL, com os papéis certos, e o
   `server.ts` arranca em `prod` sem nenhum repositório em memória.
 - [ ] O `POST /painel/teste` corre em `prod`, e um reinício do processo não perde a tentativa aberta.
-- [ ] O compose de produção monta o `onboarding-web` na rede `data` só com as ligações de que ele precisa.
+- [x] O compose de produção monta o `onboarding-web` na rede `data` só com as ligações de que ele precisa.
 
 ### Detalhes Técnicos
 
@@ -4450,6 +4450,58 @@ contexto autenticado —, que se troca por outra numa linha do `server.ts` e num
 
 - [ ] Critérios de Aceitação satisfeitos; a caixa do critério 2 do KAM-202 revista com a evidência.
 - [ ] Nenhum segredo no compose; `make up && make smoke` verde.
+
+### Verificação dos Critérios de Aceitação
+
+Entregue neste ramo:
+- a revisão [`0084`](../db/migrations/versions/0084_inscricao_na_base.py), sobre a `0083`: a chave de
+  idempotência do caso, as cinco buscas do registo (D1-A) com a política `registo_busca`, o desafio do OTP,
+  os contadores e as revogações do painel (D3-A);
+- os adaptadores ([`../packages/core-ts/src/inscricao/sql.ts`](../packages/core-ts/src/inscricao/sql.ts),
+  [`../services/onboarding-web/src/painel/revogacoes_sql.ts`](../services/onboarding-web/src/painel/revogacoes_sql.ts))
+  e a cifra do NIF e do e-mail ([`../packages/core-ts/src/inscricao/dados_do_caso.ts`](../packages/core-ts/src/inscricao/dados_do_caso.ts),
+  `kek_dados_do_caso`, decisão do fundador de 2026-11-21);
+- o `server.ts` sobre a base, o compose de `prod`, o inventário dos segredos, a política de retenção, a emenda
+  1.134 do dicionário (§3.83) e o credor **KAM-238** (o guia em `prod`, D2-A).
+
+**A D2-A, lida pela coordenação.** Que o estado do guia, os *gates*, a lista e a fila vão **todos** para o
+KAM-238, e não só a lista e a fila, é **decisão da coordenação do lote 17**, derivada da D2-A («até lá o guia
+não se monta em `prod`»): o `kamba_app` não escreve os *gates* e o estado tem duas varreduras entre tenants.
+O fundador pode reabri-la.
+
+| Critério | Estado | Evidência |
+|---|---|---|
+| 1 — o caso, o registo e o guia em SQL com os papéis certos, e o `server.ts` arranca em `prod` sem repositório em memória | **parcial — caixa vazia** | **Feito:** o caso, o OTP, os contadores e as revogações sobre a base, como `kamba_app`, e o `server.ts` recusa `prod` sem a ligação (`BaseEmFaltaEmProducaoError`). Contra a base (`tests_lote`, `packages/core-ts/tests_bd/inscricao.bd.test.ts`, seis ensaios obrigatórios): o registo cria o caso num processo e outro processo acerta o código, conclui o OTP e reconhece a chave; as funções só devolvem o caso e o tenant e o `kamba_app` não lê o caso de outro tenant pela tabela; trinta verificações concorrentes comparam no máximo cinco; dois registos concorrentes do mesmo NIF, e a mesma chave, dão um caso; os contadores somam entre processos; as revogações sobrevivem. **Falta, três coisas:** (a) o guia não se monta em `prod` (D2-A), credor **KAM-238**; (b) o arranque em `prod` **continua a recusar**, agora pelo SMS (`SmsFalsoEmProducaoError`): o OTP é o `FakeSmsProvider` em todos os ambientes, porque não há adaptador de agregador real (achado 1 da revisão adversarial; **pergunta à coordenação**); (c) a idempotência do `PATCH /painel/produtos/:id` continua num `Map` do processo (achado 4; **pergunta à coordenação**) |
+| 2 — o `POST /painel/teste` corre em `prod`, e um reinício não perde a tentativa aberta | **parcial — caixa vazia** | A tentativa vive na `onboarding_smoke` desde o KAM-202, e o caso que a sessão do painel lê vive agora na base: o reinício (`…outro processo acerta o código…`) lê o mesmo caso e o mesmo tenant. **Falta:** `prod` não arranca enquanto o SMS for o falso (critério 1, b) |
+| 3 — o compose de produção monta o `onboarding-web` na rede `data` só com as ligações de que ele precisa | **satisfeito** | `infra/compose/docker-compose.prod.yml`: redes `app` e `data`, uma ligação só (`ONBOARDING_APP_DB_URL`, `kamba_app`), sem `kamba_batch` nem `kamba_identity`; o COM interno pela rede `app`; os segredos pelo cofre (`${…:?}`); `mem_limit` sem mudança. `compose_prod lint`: 0 achados; `env_lint lint`: 0 achados; as suites das duas ferramentas verdes |
+
+### Verificação da Definition of Done
+
+| DoD | Estado | Evidência |
+|---|---|---|
+| Critérios satisfeitos; a caixa do critério 2 do KAM-202 revista | **parcial** | Um de três (os outros dois esperam o SMS real, a idempotência e o KAM-238). A linha do critério 2 do KAM-202 foi revista com a evidência deste ticket e continua parcial |
+| Nenhum segredo no compose; `make up && make smoke` verde | **parcial** | Nenhum valor de segredo nos compose (o `scan_secrets` limpo em cada *commit*). O `make up && make smoke` **não correu** nesta máquina (não há `make`); em `dev` o serviço passa a exigir as duas KEK do caso no `.env` (`.env.example`) |
+
+**Medido nesta máquina:** as suites focadas do *gate* 8 (`test_catalogo`, `test_migracao`, `test_privilegios`,
+`test_inscricao_na_base_schema`, `test_inventario`, `test_retencao_bd`, `test_kyc_schema`) e do *gate* 6
+(`test_x05_catalogo`, `test_x03_x04_isolamento`): **204** ensaios verdes; o `tests_lote`: **11** verdes, com os
+seis obrigatórios do KAM-236; o `core-ts` e o `onboarding-web` (`typecheck` e `node --test`, **276** no
+serviço); as suites de `tools/` tocadas; os três comandos do *gate* 3b. O `tests` inteiro e o
+`tests_isolamento` inteiro ficam para o CI; o único vermelho do `tests_isolamento` inteiro aqui foi o caso
+cruzado que precisa de Node com o `pg` instalado (ambiente). **Por medir:** a bateria X-01 das rotas do painel
+sobre os adaptadores SQL (o condutor monta-as sobre duplos) e um ensaio de arranque do `server.ts` em `prod`
+(recusa, pelo SMS).
+
+**A revisão adversarial** correu numa passagem, sobre o ramo antes da primeira subida: **dez achados**, nove
+CONFIRMADOS e um PLAUSÍVEL. **Corrigidos neste ramo**, cada um com ensaio: as tentativas do OTP concorrentes
+passavam do tecto (recusa acima dele antes de comparar); o valor errado de um ensaio dos contadores; as corridas
+do `criar` sem ensaio; a guarda da política alargada às vistas. **Antes dela**, o *gate* 6 apanhou a primeira
+versão da política (`USING (true)`, o dono via os casos sem contexto) e o `test_privilegios` o `DELETE` do
+`kamba_app` (o desafio passou a marcar-se usado e os contadores saem pela retenção). **Levados à coordenação:**
+o SMS falso em `prod` (aplicada a recusa, que falha fechado) e a idempotência do painel em memória. **Escritos,
+sem correcção:** o corte e o `usado_at` só sobem pelas instruções e não por *trigger* (o `kamba_app` é código
+nosso); o `guardar` de um desafio sem caso não guarda nada; o `.env` antigo de `dev` tem de ganhar as duas KEK;
+as duas divergências de canto dos contadores (janela nula, tecto entre réplicas com relógios diferentes).
 
 ### Handoff para Claude Code
 
