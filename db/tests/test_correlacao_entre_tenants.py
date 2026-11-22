@@ -131,17 +131,18 @@ class Base(ComBase):
                 self.pseudonimo(tenant, contacto, pseudonimo, kid)
         self.como(None, tenant)
         if entregue is not None:
-            # Uma encomenda nasce sem `entregue_at` (o *trigger* da `0071`), e o
-            # ensaio precisa de uma entregue sem `paga_at` na janela: os
-            # *triggers* ficam de fora so nesta transaccao do administrador.
-            self.cursor.execute("SET LOCAL session_replication_role = replica")
+            # Uma encomenda nasce sem `entregue_at` (o *trigger* da `0071`, que e
+            # `ENABLE ALWAYS` e por isso nao cede ao `session_replication_role`),
+            # e o ensaio precisa de uma entregue sem `paga_at` na janela: os
+            # *triggers* da tabela ficam de fora so nesta transaccao do
+            # administrador, que o `tearDown` desfaz com o resto.
+            self.cursor.execute("ALTER TABLE platform.orders_mirror DISABLE TRIGGER USER")
             self.cursor.execute(
                 "INSERT INTO platform.orders_mirror (tenant_id, contact_id, intent_key, total_minor, "
                 "lines_snapshot, entregue_at, entrega_confirmada_por) "
                 "VALUES (%s, %s, %s, 1000, '[]'::jsonb, %s, 'cliente')",
                 (tenant, contacto, f"ik-{uuid.uuid4().hex[:12]}", entregue),
             )
-            self.cursor.execute("SET LOCAL session_replication_role = origin")
             return contacto
         self.cursor.execute(
             "INSERT INTO platform.orders_mirror (tenant_id, contact_id, intent_key, total_minor, "

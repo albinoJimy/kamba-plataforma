@@ -553,3 +553,13 @@ SQL_CONTACTO_BLOQUEADO = """
    WHERE tenant_id = %s
      AND contact_id = %s
 """
+
+
+#: O nome da loja do turno, para a apresentacao do vendedor (KAM-235). E o que o
+#: observador de producao do teste confere (`SQL_FACTOS_DO_TESTE` do KAM-202):
+#: a mesma coluna, lida pela mesma ligacao da aplicacao, sob a RLS do *tenant*.
+SQL_NOME_DA_LOJA = """
+  SELECT nome
+    FROM platform.tenants
+   WHERE id = %s
+"""

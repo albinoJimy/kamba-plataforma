@@ -88,4 +88,24 @@ describe("KAM-202 — o observador de produção", () => {
     assert.ok(normalizarTexto(achado[1]!).includes(normalizarTexto(ASSISTENTE_DO_TESTE)));
     assert.ok(achado[1]!.includes("{loja}"), "a apresentacao deixou de nomear a loja");
   });
+
+  it("KAM-235: a apresentacao que o AGR produz, com ou sem digitos no nome, identifica a loja", async () => {
+    // A mesma fixture que o AGR tem de produzir letra a letra
+    // (`services/agr/tests/test_grafos.py`, `TestLojaNaApresentacao`).
+    const { casos } = JSON.parse(
+      readFileSync(new URL("./fixtures/apresentacao_do_vendedor.json", import.meta.url), "utf8"),
+    ) as { casos: { loja: string; frase: string }[] };
+    assert.ok(casos.some((c) => /\d/.test(c.loja)), "a fixture tem de ter uma loja com digitos");
+    const registo = readFileSync(new URL("../../../registry/vendedor.yaml", import.meta.url), "utf8");
+    const bruta = /^\s*apresentacao:\s*"([^"]+)"/m.exec(registo)![1]!;
+    for (const { loja, frase } of casos) {
+      assert.equal(frase, bruta.replace("{loja}", loja), `a fixture e a do registo: ${loja}`);
+      const resposta = `${frase}\nEm que posso ajudar?`;
+      const f = await new ObservadorSql(cliente([linha([resposta], { loja })])).factos(CASO, DESDE, ATE);
+      assert.equal(f.resposta, true, loja);
+      // E a mesma frase com o nome de outra loja nao serve.
+      const g = await new ObservadorSql(cliente([linha([resposta], { loja: "Outra Loja" })])).factos(CASO, DESDE, ATE);
+      assert.equal(g.resposta, false, loja);
+    }
+  });
 });
