@@ -337,27 +337,31 @@ export const SQL_FOTOS_REPETIDAS = `
 `;
 
 /**
- * As ofertas que a varredura do preço anómalo lê (KAM-209): as publicadas, de
- * preço fixo e com categoria, **de todos os tenants** — é o `kamba_batch`, o
- * papel auditado que atravessa tenants, quem a corre. São as que se avaliam e,
- * ao mesmo tempo, as referências umas das outras (decisão do fundador de
+ * As ofertas que a varredura do preço anómalo lê (KAM-209): as publicadas, com
+ * preço (`fixo` ou `a_partir_de`) e com categoria, **de todos os tenants** — é o
+ * `kamba_batch`, o papel auditado que atravessa tenants, quem a corre. **Todas
+ * se avaliam; só as de preço fixo são referência** (decisão do fundador de
  * 2026-11-21: a mediana das ofertas publicadas de preço fixo, da mesma moeda e
- * categoria, de **outros** tenants). Quais categorias não se avaliam (a
- * `outra`) decide-o o código, pela lista de `./categorias.ts`, e não esta
- * consulta: uma fonte.
+ * categoria, de **outros** tenants). Um `a_partir_de` diz o mínimo, e comparado
+ * com a mediana diz o mesmo que um fixo; como referência puxava-a para baixo. O
+ * `sob_consulta` não tem preço, e não se avalia. Quais categorias não se
+ * avaliam (a `outra`) e quem é referência decide-o o código (`./precos.ts`), e
+ * não esta consulta: uma fonte.
  *
  * Sem `LIMIT`, e é deliberado: a mediana de uma categoria precisa de todas as
  * ofertas dela, e um corte punha a referência a depender da ordem.
  * shortcut: a volta lê o catálogo publicado inteiro para a memória do processo
- * de lote; revê-se quando passar de ~100 mil ofertas publicadas de preço fixo,
- * passando a mediana para a base (`percentile_disc` por categoria e moeda).
+ * de lote e, por oferta, percorre as referências da categoria (O(n²) por
+ * categoria); revê-se quando uma categoria passar de ~10 mil ofertas
+ * publicadas, passando a mediana para a base (`percentile_disc` por categoria,
+ * moeda e tenant excluído).
  */
-export const SQL_OFERTAS_DE_PRECO_FIXO = `
-  SELECT o.tenant_id::text AS tenant_id, o.sku, o.categoria, o.currency,
+export const SQL_OFERTAS_COM_PRECO = `
+  SELECT o.tenant_id::text AS tenant_id, o.sku, o.categoria, o.currency, o.preco_tipo,
          o.preco_minor::text AS preco_minor
     FROM platform.offer_terms o
    WHERE o.estado = 'publicado' AND o.deleted_at IS NULL
-     AND o.preco_tipo = 'fixo' AND o.categoria IS NOT NULL
+     AND o.preco_tipo IN ('fixo', 'a_partir_de') AND o.categoria IS NOT NULL
    ORDER BY o.categoria, o.currency, o.tenant_id, o.sku
 `;
 
@@ -373,11 +377,15 @@ export const SQL_OFERTAS_SEM_CATEGORIA = `
    WHERE estado = 'publicado' AND deleted_at IS NULL AND categoria IS NULL
 `;
 
-/** As chaves dos `preco_anomalo` já gravados: a volta não grava duas vezes o mesmo preço. */
+/**
+ * Das chaves de janela pedidas (`$1`, uma por loja com SKUs anómalos), as que já
+ * têm o seu `preco_anomalo`: a volta não grava duas vezes a mesma loja na mesma
+ * janela, nem a devolve à escada.
+ */
 export const SQL_PRECOS_JA_SINALIZADOS = `
   SELECT ref_evento::text AS ref_evento
     FROM platform.ts_signal
-   WHERE tipo = 'preco_anomalo'
+   WHERE tipo = 'preco_anomalo' AND ref_evento = ANY($1::uuid[])
 `;
 
 /**

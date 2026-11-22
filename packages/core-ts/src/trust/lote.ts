@@ -17,8 +17,8 @@
  * `tenant_id` é nulo (`docs/auditoria.md`: o `batch.run` não tem tenant), o
  * `entity` é `ts_varredura`, o `entity_id` é o nome da varredura, e o
  * `payload_hash` é o SHA-256 de `<nome>:<sinais ou tenants>` — o dos preços
- * leva ainda as ofertas publicadas sem categoria,
- * `precos:<sinais>:sem_categoria:<n>`. As duas primeiras e a dos preços correm
+ * leva ainda as ofertas que não avaliou, pelo motivo,
+ * `precos:<sinais>:sem_categoria:<n>:poucas_lojas:<m>`. As duas primeiras e a dos preços correm
  * **na mesma transacção** que a linha de auditoria: uma
  * corrida que não ficou registada não gravou sinais, e vice-versa. O
  * `fecharEncerramentos` não pode: cada encerramento é uma transição pela porta
@@ -67,10 +67,11 @@ export interface ResultadoDoCicloDoTrust {
   /** As que falharam, pelo nome. */
   readonly falhas: readonly Varredura[];
   /**
-   * As ofertas publicadas sem categoria, que a varredura dos preços contou e não
-   * avaliou (KAM-209). Ausente se ela falhou.
+   * As ofertas publicadas que a varredura dos preços contou e não avaliou
+   * (KAM-209), e que o `ts_ofertas_nao_avaliadas{motivo}` expõe. Ausente se ela
+   * falhou.
    */
-  readonly ofertasSemCategoria?: number;
+  readonly naoAvaliadas?: { readonly semCategoria: number; readonly poucasLojas: number };
 }
 
 export interface OpcoesDoCicloDoTrust {
@@ -131,7 +132,7 @@ export class CicloDoTrust {
   async #volta(): Promise<ResultadoDoCicloDoTrust> {
     const feitas: Partial<Record<Varredura, number>> = {};
     const falhas: Varredura[] = [];
-    let semCategoria: number | undefined;
+    let naoAvaliadas: { readonly semCategoria: number; readonly poucasLojas: number } | undefined;
     const opcoes = (contadores: ContadoresDoTrust) => ({
       politica: this.#o.politica ?? POLITICA_DE_RISCO,
       contadores,
@@ -149,10 +150,11 @@ export class CicloDoTrust {
             "precos",
             async (bd, c) => {
               const r = await varrerPrecos(bd, opcoes(c));
-              semCategoria = r.semCategoria;
+              naoAvaliadas = { semCategoria: r.semCategoria, poucasLojas: r.poucasLojas };
               return r.sinais;
             },
-            (n) => `precos:${n}:sem_categoria:${semCategoria ?? 0}`,
+            (n) =>
+              `precos:${n}:sem_categoria:${naoAvaliadas?.semCategoria ?? 0}:poucas_lojas:${naoAvaliadas?.poucasLojas ?? 0}`,
           ),
       ],
     ];
@@ -165,9 +167,12 @@ export class CicloDoTrust {
         this.#o.metricas.varredura(nome, "falhou");
       }
     }
-    return falhas.includes("precos") || semCategoria === undefined
-      ? { feitas, falhas }
-      : { feitas, falhas, ofertasSemCategoria: semCategoria };
+    if (falhas.includes("precos") || naoAvaliadas === undefined) return { feitas, falhas };
+    // Depois do `COMMIT` da varredura, como os contadores: uma volta desfeita
+    // não muda o que o `/metrics` diz.
+    this.#o.metricas.ofertasNaoAvaliadas("sem_categoria", naoAvaliadas.semCategoria);
+    this.#o.metricas.ofertasNaoAvaliadas("poucas_lojas", naoAvaliadas.poucasLojas);
+    return { feitas, falhas, naoAvaliadas };
   }
 
   /**

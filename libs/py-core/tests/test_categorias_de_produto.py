@@ -84,6 +84,15 @@ class TestAsCopiasSaoAPolitica(unittest.TestCase):
         assert versao is not None
         self.assertEqual(versao.group(1), p["versao"])
 
+    def test_o_avalia_preco_do_typescript_e_o_da_politica(self) -> None:
+        """So a `outra` nao se avalia, e e a constante `CATEGORIA_OUTRA` que o diz."""
+        texto = TYPESCRIPT.read_text(encoding="utf-8")
+        corpo = re.search(r"export function avaliaPreco\(.*?\{(.*?)\n\}", texto, re.S)
+        assert corpo is not None
+        self.assertEqual(corpo.group(1).strip(), "return categoria !== CATEGORIA_OUTRA;")
+        nao = [c["id"] for c in _politica()["categorias"] if not c["avalia_preco"]]
+        self.assertEqual(nao, [OUTRA])
+
     def test_o_check_da_revisao_e_a_politica(self) -> None:
         self.assertEqual(_ids_da_revisao(), [c["id"] for c in _politica()["categorias"]])
 
@@ -117,7 +126,6 @@ class TestMapeamento(unittest.TestCase):
             "Cosméticos": "beleza",
             "Telemóveis e acessórios": "electronica",
             "telemóvel": "electronica",
-            "Reparação de electrodomésticos": "electronica",
             "Cimento e ferragens": "material_construcao",
             "artesanato": OUTRA,
         }

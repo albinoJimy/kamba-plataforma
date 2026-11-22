@@ -10227,6 +10227,7 @@ entradas:
       - "nome"
       - "criado_at"
       - "atualizado_at"
+      - "categoria"
       - "platform"
       - "PRIMARY"
       - "KEY"
@@ -18084,6 +18085,7 @@ entradas:
       - "sku"
       - "versao_politica"
       - "pedidos"
+      - "fonte"
       - "CHECK"
     variantes_literais: []
   - seccao: "3.68"
@@ -18475,11 +18477,9 @@ entradas:
     variantes_literais: []
   - seccao: "3.68"
     conceito: "A lista das categorias de produto"
-    canonico: "policy/categorias_de_produto.yaml, versao 1.0.0"
-    literais:
-      - "versao"
-    nomes:
-      - "versao"
+    canonico: "policy/categorias_de_produto.yaml, versão 1.0.0"
+    literais: []
+    nomes: []
     nomes_nota:
       - "CHECK"
       - "CATEGORIAS_DE_PRODUTO"
@@ -18516,10 +18516,10 @@ entradas:
       - "ts_signal.detalhe"
     nomes_nota:
       - "kamba_batch"
+      - "LOJAS_MINIMAS_DAS_REFERENCIAS"
       - "fonte"
       - "CHAVES_DO_DETALHE"
       - "ts_signal_detalhe_ck"
-      - "sku"
       - "contagem"
       - "versao_politica"
     variantes_literais: []
@@ -18540,13 +18540,19 @@ entradas:
       - "ts_varreduras_total"
     nomes_nota:
       - "avaliarPreco"
-      - "sku"
-      - "payload_hash"
+      - "refDaJanela"
+      - "ts_ofertas_nao_avaliadas"
       - "batch.run"
-      - "precos"
-      - "sinais"
-      - "sem_categoria"
-      - "n"
+    variantes_literais: []
+  - seccao: "3.68"
+    conceito: "Ofertas publicadas que a varredura não avaliou"
+    canonico: "ts_ofertas_nao_avaliadas{motivo}, gauge com dois motivos (sem categoria, poucas lojas), no /metrics do processo de lote"
+    literais:
+      - "ts_ofertas_nao_avaliadas{motivo}"
+    nomes:
+      - "ts_ofertas_nao_avaliadas"
+      - "motivo"
+    nomes_nota: []
     variantes_literais: []
   - seccao: "3.69"
     conceito: "Ledger de custo por módulo"

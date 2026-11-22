@@ -19,9 +19,10 @@
  *    dele e em mais nenhum —, que a volta seguinte não repete.
  * 4. **O preço anómalo** (KAM-209): a volta lê as ofertas de todos os tenants
  *    como `kamba_batch`, e 19 referências não avaliam e 20 avaliam; 1% e 100×
- *    da mediana ficam dentro, e um cêntimo para fora sinaliza. O `kamba_app`,
- *    com o contexto de um tenant, não vê as ofertas dos outros, e o sinal diz
- *    só a contagem.
+ *    da mediana ficam dentro, e um cêntimo para fora sinaliza. Doze SKUs
+ *    anómalos são um sinal e nenhuma sanção; uma loja sozinha não fixa a
+ *    mediana. O `kamba_app`, com o contexto de um tenant, não vê as ofertas dos
+ *    outros, e o sinal diz só a contagem.
  *
  * O que **não** se mede aqui: a forma das instruções e as recusas antes da base
  * (`../tests/trust.producao.test.ts`, *gate* 4); os *triggers* pelos dois
@@ -38,7 +39,7 @@ import { BASE_DESCARTAVEL, activarTenant, criarTenant, ligar } from "./apoio.ts"
 import { consumir, type Envelope } from "../src/eventos/index.ts";
 import type { ConjuntoSql, Revisor } from "../src/revisao/index.ts";
 import { comTenant } from "../src/tenant_guard/index.ts";
-import { FONTE_DAS_REFERENCIAS, MetricasDoTrust, SQL_OFERTAS_DE_PRECO_FIXO, VARREDURAS, efeitoDeTrust } from "../src/trust/index.ts";
+import { FONTE_DAS_REFERENCIAS, MetricasDoTrust, SQL_OFERTAS_COM_PRECO, VARREDURAS, efeitoDeTrust } from "../src/trust/index.ts";
 import { efeitosDoLote, montarProcesso } from "../../../services/onboarding-web/src/lote/processo.ts";
 
 function exigir(nome: string): string {
@@ -242,23 +243,45 @@ describe("Trust & Safety em produção contra a base", () => {
 
 // ------------------------------------------------------- preço anómalo (KAM-209)
 
-/** `n` ofertas publicadas de preço fixo, semeadas pelo dono da tabela. */
-async function publicadas(tenant: string, prefixo: string, n: number, preco: number, categoria: string): Promise<void> {
+/**
+ * `n` ofertas semeadas pelo dono da tabela: publicadas e de preço fixo, salvo
+ * se o `como` disser outra coisa.
+ */
+async function publicadas(
+  tenant: string,
+  prefixo: string,
+  n: number,
+  preco: number | null,
+  categoria: string | null,
+  como: { readonly estado?: string; readonly tipo?: string; readonly apagada?: boolean } = {},
+): Promise<void> {
   await admin.query(
-    "INSERT INTO platform.offer_terms (tenant_id, sku, nome, preco_tipo, preco_minor, estado, categoria) " +
-      "SELECT $1, $2 || g, 'produto ' || g, 'fixo', $3, 'publicado', $4 FROM generate_series(1, $5) g",
-    [tenant, prefixo, preco, categoria, n],
+    "INSERT INTO platform.offer_terms (tenant_id, sku, nome, preco_tipo, preco_minor, estado, categoria, deleted_at) " +
+      "SELECT $1, $2 || g, 'produto ' || g, $6, $3, $7, $4, CASE WHEN $8 THEN now() END FROM generate_series(1, $5) g",
+    [tenant, prefixo, preco, categoria, n, como.tipo ?? "fixo", como.estado ?? "publicado", como.apagada ?? false],
   );
 }
 
-async function sinaisDePreco(tenant: string): Promise<{ sku: string; detalhe: Record<string, unknown> }[]> {
+/** Três lojas novas com `n` referências repartidas entre elas, ao mesmo preço. */
+async function tresLojas(rotulo: string, n: number, preco: number, categoria: string): Promise<string[]> {
+  const lojas = [await criarTenant(admin, `${rotulo}-1`), await criarTenant(admin, `${rotulo}-2`), await criarTenant(admin, `${rotulo}-3`)];
+  const porLoja = [Math.ceil(n / 3), Math.ceil((n - Math.ceil(n / 3)) / 2)];
+  const partes = [porLoja[0]!, porLoja[1]!, n - porLoja[0]! - porLoja[1]!];
+  for (const [i, loja] of lojas.entries()) await publicadas(loja, "ref-", partes[i]!, preco, categoria);
+  return lojas;
+}
+
+async function sinaisDePreco(tenant: string): Promise<Record<string, unknown>[]> {
   return (
-    await admin.query<{ sku: string; detalhe: Record<string, unknown> }>(
-      "SELECT detalhe->>'sku' AS sku, detalhe FROM platform.ts_signal " +
-        "WHERE tenant_id = $1 AND tipo = 'preco_anomalo' ORDER BY detalhe->>'sku'",
+    await admin.query<{ detalhe: Record<string, unknown> }>(
+      "SELECT detalhe FROM platform.ts_signal WHERE tenant_id = $1 AND tipo = 'preco_anomalo' ORDER BY criado_at",
       [tenant],
     )
-  ).rows;
+  ).rows.map((l) => l.detalhe);
+}
+
+async function sancoes(tenant: string): Promise<number> {
+  return contar("SELECT count(*) AS n FROM platform.ts_sanction WHERE tenant_id = $1", [tenant]);
 }
 
 function processo() {
@@ -273,63 +296,105 @@ function processo() {
 describe("o preço anómalo contra a base (KAM-209)", () => {
   it("19 referências de outras lojas não avaliam; a 20.ª avalia, e o sinal diz só a contagem", async () => {
     const alvo = await criarTenant(admin, "preco-alvo");
-    const b = await criarTenant(admin, "preco-b");
-    const c = await criarTenant(admin, "preco-c");
     await publicadas(alvo, "alvo-", 1, 1, "electronica");
     // As do próprio tenant nunca contam: vinte do alvo a 100 000 não lhe fazem referência.
     await publicadas(alvo, "proprio-", 20, 100_000, "electronica");
-    await publicadas(b, "ref-", 19, 100_000, "electronica");
+    const lojas = await tresLojas("preco-ref", 19, 100_000, "electronica");
     const p = processo();
     assert.deepEqual((await p.cicloDoTrust.correr()).falhas, []);
     assert.deepEqual(await sinaisDePreco(alvo), []);
 
-    await publicadas(c, "ref-", 1, 100_000, "electronica");
+    await publicadas(lojas[0]!, "mais-", 1, 100_000, "electronica");
     await p.cicloDoTrust.correr();
     const sinais = await sinaisDePreco(alvo);
-    assert.equal(sinais.length, 1);
-    assert.deepEqual(sinais[0]!.detalhe, {
-      sku: "alvo-1",
-      contagem: 20,
-      fonte: FONTE_DAS_REFERENCIAS,
-      versao_politica: "1.0.0",
-    });
+    assert.deepEqual(sinais, [{ contagem: 1, fonte: FONTE_DAS_REFERENCIAS, versao_politica: "1.0.0" }]);
     // As lojas das referências não ficam sinalizadas, nem nomeadas no sinal.
-    assert.deepEqual(await sinaisDePreco(b), []);
-    assert.doesNotMatch(JSON.stringify(sinais), new RegExp(`${b}|${c}`));
+    for (const loja of lojas) assert.deepEqual(await sinaisDePreco(loja), []);
+    assert.doesNotMatch(JSON.stringify(sinais), new RegExp(lojas.join("|")));
 
-    // A volta seguinte não grava outra vez o mesmo preço.
+    // A volta seguinte, na mesma janela, não grava outra vez.
     await p.cicloDoTrust.correr();
     assert.equal((await sinaisDePreco(alvo)).length, 1);
   });
 
   it("1% e 100× da mediana ficam dentro; um cêntimo para fora sinaliza", async () => {
-    const alvo = await criarTenant(admin, "fronteira-alvo");
-    const b = await criarTenant(admin, "fronteira-b");
-    await publicadas(b, "ref-", 20, 100_000, "beleza");
-    await publicadas(alvo, "a-1000-", 1, 1_000, "beleza");
-    await publicadas(alvo, "a-999-", 1, 999, "beleza");
-    await publicadas(alvo, "a-10000000-", 1, 10_000_000, "beleza");
-    await publicadas(alvo, "a-10000001-", 1, 10_000_001, "beleza");
+    await tresLojas("fronteira-ref", 20, 100_000, "beleza");
+    const casos: readonly [number, boolean][] = [
+      [1_000, false],
+      [999, true],
+      [10_000_000, false],
+      [10_000_001, true],
+    ];
+    const alvos: [string, boolean][] = [];
+    for (const [preco, anomalo] of casos) {
+      const alvo = await criarTenant(admin, `fronteira-${preco}`);
+      await publicadas(alvo, "a-", 1, preco, "beleza");
+      alvos.push([alvo, anomalo]);
+    }
     await processo().cicloDoTrust.correr();
-    assert.deepEqual(
-      (await sinaisDePreco(alvo)).map((s) => s.sku),
-      ["a-10000001-1", "a-999-1"],
-    );
+    for (const [alvo, anomalo] of alvos) assert.equal((await sinaisDePreco(alvo)).length, anomalo ? 1 : 0);
+  });
+
+  it("doze SKUs anómalos são um sinal, e não dão aviso nem limitação só por preço", async () => {
+    const alvo = await criarTenant(admin, "doze-alvo");
+    await tresLojas("doze-ref", 21, 100_000, "material_construcao");
+    await publicadas(alvo, "anomalo-", 12, 1, "material_construcao");
+    const p = processo();
+    await p.cicloDoTrust.correr();
+    await p.cicloDoTrust.correr();
+    assert.deepEqual(await sinaisDePreco(alvo), [{ contagem: 12, fonte: FONTE_DAS_REFERENCIAS, versao_politica: "1.0.0" }]);
+    assert.equal(await sancoes(alvo), 0, "nem o aviso nem a limitação");
+  });
+
+  it("uma loja com 20 ofertas a 1 Kz não fixa a mediana, e a volta conta a oferta que não avaliou", async () => {
+    const alvo = await criarTenant(admin, "uma-loja-alvo");
+    const concorrente = await criarTenant(admin, "uma-loja-concorrente");
+    await publicadas(concorrente, "barato-", 20, 100, "servicos");
+    await publicadas(alvo, "normal-", 1, 100_000, "servicos");
+    const p = processo();
+    const r = await p.cicloDoTrust.correr();
+    assert.deepEqual(await sinaisDePreco(alvo), []);
+    assert.ok((r.naoAvaliadas?.poucasLojas ?? 0) >= 1);
+    assert.match(p.metricasDoTrust.exposicao(), /^ts_ofertas_nao_avaliadas\{motivo="poucas_lojas"\} [1-9]\d*$/m);
   });
 
   it("as ofertas sem categoria e as da `outra` não se avaliam, e a volta conta as sem categoria", async () => {
     const alvo = await criarTenant(admin, "sem-categoria");
-    const b = await criarTenant(admin, "outra-b");
-    await publicadas(b, "ref-", 20, 100_000, "outra");
+    await tresLojas("outra-ref", 20, 100_000, "outra");
     await publicadas(alvo, "outra-", 1, 1, "outra");
-    await admin.query(
-      "INSERT INTO platform.offer_terms (tenant_id, sku, nome, preco_tipo, preco_minor, estado) " +
-        "VALUES ($1, 'antiga', 'produto antigo', 'fixo', 1, 'publicado')",
-      [alvo],
-    );
-    const r = await processo().cicloDoTrust.correr();
+    const p = processo();
+    const antes = (await p.cicloDoTrust.correr()).naoAvaliadas?.semCategoria;
+    assert.ok(antes !== undefined);
+    // Contam as publicadas sem categoria, e só elas: nem o rascunho, nem a apagada.
+    await publicadas(alvo, "antiga-", 2, 1, null);
+    await publicadas(alvo, "rascunho-", 1, 1, null, { estado: "rascunho" });
+    await publicadas(alvo, "apagada-", 1, 1, null, { apagada: true });
+    const r = await p.cicloDoTrust.correr();
+    assert.equal(r.naoAvaliadas?.semCategoria, antes + 2);
+    assert.match(p.metricasDoTrust.exposicao(), new RegExp(`^ts_ofertas_nao_avaliadas\\{motivo="sem_categoria"\\} ${antes + 2}$`, "m"));
     assert.deepEqual(await sinaisDePreco(alvo), []);
-    assert.ok((r.ofertasSemCategoria ?? 0) >= 1, "a antiga, publicada sem categoria, conta");
+  });
+
+  it("só as publicadas, não apagadas e de preço fixo são referência; o `a_partir_de` avalia-se", async () => {
+    const normal = await criarTenant(admin, "predicados-normal");
+    const apartir = await criarTenant(admin, "predicados-apartir");
+    const lojas = await tresLojas("predicados-ref", 20, 100_000, "restauracao");
+    // Trinta de cada forma que **não** é referência, a 1: se alguma contasse,
+    // a mediana caía para 1 e a oferta normal passava a anómala.
+    const b = lojas[0]!;
+    await publicadas(b, "rascunho-", 30, 1, "restauracao", { estado: "rascunho" });
+    await publicadas(b, "arquivada-", 30, 1, "restauracao", { estado: "arquivado" });
+    await publicadas(b, "apagada-", 30, 1, "restauracao", { apagada: true });
+    await publicadas(b, "apartir-", 30, 1, "restauracao", { tipo: "a_partir_de" });
+    await publicadas(b, "consulta-", 30, null, "restauracao", { tipo: "sob_consulta" });
+    // Uma loja com a oferta normal e um rascunho anómalo (que não se avalia).
+    await publicadas(normal, "normal-", 1, 100_000, "restauracao");
+    await publicadas(normal, "rascunho-", 1, 1, "restauracao", { estado: "rascunho" });
+    // E uma com um `a_partir_de` anómalo, que se avalia.
+    await publicadas(apartir, "apartir-", 1, 1, "restauracao", { tipo: "a_partir_de" });
+    await processo().cicloDoTrust.correr();
+    assert.deepEqual(await sinaisDePreco(normal), []);
+    assert.equal((await sinaisDePreco(apartir)).length, 1);
   });
 
   it("a mediana atravessa tenants só pelo kamba_batch: o kamba_app vê as ofertas do seu tenant e mais nenhuma", async () => {
@@ -339,13 +404,13 @@ describe("o preço anómalo contra a base (KAM-209)", () => {
     await publicadas(b, "iso-", 3, 100_000, "mercearia");
     const ligacao = await app.connect();
     try {
-      const vistas = await comTenant(ligacao, a, async () => (await ligacao.query<Record<string, unknown>>(SQL_OFERTAS_DE_PRECO_FIXO)).rows);
+      const vistas = await comTenant(ligacao, a, async () => (await ligacao.query<Record<string, unknown>>(SQL_OFERTAS_COM_PRECO)).rows);
       assert.ok(vistas.length >= 2);
       assert.ok(vistas.every((l) => l["tenant_id"] === a), "o kamba_app só vê o seu tenant");
     } finally {
       ligacao.release();
     }
-    const doLote = (await lote.query<Record<string, unknown>>(SQL_OFERTAS_DE_PRECO_FIXO)).rows.filter((l) =>
+    const doLote = (await lote.query<Record<string, unknown>>(SQL_OFERTAS_COM_PRECO)).rows.filter((l) =>
       String(l["sku"]).startsWith("iso-"),
     );
     assert.deepEqual(new Set(doLote.map((l) => l["tenant_id"])), new Set([a, b]));

@@ -69,8 +69,11 @@ def categoria_de_produto(texto: str | None) -> str | None:
     """
     if texto is None or not texto.strip():
         return None
-    if texto.strip() in CATEGORIAS:
-        return texto.strip()
+    # Um `id` da lista chega a si proprio pelos termos, sem comparacao com a
+    # tabela: cada `id` esta nos seus termos (`material_construcao` pela
+    # `construcao`), e a `outra` e o que sobra. Uma pertenca `in CATEGORIAS`
+    # contava como o nucleo a decidir por `servicos`, que e tambem o nome de uma
+    # vertical (`reuse_metric nucleo`, criterio d do KAM-039).
     palavras = set(passo_1(texto))
     for categoria, termos in CATEGORIAS.items():
         if palavras & termos:

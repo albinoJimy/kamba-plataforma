@@ -237,7 +237,7 @@ describe("o ciclo das varreduras no lote (critério 2)", () => {
     assert.deepEqual(
       auditorias.map((a) => a.valores),
       // A dos preços (KAM-209) leva também as ofertas publicadas sem categoria.
-      VARREDURAS.map((v) => [ACTOR_DAS_VARREDURAS, v, v === "precos" ? "precos:0:sem_categoria:0" : `${v}:0`]),
+      VARREDURAS.map((v) => [ACTOR_DAS_VARREDURAS, v, v === "precos" ? "precos:0:sem_categoria:0:poucas_lojas:0" : `${v}:0`]),
     );
     for (const v of VARREDURAS) assert.match(metricas.exposicao(), new RegExp(`varredura="${v}",desfecho="concluida"\\} 1$`, "m"));
   });

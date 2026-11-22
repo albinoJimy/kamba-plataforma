@@ -7,7 +7,14 @@
 export * from "./contrato.ts";
 export * from "./regras.ts";
 export * from "./categorias.ts";
-export { FONTE_DAS_REFERENCIAS, refDoPreco, varrerPrecos, type ResultadoDosPrecos } from "./precos.ts";
+export {
+  DIAS_DA_JANELA_DO_PRECO,
+  FONTE_DAS_REFERENCIAS,
+  LOJAS_MINIMAS_DAS_REFERENCIAS,
+  refDoPreco,
+  varrerPrecos,
+  type ResultadoDosPrecos,
+} from "./precos.ts";
 export {
   AvisoDeSancaoPorSms,
   AvisoDeSancaoSemDestinoError,
@@ -30,11 +37,14 @@ export {
   DESFECHOS_DA_VARREDURA,
   METRICA_SANCOES,
   METRICA_SINAIS,
+  METRICA_NAO_AVALIADAS,
   METRICA_VARREDURAS,
+  MOTIVOS_DE_NAO_AVALIADA,
   MetricasDoTrust,
   VARREDURAS,
   type ContadoresDoTrust,
   type DesfechoDaVarredura,
+  type MotivoDeNaoAvaliada,
   type Varredura,
 } from "./metricas.ts";
 export {
@@ -70,7 +80,7 @@ export {
   SQL_INDEPENDENCIA,
   SQL_MUDANCAS_DE_CONTA_SEM_CASO,
   SQL_NAO_ENTREGUES,
-  SQL_OFERTAS_DE_PRECO_FIXO,
+  SQL_OFERTAS_COM_PRECO,
   SQL_OFERTAS_SEM_CATEGORIA,
   SQL_PRECOS_JA_SINALIZADOS,
   SQL_PEDIDO_E_COMPRADOR,

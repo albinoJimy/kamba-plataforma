@@ -4,20 +4,36 @@
  *
  * ## A fonte das referências: `plataforma/1`
  *
- * Decisão do fundador de 2026-11-21. As referências de uma oferta são os
- * preços das ofertas **publicadas**, de preço **fixo**, da **mesma moeda e
- * categoria**, de **outros** tenants — nunca do próprio, para que uma loja com
- * vinte produtos não faça a sua própria mediana. Quem as lê é o `kamba_batch`,
- * o papel auditado que atravessa tenants (`SQL_OFERTAS_DE_PRECO_FIXO`), e cada
- * corrida deixa a sua linha `batch.run` no `audit_log` (`CicloDoTrust`). O nome
- * da fonte e a versão da política vão no detalhe do sinal (`fonte`,
- * `versao_politica`): mudar o que conta como referência é mudar o `/1`.
+ * Decisões do fundador de 2026-11-21 e de 2026-11-22. As referências de uma
+ * oferta são os preços das ofertas **publicadas**, de preço **fixo**, da
+ * **mesma moeda e categoria**, de **outros** tenants — e as vinte têm de vir de
+ * pelo menos **três lojas distintas** (`LOJAS_MINIMAS_DAS_REFERENCIAS`,
+ * *proposta*): uma loja sozinha, com vinte ofertas a 1 Kz, não fixa a mediana
+ * de ninguém. Abaixo de três lojas a oferta **não se avalia**, e a varredura
+ * conta-a (`poucasLojas`). Avaliam-se as publicadas de preço fixo **e** as
+ * `a_partir_de` (o mínimo, contra a mesma mediana); o `sob_consulta` não tem
+ * preço. Quem as lê é o `kamba_batch`, o papel auditado que atravessa tenants
+ * (`SQL_OFERTAS_COM_PRECO`), e cada corrida deixa a sua linha `batch.run` no
+ * `audit_log` (`CicloDoTrust`). O nome da fonte e a versão da política vão no
+ * detalhe do sinal (`fonte`, `versao_politica`): mudar o que conta como
+ * referência é mudar o `/1`.
+ *
+ * ## Um sinal por loja e por janela de 30 dias
+ *
+ * Decisão do fundador de 2026-11-22. A chave do sinal é a do `refDaJanela`
+ * («este tenant, `preco_anomalo`, esta janela de 30 dias»), e o detalhe leva
+ * quantos SKUs a volta achou anómalos (`contagem`). O peso 5 do KAM-097 conta,
+ * assim, no máximo uma vez por janela: **o sinal nunca sanciona sozinho** (o
+ * aviso automático pede 30). Uma loja com doze SKUs fora do intervalo, ou um
+ * dono que muda o preço doze vezes, é um sinal e não doze. A primeira volta da
+ * janela fixa a contagem: a `ts_signal` é *append-only*, e as voltas seguintes
+ * da mesma janela não a reescrevem.
  *
  * ## O que o sinal diz, e o que não diz
  *
- * O `sku` da oferta **deste** tenant e quantas referências a avaliaram
- * (`contagem`). Nunca a mediana, nem um preço, nem qual tenant: a correlação
- * entre tenants sai como contagem, como a da foto repetida (KAM-200).
+ * Quantos SKUs **deste** tenant ficaram fora do intervalo. Nunca a mediana,
+ * nem um preço, nem qual tenant é referência: a correlação entre tenants sai
+ * como contagem, como a da foto repetida (KAM-200).
  *
  * ## Os limiares e o peso são os do KAM-097, *proposta*
  *
@@ -25,31 +41,23 @@
  * `precoMaximoDaMediana` (100×), da `POLITICA_DE_RISCO`; o peso do
  * `preco_anomalo` é 5 e a severidade `baixa`. Nada disto mudou neste ticket.
  *
- * ## Uma vez por preço
+ * ## As ofertas que não se avaliam, e porquê
  *
- * A chave do sinal (`ref_evento`) é derivada do tenant, do `sku`, da categoria,
- * da moeda e do preço (`refDoPreco`): a mesma oferta ao mesmo preço sinaliza
- * uma vez, e o mesmo produto com outro preço é outra avaliação. As chaves já
- * gravadas lêem-se antes (`SQL_PRECOS_JA_SINALIZADOS`), para que uma oferta
- * anómala que nada mudou não volte à escada em cada volta.
- *
- * ## As ofertas sem categoria
- *
- * As que já estavam publicadas antes da revisão `0088` ficam nulas e **não se
- * avaliam** (decisão do fundador de 2026-11-21: a guarda vale só na
- * publicação). A varredura conta-as (`semCategoria`), e a contagem vai na linha
- * de auditoria da corrida e no resultado da volta.
+ * As que já estavam publicadas antes da revisão `0088` ficam sem categoria e
+ * não se avaliam (decisão do fundador de 2026-11-21: a guarda vale só na
+ * publicação), e as que têm vinte referências de menos de três lojas também
+ * não. A varredura conta as duas (`semCategoria`, `poucasLojas`): saem no
+ * `ts_ofertas_nao_avaliadas{motivo}` do `/metrics` do processo de lote, no
+ * resultado da volta, e no `payload_hash` da linha de auditoria da corrida.
  */
 
-import { createHash } from "node:crypto";
-
-import type { OpcoesDoTrust } from "./efeito.ts";
+import { refDaJanela, type OpcoesDoTrust } from "./efeito.ts";
 import { avaliaPreco, eCategoriaDeProduto } from "./categorias.ts";
 import { POLITICA_DE_RISCO, avaliarPreco } from "./regras.ts";
 import { ServicoDeTrust } from "./servico.ts";
 import {
   RepositorioDeTrustSql,
-  SQL_OFERTAS_DE_PRECO_FIXO,
+  SQL_OFERTAS_COM_PRECO,
   SQL_OFERTAS_SEM_CATEGORIA,
   SQL_PRECOS_JA_SINALIZADOS,
   type ClienteSql,
@@ -58,11 +66,19 @@ import {
 /** O nome e a versão da fonte das referências. Ver a nota do módulo. */
 export const FONTE_DAS_REFERENCIAS = "plataforma/1";
 
+/** As lojas distintas de onde as referências têm de vir (*proposta*, decisão de 2026-11-22). */
+export const LOJAS_MINIMAS_DAS_REFERENCIAS = 3;
+
+/** A janela de um sinal de preço: um por loja em cada uma (decisão de 2026-11-22). */
+export const DIAS_DA_JANELA_DO_PRECO = 30;
+
 export interface ResultadoDosPrecos {
-  /** Os `preco_anomalo` novos. */
+  /** Os `preco_anomalo` novos: no máximo um por loja e por janela. */
   readonly sinais: number;
   /** As ofertas publicadas sem categoria, que não se avaliaram. */
   readonly semCategoria: number;
+  /** As ofertas com vinte referências de menos de três lojas, que não se avaliaram. */
+  readonly poucasLojas: number;
 }
 
 interface Oferta {
@@ -71,21 +87,13 @@ interface Oferta {
   readonly categoria: string;
   readonly currency: string;
   readonly precoMinor: number;
+  /** Só as de preço fixo são referência; as `a_partir_de` avaliam-se e não contam. */
+  readonly referencia: boolean;
 }
 
-/**
- * A chave do sinal de um preço: um `uuid` dos primeiros 16 octetos do SHA-256
- * de «tenant, sku, categoria, moeda, preço», com os bits de versão (8) e de
- * variante do RFC 9562, como o `refDaJanela`.
- */
-export function refDoPreco(o: Omit<Oferta, "precoMinor"> & { readonly precoMinor: number | bigint }): string {
-  const h = createHash("sha256")
-    .update(`kamba/trust/preco_anomalo/v1\0${o.tenantId}\0${o.sku}\0${o.categoria}\0${o.currency}\0${o.precoMinor}`, "utf8")
-    .digest();
-  h[6] = ((h[6] ?? 0) & 0x0f) | 0x80;
-  h[8] = ((h[8] ?? 0) & 0x3f) | 0x80;
-  const x = h.subarray(0, 16).toString("hex");
-  return `${x.slice(0, 8)}-${x.slice(8, 12)}-${x.slice(12, 16)}-${x.slice(16, 20)}-${x.slice(20, 32)}`;
+/** A chave do sinal de preço de um tenant na janela de `agora`. */
+export function refDoPreco(tenantId: string, agora: Date): string {
+  return refDaJanela(tenantId, "preco_anomalo", agora, DIAS_DA_JANELA_DO_PRECO);
 }
 
 /**
@@ -104,7 +112,13 @@ function lerOferta(l: Readonly<Record<string, unknown>>): Oferta | null {
     categoria,
     currency: String(l["currency"]),
     precoMinor: preco,
+    referencia: l["preco_tipo"] === "fixo",
   };
+}
+
+function inteiro(v: unknown): number {
+  const n = typeof v === "number" ? v : Number.parseInt(String(v ?? "0"), 10);
+  return Number.isSafeInteger(n) ? n : 0;
 }
 
 /** Uma volta da varredura. Corre como `kamba_batch`, na transacção de quem chama. */
@@ -119,7 +133,7 @@ export async function varrerPrecos(bd: ClienteSql, o: OpcoesDoTrust = {}): Promi
   });
 
   const grupos = new Map<string, Oferta[]>();
-  for (const l of (await bd.query(SQL_OFERTAS_DE_PRECO_FIXO)).rows) {
+  for (const l of (await bd.query(SQL_OFERTAS_COM_PRECO)).rows) {
     const oferta = lerOferta(l);
     if (oferta === null) continue;
     const chave = `${oferta.categoria}\0${oferta.currency}`;
@@ -127,11 +141,10 @@ export async function varrerPrecos(bd: ClienteSql, o: OpcoesDoTrust = {}): Promi
     if (grupo === undefined) grupos.set(chave, [oferta]);
     else grupo.push(oferta);
   }
-  const jaSinalizados = new Set(
-    (await bd.query(SQL_PRECOS_JA_SINALIZADOS)).rows.map((l) => String(l["ref_evento"])),
-  );
 
-  let sinais = 0;
+  /** Quantos SKUs anómalos, por tenant, em todas as categorias. */
+  const anomalos = new Map<string, number>();
+  let poucasLojas = 0;
   for (const grupo of grupos.values()) {
     const porTenant = new Map<string, Oferta[]>();
     for (const oferta of grupo) {
@@ -140,30 +153,48 @@ export async function varrerPrecos(bd: ClienteSql, o: OpcoesDoTrust = {}): Promi
       else proprias.push(oferta);
     }
     for (const [tenantId, proprias] of porTenant) {
-      // As referências de um tenant são as ofertas do grupo que não são dele.
-      const referencias = grupo.filter((r) => r.tenantId !== tenantId).map((r) => r.precoMinor);
+      // As referências de um tenant são as ofertas de preço fixo do grupo que
+      // não são dele. Ordenadas uma vez aqui: a `mediana` do `avaliarPreco`
+      // copia e ordena a cada chamada, e sobre uma lista já ordenada isso é
+      // linear em vez de n·log n por oferta (achado 5 da revisão adversarial).
+      const outras = grupo.filter((r) => r.referencia && r.tenantId !== tenantId);
+      const lojas = new Set(outras.map((r) => r.tenantId)).size;
+      if (outras.length >= p.referenciasMinimas && lojas < LOJAS_MINIMAS_DAS_REFERENCIAS) {
+        poucasLojas += proprias.length;
+        continue;
+      }
+      const referencias = outras.map((r) => r.precoMinor).sort((a, b) => a - b);
       for (const oferta of proprias) {
-        if (avaliarPreco(oferta.precoMinor, referencias, p) !== "anomalo") continue;
-        const ref = refDoPreco(oferta);
-        if (jaSinalizados.has(ref)) continue;
-        const r = await servico.sinalizar({
-          tenantId,
-          tipo: "preco_anomalo",
-          refEvento: ref,
-          detalhe: {
-            sku: oferta.sku,
-            contagem: referencias.length,
-            fonte: FONTE_DAS_REFERENCIAS,
-            versao_politica: p.versao,
-          },
-          ocorridoEm: agora,
-        });
-        if (!r.repetido) sinais++;
+        if (avaliarPreco(oferta.precoMinor, referencias, p) === "anomalo") {
+          anomalos.set(tenantId, (anomalos.get(tenantId) ?? 0) + 1);
+        }
       }
     }
   }
 
-  const n = (await bd.query(SQL_OFERTAS_SEM_CATEGORIA)).rows[0]?.["n"];
-  const semCategoria = typeof n === "number" ? n : Number.parseInt(String(n ?? "0"), 10);
-  return { sinais, semCategoria: Number.isSafeInteger(semCategoria) ? semCategoria : 0 };
+  // Um sinal por loja e por janela. As chaves desta janela que já existem
+  // lêem-se antes, para que uma loja já sinalizada não volte à escada em cada
+  // volta da hora.
+  const chaves = [...anomalos.keys()].map((t) => refDoPreco(t, agora));
+  const jaSinalizados = new Set(
+    chaves.length === 0
+      ? []
+      : (await bd.query(SQL_PRECOS_JA_SINALIZADOS, [chaves])).rows.map((l) => String(l["ref_evento"])),
+  );
+  let sinais = 0;
+  for (const [tenantId, contagem] of anomalos) {
+    const ref = refDoPreco(tenantId, agora);
+    if (jaSinalizados.has(ref)) continue;
+    const r = await servico.sinalizar({
+      tenantId,
+      tipo: "preco_anomalo",
+      refEvento: ref,
+      detalhe: { contagem, fonte: FONTE_DAS_REFERENCIAS, versao_politica: p.versao },
+      ocorridoEm: agora,
+    });
+    if (!r.repetido) sinais++;
+  }
+
+  const semCategoria = inteiro((await bd.query(SQL_OFERTAS_SEM_CATEGORIA)).rows[0]?.["n"]);
+  return { sinais, semCategoria, poucasLojas };
 }

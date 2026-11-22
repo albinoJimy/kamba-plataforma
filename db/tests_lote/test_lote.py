@@ -162,7 +162,10 @@ TESTES_OBRIGATORIOS = (
     "19 referências de outras lojas não avaliam; a 20.ª avalia, e o sinal diz só a contagem",
     "1% e 100× da mediana ficam dentro; um cêntimo para fora sinaliza",
     "as ofertas sem categoria e as da `outra` não se avaliam, e a volta conta as sem categoria",
+    "doze SKUs anómalos são um sinal, e não dão aviso nem limitação só por preço",
+    "uma loja com 20 ofertas a 1 Kz não fixa a mediana, e a volta conta a oferta que não avaliou",
     "a mediana atravessa tenants só pelo kamba_batch: o kamba_app vê as ofertas do seu tenant e mais nenhuma",
+    "só as publicadas, não apagadas e de preço fixo são referência; o `a_partir_de` avalia-se",
 )
 
 
