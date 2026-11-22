@@ -188,11 +188,19 @@ test("ligada, resolver um telefone escreve o pseudónimo sem tenant sob o kid ac
   }
 });
 
-test("ligada, um pedido só com BSUID não escreve pseudónimo (não há número)", async () => {
+test("ligada, um pedido só com BSUID não escreve pseudónimo, mas renova o visto_at do que houver (D4)", async () => {
   const id = await identidade("dev", "ligada", new FonteContada());
   const c = clienteNovo();
   await id.resolveContact(c, { tenantId: TENANT_A, bsuid: "AO.1234567890" });
   assert.equal(c.com(SQL.DEFINIR_PSEUDONIMO_SEM_TENANT).length, 0);
+  assert.deepEqual(c.com(SQL.RENOVAR_PSEUDONIMO_SEM_TENANT), [[TENANT_A, CONTACTO, AGORA]]);
+});
+
+test("desligada, um pedido só com BSUID não renova nada", async () => {
+  const id = await identidade("dev", undefined, new FonteContada());
+  const c = clienteNovo();
+  await id.resolveContact(c, { tenantId: TENANT_A, bsuid: "AO.1234567890" });
+  assert.equal(c.com(SQL.RENOVAR_PSEUDONIMO_SEM_TENANT).length, 0);
 });
 
 for (const [ambiente, valor] of [

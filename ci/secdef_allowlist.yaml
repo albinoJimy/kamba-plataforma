@@ -239,7 +239,7 @@ funcoes:
       `owner_contact_id`. A reentrega idempotente nao toca em nada.
       `db/tests/test_canal_do_dono_schema.py` mede as recusas, o isolamento e o
       `42501` dos outros papeis.
-  - funcao: platform.ts_compradores_noutra_loja_do_dono(p_tenants uuid[], p_compra_desde timestamp with time zone, p_visto_desde timestamp with time zone)
+  - funcao: platform.ts_compradores_noutra_loja_do_dono(p_tenants uuid[])
     adr: ADR-010
     razao: >-
       A comparacao da correlacao entre tenants por comprador (KAM-208, revisao
@@ -252,7 +252,13 @@ funcoes:
       A excepcao e **estreita**: o `DEFINER` nao contorna o `FORCE`
       (`db/rls.py`), e por isso a funcao poe o `app.tenant_id` em cada tenant da
       lista, le so desse tenant, e no fim repoe o que estava; uma lista com
-      tenants inventados so da linhas que nao existem. O `EXECUTE` e so do
+      tenants inventados so da linhas que nao existem. As janelas (30 dias de
+      compras, 90 de pseudonimo visto) sao da funcao e nao argumento: com elas
+      do chamador, o lote bissectava o `paga_at` de uma encomenda e ligava um
+      comprador de A a B. **O limite que fica:** com um subconjunto de tenants
+      na lista, o `kamba_batch` sabe se dois tenants tem o mesmo dono; o SQL do
+      modulo passa sempre a lista inteira, e cada corrida fica no `audit_log`.
+      O `EXECUTE` e so do
       `kamba_batch`, e o `PUBLIC` perde-o. Em `prod` nao corre: o interruptor do
       `packages/core-ts/src/identity/correlacao.ts` esta trancado no codigo ate
       o parecer chegar (D1). `db/tests/test_correlacao_entre_tenants.py` mede o

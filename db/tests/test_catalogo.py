@@ -611,6 +611,10 @@ class TestConvencoes(ComBase):
                 ("consent_texts", "version", "text", None),
                 ("contact_deks", "dek_id", "uuid", "gen_random_uuid()"),
                 ("contact_endpoints", "id", "uuid", "gen_random_uuid()"),
+                # KAM-208: chave natural, o contacto no seu tenant: um
+                # pseudonimo por contacto.
+                ("contact_xtenant_pseudonym", "contact_id", "uuid", None),
+                ("contact_xtenant_pseudonym", "tenant_id", "uuid", None),
                 ("contacts", "contact_id", "uuid", "gen_random_uuid()"),
                 # KAM-121: o calendario e o item do social, pela regra geral
                 # («conta» < «conte» < «contr»).
@@ -1537,7 +1541,11 @@ class TestConvencoes(ComBase):
              # e a composta do item para o calendario.
              "brand_profile",
              "content_calendar",
-             "content_items"},
+             "content_items",
+             # KAM-208 (revisao da correlacao entre tenants). Pela chave
+             # primaria `(tenant_id, contact_id)`. **Com** FK para `tenants` e
+             # a composta para o contacto.
+             "contact_xtenant_pseudonym"},
         )
         for tabela, anulavel in com_tenant:
             with self.subTest(tabela=tabela):
@@ -2242,7 +2250,10 @@ class TestConvencoes(ComBase):
         # **122** desde a revisao do social do dono (KAM-121): a do tenant em
         # cada uma das tres, e a composta `content_items_calendario_fk`: um
         # item de um tenant nao aponta para o calendario de outro.
-        self.assertEqual(len(linhas), 122)
+        #
+        # **124** desde a revisao da correlacao entre tenants (KAM-208): a do
+        # tenant e a composta do contacto da `contact_xtenant_pseudonym`.
+        self.assertEqual(len(linhas), 124)
         for nome, alvo in linhas:
             with self.subTest(fk=nome):
                 self.assertTrue(alvo.startswith("platform."), alvo)

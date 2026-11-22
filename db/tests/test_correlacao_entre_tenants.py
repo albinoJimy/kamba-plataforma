@@ -49,11 +49,12 @@ CONSULTAS_DA_IDENTIDADE = RAIZ / "packages" / "core-ts" / "src" / "identity" / "
 VERSOES = RAIZ / "db" / "migrations" / "versions"
 
 TABELA = "platform.contact_xtenant_pseudonym"
-COMPARACAO = "platform.ts_compradores_noutra_loja_do_dono(uuid[], timestamptz, timestamptz)"
+COMPARACAO = "platform.ts_compradores_noutra_loja_do_dono(uuid[])"
 PURGA = "platform.contact_xtenant_purgar(uuid[], timestamptz)"
 
 AGORA = datetime.now(timezone.utc)
-COMPRA_DESDE = AGORA - timedelta(days=30)
+#: O corte da purga, como o lote o passa: 90 dias (D4). As janelas da
+#: comparacao sao da funcao, e nao argumento (achado 3 da revisao).
 VISTO_DESDE = AGORA - timedelta(days=90)
 
 
@@ -120,14 +121,28 @@ class Base(ComBase):
         )
 
     def compra(self, tenant: str, pseudonimo: bytes | None, kid: str = "x1",
-               paga: datetime | None = None, contacto: str | None = None) -> str:
-        """Uma encomenda paga de um comprador; devolve o contacto."""
+               paga: datetime | None = None, contacto: str | None = None,
+               entregue: datetime | None = None) -> str:
+        """Uma encomenda paga (ou so entregue) de um comprador; devolve o contacto."""
         self.como(None, tenant)
         if contacto is None:
             contacto = factories.contacto(self.cursor, tenant)
             if pseudonimo is not None:
                 self.pseudonimo(tenant, contacto, pseudonimo, kid)
         self.como(None, tenant)
+        if entregue is not None:
+            # Uma encomenda nasce sem `entregue_at` (o *trigger* da `0071`), e o
+            # ensaio precisa de uma entregue sem `paga_at` na janela: os
+            # *triggers* ficam de fora so nesta transaccao do administrador.
+            self.cursor.execute("SET LOCAL session_replication_role = replica")
+            self.cursor.execute(
+                "INSERT INTO platform.orders_mirror (tenant_id, contact_id, intent_key, total_minor, "
+                "lines_snapshot, entregue_at, entrega_confirmada_por) "
+                "VALUES (%s, %s, %s, 1000, '[]'::jsonb, %s, 'cliente')",
+                (tenant, contacto, f"ik-{uuid.uuid4().hex[:12]}", entregue),
+            )
+            self.cursor.execute("SET LOCAL session_replication_role = origin")
+            return contacto
         self.cursor.execute(
             "INSERT INTO platform.orders_mirror (tenant_id, contact_id, intent_key, total_minor, "
             "lines_snapshot, paga_at) VALUES (%s, %s, %s, 1000, '[]'::jsonb, %s)",
@@ -140,8 +155,8 @@ class Base(ComBase):
         self.como(papel)
         self.cursor.execute(
             "SELECT tenant_id::text, contagem FROM platform.ts_compradores_noutra_loja_do_dono("
-            "%s::uuid[], %s, %s)",
-            (tenants, COMPRA_DESDE, VISTO_DESDE),
+            "%s::uuid[])",
+            (tenants,),
         )
         return {t: n for t, n in self.cursor.fetchall()}
 
@@ -251,8 +266,8 @@ class TestAFuncao(Base):
         self.como("kamba_app", tenant)
         self.assertErroSql(
             PRIVILEGIO_INSUFICIENTE, self.cursor,
-            "SELECT * FROM platform.ts_compradores_noutra_loja_do_dono(%s::uuid[], %s, %s)",
-            ([tenant], COMPRA_DESDE, VISTO_DESDE),
+            "SELECT * FROM platform.ts_compradores_noutra_loja_do_dono(%s::uuid[])",
+            ([tenant],),
         )
 
     def test_devolve_so_duas_colunas_e_repoe_o_contexto(self) -> None:
@@ -265,7 +280,7 @@ class TestAFuncao(Base):
         antes = str(uuid.uuid4())
         factories.contexto(self.cursor, antes)
         q = ConsultaDoTypeScript("SQL_COMPRADORES_NOUTRA_LOJA_DO_DONO", SQL_TS)
-        self.cursor.execute(q.sql, q.args(COMPRA_DESDE, VISTO_DESDE))
+        self.cursor.execute(q.sql, q.args())
         linhas = [tuple(x) for x in self.cursor.fetchall()]
         self.assertEqual([d[0] for d in self.cursor.description], ["tenant_id", "contagem"])
         self.assertIn((a, 1), linhas)
@@ -276,13 +291,29 @@ class TestAFuncao(Base):
         self.cursor.execute("SELECT current_setting('app.tenant_id', true)")
         self.assertEqual(self.cursor.fetchone()[0], antes, "o contexto de quem chama foi reposto")
 
-    def test_sem_instantes_recusa(self) -> None:
-        self.como("kamba_batch")
-        self.assertErroSql(
-            "22004", self.cursor,
-            "SELECT * FROM platform.ts_compradores_noutra_loja_do_dono('{}'::uuid[], NULL, %s)",
-            (VISTO_DESDE,),
+    def test_as_janelas_nao_sao_argumento(self) -> None:
+        """Achado 3: com os instantes do chamador, o lote bissectava uma encomenda."""
+        self.cursor.execute(
+            "SELECT pg_get_function_identity_arguments('platform.ts_compradores_noutra_loja_do_dono'::regproc)"
         )
+        self.assertEqual(self.cursor.fetchone()[0], "p_tenants uuid[]")
+
+    def test_sem_contexto_previo_fica_sem_contexto(self) -> None:
+        """Uma ligacao nova, que nunca pos o `app.tenant_id`, sai sem tenant nenhum."""
+        dono = _pseudonimo()
+        a, b = self.loja(dono), self.loja(dono)
+        x = _pseudonimo()
+        self.compra(a, x)
+        self.compra(b, x)
+        self.cursor.execute("RESET ROLE")
+        self.cursor.execute("RESET app.tenant_id")
+        self.cursor.execute("SET LOCAL ROLE kamba_batch")
+        self.cursor.execute(
+            "SELECT count(*) FROM platform.ts_compradores_noutra_loja_do_dono(%s::uuid[])", ([a, b],)
+        )
+        self.assertEqual(self.cursor.fetchone()[0], 2)
+        self.cursor.execute("SELECT coalesce(current_setting('app.tenant_id', true), '')")
+        self.assertEqual(self.cursor.fetchone()[0], "", "o contexto do ultimo tenant ficou posto")
 
 
 class TestOAnel(Base):
@@ -357,6 +388,46 @@ class TestOAnel(Base):
             "WHERE tenant_id = %s AND contact_id = %s", (fica, b, sai)
         )
         self.pseudonimo(b, fica, x)
+        self.assertEqual(self.comparar([a, b]), {a: 1, b: 1})
+
+    def test_uma_encomenda_so_entregue_na_janela_conta(self) -> None:
+        dono = _pseudonimo()
+        a, b = self.loja(dono), self.loja(dono)
+        x = _pseudonimo()
+        self.compra(a, x, entregue=AGORA - timedelta(days=2))
+        self.compra(b, x)
+        self.assertEqual(self.comparar([a, b]), {a: 1, b: 1})
+
+    def test_o_dono_visto_ha_mais_de_90_dias_nao_junta_lojas(self) -> None:
+        """D4 tambem no dono: o pseudonimo dele vence como o de qualquer contacto."""
+        dono = _pseudonimo()
+        a = self.loja(dono)
+        self.como(None)
+        b = factories.tenant(self.cursor)
+        velho = factories.contacto(self.cursor, b)
+        self.cursor.execute("UPDATE platform.tenants SET owner_contact_id = %s WHERE id = %s", (velho, b))
+        self.pseudonimo(b, velho, dono, visto=AGORA - timedelta(days=91))
+        x = _pseudonimo()
+        self.compra(a, x)
+        self.compra(b, x)
+        self.assertEqual(self.comparar([a, b]), {})
+
+    def test_o_dono_absorvido_numa_fusao_conta_pelo_contacto_que_ficou(self) -> None:
+        dono = _pseudonimo()
+        a = self.loja(dono)
+        self.como(None)
+        b = factories.tenant(self.cursor)
+        absorvido = factories.contacto(self.cursor, b)
+        fica = factories.contacto(self.cursor, b)
+        self.cursor.execute("UPDATE platform.tenants SET owner_contact_id = %s WHERE id = %s", (absorvido, b))
+        self.cursor.execute(
+            "UPDATE platform.contacts SET merged_into = %s, merged_at = now() "
+            "WHERE tenant_id = %s AND contact_id = %s", (fica, b, absorvido)
+        )
+        self.pseudonimo(b, fica, dono)
+        x = _pseudonimo()
+        self.compra(a, x)
+        self.compra(b, x)
         self.assertEqual(self.comparar([a, b]), {a: 1, b: 1})
 
     def test_um_tenant_fora_da_lista_nao_entra(self) -> None:

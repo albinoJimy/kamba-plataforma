@@ -338,13 +338,13 @@ describe("a correlação entre tenants no ciclo (KAM-208)", () => {
     assert.ok(textos.indexOf(SQL_PURGAR_PSEUDONIMOS) < textos.indexOf(SQL_COMPRADORES_NOUTRA_LOJA_DO_DONO));
   });
 
-  it("os instantes são 30 dias de compras e 90 de pseudónimo visto, contados do relógio", async () => {
+  it("a comparação não leva instantes (as janelas são da base) e a purga corta aos 90 dias do relógio", async () => {
     const { lote, c, agora } = ciclo({ correlacao: "ligada" });
     await c.correr();
     const [comparacao] = lote.com(SQL_COMPRADORES_NOUTRA_LOJA_DO_DONO);
     const [purga] = lote.com(SQL_PURGAR_PSEUDONIMOS);
+    assert.deepEqual(comparacao?.valores, [], "com instantes, o lote bissectava uma encomenda");
     const dias = (d: unknown) => (agora.getTime() - (d as Date).getTime()) / 86_400_000;
-    assert.deepEqual(comparacao?.valores.map(dias), [30, 90]);
     assert.deepEqual(purga?.valores.map(dias), [90]);
   });
 

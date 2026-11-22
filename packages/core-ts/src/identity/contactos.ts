@@ -1317,6 +1317,12 @@ export class Identidade {
       }
     }
 
+    // KAM-208, D4: sem telefone não há pseudónimo a calcular, mas a resolução
+    // conta — o `visto_at` do que o contacto já tenha renova-se.
+    if (telefone === null && this.#correlacao !== null) {
+      await executar(cliente, SQL.RENOVAR_PSEUDONIMO_SEM_TENANT, [tenant, contacto, this.#agora()]);
+    }
+
     return { tenantId: tenant, contactId: contacto, desfecho, evento };
   }
 

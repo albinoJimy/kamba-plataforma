@@ -15,14 +15,17 @@ D5 e D6), e nenhuma outra:
   `kamba_identity`, ao resolver o contacto; o `kamba_app` e o `kamba_batch`
   **nao tem privilegio nenhum** nela. RLS `tenant_iso` com `FORCE`, como todas
   as tabelas com `tenant_id`.
-* `platform.ts_compradores_noutra_loja_do_dono(uuid[], timestamptz,
-  timestamptz)` — a comparacao. Devolve `(tenant_id, contagem)`: por tenant, os
-  compradores (contacto de encomenda paga ou entregue desde o primeiro
-  instante) cujo pseudonimo compra tambem noutro tenant do **mesmo dono** — o
-  `owner_contact_id` com o mesmo pseudonimo nos dois (D5). **Nunca devolve o
-  pseudonimo nem o outro tenant.** Pseudonimos de `kid` diferentes nunca se
-  comparam (D3, rotacao preguicosa), e os vistos antes do segundo instante nao
-  contam (D4).
+* `platform.ts_compradores_noutra_loja_do_dono(uuid[])` — a comparacao.
+  Devolve `(tenant_id, contagem)`: por tenant, os compradores (contacto de
+  encomenda paga ou entregue nos ultimos 30 dias, D6) cujo pseudonimo compra
+  tambem noutro tenant do **mesmo dono** — o `owner_contact_id` com o mesmo
+  pseudonimo nos dois (D5). O comprador e o dono seguem as fusoes ate ao
+  contacto que ficou. **Nunca devolve o pseudonimo nem o outro tenant.**
+  Pseudonimos de `kid` diferentes nunca se comparam (D3, rotacao preguicosa), e
+  os vistos ha mais de 90 dias nao contam (D4). **As duas janelas sao da
+  funcao, e nao de quem chama** (achado 3 da revisao adversarial): com os
+  instantes como argumento, o lote bissectava o `paga_at` de uma encomenda
+  concreta e ficava a saber que comprador de A compra em B.
 * `platform.contact_xtenant_purgar(uuid[], timestamptz)` — a retencao (D4):
   apaga os pseudonimos vistos antes do instante, e devolve quantos.
 * `ts_signal.tipo` ganha `comprador_noutra_loja_do_dono`, de severidade
@@ -45,6 +48,14 @@ linhas. A saida e a da `0067`: a funcao poe o `app.tenant_id` em cada tenant
 da lista, le ou apaga **so desse tenant**, e no fim repoe o que estava. A lista
 de tenants vem de quem chama (o `kamba_batch`, que le `platform.tenants`), e
 uma lista com tenants a mais ou inventados so da linhas que nao existem.
+
+**O limite que fica, e dito:** a funcao nao enumera os tenants sozinha (o
+`FORCE` da `tenants` nao a deixa), pelo que um `kamba_batch` que a chame com um
+**subconjunto** — `[A, B]`, par a par — fica a saber se A e B tem o mesmo dono e
+compradores em comum. O `kamba_batch` e o papel auditado que atravessa tenants
+e ja le as encomendas e os donos de todos; o que a funcao lhe nega e o
+pseudonimo e o comprador. O SQL do modulo (`SQL_COMPRADORES_NOUTRA_LOJA_DO_DONO`)
+passa sempre a lista inteira, e cada corrida fica no `audit_log`.
 
 O `EXECUTE` das duas e **so** do `kamba_batch`; o `PUBLIC` perde-o. E nenhum
 papel ganha `SELECT` na tabela alem do `kamba_identity`, que e quem a escreve
@@ -84,9 +95,7 @@ TABELA = "platform.contact_xtenant_pseudonym"
 FUNCAO_DO_ESQUECIMENTO = "platform.contact_xtenant_esquecer()"
 SINAIS = "platform.ts_signal"
 
-FUNCAO_DA_COMPARACAO = (
-    "platform.ts_compradores_noutra_loja_do_dono(uuid[], timestamptz, timestamptz)"
-)
+FUNCAO_DA_COMPARACAO = "platform.ts_compradores_noutra_loja_do_dono(uuid[])"
 FUNCAO_DA_PURGA = "platform.contact_xtenant_purgar(uuid[], timestamptz)"
 
 #: O dominio do tipo de sinal depois desta revisao: os nove da `0056` e o novo.
@@ -177,8 +186,7 @@ def upgrade() -> None:
 
     op.execute(
         """
-        CREATE FUNCTION platform.ts_compradores_noutra_loja_do_dono(
-            p_tenants uuid[], p_compra_desde timestamptz, p_visto_desde timestamptz)
+        CREATE FUNCTION platform.ts_compradores_noutra_loja_do_dono(p_tenants uuid[])
           RETURNS TABLE (tenant_id uuid, contagem integer)
           LANGUAGE plpgsql
           SECURITY DEFINER
@@ -187,6 +195,9 @@ def upgrade() -> None:
         #variable_conflict use_column
         DECLARE
           v_antes    text := current_setting('app.tenant_id', true);
+          -- As janelas (D6 e D4, *propostas*): da funcao, e nao de quem chama.
+          v_compra_desde timestamptz := now() - interval '30 days';
+          v_visto_desde  timestamptz := now() - interval '90 days';
           v_tenant   uuid;
           v_dono_t   uuid[]  := '{}';
           v_dono_k   text[]  := '{}';
@@ -196,21 +207,29 @@ def upgrade() -> None:
           v_comp_p   bytea[] := '{}';
           v_linha    record;
         BEGIN
-          IF p_compra_desde IS NULL OR p_visto_desde IS NULL THEN
-            RAISE EXCEPTION 'ts_compradores_noutra_loja_do_dono: os dois instantes sao obrigatorios'
-              USING ERRCODE = '22004';
-          END IF;
           FOREACH v_tenant IN ARRAY coalesce(p_tenants, '{}'::uuid[]) LOOP
             -- So este tenant: a RLS `FORCE` vincula tambem o dono da funcao.
             PERFORM set_config('app.tenant_id', v_tenant::text, true);
 
-            -- O pseudonimo do dono deste tenant.
+            -- O pseudonimo do dono deste tenant, pelo contacto que ficou se o
+            -- do `owner_contact_id` foi absorvido numa fusao (achado 6).
             FOR v_linha IN
-              SELECT x.kid, x.pseudonimo
-                FROM platform.tenants t
+              WITH RECURSIVE dono(actual, passos) AS (
+                  SELECT t.owner_contact_id, 0
+                    FROM platform.tenants t
+                   WHERE t.id = v_tenant AND t.owner_contact_id IS NOT NULL
+                  UNION ALL
+                  SELECT c.merged_into, k.passos + 1
+                    FROM dono k
+                    JOIN platform.contacts c
+                      ON c.tenant_id = v_tenant AND c.contact_id = k.actual
+                   WHERE c.merged_into IS NOT NULL AND k.passos < 16
+                )
+              SELECT DISTINCT x.kid, x.pseudonimo
+                FROM dono k
                 JOIN platform.contact_xtenant_pseudonym x
-                  ON x.tenant_id = t.id AND x.contact_id = t.owner_contact_id
-               WHERE t.id = v_tenant AND x.visto_at >= p_visto_desde
+                  ON x.tenant_id = v_tenant AND x.contact_id = k.actual
+               WHERE x.visto_at >= v_visto_desde
             LOOP
               v_dono_t := v_dono_t || v_tenant;
               v_dono_k := v_dono_k || v_linha.kid;
@@ -224,7 +243,7 @@ def upgrade() -> None:
                   SELECT o.contact_id, o.contact_id, 0
                     FROM platform.orders_mirror o
                    WHERE o.tenant_id = v_tenant
-                     AND (o.paga_at >= p_compra_desde OR o.entregue_at >= p_compra_desde)
+                     AND (o.paga_at >= v_compra_desde OR o.entregue_at >= v_compra_desde)
                   UNION ALL
                   SELECT k.origem, c.merged_into, k.passos + 1
                     FROM cadeia k
@@ -236,7 +255,7 @@ def upgrade() -> None:
                 FROM cadeia k
                 JOIN platform.contact_xtenant_pseudonym x
                   ON x.tenant_id = v_tenant AND x.contact_id = k.actual
-               WHERE x.visto_at >= p_visto_desde
+               WHERE x.visto_at >= v_visto_desde
             LOOP
               v_comp_t := v_comp_t || v_tenant;
               v_comp_k := v_comp_k || v_linha.kid;

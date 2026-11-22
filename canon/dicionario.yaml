@@ -18482,14 +18482,12 @@ entradas:
     variantes_literais: []
   - seccao: "3.68"
     conceito: "A comparação"
-    canonico: "platform.ts_compradores_noutra_loja_do_dono(p_tenants, p_compra_desde, p_visto_desde) → o tenant e a contagem"
+    canonico: "platform.ts_compradores_noutra_loja_do_dono(p_tenants) → o tenant e a contagem"
     literais:
-      - "platform.ts_compradores_noutra_loja_do_dono(p_tenants, p_compra_desde, p_visto_desde)"
+      - "platform.ts_compradores_noutra_loja_do_dono(p_tenants)"
     nomes:
       - "platform.ts_compradores_noutra_loja_do_dono"
       - "p_tenants"
-      - "p_compra_desde"
-      - "p_visto_desde"
     nomes_nota:
       - "SECURITY"
       - "DEFINER"
@@ -23765,10 +23763,8 @@ tabelas:
     esquema: "platform"
     colunas:
       - "p_tenants"
-      - "p_compra_desde"
-      - "p_visto_desde"
     aberta: false
-    assinatura: "platform.ts_compradores_noutra_loja_do_dono(p_tenants, p_compra_desde, p_visto_desde)"
+    assinatura: "platform.ts_compradores_noutra_loja_do_dono(p_tenants)"
     seccao: "3.68"
     conceito: "A comparação"
   - nome: "contact_xtenant_purgar"

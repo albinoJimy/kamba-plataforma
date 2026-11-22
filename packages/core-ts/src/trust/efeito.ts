@@ -323,10 +323,10 @@ export async function varrerCompradoresDoDono(bd: ClienteSql, o: OpcoesDoTrust =
   const p = o.politica ?? POLITICA_DE_RISCO;
   const agora = (o.relogio ?? (() => new Date()))();
   const servico = new ServicoDeTrust({ repositorio: new RepositorioDeTrustSql(bd, "lote"), politica: p, relogio: () => agora, ...contar(o) });
-  const compraDesde = new Date(agora.getTime() - DIAS_DO_COMPRADOR_NOUTRA_LOJA * DIA);
-  const vistoDesde = new Date(agora.getTime() - DIAS_DE_RETENCAO_DO_PSEUDONIMO * DIA);
   let n = 0;
-  for (const l of (await bd.query(SQL_COMPRADORES_NOUTRA_LOJA_DO_DONO, [compraDesde, vistoDesde])).rows) {
+  // As janelas (30 dias de compras, 90 de pseudónimo visto) são da função da
+  // base, e não argumento: com elas aqui, quem chama bissectava uma encomenda.
+  for (const l of (await bd.query(SQL_COMPRADORES_NOUTRA_LOJA_DO_DONO)).rows) {
     const tenantId = String(l["tenant_id"]);
     const r = await servico.sinalizar({
       tenantId,

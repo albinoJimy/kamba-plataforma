@@ -210,6 +210,15 @@ export const DEFINIR_PSEUDONIMO_SEM_TENANT =
   "ON CONFLICT (tenant_id, contact_id) DO UPDATE SET pseudonimo = EXCLUDED.pseudonimo, " +
   "kid = EXCLUDED.kid, visto_at = EXCLUDED.visto_at";
 
+/**
+ * Uma resolução sem telefone (só o BSUID) renova o `visto_at` do pseudónimo que
+ * o contacto já tenha: a retenção conta da última resolução (D4), e um
+ * comprador activo que chegue só pelo BSUID não o perde aos 90 dias.
+ */
+export const RENOVAR_PSEUDONIMO_SEM_TENANT =
+  "UPDATE platform.contact_xtenant_pseudonym SET visto_at = $3 " +
+  "WHERE tenant_id = $1 AND contact_id = $2";
+
 /** O contacto deixou de ter o número (mudou de mãos, fundiu-se, apagou-se): o pseudónimo vai. */
 export const APAGAR_PSEUDONIMO_SEM_TENANT =
   "DELETE FROM platform.contact_xtenant_pseudonym WHERE tenant_id = $1 AND contact_id = $2";
@@ -248,5 +257,6 @@ export const TODAS: Readonly<Record<string, string>> = {
   CIFRA_DO_TELEFONE,
   CONTAR_POR_RODAR,
   DEFINIR_PSEUDONIMO_SEM_TENANT,
+  RENOVAR_PSEUDONIMO_SEM_TENANT,
   APAGAR_PSEUDONIMO_SEM_TENANT,
 };
