@@ -440,7 +440,7 @@ class TestExportacao(ComOffboarding):
         r = exportar(self.batch, self.app, a, self.armazenamento, D0 + timedelta(days=2))
         ficheiros = self.ficheiros(r["ref"])
         manifesto = json.loads(ficheiros.pop("manifesto.json"))
-        self.assertEqual(manifesto["versao"], "1.2.0")
+        self.assertEqual(manifesto["versao"], "1.3.0")
         self.assertEqual(sorted(f["nome"] for f in manifesto["ficheiros"]), sorted(ficheiros))
         for f in manifesto["ficheiros"]:
             self.assertEqual(hashlib.sha256(ficheiros[f["nome"]]).hexdigest(), f["sha256"])
