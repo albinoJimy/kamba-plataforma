@@ -148,7 +148,7 @@ import type { Logger } from "@kamba/core-ts/logger";
 import { enderecoDoPedido } from "../rotas.ts";
 import type { LeitorDoCanal } from "./canal.ts";
 import { ESTADOS_DA_ENCOMENDA, type Comercio, type EstadoDaEncomenda } from "./comercio.ts";
-import { FORMA_DA_CHAVE, Idempotencia, type Guardada } from "./idempotencia.ts";
+import { FORMA_DA_CHAVE, Idempotencia, type Deduplicacao, type Guardada } from "./idempotencia.ts";
 import { MetricasDoPainel, type MotivoDeErro, type RotaDoPainel } from "./metricas.ts";
 import {
   cabecalhos,
@@ -334,7 +334,8 @@ export interface OpcoesDoPainel {
   };
   /** O anel da `segredo_onboarding_assinatura`: lê a `sessao` do KAM-086 e assina a do painel. */
   readonly anelDaAssinatura: readonly (Uint8Array | null)[];
-  readonly idempotencia?: Idempotencia | undefined;
+  /** Sem ela, em memória (`Idempotencia`): só um processo. O `server.ts` dá a da base. */
+  readonly idempotencia?: Deduplicacao | undefined;
   readonly metricas?: MetricasDoPainel | undefined;
   readonly reentrada?: OpcoesDaReentrada | undefined;
   readonly troca?: OpcoesDaTroca | undefined;

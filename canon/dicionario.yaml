@@ -12,7 +12,7 @@
 
 version: 1
 fonte: "specs/02_Dicionario_de_Dados_Canonico.md"
-versao_dicionario: "1.135"
+versao_dicionario: "1.136"
 entradas:
   - seccao: "3.1"
     conceito: "Contacto"
@@ -22617,6 +22617,55 @@ entradas:
     nomes_nota:
       - "prod"
     variantes_literais: []
+  - seccao: "3.84"
+    conceito: "Chave de idempotência do painel"
+    canonico: "platform.painel_idempotencia(tenant_id, chave, impressao, estado, corpo, criado_at, expira_at)"
+    literais:
+      - "platform.painel_idempotencia(tenant_id, chave, impressao, estado, corpo, criado_at, expira_at)"
+    nomes:
+      - "platform.painel_idempotencia"
+      - "tenant_id"
+      - "chave"
+      - "impressao"
+      - "estado"
+      - "corpo"
+      - "criado_at"
+      - "expira_at"
+    nomes_nota:
+      - "PATCH"
+      - "prod"
+      - "tenant_id"
+      - "chave"
+      - "FORCE"
+      - "painel_revogacao"
+      - "impressao"
+      - "estado"
+      - "corpo"
+      - "painel_idempotencia_resposta_ck"
+      - "kamba_app"
+      - "kamba_batch"
+      - "idempotencia_do_painel"
+      - "criado_at"
+      - "CAMINHO_IDEMPOTENCIA_DO_PAINEL"
+    variantes_literais: []
+  - seccao: "3.84"
+    conceito: "O adaptador e a porta"
+    canonico: "IdempotenciaNaBase, Deduplicacao, LIGACOES_DA_IDEMPOTENCIA"
+    literais:
+      - "IdempotenciaNaBase"
+      - "Deduplicacao"
+      - "LIGACOES_DA_IDEMPOTENCIA"
+    nomes:
+      - "IdempotenciaNaBase"
+      - "Deduplicacao"
+      - "LIGACOES_DA_IDEMPOTENCIA"
+    nomes_nota:
+      - "Deduplicacao"
+      - "Idempotencia"
+      - "dev"
+      - "IdempotenciaNaBase"
+      - "server.ts"
+    variantes_literais: []
 
 tabelas:
   - nome: "contacts"
@@ -24316,6 +24365,20 @@ tabelas:
     assinatura: "platform.painel_revogacao(revogacao_id, tenant_id, sid, ate, expira_at, criado_at)"
     seccao: "3.83"
     conceito: "Revogações do painel"
+  - nome: "painel_idempotencia"
+    esquema: "platform"
+    colunas:
+      - "tenant_id"
+      - "chave"
+      - "impressao"
+      - "estado"
+      - "corpo"
+      - "criado_at"
+      - "expira_at"
+    aberta: false
+    assinatura: "platform.painel_idempotencia(tenant_id, chave, impressao, estado, corpo, criado_at, expira_at)"
+    seccao: "3.84"
+    conceito: "Chave de idempotência do painel"
 
 dominios:
   - coluna: "consent_event.purpose"

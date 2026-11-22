@@ -334,6 +334,8 @@ class TestCatalogoReal(ComBase):
                 ("platform", "owner_notices", "tenant_id"),
                 # KAM-223: a troca de telefone do dono («owner_n» < «owner_p»).
                 ("platform", "owner_phone_changes", "tenant_id"),
+                # KAM-240: a idempotencia do painel («ow» < «pai_i» < «pai_r»).
+                ("platform", "painel_idempotencia", "tenant_id"),
                 # KAM-236: as revogacoes do painel («ow» < «pai» < «pay»).
                 ("platform", "painel_revogacao", "tenant_id"),
                 # KAM-052: a conta de pagamento, **depois** das do aviso ao
@@ -676,6 +678,8 @@ class TestCatalogoReal(ComBase):
                 ("owner_notices", "tenant_iso", "ALL", "{public}"),
                 # KAM-223: a troca de telefone do dono, uma politica so.
                 ("owner_phone_changes", "tenant_iso", "ALL", "{public}"),
+                # KAM-240: a idempotencia do painel, uma politica so.
+                ("painel_idempotencia", "tenant_iso", "ALL", "{public}"),
                 # KAM-236: as revogacoes do painel, uma politica so.
                 ("painel_revogacao", "tenant_iso", "ALL", "{public}"),
                 # KAM-052: **uma** politica e nao duas. O `docs/tecnica/04`
@@ -980,6 +984,8 @@ class TestCatalogoReal(ComBase):
              "owner_contacts", "owner_notices",
              # KAM-223: a troca de telefone do dono («owner_n» < «owner_p»).
              "owner_phone_changes",
+             # KAM-240: a idempotencia do painel («ow» < «pai_i» < «pai_r»).
+             "painel_idempotencia",
              # KAM-236: as revogacoes do painel («ow» < «pai» < «pay»).
              "painel_revogacao",
              # KAM-052: a coluna de isolamento e `tenant_id` como nas outras

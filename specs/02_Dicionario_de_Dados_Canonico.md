@@ -4,7 +4,7 @@
 |---|---|
 | Produto | KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para Angola |
 | Documento | Foundation — Dicionário de Dados Canónico |
-| Versão | 1.135 — **PROPOSTA** (a do §6; o cabeçalho ficou em 1.0 durante treze emendas, e é a linha 7 do KAM-141) |
+| Versão | 1.136 — **PROPOSTA** (a do §6; o cabeçalho ficou em 1.0 durante treze emendas, e é a linha 7 do KAM-141) |
 | Data | Novembro de 2026 |
 | Classificação | Documento de Referência — Interno |
 | Documento-fonte | `../docs/tecnica/` (docs 00–10), `specs/EPIC-*.md` |
@@ -5155,6 +5155,28 @@ do guia correm como `kamba_batch` e passam ao processo de lote no **KAM-239**, q
 `prod`. A purga das revogações expiradas fica sem caminho até lá (depois do `expira_at` a linha já não
 revoga nada que se possa apresentar).
 
+### 3.84 A idempotência do painel na base: a chave do `PATCH` dos produtos (KAM-240)
+
+*Emenda 1.136, **proposta**.* O nome que a revisão
+[`0089`](../db/migrations/versions/0089_idempotencia_do_painel.py) cria para que a `Idempotency-Key` do
+`PATCH /painel/produtos/:id` (KAM-099, critério 5) sobreviva a um reinício e valha entre réplicas, com o
+adaptador em [`idempotencia_sql.ts`](../services/onboarding-web/src/painel/idempotencia_sql.ts). A
+retenção é **decisão da coordenação do lote 19 de 2026-11-22**, que o fundador pode reabrir: a chave vale
+24 h, e a linha sai pelo executor da retenção 25 h depois da reserva.
+
+**A regra que nenhuma coluna exprime: a tranca é a linha, e não um prazo.** A reserva é um `INSERT … ON
+CONFLICT` numa transacção que fica aberta durante o PATCH ao COM, e a resposta grava-se antes do mesmo
+`COMMIT`. Um segundo pedido com a mesma chave espera no índice da chave primária: lê a resposta
+confirmada, ou reserva ele se a primeira desfez. Não há estado «em curso» com prazo que um PATCH lento
+ultrapasse. **O limite:** se a ligação de quem reservou cai com o processo vivo, a base solta a tranca e o PATCH
+dele não é cancelado; o segundo corre o seu, e quem impede a segunda gravação é a versão do pedido no COM
+(`409`). O COM nunca grava duas vezes.
+
+| Conceito | Nome canónico | Substitui | Notas |
+|---|---|---|---|
+| Chave de idempotência do painel | `platform.painel_idempotencia(tenant_id, chave, impressao, estado, corpo, criado_at, expira_at)` | — | *proposta* (emenda 1.136, KAM-240). Substitui o mapa em memória do `PATCH` dos produtos em `prod`. **Sete** colunas, chave primária `(tenant_id, chave)`. RLS `FORCE` pelo tenant **da sessão assinada**, sem FK (a razão da `painel_revogacao`). A `impressao` é o SHA-256 do pedido, e não o corpo; o `estado` e o `corpo` são a resposta HTTP, inteira ou nenhuma (`painel_idempotencia_resposta_ck`), e um 5xx ou uma sessão revogada não ficam. O `kamba_app` lê, insere e muda por coluna, e **não apaga** (§2): uma chave vencida reaproveita-se. Apaga-a a retenção, como `kamba_batch` (classe `idempotencia_do_painel`, 25 h sobre o `criado_at`, `CAMINHO_IDEMPOTENCIA_DO_PAINEL`) |
+| O adaptador e a porta | `IdempotenciaNaBase`, `Deduplicacao`, `LIGACOES_DA_IDEMPOTENCIA` | — | *proposta* (emenda 1.136, KAM-240). A `Deduplicacao` é a porta das rotas do painel, que a `Idempotencia` em memória (ensaios e `dev` sem base) e a `IdempotenciaNaBase` cumprem. O `server.ts` dá a da base sempre que há base, num *pool* próprio: a transacção fica aberta durante o PATCH, e o PATCH lê as revogações pelo *pool* da inscrição |
+
 ## 4. Itens que continuam por decidir
 
 | Item | Estado | Ticket |
@@ -5311,3 +5333,4 @@ Qualquer alteração a um nome canónico é uma emenda a este documento (linha e
 | 1.133 | Novembro 2026 | **Emenda (*proposta*), KAM-232: o texto do cliente do WhatsApp na fonte persistida.** Sobre a 1.132 do KAM-206. Escrita como 1.126 e renumerada na integração, depois do KAM-226, do KAM-218, do KAM-230, do KAM-121, do KAM-202, do KAM-215 e do KAM-206. §3.81: a linha da `agent_messages` passa a dizer que o CHR também a escreve, que o `kamba_app` insere o `message_id` (revisão `0083`, só o `GRANT`) e que a linha fica em claro 90 dias na classe `conversas`, por decisão do fundador de 2026-11-20 (opção A), como excepção à letra do critério 2 do KAM-033; linha nova com a gravação do CHR, o `message_id` determinístico e os nomes do código; o «não decide» aponta para o KAM-232 e para o KAM-231. §3.12: o corpo da `wa-inbound` com prazo de 24 h além da contagem, por decisão do fundador de 2026-11-20 (opção B). | Equipa KAMBÁ |
 | 1.134 | Novembro 2026 | **Emenda (*proposta*), KAM-235: os factos do teste ponta a ponta em produção.** Sobre a 1.133 do KAM-232. Escrita como 1.133 e renumerada na integração, depois do KAM-232. Provisória: renumera-se se outra emenda fundir antes. §3.74, três linhas: o `EventoDeEntrada.estado` (o `wamid`, o `status` e o `pricing` de um `statuses`, sem o destinatário), o estágio dos *statuses* no `worker-canal` (`estagioDosStatuses`, cinco desfechos e os quatro `status` da Meta), que escreve o `delivered_at` pelo `Saida.ingerir`, e a porta `loja` do vendedor, que põe o `tenants.nome` na apresentação, com ou sem dígitos. E a nota do que a 1.130 não decidia passa a dizer o que fica: o `consent_event`, com o `ConsentGate`. Nenhuma tabela, coluna, evento ou estado novo | Equipa KAMBÁ |
 | 1.135 | Novembro 2026 | **Emenda (*proposta*), KAM-236: o `onboarding-web` em produção.** Sobre a 1.134 do KAM-235. Escrita como 1.134 e renumerada na integração, depois do KAM-235. §3.83 novo, com nove linhas — a chave de idempotência do registo (`onboarding_case.chave_idem`), a política `registo_busca`, as **cinco** funções `SECURITY DEFINER` das buscas do registo (**decisão do fundador de 2026-11-21, D1-A**: só o caso e o tenant; recusados o `kamba_batch` no `onboarding-web` e um papel novo), o desafio do OTP (`onboarding_otp`), os contadores (`onboarding_contador`, sem tenant) e as revogações do painel (`painel_revogacao`) — as duas últimas pela **D3-A** (tabelas, e não o Redis) —, os adaptadores, a cifra do NIF e do e-mail (`kek_dados_do_caso`) e o registo na base com o guia fora de `prod` (**D2-A**, credor KAM-239). §3.57: a linha do caso passa a **vinte** colunas. Revisão `0084`, depois da `0083`. Número **provisório**: renumera-se na integração | Equipa KAMBÁ |
+| 1.136 | Novembro 2026 | **Emenda (*proposta*), KAM-240: a idempotência do painel na base.** Sobre a 1.135 do KAM-236. §3.84 novo, com duas linhas — a chave de idempotência do `PATCH /painel/produtos/:id` (`painel_idempotencia`), com a retenção de 24 h e a purga a 25 h por **decisão da coordenação do lote 19 de 2026-11-22** (recusadas 1 h e a tabela fora da retenção), e o adaptador com a porta. Revisão `0089`, depois da `0088`. Número **provisório**: renumera-se na integração | Equipa KAMBÁ |

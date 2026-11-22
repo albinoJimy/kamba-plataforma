@@ -857,6 +857,12 @@ class TestConvencoes(ComBase):
                 # negocio esta nos dois indices unicos parciais
                 # (`painel_revogacao_sid_uq`, `painel_revogacao_corte_uq`)
                 # («ow» < «pai» < «pay»).
+                # KAM-240: a idempotencia do painel tem chave **natural e
+                # composta**, `(tenant_id, chave)`, pela razao da
+                # `order_intents`: e o recibo, e o `ON CONFLICT` da reserva
+                # arbitra por ela («pai_i» < «pai_r»).
+                ("painel_idempotencia", "chave", "text", None),
+                ("painel_idempotencia", "tenant_id", "uuid", None),
                 ("painel_revogacao", "revogacao_id", "uuid", "gen_random_uuid()"),
                 # KAM-052: a chave e um `uuid` gerado, e a chave de negocio
                 # esta ao lado, no indice unico parcial
@@ -1557,7 +1563,10 @@ class TestConvencoes(ComBase):
              # caso; as revogacoes pelo `painel_revogacao_sid_uq (tenant_id,
              # sid)` e o `painel_revogacao_corte_uq (tenant_id)`, sem FK.
              "onboarding_otp",
-             "painel_revogacao"},
+             "painel_revogacao",
+             # KAM-240: a idempotencia do painel, pela chave primaria
+             # `(tenant_id, chave)`, sem FK (a razao da `painel_revogacao`).
+             "painel_idempotencia"},
         )
         for tabela, anulavel in com_tenant:
             with self.subTest(tabela=tabela):
