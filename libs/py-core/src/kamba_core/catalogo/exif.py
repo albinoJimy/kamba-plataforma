@@ -54,6 +54,7 @@ from __future__ import annotations
 
 import struct
 from collections.abc import Iterator
+from dataclasses import dataclass
 from typing import Final
 
 ASSINATURA_JPEG: Final = b"\xff\xd8"
@@ -324,3 +325,38 @@ def tem_metadados(corpo: bytes) -> bool:
     except ImagemInvalida:
         return True
     return True
+
+
+class ImagemComMetadados(ValueError):
+    """Bytes que nao estao na forma minima da limpeza: nao sao uma `ImagemLimpa`."""
+
+
+@dataclass(frozen=True)
+class ImagemLimpa:
+    """Uma imagem **ja limpa**, a unica forma que o modelo de visao aceita (KAM-231).
+
+    Decisao do fundador de 2026-11-21 (P2, opcao A): a visao tem um metodo
+    proprio, que so aceita isto. Nasce do `limpar_metadados` (`ImagemLimpa.de`),
+    e o construtor volta a verificar os bytes pelo `tem_metadados` — o percurso
+    da guarda de saida, diferente do da limpeza. O selo e o **conteudo**, e nao
+    quem construiu: uns bytes que nao estejam na forma minima nao fazem uma
+    `ImagemLimpa`, venham de onde vierem.
+    """
+
+    corpo: bytes
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.corpo, bytes) or tem_metadados(self.corpo):
+            raise ImagemComMetadados(
+                "uma `ImagemLimpa` so se obtem de `limpar_metadados`: estes bytes "
+                "levam metadados ou nao sao JPEG nem PNG"
+            )
+
+    @classmethod
+    def de(cls, corpo: bytes) -> ImagemLimpa:
+        """Limpa e sela. Levanta `FormatoNaoSuportado` ou `ImagemInvalida`."""
+        return cls(limpar_metadados(corpo))
+
+    @property
+    def content_type(self) -> str:
+        return "image/png" if formato(self.corpo) == "png" else "image/jpeg"

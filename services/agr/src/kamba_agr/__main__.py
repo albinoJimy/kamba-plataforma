@@ -200,24 +200,29 @@ def _executores_do_catalogo(credencial: CredencialDoCom) -> dict[str, Any]:
     screening do KAM-088 e o Registo sao do COM: com `KAMBA_COM_URL`, pela
     ponte (`ScreeningPeloCom` com o sujeito `produto`, `RegistoPeloCom`); sem
     ele, pelas portas por ligar, que levantam — uma ingestao fica
-    `bloqueada_categoria` com `screening_indisponivel` e nada se publica. A
-    entrada da foto (fonte, descodificador, visao) fica por ligar nas duas, com
-    o credor escrito em `catalogo/montagem.py`.
+    `bloqueada_categoria` com `screening_indisponivel` e nada se publica. O
+    descodificador e o do Pillow (KAM-231, `catalogo/descodificador.py`) nas
+    duas; a fonte e a visao ficam por ligar, com o credor escrito em
+    `catalogo/montagem.py`.
     """
     from kamba_core.catalogo.screening import ScreeningPorLigar
 
+    from .catalogo.descodificador import DescodificadorPillow
     from .catalogo.montagem import PortasDoCatalogo
     from .tls.registo_com import RegistoPeloCom, RegistoPorLigar
     from .tls.screening import SUJEITO_DO_PRODUTO, ScreeningPeloCom
 
     base = os.environ.get(VARIAVEL_DO_COM, "").strip()
     if not base:
-        portas = PortasDoCatalogo(screening=ScreeningPorLigar(), registo=RegistoPorLigar())
+        portas = PortasDoCatalogo(
+            screening=ScreeningPorLigar(), registo=RegistoPorLigar(), descodificador=DescodificadorPillow()
+        )
     else:
         cliente = ClienteDoCom(base=base, credencial=credencial)
         portas = PortasDoCatalogo(
             screening=ScreeningPeloCom(cliente=cliente, sujeito_tipo=SUJEITO_DO_PRODUTO, vertical="dono"),
             registo=RegistoPeloCom(cliente=cliente),
+            descodificador=DescodificadorPillow(),
         )
     return catalogo_tools.executores(portas)
 

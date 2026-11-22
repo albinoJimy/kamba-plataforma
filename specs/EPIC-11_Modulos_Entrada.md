@@ -2961,6 +2961,15 @@ Regras: só imagens sintéticas fora de prod; nenhuma chave no repositório; fal
 Testes: integração e adversarial.
 ```
 
+### Decisões do fundador
+
+| Data | Autor | Pergunta | Decisão |
+|---|---|---|---|
+| 2026-11-21 | O fundador, no KAM-122 (D1), transmitida pela coordenação | Critério 2, a biblioteca de imagem do `Descodificador`. Não havia nenhuma na árvore; o Pillow 13.0.0 declara `License-Expression: MIT-CMU`, que não estava nas `permitidas` do `ci/licenses.yaml` | **O Pillow, sem excepção nominal.** A mesma entrada `MIT-CMU` do KAM-122, com a mesma razão (o fundador disse HPND, e a medição deu MIT-CMU); quem fundir em segundo resolve o duplicado na integração |
+| 2026-11-21 | O fundador, pela coordenação | Critério 2, a foto ao modelo de visão. O `ClienteDeLlm.chamar` só aceita `MensagemMinimizada` (KAM-112), e uma imagem não passa pelo `minimise`. A opção A é um método próprio da visão; a B, um detector de PII na imagem; a C, deixar a visão por ligar | **Opção A.** Um método próprio (`ClienteDeLlm.ver`), só para o papel `vision` e a finalidade `visao`. Só aceita uma `ImagemLimpa`, nascida do `limpar_metadados`, sem EXIF. A instrução é fixa, sem texto do dono, e cada chamada grava uma linha na `llm_call_log`. Recusadas a B e a C |
+| 2026-11-21 | O fundador, pela coordenação | Critério 3, o tecto. O `create_product_draft` de uma foto corre a fonte, a limpeza, a qualidade, o *gate* e a visão, e o tecto das escritas do §6.5 é 8 s. A opção A é uma lista fechada de tectos por *tool*; a B, duas fases; a C, subir o tecto de todas as escritas | **Opção A.** Uma lista fechada de tectos por *tool*, com o `create_product_draft` de foto a 25 s. O turno envia «estou a preparar» antes e o resumo depois. Leva uma emenda ao §6.5. Recusadas a B e a C |
+| 2026-11-21 | O fundador, pela coordenação | Critério 1, quem lê a foto. O MED precisa do token da Meta e do STO no `worker-canal-entrada`, e o AGR precisa do STO para a `FonteDoMed`. A opção A dá os segredos aos dois processos; a B põe a média numa fila `med-inbound` própria; a C liga só o painel | **Opção A.** O `worker-canal-entrada` e o AGR recebem os segredos de que precisam, cada linha do inventário com a nota de quem lê e porquê. Em `staging` e `prod` recusam arrancar sem eles, como no KAM-227. Recusadas a B e a C |
+
 
 ---
 

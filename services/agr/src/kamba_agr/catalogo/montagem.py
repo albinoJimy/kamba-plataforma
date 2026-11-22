@@ -11,10 +11,10 @@ as que tem com quem falar:
 | `PortaDeScreening` | `ScreeningPeloCom` com o sujeito `produto` (`tls/screening.py`) |
 | `PortaDoRegisto` | `RegistoPeloCom` (`tls/registo_com.py`) |
 | `FonteDeMedia` | **por ligar** — o MED do KAM-020 nao esta montado em servico nenhum, e o `agent_invocation` nao leva a media |
-| `Descodificador` | **por ligar** — nao ha biblioteca de imagem na arvore (repo publico: so imagens sinteticas) |
+| `Descodificador` | o `DescodificadorPillow` (KAM-231, `catalogo/descodificador.py`), que o processo passa; a omissao daqui continua a por ligar |
 | `ExtractorDeVisao` | **por ligar** — o adaptador do alias `kamba-vision` pelo *gateway* |
 
-As tres por ligar **levantam**, e o pipeline trata isso como falha fechada: uma
+As por ligar **levantam**, e o pipeline trata isso como falha fechada: uma
 foto que chegue nao vira rascunho, e o dono e avisado. O credor e o ticket da
 entrada real da foto, nomeado no bloco do KAM-119.
 
