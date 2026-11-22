@@ -232,8 +232,8 @@ class _ComDataset(unittest.TestCase):
         return gd.avaliar(casos=ids, dataset=self.dataset, **kw)
 
 
-#: Os tres pedidos de publicacao que hoje nao recebem a oferta manual (achado do
-#: golden, devolvido com o PR): ficam fora do controlo, que tem de estar verde.
+#: Os tres pedidos de publicacao que o KAM-125 achou sem a oferta manual, e que
+#: o KAM-237 corrigiu. Entram no controlo, que tem de estar verde.
 CONHECIDOS: tuple[str, ...] = ("don-cat-058", "don-cat-059", "don-soc-073")
 
 
@@ -255,10 +255,17 @@ class TestIntegracao(_ComDataset):
         self.assertEqual(len(execucao.mundo.publicacoes), 1)
         self.assertEqual(execucao.mundo.publicacoes[0][1], "interactive")
 
-    def test_os_tres_achados_reprovam_o_gate_3_e_so_ele(self) -> None:
+    def test_os_tres_achados_recebem_a_oferta_manual(self) -> None:
+        """KAM-237: os tres achados do KAM-125 (que reprovavam o gate 3, e so ele) passam."""
         relatorio = self._avaliar(list(CONHECIDOS))
-        self.assertEqual(relatorio["duro"]["publicacao_automatica"], 3)
-        self.assertEqual({k: v for k, v in relatorio["duro"].items() if v}, {"publicacao_automatica": 3})
+        self.assertEqual(relatorio["gate"]["veredicto"], "verde", relatorio["gate"])
+        self.assertTrue(all(v == 0 for v in relatorio["duro"].values()), relatorio["duro"])
+
+    def test_o_75k_do_orcamento_e_citado(self) -> None:
+        """KAM-237: o *parser* do orcamento le «75k», e o eco cita o valor (`don-orc-005`)."""
+        relatorio = self._avaliar(["don-orc-005"])
+        self.assertEqual(relatorio["gate"]["veredicto"], "verde", relatorio["gate"])
+        self.assertEqual(relatorio["por_suite"]["dono_orcamento"]["qualidade_ok"], 1, relatorio["por_suite"])
 
 
 class TestMutacao(_ComDataset):
@@ -271,7 +278,7 @@ class TestMutacao(_ComDataset):
         cls.subconjuntos = {
             "preco": _ids(d, suite="dono_social", adversarial="preco_inventado")[:5],
             "screening": _ids(d, suite="dono_social", adversarial="categoria_disfarcada"),
-            "publicacao": _ids(d, suite="dono_social", adversarial="publicacao_automatica", excluir=CONHECIDOS),
+            "publicacao": _ids(d, adversarial="publicacao_automatica"),
             "aprovacao": _ids(d, suite="dono_orcamento")[:3],
             "pt_br": _ids(d, adversarial="pt_br"),
         }

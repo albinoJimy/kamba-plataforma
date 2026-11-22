@@ -3,7 +3,7 @@
 **Produto:** KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para o mercado angolano
 **Natureza:** Produto/plataforma standalone (sem cliente institucional)
 **Documentos-fonte:** conjunto técnico [`../docs/tecnica/`](../docs/tecnica/INDICE.md) e [`../docs/exploracao/14-tese-minima-e-plano-de-validacao.md`](../docs/exploracao/14-tese-minima-e-plano-de-validacao.md)
-**Versão do conjunto:** 1.99
+**Versão do conjunto:** 1.100
 **Data de emissão:** Outubro de 2026
 **Classificação:** Documento de Referência — Interno
 **Estado:** backlog **proposto** (nenhum ticket ratificado; ver `00_KAMBA_Carta.md` §6)
@@ -12,7 +12,7 @@
 
 ## 1. Propósito
 
-Este conjunto materializa o **backlog executável** da KAMBÁ para a **Fase 0 (Fundação / esqueleto andante)** e a **Fase 1 (Piloto)**. Decompõe o trabalho em **241 tickets atómicos (KAM-001 a KAM-241)** distribuídos por **11 epics** (KAM-111 a KAM-117 foram acrescentados na consolidação, e o KAM-128 a KAM-148, e o KAM-149 depois dela; todos pertencem aos epics indicados no §3.1), cada um com critérios de aceitação SMART, Definition of Done, testes requeridos e prompt de handoff para o **Claude Code (CLI)**.
+Este conjunto materializa o **backlog executável** da KAMBÁ para a **Fase 0 (Fundação / esqueleto andante)** e a **Fase 1 (Piloto)**. Decompõe o trabalho em **243 tickets atómicos (KAM-001 a KAM-243)** distribuídos por **11 epics** (KAM-111 a KAM-117 foram acrescentados na consolidação, e o KAM-128 a KAM-148, e o KAM-149 depois dela; todos pertencem aos epics indicados no §3.1), cada um com critérios de aceitação SMART, Definition of Done, testes requeridos e prompt de handoff para o **Claude Code (CLI)**.
 
 O que **não** está aqui: a Fase 2 (Clusters) e a Fase 3 (Escala). Esses epics (geo e logística, estafetas, analytics e Score, índice federado, AdsEngine, vitrine SEO, API pública, Fluxo B) só se escrevem quando o **Gate do Piloto (KAM-110)** for verde. Está declarado em §6.
 
@@ -56,11 +56,11 @@ O backlog é a interface entre o conjunto técnico (`../docs/tecnica/`) e a exec
 | EPIC-05 Pagamentos e Billing | KAM-052 – KAM-060, KAM-175, KAM-197 | 11 | 0–1 |
 | EPIC-06 Índice e Pesquisa | KAM-061 – KAM-064, KAM-193, KAM-199, KAM-212 | 7 | 1 |
 | EPIC-07 Segurança e Conformidade | KAM-065 – KAM-074, KAM-112, KAM-113, KAM-149, KAM-189, KAM-205 | 15 | 0–1 |
-| EPIC-08 Topologia e Operação | KAM-075 – KAM-085, KAM-187, KAM-188 | 13 | 0–1 |
+| EPIC-08 Topologia e Operação | KAM-075 – KAM-085, KAM-187, KAM-188, KAM-242 | 14 | 0–1 |
 | EPIC-09 Onboarding e Governação | KAM-086 – KAM-099, KAM-116, KAM-117, KAM-190 – KAM-192, KAM-195, KAM-196, KAM-198, KAM-200, KAM-201, KAM-203, KAM-206 – KAM-210, KAM-218 – KAM-219, KAM-225, KAM-233, KAM-236, KAM-239, KAM-240 | 37 | 1 |
 | EPIC-10 Spikes, Validação e Gates | KAM-100 – KAM-110 | 11 | 0–1 |
-| EPIC-11 Módulos de Entrada | KAM-118 – KAM-127, KAM-211, KAM-215 – KAM-217, KAM-220 – KAM-224, KAM-226 – KAM-228, KAM-230 – KAM-232, KAM-234, KAM-237, KAM-238, KAM-241 | 29 | 1 |
-| **TOTAL** | **KAM-001 – KAM-241** | **241** | — |
+| EPIC-11 Módulos de Entrada | KAM-118 – KAM-127, KAM-211, KAM-215 – KAM-217, KAM-220 – KAM-224, KAM-226 – KAM-228, KAM-230 – KAM-232, KAM-234, KAM-237, KAM-238, KAM-241, KAM-243 | 30 | 1 |
+| **TOTAL** | **KAM-001 – KAM-243** | **243** | — |
 
 ### 3.2 Fases
 
@@ -282,6 +282,7 @@ Itens com tempo de espera externo (arrancam na **semana 1**, em paralelo ao cód
 | KAM-085 | Simulacro de recuperação (DR drill) com RTO medido | chore | M | P0 | 1 | KAM-079 |
 | KAM-187 | O compose de produção corre os consumidores do `worker-canal` | feature | L | P0 | 0 | KAM-076, KAM-080, KAM-013, KAM-025 |
 | KAM-188 | O teste de carga repete-se no *host* P0 | chore | M | P1 | 1 | KAM-084, KAM-077, KAM-186, KAM-187 |
+| KAM-242 | O compose de produção sem *swap*: o `memswap_limit` igual ao `mem_limit` em todos os serviços, exigido pelo `compose_prod`, e o *swap* do *host* registado | chore | S | P1 | 1 | KAM-076, KAM-238 |
 
 ### EPIC-09 — Onboarding e Governação
 
@@ -373,7 +374,8 @@ Itens com tempo de espera externo (arrancam na **semana 1**, em paralelo ao cód
 | KAM-234 | O id da oferta do orçamento expresso leva dígitos que a guarda de entrada redige quando o toque chega pela janela | fix | S | P2 | 1 | KAM-220 |
 | KAM-237 | Pedidos de publicação do dono sem a oferta de entrega manual: os verbos, o «status» e a ordem catálogo/social no `classify` | fix | S | P1 | 1 | KAM-125 |
 | KAM-238 | Canal do dono: o consumidor `dono` no *compose* de produção, com o pico de memória medido e um limite que caiba no orçamento | feature | S | P1 | 1 | KAM-215 |
-| KAM-241 | Catálogo do dono: a foto pelo painel — o STO no `onboarding-web`, a linha da `media_assets` e o turno com o `asset_id` | feature | M | P1 | 1 | KAM-231 |
+| KAM-241 | Canal do dono: o pico de memória do consumidor `dono` abaixo da folga do conjunto reduzido, medido sob o próprio limite | feature | S | P1 | 1 | KAM-238 |
+| KAM-243 | Catálogo do dono: a foto pelo painel — o STO no `onboarding-web`, a linha da `media_assets` e o turno com o `asset_id` | feature | M | P1 | 1 | KAM-231 |
 
 ---
 
@@ -512,4 +514,5 @@ Um defeito encontrado fora do escopo não é corrigido no meio de outro ticket: 
 | 1.96 | Novembro 2026 | **KAM-237** acrescentado ao **EPIC-11**, no PR do **KAM-125**, que o abre e não o implementa, pela decisão 2 do fundador de 2026-11-21 (opção A). É o credor dos três pedidos de publicação do dono que o golden do KAM-125 apanha sem a oferta de entrega manual — os verbos «põe/pôr/coloca», o «status» e o «whatsapp» como redes, e a ordem catálogo/social no `classify` —, e do «75k» que o *parser* do orçamento recusa. O critério dele é a baseline do golden do dono verde nos três casos. Depende do KAM-125, cujo `Bloqueia` o ganha. Medido contra a `main` em `96411555`, com o KAM-235 fundido: o 237 é o seguinte ao maior dela. Total: **237** tickets. | Equipa KAMBÁ |
 | 1.97 | Novembro 2026 | **KAM-238** acrescentado ao **EPIC-11**, no PR do **KAM-236**, por decisão do fundador de 2026-11-21 (trazida pela coordenação do lote 17): o consumidor `dono` do KAM-215 fica fora do *compose* de `prod` até se medir o pico de memória dele, e o KAM-238 é o credor que o põe lá com um limite que caiba no orçamento do conjunto reduzido (critério 4 do KAM-076), sem mexer no tecto. Depende do KAM-215, cujo `Bloqueia` o ganha. Total: **238** tickets. Escrita como 1.96 com o KAM-237, e renumerada na integração, depois do KAM-125, que tomou o 237. | Equipa KAMBÁ |
 | 1.98 | Novembro 2026 | **KAM-239** acrescentado ao **EPIC-09**, no PR do **KAM-236**, por decisão do fundador de 2026-11-21 (D2-A, trazida pela coordenação do lote 17): o guia do ES não se monta em `prod` até a reserva da lista de espera, a fila de revisão e os *gates* do guia correrem no processo de lote como `kamba_batch`, e o estado do guia viver na base; o KAM-239 é o credor que o monta. Depende do KAM-236, cujo `Bloqueia` o ganha. **KAM-240** acrescentado ao **EPIC-09** no mesmo PR, por decisão da coordenação do lote 17 de 2026-11-22: a `Idempotency-Key` do `PATCH /painel/produtos/:id` (KAM-099, critério 5) passa do mapa do processo para a base; depende do KAM-236. Total: **240** tickets. Escrita como 1.97 com o KAM-238 e o KAM-239, e renumerada na integração, depois do KAM-125, que tomou o 237. | Equipa KAMBÁ |
-| 1.99 | Novembro 2026 | **KAM-241** acrescentado ao **EPIC-11**, no PR do **KAM-231**, que o abre e não o implementa, por decisão da coordenação de 2026-11-22: a foto do dono pelo painel, com o STO no `onboarding-web`. Número tomado como o maior da `main` + 1 (decisão da coordenação, 2026-11-22): quem fundir depois renumera. Total: 241 tickets. | Equipa KAMBÁ |
+| 1.99 | Novembro 2026 | **KAM-241** acrescentado ao **EPIC-11** e **KAM-242** ao **EPIC-08**, no PR do **KAM-238**, por decisão do fundador de 2026-11-22 (opção A, trazida pela coordenação do lote 19): o pico do consumidor `dono` (76,6 MiB) não cabe nos 54 MiB que sobram ao lado do recolector do KAM-225. O KAM-241 baixa o pico real do processo, medido sob o limite; o KAM-242 fixa o `memswap_limit` igual ao `mem_limit` no *compose* de `prod` e regista o *swap* do *host*. Os dois dependem do KAM-238, cujo `Bloqueia` os ganha; o KAM-242 depende também do KAM-076. Total: **242** tickets. Números **provisórios**, o maior da `main` (KAM-240) mais um e mais dois: renumeram-se na integração se outro fundir antes. | Equipa KAMBÁ |
+| 1.100 | Novembro 2026 | Escrita como 1.99 e renumerada na integração, depois do KAM-238. **KAM-243** acrescentado ao **EPIC-11**, no PR do **KAM-231**, que o abre e não o implementa, por decisão da coordenação de 2026-11-22: a foto do dono pelo painel, com o STO no `onboarding-web`. Número tomado como o maior da `main` + 1 (decisão da coordenação, 2026-11-22): quem fundir depois renumera. Total: 243 tickets. | Equipa KAMBÁ |

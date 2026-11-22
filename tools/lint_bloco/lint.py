@@ -471,11 +471,24 @@ REGRAS_OBRIGATORIAS = ("estado_contra_caixa",)
 #: o bloco do KAM-236 ganha a verificacao, e os do KAM-238 ao KAM-240 nascem
 #: sem ela. **175 medidos**, e `175 // 2` sao 87. Fica em 87, que serve ate aos 175.
 #:
-#: **O 176.o e o do KAM-231**, medido na arvore integrada com a `publico/main`
-#: em `95826f19` (o #249 do KAM-236 ja fundido, com **175 medidos** na `main`):
-#: o bloco do KAM-231 ganha a verificacao, e o do KAM-241 nasce sem ela.
-#: **176 medidos**, e `176 // 2` sao 88. Sobe para 88, que serve ate aos 177.
-MINIMO_DE_BLOCOS_MEDIDOS = 88
+#: **O 176.o e o do KAM-237**, medido na arvore com a `publico/main` em
+#: `95826f19` (o #249 do KAM-236 ja fundido, com **175 medidos** na `main`): o
+#: bloco do KAM-237 ganha a verificacao. **176 medidos**, e `176 // 2` sao 88.
+#: Sobe para 88, que serve ate aos 177.
+#:
+#: **O 177.o e o do KAM-238**, medido na arvore da integracao com a
+#: `publico/main` em `18cfdf69` (o #252 do KAM-237 ja fundido, com **176
+#: medidos** na `main`): o bloco do KAM-238 ganha a verificacao, e os do
+#: KAM-241 e do KAM-242 nascem sem ela. **177 medidos**, e `177 // 2` sao 88.
+#: O piso fica em 88, que serve ate aos 177: o bloco seguinte a ganhar a
+#: verificacao sobe-o para 89.
+#:
+#: **O 178.o e o do KAM-231**, medido na arvore da integracao com a
+#: `publico/main` em `44b8c4b0` (o #253 do KAM-238 ja fundido, com **177
+#: medidos** na `main`): o bloco do KAM-231 ganha a verificacao, e o do KAM-243
+#: nasce sem ela. **178 medidos**, e `178 // 2` sao 89. Sobe para 89, que serve
+#: ate aos 179.
+MINIMO_DE_BLOCOS_MEDIDOS = 89
 
 #: Quantos blocos existem, no minimo. O mesmo argumento, para a camada de baixo:
 #: se o `ler_blocos` deixar de ver a populacao, o piso de cima podia continuar a
