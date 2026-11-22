@@ -584,8 +584,10 @@ export const PASSOS_DA_REVOGACAO = [
   "chave_llm",
   "canal_comercio",
   "inbox",
+  "conta_atendimento",
   "entitlements",
   "canais",
+  "sessoes_do_painel",
   "encerramento",
 ] as const;
 export type PassoDaRevogacao = (typeof PASSOS_DA_REVOGACAO)[number];
@@ -604,10 +606,20 @@ const PASSO_DA_SAGA: Readonly<Record<"chave_llm" | "canal_comercio" | "inbox", P
  * tenant `encerrado` com o `tenant.closed` (bloco: «emite `tenant.closed` no
  * fim da revogação»).
  *
- * Cada passo grava o seu desfecho no resultado (`concluido` ou `sem_recurso`)
- * numa transacção própria; um passo já gravado não corre outra vez. Um recurso
- * de fora sem `external_id` na saga é `sem_recurso` — a saga nunca o criou, e
- * não há nada a revogar.
+ * Cada passo grava o seu desfecho no resultado numa transacção própria; um
+ * passo já gravado não corre outra vez. Os desfechos são três: `concluido`,
+ * `inexistente` (o recurso já não estava lá fora, e a listagem confirmou-o — a
+ * repetição depois de um *crash*) e `sem_recurso` (não havia o que revogar). O
+ * canal da Medusa e a *inbox* sem `external_id` na saga são `sem_recurso` — a
+ * saga nunca os criou.
+ *
+ * **Três passos não dependem da saga** (KAM-233, decisão do fundador de
+ * 2026-11-21, Q1 = A). A chave do LiteLLM sem registo na saga revoga-se pelo
+ * alias `tenant-<uuid>`, que é onde o `chaves.py provisionar` a cria; a conta de
+ * atendimento lê-se da `handoff_accounts` (o `archiveAccount` do HND), e
+ * `sem_recurso` é só a falta da linha; as sessões do painel revogam-se até ao
+ * instante do passo. Uma porta sem adaptador, ou um proxy sem base, **lança**: a
+ * fase fica parada, com alerta, e o tenant não se encerra com a chave viva.
  */
 export async function revogar(
   bd: ClienteSql,
@@ -654,7 +666,21 @@ export async function revogar(
   let encerrado = false;
   for (const passo of PASSOS_DA_REVOGACAO) {
     if (feitos[passo] !== undefined) continue;
-    if (passo === "chave_llm" || passo === "canal_comercio" || passo === "inbox") {
+    if (passo === "chave_llm" && !inicio.recursos.has(PASSO_DA_SAGA.chave_llm)) {
+      const desfecho = await portas.chaveDeLlm.revogarDoTenant(tenantId);
+      await gravar(passo, desfecho === "revogada" ? "concluido" : "inexistente");
+    } else if (passo === "conta_atendimento") {
+      const desfecho = await portas.contaDeAtendimento.archiveAccount(tenantId);
+      await gravar(
+        passo,
+        desfecho === "arquivada" ? "concluido" : desfecho === "inexistente" ? "inexistente" : "sem_recurso",
+      );
+    } else if (passo === "sessoes_do_painel") {
+      // O corte é o instante do passo, em segundos: toda a sessão emitida até
+      // aqui fica revogada, e o tenant já não tem painel onde entrar depois.
+      await portas.sessoesDoPainel.revogarDoTenant(tenantId, Math.floor(agora.getTime() / 1000));
+      await gravar(passo, "concluido");
+    } else if (passo === "chave_llm" || passo === "canal_comercio" || passo === "inbox") {
       const ref = inicio.recursos.get(PASSO_DA_SAGA[passo]);
       if (ref === undefined) {
         await gravar(passo, "sem_recurso");

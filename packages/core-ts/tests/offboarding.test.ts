@@ -31,10 +31,12 @@ import {
   cancelavel,
   desligarCanal,
   podeComecar,
+  PASSOS_DA_REVOGACAO,
   prazos,
   revogar,
   type CanalDaMeta,
   type ClienteSql,
+  type PortasDaRevogacao,
 } from "../src/offboarding/index.ts";
 
 const MS = 86_400_000;
@@ -76,6 +78,7 @@ class BaseFalsa implements ClienteSql {
   eventos = 0;
   pendentes = { encomendas: 0, disputas: 0, reservas: 0, reembolsos: 0 };
   sancoes = new Set<string>();
+  recursosDaSaga: { step: string; external_id: string }[] = [{ step: "chave_llm", external_id: "llm-1" }];
   /** Chamado quando a Meta é tocada: o ensaio da corrida cancela aqui. */
   aoTocarNaMeta: () => void = () => {};
 
@@ -106,7 +109,7 @@ class BaseFalsa implements ClienteSql {
       return { rows: [], rowCount: c ? 1 : 0 };
     }
     if (sql === SQL_PENDENTES) return { rows: [{ ...this.pendentes }] };
-    if (sql === SQL_RECURSOS_DA_SAGA) return { rows: [{ step: "chave_llm", external_id: "llm-1" }] };
+    if (sql === SQL_RECURSOS_DA_SAGA) return { rows: this.recursosDaSaga.map((r) => ({ ...r })) };
     if (sql === SQL_ESTADO_DO_TENANT) return { rows: [{ estado: this.estadoDoTenant }] };
     if (sql === SQL_SANCAO_DE_ENCERRAMENTO) return { rows: this.sancoes.has(String(p[0])) ? [{ "?column?": 1 }] : [] };
     if (sql === SQL_TRANSITAR) {
@@ -121,6 +124,33 @@ class BaseFalsa implements ClienteSql {
     if (sql === SQL_DESLIGAR_ENTITLEMENTS || sql === SQL_ENCERRAR_CANAIS) return { rows: [], rowCount: 1 };
     return { rows: [], rowCount: 0 };
   }
+}
+
+/** As portas da revogação, a registar cada chamada com o argumento. */
+function portasEspias(
+  chamadas: string[],
+  o: { readonly chave?: "revogada" | "inexistente"; readonly conta?: "arquivada" | "inexistente" | "sem_conta" } = {},
+) {
+  return {
+    chaveDeLlm: {
+      revogar: async (id: string) => void chamadas.push(`revogar:${id}`),
+      revogarDoTenant: async (t: string) => {
+        chamadas.push(`alias:${t}`);
+        return o.chave ?? "revogada";
+      },
+    },
+    canalDeComercio: { arquivar: async (id: string) => void chamadas.push(`arquivar:${id}`) },
+    inbox: { desligar: async (id: string) => void chamadas.push(`desligar:${id}`) },
+    contaDeAtendimento: {
+      archiveAccount: async (t: string) => {
+        chamadas.push(`arquivar-conta:${t}`);
+        return o.conta ?? "arquivada";
+      },
+    },
+    sessoesDoPainel: {
+      revogarDoTenant: async (t: string, ate: number) => void chamadas.push(`painel:${t}:${ate}`),
+    },
+  } satisfies PortasDaRevogacao;
 }
 
 function metaEspia() {
@@ -182,35 +212,74 @@ describe("o pedido, o canal e a revogação sobre a base falsa", () => {
   it("a revogação corre os passos uma vez, encerra com um evento, e o recurso sem saga é sem_recurso", async () => {
     const bd = new BaseFalsa({ exportacao: "concluida", canal: "concluida" });
     const chamadas: string[] = [];
-    const portas = {
-      chaveDeLlm: { revogar: async (id: string) => void chamadas.push(`revogar:${id}`) },
-      canalDeComercio: { arquivar: async (id: string) => void chamadas.push(`arquivar:${id}`) },
-      inbox: { desligar: async (id: string) => void chamadas.push(`desligar:${id}`) },
-    };
+    const portas = portasEspias(chamadas);
     const r = await revogar(bd, { tenantId: T, portas, agora: dia(7) });
     assert.equal(r.encerrado, true);
-    assert.deepEqual(chamadas, ["revogar:llm-1"]);
+    // A chave da saga pelo token dela, e nunca também pelo alias; a conta e o
+    // painel sem saga; o canal e a inbox sem registo não chegam à porta.
+    assert.deepEqual(chamadas, [
+      "revogar:llm-1",
+      `arquivar-conta:${T}`,
+      `painel:${T}:${Math.floor(dia(7).getTime() / 1000)}`,
+    ]);
     assert.deepEqual(r.passos, {
       chave_llm: "concluido",
       canal_comercio: "sem_recurso",
       inbox: "sem_recurso",
+      conta_atendimento: "concluido",
       entitlements: "concluido",
       canais: "concluido",
+      sessoes_do_painel: "concluido",
       encerramento: "concluido",
     });
+    assert.deepEqual(Object.keys(r.passos), [...PASSOS_DA_REVOGACAO]);
     assert.equal(bd.eventos, 1);
     const outra = await revogar(bd, { tenantId: T, portas, agora: dia(8) });
     assert.equal(outra.encerrado, false);
     assert.equal(bd.eventos, 1);
-    assert.equal(chamadas.length, 1);
+    assert.equal(chamadas.length, 3);
+  });
+
+  it("sem a chave na saga, revoga pelo alias; já não estar lá é inexistente, e a conta que falta é sem_recurso", async () => {
+    const bd = new BaseFalsa({ exportacao: "concluida", canal: "concluida" });
+    bd.recursosDaSaga = [];
+    const chamadas: string[] = [];
+    const portas = portasEspias(chamadas, { chave: "inexistente", conta: "sem_conta" });
+    const r = await revogar(bd, { tenantId: T, portas, agora: dia(7) });
+    assert.equal(chamadas[0], `alias:${T}`);
+    assert.ok(!chamadas.some((c) => c.startsWith("revogar:")));
+    assert.equal(r.passos.chave_llm, "inexistente");
+    assert.equal(r.passos.conta_atendimento, "sem_recurso");
+    const outraBd = new BaseFalsa({ exportacao: "concluida", canal: "concluida" });
+    outraBd.recursosDaSaga = [];
+    const r2 = await revogar(outraBd, { tenantId: T, portas: portasEspias([], { chave: "revogada", conta: "inexistente" }), agora: dia(7) });
+    assert.equal(r2.passos.chave_llm, "concluido");
+    assert.equal(r2.passos.conta_atendimento, "inexistente");
+  });
+
+  it("uma porta que falha pára a fase nesse passo, sem encerrar, e retoma nele", async () => {
+    const bd = new BaseFalsa({ exportacao: "concluida", canal: "concluida" });
+    bd.recursosDaSaga = [];
+    const chamadas: string[] = [];
+    const portas = portasEspias(chamadas);
+    let falhar = true;
+    const alias = portas.chaveDeLlm.revogarDoTenant;
+    portas.chaveDeLlm.revogarDoTenant = async (t: string) => {
+      if (falhar) throw new Error("DB not connected");
+      return alias(t);
+    };
+    await assert.rejects(revogar(bd, { tenantId: T, portas, agora: dia(7) }), /DB not connected/);
+    assert.equal(bd.eventos, 0);
+    assert.equal(bd.estadoDoTenant, "ativo");
+    assert.deepEqual(chamadas, [], "nenhum passo depois da chave correu");
+    falhar = false;
+    const r = await revogar(bd, { tenantId: T, portas, agora: dia(8) });
+    assert.equal(r.encerrado, true);
+    assert.equal(chamadas[0], `alias:${T}`);
   });
 
   it("a revogação recusa antes do D7 e sem exportação", async () => {
-    const portas = {
-      chaveDeLlm: { revogar: async () => {} },
-      canalDeComercio: { arquivar: async () => {} },
-      inbox: { desligar: async () => {} },
-    };
+    const portas = portasEspias([]);
     await assert.rejects(revogar(new BaseFalsa({ exportacao: "concluida", canal: "concluida" }), { tenantId: T, portas, agora: dia(6) }), FaseForaDeOrdemError);
     await assert.rejects(revogar(new BaseFalsa({ canal: "concluida" }), { tenantId: T, portas, agora: dia(7) }), FaseForaDeOrdemError);
     // Sem o canal desligado (achado 2 da revisão adversarial).
@@ -218,14 +287,9 @@ describe("o pedido, o canal e a revogação sobre a base falsa", () => {
     // Um tenant restrito não se encerra, e recusa-se antes de qualquer porta (achado 3).
     const restrito = new BaseFalsa({ exportacao: "concluida", canal: "concluida" });
     restrito.estadoDoTenant = "restrito";
-    let tocadas = 0;
-    const contadas = {
-      chaveDeLlm: { revogar: async () => void (tocadas += 1) },
-      canalDeComercio: { arquivar: async () => void (tocadas += 1) },
-      inbox: { desligar: async () => void (tocadas += 1) },
-    };
-    await assert.rejects(revogar(restrito, { tenantId: T, portas: contadas, agora: dia(7) }), /restrito/);
-    assert.equal(tocadas, 0);
+    const tocadas: string[] = [];
+    await assert.rejects(revogar(restrito, { tenantId: T, portas: portasEspias(tocadas), agora: dia(7) }), /restrito/);
+    assert.deepEqual(tocadas, []);
   });
 
   it("um cancelamento que ganha a corrida depois da Meta desfaz a dessubscrição (achado 5)", async () => {

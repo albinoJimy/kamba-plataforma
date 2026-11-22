@@ -232,6 +232,10 @@ describe("o ciclo do off-boarding", () => {
     await assert.rejects(REVOGACAO_SEM_ADAPTADOR.chaveDeLlm.revogar("k"), /litellm/);
     await assert.rejects(REVOGACAO_SEM_ADAPTADOR.canalDeComercio.arquivar("c"), /medusa/);
     await assert.rejects(REVOGACAO_SEM_ADAPTADOR.inbox.desligar("i"), /chatwoot/);
+    // As três do KAM-233, que se chamam sem a saga: nenhuma dá sucesso.
+    await assert.rejects(REVOGACAO_SEM_ADAPTADOR.chaveDeLlm.revogarDoTenant(T), /litellm/);
+    await assert.rejects(REVOGACAO_SEM_ADAPTADOR.contaDeAtendimento.archiveAccount(T), /chatwoot/);
+    await assert.rejects(REVOGACAO_SEM_ADAPTADOR.sessoesDoPainel.revogarDoTenant(T, 1), /painel/);
   });
 });
 

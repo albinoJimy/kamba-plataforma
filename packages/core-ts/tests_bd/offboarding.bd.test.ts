@@ -34,6 +34,7 @@ import type pg from "pg";
 import pgModulo from "pg";
 
 import { ResolvedorDeCanal } from "../src/chr/canal.ts";
+import { arquivarContaDoTenant } from "../src/hnd/arquivo.ts";
 import {
   AVISO_DA_APP_BUSINESS,
   ConfirmacaoIncompletaError,
@@ -305,10 +306,39 @@ describe("o off-boarding contra a base", () => {
       );
     }
     await admin.query("INSERT INTO platform.entitlements (tenant_id, modulo) VALUES ($1, 'vendedor')", [tenant]);
+    // A conta do Chatwoot do tenant (KAM-233): lê-se da `handoff_accounts` pela
+    // ligação do lote, como o processo a lê, e só o arquivo do provedor é duplo.
+    const conta = Math.floor(Math.random() * 1e9) + 1;
+    await admin.query(
+      "INSERT INTO platform.handoff_accounts (tenant_id, provedor, account_id, inbox_id, bot_id, provider_user_id, token_ref, user_token_ref) " +
+        "VALUES ($1, 'chatwoot', $2, 1, 1, $2, 'ref-do-bot', 'ref-do-utilizador')",
+      [tenant, conta],
+    );
     const chamadas: string[] = [];
     let falhar = true;
     const portas: PortasDaRevogacao = {
-      chaveDeLlm: { revogar: async (id) => void chamadas.push(`revogar:${id}`) },
+      chaveDeLlm: {
+        revogar: async (id) => void chamadas.push(`revogar:${id}`),
+        revogarDoTenant: async (t) => {
+          chamadas.push(`alias:${t}`);
+          return "revogada";
+        },
+      },
+      contaDeAtendimento: {
+        archiveAccount: (t) =>
+          arquivarContaDoTenant({
+            bd: lote,
+            arquivo: {
+              arquivarConta: async (id) => {
+                chamadas.push(`conta:${id}`);
+                return "arquivada";
+              },
+            },
+            tenantId: t,
+            provedor: "chatwoot",
+          }),
+      },
+      sessoesDoPainel: { revogarDoTenant: async (t, ate) => void chamadas.push(`painel:${t === tenant}:${ate}`) },
       canalDeComercio: {
         arquivar: async (id) => {
           if (falhar) {
@@ -337,7 +367,20 @@ describe("o off-boarding contra a base", () => {
     assert.deepEqual((await fases(tenant)).revogacao?.resultado.passos, { chave_llm: "concluido" });
     const r = await revogar(lote, { tenantId: tenant, portas, agora: dia(7) });
     assert.equal(r.encerrado, true);
-    assert.deepEqual(chamadas, ["revogar:llm-ensaio", "arquivar:medusa-ensaio", "desligar:inbox-ensaio"], "a chave não foi revogada duas vezes");
+    assert.deepEqual(
+      chamadas,
+      [
+        "revogar:llm-ensaio",
+        "arquivar:medusa-ensaio",
+        "desligar:inbox-ensaio",
+        `conta:${conta}`,
+        `painel:true:${Math.floor(dia(7).getTime() / 1000)}`,
+      ],
+      "a chave não foi revogada duas vezes, nem também pelo alias",
+    );
+    const passos = (await fases(tenant)).revogacao?.resultado.passos as Record<string, string> | undefined;
+    assert.equal(passos?.conta_atendimento, "concluido");
+    assert.equal(passos?.sessoes_do_painel, "concluido");
 
     const estado = await admin.query("SELECT estado FROM platform.tenants WHERE id = $1", [tenant]);
     assert.equal(estado.rows[0]?.estado, "encerrado");
@@ -357,7 +400,7 @@ describe("o off-boarding contra a base", () => {
     // Repetir não chama as portas nem emite outro evento.
     const outra = await revogar(lote, { tenantId: tenant, portas, agora: dia(8) });
     assert.equal(outra.encerrado, false);
-    assert.equal(chamadas.length, 3);
+    assert.equal(chamadas.length, 5);
     const depois = await admin.query("SELECT count(*)::int AS n FROM platform.events_outbox WHERE tenant_id = $1 AND tipo = 'tenant.closed'", [tenant]);
     assert.equal(depois.rows[0]?.n, 1);
   });
@@ -392,9 +435,14 @@ describe("o ciclo do processo de lote (KAM-210, critério 1)", () => {
     const meta = metaEspia();
     const chamadas: string[] = [];
     const portas: PortasDaRevogacao = {
-      chaveDeLlm: { revogar: async (id) => void chamadas.push(`revogar:${id}`) },
+      chaveDeLlm: {
+        revogar: async (id) => void chamadas.push(`revogar:${id}`),
+        revogarDoTenant: async () => "revogada",
+      },
       canalDeComercio: { arquivar: async (id) => void chamadas.push(`arquivar:${id}`) },
       inbox: { desligar: async (id) => void chamadas.push(`desligar:${id}`) },
+      contaDeAtendimento: { archiveAccount: async () => "sem_conta" },
+      sessoesDoPainel: { revogarDoTenant: async () => {} },
     };
     await admin.query(
       "INSERT INTO platform.provisioning_step (onboarding_id, tenant_id, step, status, attempt, external_id) " +

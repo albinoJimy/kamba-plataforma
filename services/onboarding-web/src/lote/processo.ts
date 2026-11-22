@@ -79,11 +79,13 @@
  * **A Meta está ligada desde o KAM-218** (`portasDoOffboarding`): o
  * `CanalDaMetaPelaGraph` com o *token* de cada WABA lido do cofre
  * (`tokenDoWabaPeloCofre`, a `kek_token_cliente` e o ambiente que o lançador
- * do cofre enche, ADR-L002), pelo `proxy-saida`. **A revogação continua sem
- * adaptador** (`REVOGACAO_SEM_ADAPTADOR`): o LiteLLM, a Medusa e o Chatwoot não
- * têm cliente que a saga use, pelo que nenhum tenant tem o recurso e o passo é
- * `sem_recurso`. Uma fase que precise de uma porta sem adaptador falha pelo
- * nome e fica parada, com alerta — nunca «feita» sem o lado de fora saber.
+ * do cofre enche, ADR-L002), pelo `proxy-saida`. **A revogação está ligada
+ * desde o KAM-233** ao LiteLLM (a chave pelo alias) e ao Chatwoot (a conta
+ * suspensa), na rede interna; a Medusa continua sem adaptador (D3), e a saga
+ * não lhe deixa recurso. Uma fase que precise de uma porta sem adaptador falha
+ * pelo nome e fica parada, com alerta — nunca «feita» sem o lado de fora saber.
+ * **Um LiteLLM sem base também**: o proxy de `prod` arranca sem `DATABASE_URL`,
+ * responde 500 a toda a gestão de chaves, e a fase `revogacao` pára na chave.
  *
  * ## O aviso ao dono não sai deste processo, e é de propósito
  *
@@ -152,6 +154,7 @@ import { METRICAS_DA_GUARDA, comTenant } from "@kamba/core-ts/tenant_guard";
 import {
   CANAL_SEM_ADAPTADOR,
   CanalDaMetaPelaGraph,
+  ChaveDoLlmPeloProxy,
   CicloDoOffboarding,
   INTERVALO_DO_OFFBOARDING_POR_OMISSAO_MS,
   MetricasDoOffboarding,
@@ -161,6 +164,7 @@ import {
   type PortasDoCiclo,
   type ResultadoDoCicloDoOffboarding,
 } from "@kamba/core-ts/offboarding";
+import { ArquivoDoChatwoot, arquivarContaDoTenant } from "@kamba/core-ts/hnd";
 import { GraphHttp, versaoDaGraph } from "@kamba/core-ts/onboarding";
 import { ANFITRIAO_DA_GRAPH } from "@kamba/core-ts/outbound";
 import { EnvSecretProvider } from "@kamba/core-ts/secrets";
@@ -331,9 +335,26 @@ export function lerConfiguracao(env: Ambiente): ConfiguracaoDoLote {
   };
 }
 
+/** As variáveis da revogação (KAM-233). A base de cada um, na rede interna. */
+export const VARIAVEIS_DA_REVOGACAO = {
+  litellm: "KAMBA_LLM_PROXY_URL",
+  chatwoot: "KAMBA_CHATWOOT_URL",
+} as const;
+
 /**
- * As portas do off-boarding deste processo (KAM-218, critério 3): a Meta ligada,
- * a revogação ainda sem adaptador.
+ * As portas do off-boarding deste processo (KAM-218, critério 3; KAM-233,
+ * critério 2): a Meta, o LiteLLM e o Chatwoot ligados.
+ *
+ * **A revogação** (decisão do fundador de 2026-11-21, Q1 = A): a chave do
+ * tenant apaga-se no proxy pelo alias, com a `litellm_master_key`, e a conta do
+ * Chatwoot do tenant suspende-se pela Platform API, com o
+ * `chatwoot_platform_token` — as duas pelo cofre, lidas **a cada chamada**, como
+ * o *token* do WABA, para que uma rotação não peça reinício. A conta lê-se da
+ * `handoff_accounts` pela ligação do lote (`arquivarContaDoTenant`, a mesma
+ * função do `archiveAccount` do `HandoffProvider`). Sem a base de um deles no
+ * ambiente, essa porta fica sem adaptador e a fase pára nela, com alerta. O
+ * canal da Medusa e a *inbox* continuam sem adaptador (D3, e a saga não os
+ * cria), e só se chamam quando a saga os registou.
  *
  * O *token* de cada WABA lê-se do cofre a cada fase (`tokenDoWabaPeloCofre`),
  * pela ligação do lote — a leitura da `tenant_channels` não tem tenant do
@@ -359,9 +380,39 @@ export function portasDoOffboarding(o: {
     ...(o.buscar === undefined ? {} : { buscar: o.buscar }),
   });
   const cofre = o.cofre ?? new EnvSecretProvider({ ambiente: o.ambiente, env: o.env as NodeJS.ProcessEnv });
+  const buscar = o.buscar === undefined ? {} : { buscar: o.buscar };
+  const baseDoLlm = (o.env[VARIAVEIS_DA_REVOGACAO.litellm] ?? "").trim();
+  const baseDoChatwoot = (o.env[VARIAVEIS_DA_REVOGACAO.chatwoot] ?? "").trim();
+  const proxy = async () =>
+    new ChaveDoLlmPeloProxy({ base: baseDoLlm, chaveMestra: await cofre.get("litellm_master_key"), ...buscar });
   return {
     canal: new CanalDaMetaPelaGraph(graph, tokenDoWabaPeloCofre({ bd: o.lote, cofre })),
-    revogacao: REVOGACAO_SEM_ADAPTADOR,
+    revogacao: {
+      ...REVOGACAO_SEM_ADAPTADOR,
+      chaveDeLlm:
+        baseDoLlm === ""
+          ? REVOGACAO_SEM_ADAPTADOR.chaveDeLlm
+          : {
+              revogar: async (ref) => (await proxy()).revogar(ref),
+              revogarDoTenant: async (tenantId) => (await proxy()).revogarDoTenant(tenantId),
+            },
+      contaDeAtendimento:
+        baseDoChatwoot === ""
+          ? REVOGACAO_SEM_ADAPTADOR.contaDeAtendimento
+          : {
+              archiveAccount: async (tenantId) =>
+                arquivarContaDoTenant({
+                  bd: o.lote,
+                  arquivo: new ArquivoDoChatwoot({
+                    base: baseDoChatwoot,
+                    tokenDaPlataforma: await cofre.get("chatwoot_platform_token"),
+                    ...buscar,
+                  }),
+                  tenantId,
+                  provedor: "chatwoot",
+                }),
+            },
+    },
   };
 }
 

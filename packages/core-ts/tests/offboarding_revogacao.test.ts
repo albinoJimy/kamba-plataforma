@@ -42,7 +42,7 @@ function buscarFalso(pedidos: Pedido[], responder: (p: Pedido) => { estado: numb
       url,
       metodo: String(opcoes.method),
       cabecalhos: opcoes.headers as Record<string, string>,
-      corpo: JSON.parse(String(opcoes.body)) as Record<string, unknown>,
+      corpo: (opcoes.body === undefined ? {} : JSON.parse(String(opcoes.body))) as Record<string, unknown>,
     };
     pedidos.push(pedido);
     const r = responder(pedido);
@@ -56,9 +56,22 @@ function buscarFalso(pedidos: Pedido[], responder: (p: Pedido) => { estado: numb
   }) as unknown as typeof fetch;
 }
 
-/** O proxy medido: apaga o que lhe pedem e devolve-o no `deleted_keys`; o que não tem dá 404. */
-function proxyMedido(chaves: Set<string>) {
+/**
+ * O proxy medido: apaga o que lhe pedem e devolve-o no `deleted_keys`; o que não
+ * tem dá 404. O `/key/list` devolve o que sobra, com a forma medida (`keys` e
+ * `total_count`), e cada chave com o mesmo valor no `token` e no `key_alias`.
+ */
+function proxyMedido(chaves: Set<string>, porPagina = 500) {
   return (p: Pedido) => {
+    if (p.metodo === "GET") {
+      const url = new URL(p.url);
+      assert.equal(url.pathname, "/key/list");
+      assert.equal(url.searchParams.get("return_full_object"), "true");
+      const pagina = Number(url.searchParams.get("page"));
+      const todas = [...chaves].map((k) => ({ token: k, key_alias: k }));
+      const keys = todas.slice((pagina - 1) * porPagina, pagina * porPagina);
+      return { estado: 200, corpo: { keys, total_count: todas.length, current_page: pagina } };
+    }
     const pedidas = [...((p.corpo.keys ?? p.corpo.key_aliases ?? []) as string[])];
     const apagadas = pedidas.filter((k) => chaves.delete(k));
     if (apagadas.length === 0) return { estado: 404, corpo: { error: { message: "No keys found" } } };
@@ -77,7 +90,9 @@ describe("a chave do LiteLLM (KAM-233, critério 2)", () => {
     const llm = new ChaveDoLlmPeloProxy({ base: "http://litellm:4000/", chaveMestra: MESTRA, buscar: buscarFalso(pedidos, proxyMedido(chaves)) });
 
     assert.equal(await llm.revogarDoTenant(TENANT), "revogada");
-    assert.equal(pedidos.length, 1);
+    assert.equal(pedidos.length, 2, "o DELETE e a listagem que o confirma");
+    assert.equal(pedidos[1]?.metodo, "GET");
+    assert.equal(pedidos[1]?.cabecalhos.authorization, `Bearer ${MESTRA}`);
     assert.equal(pedidos[0]?.url, "http://litellm:4000/key/delete");
     assert.equal(pedidos[0]?.metodo, "POST");
     assert.deepEqual(pedidos[0]?.corpo, { key_aliases: [aliasDaChaveDoTenant(TENANT)] });
@@ -99,6 +114,60 @@ describe("a chave do LiteLLM (KAM-233, critério 2)", () => {
     const llm = new ChaveDoLlmPeloProxy({ base: "http://litellm:4000", chaveMestra: MESTRA, buscar: buscarFalso(pedidos, proxyMedido(chaves)) });
     assert.equal(await llm.revogarDoTenant(TENANT), "revogada");
     assert.equal(await llm.revogarDoTenant(TENANT), "inexistente");
+  });
+
+  it("um 404 com a chave ainda na listagem levanta: o 404 só vale confirmado", async () => {
+    const chaves = new Set([aliasDaChaveDoTenant(TENANT)]);
+    const listar = proxyMedido(chaves);
+    const llm = new ChaveDoLlmPeloProxy({
+      base: "http://litellm:4000",
+      chaveMestra: MESTRA,
+      buscar: buscarFalso([], (p) => (p.metodo === "POST" ? { estado: 404, corpo: {} } : listar(p))),
+    });
+    await assert.rejects(llm.revogarDoTenant(TENANT), /continua no \/key\/list/);
+  });
+
+  it("um 200 com a chave ainda na listagem levanta", async () => {
+    const alias = aliasDaChaveDoTenant(TENANT);
+    const listar = proxyMedido(new Set([alias]));
+    const llm = new ChaveDoLlmPeloProxy({
+      base: "http://litellm:4000",
+      chaveMestra: MESTRA,
+      buscar: buscarFalso([], (p) => (p.metodo === "POST" ? { estado: 200, corpo: { deleted_keys: [alias] } } : listar(p))),
+    });
+    await assert.rejects(llm.revogarDoTenant(TENANT), /continua no \/key\/list/);
+  });
+
+  it("a listagem lê-se por páginas até ao total, e uma lista incompleta não confirma nada", async () => {
+    const pedidos: Pedido[] = [];
+    const outras = Array.from({ length: 5 }, (_, i) => `tenant-outro-${i}`);
+    const alvo = aliasDaChaveDoTenant(TENANT);
+    // O alvo na última página: só a leitura até ao fim o encontra.
+    const listar = proxyMedido(new Set([...outras, alvo]), 2);
+    const llm = new ChaveDoLlmPeloProxy({
+      base: "http://litellm:4000",
+      chaveMestra: MESTRA,
+      buscar: buscarFalso(pedidos, (p) => (p.metodo === "POST" ? { estado: 404, corpo: {} } : listar(p))),
+    });
+    await assert.rejects(llm.revogarDoTenant(TENANT), /continua/);
+    assert.deepEqual(
+      pedidos.filter((p) => p.metodo === "GET").map((p) => new URL(p.url).searchParams.get("page")),
+      ["1", "2", "3"],
+    );
+    const incompleta = new ChaveDoLlmPeloProxy({
+      base: "http://litellm:4000",
+      chaveMestra: MESTRA,
+      buscar: buscarFalso([], (p) =>
+        p.metodo === "POST" ? { estado: 404, corpo: {} } : { estado: 200, corpo: { keys: [], total_count: 3 } },
+      ),
+    });
+    await assert.rejects(incompleta.revogarDoTenant(TENANT), /incompleto/);
+    const semBase = new ChaveDoLlmPeloProxy({
+      base: "http://litellm:4000",
+      chaveMestra: MESTRA,
+      buscar: buscarFalso([], (p) => (p.metodo === "POST" ? { estado: 404, corpo: {} } : { estado: 500, corpo: {} })),
+    });
+    await assert.rejects(semBase.revogarDoTenant(TENANT), (e: unknown) => e instanceof LiteLlmRecusouError && e.estado === 500);
   });
 
   it("um 200 que não nomeia a chave pedida levanta, em vez de a dar por revogada", async () => {

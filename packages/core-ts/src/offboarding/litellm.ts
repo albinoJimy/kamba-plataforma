@@ -17,11 +17,15 @@
  *   o mesmo pedido outra vez                       404 `No keys found`
  *   a chave apagada, num pedido seu                401
  *
- * Daí as duas regras. **Um 404 é o sucesso de uma repetição** (idempotente do
+ * Daí as três regras. **Um 404 é o sucesso de uma repetição** (idempotente do
  * lado de fora): um *crash* entre o pedido e a gravação do passo repete-o. **Um
  * 200 conta só se o `deleted_keys` nomear o que se pediu**: um 200 que apagou
  * outra coisa, ou nada, levanta, em vez de dar por revogada uma chave que
- * continua a gastar o orçamento.
+ * continua a gastar o orçamento. **E nenhum dos dois basta sem a listagem**
+ * (decisão do fundador de 2026-11-21, Q1 = A): depois do `DELETE`, o
+ * `/key/list?return_full_object=true` por páginas, até ao `total_count`, não
+ * pode ter a chave. Um 404 de um proxy que a perdeu de vista não fecha o passo
+ * se ela ainda lá estiver.
  *
  * ## O limite que fica: o proxy de `prod` não tem base
  *
@@ -88,7 +92,10 @@ export class ChaveDoLlmPeloProxy implements Pick<ChaveDeLlm, "revogar"> {
       headers: { authorization: `Bearer ${this.#chave}`, "content-type": "application/json" },
       body: JSON.stringify({ [campo]: [valor] }),
     });
-    if (resposta.status === 404) return "inexistente";
+    if (resposta.status === 404) {
+      await this.#confirmarAusencia(campo, valor);
+      return "inexistente";
+    }
     if (resposta.status !== 200) {
       // O corpo não entra na mensagem: o 401 do proxy ecoa o princípio e o fim da chave.
       throw new LiteLlmRecusouError(resposta.status, "a chave nao foi revogada");
@@ -103,6 +110,47 @@ export class ChaveDoLlmPeloProxy implements Pick<ChaveDeLlm, "revogar"> {
     if (!Array.isArray(apagadas) || !apagadas.includes(valor)) {
       throw new LiteLlmRecusouError(200, "o deleted_keys nao nomeia a chave pedida");
     }
+    await this.#confirmarAusencia(campo, valor);
     return "revogada";
   }
+
+  /**
+   * A listagem inteira, por páginas, não tem a chave. Lança se a tiver, ou se
+   * não a conseguir ler toda: uma lista incompleta não prova ausência nenhuma
+   * (a mesma regra do `Proxy.listar` do `chaves.py`).
+   */
+  async #confirmarAusencia(campo: "keys" | "key_aliases", valor: string): Promise<void> {
+    const atributo = campo === "keys" ? "token" : "key_alias";
+    let vistas = 0;
+    for (let pagina = 1; ; pagina += 1) {
+      const resposta = await this.#buscar(
+        `${this.#base}/key/list?return_full_object=true&size=${PAGINA_DO_KEY_LIST}&page=${pagina}`,
+        { method: "GET", headers: { authorization: `Bearer ${this.#chave}` } },
+      );
+      if (resposta.status !== 200) {
+        throw new LiteLlmRecusouError(resposta.status, "o /key/list nao confirmou a revogacao");
+      }
+      let corpo: unknown;
+      try {
+        corpo = await resposta.json();
+      } catch {
+        throw new LiteLlmRecusouError(200, "o /key/list nao devolveu JSON");
+      }
+      const { keys, total_count: total } = (corpo ?? {}) as { keys?: unknown; total_count?: unknown };
+      if (!Array.isArray(keys) || typeof total !== "number") {
+        throw new LiteLlmRecusouError(200, "o /key/list veio sem keys ou sem total_count");
+      }
+      if (keys.some((k) => (k as Record<string, unknown> | null)?.[atributo] === valor)) {
+        throw new LiteLlmRecusouError(200, "a chave continua no /key/list depois do /key/delete");
+      }
+      vistas += keys.length;
+      if (keys.length === 0 || vistas >= total) {
+        if (vistas !== total) throw new LiteLlmRecusouError(200, "o /key/list ficou incompleto");
+        return;
+      }
+    }
+  }
 }
+
+/** Quantas chaves por página da listagem. A mesma do `Proxy.POR_PAGINA` do `chaves.py`. */
+export const PAGINA_DO_KEY_LIST = 500;

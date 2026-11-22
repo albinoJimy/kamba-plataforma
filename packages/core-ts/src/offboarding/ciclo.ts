@@ -161,15 +161,20 @@ export const CANAL_SEM_ADAPTADOR: CanalDaMeta = {
 };
 
 /**
- * As portas da revogação sem adaptador. **Só se chamam quando a saga deixou o
- * recurso** (`external_id` no `provisioning_step`); sem ele, o passo é
- * `sem_recurso` e não chega à porta. Enquanto a saga também não tiver
- * adaptadores, nenhum tenant tem o recurso, e a revogação conclui sem as chamar.
+ * As portas da revogação sem adaptador. As da saga (o `revogar` da chave, o
+ * canal da Medusa e a *inbox*) **só se chamam quando a saga deixou o recurso**
+ * (`external_id` no `provisioning_step`); sem ele, o passo é `sem_recurso`. As
+ * três do KAM-233 chamam-se **sempre**: a chave pelo alias, a conta de
+ * atendimento e as sessões do painel não dependem da saga. Um processo montado
+ * com estas portas pára a fase `revogacao` no primeiro desses passos, com alerta,
+ * em vez de encerrar o tenant com a chave viva.
  */
 export const REVOGACAO_SEM_ADAPTADOR: PortasDaRevogacao = {
-  chaveDeLlm: { revogar: semAdaptador("litellm") },
+  chaveDeLlm: { revogar: semAdaptador("litellm"), revogarDoTenant: semAdaptador("litellm") },
   canalDeComercio: { arquivar: semAdaptador("medusa") },
   inbox: { desligar: semAdaptador("chatwoot") },
+  contaDeAtendimento: { archiveAccount: semAdaptador("chatwoot") },
+  sessoesDoPainel: { revogarDoTenant: semAdaptador("painel") },
 };
 
 /** As portas que as fases deste lado usam. As da revogação são as da saga. */
