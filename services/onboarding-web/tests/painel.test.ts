@@ -459,7 +459,7 @@ test("revogacao: um PATCH a meio quando a sessao e revogada nao grava", async ()
   const m = montar({ revogacoes });
   const original = m.comercio.obterOferta.bind(m.comercio);
   m.comercio.obterOferta = async (t, a, sku) => {
-    await revogacoes.revogar(s.sid);
+    await revogacoes.revogar(s);
     return original(t, a, sku);
   };
   const r = await m.app.fetch(patch("arroz", { preco_tipo: "fixo", preco_minor: "1200000", versao: V0 }, cookieDe(s)));
@@ -498,7 +498,7 @@ test("renovacao: no primeiro dia nao se renova", async () => {
 test("renovacao: uma sessao revogada nao se renova, e a renovada de uma revogada tambem e recusada", async () => {
   const m = montar();
   const s = sessaoA();
-  await m.revogacoes.revogar(s.sid);
+  await m.revogacoes.revogar(s);
   m.agora = new Date(INICIO.getTime() + 2 * 24 * 3600 * 1000);
   const r = await m.app.fetch(get("/painel/produtos", cookieDe(s)));
   assert.equal(r.status, 401);

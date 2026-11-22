@@ -20,7 +20,8 @@
  * lado, e uma chave reutilizada com outra impressão dá `422`.
  *
  * **Em memória, pela razão do `./sessao.ts`**: o `server.ts` não arranca em
- * `prod`. O tecto de entradas e a validade são *proposta*.
+ * `prod`. O tecto de entradas e a validade são *proposta*. A versão na base é
+ * do KAM-240 (decisão C2 da coordenação, no bloco do KAM-236).
  */
 
 /** Validade de uma chave, em milissegundos. ***Proposta***: 24 horas. */

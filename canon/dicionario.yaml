@@ -12,7 +12,7 @@
 
 version: 1
 fonte: "specs/02_Dicionario_de_Dados_Canonico.md"
-versao_dicionario: "1.134"
+versao_dicionario: "1.135"
 entradas:
   - seccao: "3.1"
     conceito: "Contacto"
@@ -15148,9 +15148,9 @@ entradas:
     variantes_literais: []
   - seccao: "3.57"
     conceito: "Caso de onboarding"
-    canonico: "platform.onboarding_case(id, tenant_id, fase, fase_at, origem, nome_negocio, categoria_declarada, nif_enc, nif_hmac, phone_enc, phone_hmac, email_enc, device_hash, ip_prefix_hash, flags, owner_active_seconds, preflight, criado_at, activo_at)"
+    canonico: "platform.onboarding_case(id, tenant_id, fase, fase_at, origem, nome_negocio, categoria_declarada, nif_enc, nif_hmac, phone_enc, phone_hmac, email_enc, device_hash, ip_prefix_hash, flags, owner_active_seconds, preflight, criado_at, activo_at, chave_idem)"
     literais:
-      - "platform.onboarding_case(id, tenant_id, fase, fase_at, origem, nome_negocio, categoria_declarada, nif_enc, nif_hmac, phone_enc, phone_hmac, email_enc, device_hash, ip_prefix_hash, flags, owner_active_seconds, preflight, criado_at, activo_at)"
+      - "platform.onboarding_case(id, tenant_id, fase, fase_at, origem, nome_negocio, categoria_declarada, nif_enc, nif_hmac, phone_enc, phone_hmac, email_enc, device_hash, ip_prefix_hash, flags, owner_active_seconds, preflight, criado_at, activo_at, chave_idem)"
     nomes:
       - "platform.onboarding_case"
       - "id"
@@ -15172,7 +15172,9 @@ entradas:
       - "preflight"
       - "criado_at"
       - "activo_at"
+      - "chave_idem"
     nomes_nota:
+      - "chave_idem"
       - "fase"
       - "estado"
       - "preflight"
@@ -22393,6 +22395,228 @@ entradas:
       - "geracao.py"
       - "faltam_factos"
     variantes_literais: []
+  - seccao: "3.83"
+    conceito: "Chave de idempotência do registo"
+    canonico: "onboarding_case.chave_idem, índice único onboarding_case_chave_idem_uq"
+    literais:
+      - "onboarding_case.chave_idem"
+      - "onboarding_case_chave_idem_uq"
+    nomes:
+      - "onboarding_case.chave_idem"
+      - "onboarding_case_chave_idem_uq"
+    nomes_nota:
+      - "CHAVE"
+      - "kamba_app"
+      - "INSERT"
+      - "UPDATE"
+    variantes_literais: []
+  - seccao: "3.83"
+    conceito: "Política das buscas do registo"
+    canonico: "registo_busca em platform.onboarding_case, FOR SELECT TO kamba_migrator USING (current_setting('app.registo_busca', true) = 'on')"
+    literais:
+      - "registo_busca"
+      - "platform.onboarding_case"
+      - "FOR SELECT TO kamba_migrator USING (current_setting('app.registo_busca', true) = 'on')"
+    nomes:
+      - "registo_busca"
+      - "platform.onboarding_case"
+      - "FOR"
+      - "SELECT"
+      - "TO"
+      - "kamba_migrator"
+      - "USING"
+      - "current_setting"
+      - "app.registo_busca"
+      - "true"
+      - "on"
+    nomes_nota:
+      - "resolver_leitura"
+      - "app.registo_busca"
+      - "SECURITY"
+      - "DEFINER"
+    variantes_literais: []
+  - seccao: "3.83"
+    conceito: "Buscas do registo"
+    canonico: "platform.registo_tenant_do_caso(uuid), platform.registo_caso_por_chave(text), platform.registo_caso_vivo_por_nif(text), platform.registo_casos_vivos_por_telefone(text), platform.registo_contar_por_dispositivo(text, timestamptz)"
+    literais:
+      - "platform.registo_tenant_do_caso(uuid)"
+      - "platform.registo_caso_por_chave(text)"
+      - "platform.registo_caso_vivo_por_nif(text)"
+      - "platform.registo_casos_vivos_por_telefone(text)"
+      - "platform.registo_contar_por_dispositivo(text, timestamptz)"
+    nomes:
+      - "platform.registo_tenant_do_caso"
+      - "uuid"
+      - "platform.registo_caso_por_chave"
+      - "text"
+      - "platform.registo_caso_vivo_por_nif"
+      - "platform.registo_casos_vivos_por_telefone"
+      - "platform.registo_contar_por_dispositivo"
+      - "timestamptz"
+    nomes_nota:
+      - "onboarding"
+      - "web"
+      - "SECURITY"
+      - "DEFINER"
+      - "plpgsql"
+      - "search_path"
+      - "pg_catalog"
+      - "platform"
+      - "app.registo_busca"
+      - "EXECUTE"
+      - "kamba_app"
+      - "id"
+      - "tenant_id"
+      - "FASES_MORTAS"
+      - "onboarding_nif_vivo"
+    variantes_literais: []
+  - seccao: "3.83"
+    conceito: "Desafio do OTP do registo"
+    canonico: "platform.onboarding_otp(onboarding_id, tenant_id, codigo_hmac, expira_at, tentativas, usado_at, criado_at)"
+    literais:
+      - "platform.onboarding_otp(onboarding_id, tenant_id, codigo_hmac, expira_at, tentativas, usado_at, criado_at)"
+    nomes:
+      - "platform.onboarding_otp"
+      - "onboarding_id"
+      - "tenant_id"
+      - "codigo_hmac"
+      - "expira_at"
+      - "tentativas"
+      - "usado_at"
+      - "criado_at"
+    nomes_nota:
+      - "FORCE"
+      - "hmacDoCodigo"
+      - "kamba_app"
+      - "apagar"
+      - "usado_at"
+      - "guardar"
+    variantes_literais: []
+  - seccao: "3.83"
+    conceito: "Contadores do registo"
+    canonico: "platform.onboarding_contador(chave, instantes, actualizado_at)"
+    literais:
+      - "platform.onboarding_contador(chave, instantes, actualizado_at)"
+    nomes:
+      - "platform.onboarding_contador"
+      - "chave"
+      - "instantes"
+      - "actualizado_at"
+    nomes_nota:
+      - "timestamptz"
+      - "INSTANTES_POR_CHAVE"
+      - "tenant_id"
+      - "kamba_app"
+      - "DELETE"
+      - "anotar"
+      - "INSERT"
+      - "ON"
+      - "CONFLICT"
+      - "DO"
+      - "UPDATE"
+      - "trocarUltimo"
+      - "actualizado_at"
+      - "PARADA_MS"
+      - "kamba_batch"
+      - "contadores_do_registo"
+      - "CAMINHO_CONTADORES_DO_REGISTO"
+    variantes_literais: []
+  - seccao: "3.83"
+    conceito: "Revogações do painel"
+    canonico: "platform.painel_revogacao(revogacao_id, tenant_id, sid, ate, expira_at, criado_at)"
+    literais:
+      - "platform.painel_revogacao(revogacao_id, tenant_id, sid, ate, expira_at, criado_at)"
+    nomes:
+      - "platform.painel_revogacao"
+      - "revogacao_id"
+      - "tenant_id"
+      - "sid"
+      - "ate"
+      - "expira_at"
+      - "criado_at"
+    nomes_nota:
+      - "sid"
+      - "ate"
+      - "painel_revogacao_alvo_ck"
+      - "painel_revogacao_corte_uq"
+      - "FORCE"
+      - "expira_at"
+      - "TECTO_DO_PAINEL_S"
+      - "DELETE"
+    variantes_literais: []
+  - seccao: "3.83"
+    conceito: "Os adaptadores do registo"
+    canonico: "casosNaBase, otpNaBase, contadoresNaBase, RevogacoesNaBase, numaLigacaoDaInscricao, PoolDaInscricao, CifraDoCaso, cifraDoCaso"
+    literais:
+      - "casosNaBase"
+      - "otpNaBase"
+      - "contadoresNaBase"
+      - "RevogacoesNaBase"
+      - "numaLigacaoDaInscricao"
+      - "PoolDaInscricao"
+      - "CifraDoCaso"
+      - "cifraDoCaso"
+    nomes:
+      - "casosNaBase"
+      - "otpNaBase"
+      - "contadoresNaBase"
+      - "RevogacoesNaBase"
+      - "numaLigacaoDaInscricao"
+      - "PoolDaInscricao"
+      - "CifraDoCaso"
+      - "cifraDoCaso"
+    nomes_nota:
+      - "numaLigacao"
+      - "revogar"
+      - "Revogacoes"
+      - "sid"
+    variantes_literais: []
+  - seccao: "3.83"
+    conceito: "A cifra do NIF e do e-mail do caso"
+    canonico: "segredo kek_dados_do_caso, anelDosDados, cifrarDadoDoCaso, decifrarDadoDoCaso, CAMPOS_DOS_DADOS ∈ {nif_enc, email_enc}"
+    literais:
+      - "kek_dados_do_caso"
+      - "anelDosDados"
+      - "cifrarDadoDoCaso"
+      - "decifrarDadoDoCaso"
+      - "CAMPOS_DOS_DADOS"
+      - "nif_enc"
+      - "email_enc"
+    nomes:
+      - "kek_dados_do_caso"
+      - "anelDosDados"
+      - "cifrarDadoDoCaso"
+      - "decifrarDadoDoCaso"
+      - "CAMPOS_DOS_DADOS"
+      - "nif_enc"
+      - "email_enc"
+    nomes_nota:
+      - "kek_telefone_do_caso"
+      - "nif_enc"
+      - "email_enc"
+      - "onboarding"
+      - "web"
+    variantes_literais: []
+  - seccao: "3.83"
+    conceito: "O registo na base"
+    canonico: "ONBOARDING_APP_DB_URL (obrigatória em prod), BaseEmFaltaEmProducaoError, LIGACOES_DA_INSCRICAO, registo_na_base, es_guia_fora_de_prod"
+    literais:
+      - "ONBOARDING_APP_DB_URL"
+      - "prod"
+      - "BaseEmFaltaEmProducaoError"
+      - "LIGACOES_DA_INSCRICAO"
+      - "registo_na_base"
+      - "es_guia_fora_de_prod"
+    nomes:
+      - "ONBOARDING_APP_DB_URL"
+      - "prod"
+      - "BaseEmFaltaEmProducaoError"
+      - "LIGACOES_DA_INSCRICAO"
+      - "registo_na_base"
+      - "es_guia_fora_de_prod"
+    nomes_nota:
+      - "prod"
+    variantes_literais: []
 
 tabelas:
   - nome: "contacts"
@@ -23545,8 +23769,9 @@ tabelas:
       - "preflight"
       - "criado_at"
       - "activo_at"
+      - "chave_idem"
     aberta: false
-    assinatura: "platform.onboarding_case(id, tenant_id, fase, fase_at, origem, nome_negocio, categoria_declarada, nif_enc, nif_hmac, phone_enc, phone_hmac, email_enc, device_hash, ip_prefix_hash, flags, owner_active_seconds, preflight, criado_at, activo_at)"
+    assinatura: "platform.onboarding_case(id, tenant_id, fase, fase_at, origem, nome_negocio, categoria_declarada, nif_enc, nif_hmac, phone_enc, phone_hmac, email_enc, device_hash, ip_prefix_hash, flags, owner_active_seconds, preflight, criado_at, activo_at, chave_idem)"
     seccao: "3.57"
     conceito: "Caso de onboarding"
   - nome: "kyc_check"
@@ -24013,6 +24238,84 @@ tabelas:
     assinatura: "platform.content_items(content_item_id, tenant_id, calendar_id, semana_iso, tipo, tema, legenda, art_asset_id, estado, is_ai_generated, revisao_reforcada, versao_politica, versao, agendado_at, criado_at, atualizado_at)"
     seccao: "3.82"
     conceito: "Item de conteúdo"
+  - nome: "registo_tenant_do_caso"
+    esquema: "platform"
+    colunas:
+      - "uuid"
+    aberta: false
+    assinatura: "platform.registo_tenant_do_caso(uuid)"
+    seccao: "3.83"
+    conceito: "Buscas do registo"
+  - nome: "registo_caso_por_chave"
+    esquema: "platform"
+    colunas:
+      - "text"
+    aberta: false
+    assinatura: "platform.registo_caso_por_chave(text)"
+    seccao: "3.83"
+    conceito: "Buscas do registo"
+  - nome: "registo_caso_vivo_por_nif"
+    esquema: "platform"
+    colunas:
+      - "text"
+    aberta: false
+    assinatura: "platform.registo_caso_vivo_por_nif(text)"
+    seccao: "3.83"
+    conceito: "Buscas do registo"
+  - nome: "registo_casos_vivos_por_telefone"
+    esquema: "platform"
+    colunas:
+      - "text"
+    aberta: false
+    assinatura: "platform.registo_casos_vivos_por_telefone(text)"
+    seccao: "3.83"
+    conceito: "Buscas do registo"
+  - nome: "registo_contar_por_dispositivo"
+    esquema: "platform"
+    colunas:
+      - "text"
+      - "timestamptz"
+    aberta: false
+    assinatura: "platform.registo_contar_por_dispositivo(text, timestamptz)"
+    seccao: "3.83"
+    conceito: "Buscas do registo"
+  - nome: "onboarding_otp"
+    esquema: "platform"
+    colunas:
+      - "onboarding_id"
+      - "tenant_id"
+      - "codigo_hmac"
+      - "expira_at"
+      - "tentativas"
+      - "usado_at"
+      - "criado_at"
+    aberta: false
+    assinatura: "platform.onboarding_otp(onboarding_id, tenant_id, codigo_hmac, expira_at, tentativas, usado_at, criado_at)"
+    seccao: "3.83"
+    conceito: "Desafio do OTP do registo"
+  - nome: "onboarding_contador"
+    esquema: "platform"
+    colunas:
+      - "chave"
+      - "instantes"
+      - "actualizado_at"
+    aberta: false
+    assinatura: "platform.onboarding_contador(chave, instantes, actualizado_at)"
+    seccao: "3.83"
+    conceito: "Contadores do registo"
+  - nome: "painel_revogacao"
+    esquema: "platform"
+    colunas:
+      - "revogacao_id"
+      - "tenant_id"
+      - "sid"
+      - "ate"
+      - "expira_at"
+      - "criado_at"
+    aberta: false
+    assinatura: "platform.painel_revogacao(revogacao_id, tenant_id, sid, ate, expira_at, criado_at)"
+    seccao: "3.83"
+    conceito: "Revogações do painel"
 
 dominios:
   - coluna: "consent_event.purpose"
@@ -25899,6 +26202,13 @@ dominios:
       - "expirado"
     seccao: "3.82"
     conceito: "Estado de um item"
+    so_no_registo: false
+  - coluna: "CAMPOS_DOS_DADOS"
+    valores:
+      - "nif_enc"
+      - "email_enc"
+    seccao: "3.83"
+    conceito: "A cifra do NIF e do e-mail do caso"
     so_no_registo: false
 
 variantes:
