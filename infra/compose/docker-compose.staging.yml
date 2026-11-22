@@ -872,8 +872,10 @@ services:
     networks:
       - app
       - data
-    # shortcut: 128m sem medicao, igual ao `onboarding-lote` (dezasseis *workers*
-    # BullMQ); reve-se com a primeira medicao de repouso do processo em `staging`.
+    # 128m e acima do pico medido pelo KAM-238: 76,6 MiB de `memory.peak` sob uma
+    # rajada de 300 `tenant.provisioned`, com esta sonda e com `memswap_limit`
+    # igual ao limite (`docs/evidencia/KAM-238.md`). Este compose nao fixa o
+    # `memswap_limit`, pelo que o contentor pode usar *swap* (credor: KAM-242).
     mem_limit: 128m
     cpus: 0.25
     healthcheck:
