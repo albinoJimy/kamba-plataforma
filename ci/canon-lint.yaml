@@ -668,7 +668,7 @@ dominios_historicos:
       fornecedor que gera o fundo das artes do modulo social, pelos precedentes
       do KAM-228 e do KAM-121 (um tratamento, uma finalidade), por DROP
       CONSTRAINT mais ADD CONSTRAINT com o mesmo nome, e o dicionario §3.49
-      passa a declarar dezoito (emenda 1.135, numero provisorio). O upgrade
+      passa a declarar dezoito (emenda 1.136). O upgrade
       escreve as dezoito e o downgrade repoe as dezassete da social_do_dono;
       esta entrada cobre a segunda. O passo de descida recusa-se se houver
       destinos com essa finalidade. Renumerar a revisao e mudar tambem o
