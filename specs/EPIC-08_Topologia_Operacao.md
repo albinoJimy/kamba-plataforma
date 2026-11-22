@@ -806,7 +806,7 @@ subprocessadores (critério 4), e a **ausência de *staging* e de produção**
 > contador da mesma recusa lida do registo do PostgreSQL e a idade do registo,
 > que o recolector `registo-pg` serve e as regras `confianca_tecto_recusado_no_registo`
 > e `registo_pg_registo_parado` citam. Medido no ramo do KAM-225 sobre a
-> `publico/main` em `600952bd`: **34 módulos, 163 nomes**, 165 declaradas, e as
+> `publico/main` em `95826f19`: **34 módulos, 163 nomes**, 165 declaradas, e as
 > restantes nas mesmas. Nenhuma caixa deste epic muda.
 >
 > É por isso que **8 das 12 linhas do §9.2 não se escreveram**. Um alerta sobre

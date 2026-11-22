@@ -4461,9 +4461,9 @@ e à nota do bloco do KAM-080 no `EPIC-08_Topologia_Operacao.md`. A regra entra 
 `../docs/runbooks/README.md` (passam a dezassete), e o `RB-K08` §2.1 passa a ler o volume. O inventário do
 isolamento ganha as duas rotas do recolector (`X-01/registo-pg/sondas`), a soma do manifesto fixada no
 `compose_prod` passa a 26 160, e o `supply_chain` ganha a declaração do ensaio no
-`../ci/supply-chain/imagens.yaml` e conta 72 serviços (o recolector entra em produção e em *staging*, e não em
+`../ci/supply-chain/imagens.yaml` e conta 29 listas de saídas e 72 serviços (o recolector entra em produção e em *staging*, e não em
 desenvolvimento, onde o `postgres` não escreve o `jsonlog`).
-A ponta onde isto foi medido: o ramo do KAM-225 integrado com a `publico/main` em `600952bd`; quem fundir em
+A ponta onde isto foi medido: o ramo do KAM-225 integrado com a `publico/main` em `95826f19`; quem fundir em
 segundo remede.
 
 ---

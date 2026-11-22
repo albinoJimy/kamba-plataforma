@@ -147,7 +147,9 @@ class TestRepositorioReal(unittest.TestCase):
         # armazenamento, os dois em `data`.
         # **KAM-215: de 27 para 28.** O `onboarding-provisionamento`, com a sua
         # lista e `destinos: []`: fala com a base e com a fila, e e raspado.
-        self.assertEqual(resumo["servicos"], 28)
+        # **KAM-225: de 28 para 29.** O `registo-pg`, com a sua lista e
+        # `destinos: []`: le o registo do PostgreSQL de um volume e e raspado.
+        self.assertEqual(resumo["servicos"], 29)
         # **E os destinos de 3 para 8**, que e a conta que importa ler devagar:
         # os 3 do `litellm` continuam, o `gwy` passa a declarar
         # `graph.facebook.com` (ADR-001 faz dele o unico servico que fala com a
