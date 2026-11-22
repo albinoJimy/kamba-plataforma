@@ -327,6 +327,13 @@ class TestCli(unittest.TestCase):
     def test_lint_sobre_a_arvore_real_sai_zero(self) -> None:
         self.assertEqual(cli.main(["--root", str(RAIZ), "lint"]), 0)
 
+    def test_um_destino_nao_verificado_leva_a_marca_no_gerado(self) -> None:
+        """KAM-231: a marca da `razao` passa ao Envoy, e so a dos destinos que a tem."""
+        texto = envoy.compor(RAIZ)
+        self.assertIn("# NAO VERIFICADO: `lookaside.fbsbx.com`", texto)
+        self.assertNotIn("# NAO VERIFICADO: `graph.facebook.com`", texto)
+        self.assertEqual(envoy._nao_verificados(RAIZ), ["lookaside.fbsbx.com"])
+
     def test_gerar_verificar_sobre_a_arvore_real_sai_zero(self) -> None:
         self.assertEqual(cli.main(["--root", str(RAIZ), "gerar", "--verificar"]), 0)
 

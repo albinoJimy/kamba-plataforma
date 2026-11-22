@@ -12,14 +12,13 @@
 # com a Graph API para resolver o `media_id`. Sai pelo `proxy-saida` (`*saida`
 # no compose), como o `worker-canal-consumidor`.
 #
-# FALTA UM DESTINO, E ESTA DITO: os bytes da foto vem de um URL que a Graph
-# devolve, num anfitriao da CDN da Meta — `lookaside.fbsbx.com` segundo a
-# documentacao publica, **NAO VERIFICADO** (`packages/core-ts/src/med/graph.ts`,
-# `ANFITRIOES_DA_DESCARGA`). Nao entra aqui sem entrar tambem na allowlist do
-# `infra/egress/proxy-saida.yaml` (o `compose_prod` exige os dois sentidos), e
-# essa e uma decisao de saida que nao e deste ficheiro. Ate la a descarga e
-# recusada pelo proxy, o MED marca a foto `falhou`, e ela chega ao AGR sem
-# `asset_id` — falha fechada.
+# Os bytes da foto vem de um URL que a Graph devolve, num anfitriao da CDN da
+# Meta: `lookaside.fbsbx.com`, **NAO VERIFICADO** — nao ha evidencia da API de
+# media da Meta (`packages/core-ts/src/med/contrato.ts`). Decisao do fundador de
+# 2026-11-22 (KAM-231, opcao A): entra aqui, na allowlist do
+# `infra/egress/proxy-saida.yaml` e na configuracao gerada do Envoy, e o codigo
+# confere o anfitriao contra uma lista fechada (`ANFITRIOES_DA_DESCARGA`): so
+# HTTPS, porta por omissao e sem credenciais no URL. Recusado: nao o abrir.
 version: 1
 servico: worker-canal-entrada
 por_omissao: negar
@@ -33,4 +32,14 @@ destinos:
       *token* do canal da conversa lido pelo `token_ref` (KAM-231). O mesmo
       FQDN e o mesmo *token* do envio do `worker-canal-consumidor` (KAM-227);
       destino de transferencia internacional ja reconhecido (ADR-008).
+    ticket: KAM-231
+
+  - fqdn: lookaside.fbsbx.com
+    porta: 443
+    protocolo: https
+    razao: >-
+      NAO VERIFICADO. O anfitriao do URL temporario que a Graph devolve para a
+      media do WhatsApp, de onde o MED descarrega a foto do dono com o mesmo
+      *token* (`med/graph.ts`, `ANFITRIOES_DA_DESCARGA`). Decisao do fundador
+      de 2026-11-22 (KAM-231, opcao A).
     ticket: KAM-231

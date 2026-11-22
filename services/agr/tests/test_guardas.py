@@ -1015,22 +1015,57 @@ def _mensagens_do_cliente(fonte: str) -> list[int]:
     return sorted(set(linhas))
 
 
+def _linhas_do_ver(ficheiro: Path) -> set[int]:
+    """As linhas do metodo `ver` do `ClienteDeLlm` (KAM-231)."""
+    for no in ast.walk(ast.parse(ficheiro.read_text(encoding="utf-8"))):
+        if isinstance(no, ast.FunctionDef) and no.name == "ver":
+            return set(range(no.lineno, (no.end_lineno or no.lineno) + 1))
+    return set()
+
+
 class TestUmaSoVia(unittest.TestCase):
     """A primeira barreira e imposta por maquina: uma so via para a janela."""
 
     def test_nenhum_sitio_de_src_constroi_uma_mensagem_do_cliente(self) -> None:
         raiz = Path(__file__).resolve().parents[1] / "src" / "kamba_agr"
         permitido = raiz / "guardas" / "entrada.py"
+        visao = _linhas_do_ver(raiz / "llm" / "cliente.py")
         achados = [
             f"{ficheiro.relative_to(raiz)}:{linha}"
             for ficheiro in sorted(raiz.rglob("*.py"))
             if ficheiro != permitido
             for linha in _mensagens_do_cliente(ficheiro.read_text(encoding="utf-8"))
+            if not (ficheiro.name == "cliente.py" and ficheiro.parent.name == "llm" and linha in visao)
         ]
         self.assertEqual(achados, [])
         # E o permitido **tem** construcoes, senao o ensaio procurava uma forma
         # que ninguem escreve.
         self.assertGreaterEqual(len(_mensagens_do_cliente(permitido.read_text(encoding="utf-8"))), 2)
+
+    def test_a_unica_excepcao_e_a_imagem_do_ver_sem_texto(self) -> None:
+        """KAM-231: o `ver` monta uma mensagem `user` so com a imagem limpa.
+
+        Nao e a janela do turno nem leva texto de ninguem: a instrucao e fixa e
+        vai no `system`. A excepcao e **so** o corpo do metodo `ver`, e este
+        ensaio prova que la dentro a unica mensagem `user` e uma lista de partes
+        `image_url`, sem parte de texto.
+        """
+        ficheiro = Path(__file__).resolve().parents[1] / "src" / "kamba_agr" / "llm" / "cliente.py"
+        texto = ficheiro.read_text(encoding="utf-8")
+        visao = _linhas_do_ver(ficheiro)
+        dentro = [linha for linha in _mensagens_do_cliente(texto) if linha in visao]
+        self.assertEqual(len(dentro), 1)
+        for no in ast.walk(ast.parse(texto)):
+            if isinstance(no, ast.Dict) and getattr(no, "lineno", 0) in dentro:
+                pares = dict(zip([getattr(k, "value", None) for k in no.keys], no.values, strict=True))
+                self.assertEqual(pares.get("role").value, "user")  # type: ignore[union-attr]
+                partes = pares["content"]
+                self.assertIsInstance(partes, ast.List)
+                tipos = [
+                    dict(zip([getattr(k, "value", None) for k in parte.keys], parte.values, strict=True))["type"].value
+                    for parte in partes.elts  # type: ignore[attr-defined]
+                ]
+                self.assertEqual(tipos, ["image_url"])
 
     def test_o_ensaio_morde(self) -> None:
         """O canario: as tres formas que se escreveriam, e a *docstring* que nao conta."""
