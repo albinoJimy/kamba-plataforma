@@ -23,7 +23,7 @@
  * ganhar um gancho depois da transacção (ou um contador por `events_consumed`).
  *
  * **As etiquetas são domínios fechados** (`tipo` 9, `passo` 4, `origem` 2,
- * `varredura` 4, `desfecho` 2), e nenhuma leva tenant, sinal nem caso
+ * `varredura` 5, `desfecho` 2), e nenhuma leva tenant, sinal nem caso
  * (`OBS-I`). Qual tenant é lê-se da `ts_sanction`, por quem tem papel para isso.
  *
  * **Nascem a zero**: todas as séries saem desde o arranque, e uma regra de
@@ -41,7 +41,7 @@ export const METRICA_SANCOES = "ts_sancoes_total";
 export const METRICA_VARREDURAS = "ts_varreduras_total";
 
 /** As varreduras do lote. Domínio da etiqueta `varredura`. */
-export const VARREDURAS = ["nao_entrega", "fotos", "encerramentos", "mudancas_de_conta"] as const;
+export const VARREDURAS = ["nao_entrega", "fotos", "encerramentos", "mudancas_de_conta", "precos"] as const;
 export type Varredura = (typeof VARREDURAS)[number];
 
 /** O desfecho de uma corrida. Uma falha não pára as outras varreduras. */

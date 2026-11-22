@@ -37,8 +37,12 @@
 import { LIMIARES_POR_OMISSAO } from "../revisao/contrato.ts";
 import type { Passo, PoliticaDeRisco, Severidade, TipoDeSinal } from "./regras.ts";
 
-/** As chaves que o `detalhe` de um sinal admite. A base fecha-as por `CHECK`. */
-export const CHAVES_DO_DETALHE = ["order_id", "coincidencia", "contagem", "sku", "versao_politica", "pedidos"] as const;
+/**
+ * As chaves que o `detalhe` de um sinal admite. A base fecha-as por `CHECK`
+ * (`ts_signal_detalhe_ck`). A `fonte` é do KAM-209 (revisão `0088`): o nome e a
+ * versão da fonte das referências do `preco_anomalo`.
+ */
+export const CHAVES_DO_DETALHE = ["order_id", "coincidencia", "contagem", "sku", "versao_politica", "pedidos", "fonte"] as const;
 export type ChaveDoDetalhe = (typeof CHAVES_DO_DETALHE)[number];
 export type DetalheDoSinal = Readonly<Partial<Record<ChaveDoDetalhe, string | number | readonly string[]>>>;
 

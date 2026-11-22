@@ -337,6 +337,50 @@ export const SQL_FOTOS_REPETIDAS = `
 `;
 
 /**
+ * As ofertas que a varredura do preço anómalo lê (KAM-209): as publicadas, de
+ * preço fixo e com categoria, **de todos os tenants** — é o `kamba_batch`, o
+ * papel auditado que atravessa tenants, quem a corre. São as que se avaliam e,
+ * ao mesmo tempo, as referências umas das outras (decisão do fundador de
+ * 2026-11-21: a mediana das ofertas publicadas de preço fixo, da mesma moeda e
+ * categoria, de **outros** tenants). Quais categorias não se avaliam (a
+ * `outra`) decide-o o código, pela lista de `./categorias.ts`, e não esta
+ * consulta: uma fonte.
+ *
+ * Sem `LIMIT`, e é deliberado: a mediana de uma categoria precisa de todas as
+ * ofertas dela, e um corte punha a referência a depender da ordem.
+ * shortcut: a volta lê o catálogo publicado inteiro para a memória do processo
+ * de lote; revê-se quando passar de ~100 mil ofertas publicadas de preço fixo,
+ * passando a mediana para a base (`percentile_disc` por categoria e moeda).
+ */
+export const SQL_OFERTAS_DE_PRECO_FIXO = `
+  SELECT o.tenant_id::text AS tenant_id, o.sku, o.categoria, o.currency,
+         o.preco_minor::text AS preco_minor
+    FROM platform.offer_terms o
+   WHERE o.estado = 'publicado' AND o.deleted_at IS NULL
+     AND o.preco_tipo = 'fixo' AND o.categoria IS NOT NULL
+   ORDER BY o.categoria, o.currency, o.tenant_id, o.sku
+`;
+
+/**
+ * Quantas ofertas publicadas não têm categoria (KAM-209). São as que já
+ * estavam publicadas antes da revisão `0088`: a guarda vale só na publicação,
+ * e estas ficam nulas e não se avaliam (decisão do fundador de 2026-11-21). A
+ * varredura conta-as, para que o que fica por avaliar se veja.
+ */
+export const SQL_OFERTAS_SEM_CATEGORIA = `
+  SELECT count(*)::int AS n
+    FROM platform.offer_terms
+   WHERE estado = 'publicado' AND deleted_at IS NULL AND categoria IS NULL
+`;
+
+/** As chaves dos `preco_anomalo` já gravados: a volta não grava duas vezes o mesmo preço. */
+export const SQL_PRECOS_JA_SINALIZADOS = `
+  SELECT ref_evento::text AS ref_evento
+    FROM platform.ts_signal
+   WHERE tipo = 'preco_anomalo'
+`;
+
+/**
  * Os sinais `mudanca_de_conta` que ainda não têm caso `trust` (KAM-200,
  * critério 5). Os sinais nascem nos *triggers* da revisão `0067`, sobre a
  * `payment_accounts` e o `tenants.nif`; o caso abre-o a varredura, pela fila. A

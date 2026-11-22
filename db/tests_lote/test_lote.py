@@ -75,6 +75,8 @@ GRUPOS = (
     "a confiança gradual a correr contra a base",
     "adversarial (f) do KAM-096, os dois lados: a recusa da base e o alerta (KAM-219)",
     "a activação no lote contra a base",
+    # KAM-209: a varredura do preço anómalo, no ficheiro do T&S.
+    "o preço anómalo contra a base (KAM-209)",
 )
 
 #: Os testes que **tem** de ter corrido e passado, pelo nome. Sao a letra dos
@@ -154,6 +156,13 @@ TESTES_OBRIGATORIOS = (
     "KAM-202: com quatro elegiveis o gate fica vermelho e o caso nao avanca",
     "KAM-202: a pagina abre a tentativa pela ligacao da aplicacao, e o lote fecha-a ok com os quatro factos",
     "KAM-202: sem entrega, o lote fecha a tentativa falhada com sem_entrega depois da janela",
+    # KAM-209: o preço anómalo contra a base — as 19 e 20 referências e as
+    # fronteiras (Testes Requeridos), a `outra` e as sem categoria, e o
+    # isolamento: a mediana atravessa tenants só pelo `kamba_batch`.
+    "19 referências de outras lojas não avaliam; a 20.ª avalia, e o sinal diz só a contagem",
+    "1% e 100× da mediana ficam dentro; um cêntimo para fora sinaliza",
+    "as ofertas sem categoria e as da `outra` não se avaliam, e a volta conta as sem categoria",
+    "a mediana atravessa tenants só pelo kamba_batch: o kamba_app vê as ofertas do seu tenant e mais nenhuma",
 )
 
 

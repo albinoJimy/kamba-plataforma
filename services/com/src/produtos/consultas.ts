@@ -82,7 +82,7 @@ export const SQL_TERMOS = `
   SELECT sku, nome, preco_tipo, preco_minor, currency,
          preco_atualizado_at, preco_valido_ate,
          stock_modo, stock_verificado_at, estado, categoria_restrita,
-         atualizado_at
+         categoria, atualizado_at
     FROM platform.offer_terms
    WHERE tenant_id = $1 AND sku = $2 AND deleted_at IS NULL
 `;
@@ -109,7 +109,7 @@ export const SQL_TERMOS_PARA_ESCRITA = `
   SELECT sku, nome, preco_tipo, preco_minor, currency,
          preco_atualizado_at, preco_valido_ate,
          stock_modo, stock_verificado_at, estado, categoria_restrita,
-         atualizado_at
+         categoria, atualizado_at
     FROM platform.offer_terms
    WHERE tenant_id = $1 AND sku = $2 AND deleted_at IS NULL
      FOR UPDATE
@@ -135,6 +135,10 @@ export const SQL_TERMOS_PARA_ESCRITA = `
  * alguém reescreveu o rascunho». Quem decide é o módulo, que compara o antes
  * com o pedido e passa o instante novo **só se o preço mudou** — senão passa o
  * que já lá estava.
+ *
+ * **A `categoria` (`$9`, KAM-209) vem sempre**, e o módulo passa a que a linha
+ * já tem quando o rascunho não traz nenhuma: a instrução não decide omissões.
+ * Num `publicado`, a base recusa pô-la a nulo (`23514`, revisão `0088`).
  */
 export const SQL_ACTUALIZAR_TERMOS = `
   UPDATE platform.offer_terms
@@ -144,6 +148,7 @@ export const SQL_ACTUALIZAR_TERMOS = `
          preco_valido_ate = $6,
          stock_modo = $7,
          preco_atualizado_at = $8,
+         categoria = $9,
          atualizado_at = clock_timestamp()
    WHERE tenant_id = $1 AND sku = $2 AND deleted_at IS NULL
   RETURNING sku, preco_tipo, preco_minor, currency, stock_modo, atualizado_at, estado

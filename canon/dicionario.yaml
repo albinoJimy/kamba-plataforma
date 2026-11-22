@@ -12,7 +12,7 @@
 
 version: 1
 fonte: "specs/02_Dicionario_de_Dados_Canonico.md"
-versao_dicionario: "1.133"
+versao_dicionario: "1.134"
 entradas:
   - seccao: "3.1"
     conceito: "Contacto"
@@ -18439,6 +18439,114 @@ entradas:
       - "fotos"
       - "encerramentos"
       - "mudancas_de_conta"
+      - "precos"
+    variantes_literais: []
+  - seccao: "3.68"
+    conceito: "Categoria da oferta"
+    canonico: "offer_terms.categoria ∈ {moda, mercearia, restauracao, beleza, electronica, servicos, material_construcao, outra}"
+    literais:
+      - "offer_terms.categoria"
+      - "moda"
+      - "mercearia"
+      - "restauracao"
+      - "beleza"
+      - "electronica"
+      - "servicos"
+      - "material_construcao"
+      - "outra"
+    nomes:
+      - "offer_terms.categoria"
+      - "moda"
+      - "mercearia"
+      - "restauracao"
+      - "beleza"
+      - "electronica"
+      - "servicos"
+      - "material_construcao"
+      - "outra"
+    nomes_nota:
+      - "CHECK"
+      - "offer_terms_categoria_ck"
+      - "servicos"
+      - "material_construcao"
+      - "outra"
+      - "categoria"
+      - "id"
+    variantes_literais: []
+  - seccao: "3.68"
+    conceito: "A lista das categorias de produto"
+    canonico: "policy/categorias_de_produto.yaml, versao 1.0.0"
+    literais:
+      - "versao"
+    nomes:
+      - "versao"
+    nomes_nota:
+      - "CHECK"
+      - "CATEGORIAS_DE_PRODUTO"
+      - "CATEGORIAS"
+      - "kamba_core.catalogo.categorias"
+      - "id"
+    variantes_literais: []
+  - seccao: "3.68"
+    conceito: "A guarda na publicação"
+    canonico: "platform.offer_terms_categoria_na_publicacao(), no trigger offer_terms_categoria_na_publicacao"
+    literais:
+      - "platform.offer_terms_categoria_na_publicacao()"
+      - "offer_terms_categoria_na_publicacao"
+    nomes:
+      - "platform.offer_terms_categoria_na_publicacao"
+      - "offer_terms_categoria_na_publicacao"
+    nomes_nota:
+      - "SECURITY"
+      - "INVOKER"
+      - "ENABLE"
+      - "ALWAYS"
+      - "publicado"
+      - "publishProduct"
+      - "INSERT"
+    variantes_literais: []
+  - seccao: "3.68"
+    conceito: "A fonte das referências do preço anómalo"
+    canonico: "plataforma/1, na chave fonte do ts_signal.detalhe"
+    literais:
+      - "fonte"
+      - "ts_signal.detalhe"
+    nomes:
+      - "fonte"
+      - "ts_signal.detalhe"
+    nomes_nota:
+      - "kamba_batch"
+      - "fonte"
+      - "CHAVES_DO_DETALHE"
+      - "ts_signal_detalhe_ck"
+      - "sku"
+      - "contagem"
+      - "versao_politica"
+    variantes_literais: []
+  - seccao: "3.68"
+    conceito: "Varredura do preço anómalo"
+    canonico: "precos, o entity_id de ts_varredura e o valor da etiqueta varredura de ts_varreduras_total"
+    literais:
+      - "precos"
+      - "entity_id"
+      - "ts_varredura"
+      - "varredura"
+      - "ts_varreduras_total"
+    nomes:
+      - "precos"
+      - "entity_id"
+      - "ts_varredura"
+      - "varredura"
+      - "ts_varreduras_total"
+    nomes_nota:
+      - "avaliarPreco"
+      - "sku"
+      - "payload_hash"
+      - "batch.run"
+      - "precos"
+      - "sinais"
+      - "sem_categoria"
+      - "n"
     variantes_literais: []
   - seccao: "3.69"
     conceito: "Ledger de custo por módulo"
@@ -23669,6 +23777,13 @@ tabelas:
     assinatura: "platform.ts_limitacao_do_catalogo()"
     seccao: "3.68"
     conceito: "A limitação no catálogo"
+  - nome: "offer_terms_categoria_na_publicacao"
+    esquema: "platform"
+    colunas: []
+    aberta: false
+    assinatura: "platform.offer_terms_categoria_na_publicacao()"
+    seccao: "3.68"
+    conceito: "A guarda na publicação"
   - nome: "module_cost_gravar"
     esquema: "platform"
     colunas:
@@ -25546,6 +25661,19 @@ dominios:
       - "negado"
     seccao: "3.68"
     conceito: "Desfecho de um recurso"
+    so_no_registo: false
+  - coluna: "offer_terms.categoria"
+    valores:
+      - "moda"
+      - "mercearia"
+      - "restauracao"
+      - "beleza"
+      - "electronica"
+      - "servicos"
+      - "material_construcao"
+      - "outra"
+    seccao: "3.68"
+    conceito: "Categoria da oferta"
     so_no_registo: false
   - coluna: "module_cost_ledger.modulo"
     valores:

@@ -6,6 +6,8 @@
 
 export * from "./contrato.ts";
 export * from "./regras.ts";
+export * from "./categorias.ts";
+export { FONTE_DAS_REFERENCIAS, refDoPreco, varrerPrecos, type ResultadoDosPrecos } from "./precos.ts";
 export {
   AvisoDeSancaoPorSms,
   AvisoDeSancaoSemDestinoError,
@@ -68,6 +70,9 @@ export {
   SQL_INDEPENDENCIA,
   SQL_MUDANCAS_DE_CONTA_SEM_CASO,
   SQL_NAO_ENTREGUES,
+  SQL_OFERTAS_DE_PRECO_FIXO,
+  SQL_OFERTAS_SEM_CATEGORIA,
+  SQL_PRECOS_JA_SINALIZADOS,
   SQL_PEDIDO_E_COMPRADOR,
   SQL_PEDIDOS_MANUAIS,
   SQL_QUEIXAS,

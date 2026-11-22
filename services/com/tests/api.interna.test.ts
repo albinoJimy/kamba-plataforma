@@ -1053,6 +1053,26 @@ test("KAM-119: o upsert-product-draft passa o tenant do cabecalho e os termos no
   assert.deepEqual(rascunhosDeProduto[0]?.d.atributos, { preco_tipo: "sob_consulta", preco_minor: null });
 });
 
+test("KAM-209: a categoria do corpo vai no ProductDraft, e uma que nao e texto da 400", async () => {
+  rascunhosDeProduto.length = 0;
+  const { aplicacao, chamadas } = app();
+  const r = await aplicacao.fetch(
+    pedido("/internal/upsert-product-draft", { ...CTX_DO_CORPO, ...RASCUNHO_BOM, categoria: "moda" }, BONS),
+  );
+  assert.equal(r.status, 200);
+  assert.equal(rascunhosDeProduto[0]?.d.categoria, "moda");
+  // Sem categoria no corpo, o `ProductDraft` não leva a chave.
+  rascunhosDeProduto.length = 0;
+  await aplicacao.fetch(pedido("/internal/upsert-product-draft", { ...CTX_DO_CORPO, ...RASCUNHO_BOM }, BONS));
+  assert.equal("categoria" in (rascunhosDeProduto[0]?.d ?? {}), false);
+  const antes = chamadas.contagem.get("upsertProductDraft") ?? 0;
+  const mau = await aplicacao.fetch(
+    pedido("/internal/upsert-product-draft", { ...CTX_DO_CORPO, ...RASCUNHO_BOM, categoria: 3 }, BONS),
+  );
+  assert.equal(mau.status, 400);
+  assert.equal(chamadas.contagem.get("upsertProductDraft") ?? 0, antes);
+});
+
 test("KAM-119: um corpo de upsert-product-draft que nao valida da 400, e a porta nao e chamada", async () => {
   const { aplicacao, chamadas } = app();
   const maus: Record<string, unknown>[] = [

@@ -21,6 +21,13 @@ interna, e so quando o `preco_tipo` leva numero — o `sob_consulta` vai com
 nao tem campo no rascunho da porta (`ProductDraft`): fica na ingestao e no
 resumo, e o limite esta escrito no bloco.
 
+## A categoria e a da lista fechada (KAM-209)
+
+O texto livre da `categoria` vai ao COM como o `id` da lista de
+`policy/categorias_de_produto.yaml` que o `categoria_de_produto` lhe da, o mesmo
+que o resumo mostra ao dono entre parenteses. O COM guarda-o em
+`offer_terms.categoria`, e a base nao publica uma oferta sem ele.
+
 ## *Fail-closed*
 
 Qualquer recusa do COM sobe como `ErroDeBackend` com o codigo canonico, e o
@@ -35,6 +42,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Final
 
+from kamba_core.catalogo.categorias import categoria_de_produto
 from kamba_core.catalogo.completude import PRECO_TIPOS, PRECO_TIPOS_COM_NUMERO, STOCK_MODOS
 from kamba_core.catalogo.extraccao import Campo
 from kamba_core.catalogo.pipeline import ConfirmacaoDoDono
@@ -90,6 +98,13 @@ def corpo_do_rascunho(sku: str, campos: Mapping[str, Campo]) -> dict[str, object
     stock_modo = _texto(campos, "stock_modo")
     if stock_modo in STOCK_MODOS:
         corpo["stock_modo"] = stock_modo
+    # KAM-209: a categoria da oferta e o `id` da lista fechada que o resumo
+    # mostrou ao dono (`pipeline.resumo`), e nao o texto livre da ingestao. Sem
+    # categoria, nao vai: a completude pede-a antes do rascunho, e o COM recusa
+    # publicar uma oferta sem ela.
+    categoria = categoria_de_produto(_texto(campos, "categoria"))
+    if categoria is not None:
+        corpo["categoria"] = categoria
     return corpo
 
 
