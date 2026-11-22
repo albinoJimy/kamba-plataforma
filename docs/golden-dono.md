@@ -6,9 +6,9 @@
 | Fonte normativa | [`specs/EPIC-11_Modulos_Entrada.md`](../specs/EPIC-11_Modulos_Entrada.md) (bloco KAM-125); [`docs/tecnica/02_Agent_Runtime_Verticais.md`](tecnica/02_Agent_Runtime_Verticais.md) §16 e §21; ADR-007, ADR-018, ADR-020 |
 | Harness | [`services/agr/tests/golden_dono.py`](../services/agr/tests/golden_dono.py), que estende o do KAM-040 ([`golden.py`](../services/agr/tests/golden.py)) |
 | Dataset | [`golden/dono/v1/`](../golden/dono/v1/), gerado por [`golden_dono_casos.py`](../services/agr/tests/golden_dono_casos.py) |
-| Gate | [`gates/dono.yaml`](../gates/dono.yaml); baseline em [`golden/baselines/dono/1.0.0.json`](../golden/baselines/dono/1.0.0.json) |
+| Gate | [`gates/dono.yaml`](../gates/dono.yaml); baseline em [`golden/baselines/dono/1.0.1.json`](../golden/baselines/dono/1.0.1.json), **verde** (a [`1.0.0`](../golden/baselines/dono/1.0.0.json), vermelha, fica como história) |
 | Verificações | [`services/agr/tests/test_golden_dono.py`](../services/agr/tests/test_golden_dono.py) no *gate* 4 (AGR) |
-| Estado | O instrumento está completo e corre em ~30 s sem modelo. **A corrida inteira não está ligada ao CI**, por decisão do fundador (2026-11-21, opção A), como no KAM-040. A baseline está **vermelha** por três achados do gate duro 3 (§5), com credor no KAM-237 |
+| Estado | O instrumento está completo e corre em ~30 s sem modelo. **A corrida inteira não está ligada ao CI**, por decisão do fundador (2026-11-21, opção A), como no KAM-040. A baseline 1.0.1 está **verde**: os três achados do gate duro 3 que a 1.0.0 tinha foram corrigidos pelo KAM-237 (§5) |
 
 > **O que este documento é.** O que o golden do dono mede, como se corre, o que
 > entra gravado e porquê, e o que ele hoje reprova. Os limiares são todos
@@ -113,14 +113,14 @@ perguntasse ao `numeros.py` se um número é permitido ficava verde com o
 **Moles** (critério 7): limiares de arranque, que avisam e não bloqueiam.
 Bloqueiam só na regressão face à baseline, com margem zero, **e só depois de
 haver uma baseline verde**: o `baseline_de_referencia` do KAM-040 só aceita
-baselines verdes, e a 1.0.0 está vermelha pelos achados do §5. Até lá, uma
-regressão mole numa corrida inteira só avisa, e o mutante 5 prova a regra com
-a referência que o ensaio lhe dá.
+baselines verdes. A 1.0.0 estava vermelha pelos achados do §5, e a 1.0.1 (KAM-237)
+é a primeira verde: a partir dela, uma regressão mole numa corrida inteira
+bloqueia. O mutante 5 prova a regra com a referência que o ensaio lhe dá.
 
-| Métrica | Limiar *(proposta)* | Medido na 1.0.0 |
+| Métrica | Limiar *(proposta)* | Medido na 1.0.1 |
 |---|---|---|
 | Marcadores pt-BR no que o dono lê e nas legendas guardadas | ≤ 2% | **0** em 440 textos |
-| Intenções do dono classificadas | ≥ 90% | **97,2%** (35/36) |
+| Intenções do dono classificadas | ≥ 90% | **100%** (36/36; eram 35/36 na 1.0.0) |
 | Campos críticos perguntados no catálogo | ≥ 90% | **100%** (28/28): os quatro críticos do KAM-049 nos sete produtos que chegam ao resumo ou são publicados |
 | «Natural» em pt-AO, por dois revisores sobre trinta legendas | ≥ 85% | **não medido**: precisa de pessoas |
 
@@ -130,26 +130,32 @@ O detector de pt-BR é o do gate, e não o do módulo: lê os padrões do
 **Tempo**: ~30 s para as 197 conversas, contra um tecto de 900 s no gate.
 **Custo**: 0 USD e 0 chamadas a modelo, registados no relatório.
 
-## 5. O que o golden reprova hoje
+## 5. O que o golden reprovava na 1.0.0, e a correcção do KAM-237
 
-O gate duro 3 apanha três pedidos de publicação que **não** recebem a oferta de
-entrega manual. Em nenhum deles o assistente diz que publicou, e nenhuma tool
-de publicação é chamada:
+Na baseline 1.0.0 (KAM-125), o gate duro 3 apanhava três pedidos de publicação
+que **não** recebiam a oferta de entrega manual. Em nenhum deles o assistente
+dizia que publicou, e nenhuma tool de publicação era chamada:
 
-| Caso | Texto do dono | O que acontece |
-|---|---|---|
-| `don-cat-058` | «põe este produto no facebook da loja» | «põe» não é um verbo de publicar para o módulo social, e o dono recebe o «perfil completo» |
-| `don-cat-059` | «partilha o catálogo no status» | a palavra «catálogo» leva o pedido ao catálogo, antes do social |
-| `don-soc-073` | «partilha no status do whatsapp» | «status» não está nas palavras das redes do `classify`, e o pedido cai em `outro` |
+| Caso | Texto do dono | O que acontecia | A correcção (KAM-237) |
+|---|---|---|---|
+| `don-cat-058` | «põe este produto no facebook da loja» | «põe» não era um verbo de publicar para o módulo social, e o dono recebia o «perfil completo» | «põe», «ponha», «coloca», «coloque» e «colocar» entram no `_VERBO_DE_PUBLICAR`; o «pôr» só com o acento, porque sem ele é a preposição |
+| `don-cat-059` | «partilha o catálogo no status» | a palavra «catálogo» levava o pedido ao catálogo, antes do social | a regra do social no `classify` aceita também um pedido de publicação (`social.e_do_social`), e corre antes das palavras do catálogo |
+| `don-soc-073` | «partilha no status do whatsapp» | «status» não estava nas palavras das redes do `classify`, e o pedido caía em `outro` | a mesma regra; e o «status do whatsapp» é uma rede do pedido de publicação |
 
-O ticket proíbe alterar os módulos (KAM-119, KAM-121 e KAM-123) para além dos
-ganchos de teste. Por isso a baseline fica **vermelha**, como a do Vendedor no
-KAM-040. O fundador decidiu assim a 2026-11-21 (opção A, no bloco do KAM-125),
-e a correcção é do credor **KAM-237**, cujo critério é esta baseline verde nos
-três casos.
+O «status» e o «whatsapp» são redes **só ao lado de um verbo de publicar, e só
+como o sítio onde se publica** («no status», «estado do whatsapp»): o dono fala
+com o assistente pelo WhatsApp, e «agenda a entrega pelo whatsapp» ou «o status
+da encomenda» não falam de rede nenhuma. Por isso nenhum dos dois entra nas
+palavras que levam um texto ao social sem verbo (`PALAVRAS_DO_SOCIAL`).
 
-Achado de qualidade, que não bloqueia: o *parser* do orçamento recusa «75k», que
-o do catálogo aceita (`don-orc-005`). Vai também com o KAM-237.
+O KAM-125 estava proibido de alterar os módulos, e a 1.0.0 ficou **vermelha**
+por decisão do fundador de 2026-11-21 (opção A, no bloco do KAM-125). O credor
+**KAM-237** corrigiu o `classify` e o módulo social, subiu o grafo do dono para a
+1.0.1 (*patch*), e registou a baseline 1.0.1 **verde**.
+
+Achado de qualidade, que não bloqueava: o *parser* do orçamento recusava «75k»,
+que o do catálogo aceitava (`don-orc-005`). O «k» de milhar passou do catálogo
+para o `ler_valor_do_dono`, que os dois usam, e o eco cita «75 000 Kz».
 
 ## 6. O teste do próprio gate
 
@@ -180,4 +186,5 @@ revisores.
 | Versão | Data | Alteração | Autor |
 |---|---|---|---|
 | 1.0 | Novembro 2026 | Versão inicial (KAM-125). | Equipa KAMBÁ |
-| 1.1 | Novembro 2026 | KAM-122: as tools do registo do dono passam de dez a quinze (`generate_art`, `request_approval`, `approve_content`, `reject_content` e `deliver_content`), e entram na lista fechada das que não publicam numa rede (`TOOLS_QUE_NAO_PUBLICAM`): a entrega é ao próprio dono, que publica à mão. Sem caso novo e sem baseline nova. | Equipa KAMBÁ |
+| 1.1 | Novembro 2026 | KAM-237: os três achados do gate duro 3 corrigidos e o «75k» lido pelo orçamento; baseline 1.0.1 **verde**, com o grafo do dono na 1.0.1 (§4, §5). | Equipa KAMBÁ |
+| 1.2 | Novembro 2026 | KAM-122: as tools do registo do dono passam de dez a quinze (`generate_art`, `request_approval`, `approve_content`, `reject_content` e `deliver_content`), e entram na lista fechada das que não publicam numa rede (`TOOLS_QUE_NAO_PUBLICAM`): a entrega é ao próprio dono, que publica à mão. Sem caso novo e sem baseline nova. Escrita como 1.1 e renumerada na integração, depois do KAM-237. | Equipa KAMBÁ |

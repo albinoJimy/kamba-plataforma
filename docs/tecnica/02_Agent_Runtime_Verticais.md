@@ -4,7 +4,7 @@
 |---|---|
 | Produto | KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para Angola |
 | Documento | Técnica — Agent Runtime e Verticais |
-| Versão | 1.13 |
+| Versão | 1.14 |
 | Data | Outubro de 2026 |
 | Classificação | Documento de Referência — Interno |
 | Documento-fonte | `00_Arquitectura_Solucao.md`, `evidencia/E4_Stack_Licencas.md`, `evidencia/E1_Meta_WhatsApp.md`, `../exploracao/11-arquitetura-detalhada-engenharia.md` §4, `../exploracao/12-diagramas-c4-fluxogramas.md` C4.1, `../exploracao/14-tese-minima-e-plano-de-validacao.md` §3A |
@@ -411,7 +411,7 @@ muda a etiqueta de `agr_tool_erros_total` — que é **derivada** da lista e nã
 escrita à mão. Não é violação e não levanta alerta de segurança: é um defeito de
 quem chama, não uma tentativa de atravessar fronteira.
 
-Timeouts por classe: read 2 s, write/money 8 s; *circuit breaker* por backend. Testes cruzados (tenant A tenta ler B, contacto X tenta ler encomenda de Y) fazem falhar o *build* (doc 00 §9).
+Timeouts por classe: read 2 s, write/money 8 s; *circuit breaker* por backend. **Excepção fechada, por *tool*** (`TECTOS_POR_TOOL`, `tls/camada.py`): o `create_product_draft` tem 25 s, porque o de uma foto corre a fonte, a limpeza, a qualidade, o *gate* e a visão; o turno avisa o dono antes de o chamar («estou a preparar») e o resumo sai depois. Só uma *tool* `write` pode estar na lista, e uma entrada nova é uma emenda a este parágrafo. Decisão do fundador de 2026-11-21 (KAM-231, opção A); recusadas as duas fases e subir o tecto de todas as escritas. Testes cruzados (tenant A tenta ler B, contacto X tenta ler encomenda de Y) fazem falhar o *build* (doc 00 §9).
 
 ---
 
@@ -1066,4 +1066,5 @@ Metering por módulo (KAM-124); budgets LiteLLM por tenant incluem o custo de im
 | 1.10 | Novembro 2026 | **KAM-220**: o §6.1 passo 4 ganha a excepção fechada `DISPENSAS_DO_PASSO_4`, só com a `submit_quote`, por decisão do fundador de 2026-11-19 (opção C): o pedido do cliente (`request_quote`) continua a exigir o botão, `confirm:{oferta}`, que é também o consentimento para gastar um `orcamentos_mes`; a resposta do dono só grava e propõe o botão `confirm:{action_id}`, que é o que envia. O §21.3 diz o mesmo da linha do `orcamento`. | Equipa KAMBÁ |
 | 1.11 | Novembro 2026 | **KAM-119**: o §6.1 passo 4 ganha o `create_product_draft` na `DISPENSAS_DO_PASSO_4` (só grava o rascunho; publicar exige o botão). O §21.3 diz, na linha do `catalogo`, o botão `confirm:{action_id}` da acção `aprovar_conteudo` e o *fact* `count`. O §21.4 deixa de prometer um ficheiro de registo por módulo: a persona `dono` agrega as tools, fechadas cada uma pelo seu módulo. O fundador decidiu as três a 2026-11-20 (opção A nas três): o botão, a dispensa e o §21.4. | Equipa KAMBÁ |
 | 1.12 | Novembro 2026 | **KAM-121**: o §6.1 passo 4 ganha as três de escrita do módulo `social` na `DISPENSAS_DO_PASSO_4` (só gravam rascunhos; nada se publica). O §21.3 dá ao `social` a `update_brand_profile` (decisão 2 do bloco: a conversa guiada do perfil precisa de uma escrita, e a TLS é a única via) e as dispensas; o §21.4 junta o `social` aos módulos sem ficheiro de registo | Equipa KAMBÁ |
-| 1.13 | Novembro 2026 | **KAM-122**: o §6.1 passo 4 ganha as quatro de escrita da arte e da entrega do módulo `social` na `DISPENSAS_DO_PASSO_4` (`generate_art`, `request_approval`, `reject_content`, `deliver_content`: só gravam no próprio tenant, e nada se publica nem se envia a terceiros); a `approve_content` fica fora e corre com o botão `confirm:{action_id}` da acção `aprovar_conteudo` (decisão D4 do fundador, 2026-11-21, opção A). O §21.3 dá ao `social` as cinco do KAM-122 com a classe e a confirmação de cada uma, e diz que a aprovação fica ligada ao `hash(legenda, arte, versao)` e que a `SocialPublisher` só tem a `ManualDelivery` | Equipa KAMBÁ |
+| 1.13 | Novembro 2026 | **KAM-231**: o §6.5 ganha a excepção fechada `TECTOS_POR_TOOL`, só com o `create_product_draft` a 25 s (o de uma foto passa pela visão), e o turno avisa o dono antes de a chamar. Decisão do fundador de 2026-11-21 (opção A); recusadas as duas fases e subir o tecto de todas as escritas. | Equipa KAMBÁ |
+| 1.14 | Novembro 2026 | **KAM-122**: o §6.1 passo 4 ganha as quatro de escrita da arte e da entrega do módulo `social` na `DISPENSAS_DO_PASSO_4` (`generate_art`, `request_approval`, `reject_content`, `deliver_content`: só gravam no próprio tenant, e nada se publica nem se envia a terceiros); a `approve_content` fica fora e corre com o botão `confirm:{action_id}` da acção `aprovar_conteudo` (decisão D4 do fundador, 2026-11-21, opção A). O §21.3 dá ao `social` as cinco do KAM-122 com a classe e a confirmação de cada uma, e diz que a aprovação fica ligada ao `hash(legenda, arte, versao)` e que a `SocialPublisher` só tem a `ManualDelivery` | Equipa KAMBÁ |

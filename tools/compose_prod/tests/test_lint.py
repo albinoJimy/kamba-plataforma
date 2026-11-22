@@ -327,6 +327,29 @@ class TestCli(unittest.TestCase):
     def test_lint_sobre_a_arvore_real_sai_zero(self) -> None:
         self.assertEqual(cli.main(["--root", str(RAIZ), "lint"]), 0)
 
+    def test_o_agr_sabe_o_ambiente_e_tem_o_sto_nos_dois_compose(self) -> None:
+        """KAM-231 (P4 A): sem `KAMBA_ENV` o AGR lia `dev` e a recusa sem o STO nao mordia."""
+        for nome, ambiente in (("prod", "prod"), ("staging", "staging")):
+            texto = (RAIZ / "infra" / "compose" / f"docker-compose.{nome}.yml").read_text(encoding="utf-8")
+            inicio = texto.index("\n  agr:\n")
+            fim = texto.index("\n  # KAM-194. O processo do IDX", inicio)
+            servico = texto[inicio:fim]
+            with self.subTest(compose=nome):
+                self.assertIn(f"      KAMBA_ENV: {ambiente}\n", servico)
+                for variavel in (
+                    "KAMBA_STORAGE_ENDPOINT", "KAMBA_STORAGE_BUCKET", "KAMBA_STORAGE_REGION",
+                    "KAMBA_STORAGE_DESTINO_COUNTRY", "KAMBA_STORAGE_DESTINO_PROVIDER",
+                    "KAMBA_SECRET_STORAGE_ACCESS_KEY_ID", "KAMBA_SECRET_STORAGE_SECRET_ACCESS_KEY",
+                ):
+                    self.assertIn(f"      {variavel}: ${{{variavel}:?", servico)
+
+    def test_um_destino_nao_verificado_leva_a_marca_no_gerado(self) -> None:
+        """KAM-231: a marca da `razao` passa ao Envoy, e so a dos destinos que a tem."""
+        texto = envoy.compor(RAIZ)
+        self.assertIn("# NAO VERIFICADO: `lookaside.fbsbx.com`", texto)
+        self.assertNotIn("# NAO VERIFICADO: `graph.facebook.com`", texto)
+        self.assertEqual(envoy._nao_verificados(RAIZ), ["lookaside.fbsbx.com"])
+
     def test_gerar_verificar_sobre_a_arvore_real_sai_zero(self) -> None:
         self.assertEqual(cli.main(["--root", str(RAIZ), "gerar", "--verificar"]), 0)
 

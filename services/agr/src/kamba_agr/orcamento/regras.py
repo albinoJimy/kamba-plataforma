@@ -171,6 +171,10 @@ RECUSAS_DO_VALOR: Final = (
     VALOR_FORA_DO_INTERVALO,
 )
 
+#: O «k» de milhar: «75k», «75 k», «1,5k» leem-se «75 mil». Nao casa dentro de
+#: palavras («kz»). KAM-237: era so do catalogo, e o orcamento recusava o «75k».
+_MILHAR_EM_K: Final = re.compile(r"(\d)\s*[kK](?![A-Za-z])")
+
 #: Um grupo de digitos com os separadores de milhares e decimais do PT-AO.
 _GRUPO_NUMERICO: Final = re.compile(r"\d+(?:[ ., ]\d+)*")
 
@@ -219,12 +223,12 @@ class ValorRecusadoError(ValueError):
 def ler_valor_do_dono(texto: object) -> int:
     """O valor final digitado pelo dono, em centimos de AOA. Levanta se nao for um.
 
-    «120 mil», «120.000», «120 000 Kz», «Kz 120.000», «cento e vinte mil» dao
-    todos 12_000_000. Ver o cabecalho para as recusas.
+    «120 mil», «120k», «120.000», «120 000 Kz», «Kz 120.000», «cento e vinte mil»
+    dao todos 12_000_000. Ver o cabecalho para as recusas.
     """
     if not isinstance(texto, str) or not texto.strip():
         raise ValorRecusadoError(VALOR_VAZIO)
-    limpo = " ".join(texto.replace(" ", " ").split())
+    limpo = " ".join(_MILHAR_EM_K.sub(r"\1 mil", texto).replace(" ", " ").split())
     if _SINAIS_DE_CONTA.search(limpo):
         raise ValorRecusadoError(VALOR_COM_VARIOS_NUMEROS)
     grupos = _GRUPO_NUMERICO.findall(limpo)

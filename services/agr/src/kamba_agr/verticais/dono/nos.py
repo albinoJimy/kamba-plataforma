@@ -118,8 +118,10 @@ REGRAS_DE_INTENCAO: Final = (
     # («o horario que esta no facebook» e informacao, «pendentes do instagram»
     # sao orcamentos) e **antes** do `modulos`, que tem «publica»: «publica no
     # instagram» nao e um produto. A lista e a do `social.PALAVRAS_DO_SOCIAL`,
-    # por palavra (ver o `intencao_por_regras`).
-    ("social", social.PALAVRAS_DO_SOCIAL),
+    # por palavra (ver o `intencao_por_regras`). KAM-237: **ou um pedido de
+    # publicacao** (um verbo e uma rede, `social.pede_publicacao`), que nomeie o
+    # catalogo ou nao: «partilha o catalogo no status» e do social.
+    ("social", social.e_do_social),
     (
         "modulos",
         (
@@ -146,8 +148,9 @@ def intencao_por_regras(texto: str) -> str | None:
     """A intencao pelas palavras, ou `None` se nenhuma regra decidir."""
     limpo = _sem_acentos(texto)
     for intencao, palavras in REGRAS_DE_INTENCAO:
-        if isinstance(palavras, re.Pattern):
-            if palavras.search(limpo):
+        if callable(palavras):
+            # Le o texto com os acentos: o «pôr» so e verbo com eles.
+            if palavras(texto):
                 return intencao
             continue
         if any(palavra in limpo for palavra in palavras):

@@ -99,10 +99,11 @@ langgraph-checkpoint==4.3.0
 #
 # E o `langgraph_api` e o `langgraph_runtime_inmem` continuam PROIBIDOS
 # (ADR-002, `tools/blocklist.yaml`): o que entra e a biblioteca, nunca o Server.
-# --- O Pillow, as artes do social (KAM-122) -----------------------------------
+# --- O Pillow, as artes do social e a foto do dono (KAM-122, KAM-231) --------
 #
 # Decisao do fundador de 2026-11-21 (D1, opcao A): o desenho da arte em JPEG e
-# do Pillow (`social/desenho.py`). Lido no PyPI a 2026-11-21: o `pillow` 13.0.0
+# do Pillow (`social/desenho.py`, KAM-122), e a descodificacao da foto do
+# catalogo do dono tambem (`catalogo/descodificador.py`, KAM-231). Lido no PyPI a 2026-11-21: o `pillow` 13.0.0
 # declara `License-Expression: MIT-CMU` (a familia da HPND que a decisao nomeia)
 # e nao tem dependencias. A entrada da licenca no `ci/licenses.yaml` e por
 # decisao do fundador. Traz rodas por plataforma (extensao em C); o

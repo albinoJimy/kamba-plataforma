@@ -92,9 +92,28 @@ def _destinos(raiz: Path) -> list[tuple[str, int]]:
     return sorted(set(destinos))
 
 
+#: A marca de um destino cuja evidencia falta (KAM-231). Uma `razao` que comeca
+#: por ela leva a mesma marca no ficheiro gerado, para que quem le o Envoy saiba
+#: o que a allowlist ja diz.
+MARCA_NAO_VERIFICADO = "NAO VERIFICADO"
+
+
+def _nao_verificados(raiz: Path) -> list[str]:
+    """Os FQDN da allowlist cuja `razao` comeca por `NAO VERIFICADO`, ordenados."""
+    dados = load_file(raiz / ALLOWLIST)
+    return sorted(
+        {
+            str(item.get("fqdn"))
+            for item in dados.get("destinos") or []
+            if item.get("fqdn") and str(item.get("razao") or "").strip().startswith(MARCA_NAO_VERIFICADO)
+        }
+    )
+
+
 def compor(raiz: Path) -> str:
     """O texto da configuracao do Envoy, a partir da allowlist."""
     destinos = _destinos(raiz)
+    nao_verificados = _nao_verificados(raiz)
     dominios: list[str] = []
     for fqdn, porta in destinos:
         # Com e sem porta: ver a nota do cabecalho deste modulo.
@@ -102,6 +121,10 @@ def compor(raiz: Path) -> str:
         dominios.append(f"{fqdn}:{porta}")
 
     linhas = [_CABECALHO, ""]
+    for fqdn in nao_verificados:
+        linhas.append(f"# {MARCA_NAO_VERIFICADO}: `{fqdn}` (ver a `razao` em `{ALLOWLIST}`).")
+    if nao_verificados:
+        linhas.append("")
     linhas.append("admin:")
     linhas.append("  address:")
     linhas.append("    socket_address:")

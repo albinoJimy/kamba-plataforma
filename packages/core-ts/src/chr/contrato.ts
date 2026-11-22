@@ -226,6 +226,14 @@ export interface AgentInvocation {
    * nasce vazia, como até aqui.
    */
   readonly message_id?: string;
+  /**
+   * A referência da média de uma `image` do dono (KAM-231): o `asset_id` da
+   * `platform.media_assets`, que o MED devolveu ou o painel gravou. **Nunca** os
+   * bytes, a chave do objecto nem o `media_id` da Meta. Só com `type: "image"`
+   * e `persona: "dono"`. Campo aditivo e opcional da v1: sem ele, a foto não
+   * chega ao catálogo.
+   */
+  readonly asset_id?: string;
 }
 
 /** `thread_id` de um par (tenant, contacto). Dicionário §3.1. */

@@ -43,6 +43,7 @@ from __future__ import annotations
 
 import datetime
 import re
+import unicodedata
 from collections.abc import Mapping
 from typing import Any, Final
 
@@ -69,8 +70,29 @@ PALAVRAS_DO_SOCIAL: Final = re.compile(
 #: Um pedido de publicacao que o modulo nao faz (criterio 7, D13): o verbo **e**
 #: a rede. So o verbo nao chega — «prefiro publicar segunda as 18h» e a resposta
 #: a pergunta dos dias (achado I6 da revisao adversarial).
-_VERBO_DE_PUBLICAR: Final = re.compile(r"\b(?:publica|publique|publicar|publicas|posta|postar|partilha|partilhar|agenda)\b")
-_REDE: Final = re.compile(r"\b(?:instagram|facebook|tiktok|redes sociais|rede social|status|estado do whatsapp)\b")
+#:
+#: KAM-237: «poe», «ponha», «coloca» e «mete» publicam como os outros («poe este
+#: produto no facebook», `don-cat-058`), e o conjuntivo de cortesia tambem
+#: («poste», «partilhe»). **O «pôr» so com o acento** (`_POR`): sem ele e a
+#: preposicao, e «ideias para o instagram por favor» passava a pedido de
+#: publicacao.
+_VERBO_DE_PUBLICAR: Final = re.compile(
+    r"\b(?:publica|publique|publiquem|publicar|publicas|posta|poste|postem|postar|partilha|partilhe"
+    r"|partilhem|partilhar|agenda|agende|poe|poes|ponha|coloca|coloque|colocar|mete|meter)\b"
+)
+_POR: Final = re.compile(r"\bpôr\b")
+#: As redes. **O «status» so como o sitio onde se publica** («no status», «para
+#: o estado do whatsapp»), e o «whatsapp» so pelo status dele: o dono fala com o
+#: assistente pelo WhatsApp, e «agenda a entrega pelo whatsapp», «poe o link do
+#: whatsapp no produto» ou «coloca o status da encomenda como entregue» nao sao
+#: pedidos de publicacao (achados A1 e A2 da revisao adversarial do KAM-237). Por
+#: isso nenhum dos dois entra no `PALAVRAS_DO_SOCIAL`.
+_REDE: Final = re.compile(
+    r"\b(?:instagram|insta|facebook|tiktok|tik tok|redes sociais|rede social"
+    r"|(?:status|estado) do whatsapp|whatsapp status"
+    r"|(?:no|pro|para o) face"
+    r"|(?:no|pro|para o|em) (?:meu |nosso )?status(?! d[aoe]s? (?!whatsapp)))\b"
+)
 
 #: Os comandos de um item (KAM-122): a palavra, a referencia e, no EDITAR, o texto.
 _COMANDO_DO_ITEM: Final = re.compile(
@@ -130,7 +152,18 @@ def edicao(texto: str) -> tuple[str, str] | None:
 
 def pede_publicacao(texto: str) -> bool:
     limpo = _limpo(texto)
-    return bool(_VERBO_DE_PUBLICAR.search(limpo) and _REDE.search(limpo))
+    verbo = _VERBO_DE_PUBLICAR.search(limpo) or _POR.search(unicodedata.normalize("NFC", texto.lower()))
+    return bool(verbo and _REDE.search(limpo))
+
+
+def e_do_social(texto: str) -> bool:
+    """A regra do social no `classify`: uma palavra das redes, ou um pedido de publicacao.
+
+    KAM-237: o pedido de publicacao vai ao social **antes** das palavras do
+    catalogo, porque e o social que diz que nao publica («partilha o catalogo no
+    status», `don-cat-059`). Sem rede, «publica o produto» continua no catalogo.
+    """
+    return bool(PALAVRAS_DO_SOCIAL.search(_limpo(texto))) or pede_publicacao(texto)
 
 
 def e_comando_social(estado: Mapping[str, Any], texto: str) -> bool:

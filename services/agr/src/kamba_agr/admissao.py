@@ -230,6 +230,18 @@ def _e_toque(pendente: Pendente) -> bool:
     return getattr(pendente.invocacao, "botao", None) is not None
 
 
+def _corre_sozinho(pendente: Pendente) -> bool:
+    """O pendente nao coalesce: um toque (KAM-211) ou uma foto do dono (KAM-231).
+
+    O estado do turno sai da **primeira** invocacao do lote, e o `asset_id`,
+    como o `botao`, e dela. Dez fotos de um album chegam a menos de 1,5 s umas
+    das outras: coalescidas, davam **um** rascunho e perdiam nove fotos sem
+    erro, e uma foto atras de um texto perdia-se do mesmo modo. Achado da
+    revisao adversarial do KAM-231, medido no executor.
+    """
+    return _e_toque(pendente) or getattr(pendente.invocacao, "asset_id", None) is not None
+
+
 class Admissao:
     """Ritmo, coalescencia, tecto por *tenant* e contrapressao, num objecto.
 
@@ -476,10 +488,10 @@ class Admissao:
         # num lote atras de um texto perdia-se sem o `confirmar` ser chamado, e
         # um texto atras de um toque corria como se fosse o toque. Por isso um
         # toque corre sozinho, e fecha o lote de quem vem antes.
-        if _e_toque(pendentes[0]):
+        if _corre_sozinho(pendentes[0]):
             return lote, pendentes[1:]
         for pendente in pendentes[1:]:
-            if _e_toque(pendente) or pendente.chegou_em - lote[-1].chegou_em >= janela:
+            if _corre_sozinho(pendente) or pendente.chegou_em - lote[-1].chegou_em >= janela:
                 break
             lote.append(pendente)
         if len(lote) > 1:

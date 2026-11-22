@@ -205,8 +205,11 @@ services:
         KAMBA_COMMIT_SHA: ${KAMBA_COMMIT_SHA:?o deploy passa o SHA da release}
     command: ["node", "services/worker-canal/src/entrada.ts"]
     environment:
-      <<: *node-env
+      # KAM-231: o MED da foto do dono, pela Graph e so pelo `proxy-saida`; o
+      # arranque recusa em `staging` sem os tres segredos e o armazenamento.
+      <<: [*node-env, *saida]
       ENTRADA_PORT: "3013"
+      NODE_USE_ENV_PROXY: "1"
       KAMBA_ENV: staging
       KAMBA_FASE: piloto
       KAMBA_QUEUE_URL: redis://queue:6379
@@ -217,6 +220,16 @@ services:
       KAMBA_SECRET_PEPPER_CONTACT_HMAC_ANTERIOR: ${KAMBA_SECRET_PEPPER_CONTACT_HMAC_ANTERIOR:-}
       KAMBA_SECRET_KEK_CONTACT_DEK: ${KAMBA_SECRET_KEK_CONTACT_DEK:?o cofre entrega a KEK das DEK de contacto}
       KAMBA_SECRET_KEK_CONTACT_DEK_ANTERIOR: ${KAMBA_SECRET_KEK_CONTACT_DEK_ANTERIOR:-}
+      KAMBA_SECRET_KEK_TOKEN_CLIENTE: ${KAMBA_SECRET_KEK_TOKEN_CLIENTE:?o cofre entrega a KEK dos tokens de cliente}
+      KAMBA_SECRET_KEK_TOKEN_CLIENTE_ANTERIOR: ${KAMBA_SECRET_KEK_TOKEN_CLIENTE_ANTERIOR:-}
+      KAMBA_STORAGE_ENDPOINT: ${KAMBA_STORAGE_ENDPOINT:?o deploy diz onde e o armazenamento (D6 aberta)}
+      KAMBA_STORAGE_BUCKET: ${KAMBA_STORAGE_BUCKET:?o deploy nomeia o bucket}
+      KAMBA_STORAGE_REGION: ${KAMBA_STORAGE_REGION:?o deploy nomeia a regiao}
+      KAMBA_STORAGE_DESTINO_COUNTRY: ${KAMBA_STORAGE_DESTINO_COUNTRY:?o deploy diz o pais do armazenamento (ADR-008)}
+      KAMBA_STORAGE_DESTINO_PROVIDER: ${KAMBA_STORAGE_DESTINO_PROVIDER:?o deploy diz o fornecedor do armazenamento}
+      KAMBA_STORAGE_DESTINO_APD_REF: ${KAMBA_STORAGE_DESTINO_APD_REF:-}
+      KAMBA_SECRET_STORAGE_ACCESS_KEY_ID: ${KAMBA_SECRET_STORAGE_ACCESS_KEY_ID:?o cofre entrega a chave de acesso do armazenamento}
+      KAMBA_SECRET_STORAGE_SECRET_ACCESS_KEY: ${KAMBA_SECRET_STORAGE_SECRET_ACCESS_KEY:?o cofre entrega o segredo do armazenamento}
     deploy:
       replicas: 2
     networks:
@@ -485,6 +498,21 @@ services:
       # verifica-a: tem de ser o mesmo valor, e e obrigatoria ao arranque dos dois.
       KAMBA_SECRET_COM_INTERNAL_TOKEN: ${KAMBA_SECRET_COM_INTERNAL_TOKEN:?o cofre entrega a credencial da API interna do COM}
       KAMBA_COM_URL: ${KAMBA_COM_URL:-http://com:3002}
+      # KAM-231 (decisao do fundador de 2026-11-21, P4 opcao A). O ambiente
+      # e o deste compose: sem ele o AGR lia `dev`, e nem a recusa de arranque
+      # sem o STO nem o «so imagens sinteticas fora de prod» do pipeline do
+      # catalogo mordiam. O STO serve a `FonteDoMed` (a foto que o MED guardou)
+      # e a foto limpa da ingestao; sem a configuracao e os dois segredos, o
+      # AGR nao arranca em `staging` nem em `prod`.
+      KAMBA_ENV: staging
+      KAMBA_STORAGE_ENDPOINT: ${KAMBA_STORAGE_ENDPOINT:?o deploy diz onde e o armazenamento (D6 aberta)}
+      KAMBA_STORAGE_BUCKET: ${KAMBA_STORAGE_BUCKET:?o deploy nomeia o bucket}
+      KAMBA_STORAGE_REGION: ${KAMBA_STORAGE_REGION:?o deploy nomeia a regiao}
+      KAMBA_STORAGE_DESTINO_COUNTRY: ${KAMBA_STORAGE_DESTINO_COUNTRY:?o deploy diz o pais do armazenamento (ADR-008)}
+      KAMBA_STORAGE_DESTINO_PROVIDER: ${KAMBA_STORAGE_DESTINO_PROVIDER:?o deploy diz o fornecedor do armazenamento}
+      KAMBA_STORAGE_DESTINO_APD_REF: ${KAMBA_STORAGE_DESTINO_APD_REF:-}
+      KAMBA_SECRET_STORAGE_ACCESS_KEY_ID: ${KAMBA_SECRET_STORAGE_ACCESS_KEY_ID:?o cofre entrega a chave de acesso do armazenamento}
+      KAMBA_SECRET_STORAGE_SECRET_ACCESS_KEY: ${KAMBA_SECRET_STORAGE_SECRET_ACCESS_KEY:?o cofre entrega o segredo do armazenamento}
       # KAM-223. O AGR verifica a credencial do painel do dono no `/internal/turn`,
       # so num turno do dono com `message_id`; lida a cada pedido, e em falta a
       # rota recusa. O `onboarding-web` apresenta-a.
@@ -872,8 +900,10 @@ services:
     networks:
       - app
       - data
-    # shortcut: 128m sem medicao, igual ao `onboarding-lote` (dezasseis *workers*
-    # BullMQ); reve-se com a primeira medicao de repouso do processo em `staging`.
+    # 128m e acima do pico medido pelo KAM-238: 76,6 MiB de `memory.peak` sob uma
+    # rajada de 300 `tenant.provisioned`, com esta sonda e com `memswap_limit`
+    # igual ao limite (`docs/evidencia/KAM-238.md`). Este compose nao fixa o
+    # `memswap_limit`, pelo que o contentor pode usar *swap* (credor: KAM-242).
     mem_limit: 128m
     cpus: 0.25
     healthcheck:

@@ -11,10 +11,10 @@ as que tem com quem falar:
 | `PortaDeScreening` | `ScreeningPeloCom` com o sujeito `produto` (`tls/screening.py`) |
 | `PortaDoRegisto` | `RegistoPeloCom` (`tls/registo_com.py`) |
 | `FonteDeMedia` | **por ligar** — o MED do KAM-020 nao esta montado em servico nenhum, e o `agent_invocation` nao leva a media |
-| `Descodificador` | **por ligar** — nao ha biblioteca de imagem na arvore (repo publico: so imagens sinteticas) |
+| `Descodificador` | o `DescodificadorPillow` (KAM-231, `catalogo/descodificador.py`), que o processo passa; a omissao daqui continua a por ligar |
 | `ExtractorDeVisao` | **por ligar** — o adaptador do alias `kamba-vision` pelo *gateway* |
 
-As tres por ligar **levantam**, e o pipeline trata isso como falha fechada: uma
+As por ligar **levantam**, e o pipeline trata isso como falha fechada: uma
 foto que chegue nao vira rascunho, e o dono e avisado. O credor e o ticket da
 entrada real da foto, nomeado no bloco do KAM-119.
 
@@ -116,6 +116,30 @@ class EnhanceNulo:
         return False
 
 
+#: O modulo que abre a oferta de «melhorar foto» (`kamba_core.modulos.uso`).
+MODULO_DA_FOTO: Final = "foto"
+
+
+@dataclass(frozen=True)
+class EnhancePorEntitlement:
+    """A oferta de «melhorar foto» com o entitlement `foto` activo (KAM-231, criterio 4).
+
+    `ler` e o `LeitorDeEntitlements.ler` do processo: `(tenant, modulo) ->
+    Entitlement`, sob o `app.tenant_id` do tenant. **Falha fechada e calada**:
+    uma leitura que levante e «sem oferta», e o resumo segue sem erro — a oferta
+    e um extra, e nao vale um turno falhado. O trabalho de melhorar e o
+    `enhance_image` do KAM-120, pedido pelo dono depois da oferta.
+    """
+
+    ler: Callable[[str, str], Any]
+
+    def disponivel(self, tenant_id: str) -> bool:
+        try:
+            return bool(self.ler(tenant_id, MODULO_DA_FOTO).ativo)
+        except Exception:  # noqa: BLE001 — na duvida, sem oferta
+            return False
+
+
 class _NaoFecha:
     """A ligacao da ToolLayer emprestada ao `RepositorioDbapi`, que fecha a sua.
 
@@ -160,6 +184,10 @@ class PortasDoCatalogo:
     registo: PortaDoRegisto
     ambiente: str = AMBIENTE_PROD
     fonte: FonteDeMedia = field(default_factory=FontePorLigar)
+    #: KAM-231. A fonte **por invocacao**, sobre a ligacao dela: a `FonteDoMed`
+    #: le a `media_assets` no tenant da invocacao (`catalogo/fonte.py`). Com
+    #: ela, o `fonte` acima nao se usa.
+    fonte_sobre: Callable[[Any], FonteDeMedia] | None = None
     storage: StorageProvider = field(default_factory=StoragePorLigar)  # type: ignore[assignment]
     descodificador: Descodificador = field(default_factory=DescodificadorPorLigar)
     destinos: PortaDeDestinos = field(default_factory=DestinosPorLigar)
@@ -174,7 +202,7 @@ class PortasDoCatalogo:
         """O pipeline para uma invocacao: o repositorio sobre a ligacao dela."""
         return ServicoDeIngestao(
             repositorio=self.repositorio(ligacao),
-            fonte=self.fonte,
+            fonte=self.fonte if self.fonte_sobre is None else self.fonte_sobre(ligacao),
             storage=self.storage,
             descodificador=self.descodificador,
             destinos=self.destinos,
@@ -192,6 +220,8 @@ __all__ = [
     "DescodificadorPorLigar",
     "DestinosPorLigar",
     "EnhanceNulo",
+    "EnhancePorEntitlement",
+    "MODULO_DA_FOTO",
     "FontePorLigar",
     "FotoPorLigarError",
     "ImageEnhancePort",
