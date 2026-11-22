@@ -1,0 +1,394 @@
+"""O ensaio do KAM-238: o pico de memoria do consumidor `dono` sob uma rajada.
+
+    python db/ensaio_dono.py [--casos N] [--limite 128m] [--manter] [--relatorio caminho.json]
+
+Levanta, do **compose de staging** e com o nome de projecto `kam238-ensaio`, o
+PostgreSQL e a fila, cria os papeis e aplica as migracoes, e levanta o
+`onboarding-provisionamento` (imagem construida desta arvore). Depois:
+
+    repouso    20 s depois de `healthy`: o *working set* do cgroup
+               (`memory.current - inactive_file`, a definicao do KAM-084 §4.5),
+               o `memory.peak` e o `VmRSS`/`VmHWM` do processo (PID 1)
+    rajada     o `tests_bd/rajada_do_dono.ts` deixa N `tenant.provisioned` no
+               *outbox*, cada um com um caso cujo telefone o consumidor decifra,
+               e so entao arranca o publicador (`tests_bd/publicador_runner.ts`):
+               os N eventos chegam as dezasseis filas `evt.dono.p<n>` de uma vez
+    pico       amostras do cgroup a cada 0,5 s ate haver N donos, e no fim o
+               `memory.peak`, o `VmHWM`, o `oom_kill` do `memory.events` e o
+               `OOMKilled`/`RestartCount` do contentor
+
+`--limite` fixa o `mem_limit` do processo (e so o dele) por uma sobreposicao, e
+o `memswap_limit` **igual**: sem *swap*. E assim que se prova que o limite
+proposto aguenta a rajada. A omissao e 128m, o limite do compose de staging.
+
+**O `memswap_limit` nao e enfeite, e custou uma medicao.** O Docker Desktop tem
+*swap*, e um `mem_limit` sozinho deixa o contentor usar outro tanto: a primeira
+corrida sob 54m «sobreviveu» com 19 MiB em *swap* (`memory.swap.current`) e o
+`memory.peak` colado ao limite. Isso nao e caber, e esconder o *swap* fazia o
+limite parecer medido. O relatorio leva o `memory.swap.peak`, e um veredicto
+exige-o a zero. O `memory.peak` e o que o OOM ve: e nele que o limite assenta,
+como no KAM-225.
+
+O guiao sai com 1 se um veredicto falhar: o limite pedido aplicado, os N donos
+criados, nenhum evento na DLQ, nenhum `oom_kill`, o contentor sem reinicio,
+nenhum *swap*. Os segredos
+sao gerados nesta execucao e nao se imprimem; os telefones sao ficticios, com 999.
+
+## Porque *staging* e nao producao
+
+O processo nao esta no compose de producao (e isso que o KAM-238 decide), e o
+de *staging* tem a mesma imagem, o mesmo `command:` e a mesma composicao de
+ligacoes. A base chama-se `kamba_gate8` porque o `apoio.ts`, que o *runner* da
+rajada usa, so aceita escrever na base descartavel.
+"""
+
+from __future__ import annotations
+
+import argparse
+import base64
+import json
+import os
+import re
+import secrets
+import subprocess
+import sys
+import tempfile
+import time
+from pathlib import Path
+
+RAIZ = Path(__file__).resolve().parents[1]
+COMPOSE = RAIZ / "infra" / "compose" / "docker-compose.staging.yml"
+PROJECTO = "kam238-ensaio"
+ADMIN = "kamba_admin"
+BASE = "kamba_gate8"
+SERVICO = "onboarding-provisionamento"
+CONSUMIDOR = "dono"
+PAPEIS = ("MIGRATOR", "APP", "BATCH", "RESOLVER", "IDENTITY", "AUDIT", "AGR", "PAY_HOOKS", "PAY")
+MIB = 1024 * 1024
+
+
+def _chave(kid: str) -> str:
+    return f"{kid}:{base64.b64encode(secrets.token_bytes(32)).decode('ascii')}"
+
+
+def _ambiente() -> tuple[dict[str, str], dict[str, str]]:
+    """Os `${X:?}` do compose de staging, e o ambiente dos dois *runners*."""
+    texto = COMPOSE.read_text(encoding="utf-8")
+    env: dict[str, str] = {}
+    for nome in sorted(set(re.findall(r"\$\{([A-Za-z0-9_]+):\?", texto))):
+        env[nome] = secrets.token_urlsafe(24)
+    senhas = {p: secrets.token_urlsafe(24) for p in PAPEIS}
+    for papel, senha in senhas.items():
+        env[f"KAMBA_SECRET_DB_{papel}_PASSWORD"] = senha
+
+    def url(papel: str) -> str:
+        # Montada por partes: o `scan_secrets` le uma credencial embutida num
+        # URL escrito por extenso, e aqui a senha e gerada nesta execucao.
+        return "".join(("postgresql://", "kamba_", papel.lower(), ":", senhas[papel], "@", "postgres:5432/", BASE))
+
+    chaves = {
+        "KAMBA_SECRET_KEK_TELEFONE_DO_CASO": _chave("tel-ensaio238"),
+        "KAMBA_SECRET_PEPPER_CONTACT_HMAC": _chave("k-ensaio238"),
+        "KAMBA_SECRET_KEK_CONTACT_DEK": _chave("kek-ensaio238"),
+    }
+    env.update(chaves)
+    env.update(
+        {
+            "KAMBA_COMMIT_SHA": subprocess.run(
+                ["git", "rev-parse", "HEAD"], cwd=RAIZ, capture_output=True, text=True
+            ).stdout.strip() or "ensaio",
+            "POSTGRES_USER": ADMIN,
+            "POSTGRES_DB": BASE,
+            "KAMBA_PROVISIONAMENTO_APP_DB_URL": url("APP"),
+            "KAMBA_PROVISIONAMENTO_IDENTITY_DB_URL": url("IDENTITY"),
+            "KAMBA_DATA_CLASS": "synthetic",
+        }
+    )
+    runner = {
+        "KAMBA_ENV": "staging",
+        "KAMBA_DB_HOST": "postgres",
+        "KAMBA_DB_PORT": "5432",
+        "KAMBA_DB_NAME": BASE,
+        "POSTGRES_USER": ADMIN,
+        "POSTGRES_PASSWORD": env["POSTGRES_PASSWORD"],
+        "KAMBA_PUBLICADOR_DB_URL": url("BATCH"),
+        "KAMBA_QUEUE_URL": "redis://queue:6379",
+        **{f"KAMBA_SECRET_DB_{p}_PASSWORD": senhas[p] for p in ("APP", "BATCH", "IDENTITY", "RESOLVER")},
+        **chaves,
+    }
+    return env, runner
+
+
+#: A sonda em `bash` (a forma do `registo-pg` do KAM-225): `/dev/tcp`, sem `node`.
+#: A do compose e `node -e fetch(...)`, um segundo processo Node que o `docker
+#: exec` poe no mesmo cgroup, e que o `memory.peak` cobra (~17 MiB medidos pela
+#: revisao adversarial). Com `--sonda bash` o pico separa-se do processo.
+SONDA_BASH = (
+    r"""["CMD", "bash", "-c", "{ printf 'GET /healthz HTTP/1.0\\r\\n\\r\\n' >&3 && head -c 12 <&3; }"""
+    r""" 3<>/dev/tcp/127.0.0.1/3015 | grep -q '^HTTP/1\\.[01] 200'"]"""
+)
+
+
+def _sobreposicao(limite: str, sonda: str) -> str:
+    texto = """\
+services:
+  postgres:
+    networks:
+      - data
+      - ensaio
+    ports:
+      - "127.0.0.1::5432"
+"""
+    texto += f"  {SERVICO}:\n    mem_limit: {limite}\n    memswap_limit: {limite}\n"
+    if sonda == "bash":
+        texto += f"    healthcheck:\n      test: {SONDA_BASH}\n"
+    return texto + "networks:\n  ensaio:\n    driver: bridge\n"
+
+
+class Pilha:
+    def __init__(self, pasta: Path, env: dict[str, str], limite: str, sonda: str) -> None:
+        self.pasta = pasta
+        self.env_ficheiro = pasta / "ensaio.env"
+        self.env_ficheiro.write_text("".join(f"{k}={v}\n" for k, v in env.items()), encoding="utf-8")
+        self.sobreposicao = pasta / "sobreposicao.yml"
+        self.sobreposicao.write_text(_sobreposicao(limite, sonda), encoding="utf-8")
+
+    def compose(self, *args: str, verificar: bool = True, tempo: float = 900) -> str:
+        comando = [
+            "docker", "compose", "-p", PROJECTO, "--env-file", str(self.env_ficheiro),
+            "-f", str(COMPOSE), "-f", str(self.sobreposicao), *args,
+        ]
+        r = subprocess.run(comando, capture_output=True, text=True, timeout=tempo, encoding="utf-8", errors="replace")
+        if verificar and r.returncode != 0:
+            raise RuntimeError(f"{' '.join(args[:3])}: {r.stderr[-2000:]}")
+        return r.stdout
+
+    def contentor(self, servico: str) -> str:
+        # `-a`: um contentor em `restarting` (o OOM no arranque) tambem conta.
+        ids = [c for c in self.compose("ps", "-a", "-q", servico).split() if c]
+        if len(ids) != 1:
+            raise RuntimeError(f"{servico}: {len(ids)} contentores")
+        return ids[0]
+
+    def ler(self, contentor: str, caminho: str) -> str:
+        r = subprocess.run(["docker", "exec", contentor, "cat", caminho], capture_output=True, text=True, timeout=60)
+        if r.returncode != 0:
+            raise RuntimeError(f"cat {caminho}: {r.stderr[-500:]}")
+        return r.stdout
+
+    def sql(self, consulta: str) -> str:
+        r = subprocess.run(
+            ["docker", "exec", self.contentor("postgres"), "psql", "-U", ADMIN, "-d", BASE, "-At", "-c", consulta],
+            capture_output=True, text=True, timeout=60,
+        )
+        if r.returncode != 0:
+            raise RuntimeError(f"psql: {r.stderr[-500:]}")
+        return r.stdout.strip()
+
+    def node(self, imagem: str, runner: dict[str, str], ficheiro: str, *, destacado: bool, nome: str) -> str:
+        """Corre um *runner* do `tests_bd` na rede `data` da pilha, com a imagem do processo."""
+        comando = ["docker", "run", "--name", nome, "--network", f"{PROJECTO}_data", "--entrypoint", "node"]
+        comando += ["-d"] if destacado else ["--rm"]
+        for k, v in runner.items():
+            comando += ["-e", f"{k}={v}"]
+        comando += [imagem, f"packages/core-ts/tests_bd/{ficheiro}"]
+        r = subprocess.run(comando, capture_output=True, text=True, timeout=1800, encoding="utf-8", errors="replace")
+        if r.returncode != 0:
+            raise RuntimeError(f"{ficheiro}: {r.stderr[-2000:]}")
+        return r.stdout.strip()
+
+
+def _cgroup(pilha: Pilha, c: str) -> dict[str, float]:
+    stat = pilha.ler(c, "/sys/fs/cgroup/memory.stat")
+    corrente = int(pilha.ler(c, "/sys/fs/cgroup/memory.current"))
+    inactivo = int(re.search(r"^inactive_file (\d+)$", stat, re.M).group(1))
+    anon = int(re.search(r"^anon (\d+)$", stat, re.M).group(1))
+    return {
+        "working_set_mib": round((corrente - inactivo) / MIB, 1),
+        "current_mib": round(corrente / MIB, 1),
+        "anon_mib": round(anon / MIB, 1),
+    }
+
+
+def _processo(pilha: Pilha, c: str) -> dict[str, float]:
+    status = pilha.ler(c, "/proc/1/status")
+    kb = {k: int(re.search(rf"^{k}:\s+(\d+) kB$", status, re.M).group(1)) for k in ("VmRSS", "VmHWM")}
+    return {"vmrss_mib": round(kb["VmRSS"] / 1024, 1), "vmhwm_mib": round(kb["VmHWM"] / 1024, 1)}
+
+
+def _picos(pilha: Pilha, c: str) -> dict:
+    eventos = pilha.ler(c, "/sys/fs/cgroup/memory.events")
+    inspeccao = json.loads(subprocess.run(
+        ["docker", "inspect", c], capture_output=True, text=True, check=True).stdout)[0]
+    return {
+        "memory_peak_mib": round(int(pilha.ler(c, "/sys/fs/cgroup/memory.peak")) / MIB, 1),
+        "memory_max_mib": round(int(pilha.ler(c, "/sys/fs/cgroup/memory.max")) / MIB, 1),
+        "swap_peak_mib": round(int(pilha.ler(c, "/sys/fs/cgroup/memory.swap.peak")) / MIB, 1),
+        "swap_max": pilha.ler(c, "/sys/fs/cgroup/memory.swap.max").strip(),
+        "oom_kill": int(re.search(r"^oom_kill (\d+)$", eventos, re.M).group(1)),
+        "oom_killed": inspeccao["State"]["OOMKilled"],
+        "restart_count": inspeccao["RestartCount"],
+        "saude": inspeccao["State"].get("Health", {}).get("Status"),
+        **_processo(pilha, c),
+    }
+
+
+def rajada(pilha: Pilha, runner: dict[str, str], casos: int, limite_s: float) -> dict:
+    c = pilha.contentor(SERVICO)
+    imagem = json.loads(subprocess.run(
+        ["docker", "inspect", c], capture_output=True, text=True, check=True).stdout)[0]["Config"]["Image"]
+    t0 = time.monotonic()
+    pilha.node(imagem, {**runner, "KAMBA_RAJADA_CASOS": str(casos)}, "rajada_do_dono.ts",
+               destacado=False, nome=f"{PROJECTO}-rajada")
+    semeadura_s = round(time.monotonic() - t0, 1)
+    no_outbox = int(pilha.sql("SELECT count(*) FROM platform.events_outbox WHERE tipo = 'tenant.provisioned'"))
+    antes = {**_cgroup(pilha, c), **_picos(pilha, c)}
+
+    pilha.node(imagem, runner, "publicador_runner.ts", destacado=True, nome=f"{PROJECTO}-publicador")
+    amostras: list[float] = []
+    t0 = time.monotonic()
+    donos = 0
+    try:
+        while time.monotonic() - t0 < limite_s:
+            amostras.append(_cgroup(pilha, c)["working_set_mib"])
+            donos = int(pilha.sql("SELECT count(*) FROM platform.contacts WHERE papel = 'dono'"))
+            if donos >= casos:
+                break
+            time.sleep(0.5)
+        drenagem_s = round(time.monotonic() - t0, 1)
+        # Mais 10 s de amostras: o que o processo guarda depois de drenar tambem conta.
+        for _ in range(20):
+            amostras.append(_cgroup(pilha, c)["working_set_mib"])
+            time.sleep(0.5)
+    finally:
+        subprocess.run(["docker", "rm", "-f", f"{PROJECTO}-publicador"], capture_output=True)
+    dlq = int(pilha.sql(f"SELECT count(*) FROM platform.events_dlq WHERE consumer = '{CONSUMIDOR}'"))
+    consumidos = int(pilha.sql(f"SELECT count(*) FROM platform.events_consumed WHERE consumer = '{CONSUMIDOR}'"))
+    return {
+        "casos": casos,
+        "semeadura_s": semeadura_s,
+        "tenant_provisioned_no_outbox": no_outbox,
+        "antes_da_rajada": antes,
+        "drenagem_s": drenagem_s,
+        "donos": donos,
+        "consumidos": consumidos,
+        "dlq": dlq,
+        "amostras": len(amostras),
+        "working_set_max_mib": max(amostras),
+        "depois": {**_cgroup(pilha, c), **_picos(pilha, c)},
+    }
+
+
+def _falha(pilha: Pilha, inicio: str) -> dict:
+    """O estado do processo quando o ensaio falha, **antes** de a pilha cair.
+
+    Um limite que nao chega mata o processo no arranque, o `up --wait` falha, e
+    sem isto o `down` apagava a unica prova: o `OOMKilled` (que um reinicio
+    repoe a falso), o codigo de saida, os reinicios e os eventos `oom` do Docker.
+    """
+    try:
+        c = pilha.contentor(SERVICO)
+    except RuntimeError as erro:
+        return {"contentor": str(erro)}
+    inspeccao = subprocess.run(["docker", "inspect", c], capture_output=True, text=True)
+    if inspeccao.returncode != 0:
+        return {"inspect": inspeccao.stderr[-500:]}
+    estado = json.loads(inspeccao.stdout)[0]
+    eventos = subprocess.run(
+        ["docker", "events", "--since", inicio, "--until", "0s", "--filter", f"container={c}",
+         "--filter", "event=oom", "--filter", "event=die",
+         "--format", "{{.Action}} {{index .Actor.Attributes \"exitCode\"}}"],
+        capture_output=True, text=True, timeout=60,
+    ).stdout.split("\n")
+    return {
+        "restart_count": estado["RestartCount"],
+        "exit_code": estado["State"]["ExitCode"],
+        "oom_killed": estado["State"]["OOMKilled"],
+        "memory_bytes": estado["HostConfig"]["Memory"],
+        "memory_swap_bytes": estado["HostConfig"]["MemorySwap"],
+        "eventos_oom": sum(1 for e in eventos if e.startswith("oom")),
+        "saidas": [e.split(" ", 1)[1] for e in eventos if e.startswith("die ")],
+    }
+
+
+def _mib(limite: str) -> float:
+    """`96m` em MiB; `1g` tambem. So as duas unidades que o compose deste repositorio usa."""
+    return float(limite[:-1]) * (1024 if limite.endswith("g") else 1)
+
+
+def veredictos(r: dict) -> dict[str, bool]:
+    j = r["rajada"]
+    return {
+        # A sobreposicao pegou: sem isto, uma que falhasse media sob os 128m do staging.
+        "limite_aplicado": j["depois"]["memory_max_mib"] == _mib(r["limite"])
+        and j["depois"]["swap_max"] == "0",
+        "n_no_outbox": j["tenant_provisioned_no_outbox"] == j["casos"],
+        "n_donos": j["donos"] == j["casos"] and j["consumidos"] == j["casos"],
+        "sem_dlq": j["dlq"] == 0,
+        "sem_oom": j["depois"]["oom_kill"] == 0 and not j["depois"]["oom_killed"],
+        "sem_reinicio": j["depois"]["restart_count"] == 0,
+        "sem_swap": j["depois"]["swap_peak_mib"] == 0,
+    }
+
+
+def principal() -> int:
+    argumentos = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    argumentos.add_argument("--casos", type=int, default=300)
+    argumentos.add_argument("--limite", default="128m",
+                            help="mem_limit e memswap_limit do processo (omissao: 128m, o do staging)")
+    argumentos.add_argument("--sonda", choices=("node", "bash"), default="node",
+                            help="node: a sonda do compose; bash: /dev/tcp, para separar o pico do processo")
+    argumentos.add_argument("--espera", type=float, default=600, help="segundos para drenar a rajada")
+    argumentos.add_argument("--manter", action="store_true", help="nao derruba a pilha no fim")
+    argumentos.add_argument("--relatorio", type=Path)
+    opcoes = argumentos.parse_args()
+
+    inicio = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    relatorio: dict = {"inicio_utc": inicio, "limite": opcoes.limite, "sonda": opcoes.sonda}
+    with tempfile.TemporaryDirectory(prefix="kam238-") as pasta:
+        env, runner = _ambiente()
+        pilha = Pilha(Path(pasta), env, opcoes.limite, opcoes.sonda)
+        relatorio["commit"] = env["KAMBA_COMMIT_SHA"]
+        try:
+            pilha.compose("up", "-d", "--wait", "postgres", "queue")
+            porta = pilha.compose("port", "postgres", "5432").strip().rsplit(":", 1)[1]
+            amb = dict(os.environ)
+            amb.update(env)
+            amb.update({"KAMBA_DB_HOST": "127.0.0.1", "KAMBA_DB_PORT": porta, "KAMBA_DB_NAME": BASE})
+            for comando in (
+                [sys.executable, "bootstrap.py"],
+                [sys.executable, "-m", "alembic", "-c", "migrations/alembic.ini", "upgrade", "head"],
+            ):
+                for tentativa in range(5):
+                    r = subprocess.run(comando, cwd=RAIZ / "db", env=amb, capture_output=True, text=True)
+                    if r.returncode == 0:
+                        break
+                    # O servidor temporario do `initdb` reinicia uma vez (o achado do KAM-225).
+                    time.sleep(3)
+                else:
+                    raise RuntimeError(f"{comando[1]}: {r.stderr[-2000:]}")
+            pilha.compose("up", "-d", "--build", "--wait", SERVICO, tempo=1800)
+            time.sleep(20)
+            c = pilha.contentor(SERVICO)
+            relatorio["repouso"] = {**_cgroup(pilha, c), **_picos(pilha, c)}
+            relatorio["rajada"] = rajada(pilha, runner, opcoes.casos, opcoes.espera)
+            relatorio["veredictos"] = veredictos(relatorio)
+        except Exception as erro:  # noqa: BLE001 — o relatorio leva o que se mediu
+            relatorio["erro"] = f"{type(erro).__name__}: {erro}"
+            relatorio["falha"] = _falha(pilha, inicio)
+            relatorio["registos"] = pilha.compose("logs", "--tail", "20", SERVICO, verificar=False)[-3000:]
+        finally:
+            relatorio["fim_utc"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+            subprocess.run(["docker", "rm", "-f", f"{PROJECTO}-rajada", f"{PROJECTO}-publicador"], capture_output=True)
+            if not opcoes.manter:
+                pilha.compose("down", "-v", "--remove-orphans", verificar=False)
+    texto = json.dumps(relatorio, indent=2, ensure_ascii=False)
+    if opcoes.relatorio:
+        opcoes.relatorio.write_text(texto, encoding="utf-8")
+    print(texto)
+    falhados = [k for k, ok in relatorio.get("veredictos", {}).items() if not ok]
+    return 1 if "erro" in relatorio or falhados else 0
+
+
+if __name__ == "__main__":
+    sys.exit(principal())

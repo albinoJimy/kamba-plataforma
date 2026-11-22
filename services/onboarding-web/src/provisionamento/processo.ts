@@ -41,8 +41,9 @@
  * `Identidade.arrancar` recusa em `prod` sem o *pepper* ou sem a KEK das DEK.
  * Não está no *compose* de `prod` pelo orçamento de memória do conjunto
  * reduzido (bloco do KAM-215, decisões do executor). O fundador decidiu a
- * 2026-11-21 que fica de fora até se medir o pico de memória dele: o credor é
- * o KAM-238, que propõe o limite que caiba sem mexer no tecto.
+ * 2026-11-21 que fica de fora até se medir o pico de memória dele. O KAM-238
+ * mediu-o (`docs/evidencia/KAM-238.md`) e não cabe na folga que sobra; o credor
+ * que o baixa é o KAM-241 (decisão do fundador de 2026-11-22).
  */
 
 import { healthz } from "@kamba/core-ts";
