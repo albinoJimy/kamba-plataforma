@@ -278,7 +278,9 @@ services:
   # `services/worker-canal/egress.yaml` (`destinos: []`). Falam com a fila e a
   # base (`data`) e com o AGR (`app`); `app` e `data` sao `internal: true`, e
   # sem `HTTPS_PROXY` nao ha caminho para fora. Estao em `app` tambem porque e
-  # por la que o Prometheus os raspa.
+  # por la que o Prometheus os raspa. Excepcoes com lista propria em
+  # `infra/egress/`: o `worker-canal-consumidor` (KAM-227) e, desde o KAM-231,
+  # o `worker-canal-entrada`, que descarrega a foto do dono pela Graph.
   #
   # Os `mem_limit` sao os do `conjunto-reduzido.yaml`, com a razao de cada um.
   worker-canal-entrada:
@@ -290,8 +292,14 @@ services:
         KAMBA_COMMIT_SHA: ${KAMBA_COMMIT_SHA:?o deploy passa o SHA da release}
     command: ["node", "services/worker-canal/src/entrada.ts"]
     environment:
-      <<: *node-env
+      # `*saida` desde o KAM-231: o MED descarrega a foto do dono pela Graph
+      # (`infra/egress/worker-canal-entrada.yaml`), e so pelo `proxy-saida`.
+      # O armazenamento (`seaweedfs`) esta no `NO_PROXY`, na rede `data`.
+      <<: [*node-env, *saida]
       ENTRADA_PORT: "3013"
+      # O `fetch` do Node 24 ignora o `HTTPS_PROXY` sem esta variavel (medido no
+      # KAM-227, no `worker-canal-consumidor`).
+      NODE_USE_ENV_PROXY: "1"
       # As chaves de identidade vem do ambiente que o lancador do cofre enche
       # (ADR-L002; criterio 9 do KAM-008, emendado a 2026-11-20). Sem o *pepper*
       # ou sem a KEK abaixo, o `Identidade.arrancar` recusa em `prod`.
@@ -307,6 +315,22 @@ services:
       KAMBA_SECRET_PEPPER_CONTACT_HMAC_ANTERIOR: ${KAMBA_SECRET_PEPPER_CONTACT_HMAC_ANTERIOR:-}
       KAMBA_SECRET_KEK_CONTACT_DEK: ${KAMBA_SECRET_KEK_CONTACT_DEK:?o cofre entrega a KEK das DEK de contacto}
       KAMBA_SECRET_KEK_CONTACT_DEK_ANTERIOR: ${KAMBA_SECRET_KEK_CONTACT_DEK_ANTERIOR:-}
+      # KAM-231 (decisao do fundador de 2026-11-21, P4 A): o MED da foto do
+      # dono corre aqui, e o arranque recusa em `prod` sem estes tres segredos
+      # e sem o armazenamento. A KEK abre o criptograma do `token_ref` do canal
+      # da conversa (as instancias de `meta_client_token` nao se nomeiam aqui:
+      # sao por tenant, e chegam pelo lancador do cofre, como no consumidor);
+      # as duas do armazenamento assinam o `put` da foto.
+      KAMBA_SECRET_KEK_TOKEN_CLIENTE: ${KAMBA_SECRET_KEK_TOKEN_CLIENTE:?o cofre entrega a KEK dos tokens de cliente}
+      KAMBA_SECRET_KEK_TOKEN_CLIENTE_ANTERIOR: ${KAMBA_SECRET_KEK_TOKEN_CLIENTE_ANTERIOR:-}
+      KAMBA_STORAGE_ENDPOINT: ${KAMBA_STORAGE_ENDPOINT:?o deploy diz onde e o armazenamento (D6 aberta)}
+      KAMBA_STORAGE_BUCKET: ${KAMBA_STORAGE_BUCKET:?o deploy nomeia o bucket}
+      KAMBA_STORAGE_REGION: ${KAMBA_STORAGE_REGION:?o deploy nomeia a regiao}
+      KAMBA_STORAGE_DESTINO_COUNTRY: ${KAMBA_STORAGE_DESTINO_COUNTRY:?o deploy diz o pais do armazenamento (ADR-008)}
+      KAMBA_STORAGE_DESTINO_PROVIDER: ${KAMBA_STORAGE_DESTINO_PROVIDER:?o deploy diz o fornecedor do armazenamento}
+      KAMBA_STORAGE_DESTINO_APD_REF: ${KAMBA_STORAGE_DESTINO_APD_REF:-}
+      KAMBA_SECRET_STORAGE_ACCESS_KEY_ID: ${KAMBA_SECRET_STORAGE_ACCESS_KEY_ID:?o cofre entrega a chave de acesso do armazenamento}
+      KAMBA_SECRET_STORAGE_SECRET_ACCESS_KEY: ${KAMBA_SECRET_STORAGE_SECRET_ACCESS_KEY:?o cofre entrega o segredo do armazenamento}
     # Escala com replicas (cabecalho do `entrada.ts`): o *worker* trata um *job*
     # de cada vez, e o KAM-084 mediu-o como o primeiro recurso saturado do
     # segmento de entrada, entre 200 e 400 *webhooks*/s.

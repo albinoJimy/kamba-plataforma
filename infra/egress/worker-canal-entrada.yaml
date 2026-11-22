@@ -2,13 +2,35 @@
 #
 # Negado por omissao: o que nao esta em `destinos` nao sai.
 #
-# E um dos quatro servicos do `worker-canal` (uma imagem, um `command:` cada).
-# O `supply_chain` pede uma lista por **servico de compose** cujo nome nao e o
-# de uma pasta de `services/`, e por isso o `services/worker-canal/egress.yaml`
-# nao o cobre. A lista e a mesma dessa: **vazia**. O processo fala com a fila e
-# a base (`data`) e com o AGR (`app`), as duas redes sao `internal: true`, e o
-# servico nao tem `HTTPS_PROXY`.
+# E um dos servicos do `worker-canal` (uma imagem, um `command:` cada). O
+# `supply_chain` pede uma lista por **servico de compose** cujo nome nao e o de
+# uma pasta de `services/`, e por isso o `services/worker-canal/egress.yaml` nao
+# o cobre.
+#
+# Ate ao KAM-231 a lista era vazia. Desde ele o processo corre o MED do KAM-020
+# para a foto do dono (decisao do fundador de 2026-11-21, P4 A), e o MED fala
+# com a Graph API para resolver o `media_id`. Sai pelo `proxy-saida` (`*saida`
+# no compose), como o `worker-canal-consumidor`.
+#
+# FALTA UM DESTINO, E ESTA DITO: os bytes da foto vem de um URL que a Graph
+# devolve, num anfitriao da CDN da Meta — `lookaside.fbsbx.com` segundo a
+# documentacao publica, **NAO VERIFICADO** (`packages/core-ts/src/med/graph.ts`,
+# `ANFITRIOES_DA_DESCARGA`). Nao entra aqui sem entrar tambem na allowlist do
+# `infra/egress/proxy-saida.yaml` (o `compose_prod` exige os dois sentidos), e
+# essa e uma decisao de saida que nao e deste ficheiro. Ate la a descarga e
+# recusada pelo proxy, o MED marca a foto `falhou`, e ela chega ao AGR sem
+# `asset_id` — falha fechada.
 version: 1
 servico: worker-canal-entrada
 por_omissao: negar
-destinos: []
+destinos:
+  - fqdn: graph.facebook.com
+    porta: 443
+    protocolo: https
+    razao: >-
+      Graph API da Meta, para o MED resolver o `media_id` da foto do dono num
+      URL temporario (`GET /<versao>/<media_id>`, `med/graph.ts`), com o
+      *token* do canal da conversa lido pelo `token_ref` (KAM-231). O mesmo
+      FQDN e o mesmo *token* do envio do `worker-canal-consumidor` (KAM-227);
+      destino de transferencia internacional ja reconhecido (ADR-008).
+    ticket: KAM-231
