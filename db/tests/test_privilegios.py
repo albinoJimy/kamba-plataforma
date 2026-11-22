@@ -102,6 +102,12 @@ ESPERADO_POR_TABELA.update(
         # titular e um `DELETE` verdadeiro (doc 06 §7.6), e so aqui.
         "contact_endpoints": _identidade("SELECT", "INSERT", "DELETE"),
         "hmac_key_versions": _identidade("SELECT", "INSERT"),
+        # KAM-208 (revisao `0087`, decisao do fundador de 2026-11-21, D2): o
+        # pseudonimo sem tenant e do `kamba_identity` e de mais ninguem — nem do
+        # `kamba_batch`, que so o compara pela funcao `SECURITY DEFINER`. Os
+        # quatro de dados porque a resolucao o escreve (`INSERT ... ON CONFLICT
+        # DO UPDATE`, que le a linha que substitui) e o apaga com o numero.
+        "contact_xtenant_pseudonym": _identidade("SELECT", "INSERT", "UPDATE", "DELETE"),
     }
 )
 

@@ -239,3 +239,29 @@ funcoes:
       `owner_contact_id`. A reentrega idempotente nao toca em nada.
       `db/tests/test_canal_do_dono_schema.py` mede as recusas, o isolamento e o
       `42501` dos outros papeis.
+  - funcao: platform.ts_compradores_noutra_loja_do_dono(p_tenants uuid[], p_compra_desde timestamp with time zone, p_visto_desde timestamp with time zone)
+    adr: ADR-010
+    razao: >-
+      A comparacao da correlacao entre tenants por comprador (KAM-208, revisao
+      `0087`; decisao do fundador de 2026-11-21, D2). O pseudonimo do telefone
+      sem tenant (`contact_xtenant_pseudonym`) e do `kamba_identity` e de mais
+      ninguem; como `SECURITY INVOKER` o `kamba_batch` precisava de `SELECT` na
+      tabela, e com ele lia os pseudonimos de todos os tenants — que e
+      exactamente o que a decisao recusa. Como dono, a funcao le-os e devolve
+      **so** `(tenant_id, contagem)`: nunca o pseudonimo nem o outro tenant.
+      A excepcao e **estreita**: o `DEFINER` nao contorna o `FORCE`
+      (`db/rls.py`), e por isso a funcao poe o `app.tenant_id` em cada tenant da
+      lista, le so desse tenant, e no fim repoe o que estava; uma lista com
+      tenants inventados so da linhas que nao existem. O `EXECUTE` e so do
+      `kamba_batch`, e o `PUBLIC` perde-o. Em `prod` nao corre: o interruptor do
+      `packages/core-ts/src/identity/correlacao.ts` esta trancado no codigo ate
+      o parecer chegar (D1). `db/tests/test_correlacao_entre_tenants.py` mede o
+      anel, as fronteiras, o contexto reposto e o `42501` do `kamba_app`.
+  - funcao: platform.contact_xtenant_purgar(p_tenants uuid[], p_antes timestamp with time zone)
+    adr: ADR-010
+    razao: >-
+      A retencao do pseudonimo sem tenant (KAM-208, D4: 90 dias desde a ultima
+      resolucao, *proposta*). Pela razao da funcao de cima, o `kamba_batch` nao
+      tem `DELETE` na tabela; a funcao apaga, tenant a tenant com o contexto
+      posto e reposto, so os pseudonimos vistos antes do instante, e devolve
+      quantos. So apaga: nao le nada para fora. `EXECUTE` so do `kamba_batch`.

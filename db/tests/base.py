@@ -744,6 +744,12 @@ TABELAS_CANAL_DO_DONO_PELO_PAINEL = ("agent_messages", "owner_phone_changes")
 #: `kamba_app` le, insere e muda por coluna; ninguem apaga.
 TABELAS_SOCIAL_DO_DONO = ("brand_profile", "content_calendar", "content_items")
 
+#: O que a revisao da correlacao entre tenants (KAM-208) acrescenta: o
+#: pseudonimo do telefone sem tenant, com RLS `FORCE` pela `tenant_iso`, que so o
+#: `kamba_identity` escreve e le. **Pelo nome e nao pelo numero**, pela razao do
+#: `TABELAS_CATALOGO_AI`.
+TABELAS_CORRELACAO = ("contact_xtenant_pseudonym",)
+
 TABELAS = tuple(
     sorted(
         TABELAS_0001 + TABELAS_0003 + TABELAS_0004 + TABELAS_0005
@@ -764,6 +770,7 @@ TABELAS = tuple(
         + TABELAS_RESPOSTA_DO_AGR
         + TABELAS_CANAL_DO_DONO_PELO_PAINEL
         + TABELAS_SOCIAL_DO_DONO
+        + TABELAS_CORRELACAO
     )
 )
 
@@ -780,7 +787,14 @@ TABELAS = tuple(
 #: O que existe em `platform` antes da revisao do social do dono (KAM-121),
 #: que e o topo da cadeia desde ela. A `0078` do KAM-230, entre as duas, nao
 #: cria tabela nenhuma.
-TABELAS_ANTES_DO_SOCIAL_DO_DONO = tuple(sorted(set(TABELAS) - set(TABELAS_SOCIAL_DO_DONO)))
+#: O que existe em `platform` antes da revisao da correlacao entre tenants
+#: (KAM-208), que e o topo da cadeia desde ela.
+TABELAS_ANTES_DA_CORRELACAO = tuple(sorted(set(TABELAS) - set(TABELAS_CORRELACAO)))
+
+#: Deriva do de cima desde o KAM-208.
+TABELAS_ANTES_DO_SOCIAL_DO_DONO = tuple(
+    sorted(set(TABELAS_ANTES_DA_CORRELACAO) - set(TABELAS_SOCIAL_DO_DONO))
+)
 
 #: O que existe em `platform` antes da revisao do canal do dono pelo painel
 #: (KAM-223). Deriva do de cima desde o KAM-121.

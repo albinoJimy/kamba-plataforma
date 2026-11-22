@@ -9,8 +9,9 @@
  *    PostgreSQL continua sem um único identificador em claro.
  * 2. **`tenant_id` em todas as instruções sobre tabelas de tenant.** A RLS já
  *    filtra; o predicado explícito é a primeira barreira e é o que usa o índice.
- * 3. **Nada fora das quatro tabelas da revisão `0003`.** O papel `kamba_identity`
- *    não lê tenants, canais nem entitlements, e este ficheiro não lho pede.
+ * 3. **Nada fora das quatro tabelas da revisão `0003` e do pseudónimo sem
+ *    tenant da `0087` (KAM-208).** O papel `kamba_identity` não lê tenants,
+ *    canais nem entitlements, e este ficheiro não lho pede.
  */
 
 const VERSOES_VIVAS =
@@ -199,6 +200,20 @@ export const CONTAR_POR_RODAR =
   "(SELECT count(*) FROM platform.contacts " +
   "  WHERE tenant_id = $1 AND phone_hmac IS NOT NULL AND hmac_kid <> $2)::int AS telefones";
 
+/**
+ * O pseudónimo sem tenant do contacto (KAM-208), sob a versão actual da chave
+ * dele; renova o `visto_at`, que é de onde a retenção conta (D4).
+ */
+export const DEFINIR_PSEUDONIMO_SEM_TENANT =
+  "INSERT INTO platform.contact_xtenant_pseudonym " +
+  "(tenant_id, contact_id, pseudonimo, kid, visto_at) VALUES ($1, $2, $3, $4, $5) " +
+  "ON CONFLICT (tenant_id, contact_id) DO UPDATE SET pseudonimo = EXCLUDED.pseudonimo, " +
+  "kid = EXCLUDED.kid, visto_at = EXCLUDED.visto_at";
+
+/** O contacto deixou de ter o número (mudou de mãos, fundiu-se, apagou-se): o pseudónimo vai. */
+export const APAGAR_PSEUDONIMO_SEM_TENANT =
+  "DELETE FROM platform.contact_xtenant_pseudonym WHERE tenant_id = $1 AND contact_id = $2";
+
 /** Todas as instruções, para o teste que confere as três regras do cabeçalho. */
 export const TODAS: Readonly<Record<string, string>> = {
   KIDS_VIVOS,
@@ -232,4 +247,6 @@ export const TODAS: Readonly<Record<string, string>> = {
   TELEFONES_POR_RODAR,
   CIFRA_DO_TELEFONE,
   CONTAR_POR_RODAR,
+  DEFINIR_PSEUDONIMO_SEM_TENANT,
+  APAGAR_PSEUDONIMO_SEM_TENANT,
 };

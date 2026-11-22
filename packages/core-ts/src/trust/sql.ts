@@ -337,6 +337,33 @@ export const SQL_FOTOS_REPETIDAS = `
 `;
 
 /**
+ * A correlação entre tenants por comprador (KAM-208): por tenant, quantos
+ * compradores (contacto de encomenda paga ou entregue desde `$1`) compram
+ * também noutro tenant **do mesmo dono**, pelo pseudónimo sem tenant visto
+ * desde `$2`. A função é `SECURITY DEFINER` e devolve **só** o tenant e a
+ * contagem — nunca o pseudónimo nem o outro tenant (revisão `0087`); o
+ * `kamba_batch` não tem `SELECT` na tabela do pseudónimo, só o `EXECUTE` dela.
+ * A lista de tenants é a de todos: a função percorre-os um a um.
+ */
+export const SQL_COMPRADORES_NOUTRA_LOJA_DO_DONO = `
+  SELECT r.tenant_id::text AS tenant_id, r.contagem
+    FROM platform.ts_compradores_noutra_loja_do_dono(
+           (SELECT coalesce(array_agg(t.id ORDER BY t.id), '{}'::uuid[]) FROM platform.tenants t),
+           $1, $2) AS r
+   ORDER BY r.tenant_id
+`;
+
+/**
+ * A retenção do pseudónimo sem tenant (KAM-208, D4): apaga os vistos antes de
+ * `$1`, em todos os tenants, e devolve quantos.
+ */
+export const SQL_PURGAR_PSEUDONIMOS = `
+  SELECT platform.contact_xtenant_purgar(
+           (SELECT coalesce(array_agg(t.id ORDER BY t.id), '{}'::uuid[]) FROM platform.tenants t),
+           $1) AS apagados
+`;
+
+/**
  * Os sinais `mudanca_de_conta` que ainda não têm caso `trust` (KAM-200,
  * critério 5). Os sinais nascem nos *triggers* da revisão `0067`, sobre a
  * `payment_accounts` e o `tenants.nif`; o caso abre-o a varredura, pela fila. A

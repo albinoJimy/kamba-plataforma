@@ -709,6 +709,28 @@ dominios_historicos:
       order.contact_view escritas, porque o audit_log e append-only e nenhum
       papel tem DELETE. Renumerar a revisao e mudar tambem o caminho desta
       entrada.
+  - revisao: "db/migrations/versions/0056_trust_e_sancoes.py"
+    tabela: "ts_signal"
+    coluna: "tipo"
+    ticket: "KAM-208"
+    data: "2026-11-21"
+    razao: >-
+      A 0056 (KAM-097) declara os nove tipos de sinal. A 0087 (KAM-208,
+      decisao do fundador de 2026-11-21, D6) acrescenta o
+      comprador_noutra_loja_do_dono, e o dicionario §3.68 passa a declarar dez
+      (emenda 1.134). A 0056 continua a escrever os nove, que e um facto
+      historico: depois de upgrade head a base tem os dez.
+  - revisao: "db/migrations/versions/0087_correlacao_entre_tenants.py"
+    tabela: "ts_signal"
+    coluna: "tipo"
+    ticket: "KAM-208"
+    data: "2026-11-21"
+    razao: >-
+      A 0087 (KAM-208) escreve os dez tipos no upgrade; o downgrade repoe os
+      nove da 0056, que e o que a base passa a ter quando se desce, e e essa
+      declaracao que esta entrada cobre. O passo de descida recusa-se se
+      houver sinais comprador_noutra_loja_do_dono, porque a ts_signal e
+      append-only. Renumerar a revisao e mudar tambem o caminho desta entrada.
 
 # ------------------------------------------------ unicidades que o §3 proibe
 #
