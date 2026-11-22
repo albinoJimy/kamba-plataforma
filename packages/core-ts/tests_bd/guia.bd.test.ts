@@ -80,6 +80,8 @@ function configuracao(papel: "app" | "batch" | "admin"): pg.ClientConfig {
 let admin: pg.Client;
 const pools: pg.Pool[] = [];
 const casosCriados: string[] = [];
+/** A capacidade da lista antes deste ficheiro: repõe-se no fim, para os que correm depois. */
+let capacidadeAntes: number | null = null;
 
 function novoPool(papel: "app" | "batch"): pg.Pool {
   const pool = new pg.Pool({ ...configuracao(papel), max: 6 });
@@ -118,6 +120,8 @@ function casosDoEnsaio(pool: pg.Pool): RepositorioDeCasos {
 before(async () => {
   admin = new pg.Client(configuracao("admin"));
   await admin.connect();
+  const r = await admin.query<{ n: number }>("SELECT es_max_por_7d AS n FROM platform.onboarding_capacity");
+  capacidadeAntes = r.rows[0]?.n ?? null;
 });
 
 after(async () => {
@@ -126,6 +130,12 @@ after(async () => {
     await admin.query("DELETE FROM platform.onboarding_guia WHERE onboarding_id = ANY ($1::uuid[])", [casosCriados]);
     await admin.query("DELETE FROM platform.onboarding_gate WHERE onboarding_id = ANY ($1::uuid[])", [casosCriados]);
     await admin.query("DELETE FROM platform.waitlist_entry WHERE onboarding_id = ANY ($1::uuid[])", [casosCriados]);
+    await admin.query("DELETE FROM platform.review_case WHERE onboarding_id = ANY ($1::uuid[])", [casosCriados]);
+    await admin.query("DELETE FROM platform.onboarding_case WHERE id = ANY ($1::uuid[])", [casosCriados]);
+  }
+  // A capacidade que este ficheiro pôs a uma vaga volta ao que estava (achado 7 da revisão adversarial).
+  if (capacidadeAntes !== null) {
+    await admin.query("UPDATE platform.onboarding_capacity SET es_max_por_7d = $1", [capacidadeAntes]);
   }
   for (const pool of pools) await pool.end().catch(() => undefined);
   await admin.end();

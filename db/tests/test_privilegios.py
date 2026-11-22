@@ -2714,7 +2714,8 @@ COLUNAS_POR_PAPEL = {
     ("kamba_app", "onboarding_guia", "INSERT"): {"onboarding_id", "tenant_id"},
     ("kamba_app", "onboarding_guia", "UPDATE"): {
         "estado", "preflight_at", "iniciado_at", "motivo", "tentativa_id",
-        "phone_number_id", "waba_id", "numero_confirmado", "sincronizado", "actualizado_at",
+        "phone_number_id", "numero_ligado_at", "waba_id", "numero_confirmado", "sincronizado",
+        "actualizado_at",
     },
     ("kamba_batch", "onboarding_guia", "UPDATE"): {"estado", "actualizado_at"},
     ("kamba_identity", "owner_phone_changes", "INSERT"): {

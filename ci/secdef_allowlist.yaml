@@ -346,7 +346,8 @@ funcoes:
       KAM-236): os sinais da Meta chegam por `phone_number_id`, **antes** de se
       saber de que tenant e o numero, e o `kamba_app` e `NOBYPASSRLS`. Devolve
       **so** o `id` do caso e o `tenant_id` — nem o estado, nem a conta da Meta
-      —, um caso so (o mais recente a tomar o numero), e o adaptador le o resto
+      —, um caso so (o ultimo a ligar o numero, pelo `numero_ligado_at`, e nunca
+      um ja preso por numero divergente), e o adaptador le o resto
       como `kamba_app`, com o `app.tenant_id` desse caso, pela RLS. A
       alternativa com `SECURITY INVOKER` era dar ao `onboarding-web` uma ligacao
       `kamba_batch`, que o fundador recusou (D2-B do KAM-236). O `DEFINER`

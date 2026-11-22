@@ -4039,7 +4039,9 @@ async function grupoDoGuiaInterno(relatorio: Relatorio): Promise<void> {
         { headers: { "content-type": "application/json" } },
         { headers: { "content-type": "application/json", "x-kamba-interno": errada } },
         { headers: { "content-type": "application/json", authorization: `Bearer ${CREDENCIAL_DO_GUIA_INTERNO}` } },
-        { headers: { "content-type": "application/json", "x-kamba-interno": `${CREDENCIAL_DO_GUIA_INTERNO} ` } },
+        // Um sufixo visivel, e nao um espaco: o `Headers` apara o espaco no fim, e o
+        // pedido chegava autenticado (achado 1 da revisao adversarial do KAM-239).
+        { headers: { "content-type": "application/json", "x-kamba-interno": `${CREDENCIAL_DO_GUIA_INTERNO}-x` } },
       ];
       const antesDosAtaques = chamadas.length;
       const entradas: EntradaDeRota[] = [];

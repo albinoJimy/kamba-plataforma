@@ -40,10 +40,15 @@ das tabelas (`FOR SELECT TO kamba_migrator`) ligada por uma variavel que a
 funcao liga e desliga no seu corpo. **O `DEFINER` sozinho nao chega**: o dono e
 `NOBYPASSRLS`, e o `FORCE` vincula-o (a nota da `0084`).
 
-Devolve **um** caso, o mais recente a tomar o numero (`actualizado_at`), porque
-a porta devolve um. Dois guias com o mesmo numero sao o caso que o criterio 4 do
-KAM-093 prende: o segundo a liga-lo e o que tem o numero alheio, e e esse que o
-`confirmarNumero` tem de comparar.
+Devolve **um** caso, porque a porta devolve um: o mais recente a **ligar** o
+numero (`numero_ligado_at`, que so se escreve quando o `phone_number_id` muda), e
+nunca um guia ja preso por numero divergente. Dois guias com o mesmo numero sao o
+caso que o criterio 4 do KAM-093 prende: o segundo a liga-lo e o que tem o numero
+alheio, e e esse que o `confirmarNumero` tem de comparar; preso ele, os sinais do
+numero voltam ao outro. **Nao o `actualizado_at`**, que sobe com qualquer escrita
+(o pre-voo repetido, a sincronizacao, a propria prisao): ordenar por ele mandava
+os sinais para quem mexeu por ultimo no guia, e nao para quem ligou o numero
+(achado 2 da revisao adversarial).
 
 ## O `downgrade`
 
@@ -79,10 +84,10 @@ ESTADOS_SQL = (
 #: Os motivos de falha. Iguais ao `MOTIVOS_DE_FALHA` do mesmo ficheiro.
 MOTIVOS_SQL = "'numero_divergente', 'sincronizacao_vencida', 'ligacao_recusada', 'tecto_da_meta'"
 
-#: O tecto dos identificadores da Meta e da tentativa. O `textoCurto` do guia
-#: aceita ate 512; a Meta da numeros de poucas dezenas de algarismos, e um tecto
-#: curto recusa na base o que nao e um identificador.
-TECTO_DO_IDENTIFICADOR = 128
+#: O tecto dos identificadores da Meta e da tentativa: o do `textoCurto` do guia
+#: (`packages/core-ts/src/guia/guia.ts`), para que a base nao recuse o que o guia
+#: aceitou (um 23514 a meio do `FINISH`, achado 8 da revisao adversarial).
+TECTO_DO_IDENTIFICADOR = 512
 
 #: A funcao, com a assinatura que o `GRANT` e o `DROP` pedem.
 F_NUMERO = "platform.guia_caso_por_phone_number_id(text)"
@@ -97,6 +102,7 @@ UPDATE_DO_GUIA = (
     "motivo",
     "tentativa_id",
     "phone_number_id",
+    "numero_ligado_at",
     "waba_id",
     "numero_confirmado",
     "sincronizado",
@@ -131,6 +137,7 @@ def _guia() -> None:
           phone_number_id    text
                              CONSTRAINT onboarding_guia_phone_number_ck
                              CHECK (char_length(phone_number_id) BETWEEN 1 AND {TECTO_DO_IDENTIFICADOR}),
+          numero_ligado_at   timestamptz,
           waba_id            text
                              CONSTRAINT onboarding_guia_waba_ck
                              CHECK (char_length(waba_id) BETWEEN 1 AND {TECTO_DO_IDENTIFICADOR}),
@@ -189,7 +196,8 @@ def _busca() -> None:
           PERFORM set_config('app.guia_busca', 'on', true);
           RETURN QUERY SELECT g.onboarding_id, g.tenant_id FROM {GUIA} g
            WHERE g.phone_number_id = p_phone_number_id
-           ORDER BY g.actualizado_at DESC, g.onboarding_id
+             AND NOT (g.estado = 'falhado' AND g.motivo IS NOT DISTINCT FROM 'numero_divergente')
+           ORDER BY g.numero_ligado_at DESC NULLS LAST, g.onboarding_id
            LIMIT 1;
           PERFORM set_config('app.guia_busca', 'off', true);
           RETURN;

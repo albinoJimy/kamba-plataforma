@@ -2415,6 +2415,7 @@ INVENTARIO["onboarding_guia"] = {
     "motivo": ("text", SIM, None, "nao"),
     "tentativa_id": ("text", SIM, None, "nao — identificador da tentativa do KAM-016"),
     "phone_number_id": ("text", SIM, None, "nao — identificador da Meta do numero ligado, nunca o numero"),
+    "numero_ligado_at": ("timestamp with time zone", SIM, None, "nao"),
     "waba_id": ("text", SIM, None, "nao — identificador da conta de negocio na Meta"),
     "numero_confirmado": ("boolean", NAO, "false", "nao"),
     "sincronizado": ("boolean", NAO, "false", "nao"),

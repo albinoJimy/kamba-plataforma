@@ -65,7 +65,7 @@ class TestGuiaNaBase(ComBase):
         if numero is not None:
             self.admin.execute(
                 f"UPDATE {GUIA} SET estado = 'es_concluido', phone_number_id = %s, waba_id = 'waba-ensaio', "
-                "actualizado_at = clock_timestamp() WHERE onboarding_id = %s",
+                "numero_ligado_at = clock_timestamp(), actualizado_at = clock_timestamp() WHERE onboarding_id = %s",
                 (numero, onb),
             )
 
@@ -159,15 +159,37 @@ class TestGuiaNaBase(ComBase):
         self.assertEqual(self.admin.fetchone()[0], 0, "um numero que ninguem ligou, nada")
         self._de_volta()
 
-    def test_dois_guias_com_o_mesmo_numero_devolvem_o_mais_recente(self) -> None:
+    def test_dois_guias_com_o_mesmo_numero_devolvem_o_ultimo_a_liga_lo_e_nunca_um_preso(self) -> None:
+        """O ultimo a **ligar** o numero, e nao o ultimo a mexer no guia (achado 2 da
+        revisao adversarial): uma escrita qualquer no primeiro nao lhe devolve os
+        sinais; e preso o segundo por numero divergente, voltam ao primeiro."""
         numero = _numero()
         primeiro, tenant_1 = self._caso()
         self._guia(primeiro, tenant_1, numero)
         segundo, tenant_2 = self._caso()
         self._guia(segundo, tenant_2, numero)
+        busca = "SELECT id::text, tenant_id::text FROM platform.guia_caso_por_phone_number_id(%s)"
         self._como("kamba_app", None)
-        self.admin.execute("SELECT id::text, tenant_id::text FROM platform.guia_caso_por_phone_number_id(%s)", (numero,))
+        self.admin.execute(busca, (numero,))
         self.assertEqual([tuple(l) for l in self.admin.fetchall()], [(segundo, tenant_2)])
+        self._de_volta()
+        # O primeiro mexe no guia depois (o pre-voo repetido): os sinais nao mudam de guia.
+        self.admin.execute(
+            f"UPDATE {GUIA} SET preflight_at = now(), actualizado_at = clock_timestamp() + interval '1 hour' "
+            "WHERE onboarding_id = %s",
+            (primeiro,),
+        )
+        self._como("kamba_app", None)
+        self.admin.execute(busca, (numero,))
+        self.assertEqual([tuple(l) for l in self.admin.fetchall()], [(segundo, tenant_2)])
+        self._de_volta()
+        # Preso o segundo, os sinais do numero voltam ao primeiro.
+        self.admin.execute(
+            f"UPDATE {GUIA} SET estado = 'falhado', motivo = 'numero_divergente' WHERE onboarding_id = %s", (segundo,)
+        )
+        self._como("kamba_app", None)
+        self.admin.execute(busca, (numero,))
+        self.assertEqual([tuple(l) for l in self.admin.fetchall()], [(primeiro, tenant_1)])
         self._de_volta()
 
     def test_so_o_kamba_app_executa_a_busca(self) -> None:

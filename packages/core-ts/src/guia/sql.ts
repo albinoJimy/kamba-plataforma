@@ -85,6 +85,10 @@ export const SQL_GRAVAR_PREFLIGHT_DO_GUIA = `UPDATE platform.onboarding_guia
  * A transição, *compare-and-set* sobre o estado (`$2`). Cada campo opcional vem
  * em par — se veio, e o valor —, porque o `null` é um valor que se escreve (o
  * `iniciar` limpa o `motivo` e o número da tentativa anterior).
+ *
+ * O `numero_ligado_at` escreve-se **só** quando o `phone_number_id` passa a outro
+ * número: é por ele que a busca pelo número escolhe o guia (ver a revisão), e o
+ * `actualizado_at`, que sobe com qualquer escrita, escolhia mal.
  */
 export const SQL_TRANSITAR_GUIA = `UPDATE platform.onboarding_guia SET
   estado = $3,
@@ -92,6 +96,8 @@ export const SQL_TRANSITAR_GUIA = `UPDATE platform.onboarding_guia SET
   motivo = CASE WHEN $6::boolean THEN $7::text ELSE motivo END,
   tentativa_id = CASE WHEN $8::boolean THEN $9::text ELSE tentativa_id END,
   phone_number_id = CASE WHEN $10::boolean THEN $11::text ELSE phone_number_id END,
+  numero_ligado_at = CASE WHEN $10::boolean AND $11::text IS NOT NULL AND $11::text IS DISTINCT FROM phone_number_id
+                          THEN clock_timestamp() ELSE numero_ligado_at END,
   waba_id = CASE WHEN $12::boolean THEN $13::text ELSE waba_id END,
   numero_confirmado = CASE WHEN $14::boolean THEN $15::boolean ELSE numero_confirmado END,
   sincronizado = CASE WHEN $16::boolean THEN $17::boolean ELSE sincronizado END,

@@ -126,9 +126,13 @@ export function posicaoDoJson(bruto: unknown): Posicao | null {
       unknown
     >;
     const dias = (v: unknown): number => (typeof v === "number" ? v : Number.POSITIVE_INFINITY);
+    const posicao = p["posicao"];
+    if (typeof posicao !== "number" || !Number.isInteger(posicao) || posicao < 1) {
+      throw new LoteIndisponivelError("posicao", "posicao");
+    }
     return {
       estado,
-      posicao: Number(p["posicao"]),
+      posicao,
       estimativa: {
         rotulo: "estimativa",
         minimoDias: dias(e["minimo_dias"]),
