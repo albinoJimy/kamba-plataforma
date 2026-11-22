@@ -1099,6 +1099,26 @@ def _item_social(cursor, tenant_id: str, canario: str) -> None:
     )
 
 
+def _revogacao_do_painel(cursor, tenant_id: str, canario: str) -> None:
+    """Uma sessao do painel revogada (KAM-236, revisao da inscricao na base).
+
+    **Sem coluna de texto livre**, como a `conversations`: o `sid` e um UUID, o
+    `ate` um inteiro e os outros dois sao instantes. O canario vai no `sid`
+    (`guardado=_uuid`), que o `kamba_app` insere: o ataque do X-03 (inserir a
+    linha de B com o contexto de A) tem de esbarrar na RLS e nao num privilegio
+    de coluna, e a chave primaria nao esta no `INSERT` da aplicacao. A coluna
+    alteravel e o `expira_at`, uma das duas do `UPDATE` por coluna. **Sem FK**.
+
+    Semeia o administrador: o `kamba_batch` nao tem privilegio nenhum na tabela,
+    e ninguem tem `DELETE`.
+    """
+    cursor.execute(
+        "INSERT INTO platform.painel_revogacao (tenant_id, sid, expira_at) "
+        "VALUES (%s, %s, now() + interval '1 day')",
+        (tenant_id, _uuid(canario)),
+    )
+
+
 def _troca_do_dono(cursor, tenant_id: str, canario: str) -> None:
     """Uma troca de telefone do dono pedida (KAM-223). O canario vai no `pedido`.
 
@@ -1979,6 +1999,12 @@ RECEITAS: dict[tuple[str, str], Receita] = {
     ("platform", "content_items"): Receita(
         _item_social, "tema", "legenda", "Legenda nova", semeador="admin",
     ),
+    # KAM-236: as revogacoes do painel. O canario vai no `sid`, e a coluna
+    # alteravel e o `expira_at`, uma das duas do `GRANT UPDATE` por coluna.
+    ("platform", "painel_revogacao"): Receita(
+        _revogacao_do_painel, "sid", "expira_at", "2099-01-01T00:00:00+00:00",
+        semeador="admin", guardado=_uuid,
+    ),
     ("platform", "events_outbox"): Receita(
         _evento_no_outbox, "agregado_id", None, None, semeador="admin"
     ),
@@ -2227,6 +2253,13 @@ SEM_RECEITA_COM_RAZAO = {
     # contexto de A, le com o de A (uma linha) e com o de B (zero), recusa a
     # escrita no tenant de outro e mede a RLS ligada e forcada.
     ("platform", "onboarding_smoke"),
+    # KAM-236: o desafio do OTP, pela razao das tentativas: aponta o caso do
+    # tenant (FK composta), que e unico por tenant e colidia com a receita do
+    # `onboarding_case`. **A politica mede-se noutro sitio**: o `TestIsolamento`
+    # do `db/tests/test_inscricao_na_base_schema.py` escreve pela aplicacao com
+    # o contexto de A, le com o de A (uma linha), com o de B e sem contexto
+    # (zero), e recusa a escrita no tenant de outro.
+    ("platform", "onboarding_otp"),
     # KAM-097: os sinais e as sancoes de T&S, pela razao da
     # `screening_decision`: *append-only* por privilegio **e** por *trigger*
     # (`ts_imutavel`), que recusa tambem ao administrador o `DELETE` com que as
@@ -2539,6 +2572,8 @@ ORDEM = (
     ("platform", "brand_profile"),
     ("platform", "content_calendar"),
     ("platform", "content_items"),
+    # KAM-236: sem FK nenhuma, e ninguem a aponta.
+    ("platform", "painel_revogacao"),
     # KAM-009: as duas so tem FK para `tenants`, e por isso ficam no fim.
     ("platform", "tenant_usage"),
     ("platform", "usage_ledger"),

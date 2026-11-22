@@ -760,6 +760,12 @@ services:
       # so monta com o painel, com esta cadeia (`kamba_app`) e com o AGR, e entao
       # a credencial do painel passa a obrigatoria no arranque.
       ONBOARDING_APP_DB_URL: ${ONBOARDING_APP_DB_URL:-}
+      # KAM-236: com a ligacao, o registo corre sobre a base e as duas KEK do
+      # caso passam a obrigatorias no arranque; sem ela, nenhuma se pede.
+      KAMBA_SECRET_KEK_TELEFONE_DO_CASO: ${KAMBA_SECRET_KEK_TELEFONE_DO_CASO:-}
+      KAMBA_SECRET_KEK_TELEFONE_DO_CASO_ANTERIOR: ${KAMBA_SECRET_KEK_TELEFONE_DO_CASO_ANTERIOR:-}
+      KAMBA_SECRET_KEK_DADOS_DO_CASO: ${KAMBA_SECRET_KEK_DADOS_DO_CASO:-}
+      KAMBA_SECRET_KEK_DADOS_DO_CASO_ANTERIOR: ${KAMBA_SECRET_KEK_DADOS_DO_CASO_ANTERIOR:-}
       KAMBA_AGR_URL: ${ONBOARDING_AGR_URL:-}
       KAMBA_SECRET_AGR_PAINEL_TOKEN: ${KAMBA_SECRET_AGR_PAINEL_TOKEN:-}
       # KAM-217: a troca de telefone do dono, como `kamba_identity`. **Opcional**:

@@ -874,8 +874,38 @@ services:
     environment:
       <<: [*node-env, *saida]
       PORT: "3003"
+      # KAM-236: arranca em `prod` sobre a base. O registo, o desafio do OTP, os
+      # contadores do anti-abuso e as revogacoes do painel vivem na `0084`, pela
+      # ligacao **`kamba_app`** e so por ela: as buscas que atravessam tenants
+      # sao as funcoes `SECURITY DEFINER` da revisao (decisao do fundador de
+      # 2026-11-21, D1-A), e o processo nao tem `kamba_batch` nem
+      # `kamba_identity`. Sem a cadeia, o `server.ts` recusa o arranque.
+      KAMBA_AMBIENTE: prod
+      ONBOARDING_APP_DB_URL: ${ONBOARDING_APP_DB_URL:?o deploy passa a cadeia de ligacao do kamba_app}
+      # Um salto de confianca: o `proxy-tls` e a unica entrada, e o Caddy poe o
+      # `X-Forwarded-For`. Com zero, todos os registos vinham do endereco do
+      # proxy e partilhavam a quota de casos por prefixo de rede.
+      ONBOARDING_PROXIES_DE_CONFIANCA: "1"
+      # O painel do dono (KAM-099) e o `POST /painel/teste` (KAM-202): o COM
+      # interno, na rede `app`, com a credencial dele.
+      ONBOARDING_COM_INTERNO_URL: http://com:3002
+      KAMBA_SECRET_COM_INTERNAL_TOKEN: ${KAMBA_SECRET_COM_INTERNAL_TOKEN:?o cofre entrega a credencial da API interna do COM}
+      KAMBA_SECRET_PEPPER_ONBOARDING_IDENT: ${KAMBA_SECRET_PEPPER_ONBOARDING_IDENT:?o cofre entrega o pepper dos identificadores do onboarding}
+      KAMBA_SECRET_PEPPER_ONBOARDING_IDENT_ANTERIOR: ${KAMBA_SECRET_PEPPER_ONBOARDING_IDENT_ANTERIOR:-}
+      KAMBA_SECRET_SEGREDO_ONBOARDING_ASSINATURA: ${KAMBA_SECRET_SEGREDO_ONBOARDING_ASSINATURA:?o cofre entrega a chave de assinatura do onboarding}
+      KAMBA_SECRET_SEGREDO_ONBOARDING_ASSINATURA_ANTERIOR: ${KAMBA_SECRET_SEGREDO_ONBOARDING_ASSINATURA_ANTERIOR:-}
+      KAMBA_SECRET_PEPPER_SMS_DESTINO: ${KAMBA_SECRET_PEPPER_SMS_DESTINO:?o cofre entrega o pepper do destino do SMS}
+      KAMBA_SECRET_PEPPER_SMS_DESTINO_ANTERIOR: ${KAMBA_SECRET_PEPPER_SMS_DESTINO_ANTERIOR:-}
+      # As duas KEK do caso: a do telefone (KAM-215) e a do NIF e do e-mail
+      # (KAM-236). O escritor do caso e este processo.
+      KAMBA_SECRET_KEK_TELEFONE_DO_CASO: ${KAMBA_SECRET_KEK_TELEFONE_DO_CASO:?o cofre entrega a KEK do telefone do caso}
+      KAMBA_SECRET_KEK_TELEFONE_DO_CASO_ANTERIOR: ${KAMBA_SECRET_KEK_TELEFONE_DO_CASO_ANTERIOR:-}
+      KAMBA_SECRET_KEK_DADOS_DO_CASO: ${KAMBA_SECRET_KEK_DADOS_DO_CASO:?o cofre entrega a KEK do NIF e do e-mail do caso}
+      KAMBA_SECRET_KEK_DADOS_DO_CASO_ANTERIOR: ${KAMBA_SECRET_KEK_DADOS_DO_CASO_ANTERIOR:-}
+    # `data` para a base (KAM-236), `app` para o `proxy-tls` e o COM.
     networks:
       - app
+      - data
     mem_limit: 768m
     cpus: 0.5
     healthcheck:
@@ -891,6 +921,9 @@ services:
       timeout: 5s
       retries: 6
       start_period: 20s
+    depends_on:
+      postgres:
+        condition: service_healthy
 
   # ------------------------------------- processo de lote do onboarding (KAM-198)
   #
