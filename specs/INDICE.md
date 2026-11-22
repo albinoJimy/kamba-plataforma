@@ -12,7 +12,7 @@
 
 ## 1. Propósito
 
-Este conjunto materializa o **backlog executável** da KAMBÁ para a **Fase 0 (Fundação / esqueleto andante)** e a **Fase 1 (Piloto)**. Decompõe o trabalho em **238 tickets atómicos (KAM-001 a KAM-238)** distribuídos por **11 epics** (KAM-111 a KAM-117 foram acrescentados na consolidação, e o KAM-128 a KAM-148, e o KAM-149 depois dela; todos pertencem aos epics indicados no §3.1), cada um com critérios de aceitação SMART, Definition of Done, testes requeridos e prompt de handoff para o **Claude Code (CLI)**.
+Este conjunto materializa o **backlog executável** da KAMBÁ para a **Fase 0 (Fundação / esqueleto andante)** e a **Fase 1 (Piloto)**. Decompõe o trabalho em **239 tickets atómicos (KAM-001 a KAM-239)** distribuídos por **11 epics** (KAM-111 a KAM-117 foram acrescentados na consolidação, e o KAM-128 a KAM-148, e o KAM-149 depois dela; todos pertencem aos epics indicados no §3.1), cada um com critérios de aceitação SMART, Definition of Done, testes requeridos e prompt de handoff para o **Claude Code (CLI)**.
 
 O que **não** está aqui: a Fase 2 (Clusters) e a Fase 3 (Escala). Esses epics (geo e logística, estafetas, analytics e Score, índice federado, AdsEngine, vitrine SEO, API pública, Fluxo B) só se escrevem quando o **Gate do Piloto (KAM-110)** for verde. Está declarado em §6.
 
@@ -57,10 +57,10 @@ O backlog é a interface entre o conjunto técnico (`../docs/tecnica/`) e a exec
 | EPIC-06 Índice e Pesquisa | KAM-061 – KAM-064, KAM-193, KAM-199, KAM-212 | 7 | 1 |
 | EPIC-07 Segurança e Conformidade | KAM-065 – KAM-074, KAM-112, KAM-113, KAM-149, KAM-189, KAM-205 | 15 | 0–1 |
 | EPIC-08 Topologia e Operação | KAM-075 – KAM-085, KAM-187, KAM-188 | 13 | 0–1 |
-| EPIC-09 Onboarding e Governação | KAM-086 – KAM-099, KAM-116, KAM-117, KAM-190 – KAM-192, KAM-195, KAM-196, KAM-198, KAM-200, KAM-201, KAM-203, KAM-206 – KAM-210, KAM-218 – KAM-219, KAM-225, KAM-233, KAM-236, KAM-238 | 36 | 1 |
+| EPIC-09 Onboarding e Governação | KAM-086 – KAM-099, KAM-116, KAM-117, KAM-190 – KAM-192, KAM-195, KAM-196, KAM-198, KAM-200, KAM-201, KAM-203, KAM-206 – KAM-210, KAM-218 – KAM-219, KAM-225, KAM-233, KAM-236, KAM-238, KAM-239 | 37 | 1 |
 | EPIC-10 Spikes, Validação e Gates | KAM-100 – KAM-110 | 11 | 0–1 |
 | EPIC-11 Módulos de Entrada | KAM-118 – KAM-127, KAM-211, KAM-215 – KAM-217, KAM-220 – KAM-224, KAM-226 – KAM-228, KAM-230 – KAM-232, KAM-234, KAM-237 | 27 | 1 |
-| **TOTAL** | **KAM-001 – KAM-238** | **238** | — |
+| **TOTAL** | **KAM-001 – KAM-239** | **239** | — |
 
 ### 3.2 Fases
 
@@ -323,6 +323,7 @@ Itens com tempo de espera externo (arrancam na **semana 1**, em paralelo ao cód
 | KAM-225 | A recusa em `platform.trust_level` fora do `tenant_guard`: o registo do PostgreSQL recolhido | feature | M | P2 | 1 | KAM-219 |
 | KAM-236 | `onboarding-web` em produção: o caso, o registo e o guia sobre a base, para que a página do dono arranque em `prod` | feature | L | P1 | 1 | KAM-202 |
 | KAM-238 | O guia do ES em `prod`: o estado do guia na base, e a lista de espera, a fila de revisão e os *gates* pelo processo de lote | feature | M | P1 | 1 | KAM-236 |
+| KAM-239 | A idempotência do `PATCH /painel/produtos/:id` na base: a deduplicação sobrevive a um reinício e vale entre réplicas | feature | S | P1 | 1 | KAM-236 |
 
 ### EPIC-10 — Spikes, Validação e Gates
 
@@ -507,4 +508,4 @@ Um defeito encontrado fora do escopo não é corrigido no meio de outro ticket: 
 | 1.94 | Novembro 2026 | **KAM-234** acrescentado ao **EPIC-11** e entregue no mesmo PR. Escrito como KAM-232 e renumerado na integração, depois do KAM-232 do PR do KAM-223 e do KAM-233 (o maior da `main` era o 233). O `_id_da_oferta` do KAM-220 era hexadecimal, e de vez em quando levava uma corrida de dígitos que passa o Luhn, ou a forma de um IBAN, que a guarda de entrada redige quando o toque chega pela janela `messages`. Passa a consoantes coladas ao `orc_`. O intermitente do `test_cem_pedidos_de_conta_dao_zero_numeros_calculados` que o motivou já tinha fechado pelo arnês no KAM-229 (PR #233); este fecha a forma do id. Depende do KAM-220, que passa a bloqueá-lo. **Superfícies:** a linha do §4, a gama e a contagem do §1, a linha do EPIC-11 (**26**) e o TOTAL do §3.1, a «Tabela Resumo» do EPIC-11, o `../README.md` e a prosa do `EPIC-07`. **234** tickets nesta árvore. | Equipa KAMBÁ |
 | 1.95 | Novembro 2026 | **KAM-202 entregue em parte, e dois credores acrescentados no PR dele**: o **KAM-235** (EPIC-02), os factos do teste ponta a ponta em produção — os *statuses* a escrever o `delivered_at` e a apresentação do vendedor a nomear a loja —, e o **KAM-236** (EPIC-09), o `onboarding-web` em produção. Os dois dependem do KAM-202, cujo `Bloqueia` os ganha. Total: **236** tickets. Escritos como KAM-232 e KAM-233 sobre a 1.91, e renumerados duas vezes na integração: para 233 e 234 depois do KAM-223, e para 235 e 236 depois do KAM-218 e do KAM-234 (EPIC-11), que tomaram o 233 e o 234. | Equipa KAMBÁ |
 | 1.96 | Novembro 2026 | **KAM-237** acrescentado ao **EPIC-11**, no PR do **KAM-236**, por decisão do fundador de 2026-11-21 (trazida pela coordenação do lote 17): o consumidor `dono` do KAM-215 fica fora do *compose* de `prod` até se medir o pico de memória dele, e o KAM-237 é o credor que o põe lá com um limite que caiba no orçamento do conjunto reduzido (critério 4 do KAM-076), sem mexer no tecto. Depende do KAM-215, cujo `Bloqueia` o ganha. Total: **237** tickets. O número é *provisório*, o maior da `main` mais um, e acerta-se na integração do lote 17. | Equipa KAMBÁ |
-| 1.97 | Novembro 2026 | **KAM-238** acrescentado ao **EPIC-09**, no PR do **KAM-236**, por decisão do fundador de 2026-11-21 (D2-A, trazida pela coordenação do lote 17): o guia do ES não se monta em `prod` até a reserva da lista de espera, a fila de revisão e os *gates* do guia correrem no processo de lote como `kamba_batch`, e o estado do guia viver na base; o KAM-238 é o credor que o monta. Depende do KAM-236, cujo `Bloqueia` o ganha. Total: **238** tickets. O número é *provisório*, o do KAM-237 mais um, e acerta-se na integração do lote 17. | Equipa KAMBÁ |
+| 1.97 | Novembro 2026 | **KAM-238** acrescentado ao **EPIC-09**, no PR do **KAM-236**, por decisão do fundador de 2026-11-21 (D2-A, trazida pela coordenação do lote 17): o guia do ES não se monta em `prod` até a reserva da lista de espera, a fila de revisão e os *gates* do guia correrem no processo de lote como `kamba_batch`, e o estado do guia viver na base; o KAM-238 é o credor que o monta. Depende do KAM-236, cujo `Bloqueia` o ganha. **KAM-239** acrescentado ao **EPIC-09** no mesmo PR, por decisão da coordenação do lote 17 de 2026-11-22: a `Idempotency-Key` do `PATCH /painel/produtos/:id` (KAM-099, critério 5) passa do mapa do processo para a base; depende do KAM-236. Total: **239** tickets. Os dois números são *provisórios*, a seguir ao KAM-237, e acertam-se na integração do lote 17. | Equipa KAMBÁ |
