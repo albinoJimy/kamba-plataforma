@@ -85,7 +85,7 @@
  * não lhe deixa recurso. Uma fase que precise de uma porta sem adaptador falha
  * pelo nome e fica parada, com alerta — nunca «feita» sem o lado de fora saber.
  * **Um LiteLLM sem base também**: o proxy de `prod` arranca sem `DATABASE_URL`,
- * responde 500 a toda a gestão de chaves, e a fase `revogacao` pára na chave.
+ * responde 500 ao `/key/list` (medido), e a fase `revogacao` pára na chave.
  *
  * ## O aviso ao dono não sai deste processo, e é de propósito
  *

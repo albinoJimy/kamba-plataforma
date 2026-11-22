@@ -92,16 +92,29 @@ por tenant ao contentor — como chegam lá é o mecanismo do lançador do cofre
 fase `canal` falha com `sem_segredo` e pára com alerta. O STO na exportação e na purga (KAM-210). As
 ofertas e a prova de aceite do KAM-090 no pacote, e os contactos pelo cofre na purga (KAM-218).
 
-**O passo manual do D7: a chave do LiteLLM.** As chaves dos tenants nascem à mão
-(`python infra/llm/chaves.py provisionar <tenant> <plano>`, KAM-030) e não ficam no
-`provisioning_step`, pelo que a revogação automática as dá por `sem_recurso` — e elas continuavam
-vivas. Com a fase `revogacao` concluída, corre-se `python infra/llm/chaves.py revogar <tenant>`: apaga
-a chave `tenant-<uuid>` e confirma-o pela listagem (`revogada`, ou `inexistente` numa repetição).
-A forma do corpo do `/key/delete` está medida na imagem fixada (KAM-233,
-[`evidencia/KAM-233.md`](evidencia/KAM-233.md)): `{"keys": [token]}` dá 200 e a chave deixa de
-autenticar, e uma repetição dá 404. **E a mesma medição achou o limite maior:** o LiteLLM de `prod`
-arranca sem base de dados, e sem ela a imagem não tem chaves virtuais (o `/key/generate` e o
-`/key/list` dão 500). Enquanto for assim, o `provisionar` e o `revogar` falham em `prod`.
+**A revogação, sem passo à mão (KAM-233).** Pela decisão do fundador de 2026-11-21 (Q1 = A), a fase
+`revogacao` corre oito passos, e cada um grava o desfecho (`concluido`, `inexistente` ou
+`sem_recurso`) no resultado:
+
+| Passo | O que faz | Por onde |
+|---|---|---|
+| `chave_llm` | apaga a chave do tenant no LiteLLM, pelo *token* da saga ou, sem ele, pelo alias `tenant-<uuid>`, e confirma-o pela listagem inteira | `ChaveDoLlmPeloProxy`, a `litellm_master_key` e o `KAMBA_LLM_PROXY_URL` |
+| `canal_comercio` | arquiva o canal da Medusa, só se a saga o criou | sem adaptador (D3) |
+| `inbox` | desliga a *inbox* do Chatwoot, só se a saga a criou | sem adaptador |
+| `conta_atendimento` | suspende a conta Chatwoot do tenant, lida da `handoff_accounts` | o `archiveAccount` do HND, o `chatwoot_platform_token` e o `KAMBA_CHATWOOT_URL` |
+| `entitlements`, `canais` | os módulos a `ativo = false`, os canais `encerrado` | a base |
+| `sessoes_do_painel` | revoga as sessões do painel do dono emitidas até ao passo | a `platform.painel_revogacao` do KAM-236 |
+| `encerramento` | o tenant a `encerrado`, com o `tenant.closed` | a base |
+
+Os dois pedidos de fora estão medidos nas imagens fixadas ([`evidencia/KAM-233.md`](evidencia/KAM-233.md)):
+o `/key/delete` dá 200 com o `deleted_keys` e 404 numa repetição (§3), e arquivar uma conta do Chatwoot
+é suspendê-la, `PATCH /platform/api/v1/accounts/:id` com `status: suspended` (§5). **E a mesma medição
+achou o limite maior:** o LiteLLM de `prod` arranca sem base de dados, e sem ela a imagem não tem
+chaves virtuais (o `/key/generate` e o `/key/list` dão 500; o `/key/delete` sem base não se mediu, e a
+listagem que o confirma é um desses 500). **A fase falha alto:**
+pára no passo `chave_llm`, com o alerta da fase parada, e nenhum tenant de `prod` se encerra até ao
+credor **KAM-239** (a base do proxy, ou as chaves sem base — escolha do fundador). O
+`python infra/llm/chaves.py revogar <tenant>` continua, para correr à mão onde houver base.
 
 **O que falta** (credor **KAM-233**, com a razão de cada um no bloco do KAM-218): o OTP e a ligação ao e-mail do
 dono, e a entrega do certificado — não há agregador de SMS nem fornecedor de e-mail escolhidos

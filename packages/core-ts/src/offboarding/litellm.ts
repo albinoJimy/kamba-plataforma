@@ -29,10 +29,12 @@
  *
  * ## O limite que fica: o proxy de `prod` não tem base
  *
- * Sem `DATABASE_URL` a imagem fixada não tem chaves virtuais nenhumas, e o
- * `/key/delete` responde 500 (`DB not connected`, medido no §2 do mesmo anexo).
- * Esse 500 **sobe**, como qualquer outro: a fase fica parada com alerta, e o
- * passo não se dá por `sem_recurso` pela leitura de uma mensagem de erro.
+ * Sem `DATABASE_URL` a imagem fixada não tem chaves virtuais nenhumas: o
+ * `/key/generate` e o `/key/list` respondem 500 (`DB not connected`, medido no
+ * §2 do mesmo anexo). O `/key/delete` sem base não se mediu, e não precisa: a
+ * listagem que confirma a revogação é um desses 500. Esse 500 **sobe**, como
+ * qualquer outro: a fase fica parada com alerta, e o passo não se dá por
+ * `sem_recurso` pela leitura de uma mensagem de erro.
  */
 
 import type { ChaveDeLlm } from "../provisioning/contrato.ts";
