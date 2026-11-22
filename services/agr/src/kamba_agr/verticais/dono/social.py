@@ -32,6 +32,7 @@ from __future__ import annotations
 
 import datetime
 import re
+import unicodedata
 from collections.abc import Mapping
 from typing import Any, Final
 
@@ -49,8 +50,19 @@ PALAVRAS_DO_SOCIAL: Final = re.compile(
 #: Um pedido de publicacao que o modulo nao faz (criterio 7, D13): o verbo **e**
 #: a rede. So o verbo nao chega — «prefiro publicar segunda as 18h» e a resposta
 #: a pergunta dos dias (achado I6 da revisao adversarial).
-_VERBO_DE_PUBLICAR: Final = re.compile(r"\b(?:publica|publique|publicar|publicas|posta|postar|partilha|partilhar|agenda)\b")
-_REDE: Final = re.compile(r"\b(?:instagram|facebook|tiktok|redes sociais|rede social|status|estado do whatsapp)\b")
+#:
+#: KAM-237: «poe», «ponha» e «coloca» publicam como os outros («poe este produto
+#: no facebook», `don-cat-058`). **O «pôr» so com o acento** (`_POR`): sem ele e a
+#: preposicao, e «ideias para o instagram por favor» passava a pedido de
+#: publicacao. O «status» e o «whatsapp» sao redes **so aqui**, ao lado de um
+#: verbo: «o status da encomenda» nao fala de rede nenhuma, e por isso nenhum dos
+#: dois entra no `PALAVRAS_DO_SOCIAL`.
+_VERBO_DE_PUBLICAR: Final = re.compile(
+    r"\b(?:publica|publique|publicar|publicas|posta|postar|partilha|partilhar|agenda"
+    r"|poe|ponha|coloca|coloque|colocar)\b"
+)
+_POR: Final = re.compile(r"\bpôr\b")
+_REDE: Final = re.compile(r"\b(?:instagram|facebook|tiktok|redes sociais|rede social|status|whatsapp)\b")
 
 #: Os comandos exactos do calendario: o texto todo, e nada mais.
 COMANDOS_DO_CALENDARIO: Final = frozenset({"ideias", "calendario", "ideias da semana", "nova", "novas ideias"})
@@ -94,7 +106,18 @@ def edicao(texto: str) -> tuple[str, str] | None:
 
 def pede_publicacao(texto: str) -> bool:
     limpo = _limpo(texto)
-    return bool(_VERBO_DE_PUBLICAR.search(limpo) and _REDE.search(limpo))
+    verbo = _VERBO_DE_PUBLICAR.search(limpo) or _POR.search(unicodedata.normalize("NFC", texto.lower()))
+    return bool(verbo and _REDE.search(limpo))
+
+
+def e_do_social(texto: str) -> bool:
+    """A regra do social no `classify`: uma palavra das redes, ou um pedido de publicacao.
+
+    KAM-237: o pedido de publicacao vai ao social **antes** das palavras do
+    catalogo, porque e o social que diz que nao publica («partilha o catalogo no
+    status», `don-cat-059`). Sem rede, «publica o produto» continua no catalogo.
+    """
+    return bool(PALAVRAS_DO_SOCIAL.search(_limpo(texto))) or pede_publicacao(texto)
 
 
 def e_comando_social(estado: Mapping[str, Any], texto: str) -> bool:

@@ -1087,6 +1087,80 @@ class TestAchadosDaConversa(unittest.TestCase):
         self.assertNotIn(conversa.MSG_NAO_PUBLICO, texto)
 
 
+class TestPedidosDePublicacaoKAM237(unittest.TestCase):
+    """KAM-237: os verbos, o «status» e o «whatsapp», e a ordem catalogo/social no `classify`.
+
+    Os tres textos sao os do golden do dono (`don-cat-058`, `don-cat-059` e
+    `don-soc-073`). Os acentos vao por escape, para que o ensaio nao dependa da
+    codificacao de quem o abre.
+    """
+
+    #: Um verbo e uma rede: o dono recebe a oferta de entrega manual.
+    PEDIDOS: tuple[str, ...] = (
+        "põe este produto no facebook da loja",
+        "poe este produto no facebook da loja",
+        "partilha o catálogo no status",
+        "partilha o catalogo no status",
+        "partilha no status do whatsapp",
+        "pôr a camisa no instagram",
+        "coloca a camisa no instagram",
+        "coloque isto no status",
+        "ponha no facebook as novidades",
+    )
+    #: Os vizinhos que nao sao pedidos de publicacao, e a intencao de hoje.
+    VIZINHOS: tuple[tuple[str, str | None], ...] = (
+        ("põe o preço a 5000", "modulos"),
+        ("coloca o stock a dez", "modulos"),
+        ("o status da encomenda", None),
+        ("qual e o status do whatsapp da loja", None),
+        ("publica o produto", "modulos"),
+        ("quero ver o catalogo", "modulos"),
+        ("ideias para o instagram por favor", "social"),
+        ("Qual o horario que esta no Facebook?", "info_loja"),
+        ("quero falar com uma pessoa, poe no facebook", "humano"),
+    )
+
+    def test_o_verbo_e_a_rede_fazem_o_pedido(self) -> None:
+        for texto in self.PEDIDOS:
+            with self.subTest(texto=texto):
+                self.assertTrue(conversa.pede_publicacao(texto))
+                self.assertEqual(nos_do_dono.intencao_por_regras(texto), "social")
+
+    def test_os_vizinhos_nao_mudam_de_destino(self) -> None:
+        for texto, intencao in self.VIZINHOS:
+            with self.subTest(texto=texto):
+                self.assertEqual(nos_do_dono.intencao_por_regras(texto), intencao)
+        for texto in ("põe o preço a 5000", "o status da encomenda", "ideias para o instagram por favor"):
+            with self.subTest(texto=texto):
+                self.assertFalse(conversa.pede_publicacao(texto))
+
+    def test_o_por_sem_acento_e_a_preposicao(self) -> None:
+        self.assertFalse(conversa.pede_publicacao("por no instagram"))
+        self.assertFalse(conversa.pede_publicacao("ideias para o facebook por favor"))
+        self.assertTrue(conversa.pede_publicacao("pôr no instagram"))
+        # A forma decomposta (o acento como caracter a parte) le-se como a composta.
+        self.assertTrue(conversa.pede_publicacao("pôr no instagram"))
+
+    def test_pelo_grafo_os_pedidos_recebem_a_oferta_manual(self) -> None:
+        mundo = Mundo()
+        mundo.com_perfil()
+        for texto in self.PEDIDOS:
+            final, resposta, botoes = mundo.turno(texto)
+            with self.subTest(texto=texto):
+                self.assertEqual(final["intent"], "social")
+                self.assertTrue(resposta.endswith(conversa.MSG_NAO_PUBLICO), resposta)
+                self.assertEqual(botoes, (regras.BOTAO_IDEIAS,))
+
+    def test_pelo_grafo_os_adversariais_nao_sao_publicacao(self) -> None:
+        mundo = Mundo()
+        mundo.com_perfil()
+        for texto in ("põe o preço a 5000", "o status da encomenda"):
+            final, resposta, _b = mundo.turno(texto)
+            with self.subTest(texto=texto):
+                self.assertNotEqual(final["intent"], "social")
+                self.assertNotIn(conversa.MSG_NAO_PUBLICO, resposta)
+
+
 class TestRepositorioEmMemoria(unittest.TestCase):
     def test_um_nova_expira_so_os_por_aprovar(self) -> None:
         repo = RepositorioEmMemoria()
