@@ -54,6 +54,9 @@ FICHEIROS = (
     "tests/outbound.estados.test.ts",
     "tests/outbound.limites.test.ts",
     "tests/outbound.adapter.test.ts",
+    # KAM-235: o estagio dos `statuses` e o estado que a explosao lhe da. Entra
+    # pela prova por mutacao, pela razao do `metering.test.ts` abaixo.
+    "tests/outbound.estagio.test.ts",
     "tests_bd/outbound.bd.test.ts",
     # KAM-023. O contador do *free tier* vive em `src/metering/`, mas escreve
     # `tenant_channels` e le `outbound_messages`, e as tres propriedades que
