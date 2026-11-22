@@ -1091,8 +1091,9 @@ class TestPedidosDePublicacaoKAM237(unittest.TestCase):
     """KAM-237: os verbos, o «status» e o «whatsapp», e a ordem catalogo/social no `classify`.
 
     Os tres textos sao os do golden do dono (`don-cat-058`, `don-cat-059` e
-    `don-soc-073`). Os acentos vao por escape, para que o ensaio nao dependa da
-    codificacao de quem o abre.
+    `don-soc-073`). Os vizinhos com o «whatsapp» como canal sao os achados A1 e
+    A2 da revisao adversarial do KAM-237: o dono fala com o assistente pelo
+    WhatsApp, e nem todo o «whatsapp» ou «status» e uma rede.
     """
 
     #: Um verbo e uma rede: o dono recebe a oferta de entrega manual.
@@ -1106,6 +1107,14 @@ class TestPedidosDePublicacaoKAM237(unittest.TestCase):
         "coloca a camisa no instagram",
         "coloque isto no status",
         "ponha no facebook as novidades",
+        "colocar a camisa no instagram",
+        # O «estado do whatsapp» decide sozinho: nao ha «no status» no texto.
+        "posta isto no estado do whatsapp",
+        "poste no instagram",
+        "partilhe no facebook as novidades",
+        "mete no status",
+        "publica no insta",
+        "posta no face",
     )
     #: Os vizinhos que nao sao pedidos de publicacao, e a intencao de hoje.
     VIZINHOS: tuple[tuple[str, str | None], ...] = (
@@ -1118,6 +1127,15 @@ class TestPedidosDePublicacaoKAM237(unittest.TestCase):
         ("ideias para o instagram por favor", "social"),
         ("Qual o horario que esta no Facebook?", "info_loja"),
         ("quero falar com uma pessoa, poe no facebook", "humano"),
+        # O «whatsapp» e o «status» como canal ou como estado, e nao como rede.
+        ("coloca a foto que te mandei no whatsapp no produto", "modulos"),
+        ("põe o link do whatsapp no produto", "modulos"),
+        ("coloca o numero do whatsapp no catalogo", "modulos"),
+        ("partilha comigo o catalogo pelo whatsapp", "modulos"),
+        ("coloca o status da encomenda como entregue", None),
+        ("coloca no status da encomenda entregue", None),
+        ("agenda a entrega pelo whatsapp", None),
+        ("coloca whatsapp como forma de contacto", None),
     )
 
     def test_o_verbo_e_a_rede_fazem_o_pedido(self) -> None:
@@ -1154,11 +1172,23 @@ class TestPedidosDePublicacaoKAM237(unittest.TestCase):
     def test_pelo_grafo_os_adversariais_nao_sao_publicacao(self) -> None:
         mundo = Mundo()
         mundo.com_perfil()
-        for texto in ("põe o preço a 5000", "o status da encomenda"):
+        for texto in ("põe o preço a 5000", "o status da encomenda", "coloca o status da encomenda como entregue"):
             final, resposta, _b = mundo.turno(texto)
             with self.subTest(texto=texto):
                 self.assertNotEqual(final["intent"], "social")
                 self.assertNotIn(conversa.MSG_NAO_PUBLICO, resposta)
+
+    def test_uma_resposta_ao_perfil_com_o_whatsapp_como_canal_grava_se(self) -> None:
+        """O achado A2: com o perfil a meio, o «whatsapp» de um facto nao e um pedido de publicacao."""
+        for texto in ("Agenda a sua visita pelo WhatsApp", "Encomendas pelo whatsapp, agenda connosco"):
+            mundo = Mundo()
+            perfil = _perfil_completo()
+            mundo.repo.perfis[A] = regras.Perfil(**{**perfil.__dict__, "factos": None})
+            final, resposta, _b = mundo.turno(texto)
+            with self.subTest(texto=texto):
+                self.assertEqual(final["intent"], "social")
+                self.assertNotIn(conversa.MSG_NAO_PUBLICO, resposta)
+                self.assertEqual(mundo.repo.perfis[A].factos, (regras.Facto(texto),))
 
 
 class TestRepositorioEmMemoria(unittest.TestCase):

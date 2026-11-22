@@ -140,11 +140,13 @@ dizia que publicou, e nenhuma tool de publicação era chamada:
 |---|---|---|---|
 | `don-cat-058` | «põe este produto no facebook da loja» | «põe» não era um verbo de publicar para o módulo social, e o dono recebia o «perfil completo» | «põe», «ponha», «coloca», «coloque» e «colocar» entram no `_VERBO_DE_PUBLICAR`; o «pôr» só com o acento, porque sem ele é a preposição |
 | `don-cat-059` | «partilha o catálogo no status» | a palavra «catálogo» levava o pedido ao catálogo, antes do social | a regra do social no `classify` aceita também um pedido de publicação (`social.e_do_social`), e corre antes das palavras do catálogo |
-| `don-soc-073` | «partilha no status do whatsapp» | «status» não estava nas palavras das redes do `classify`, e o pedido caía em `outro` | a mesma regra; e o «whatsapp» é uma rede do pedido de publicação |
+| `don-soc-073` | «partilha no status do whatsapp» | «status» não estava nas palavras das redes do `classify`, e o pedido caía em `outro` | a mesma regra; e o «status do whatsapp» é uma rede do pedido de publicação |
 
-O «status» e o «whatsapp» são redes **só ao lado de um verbo de publicar**: «o
-status da encomenda» não fala de rede nenhuma, e por isso nenhum dos dois entra
-nas palavras que levam um texto ao social sem verbo (`PALAVRAS_DO_SOCIAL`).
+O «status» e o «whatsapp» são redes **só ao lado de um verbo de publicar, e só
+como o sítio onde se publica** («no status», «estado do whatsapp»): o dono fala
+com o assistente pelo WhatsApp, e «agenda a entrega pelo whatsapp» ou «o status
+da encomenda» não falam de rede nenhuma. Por isso nenhum dos dois entra nas
+palavras que levam um texto ao social sem verbo (`PALAVRAS_DO_SOCIAL`).
 
 O KAM-125 estava proibido de alterar os módulos, e a 1.0.0 ficou **vermelha**
 por decisão do fundador de 2026-11-21 (opção A, no bloco do KAM-125). O credor

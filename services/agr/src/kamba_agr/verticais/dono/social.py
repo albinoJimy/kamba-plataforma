@@ -51,18 +51,28 @@ PALAVRAS_DO_SOCIAL: Final = re.compile(
 #: a rede. So o verbo nao chega — «prefiro publicar segunda as 18h» e a resposta
 #: a pergunta dos dias (achado I6 da revisao adversarial).
 #:
-#: KAM-237: «poe», «ponha» e «coloca» publicam como os outros («poe este produto
-#: no facebook», `don-cat-058`). **O «pôr» so com o acento** (`_POR`): sem ele e a
+#: KAM-237: «poe», «ponha», «coloca» e «mete» publicam como os outros («poe este
+#: produto no facebook», `don-cat-058`), e o conjuntivo de cortesia tambem
+#: («poste», «partilhe»). **O «pôr» so com o acento** (`_POR`): sem ele e a
 #: preposicao, e «ideias para o instagram por favor» passava a pedido de
-#: publicacao. O «status» e o «whatsapp» sao redes **so aqui**, ao lado de um
-#: verbo: «o status da encomenda» nao fala de rede nenhuma, e por isso nenhum dos
-#: dois entra no `PALAVRAS_DO_SOCIAL`.
+#: publicacao.
 _VERBO_DE_PUBLICAR: Final = re.compile(
-    r"\b(?:publica|publique|publicar|publicas|posta|postar|partilha|partilhar|agenda"
-    r"|poe|ponha|coloca|coloque|colocar)\b"
+    r"\b(?:publica|publique|publiquem|publicar|publicas|posta|poste|postem|postar|partilha|partilhe"
+    r"|partilhem|partilhar|agenda|agende|poe|poes|ponha|coloca|coloque|colocar|mete|meter)\b"
 )
 _POR: Final = re.compile(r"\bpôr\b")
-_REDE: Final = re.compile(r"\b(?:instagram|facebook|tiktok|redes sociais|rede social|status|whatsapp)\b")
+#: As redes. **O «status» so como o sitio onde se publica** («no status», «para
+#: o estado do whatsapp»), e o «whatsapp» so pelo status dele: o dono fala com o
+#: assistente pelo WhatsApp, e «agenda a entrega pelo whatsapp», «poe o link do
+#: whatsapp no produto» ou «coloca o status da encomenda como entregue» nao sao
+#: pedidos de publicacao (achados A1 e A2 da revisao adversarial do KAM-237). Por
+#: isso nenhum dos dois entra no `PALAVRAS_DO_SOCIAL`.
+_REDE: Final = re.compile(
+    r"\b(?:instagram|insta|facebook|tiktok|tik tok|redes sociais|rede social"
+    r"|(?:status|estado) do whatsapp|whatsapp status"
+    r"|(?:no|pro|para o) face"
+    r"|(?:no|pro|para o|em) (?:meu |nosso )?status(?! d[aoe]s? (?!whatsapp)))\b"
+)
 
 #: Os comandos exactos do calendario: o texto todo, e nada mais.
 COMANDOS_DO_CALENDARIO: Final = frozenset({"ideias", "calendario", "ideias da semana", "nova", "novas ideias"})
