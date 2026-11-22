@@ -22,12 +22,17 @@ D5 e D6), e nenhuma outra:
   pseudonimo nos dois (D5). O comprador e o dono seguem as fusoes ate ao
   contacto que ficou. **Nunca devolve o pseudonimo nem o outro tenant.**
   Pseudonimos de `kid` diferentes nunca se comparam (D3, rotacao preguicosa), e
-  os vistos ha mais de 90 dias nao contam (D4). **As duas janelas sao da
+  os de compradores vistos ha mais de 90 dias nao contam (D4). **O do dono nao
+  vence enquanto ele for dono** (decisao do fundador de 2026-11-22, opcao B). **As duas janelas sao da
   funcao, e nao de quem chama** (achado 3 da revisao adversarial): com os
   instantes como argumento, o lote bissectava o `paga_at` de uma encomenda
   concreta e ficava a saber que comprador de A compra em B.
 * `platform.contact_xtenant_purgar(uuid[], timestamptz)` — a retencao (D4):
-  apaga os pseudonimos vistos antes do instante, e devolve quantos.
+  apaga os pseudonimos vistos antes do instante, e devolve quantos. **Menos o do
+  dono de cada tenant** (o `owner_contact_id`, seguido pelas fusoes): esse nao
+  vence enquanto for dono (opcao B de 2026-11-22). Na troca de dono, o antigo
+  perde a excepcao e volta aos 90 dias desde o `visto_at` — se ja os passou,
+  sai na purga seguinte.
 * `ts_signal.tipo` ganha `comprador_noutra_loja_do_dono`, de severidade
   `baixa` (D6: informativo, peso 0 na politica de risco).
 * o *trigger* `contacts_xtenant_esquecer` (funcao
@@ -212,7 +217,9 @@ def upgrade() -> None:
             PERFORM set_config('app.tenant_id', v_tenant::text, true);
 
             -- O pseudonimo do dono deste tenant, pelo contacto que ficou se o
-            -- do `owner_contact_id` foi absorvido numa fusao (achado 6).
+            -- do `owner_contact_id` foi absorvido numa fusao (achado 6). **Sem
+            -- janela do `visto_at`**: o do dono nao vence enquanto ele for dono
+            -- (decisao do fundador de 2026-11-22, opcao B).
             FOR v_linha IN
               WITH RECURSIVE dono(actual, passos) AS (
                   SELECT t.owner_contact_id, 0
@@ -229,7 +236,6 @@ def upgrade() -> None:
                 FROM dono k
                 JOIN platform.contact_xtenant_pseudonym x
                   ON x.tenant_id = v_tenant AND x.contact_id = k.actual
-               WHERE x.visto_at >= v_visto_desde
             LOOP
               v_dono_t := v_dono_t || v_tenant;
               v_dono_k := v_dono_k || v_linha.kid;
@@ -309,8 +315,22 @@ def upgrade() -> None:
           END IF;
           FOREACH v_tenant IN ARRAY coalesce(p_tenants, '{}'::uuid[]) LOOP
             PERFORM set_config('app.tenant_id', v_tenant::text, true);
+            -- O dono do tenant (e o contacto que o absorveu, se houve fusao)
+            -- nao vence enquanto for dono (opcao B de 2026-11-22).
+            WITH RECURSIVE dono(actual, passos) AS (
+                SELECT t.owner_contact_id, 0
+                  FROM platform.tenants t
+                 WHERE t.id = v_tenant AND t.owner_contact_id IS NOT NULL
+                UNION ALL
+                SELECT c.merged_into, k.passos + 1
+                  FROM dono k
+                  JOIN platform.contacts c
+                    ON c.tenant_id = v_tenant AND c.contact_id = k.actual
+                 WHERE c.merged_into IS NOT NULL AND k.passos < 16
+              )
             DELETE FROM platform.contact_xtenant_pseudonym x
-             WHERE x.tenant_id = v_tenant AND x.visto_at < p_antes;
+             WHERE x.tenant_id = v_tenant AND x.visto_at < p_antes
+               AND NOT EXISTS (SELECT 1 FROM dono d WHERE d.actual = x.contact_id);
             GET DIAGNOSTICS v_n = ROW_COUNT;
             v_total := v_total + v_n;
           END LOOP;
@@ -323,7 +343,7 @@ def upgrade() -> None:
     op.execute(
         f"""
         COMMENT ON FUNCTION {FUNCAO_DA_PURGA} IS
-          'KAM-208: a retencao do pseudonimo sem tenant. Apaga os vistos antes do instante, tenant a tenant, e devolve quantos. So o kamba_batch a executa.'
+          'KAM-208: a retencao do pseudonimo sem tenant. Apaga os vistos antes do instante, tenant a tenant, menos o do dono enquanto for dono, e devolve quantos. So o kamba_batch a executa.'
         """
     )
     for funcao in (FUNCAO_DA_COMPARACAO, FUNCAO_DA_PURGA):

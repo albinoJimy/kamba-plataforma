@@ -269,5 +269,6 @@ funcoes:
       A retencao do pseudonimo sem tenant (KAM-208, D4: 90 dias desde a ultima
       resolucao, *proposta*). Pela razao da funcao de cima, o `kamba_batch` nao
       tem `DELETE` na tabela; a funcao apaga, tenant a tenant com o contexto
-      posto e reposto, so os pseudonimos vistos antes do instante, e devolve
-      quantos. So apaga: nao le nada para fora. `EXECUTE` so do `kamba_batch`.
+      posto e reposto, so os pseudonimos vistos antes do instante — menos o do
+      dono de cada tenant, que nao vence enquanto for dono (decisao do fundador
+      de 2026-11-22, opcao B) —, e devolve quantos. So apaga: nao le nada para fora. `EXECUTE` so do `kamba_batch`.

@@ -398,8 +398,8 @@ class TestOAnel(Base):
         self.compra(b, x)
         self.assertEqual(self.comparar([a, b]), {a: 1, b: 1})
 
-    def test_o_dono_visto_ha_mais_de_90_dias_nao_junta_lojas(self) -> None:
-        """D4 tambem no dono: o pseudonimo dele vence como o de qualquer contacto."""
+    def test_o_dono_visto_ha_mais_de_90_dias_continua_a_juntar_lojas(self) -> None:
+        """O do dono nao vence enquanto ele for dono (decisao do fundador de 2026-11-22, B)."""
         dono = _pseudonimo()
         a = self.loja(dono)
         self.como(None)
@@ -410,7 +410,7 @@ class TestOAnel(Base):
         x = _pseudonimo()
         self.compra(a, x)
         self.compra(b, x)
-        self.assertEqual(self.comparar([a, b]), {})
+        self.assertEqual(self.comparar([a, b]), {a: 1, b: 1})
 
     def test_o_dono_absorvido_numa_fusao_conta_pelo_contacto_que_ficou(self) -> None:
         dono = _pseudonimo()
@@ -518,6 +518,34 @@ class TestAPurga(Base):
         self.como(None, a)
         self.cursor.execute(f"SELECT contact_id::text FROM {TABELA}")
         self.assertEqual([x[0] for x in self.cursor.fetchall()], [novo])
+
+    def test_o_dono_nao_vence_e_depois_da_troca_de_dono_o_antigo_passa_a_vencer(self) -> None:
+        """Opcao B de 2026-11-22: enquanto for dono, a purga nao o leva; na troca, volta aos 90 dias."""
+        a = self.loja(None)
+        self.como(None, a)
+        [antigo] = [x[0] for x in self.consultar_dono(a)]
+        self.pseudonimo(a, antigo, _pseudonimo(), visto=AGORA - timedelta(days=200))
+        q = ConsultaDoTypeScript("SQL_PURGAR_PSEUDONIMOS", SQL_TS)
+        self.como("kamba_batch")
+        self.cursor.execute(q.sql, q.args(VISTO_DESDE))
+        self.assertTrue(self._existe(a, antigo), "o dono venceu sendo dono")
+
+        self.como(None, a)
+        novo = factories.contacto(self.cursor, a)
+        self.cursor.execute("UPDATE platform.tenants SET owner_contact_id = %s WHERE id = %s", (novo, a))
+        self.como("kamba_batch")
+        self.cursor.execute(q.sql, q.args(VISTO_DESDE))
+        self.assertFalse(self._existe(a, antigo), "o antigo dono nao voltou aos 90 dias")
+
+    def consultar_dono(self, tenant: str):
+        self.como(None, tenant)
+        self.cursor.execute("SELECT owner_contact_id::text FROM platform.tenants WHERE id = %s", (tenant,))
+        return self.cursor.fetchall()
+
+    def _existe(self, tenant: str, contacto: str) -> bool:
+        self.como(None, tenant)
+        self.cursor.execute(f"SELECT count(*) FROM {TABELA} WHERE contact_id = %s", (contacto,))
+        return self.cursor.fetchone()[0] == 1
 
     def test_o_kamba_app_nao_purga(self) -> None:
         self.como("kamba_app")
