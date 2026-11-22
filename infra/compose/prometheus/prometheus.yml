@@ -188,14 +188,20 @@ scrape_configs:
   # e o `/metrics` fica na rede `app`. O `job` leva `_` pela gramatica das
   # etiquetas, como o `agr_shim`.
   # KAM-225: o recolector do registo do PostgreSQL, em `ops` como este
-  # processo. Serve a recusa `42501` sobre `platform.trust_level` venha por onde
-  # vier (`registo_pg_tecto_recusado_total`, sem etiquetas).
+  # processo. Serve a recusa `42501` sobre `platform.trust_level` lida do
+  # registo do servidor (`registo_pg_tecto_recusado_total`, sem etiquetas).
+  #
+  # **`static_configs`, e nao `dns_sd_configs` como os outros, de proposito.**
+  # O DNS do Docker so devolve o endereco de um contentor a correr: um
+  # recolector em ciclo de reinicio (sai com 2 ou 3 quando nao le o registo)
+  # desaparecia da descoberta, o `up` deixava de existir em vez de ir a 0, e o
+  # `alvo_em_baixo` nunca disparava (medido na revisao adversarial do KAM-225).
+  # Com o alvo fixo, a raspagem falha e o `up` fica a 0. Um vigia do tecto que
+  # morre calado era a falha que este alvo existe para fechar.
   - job_name: registo_pg
-    dns_sd_configs:
-      - names:
-          - registo-pg
-        type: A
-        port: 8225
+    static_configs:
+      - targets:
+          - registo-pg:8225
   - job_name: onboarding_web
     dns_sd_configs:
       - names:

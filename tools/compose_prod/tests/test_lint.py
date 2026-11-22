@@ -106,11 +106,17 @@ class TestArvoreReal(unittest.TestCase):
         # replica — tambem sem linha no bloco, pela mesma razao.
         do_kam_218 = dados.manifesto["offboarding-dados"].memoria_mib
         self.assertEqual(do_kam_218, 256)
+        # KAM-225: o recolector do registo do PostgreSQL, 48 MiB **medidos**
+        # (`docs/evidencia/KAM-225.md` §3), uma replica — tambem sem linha no
+        # bloco, pela mesma razao. Da folga de 102 MiB ate aos 80% consome 48.
+        do_kam_225 = dados.manifesto["registo-pg"].memoria_mib
+        self.assertEqual(do_kam_225, 48)
         self.assertEqual(
             soma,
-            do_bloco - do_worker_antes + do_worker_agora + do_kam_194 + do_kam_198 + do_kam_218,
+            do_bloco - do_worker_antes + do_worker_agora + do_kam_194 + do_kam_198 + do_kam_218
+            + do_kam_225,
         )
-        self.assertEqual(soma, 26112)
+        self.assertEqual(soma, 26160)
 
     def test_a_soma_cabe_nos_80_por_cento_da_ram_do_host(self) -> None:
         """Criterio 4: «a soma dos `mem_limit` <= 80% da RAM (<= 25,6 GB)»."""
@@ -185,10 +191,14 @@ class TestArvoreReal(unittest.TestCase):
         #
         # **KAM-218: de 22 para 23 presentes, e de 22 784 para 23 040 MiB.** O
         # processo das fases de dados do off-boarding (256 MiB, uma replica).
-        # Ficam 102 MiB de folga ate aos 80% no total do manifesto.
-        self.assertEqual(do_compose, 23040, "a reserva real dos 23 presentes, em MiB")
-        self.assertEqual(sum(s.memoria_mib for s in presentes.values()), 23040)
-        self.assertEqual(len(presentes), 23)
+        # Ficavam 102 MiB de folga ate aos 80% no total do manifesto.
+        #
+        # **KAM-225: de 23 para 24 presentes, e de 23 040 para 23 088 MiB.** O
+        # recolector do registo do PostgreSQL (48 MiB medidos, uma replica).
+        # Ficam 54 MiB de folga ate aos 80% no total do manifesto.
+        self.assertEqual(do_compose, 23088, "a reserva real dos 24 presentes, em MiB")
+        self.assertEqual(sum(s.memoria_mib for s in presentes.values()), 23088)
+        self.assertEqual(len(presentes), 24)
         self.assertLessEqual(do_compose, 26214.4)
 
     def test_cada_variavel_obrigatoria_tem_marcador(self) -> None:

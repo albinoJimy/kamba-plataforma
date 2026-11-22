@@ -18,7 +18,11 @@ from pathlib import Path
 
 from kamba_core.registo_pg import leitor as lt
 from kamba_core.registo_pg import processo as pr
-from kamba_core.registo_pg.metricas import METRICA_TECTO_RECUSADO, MetricasDoRegistoPg
+from kamba_core.registo_pg.metricas import (
+    METRICA_IDADE_DO_REGISTO,
+    METRICA_TECTO_RECUSADO,
+    MetricasDoRegistoPg,
+)
 
 UPDATE_DO_APP = (
     b'{"timestamp":"2026-11-22 08:55:36.019 UTC","user":"kamba_app","dbname":"postgres","pid":89,'
@@ -243,6 +247,52 @@ class TestRecolha(ComPasta):
         parar.set()
         fio.join(5)
         self.assertEqual(metricas.recusas(), 1)
+
+
+class TestIdadeDoRegisto(ComPasta):
+    """O sinal de que o servidor deixou de escrever: o recolector nao fica cego calado."""
+
+    def _idade(self, nome: str, mtime: float) -> None:
+        import os
+
+        os.utime(self.pasta / nome, (mtime, mtime))
+
+    def test_a_idade_e_a_do_ficheiro_mais_novo(self) -> None:
+        self.escrever("postgresql-08.json", PRONTO + b"\n")
+        self.escrever("postgresql-09.json", b"")
+        self.escrever("postgresql-10.log", b"")
+        self._idade("postgresql-08.json", 1_000)
+        self._idade("postgresql-09.json", 4_000)
+        self._idade("postgresql-10.log", 9_000)  # o `.log` nao conta
+        self.assertEqual(lt.Seguidor(self.pasta).idade(5_000), 1_000)
+
+    def test_sem_jsonlog_a_idade_e_infinita(self) -> None:
+        self.escrever("postgresql-08.json", b"")
+        seguidor = lt.Seguidor(self.pasta)
+        (self.pasta / "postgresql-08.json").unlink()
+        self.assertEqual(seguidor.idade(5_000), float("inf"))
+
+    def test_a_recolha_publica_a_idade_no_arranque_e_em_cada_volta(self) -> None:
+        self.escrever("postgresql-08.json", PRONTO + b"\n")
+        self._idade("postgresql-08.json", 1_000)
+        relogio = iter([1_060.0, 9_000.0])
+        metricas = MetricasDoRegistoPg()
+        recolha = pr.Recolha(self.pasta, metricas, relogio=lambda: next(relogio))
+        self.assertEqual(metricas.idade(), 60.0)
+        recolha.volta()
+        self.assertEqual(metricas.idade(), 8_000.0)
+
+    def test_a_exposicao_do_gauge(self) -> None:
+        metricas = MetricasDoRegistoPg()
+        self.assertNotIn(f"\n{METRICA_IDADE_DO_REGISTO} ", metricas.exposicao(), "sem medicao, sem amostra")
+        metricas.definir_idade(12.3456)
+        self.assertIn(f"# TYPE {METRICA_IDADE_DO_REGISTO} gauge", metricas.exposicao())
+        self.assertIn(f"\n{METRICA_IDADE_DO_REGISTO} 12.346\n", metricas.exposicao())
+        metricas.definir_idade(float("inf"))
+        self.assertIn(f"\n{METRICA_IDADE_DO_REGISTO} +Inf\n", metricas.exposicao())
+        metricas.definir_idade(-5)  # o relogio acertado para tras
+        self.assertIn(f"\n{METRICA_IDADE_DO_REGISTO} 0.0\n", metricas.exposicao())
+        self.assertNotIn("{", metricas.exposicao())
 
 
 class TestPorta(unittest.TestCase):

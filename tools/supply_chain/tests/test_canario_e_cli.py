@@ -106,7 +106,12 @@ class TestRepositorioReal(unittest.TestCase):
         # **KAM-215: de 68 para 70.** O consumidor `dono` (imagem do
         # `onboarding-web`), **+1 em desenvolvimento e em *staging*** e nao em
         # producao: la o `Identidade.arrancar` recusa o `EnvKeyProvider`.
-        self.assertEqual(resumo["servicos"], 70)
+        #
+        # **KAM-225: de 70 para 72.** O recolector do registo do PostgreSQL
+        # (imagem do AGR), **+1 em producao e em *staging*** e nao em
+        # desenvolvimento: la o `postgres` nao escreve o `jsonlog`, e o
+        # recolector recusava arrancar sem nada para ler.
+        self.assertEqual(resumo["servicos"], 72)
 
         _, resumo = egress.verificar(ROOT)
         # Idem: as quatro listas de saidas sao **vazias** com `por_omissao:

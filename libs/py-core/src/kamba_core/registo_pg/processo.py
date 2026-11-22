@@ -9,15 +9,19 @@ migracao.
 
 **Falha alto.** Uma pasta que nao se le, ou sem nenhum `*.json` no arranque (o
 `jsonlog` desligado), faz o processo sair com codigo 2; um erro de leitura a
-meio, com 3. As duas acabam no reinicio do contentor e na sonda do `/healthz`:
-um recolector que servisse zero sem ver o registo era a falha que este ticket
-fecha, escrita ao contrario.
+meio, com 3. As duas acabam no reinicio do contentor e no `up` a 0 do alvo, que
+e fixo no `prometheus.yml` para que um contentor em ciclo nao saia da descoberta.
+E o que nao faz o processo cair — ficheiros velhos num volume cujo servidor deixou
+de escrever `jsonlog` — ve-se pela idade do registo, que a regra
+`registo_pg_registo_parado` vigia: um recolector que servisse zero sem ver o
+registo era a falha que este ticket fecha, escrita ao contrario.
 """
 
 from __future__ import annotations
 
 import json
 import threading
+import time
 from collections.abc import Callable
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -64,7 +68,12 @@ class RegistoIlegivel(RuntimeError):
 class Recolha:
     """Uma volta le as linhas novas e conta as recusas no tecto."""
 
-    def __init__(self, pasta: Path, metricas: MetricasDoRegistoPg = METRICAS) -> None:
+    def __init__(
+        self,
+        pasta: Path,
+        metricas: MetricasDoRegistoPg = METRICAS,
+        relogio: Callable[[], float] = time.time,
+    ) -> None:
         try:
             self._seguidor = Seguidor(pasta)
             nomes = self._seguidor.nomes()
@@ -75,14 +84,21 @@ class Recolha:
                 "a pasta do registo nao tem nenhum *.json: o jsonlog do PostgreSQL esta desligado"
             )
         self._metricas = metricas
+        self._relogio = relogio
+        self._metricas.definir_idade(self._seguidor.idade(self._relogio()))
 
     def volta(self) -> int:
-        """Le o que ha de novo; devolve quantas recusas contou nesta volta."""
+        """Le o que ha de novo; devolve quantas recusas contou nesta volta.
+
+        Mede tambem a idade do `jsonlog` mais novo: o que distingue «nenhuma
+        recusa» de «o servidor deixou de escrever o registo».
+        """
         contadas = 0
         for linha, truncada in self._seguidor.linhas():
             if e_recusa_no_tecto(campos(linha, truncada)):
                 self._metricas.contar()
                 contadas += 1
+        self._metricas.definir_idade(self._seguidor.idade(self._relogio()))
         return contadas
 
     def correr(self, parar: threading.Event, intervalo: float = INTERVALO_S) -> None:

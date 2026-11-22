@@ -21,6 +21,8 @@ privilegios do KAM-096 sobre `platform.trust_level` —, e levanta o recolector
                       o motivo. Tres `42501`; o contador passa a 3, e a regra
                       dispara (`ALERTS{alertstate="firing"}` no Prometheus).
     a memoria         o `docker stats` do `registo-pg` no fim.
+    o registo         as linhas `42501` sem `statement` (`log_min_error_statement=panic`),
+                      e a idade do `jsonlog` servida e abaixo de uma hora.
 
 Os segredos sao gerados nesta execucao e nao se imprimem; os dados sao
 sinteticos. O registo do servidor fica no volume da pilha, que o `down -v`
@@ -48,6 +50,7 @@ PROJECTO = "kam225-ensaio"
 RECOLECTOR = "registo-pg"
 SERVICOS = (RECOLECTOR, "prometheus")
 METRICA = "registo_pg_tecto_recusado_total"
+IDADE = "registo_pg_idade_do_registo_segundos"
 ALERTA = "confianca_tecto_recusado_no_registo"
 #: O `scrape_interval` e o `evaluation_interval` sao 30 s: duas voltas e folga.
 ESPERA_DO_ALERTA_S = 150.0
@@ -110,14 +113,17 @@ class Pilha:
                           verificar=False)
         return (r.stderr or r.stdout).strip()
 
-    def contador(self) -> float:
+    def serie(self, nome: str) -> float:
         codigo = ("import urllib.request,sys;sys.stdout.write(urllib.request.urlopen("
                   "'http://127.0.0.1:8225/metrics').read().decode())")
         texto = self.executar(self.contentor(RECOLECTOR), "python", "-c", codigo).stdout
         for linha in texto.splitlines():
-            if linha.startswith(f"{METRICA} "):
+            if linha.startswith(f"{nome} "):
                 return float(linha.split()[1])
-        raise RuntimeError(f"{METRICA} nao esta no /metrics")
+        raise RuntimeError(f"{nome} nao esta no /metrics")
+
+    def contador(self) -> float:
+        return self.serie(METRICA)
 
     def prometheus(self, consulta: str) -> list[dict]:
         url = "http://127.0.0.1:9090/api/v1/query?query=" + urllib.parse.quote(consulta)
@@ -132,6 +138,9 @@ class Pilha:
         for linha in r.stdout.splitlines():
             registo = json.loads(linha)
             campos.append({k: registo.get(k) for k in ("user", "state_code", "message")})
+            # O `statement` nao vem (`log_min_error_statement=panic`); se viesse,
+            # diz-se que veio, e o texto nao sai daqui.
+            campos[-1]["traz_statement"] = "statement" in registo
         return campos
 
 
@@ -195,6 +204,7 @@ def adversarial(pilha: Pilha, porta: str) -> dict:
     resultado["alerta_em_s"] = round(time.monotonic() - inicio, 1) if disparou else None
     resultado["alerta_a_disparar"] = [r["metric"] for r in _alerta(pilha)]
     resultado["linhas_42501_no_registo"] = pilha.linhas_42501()
+    resultado["idade_do_registo_s"] = pilha.serie(IDADE)
     return resultado
 
 
@@ -221,6 +231,10 @@ def veredictos(r: dict) -> dict[str, bool]:
         ),
         "adversarial: o contador passa a 3": adv["contador"] == 3,
         "adversarial: o alerta dispara": bool(adv["alerta_a_disparar"]),
+        "o registo nao traz o statement": not any(
+            l["traz_statement"] for l in adv["linhas_42501_no_registo"]
+        ),
+        "a idade do registo e servida e esta abaixo de uma hora": 0 <= adv["idade_do_registo_s"] < 3600,
     }
 
 
@@ -248,7 +262,15 @@ def principal() -> int:
                 [sys.executable, "bootstrap.py"],
                 [sys.executable, "-m", "alembic", "-c", "migrations/alembic.ini", "upgrade", "head"],
             ):
-                r = subprocess.run(comando, cwd=RAIZ / "db", env=amb, capture_output=True, text=True)
+                # O `--wait` da o servidor por saudavel ainda durante o servidor
+                # temporario do `initdb`, que depois reinicia: numa maquina
+                # carregada a primeira ligacao apanha o reinicio (medido, a
+                # terceira corrida deste ensaio). Repete-se so o erro de rede.
+                for tentativa in range(6):
+                    r = subprocess.run(comando, cwd=RAIZ / "db", env=amb, capture_output=True, text=True)
+                    if r.returncode == 0 or "network error" not in r.stderr or tentativa == 5:
+                        break
+                    time.sleep(5)
                 if r.returncode != 0:
                     raise RuntimeError(f"{comando[1]}: {r.stderr[-2000:]}")
             relatorio["configuracao"] = configuracao(pilha)

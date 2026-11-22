@@ -11,9 +11,11 @@ imagem do compose (`docs/evidencia/KAM-225.md`): a recusa de um `UPDATE` do
      "message":"permission denied for table trust_level",
      "statement":"update platform.trust_level set ...", ...}
 
-**So se leem tres campos**: `user`, `state_code` e `message`. O `statement` e o
-`detail` trazem o texto das consultas, com literais; nao saem deste processo, nao
-vao para uma serie e nao se registam (Detalhes Tecnicos do KAM-225).
+**So se leem tres campos**: `user`, `state_code` e `message`. O `statement` traz o
+texto da consulta, com literais — o compose desliga-o (`log_min_error_statement=panic`),
+mas o leitor nao conta com isso —, e o `detail` de alguns erros traz valores da
+entrada; nada disso sai deste processo, vai para uma serie ou se regista (Detalhes
+Tecnicos do KAM-225).
 
 **O predicado** e o do `packages/core-ts/src/tenant_guard/metricas.ts`, mais o
 papel: `state_code == "42501"`, a mensagem a nomear `trust_level` (o nome da
@@ -44,6 +46,7 @@ ler-se do zero.
 from __future__ import annotations
 
 import json
+import math
 import os
 import re
 from collections.abc import Iterator
@@ -158,6 +161,17 @@ class Seguidor:
     def nomes(self) -> list[str]:
         """Os ficheiros do `jsonlog` da pasta, por ordem de nome."""
         return sorted(n for n in os.listdir(self._pasta) if n.endswith(SUFIXO))
+
+    def idade(self, agora: float) -> float:
+        """Segundos desde a ultima modificacao do `*.json` mais novo; `inf` sem nenhum."""
+        mais_novo = None
+        for nome in self.nomes():
+            try:
+                instante = os.stat(self._pasta / nome).st_mtime
+            except FileNotFoundError:
+                continue
+            mais_novo = instante if mais_novo is None else max(mais_novo, instante)
+        return math.inf if mais_novo is None else agora - mais_novo
 
     def linhas(self) -> Iterator[tuple[bytes, bool]]:
         """`(linha, truncada)` de cada linha completa escrita desde a ultima chamada."""

@@ -802,11 +802,12 @@ subprocessadores (critério 4), e a **ausência de *staging* e de produção**
 > deste epic muda.
 >
 > **E o KAM-225 trouxe o par dele, em Python:** o
-> `libs/py-core/src/kamba_core/registo_pg/metricas.py`, com **um** contador da
-> mesma recusa lida do registo do PostgreSQL, que o recolector `registo-pg` serve
-> e a regra `confianca_tecto_recusado_no_registo` cita. Medido no ramo do KAM-225
-> sobre a `publico/main` em `b37d1ffe`: **34 módulos, 162 nomes**, 164
-> declaradas, e as restantes nas mesmas. Nenhuma caixa deste epic muda.
+> `libs/py-core/src/kamba_core/registo_pg/metricas.py`, com **dois** nomes: o
+> contador da mesma recusa lida do registo do PostgreSQL e a idade do registo,
+> que o recolector `registo-pg` serve e as regras `confianca_tecto_recusado_no_registo`
+> e `registo_pg_registo_parado` citam. Medido no ramo do KAM-225 sobre a
+> `publico/main` em `600952bd`: **34 módulos, 163 nomes**, 165 declaradas, e as
+> restantes nas mesmas. Nenhuma caixa deste epic muda.
 >
 > É por isso que **8 das 12 linhas do §9.2 não se escreveram**. Um alerta sobre
 > uma série que ninguém produz nunca dispara, e um alerta que nunca dispara
@@ -1954,4 +1955,4 @@ Nao expandas escopo: ajustar limites no compose e um PR de seguimento. PR com o 
 | 1.27 | Novembro 2026 | **KAM-203**, emenda de **propagação** como a 1.25: o inventário fechado de módulos de métricas do `tools/obs_lint` ganha o `packages/core-ts/src/confianca/metricas.ts`, e a nota do bloco do KAM-080 passa a **32 módulos, 160 nomes**, 162 declaradas, com o KAM-210 já fundido. Nenhuma caixa muda. | Equipa KAMBÁ |
 | 1.28 | Novembro 2026 | **KAM-219**, emenda de **propagação** como a 1.25: o inventário fechado de módulos de métricas do `tools/obs_lint` ganha o `packages/core-ts/src/tenant_guard/metricas.ts`, e a nota do bloco do KAM-080 passa a **33 módulos, 161 nomes**, 163 declaradas. Nenhuma caixa muda. | Equipa KAMBÁ |
 | 1.29 | Novembro 2026 | **KAM-235**, emenda de **propagação**: a linha do critério 7 do KAM-080 regista que o `pricing` dos *statuses* passou a persistir pelo estágio de saída do `worker-canal`. A métrica agregada por categoria continua por fazer, e a caixa não muda | Equipa KAMBÁ |
-| 1.30 | Novembro 2026 | **KAM-225**, emenda de **propagação** como a 1.25: o inventário fechado de módulos de métricas do `tools/obs_lint` ganha o `libs/py-core/src/kamba_core/registo_pg/metricas.py`, e a nota do bloco do KAM-080 passa a **34 módulos, 162 nomes**, 164 declaradas. Nenhuma caixa muda. | Equipa KAMBÁ |
+| 1.30 | Novembro 2026 | **KAM-225**, emenda de **propagação** como a 1.25: o inventário fechado de módulos de métricas do `tools/obs_lint` ganha o `libs/py-core/src/kamba_core/registo_pg/metricas.py`, e a nota do bloco do KAM-080 passa a **34 módulos, 163 nomes**, 165 declaradas. Nenhuma caixa muda. | Equipa KAMBÁ |

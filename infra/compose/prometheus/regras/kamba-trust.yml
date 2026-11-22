@@ -128,7 +128,15 @@ groups:
       # reinicio —, mas uma recusa antes do primeiro *scrape* faz a primeira
       # amostra valer 1, e e o segundo ramo que a apanha. **Fica de fora**: uma
       # recusa escrita enquanto o recolector esta em baixo (o `alvo_em_baixo`
-      # do `kamba.yml` ve o processo parado, nao a recusa perdida).
+      # do `kamba.yml` ve o processo parado — o alvo e fixo no `prometheus.yml`
+      # para isso —, nao a recusa perdida), e uma recusa que um bloco PL/pgSQL
+      # apanha com `EXCEPTION`, que o servidor nao escreve no registo.
+      #
+      # **Um falso positivo, herdado da regra de cima:** um buraco de raspagem de
+      # 10 min ou mais faz o segundo ramo ver de novo uma serie acima de zero sem
+      # serie 10 min antes, e a regra volta a disparar sobre uma recusa antiga
+      # (medido com o `promtool` na revisao adversarial do KAM-225; a de cima faz
+      # o mesmo). O runbook manda confirmar no registo antes de tratar o alerta.
       - alert: confianca_tecto_recusado_no_registo
         expr: 'sum by (job) (increase(registo_pg_tecto_recusado_total[10m])) > 0 or (sum by (job) (registo_pg_tecto_recusado_total) > 0 unless sum by (job) (registo_pg_tecto_recusado_total offset 10m))'
         for: 0m
@@ -138,4 +146,23 @@ groups:
         annotations:
           resumo: O registo do PostgreSQL tem uma recusa (42501) sobre platform.trust_level a um papel que nao e o kamba_batch.
           qual_tenant: Nao se le desta serie (OBS-I); o registo do servidor diz o papel e a hora, e o runbook diz onde procurar.
+          runbook_url: https://github.com/albinoJimy/kamba-plataforma/blob/main/docs/runbooks/trust-e-safety.md
+
+      # KAM-225: o recolector deixou de ver o registo. Com o servidor de pe e o
+      # `jsonlog` ligado, a rotacao por tempo cria ou trunca o ficheiro de cada
+      # hora mesmo sem nada para escrever (medido), pelo que a idade do mais novo
+      # fica abaixo de uma hora. Acima de duas, o servidor deixou de escrever o
+      # `jsonlog` — o `postgres` recriado sem o `command:`, a configuracao mudada
+      # —, e a regra de cima esta cega com o `/healthz` a 200. Achado da revisao
+      # adversarial do KAM-225. As duas horas e o P2 sao *proposta*. Um servidor
+      # parado tambem a faz disparar, ao lado dos alertas dele.
+      - alert: registo_pg_registo_parado
+        expr: 'max by (job) (registo_pg_idade_do_registo_segundos) > 7200'
+        for: 5m
+        labels:
+          severity: P2
+          componente: gov
+        annotations:
+          resumo: O registo do PostgreSQL nao muda ha mais de duas horas; a recusa sobre o tecto deixou de se ver.
+          qual_tenant: Nao se aplica; e o registo do servidor, e nao um tenant.
           runbook_url: https://github.com/albinoJimy/kamba-plataforma/blob/main/docs/runbooks/trust-e-safety.md

@@ -3392,7 +3392,7 @@ como `shortcut:` no `SQL_TENANTS_A_DESCER`, com o gatilho de revisão.
 | 4. Uma sanção `limitacao` ou acima desce o nível na base na mesma transacção, ou logo a seguir | **marcada** | A varredura das descidas (ver a leitura 4), a cada volta do processo. Contra a base: `uma limitacao da escada automática desce o tenant na varredura seguinte, sem esperar pelo dia` — quatro queixas pela escada do T&S, a sanção em vigor, o nível ainda 1, e a varredura desce-o com o motivo `sancao`; e o predicado cláusula a cláusula, `a varredura desce por sinal alto, e nem um aviso só nem uma limitacao com recurso provido fazem candidato` |
 | 5. O nome do consumidor de T&S lido da configuração do processo | **marcada** | `SUBSCRICAO_DO_TRUST`, a subscrição com que o consumidor corre, é de onde o `RecalculoDaConfianca` lê o `consumidorDeTrust` (`o recálculo lê a independência com o consumidor da subscrição do processo…`, e o ensaio do consumidor de T&S prende a subscrição à mesma constante). Um nome inválido recusa no arranque (`um nome de consumidor inválido recusa no arranque…`) |
 | 6. Métricas sem `tenant_id` | **marcada** | `confianca_recalculos_total{origem,desfecho}` e `confianca_mudancas_total{motivo}` (`../packages/core-ts/src/confianca/metricas.ts`), a zero em todo o domínio e só com as três etiquetas (`as métricas do recálculo`), contadas depois do `COMMIT` (uma mudança desfeita não conta), e servidas no `/metrics` do processo da mesma instância (`arrancar serve as métricas da confiança do processo…`) |
-| 7. A escrita recusada ao `kamba_app` (`42501`) dispara um alerta | **marcada** (revisto pelo KAM-219 e pelo KAM-225) | **A recusa está, e o alerta, venha por onde vier.** O KAM-203 mediu que nada na base vê a tentativa e que o compose não recolhe o registo do PostgreSQL; o **KAM-219** conta-a do lado de quem recebe o erro — o `catch` do `comTenant` e do `comBatch` —, e a regra `confianca_tecto_escrita_recusada` dispara na primeira (ver a verificação do KAM-219). A escrita do `kamba_app` por uma ligação directa, que não passa por esses *helpers*, vê-a o **KAM-225** no registo do PostgreSQL: o recolector `registo-pg` conta-a em `registo_pg_tecto_recusado_total`, e a regra `confianca_tecto_recusado_no_registo` disparou contra uma pilha de *staging* em 16,4 s, com o controlo do `kamba_batch` calado (ver a verificação do KAM-225) |
+| 7. A escrita recusada ao `kamba_app` (`42501`) dispara um alerta | **marcada** (revisto pelo KAM-219 e pelo KAM-225) | **A recusa está, e o alerta, dentro e fora dos *helpers*.** O KAM-203 mediu que nada na base vê a tentativa e que o compose não recolhe o registo do PostgreSQL; o **KAM-219** conta-a do lado de quem recebe o erro — o `catch` do `comTenant` e do `comBatch` —, e a regra `confianca_tecto_escrita_recusada` dispara na primeira (ver a verificação do KAM-219). A escrita do `kamba_app` por uma ligação directa, que não passa por esses *helpers*, vê-a o **KAM-225** no registo do PostgreSQL: o recolector `registo-pg` conta-a em `registo_pg_tecto_recusado_total`, e a regra `confianca_tecto_recusado_no_registo` disparou contra uma pilha de *staging* em 32,4 s, com o controlo do `kamba_batch` calado (ver a verificação do KAM-225) |
 
 ### Verificação da Definition of Done
 
@@ -4390,35 +4390,62 @@ a vê — e lê-lo pede mudar a configuração de registo do PostgreSQL de produ
 registo em `jsonlog` num volume próprio, `postgres-log` (`command:` do `postgres` nos dois compose, 24 h de
 retenção pela rotação), e um recolector nosso, `../libs/py-core/src/kamba_core/registo_pg/`, corre como o
 serviço `registo-pg` — imagem do AGR, rede `ops`, volume montado só de leitura, `group_add` do grupo
-`postgres`, lista de saídas vazia (`../infra/egress/registo-pg.yaml`). Começa no fim de cada ficheiro, lê as
+`postgres`, lista de saídas vazia (`../infra/egress/registo-pg.yaml`), e um alvo **fixo** no `prometheus.yml`,
+para que um recolector em ciclo de reinício ponha o `up` a 0 em vez de sair da descoberta. O servidor deixa de
+escrever o texto das consultas que falham (`log_min_error_statement=panic`): o recolector não precisa dele, e era
+o campo que quem tem uma credencial escolhia de tamanho arbitrário. Começa no fim de cada ficheiro, lê as
 linhas novas a cada segundo, tira de cada uma o `user`, o `state_code` e a `message`, e conta um `42501` que
 nomeia `trust_level` a um papel que não é o `kamba_batch` em `registo_pg_tecto_recusado_total`, sem etiquetas.
 **Uma linha comprida não esconde a recusa**: acima de 64 KiB guarda-se a cabeça, e os três campos lêem-se dela,
 porque o PostgreSQL os escreve antes do `statement`. A regra `confianca_tecto_recusado_no_registo`
 (`../infra/compose/prometheus/regras/kamba-trust.yml`) dispara sobre a série, com runbook no
-`../docs/runbooks/trust-e-safety.md` §6. Os números e os comandos estão em `../docs/evidencia/KAM-225.md`.
+`../docs/runbooks/trust-e-safety.md` §6; e a `registo_pg_registo_parado` dispara quando o `jsonlog` mais novo
+passa de duas horas sem mudar — a rotação por tempo toca o ficheiro de cada hora mesmo com o servidor parado
+(medido) —, para que ficheiros velhos no volume não deixem o recolector cego com o `/healthz` a 200 (§7). Os números e os comandos estão em `../docs/evidencia/KAM-225.md`.
 
 | Critério | Estado | Evidência |
 |---|---|---|
-| 1. Uma tentativa por ligação directa com a credencial do `kamba_app`, fora do `tenant_guard`, visível numa série ou num registo recolhido, sem `tenant_id` nas etiquetas (`OBS-I`) | **marcada** | **Contra a pilha** (`../db/ensaio_registo_pg.py`, evidência §4): o `UPDATE` do tecto e a leitura do `motivo` pelo `psql`, e o mesmo `UPDATE` por um processo Python, os três com a palavra-passe do `kamba_app` e sem `tenant_guard`, levam `42501` e fazem o contador passar de 0 a **3**; o registo tem as três linhas com `user` `kamba_app`. A série não tem etiquetas (`test_nasce_a_zero_sem_etiquetas`, em `../libs/py-core/tests/test_registo_pg.py`), e o catálogo tem-na com `etiquetas: []`. **Sem o processo**, o predicado e a leitura prendem-se em 27 ensaios no mesmo ficheiro, com as linhas que o PostgreSQL 18.6 escreveu: a escrita e a leitura do `kamba_app` contam, e qualquer papel que não seja o lote conta; o lote, outro SQLSTATE, outra tabela, `trust_levels`, uma linha sem SQLSTATE e o que não é JSON não contam (`test_o_controlo_nao_conta`); uma linha acima do tecto conta pela cabeça (`test_a_cabeca_de_uma_linha_comprida_le_se_por_expressao`, e contra o servidor uma linha de 5 MB, evidência §3); um `statement` que imite os campos não os forja (`test_uma_chave_dentro_de_um_valor_nao_casa`); começa no fim e não reconta, lê do zero o ficheiro novo, espera pelo fim de uma linha a meio, e relê do zero o ficheiro que a rotação truncou e reescreveu |
-| 2. O alerta dispara sobre ela na primeira tentativa, e o `promtool test rules` prende o caso e o controlo | **marcada** | **Contra a pilha**: com a série raspada a 0, as três recusas do `kamba_app` põem `ALERTS{alertname="confianca_tecto_recusado_no_registo",alertstate="firing"}` no Prometheus em **16,4 s**; no controlo, a recusa e a escrita do `kamba_batch` deixam o contador a 0 e a regra calada. **No `promtool`**, quatro casos no `kamba_trust_test.yml`: a primeira recusa dispara e resolve passada a janela; o controlo, a série a zero, não dispara; um reinício do recolector não dispara; um recolector que nasce já com uma recusa dispara e resolve — e este falha com o segundo ramo da regra apagado (medido). `promtool check rules` (5 regras) e `test rules` verdes, e `promtool check config` verde sobre o `prometheus.yml` com o alvo `registo_pg` |
+| 1. Uma tentativa por ligação directa com a credencial do `kamba_app`, fora do `tenant_guard`, visível numa série ou num registo recolhido, sem `tenant_id` nas etiquetas (`OBS-I`) | **marcada** | **Contra a pilha** (`../db/ensaio_registo_pg.py`, evidência §4): o `UPDATE` do tecto e a leitura do `motivo` pelo `psql`, e o mesmo `UPDATE` por um processo Python, os três com a palavra-passe do `kamba_app` e sem `tenant_guard`, levam `42501` e fazem o contador passar de 0 a **3**; o registo tem as três linhas com `user` `kamba_app`. A série não tem etiquetas (`test_nasce_a_zero_sem_etiquetas`, em `../libs/py-core/tests/test_registo_pg.py`), e o catálogo tem-na com `etiquetas: []`. **Sem o processo**, o predicado e a leitura prendem-se em 31 ensaios no mesmo ficheiro, com as linhas que o PostgreSQL 18.6 escreveu: a escrita e a leitura do `kamba_app` contam, e qualquer papel que não seja o lote conta; o lote, outro SQLSTATE, outra tabela, `trust_levels`, uma linha sem SQLSTATE e o que não é JSON não contam (`test_o_controlo_nao_conta`); uma linha acima do tecto conta pela cabeça (`test_a_cabeca_de_uma_linha_comprida_le_se_por_expressao`, e contra o servidor uma linha de 5 MB, evidência §3); um `statement` que imite os campos não os forja (`test_uma_chave_dentro_de_um_valor_nao_casa`); começa no fim e não reconta, lê do zero o ficheiro novo, espera pelo fim de uma linha a meio, e relê do zero o ficheiro que a rotação truncou e reescreveu. As duas rotas do recolector têm o caso
+`X-01/registo-pg/sondas` no inventário do isolamento |
+| 2. O alerta dispara sobre ela na primeira tentativa, e o `promtool test rules` prende o caso e o controlo | **marcada** | **Contra a pilha**: com a série raspada a 0, as três recusas do `kamba_app` põem `ALERTS{alertname="confianca_tecto_recusado_no_registo",alertstate="firing"}` no Prometheus em **32,4 s**; no controlo, a recusa e a escrita do `kamba_batch` deixam o contador a 0 e a regra calada. **No `promtool`**, quatro casos no `kamba_trust_test.yml`: a primeira recusa dispara e resolve passada a janela; o controlo, a série a zero, não dispara; um reinício do recolector não dispara; um recolector que nasce já com uma recusa dispara e resolve — e este falha com o segundo ramo da regra apagado (medido). `promtool check rules` (5 regras) e `test rules` verdes, e `promtool check config` verde sobre o `prometheus.yml` com o alvo `registo_pg` |
 | 3. Se o caminho pedir uma peça nova, a licença dela decidida pelo fundador e registada no `../ci/licenses.yaml` antes de entrar no compose | **marcada** | **O caminho não pede peça de terceiros**: é a opção (A) da decisão do fundador de 2026-11-21, que recusou a (B) — Vector, Fluent Bit ou mtail — precisamente por ser peça nova. O `registo-pg` é código deste repositório a correr na imagem do AGR, cujas dependências já estão registadas; nada entra no `../ci/licenses.yaml`, e o `supply_chain` dá `licencas: conforme` e `egress: conforme` com a lista nova. **A leitura que se fez da letra**: «peça nova» como componente de terceiros com licença própria. Um serviço novo no compose também é uma peça, e esse passou pela decisão do fundador e pelo `../infra/compose/conjunto-reduzido.yaml` (abaixo) |
 
 **O orçamento de memória, como a decisão pede.** O processo mediu-se na imagem do AGR (evidência §3): 28 MiB de
-RSS em repouso, e 32 MiB de pico do *cgroup* sob `--memory 48m` com uma rajada de 2 001 recusas, uma linha de
+RSS em repouso, e 32 MiB de pico do *cgroup* sob `--memory 48m` com uma rajada de 2 000 recusas, uma linha de
 5 MB e 20 sondas ao mesmo tempo, sem OOM. O limite é **48 MiB**, 1,5× esse pico. Na soma do critério 4 do
 KAM-076, contando os pendentes, o manifesto passa de 26 112 para **26 160 MiB** (79,8% do *host*): **da folga de
 102 MiB até ao tecto de 26 214, o recolector consome 48, e sobram 54**, medidos sobre a `publico/main` em
 `b37d1ffe`; o tecto de 80% não se tocou, e o `compose_prod` dá 0 achados. **A sonda é `bash`, e não Python**:
 sob `cpus: 0.1`, a do `idx` levava 13 s e passava o `timeout` (a imagem não traz `.pyc`); a de `bash` gasta
-0,16 s de CPU (evidência §3.1).
+0,16 s de CPU (evidência §3.1). O limite de CPU ficou em 0.25, como o do `idx`: sob 0.1, numa máquina
+carregada, o arranque do Python passava os 80 s da sonda.
 
-**Os limites, ditos.** Uma recusa escrita enquanto o `registo-pg` está em baixo, ou antes de ele arrancar, não
-conta — começa no fim, para que um reinício não reconte —, e o `alvo_em_baixo` vê o processo parado, e não a
-recusa perdida. O volume do registo não tem quota: dentro de uma hora, uma rajada de erros faz crescer o
-ficheiro dessa hora. Uma recusa do `kamba_batch` não conta aqui, pela letra do critério 1; se passar pelos
-*helpers*, conta-a a regra do KAM-219. E o `docker logs` do `postgres` deixa de ter o registo do servidor depois
-do arranque: fica no volume, 24 h, e o runbook diz como o ler sem levar o `statement` para fora.
+**Os limites, ditos.**
+
+- **Uma recusa que o próprio SQL apanha não se vê.** Um bloco PL/pgSQL com `EXCEPTION WHEN
+  insufficient_privilege` (ou `WHEN OTHERS`) engole o erro, e o servidor não o escreve no registo (medido na
+  revisão adversarial). Quem tem a credencial pode sondar o tecto assim sem disparar nada, e isto não tem remédio
+  no registo: é a parte do Objectivo («venha por onde vier») que fica por cumprir, e os critérios, que pedem a
+  ligação directa, não a cobrem.
+- **Uma recusa escrita enquanto o `registo-pg` está em baixo**, ou antes de ele arrancar, não conta — começa no
+  fim, para que um reinício não reconte. O `alvo_em_baixo` vê o processo parado, porque o alvo é fixo; não vê a
+  recusa perdida.
+- **A sessão do `kamba_batch` não conta**, também depois de um `SET ROLE` para outro papel: o `user` do registo é
+  o da sessão. Quem tem essa credencial já escreve o tecto, pelo que não é evasão útil, mas a letra do critério 1
+  («por um papel») lê-se aqui pelo papel da sessão.
+- **Um falso positivo, herdado da regra do KAM-219:** um buraco de raspagem de 10 min ou mais faz o segundo ramo
+  voltar a disparar sobre uma recusa antiga (medido com o `promtool` na revisão). O runbook manda confirmar no
+  registo.
+- **O volume do registo não tem quota.** Sem o `statement`, o que cresce é o número de linhas e a `message` ou o
+  `detail` dos erros que repetem valores da entrada; quanto isso pesa sob uma rajada é **não verificado**.
+- **As 24 h de retenção valem com o servidor de pé.** O PostgreSQL só trunca na rotação por tempo, e não no
+  arranque: um arranque acrescenta ao ficheiro da hora que lá estava, que pode ficar com perto de 48 h.
+  **Plausível**, não medido.
+- **O volume herda o dono da imagem do primeiro contentor que o monta.** O `depends_on` faz o `postgres` nascer
+  primeiro; um `up --no-deps registo-pg` num volume que ainda não existe dava-lhe o dono da imagem do AGR, e o
+  servidor deixava de escrever nele. **Plausível**, não medido.
+- O `docker logs` do `postgres` deixa de ter o registo do servidor depois do arranque: fica no volume, e o
+  `RB-K08` §2.1 e o runbook de T&S dizem como o ler.
 
 ### Verificação da Definition of Done
 
@@ -4428,10 +4455,15 @@ do arranque: fica no volume, 24 h, e o runbook diz como o ler sem levar o `state
 | 2. Sem segredos; sem tenant nas etiquetas | **marcada** | O recolector não tem credencial nenhuma (não abre ligação à base, e o serviço não tem `KAMBA_SECRET_*`), e o ensaio gera as palavras-passe na execução sem as imprimir. A série não tem etiquetas, e o relatório do ensaio leva só três campos de cada linha, nunca o `statement` |
 
 **Propagação.** O módulo novo parte o inventário fechado do `obs_lint`, e os números saem do `contar_metricas`:
-**34 módulos, 162 nomes, 164 declaradas**, levados ao `../docs/observabilidade.md` (§1, §2.1, e uma nota no §6)
+**34 módulos, 163 nomes, 165 declaradas**, levados ao `../docs/observabilidade.md` (§1, §2.1, e uma nota no §6)
 e à nota do bloco do KAM-080 no `EPIC-08_Topologia_Operacao.md`. A regra entra na tabela do §5.1 do
-`../docs/runbooks/README.md` (passam a dezasseis). A ponta onde isto foi medido: o ramo do KAM-225 sobre a
-`publico/main` em `b37d1ffe`; quem fundir em segundo remede.
+`../docs/runbooks/README.md` (passam a dezassete), e o `RB-K08` §2.1 passa a ler o volume. O inventário do
+isolamento ganha as duas rotas do recolector (`X-01/registo-pg/sondas`), a soma do manifesto fixada no
+`compose_prod` passa a 26 160, e o `supply_chain` ganha a declaração do ensaio no
+`../ci/supply-chain/imagens.yaml` e conta 72 serviços (o recolector entra em produção e em *staging*, e não em
+desenvolvimento, onde o `postgres` não escreve o `jsonlog`).
+A ponta onde isto foi medido: o ramo do KAM-225 integrado com a `publico/main` em `600952bd`; quem fundir em
+segundo remede.
 
 ---
 
@@ -4574,4 +4606,4 @@ Regras: papéis mínimos por ligação; nenhum repositório em memória em prod.
 | 1.38 | Novembro 2026 | **KAM-218 entregue**, e **KAM-233** aberto no mesmo PR como credor do que ele devolve. Satisfeito o processo dos dados (o serviço `offboarding-dados` nos três *compose*, que arranca em `prod` e não arranca sem as credenciais); parciais o canal da Meta (ligado pelo cofre no processo de lote, sem caminho para o *token* por tenant até ao contentor), a revogação (a chave do LiteLLM pelo alias, à mão), a exportação (a prova de aceite e as ofertas) e a purga (os contactos pelo cofre); por satisfazer as provas do titular, a entrega do certificado e o simulacro. As caixas do KAM-210 revistas no bloco dele. O KAM-233 escrito como o número a seguir ao maior da `main` (232), *provisório* até à integração. | Equipa KAMBÁ |
 | 1.39 | Novembro 2026 | **KAM-236 acrescentado**, no PR do **KAM-202** (EPIC-04): o `onboarding-web` em produção, credor do critério 2 do KAM-202 (decisão do fundador de 2026-11-20). E o bloco do KAM-094 revisto com a evidência do KAM-202: a publicação protegida pela base, a mudança de nome pelo COM, o processo que corre o teste e a activação, e o filtro de `is_test`. Escrito como KAM-233 e renumerado duas vezes na integração: para 234 depois do KAM-223, e para 236 depois do KAM-218 e do KAM-234 (EPIC-11). | Equipa KAMBÁ |
 | 1.40 | Novembro 2026 | KAM-206 (o contacto da encomenda ao dono e a lista de produtos em 3G): as decisões do fundador de 2026-11-20 (o COM decifra como `kamba_identity`, opção A; a regra, a máscara e a acção) e as duas secções de verificação — os **seis** critérios e as duas caixas da DoD satisfeitos, com a revisão `0082` sobre a `0081` do KAM-215. As linhas 6 e 9 do KAM-099 e 1 e 3 do KAM-190 passam a satisfeitas, e a DoD 1 do KAM-190 também. Escrita como 1.38 e renumerada na integração, depois do KAM-218 e do KAM-202. | Equipa KAMBÁ |
-| 1.41 | Novembro 2026 | **KAM-225 entregue**: a recusa `42501` sobre `platform.trust_level` vê-se venha por onde vier. A decisão do fundador de 2026-11-21 (opção A) fica no bloco, com «Data: 2026-11-21. Autor: o fundador»: o PostgreSQL de produção e de *staging* escreve `jsonlog` num volume próprio (24 h), e um recolector nosso, `python -m kamba_core.registo_pg` (serviço `registo-pg`, rede `ops`, 48 MiB medidos), conta-a em `registo_pg_tecto_recusado_total`; a regra `confianca_tecto_recusado_no_registo` dispara, com runbook. As duas secções de verificação, os três critérios e as duas caixas da DoD marcados, com um ensaio contra a pilha de *staging* (`../db/ensaio_registo_pg.py`). Revistas com a evidência: a caixa 1 do KAM-219 e a 7 do KAM-203 passam a marcadas, com a DoD de cada um; a 7 do KAM-096 continua parcial, só pelo nascimento pelo superutilizador. | Equipa KAMBÁ |
+| 1.41 | Novembro 2026 | **KAM-225 entregue**: a recusa `42501` sobre `platform.trust_level` vê-se também fora do `tenant_guard`. A decisão do fundador de 2026-11-21 (opção A) fica no bloco, com «Data: 2026-11-21. Autor: o fundador»: o PostgreSQL de produção e de *staging* escreve `jsonlog` num volume próprio (24 h), e um recolector nosso, `python -m kamba_core.registo_pg` (serviço `registo-pg`, rede `ops`, 48 MiB medidos), conta-a em `registo_pg_tecto_recusado_total`; a regra `confianca_tecto_recusado_no_registo` dispara, com runbook. As duas secções de verificação, os três critérios e as duas caixas da DoD marcados, com um ensaio contra a pilha de *staging* (`../db/ensaio_registo_pg.py`). A revisão adversarial mudou cinco coisas: o alvo do Prometheus passou a fixo, o servidor deixou de escrever o texto das consultas, nasceu a regra `registo_pg_registo_parado` sobre a idade do registo, o RB-K08 passou a ler o volume, e os limites — o PL/pgSQL que apanha o erro, a retenção depois de um arranque, o falso positivo de um buraco de raspagem — ficaram escritos. Revistas com a evidência: a caixa 1 do KAM-219 e a 7 do KAM-203 passam a marcadas, com a DoD de cada um; a 7 do KAM-096 continua parcial, só pelo nascimento pelo superutilizador. | Equipa KAMBÁ |

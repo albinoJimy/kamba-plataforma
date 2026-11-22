@@ -1,4 +1,4 @@
-# Runbook — Trust & Safety: uma suspensão decidida, a escada automática acima do ritmo, o recálculo da confiança com falhas, e a recusa da base sobre o tecto, vista pelo `tenant_guard` e lida do registo do PostgreSQL
+# Runbook — Trust & Safety: uma suspensão decidida, a escada automática acima do ritmo, o recálculo da confiança com falhas, e a recusa da base sobre o tecto, vista pelo `tenant_guard` e lida do registo do PostgreSQL, e o registo parado
 
 **Esboço** (KAM-200, critério 3). **Não é procedimento ratificado** e nenhum passo foi ensaiado
 contra uma pilha com tráfego. O desenho está no [`docs/tecnica/10`](../tecnica/10_Onboarding_Governanca.md)
@@ -118,31 +118,63 @@ devia existir (uma injecção, um defeito novo), ou o próprio lote perdeu um pr
 ## 6. A recusa sobre o tecto no registo do PostgreSQL (`confianca_tecto_recusado_no_registo`)
 
 O recolector `registo-pg` (`../../libs/py-core/src/kamba_core/registo_pg/`) leu no registo do servidor um
-`42501` que nomeia `trust_level`, a um papel que **não** é o `kamba_batch`. É a mesma recusa do §5, vista
-do lado da base: chega aqui **venha por onde vier** — o `comTenant`, uma ligação directa com a credencial
-do `kamba_app`, um processo Python, uma consulta solta. **A base já recusou**: o tecto não mudou.
+`42501` que nomeia `trust_level`, a uma sessão que **não** é do `kamba_batch`. É a mesma recusa do §5, vista
+do lado da base: chega aqui a que o servidor escreve no registo — a do `comTenant`, a de uma ligação directa
+com a credencial do `kamba_app`, a de um processo Python ou de uma consulta solta. **A base já recusou**: o
+tecto não mudou.
 
 - **Se o §5 disparou no mesmo minuto**, é a mesma recusa, e o `job` dele diz o processo: seguir o §5.
 - **Se só este disparou**, a recusa veio de fora dos *helpers* — e uma ligação directa com a credencial de
   um serviço é a hipótese a afastar primeiro.
 - **Qual papel e quando.** Não se lê desta série (`OBS-I`); lê-se do registo do servidor, no volume
-  `postgres-log`, por quem tem acesso ao *host* (`não verificado`: em produção não há pilha, e o ensaio do KAM-225
-  leu o mesmo volume com um filtro equivalente, `../evidencia/KAM-225.md` §4):
+  `postgres-log`, por quem tem acesso ao *host*. O filtro casa o campo `message`, e não a linha inteira
+  (`não verificado` em produção, que não existe; o ensaio do KAM-225 leu o mesmo volume com um filtro
+  equivalente, `../evidencia/KAM-225.md` §4):
 
   ```sh
-  docker compose -f infra/compose/docker-compose.prod.yml exec postgres     sh -c 'grep -h "\"state_code\":\"42501\"" /var/log/postgresql/*.json | grep trust_level'
+  docker compose -f infra/compose/docker-compose.prod.yml exec postgres \
+    sh -c 'grep -h "\"state_code\":\"42501\",\"message\":\"permission denied for table trust_level\"" /var/log/postgresql/*.json'
   ```
 
-  Cada linha diz o `user`, o `remote_host`, o `application_name` e a hora. **A linha traz também o
-  `statement`, com os literais da consulta**: não se cola num ticket, num chat nem num *prompt*; tira-se dela
-  o papel, a origem e a hora, e mais nada.
+  Cada linha diz o `user`, o `remote_host`, o `application_name` e a hora. **Não traz o texto da consulta**
+  (`log_min_error_statement=panic`, KAM-225): o que se tentou escrever não está no registo, e o registo não
+  substitui o `audit_log`. Mesmo assim, não se cola num ticket, num chat nem num *prompt*: tira-se dela o
+  papel, a origem e a hora, e mais nada.
 - **O que fazer.** Nada no tecto. Uma recusa a um papel de serviço que nenhum código explica é um
   incidente de segurança: rodar a credencial desse papel (o cofre, KAM-010), preservar o registo do
   servidor antes de ele rodar (24 h, `log_truncate_on_rotation`) e seguir o
   [`RB-K10`](RB-K10-incidente-de-seguranca.md).
-- **O que esta regra não vê.** Uma recusa escrita enquanto o `registo-pg` estava em baixo (o
-  `alvo_em_baixo` vê o processo parado, e não a recusa perdida), e uma recusa do `kamba_batch` (essa, se
-  passar pelos *helpers*, vê-a o §5).
+- **O que esta regra não vê.**
+  - Uma recusa escrita enquanto o `registo-pg` estava em baixo. O alvo é fixo no `prometheus.yml`, pelo que
+    um recolector parado ou em ciclo de reinício põe o `up` a 0 e dispara o `alvo_em_baixo`; esse vê o
+    processo, e não a recusa perdida.
+  - Uma recusa que o próprio SQL apanha. Um bloco PL/pgSQL com `EXCEPTION WHEN insufficient_privilege`
+    (ou `WHEN OTHERS`) engole o erro, e o servidor **não o escreve no registo** (medido na revisão
+    adversarial do KAM-225). Quem tem a credencial pode sondar o tecto assim sem disparar nada. Isto não
+    tem remédio no registo.
+  - Uma recusa de uma sessão do `kamba_batch`, também depois de um `SET ROLE` para outro papel: o `user`
+    do registo é o da sessão. Se passar pelos *helpers*, vê-a o §5.
+- **Um falso positivo conhecido.** Um buraco de raspagem de 10 min ou mais (o Prometheus parado, ou a
+  rede de `ops`) volta a disparar a regra sobre uma recusa antiga, pelo segundo ramo dela. A regra do §5
+  tem o mesmo comportamento. Antes de tratar o alerta como novo, confirmar no registo que há uma linha da
+  última janela.
+
+## 7. O registo do PostgreSQL parado (`registo_pg_registo_parado`)
+
+O `jsonlog` mais novo do volume `postgres-log` não muda há mais de duas horas. Com o servidor a escrever, a
+rotação por tempo cria ou trunca o ficheiro de cada hora mesmo sem nada para registar, pelo que isto quer
+dizer que o servidor deixou de escrever o `jsonlog`. **Enquanto dura, a regra do §6 está cega**, com o
+`/healthz` do `registo-pg` a 200 e o contador a zero.
+
+- **O servidor está de pé?** Se não, este alerta vem ao lado dos dele: seguir o
+  [`RB-K08`](RB-K08-base-de-dados-e-restauro.md).
+- **O `jsonlog` está ligado?** `SHOW log_destination` e `SHOW logging_collector` pelo `psql` do contentor
+  (`não verificado` em produção; o ensaio do KAM-225 mediu-os, `../evidencia/KAM-225.md` §4). Um `postgres`
+  recriado sem o `command:` do compose volta ao `stderr`, e os 24 ficheiros velhos ficam no volume a parecer
+  registo.
+- **O que fazer.** Repor o `command:` do compose e recriar o `postgres`. Uma recusa sobre o tecto na janela
+  em que o registo esteve parado não se recupera daqui: ler o `audit_log` e o registo dos processos dessa
+  janela.
 
 ## Controlo de versões
 
@@ -151,4 +183,4 @@ do `kamba_app`, um processo Python, uma consulta solta. **A base já recusou**: 
 | 0.1 | Novembro 2026 | Esboço, com as duas regras do KAM-200 | Equipa KAMBÁ |
 | 0.2 | Novembro 2026 | KAM-203: o §4, a regra `confianca_recalculo_com_falhas` | Equipa KAMBÁ |
 | 0.3 | Novembro 2026 | KAM-219: o §5, a regra `confianca_tecto_escrita_recusada` | Equipa KAMBÁ |
-| 0.4 | Novembro 2026 | KAM-225: o §6, a regra `confianca_tecto_recusado_no_registo`, e o fim do §5 a apontar para ele | Equipa KAMBÁ |
+| 0.4 | Novembro 2026 | KAM-225: o §6 e o §7, as regras `confianca_tecto_recusado_no_registo` e `registo_pg_registo_parado`, e o fim do §5 a apontar para o §6 | Equipa KAMBÁ |

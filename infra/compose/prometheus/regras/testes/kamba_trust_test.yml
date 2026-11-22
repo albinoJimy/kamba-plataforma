@@ -284,3 +284,40 @@ tests:
       - eval_time: 25m
         alertname: confianca_tecto_recusado_no_registo
         exp_alerts: []
+
+  # KAM-225: a idade do registo. Com o `jsonlog` ligado, a rotacao de hora a hora
+  # da um dente de serra abaixo de 3 600 s; quando o servidor deixa de escrever,
+  # a idade cresce sem parar e a regra dispara passadas as duas horas e o `for`.
+  - interval: 1m
+    name: "registo parado: a idade a crescer acima de duas horas dispara"
+    input_series:
+      - series: 'registo_pg_idade_do_registo_segundos{job="registo_pg",instance="registo-pg:8225"}'
+        values: '0+60x200'
+    alert_rule_test:
+      - eval_time: 120m
+        alertname: registo_pg_registo_parado
+        exp_alerts: []
+      - eval_time: 126m
+        alertname: registo_pg_registo_parado
+        exp_alerts:
+          - exp_labels:
+              severity: P2
+              componente: gov
+              job: registo_pg
+            exp_annotations:
+              resumo: O registo do PostgreSQL nao muda ha mais de duas horas; a recusa sobre o tecto deixou de se ver.
+              qual_tenant: Nao se aplica; e o registo do servidor, e nao um tenant.
+              runbook_url: https://github.com/albinoJimy/kamba-plataforma/blob/main/docs/runbooks/trust-e-safety.md
+
+  - interval: 1m
+    name: "registo parado: o controlo, o dente de serra da rotacao, nao dispara"
+    input_series:
+      - series: 'registo_pg_idade_do_registo_segundos{job="registo_pg",instance="registo-pg:8225"}'
+        values: '0+60x59 0+60x59 0+60x59 0+60x59'
+    alert_rule_test:
+      - eval_time: 130m
+        alertname: registo_pg_registo_parado
+        exp_alerts: []
+      - eval_time: 230m
+        alertname: registo_pg_registo_parado
+        exp_alerts: []

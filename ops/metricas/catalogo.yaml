@@ -525,6 +525,17 @@ metricas:
     ajuda: Recusas (42501) sobre platform.trust_level a um papel que nao e o kamba_batch, lidas do registo do PostgreSQL.
     etiquetas: []
 
+  # KAM-225: a idade do `jsonlog` mais novo, para que o recolector nao fique cego
+  # calado com ficheiros velhos no volume. A rotacao de hora a hora mantem-na
+  # abaixo de 3 600 s com o servidor a escrever; `+Inf` sem nenhum ficheiro.
+  - nome: registo_pg_idade_do_registo_segundos
+    tipo: gauge
+    fonte: libs/py-core/src/kamba_core/registo_pg/metricas.py
+    exposta_por:
+      - registo-pg
+    ajuda: Segundos desde a ultima modificacao do ficheiro jsonlog mais recente do PostgreSQL.
+    etiquetas: []
+
   # ------------------------------------------------- backup (KAM-079)
   #
   # **As quatro tem `exposta_por` vazio, e e a declaracao que importa.** A
