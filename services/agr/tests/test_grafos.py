@@ -220,6 +220,8 @@ class TestLigacaoDoArranque(unittest.TestCase):
         self.papel: str | None = None
         self.papel_ligado_a: list[Any] = []
         self.papel_lido: list[tuple[str, str]] = []
+        self.loja: str | None = "Kero 24"
+        self.loja_ligada_a: list[Any] = []
         teste = self
 
         class _Leitor:
@@ -247,6 +249,14 @@ class TestLigacaoDoArranque(unittest.TestCase):
 
             return papel
 
+        def _leitor_da_loja(abrir: Any):
+            teste.loja_ligada_a.append(abrir)
+
+            async def nome(_tenant_id: str) -> str | None:
+                return teste.loja
+
+            return nome
+
         self.saver = InMemorySaver()
         remendos = [
             mock.patch.object(arranque, nome, espiar(nome)) for nome in reais
@@ -255,6 +265,7 @@ class TestLigacaoDoArranque(unittest.TestCase):
             mock.patch.object(arranque, "CheckpointerDoAgr", lambda *_a, **_k: self.saver),
             mock.patch.object(arranque, "leitor_de_contacto", _leitor_de_contacto),
             mock.patch.object(arranque, "leitor_de_papel", _leitor_de_papel),
+            mock.patch.object(arranque, "leitor_da_loja", _leitor_da_loja),
         ]
         for remendo in remendos:
             remendo.start()
@@ -313,6 +324,16 @@ class TestLigacaoDoArranque(unittest.TestCase):
         self.bloqueado = True
         grafo = asyncio.run(porta(_invocacao()))
         self.assertEqual(grafo._admissao, grafos_mod.CONTACTO_BLOQUEADO)
+
+    def test_a_loja_le_se_pela_ligacao_de_leitura_e_chega_ao_dependencias(self) -> None:
+        """KAM-235: o `tenants.nome` le-se antes do turno, e a porta do grafo le-o."""
+        self.assertEqual(self.loja_ligada_a, [arranque.ligar_para_leitura])
+        portas = self.capturado["compilar"][0][1]
+        self.assertIs(portas["loja"], grafos_mod.loja_do_turno)
+        self.assertIsNot(portas["loja"], nos_vendedor._sem_loja)
+        invocacao = _invocacao()
+        grafo = asyncio.run(self._porta_do_turno()(invocacao))
+        self.assertEqual(grafo._loja, (invocacao.tenant_id, "Kero 24"))
 
     def test_as_duas_portas_por_thread_sao_a_mesma_resolucao_e_nao_a_do_turno(self) -> None:
         do_turno = self._porta_do_turno()
@@ -805,6 +826,82 @@ class TestAdmissao(unittest.TestCase):
 
     def test_fora_de_um_turno_a_porta_admite(self) -> None:
         self.assertIsNone(grafos_mod.admitir({}))
+
+
+# ------------------------------------------------- KAM-235: a loja na apresentacao
+
+#: A apresentacao do vendedor com o `tenants.nome`, letra a letra. A mesma
+#: *fixture* e a que o observador de producao do teste tem de aceitar
+#: (`packages/core-ts/tests/activacao.producao.test.ts`).
+FIXTURE_DA_APRESENTACAO = RAIZ / "packages/core-ts/tests/fixtures/apresentacao_do_vendedor.json"
+
+
+def _casos_da_apresentacao() -> list[dict[str, str]]:
+    return json.loads(FIXTURE_DA_APRESENTACAO.read_text(encoding="utf-8"))["casos"]
+
+
+class TestLojaNaApresentacao(unittest.TestCase):
+    """Criterio 2 do KAM-235: a primeira resposta nomeia a loja, com ou sem digitos."""
+
+    def _primeira(self, nome_da_loja, loja=grafos_mod.loja_do_turno) -> tuple[str, Any]:
+        porta, compilados, saida = _porta(loja=loja)
+        porta = grafos_mod.PortaDeGrafos(
+            registo=porta._registo,
+            grafos=compilados,
+            checkpointer=porta._checkpointer,
+            contacto_bloqueado=_nunca_bloqueado,
+            papel_do_contacto=_papeis(),
+            nome_da_loja=nome_da_loja,
+        )
+        invocacao = _invocacao()
+        grafo = asyncio.run(porta.do_turno(invocacao))
+        asyncio.run(grafo.ainvoke(_estado_com_texto(invocacao, "ola"), _config(invocacao)))
+        self.assertEqual(len(saida.textos), 1)
+        return saida.textos[0], invocacao
+
+    def test_a_primeira_resposta_comeca_pela_frase_da_fixture(self) -> None:
+        casos = _casos_da_apresentacao()
+        self.assertTrue(any(any(c.isdigit() for c in caso["loja"]) for caso in casos))
+        for caso in casos:
+            with self.subTest(loja=caso["loja"]):
+
+                async def nome(_tenant: str, loja: str = caso["loja"]) -> str:
+                    return loja
+
+                texto, _ = self._primeira(nome)
+                self.assertEqual(texto.splitlines()[0], caso["frase"])
+
+    def test_a_loja_kero_24_e_nomeada_com_os_digitos(self) -> None:
+        """Decisao A do fundador (2026-11-21): o nome entra tal como e."""
+        (caso,) = [c for c in _casos_da_apresentacao() if c["loja"] == "Kero 24"]
+
+        async def nome(_tenant: str) -> str:
+            return "Kero 24"
+
+        texto, _ = self._primeira(nome)
+        self.assertEqual(texto.splitlines()[0], caso["frase"])
+        self.assertIn("de Kero 24.", texto)
+
+    def test_sem_leitor_a_resposta_nao_nomeia_a_loja(self) -> None:
+        texto, _ = self._primeira(None)
+        self.assertNotIn(" de ", texto.splitlines()[0])
+        self.assertIn("assistente automatico", texto)
+
+    def test_com_a_porta_do_grafo_na_omissao_o_nome_lido_nao_chega(self) -> None:
+        async def nome(_tenant: str) -> str:
+            return "Kero 24"
+
+        texto, _ = self._primeira(nome, loja=nos_vendedor._sem_loja)
+        self.assertNotIn("Kero 24", texto)
+
+    def test_o_nome_de_outro_tenant_nao_serve(self) -> None:
+        marca = grafos_mod._LOJA.set(("outro", "Kero 24"))
+        try:
+            self.assertIsNone(grafos_mod.loja_do_turno({"tenant_id": "este"}))
+            self.assertEqual(grafos_mod.loja_do_turno({"tenant_id": "outro"}), "Kero 24")
+        finally:
+            grafos_mod._LOJA.reset(marca)
+        self.assertIsNone(grafos_mod.loja_do_turno({"tenant_id": "outro"}))
 
 
 # ------------------------------------------------------------- o par do P3
