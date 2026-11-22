@@ -167,6 +167,30 @@ export { OtpPorSmsLocal, OtpPorWhatsApp, type OpcoesDeSmsLocal } from "./provedo
 export { REFERENCIAS, REF_ASSINATURA, REF_PEPPER } from "./refs.ts";
 
 export {
+  CAMPOS_DOS_DADOS,
+  DadosDoCasoError,
+  anelDosDados,
+  cifraDoCaso,
+  cifrarDadoDoCaso,
+  decifrarDadoDoCaso,
+  type AnelDosDados,
+  type CampoDosDados,
+} from "./dados_do_caso.ts";
+
+export {
+  PARADA_MS,
+  casosNaBase,
+  contadoresNaBase,
+  linhas as linhasDaInscricao,
+  numaLigacaoDaInscricao,
+  otpNaBase,
+  type CifraDoCaso,
+  type LigacaoDaInscricao,
+  type OpcoesDosCasos,
+  type PoolDaInscricao,
+} from "./sql.ts";
+
+export {
   CAMPO_DO_TELEFONE,
   KekDoTelefoneInvalidaError,
   REF_KEK_DO_TELEFONE,

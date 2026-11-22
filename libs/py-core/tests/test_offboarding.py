@@ -562,7 +562,7 @@ class TestCertificado(unittest.TestCase):
         self.assertNotEqual(por_tabela["platform.onboarding_case"], FUNDAMENTO_BRANQUEAMENTO)
         # Q3b = A (2026-11-22): o caso fica `sem_caminho`, e o fundamento nomeia as tres FK.
         self.assertEqual(por_tabela["platform.onboarding_case"], FUNDAMENTO_CASO_DE_ONBOARDING)
-        for fk in ("kyc_check", "screening_decision", "review_case"):
+        for fk in ("kyc_check", "screening_decision", "review_case", "onboarding_otp"):
             self.assertIn(fk, FUNDAMENTO_CASO_DE_ONBOARDING)
         self.assertIn("branqueamento", FUNDAMENTO_BRANQUEAMENTO)
         self.assertIn("parecer", FUNDAMENTO_BRANQUEAMENTO)

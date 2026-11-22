@@ -65,6 +65,20 @@ permitidas:
   # `argparse@2.0.1`, port JS do argparse, via js-yaml -> cosmiconfig ->
   # @commitlint/load. Mesma familia e mesma leitura.
   - Python-2.0
+  # **Decisao do fundador de 2026-11-21 (aprovou o Pillow e a Noto)**, D1 do
+  # KAM-122, opcao A. O fundador disse HPND, e a medicao no PyPI deu MIT-CMU
+  # (`pillow` 13.0.0, `License-Expression`), que e o que o gate 11 compara. O
+  # Pillow entra pelo PyPI, com hash, e serve duas leituras com o mesmo pin:
+  # desenha as artes do social em JPEG (KAM-122, `social/desenho.py`) e
+  # descodifica a foto do catalogo do dono antes da analise (KAM-231,
+  # `catalogo/descodificador.py`). A HPND nao entra: nenhum pacote a declara.
+  - MIT-CMU
+  # **Decisao do fundador de 2026-11-21 (aprovou o Pillow e a Noto)**, D1 do
+  # KAM-122, opcao A. A Noto Sans das artes, pelo pacote Debian
+  # `fonts-noto-core` da imagem do AGR, sem binario no repositorio. **A OFL-1.1
+  # ainda nao tem leitor**: o gate 11 le os pacotes npm e PyPI, e o SBOM por
+  # imagem, que veria os pacotes Debian, e do KAM-078.
+  - OFL-1.1
 
 # ------------------------------------------------------------------ negadas
 # Nao e "nao permitida": e **proibida**, e so passa com waiver em

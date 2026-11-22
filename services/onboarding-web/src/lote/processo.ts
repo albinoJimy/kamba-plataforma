@@ -169,6 +169,7 @@ import {
   type ResultadoDoCicloDoOffboarding,
 } from "@kamba/core-ts/offboarding";
 import { ArquivoDoChatwoot, arquivarContaDoTenant } from "@kamba/core-ts/hnd";
+import type { PoolDaInscricao } from "@kamba/core-ts/inscricao";
 import { EnvKeyProvider, Identidade } from "@kamba/core-ts/identity";
 import {
   criarStorageS3,
@@ -197,6 +198,7 @@ import { Hono } from "hono";
 import pg from "pg";
 
 import { SERVICE, VERSION } from "../meta.ts";
+import { RevogacoesNaBase } from "../painel/revogacoes_sql.ts";
 
 /** As variáveis que o processo lê. Nenhuma outra. */
 export const VARIAVEIS_DO_LOTE = {
@@ -365,7 +367,10 @@ export const VARIAVEIS_DA_REVOGACAO = {
  * função do `archiveAccount` do `HandoffProvider`). Sem a base de um deles no
  * ambiente, essa porta fica sem adaptador e a fase pára nela, com alerta. O
  * canal da Medusa e a *inbox* continuam sem adaptador (D3, e a saga não os
- * cria), e só se chamam quando a saga os registou.
+ * cria), e só se chamam quando a saga os registou. **As sessões do painel**
+ * cortam-se na `platform.painel_revogacao` da `0084` (KAM-236), pela ligação do
+ * `kamba_app` e sob a RLS do tenant que sai (`RevogacoesNaBase`, a mesma do
+ * painel): o `kamba_batch` não tem `INSERT` nela.
  *
  * O *token* de cada WABA lê-se do cofre a cada fase (`tokenDoWabaPeloCofre`),
  * pela ligação do lote — a leitura da `tenant_channels` não tem tenant do
@@ -384,6 +389,8 @@ export function portasDoOffboarding(o: {
   readonly buscar?: typeof fetch;
   /** Os telefones para a exportação (KAM-233). Sem ela, o fecho dos `pendentes` pára. */
   readonly telefones?: PortaDosTelefones;
+  /** As ligações do `kamba_app`, para o corte das sessões do painel. Sem elas, o passo pára. */
+  readonly app?: PoolDaInscricao;
 }): PortasDoCiclo {
   const graph: Pick<GraphHttp, "subscrever" | "anularSubscricao"> = new GraphHttp({
     base: ANFITRIAO_DA_GRAPH,
@@ -425,6 +432,7 @@ export function portasDoOffboarding(o: {
                   provedor: "chatwoot",
                 }),
             },
+      sessoesDoPainel: o.app === undefined ? REVOGACAO_SEM_ADAPTADOR.sessoesDoPainel : new RevogacoesNaBase(o.app),
     },
   };
 }

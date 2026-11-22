@@ -381,9 +381,13 @@ class TestEsquema(ComOffboarding):
             "SELECT conrelid::regclass::text, confdeltype FROM pg_constraint "
             "WHERE contype = 'f' AND confrelid = 'platform.onboarding_case'::regclass")
         fks = dict(self.cur.fetchall())
-        for prova in ("platform.kyc_check", "platform.screening_decision", "platform.review_case"):
+        # O conjunto **exacto**: uma FK nova ao caso muda o fundamento do certificado, e
+        # tem de o avermelhar. Foi assim que a `0084` (KAM-236) trouxe a quarta, o OTP.
+        self.assertEqual(set(fks), {"platform.kyc_check", "platform.screening_decision",
+                                    "platform.review_case", "platform.onboarding_otp"})
+        for prova, tipo in fks.items():
             with self.subTest(prova=prova):
-                self.assertEqual(fks.get(prova), "a", f"{prova} deixou de apontar ao caso sem cascata")
+                self.assertEqual(tipo, "a", f"{prova} deixou de apontar ao caso sem cascata")
         # E o DELETE de verdade, como o dono da base (que tem o privilegio): a FK recusa.
         tenant = factories.tenant(self.cur)
         factories.confianca(self.cur, tenant)
@@ -757,7 +761,7 @@ class TestCertificado(ComOffboarding):
             self.assertTrue(x["fundamento"])
         # KAM-233 (Q3b = A): o caso de onboarding fica, e o certificado nomeia as tres FK.
         caso = next(x for x in cert["retidas"] if x.get("tabela") == "platform.onboarding_case")
-        for fk in ("kyc_check", "screening_decision", "review_case"):
+        for fk in ("kyc_check", "screening_decision", "review_case", "onboarding_otp"):
             self.assertIn(fk, caso["fundamento"])
         # E o KYC e a fraude, retidos por parecer.
         for tabela in RETIDAS_POR_PARECER:

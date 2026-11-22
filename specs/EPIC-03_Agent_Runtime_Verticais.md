@@ -18,7 +18,7 @@ O **Agent Runtime (AGR)** é o serviço que transforma uma mensagem já resolvid
 
 O epic existe porque é onde as quatro fundações não-negociáveis do produto se tornam verificáveis por teste: mediação total pelo runtime, números só de tools, dinheiro só por evento, e verticais como configuração validadas pela **regra de dois** (Vendedor + Serviços, ADR-012). Dá corpo aos dois grafos do Piloto (tabela de arestas de `../docs/tecnica/02` §7.3 para o Vendedor; diagrama de §8.1 para os Serviços), ao padrão de dois nós para `interrupt()` idempotente (handoff), à voz com fallback a humano, ao modo determinístico sem LLM e ao dataset *golden* PT-AO como gate de deploy. Piloto = **só Fluxo A**: a persona `assistente` (Fluxo B) não é registada em produção (ADR-011).
 
-Concretiza ADR-002, ADR-005, ADR-007, ADR-009, ADR-010, ADR-012, ADR-013 e ADR-015, com adjacência a ADR-008 (chamadas a LLM/STT no estrangeiro são transferências até parecer em contrário) e ADR-018 (golden sintético, custo por tenant). São **20 tickets**: 13 na **Fase 0** (esqueleto andante: KAM-025 a KAM-032, KAM-035, KAM-038, KAM-039, KAM-184, KAM-186) e 7 na **Fase 1** (KAM-033, KAM-034, KAM-036, KAM-037, KAM-040, KAM-114, KAM-214). Qualidade em português de Angola, latência real dos modelos e WER dos STT são **NÃO VERIFICADOS** (`../docs/tecnica/02` §19, L1–L3): medem-se no golden e no staging, não se assumem.
+Concretiza ADR-002, ADR-005, ADR-007, ADR-009, ADR-010, ADR-012, ADR-013 e ADR-015, com adjacência a ADR-008 (chamadas a LLM/STT no estrangeiro são transferências até parecer em contrário) e ADR-018 (golden sintético, custo por tenant). São **21 tickets**: 13 na **Fase 0** (esqueleto andante: KAM-025 a KAM-032, KAM-035, KAM-038, KAM-039, KAM-184, KAM-186) e 8 na **Fase 1** (KAM-033, KAM-034, KAM-036, KAM-037, KAM-040, KAM-114, KAM-214, KAM-247). Qualidade em português de Angola, latência real dos modelos e WER dos STT são **NÃO VERIFICADOS** (`../docs/tecnica/02` §19, L1–L3): medem-se no golden e no staging, não se assumem.
 
 ---
 
@@ -61,7 +61,7 @@ Concretiza ADR-002, ADR-005, ADR-007, ADR-009, ADR-010, ADR-012, ADR-013 e ADR-0
 | KAM-184 | Consumo dos eventos de pagamento na vertical Serviços: a acção, a origem do `booking_id` e o credor do `ACCOES_POR_LIGAR` | feature | M | P0 | KAM-035, KAM-047 |
 | KAM-186 | O processo do AGR liga a porta `grafos` e serve turnos | feature | L | P0 | KAM-027, KAM-031, KAM-035, KAM-178 |
 | KAM-214 | O ensaio das conversas diferentes na tranca do AGR mede uma janela de 10 ms, e falha ao acaso sob carga | fix | S | P1 | KAM-034 |
-| KAM-241 | LiteLLM com base, ou chaves sem base: o proxy de `prod` não tem onde guardar as chaves virtuais | fix | M | P1 | KAM-030, KAM-233 |
+| KAM-247 | LiteLLM com base, ou chaves sem base: o proxy de `prod` não tem onde guardar as chaves virtuais | fix | M | P1 | KAM-030, KAM-233 |
 
 ---
 
@@ -1361,7 +1361,7 @@ Testes: unit, integração, isolamento, idempotência. PR com o template §7. Co
 | Prioridade | P0 |
 | Estimativa | M |
 | Dependências | KAM-001, KAM-002, KAM-010, KAM-069 |
-| Bloqueia | KAM-031, KAM-033, KAM-036, KAM-049, KAM-063, KAM-081, KAM-087, KAM-088, KAM-091, KAM-107, KAM-112, KAM-121, KAM-231, KAM-241 |
+| Bloqueia | KAM-031, KAM-033, KAM-036, KAM-049, KAM-063, KAM-081, KAM-087, KAM-088, KAM-091, KAM-107, KAM-112, KAM-121, KAM-231, KAM-247 |
 | Responsável sugerido | Engenheiro de Plataforma (LLM) |
 | Documentos de referência | `../docs/tecnica/02_Agent_Runtime_Verticais.md` (§13, §14), `../docs/tecnica/06_Dados_Eventos_Analytics.md` (§14, `dat.llm_call_log`), ADR-005, ADR-008, ADR-018, `../docs/tecnica/evidencia/E4_Stack_Licencas.md` (§2.7, §3) |
 
@@ -5382,7 +5382,7 @@ services/agr/tests.
 
 ---
 
-## KAM-241 — LiteLLM com base, ou chaves sem base: o proxy de `prod` não tem onde guardar as chaves virtuais
+## KAM-247 — LiteLLM com base, ou chaves sem base: o proxy de `prod` não tem onde guardar as chaves virtuais
 
 | Campo | Valor |
 |---|---|
@@ -5459,8 +5459,8 @@ e a revogação do encerramento deixa de ter recurso por construção.
 ### Handoff para Claude Code
 
 ```text
-És o executor do ticket KAM-241 da KAMBÁ (o LiteLLM de prod sem base, e sem chaves virtuais).
-Lê specs/EPIC-03_Agent_Runtime_Verticais.md (blocos KAM-030 e KAM-241), specs/EPIC-09_Onboarding_Governanca.md
+És o executor do ticket KAM-247 da KAMBÁ (o LiteLLM de prod sem base, e sem chaves virtuais).
+Lê specs/EPIC-03_Agent_Runtime_Verticais.md (blocos KAM-030 e KAM-247), specs/EPIC-09_Onboarding_Governanca.md
 (bloco KAM-233), docs/evidencia/KAM-233.md, infra/llm/chaves.py e infra/compose/docker-compose.prod.yml.
 Objectivo: a escolha do fundador entre a base do proxy e as chaves sem base, e a implementação dela.
 Regras: a escolha é do fundador e não se infere; nenhum passo à mão no encerramento; sem segredos.
@@ -5532,4 +5532,4 @@ Testes: contrato contra o duplo e o provisionamento, o reinício e a revogação
 | 1.25 | Novembro 2026 | KAM-224 (EPIC-11): o achado da `PortaDeSaida` do bloco do KAM-186 revisto — a saída do AGR é a `SaidaPorEvento`, pela decisão 2 do fundador de 2026-11-19, e o que falta para o WhatsApp em produção tem credor no **KAM-227**. Nenhuma caixa deste epic muda. | Equipa KAMBÁ |
 | 1.26 | Novembro 2026 | **Aresta recíproca, sem alteração de conteúdo:** o `Bloqueia` do KAM-030 ganha o **KAM-231** (EPIC-11), aberto no PR do KAM-119: a visão do catálogo do dono vai pelo alias `kamba-vision` do gateway. | Equipa KAMBÁ |
 | 1.27 | Novembro 2026 | KAM-232 (EPIC-11): o critério 2 do KAM-033 revisto — a linha da `agent_messages` em claro 90 dias e o corpo da `wa-inbound` com prazo de 24 h, por decisão do fundador de 2026-11-20; a primeira é excepção escrita à letra do critério. Nenhuma caixa muda. Sobre a 1.26 da `main` em `28bb7e88` | Equipa KAMBÁ |
-| 1.28 | Novembro 2026 | **KAM-241** acrescentado, no PR do **KAM-233** (EPIC-09), que o abre e não o implementa, pela decisão do fundador de 2026-11-21 (Q1 = A): o LiteLLM de `prod` arranca sem base e a imagem fixada não tem chaves virtuais sem ela (medido, `../docs/evidencia/KAM-233.md` §2). O `Bloqueia` do KAM-030 ganha-o. Número **provisório**: o maior da `main` mais um, medido na integração | Equipa KAMBÁ |
+| 1.28 | Novembro 2026 | **KAM-247** acrescentado, no PR do **KAM-233** (EPIC-09), que o abre e não o implementa, pela decisão do fundador de 2026-11-21 (Q1 = A): o LiteLLM de `prod` arranca sem base e a imagem fixada não tem chaves virtuais sem ela (medido, `../docs/evidencia/KAM-233.md` §2). O `Bloqueia` do KAM-030 ganha-o. Escrito como KAM-239 e depois KAM-241, e renumerado na integração contra a `main` em `25babeca` (o maior era o KAM-246) | Equipa KAMBÁ |

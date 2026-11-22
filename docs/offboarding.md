@@ -113,7 +113,7 @@ achou o limite maior:** o LiteLLM de `prod` arranca sem base de dados, e sem ela
 chaves virtuais (o `/key/generate` e o `/key/list` dão 500; o `/key/delete` sem base não se mediu, e a
 listagem que o confirma é um desses 500). **A fase falha alto:**
 pára no passo `chave_llm`, com o alerta da fase parada, e nenhum tenant de `prod` se encerra até ao
-credor **KAM-241** (a base do proxy, ou as chaves sem base — escolha do fundador). O
+credor **KAM-247** (a base do proxy, ou as chaves sem base — escolha do fundador). O
 `python infra/llm/chaves.py revogar <tenant>` continua, para correr à mão onde houver base.
 
 **Os telefones na exportação (KAM-233).** Pelas decisões do fundador de 2026-11-21 (Q2 = B) e de 2026-11-22
@@ -129,11 +129,12 @@ gates, o teste e a lista de espera do caso, as acções e as mudanças de telefo
 marca e o conteúdo, as ingestões do catálogo e os trabalhos de foto (revisão `0086`). O `kyc_check` e o
 `fraud_signals` ficam `retida`, com o motivo `branqueamento_sem_parecer`: a lei de prevenção do branqueamento pode
 pedir a retenção, e falta o parecer. O caso de onboarding fica `sem_caminho`, com o fundamento das três FK que lhe
-apontam (Q3b = A, 2026-11-22).
+apontam (Q3b = A, 2026-11-22), e de uma quarta desde a `0084` do KAM-236: o `onboarding_otp`, que não tem caminho de
+eliminação para ninguém (o que isso faz ao prazo do caso é do fundador, KAM-248).
 
 **O que falta** (credor **KAM-233**, com a razão de cada um no bloco dele): o OTP e a ligação ao e-mail do dono, e a
 entrega do certificado — não há agregador de SMS nem fornecedor de e-mail escolhidos (fundador, KAM-116 e KAM-115);
-a Medusa na revogação e o catálogo dela no pacote (a D3 por ratificar); o LiteLLM com base (**KAM-241**); o Chatwoot,
+a Medusa na revogação e o catálogo dela no pacote (a D3 por ratificar); o LiteLLM com base (**KAM-247**); o Chatwoot,
 os *traces*, as *caches* e o pedido aos fornecedores na purga; o *token* de cada WABA até ao contentor (o lançador
 do cofre, ADR-L002); e o simulacro em *staging*. A assinatura do certificado é HMAC, e não assimétrica.
 

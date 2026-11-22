@@ -12,7 +12,7 @@
 
 version: 1
 fonte: "specs/02_Dicionario_de_Dados_Canonico.md"
-versao_dicionario: "1.134"
+versao_dicionario: "1.138"
 entradas:
   - seccao: "3.1"
     conceito: "Contacto"
@@ -711,7 +711,7 @@ entradas:
     variantes_literais: []
   - seccao: "3.2"
     conceito: "Acções auditadas"
-    canonico: "action ∈ {price.update, stock.adjust, payment.manual_confirm, access.conversation, batch.run, breakglass.open, audit.read, privacy.dsar_recusado, privacy.dsar_rectificado, retention.hold_aplicado, retention.hold_levantado, order.refund_record, review.acesso, review.recusa, llm.orcamento_zerado, llm.orcamento_reposto, trust.tecto, secret.rotate, secret.revoke, order.contact_view}"
+    canonico: "action ∈ {price.update, stock.adjust, payment.manual_confirm, access.conversation, batch.run, breakglass.open, audit.read, privacy.dsar_recusado, privacy.dsar_rectificado, retention.hold_aplicado, retention.hold_levantado, order.refund_record, review.acesso, review.recusa, llm.orcamento_zerado, llm.orcamento_reposto, trust.tecto, secret.rotate, secret.revoke, order.contact_view, privacy.telefones_exportados}"
     literais:
       - "action"
       - "price.update"
@@ -734,6 +734,7 @@ entradas:
       - "secret.rotate"
       - "secret.revoke"
       - "order.contact_view"
+      - "privacy.telefones_exportados"
     nomes:
       - "action"
       - "price.update"
@@ -756,11 +757,13 @@ entradas:
       - "secret.rotate"
       - "secret.revoke"
       - "order.contact_view"
+      - "privacy.telefones_exportados"
     nomes_nota:
       - "kamba_identity"
-      - "order_id"
+      - "contact_id"
       - "entity_id"
       - "payload_hash"
+      - "order_id"
       - "entity"
       - "trust.tecto"
       - "order.refund_record"
@@ -1323,7 +1326,7 @@ entradas:
     variantes_literais: []
   - seccao: "3.5"
     conceito: "Tipos do Piloto"
-    canonico: "order.created, order.paid, order.expired, order.cancelled, order.delivered, payment.reference_issued, payment.confirmed, payment.manual_confirmed, payment.failed, payment.expired, review.requested, review.created, query.resolved, query.unresolved, query.handoff, tenant.approved, tenant.provisioned, tenant.activated, tenant.suspended, tenant.reactivated, tenant.closed, catalog.product_changed, catalog.price_changed, stock.reserved, stock.released, stock.adjusted, stock.low, consent.recorded, consent.withdrawn, privacy.erasure_requested, privacy.erasure_applied, channel.updated, channel.inactivity_warning, contact.merged, conversation.mode_changed, booking.created, booking.reminder_due, booking.cancelled, order.exception, order.refund_requested, screening.violation_detected, billing.cycle_paid, quote.requested, quote.sent, agent.replied"
+    canonico: "order.created, order.paid, order.expired, order.cancelled, order.delivered, payment.reference_issued, payment.confirmed, payment.manual_confirmed, payment.failed, payment.expired, review.requested, review.created, query.resolved, query.unresolved, query.handoff, tenant.approved, tenant.provisioned, tenant.activated, tenant.suspended, tenant.reactivated, tenant.closed, catalog.product_changed, catalog.price_changed, stock.reserved, stock.released, stock.adjusted, stock.low, consent.recorded, consent.withdrawn, privacy.erasure_requested, privacy.erasure_applied, channel.updated, channel.inactivity_warning, contact.merged, conversation.mode_changed, booking.created, booking.reminder_due, booking.cancelled, order.exception, order.refund_requested, screening.violation_detected, billing.cycle_paid, quote.requested, quote.sent, agent.replied, content.approved"
     literais:
       - "order.created"
       - "order.paid"
@@ -1370,6 +1373,7 @@ entradas:
       - "quote.requested"
       - "quote.sent"
       - "agent.replied"
+      - "content.approved"
     nomes:
       - "order.created"
       - "order.paid"
@@ -1416,7 +1420,15 @@ entradas:
       - "quote.requested"
       - "quote.sent"
       - "agent.replied"
+      - "content.approved"
     nomes_nota:
+      - "content.approved"
+      - "content_item"
+      - "content_item_id"
+      - "versao"
+      - "content_items.versao"
+      - "aprovado"
+      - "hash"
       - "agent.replied"
       - "conversation"
       - "conversation_id"
@@ -1462,7 +1474,7 @@ entradas:
     variantes_literais: []
   - seccao: "3.5"
     conceito: "Campos de payload dos eventos"
-    canonico: "order_id, review_id, numero_publico, sku, qty, linhas, currency, nota, motivo, entrega_modo, entrega_confirmada_por, paga_via, expira_at, autenticacao, authn_ok, provider_event_id, plano, evento_pagamento_id, subscription_id, periodo_inicio, periodo_fim, kyc_nivel, tecto_inicial_minor, intervencao_humana, quote_id, quantidade, validade_ate, reply_id, canal"
+    canonico: "order_id, review_id, numero_publico, sku, qty, linhas, currency, nota, motivo, entrega_modo, entrega_confirmada_por, paga_via, expira_at, autenticacao, authn_ok, provider_event_id, plano, evento_pagamento_id, subscription_id, periodo_inicio, periodo_fim, kyc_nivel, tecto_inicial_minor, intervencao_humana, quote_id, quantidade, validade_ate, reply_id, canal, content_item_id"
     literais:
       - "order_id"
       - "review_id"
@@ -1493,6 +1505,7 @@ entradas:
       - "validade_ate"
       - "reply_id"
       - "canal"
+      - "content_item_id"
     nomes:
       - "order_id"
       - "review_id"
@@ -1523,7 +1536,10 @@ entradas:
       - "validade_ate"
       - "reply_id"
       - "canal"
+      - "content_item_id"
     nomes_nota:
+      - "content_item_id"
+      - "versao"
       - "reply_id"
       - "canal"
       - "quote_id"
@@ -13132,7 +13148,7 @@ entradas:
     variantes_literais: []
   - seccao: "3.49"
     conceito: "Finalidade de uma transferência"
-    canonico: "tenant_destinations.purpose ∈ {alojamento, canal, classificacao_de_catalogo, classificacao_de_condicoes, classificacao_de_conteudo, conversa, copias_de_seguranca, embeddings, entrega_de_conteudo, facturacao, imagem, observabilidade, otp_e_avisos_de_servico, pagamentos, segredos, transcricao, visao}"
+    canonico: "tenant_destinations.purpose ∈ {alojamento, canal, classificacao_de_catalogo, classificacao_de_condicoes, classificacao_de_conteudo, conversa, copias_de_seguranca, embeddings, entrega_de_conteudo, facturacao, geracao_de_imagem, imagem, observabilidade, otp_e_avisos_de_servico, pagamentos, segredos, transcricao, visao}"
     literais:
       - "tenant_destinations.purpose"
       - "alojamento"
@@ -13145,6 +13161,7 @@ entradas:
       - "embeddings"
       - "entrega_de_conteudo"
       - "facturacao"
+      - "geracao_de_imagem"
       - "imagem"
       - "observabilidade"
       - "otp_e_avisos_de_servico"
@@ -13164,6 +13181,7 @@ entradas:
       - "embeddings"
       - "entrega_de_conteudo"
       - "facturacao"
+      - "geracao_de_imagem"
       - "imagem"
       - "observabilidade"
       - "otp_e_avisos_de_servico"
@@ -13176,6 +13194,8 @@ entradas:
       - "classificacao_de_catalogo"
       - "classificacao_de_condicoes"
       - "classificacao_de_conteudo"
+      - "geracao_de_imagem"
+      - "social_do_dono"
       - "finalidade_das_condicoes"
       - "finalidade_do_screening"
       - "foto_de_produtos"
@@ -13184,7 +13204,8 @@ entradas:
       - "embeddings"
       - "FINALIDADES_ESCOLHIVEIS"
       - "social"
-      - "social_do_dono"
+      - "arte_e_aprovacao_do_social"
+      - "downgrade"
       - "FINALIDADES"
       - "otp_e_avisos_de_servico"
       - "FINALIDADE"
@@ -14674,7 +14695,7 @@ entradas:
     variantes_literais: []
   - seccao: "3.55"
     conceito: "Motivo de uma unidade sem ok"
-    canonico: "purge_log.motivo ∈ {fiscal_sem_prazo, fiscal_imutavel, hold_tenant, hold_contacto, sem_caminho, particao_por_criar, erro}"
+    canonico: "purge_log.motivo ∈ {fiscal_sem_prazo, fiscal_imutavel, hold_tenant, hold_contacto, sem_caminho, particao_por_criar, erro, branqueamento_sem_parecer}"
     literais:
       - "purge_log.motivo"
       - "fiscal_sem_prazo"
@@ -14684,6 +14705,7 @@ entradas:
       - "sem_caminho"
       - "particao_por_criar"
       - "erro"
+      - "branqueamento_sem_parecer"
     nomes:
       - "ok"
       - "purge_log.motivo"
@@ -14694,9 +14716,13 @@ entradas:
       - "sem_caminho"
       - "particao_por_criar"
       - "erro"
+      - "branqueamento_sem_parecer"
     nomes_nota:
       - "ok"
       - "CHECK"
+      - "kyc_check"
+      - "fraud_signals"
+      - "retida"
     variantes_literais: []
   - seccao: "3.55"
     conceito: "Hold legal no registo de auditoria"
@@ -15148,9 +15174,9 @@ entradas:
     variantes_literais: []
   - seccao: "3.57"
     conceito: "Caso de onboarding"
-    canonico: "platform.onboarding_case(id, tenant_id, fase, fase_at, origem, nome_negocio, categoria_declarada, nif_enc, nif_hmac, phone_enc, phone_hmac, email_enc, device_hash, ip_prefix_hash, flags, owner_active_seconds, preflight, criado_at, activo_at)"
+    canonico: "platform.onboarding_case(id, tenant_id, fase, fase_at, origem, nome_negocio, categoria_declarada, nif_enc, nif_hmac, phone_enc, phone_hmac, email_enc, device_hash, ip_prefix_hash, flags, owner_active_seconds, preflight, criado_at, activo_at, chave_idem)"
     literais:
-      - "platform.onboarding_case(id, tenant_id, fase, fase_at, origem, nome_negocio, categoria_declarada, nif_enc, nif_hmac, phone_enc, phone_hmac, email_enc, device_hash, ip_prefix_hash, flags, owner_active_seconds, preflight, criado_at, activo_at)"
+      - "platform.onboarding_case(id, tenant_id, fase, fase_at, origem, nome_negocio, categoria_declarada, nif_enc, nif_hmac, phone_enc, phone_hmac, email_enc, device_hash, ip_prefix_hash, flags, owner_active_seconds, preflight, criado_at, activo_at, chave_idem)"
     nomes:
       - "platform.onboarding_case"
       - "id"
@@ -15172,7 +15198,9 @@ entradas:
       - "preflight"
       - "criado_at"
       - "activo_at"
+      - "chave_idem"
     nomes_nota:
+      - "chave_idem"
       - "fase"
       - "estado"
       - "preflight"
@@ -17105,6 +17133,154 @@ entradas:
     nomes_nota:
       - "review_case"
       - "review_case.tipo"
+    variantes_literais: []
+  - seccao: "3.63"
+    conceito: "Fonte da foto do dono"
+    canonico: "FonteDoMed, ler_asset, SQL_ASSET, SQL_OBJECTO_DA_MEDIA"
+    literais:
+      - "FonteDoMed"
+      - "ler_asset"
+      - "SQL_ASSET"
+      - "SQL_OBJECTO_DA_MEDIA"
+    nomes:
+      - "FonteDoMed"
+      - "ler_asset"
+      - "SQL_ASSET"
+      - "SQL_OBJECTO_DA_MEDIA"
+    nomes_nota:
+      - "FonteDeMedia"
+      - "platform.media_assets"
+      - "asset_id"
+      - "ler_asset"
+      - "media_id"
+      - "catalog_ingestions_media_uq"
+      - "kamba_app"
+      - "tenant_id"
+      - "armazenado"
+      - "media_imagem"
+    variantes_literais: []
+  - seccao: "3.63"
+    conceito: "Descodificador de produção"
+    canonico: "DescodificadorPillow, LADO_DA_ANALISE = 512, PIXEIS_MAXIMOS = 50 000 000"
+    literais:
+      - "DescodificadorPillow"
+      - "LADO_DA_ANALISE"
+      - "PIXEIS_MAXIMOS"
+    nomes:
+      - "DescodificadorPillow"
+      - "LADO_DA_ANALISE"
+      - "PIXEIS_MAXIMOS"
+    nomes_nota:
+      - "LADO_MINIMO"
+    variantes_literais: []
+  - seccao: "3.63"
+    conceito: "Imagem limpa"
+    canonico: "ImagemLimpa, ImagemComMetadados"
+    literais:
+      - "ImagemLimpa"
+      - "ImagemComMetadados"
+    nomes:
+      - "ImagemLimpa"
+      - "ImagemComMetadados"
+    nomes_nota:
+      - "limpar_metadados"
+      - "tem_metadados"
+    variantes_literais: []
+  - seccao: "3.63"
+    conceito: "Visão do catálogo"
+    canonico: "o método ver do ClienteDeLlm, PAPEL_DA_VISAO = vision, INSTRUCAO_DA_VISAO, VisaoPeloGateway, TECTO_DA_VISAO_S = 18"
+    literais:
+      - "ver"
+      - "ClienteDeLlm"
+      - "PAPEL_DA_VISAO"
+      - "vision"
+      - "INSTRUCAO_DA_VISAO"
+      - "VisaoPeloGateway"
+      - "TECTO_DA_VISAO_S"
+    nomes:
+      - "ver"
+      - "ClienteDeLlm"
+      - "PAPEL_DA_VISAO"
+      - "vision"
+      - "INSTRUCAO_DA_VISAO"
+      - "VisaoPeloGateway"
+      - "TECTO_DA_VISAO_S"
+    nomes_nota:
+      - "vision"
+      - "visao"
+      - "ImagemLimpa"
+      - "dat.llm_call_log"
+      - "custo_llm_usd"
+    variantes_literais: []
+  - seccao: "3.63"
+    conceito: "Entrada da foto no arranque do AGR"
+    canonico: "EntradaDaFoto, SEGREDOS_DO_STO"
+    literais:
+      - "EntradaDaFoto"
+      - "SEGREDOS_DO_STO"
+    nomes:
+      - "EntradaDaFoto"
+      - "SEGREDOS_DO_STO"
+    nomes_nota:
+      - "staging"
+      - "prod"
+      - "dev"
+    variantes_literais: []
+  - seccao: "3.63"
+    conceito: "Aviso antes da foto"
+    canonico: "MSG_A_PREPARAR, SEQ_DO_AVISO = 1"
+    literais:
+      - "MSG_A_PREPARAR"
+      - "SEQ_DO_AVISO"
+    nomes:
+      - "MSG_A_PREPARAR"
+      - "SEQ_DO_AVISO"
+    nomes_nota:
+      - "create_product_draft"
+      - "turn_id"
+      - "send"
+    variantes_literais: []
+  - seccao: "3.63"
+    conceito: "Oferta de melhorar a foto"
+    canonico: "EnhancePorEntitlement, MODULO_DA_FOTO = foto"
+    literais:
+      - "EnhancePorEntitlement"
+      - "MODULO_DA_FOTO"
+      - "foto"
+    nomes:
+      - "EnhancePorEntitlement"
+      - "MODULO_DA_FOTO"
+      - "foto"
+    nomes_nota:
+      - "ImageEnhancePort"
+      - "foto"
+      - "enhance_image"
+    variantes_literais: []
+  - seccao: "3.63"
+    conceito: "Quantidade na publicação"
+    canonico: "o campo stock do pedido de publicação ao COM"
+    literais:
+      - "stock"
+    nomes:
+      - "stock"
+    nomes_nota:
+      - "ajustarStock"
+      - "stock.adjusted"
+    variantes_literais: []
+  - seccao: "3.63"
+    conceito: "Indicadores por tenant"
+    canonico: "ler_do_tenant, primeira_foto_ate_primeiro_publicado, SQL_PUBLICADAS_DO_TENANT, SQL_INSTANTES_DO_TENANT"
+    literais:
+      - "ler_do_tenant"
+      - "primeira_foto_ate_primeiro_publicado"
+      - "SQL_PUBLICADAS_DO_TENANT"
+      - "SQL_INSTANTES_DO_TENANT"
+    nomes:
+      - "ler_do_tenant"
+      - "primeira_foto_ate_primeiro_publicado"
+      - "SQL_PUBLICADAS_DO_TENANT"
+      - "SQL_INSTANTES_DO_TENANT"
+    nomes_nota: []
     variantes_literais: []
   - seccao: "3.64"
     conceito: "Papel do consumidor do PAY"
@@ -20318,10 +20494,10 @@ entradas:
     variantes_literais: []
   - seccao: "3.77"
     conceito: "O pacote do titular"
-    canonico: "manifesto com VERSAO_DO_MANIFESTO = 1.2.0, num ZIP reproduzível na classe dsar do STO"
+    canonico: "manifesto com VERSAO_DO_MANIFESTO = 1.3.0, num ZIP reproduzível na classe dsar do STO"
     literais:
       - "VERSAO_DO_MANIFESTO"
-      - "1.2.0"
+      - "1.3.0"
       - "dsar"
     nomes:
       - "VERSAO_DO_MANIFESTO"
@@ -20335,6 +20511,33 @@ entradas:
       - "contract_acceptance"
       - "catalogo"
       - "indisponivel"
+      - "telefones"
+    variantes_literais: []
+  - seccao: "3.77"
+    conceito: "Os telefones para a exportação"
+    canonico: "telefonesPeloCofre, a porta PortaDosTelefones, a colecção telefones num objecto da classe dsar, com três campos por linha: o contact_id, a finalidade e o telefone em claro"
+    literais:
+      - "telefonesPeloCofre"
+      - "PortaDosTelefones"
+      - "telefones"
+      - "dsar"
+      - "contact_id"
+      - "finalidade"
+    nomes:
+      - "telefonesPeloCofre"
+      - "PortaDosTelefones"
+      - "telefones"
+      - "dsar"
+      - "contact_id"
+      - "finalidade"
+    nomes_nota:
+      - "pendentes"
+      - "onboarding"
+      - "lote"
+      - "kamba_identity"
+      - "lerEndpoints"
+      - "antes"
+      - "privacy.telefones_exportados"
     variantes_literais: []
   - seccao: "3.77"
     conceito: "A ligação de 24 h"
@@ -20364,6 +20567,11 @@ entradas:
       - "sem_caminho"
       - "ok"
       - "apagar_contactos"
+      - "tenant_id"
+      - "kyc_check"
+      - "screening_decision"
+      - "review_case"
+      - "onboarding_otp"
     variantes_literais: []
   - seccao: "3.77"
     conceito: "O certificado de eliminação"
@@ -20467,18 +20675,96 @@ entradas:
     variantes_literais: []
   - seccao: "3.77"
     conceito: "Revogação da chave do LiteLLM"
-    canonico: "o comando revogar do ../infra/llm/chaves.py, pelo alias tenant-<uuid>"
+    canonico: "ChaveDoLlmPeloProxy, o revogarDoTenant pelo alias tenant-<uuid> (aliasDaChaveDoTenant); à mão, o comando revogar do ../infra/llm/chaves.py"
     literais:
-      - "revogar"
+      - "ChaveDoLlmPeloProxy"
+      - "revogarDoTenant"
       - "tenant-<uuid>"
-    nomes:
+      - "aliasDaChaveDoTenant"
       - "revogar"
+    nomes:
+      - "ChaveDoLlmPeloProxy"
+      - "revogarDoTenant"
       - "tenant"
       - "uuid"
+      - "aliasDaChaveDoTenant"
+      - "revogar"
     nomes_nota:
-      - "provisionar"
+      - "chave_llm"
+      - "revogacao"
+      - "chaves.py"
       - "revogada"
       - "inexistente"
+      - "deleted_keys"
+      - "prod"
+    variantes_literais: []
+  - seccao: "3.77"
+    conceito: "A conta de atendimento arquivada"
+    canonico: "o archiveAccount do HandoffProvider, arquivarContaDoTenant, ArquivoDoChatwoot, ESTADO_DA_CONTA_ARQUIVADA = suspended"
+    literais:
+      - "archiveAccount"
+      - "HandoffProvider"
+      - "arquivarContaDoTenant"
+      - "ArquivoDoChatwoot"
+      - "ESTADO_DA_CONTA_ARQUIVADA"
+      - "suspended"
+    nomes:
+      - "archiveAccount"
+      - "HandoffProvider"
+      - "arquivarContaDoTenant"
+      - "ArquivoDoChatwoot"
+      - "ESTADO_DA_CONTA_ARQUIVADA"
+      - "suspended"
+    nomes_nota:
+      - "handoff_accounts"
+      - "chatwoot_platform_token"
+      - "arquivada"
+      - "inexistente"
+      - "sem_conta"
+    variantes_literais: []
+  - seccao: "3.77"
+    conceito: "Os passos da revogação"
+    canonico: "PASSOS_DA_REVOGACAO: chave_llm, canal_comercio, inbox, conta_atendimento, entitlements, canais, sessoes_do_painel, encerramento"
+    literais:
+      - "PASSOS_DA_REVOGACAO"
+      - "chave_llm"
+      - "canal_comercio"
+      - "inbox"
+      - "conta_atendimento"
+      - "entitlements"
+      - "canais"
+      - "sessoes_do_painel"
+      - "encerramento"
+    nomes:
+      - "PASSOS_DA_REVOGACAO"
+      - "chave_llm"
+      - "canal_comercio"
+      - "inbox"
+      - "conta_atendimento"
+      - "entitlements"
+      - "canais"
+      - "sessoes_do_painel"
+      - "encerramento"
+    nomes_nota:
+      - "concluido"
+      - "inexistente"
+      - "sem_recurso"
+    variantes_literais: []
+  - seccao: "3.77"
+    conceito: "A rede da revogação"
+    canonico: "KAMBA_LLM_PROXY_URL e KAMBA_CHATWOOT_URL no onboarding-lote"
+    literais:
+      - "KAMBA_LLM_PROXY_URL"
+      - "KAMBA_CHATWOOT_URL"
+      - "onboarding-lote"
+    nomes:
+      - "KAMBA_LLM_PROXY_URL"
+      - "KAMBA_CHATWOOT_URL"
+      - "onboarding"
+      - "lote"
+    nomes_nota:
+      - "litellm_master_key"
+      - "chatwoot_platform_token"
     variantes_literais: []
   - seccao: "3.78"
     conceito: "Papel do contacto"
@@ -20598,6 +20884,7 @@ entradas:
       - "vers"
       - "do"
       - "resumo"
+      - "hash"
     variantes_literais: []
   - seccao: "3.78"
     conceito: "Estado de uma acção"
@@ -21462,7 +21749,7 @@ entradas:
     variantes_literais: []
   - seccao: "3.79"
     conceito: "Dispensa do passo 4"
-    canonico: "DISPENSAS_DO_PASSO_4 = (submit_quote, create_product_draft, update_brand_profile, generate_calendar, generate_caption); EspecificacaoDeTool.confirmacao_dispensada"
+    canonico: "DISPENSAS_DO_PASSO_4 = (submit_quote, create_product_draft, update_brand_profile, generate_calendar, generate_caption, generate_art, request_approval, reject_content, deliver_content); EspecificacaoDeTool.confirmacao_dispensada"
     literais:
       - "DISPENSAS_DO_PASSO_4"
       - "submit_quote"
@@ -21470,6 +21757,10 @@ entradas:
       - "update_brand_profile"
       - "generate_calendar"
       - "generate_caption"
+      - "generate_art"
+      - "request_approval"
+      - "reject_content"
+      - "deliver_content"
       - "EspecificacaoDeTool.confirmacao_dispensada"
     nomes:
       - "DISPENSAS_DO_PASSO_4"
@@ -21478,6 +21769,10 @@ entradas:
       - "update_brand_profile"
       - "generate_calendar"
       - "generate_caption"
+      - "generate_art"
+      - "request_approval"
+      - "reject_content"
+      - "deliver_content"
       - "EspecificacaoDeTool.confirmacao_dispensada"
     nomes_nota:
       - "write"
@@ -21488,6 +21783,20 @@ entradas:
       - "create_product_draft"
       - "publish_product"
       - "rascunho"
+      - "approve_content"
+      - "aprovar_conteudo"
+    variantes_literais: []
+  - seccao: "3.79"
+    conceito: "Tecto de uma tool"
+    canonico: "TECTOS_POR_TOOL = {create_product_draft: 25 000 ms}"
+    literais:
+      - "TECTOS_POR_TOOL"
+      - "create_product_draft"
+    nomes:
+      - "TECTOS_POR_TOOL"
+      - "create_product_draft"
+    nomes_nota:
+      - "write"
     variantes_literais: []
   - seccao: "3.79"
     conceito: "Botão do pedido de orçamento"
@@ -21730,6 +22039,98 @@ entradas:
       - "botao"
       - "mensagem_do_cliente"
       - "invocacao_invalida"
+    variantes_literais: []
+  - seccao: "3.81"
+    conceito: "Referência da foto na invocação"
+    canonico: "agent_invocation.asset_id"
+    literais:
+      - "agent_invocation.asset_id"
+    nomes:
+      - "agent_invocation.asset_id"
+    nomes_nota:
+      - "message_id"
+      - "platform.media_assets"
+      - "image"
+      - "dono"
+      - "dependentSchemas"
+      - "armazenado"
+      - "create_product_draft"
+      - "media_id"
+    variantes_literais:
+      - "media_id"
+  - seccao: "3.81"
+    conceito: "A recepção da média no CHR"
+    canonico: "RecepcaoDeMidia; os campos mediaId e mimeAnunciado do EventoDeEntrada"
+    literais:
+      - "RecepcaoDeMidia"
+      - "mediaId"
+      - "mimeAnunciado"
+      - "EventoDeEntrada"
+    nomes:
+      - "RecepcaoDeMidia"
+      - "mediaId"
+      - "mimeAnunciado"
+      - "EventoDeEntrada"
+    nomes_nota:
+      - "image.id"
+      - "mime_type"
+      - "image"
+      - "dono"
+      - "wa"
+      - "inbound"
+      - "asset_id"
+    variantes_literais: []
+  - seccao: "3.81"
+    conceito: "O cliente de média da Meta"
+    canonico: "ClienteDeMidiaDaGraph, ANFITRIOES_DA_DESCARGA, ESPERA_MAXIMA_DA_MIDIA_MS = 30 000"
+    literais:
+      - "ClienteDeMidiaDaGraph"
+      - "ANFITRIOES_DA_DESCARGA"
+      - "ESPERA_MAXIMA_DA_MIDIA_MS"
+    nomes:
+      - "ClienteDeMidiaDaGraph"
+      - "ANFITRIOES_DA_DESCARGA"
+      - "ESPERA_MAXIMA_DA_MIDIA_MS"
+    nomes_nota:
+      - "ClienteDeMidia"
+      - "media_id"
+      - "lookaside.fbsbx.com"
+      - "MidiaIndisponivelError"
+    variantes_literais: []
+  - seccao: "3.81"
+    conceito: "O token da foto"
+    canonico: "tokenDaConversa, SQL_TOKEN_REF_DA_CONVERSA"
+    literais:
+      - "tokenDaConversa"
+      - "SQL_TOKEN_REF_DA_CONVERSA"
+    nomes:
+      - "tokenDaConversa"
+      - "SQL_TOKEN_REF_DA_CONVERSA"
+    nomes_nota:
+      - "conversations.channel_id"
+      - "tenant_channels.token_ref"
+      - "kek_token_cliente"
+    variantes_literais: []
+  - seccao: "3.81"
+    conceito: "O MED no worker-canal-entrada"
+    canonico: "midiaDaEntrada, ambienteDaMidia, sqlDoTenant"
+    literais:
+      - "midiaDaEntrada"
+      - "ambienteDaMidia"
+      - "sqlDoTenant"
+    nomes:
+      - "worker"
+      - "canal"
+      - "entrada"
+      - "midiaDaEntrada"
+      - "ambienteDaMidia"
+      - "sqlDoTenant"
+    nomes_nota:
+      - "kek_token_cliente"
+      - "staging"
+      - "prod"
+      - "dev"
+      - "asset_id"
     variantes_literais: []
   - seccao: "3.81"
     conceito: "O turno do painel"
@@ -22030,9 +22431,9 @@ entradas:
     variantes_literais: []
   - seccao: "3.82"
     conceito: "Perfil de marca"
-    canonico: "platform.brand_profile(tenant_id, nome, categoria, tom, cores, publico, slots_preferidos, factos, logo_asset_id, idioma, versao, criado_at, atualizado_at)"
+    canonico: "platform.brand_profile(tenant_id, nome, categoria, tom, cores, publico, slots_preferidos, factos, logo_asset_id, idioma, versao, criado_at, atualizado_at, termos_entrega_at)"
     literais:
-      - "platform.brand_profile(tenant_id, nome, categoria, tom, cores, publico, slots_preferidos, factos, logo_asset_id, idioma, versao, criado_at, atualizado_at)"
+      - "platform.brand_profile(tenant_id, nome, categoria, tom, cores, publico, slots_preferidos, factos, logo_asset_id, idioma, versao, criado_at, atualizado_at, termos_entrega_at)"
     nomes:
       - "platform.brand_profile"
       - "tenant_id"
@@ -22048,7 +22449,9 @@ entradas:
       - "versao"
       - "criado_at"
       - "atualizado_at"
+      - "termos_entrega_at"
     nomes_nota:
+      - "termos_entrega_at"
       - "FORCE"
       - "categoria"
       - "NULL"
@@ -22151,9 +22554,9 @@ entradas:
     variantes_literais: []
   - seccao: "3.82"
     conceito: "Item de conteúdo"
-    canonico: "platform.content_items(content_item_id, tenant_id, calendar_id, semana_iso, tipo, tema, legenda, art_asset_id, estado, is_ai_generated, revisao_reforcada, versao_politica, versao, agendado_at, criado_at, atualizado_at)"
+    canonico: "platform.content_items(content_item_id, tenant_id, calendar_id, semana_iso, tipo, tema, legenda, art_asset_id, estado, is_ai_generated, revisao_reforcada, versao_politica, versao, agendado_at, criado_at, atualizado_at, arte_ref, arte_sha256, arte_fundo, arte_tentativas, arte_custo_usd, aprovacao_hash, aprovado_at, entregue_at, arte_texto, arte_formato)"
     literais:
-      - "platform.content_items(content_item_id, tenant_id, calendar_id, semana_iso, tipo, tema, legenda, art_asset_id, estado, is_ai_generated, revisao_reforcada, versao_politica, versao, agendado_at, criado_at, atualizado_at)"
+      - "platform.content_items(content_item_id, tenant_id, calendar_id, semana_iso, tipo, tema, legenda, art_asset_id, estado, is_ai_generated, revisao_reforcada, versao_politica, versao, agendado_at, criado_at, atualizado_at, arte_ref, arte_sha256, arte_fundo, arte_tentativas, arte_custo_usd, aprovacao_hash, aprovado_at, entregue_at, arte_texto, arte_formato)"
     nomes:
       - "platform.content_items"
       - "content_item_id"
@@ -22172,6 +22575,16 @@ entradas:
       - "agendado_at"
       - "criado_at"
       - "atualizado_at"
+      - "arte_ref"
+      - "arte_sha256"
+      - "arte_fundo"
+      - "arte_tentativas"
+      - "arte_custo_usd"
+      - "aprovacao_hash"
+      - "aprovado_at"
+      - "entregue_at"
+      - "arte_texto"
+      - "arte_formato"
     nomes_nota:
       - "rascunho"
       - "is_ai_generated"
@@ -22225,6 +22638,7 @@ entradas:
       - "rascunho"
       - "rejeitado"
       - "expirado"
+      - "content_items_transicao"
     variantes_literais: []
   - seccao: "3.82"
     conceito: "Revisão reforçada"
@@ -22392,6 +22806,597 @@ entradas:
     nomes_nota:
       - "geracao.py"
       - "faltam_factos"
+    variantes_literais: []
+  - seccao: "3.82"
+    conceito: "Arte de um item"
+    canonico: "content_items.arte_ref"
+    literais:
+      - "content_items.arte_ref"
+    nomes:
+      - "content_items.arte_ref"
+    nomes_nota:
+      - "content_items_arte_ref_ck"
+      - "art_asset_id"
+      - "image_jobs"
+    variantes_literais: []
+  - seccao: "3.82"
+    conceito: "Resumo da arte"
+    canonico: "content_items.arte_sha256"
+    literais:
+      - "content_items.arte_sha256"
+    nomes:
+      - "content_items.arte_sha256"
+    nomes_nota:
+      - "content_items_arte_sha256_ck"
+    variantes_literais: []
+  - seccao: "3.82"
+    conceito: "Fundo da arte"
+    canonico: "content_items.arte_fundo ∈ {gerado, gradiente}"
+    literais:
+      - "content_items.arte_fundo"
+      - "gerado"
+      - "gradiente"
+    nomes:
+      - "content_items.arte_fundo"
+      - "gerado"
+      - "gradiente"
+    nomes_nota:
+      - "gerado"
+      - "geracao_de_imagem"
+      - "gradiente"
+      - "CHECK"
+      - "IN"
+      - "content_items_arte_completa_ck"
+    variantes_literais: []
+  - seccao: "3.82"
+    conceito: "Texto da arte"
+    canonico: "content_items.arte_texto, de 1 a 600 caracteres"
+    literais:
+      - "content_items.arte_texto"
+    nomes:
+      - "content_items.arte_texto"
+    nomes_nota:
+      - "content_items_arte_texto_ck"
+      - "request_approval"
+      - "approve_content"
+      - "arte_desactualizada"
+      - "aprovado"
+      - "entregue"
+    variantes_literais: []
+  - seccao: "3.82"
+    conceito: "Formato da arte"
+    canonico: "content_items.arte_formato ∈ {quadrado, retrato}"
+    literais:
+      - "content_items.arte_formato"
+      - "quadrado"
+      - "retrato"
+    nomes:
+      - "content_items.arte_formato"
+      - "quadrado"
+      - "retrato"
+    nomes_nota:
+      - "content_items_arte_formato_ck"
+    variantes_literais: []
+  - seccao: "3.82"
+    conceito: "Tentativas de arte"
+    canonico: "content_items.arte_tentativas, de 0 a 3"
+    literais:
+      - "content_items.arte_tentativas"
+    nomes:
+      - "content_items.arte_tentativas"
+    nomes_nota:
+      - "MAXIMO_DE_TENTATIVAS"
+      - "ALERTA_DE_CUSTO_A_PARTIR_DE"
+    variantes_literais: []
+  - seccao: "3.82"
+    conceito: "Custo da arte"
+    canonico: "content_items.arte_custo_usd, numeric(12, 6), não negativo"
+    literais:
+      - "content_items.arte_custo_usd"
+      - "numeric(12, 6)"
+    nomes:
+      - "content_items.arte_custo_usd"
+      - "numeric"
+    nomes_nota:
+      - "module_cost_ledger"
+    variantes_literais: []
+  - seccao: "3.82"
+    conceito: "Aprovação de um item"
+    canonico: "content_items.aprovacao_hash e content_items.aprovado_at"
+    literais:
+      - "content_items.aprovacao_hash"
+      - "content_items.aprovado_at"
+    nomes:
+      - "content_items.aprovacao_hash"
+      - "content_items.aprovado_at"
+    nomes_nota:
+      - "hash"
+      - "legenda"
+      - "arte"
+      - "versao"
+      - "hash_da_aprovacao"
+      - "content_items_pendente_ck"
+      - "pendente_aprovacao"
+      - "content_items_aprovado_ck"
+      - "aprovado"
+      - "entregue"
+    variantes_literais: []
+  - seccao: "3.82"
+    conceito: "Entrega de um item"
+    canonico: "content_items.entregue_at"
+    literais:
+      - "content_items.entregue_at"
+    nomes:
+      - "content_items.entregue_at"
+    nomes_nota:
+      - "content_items_entregue_ck"
+      - "entregue"
+    variantes_literais: []
+  - seccao: "3.82"
+    conceito: "Máquina de estados do item"
+    canonico: "trigger content_items_transicao, pela função platform.content_items_transicao()"
+    literais:
+      - "content_items_transicao"
+      - "platform.content_items_transicao()"
+    nomes:
+      - "content_items_transicao"
+      - "platform.content_items_transicao"
+    nomes_nota:
+      - "BEFORE"
+      - "UPDATE"
+      - "rascunho"
+      - "pendente_aprovacao"
+      - "rejeitado"
+      - "expirado"
+      - "aprovado"
+      - "entregue"
+      - "TRANSICOES"
+    variantes_literais: []
+  - seccao: "3.82"
+    conceito: "Escritas da arte e da aprovação"
+    canonico: "o kamba_app com UPDATE das dez colunas e da brand_profile.termos_entrega_at"
+    literais:
+      - "kamba_app"
+      - "UPDATE"
+      - "brand_profile.termos_entrega_at"
+    nomes:
+      - "kamba_app"
+      - "UPDATE"
+      - "brand_profile.termos_entrega_at"
+    nomes_nota:
+      - "INSERT"
+      - "DELETE"
+    variantes_literais: []
+  - seccao: "3.82"
+    conceito: "Termos da primeira entrega"
+    canonico: "brand_profile.termos_entrega_at"
+    literais:
+      - "brand_profile.termos_entrega_at"
+    nomes:
+      - "brand_profile.termos_entrega_at"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.82"
+    conceito: "Classe da arte no STO"
+    canonico: "arte (CLASSE_DA_ARTE), com RETENCAO_DA_ARTE"
+    literais:
+      - "arte"
+      - "CLASSE_DA_ARTE"
+      - "RETENCAO_DA_ARTE"
+    nomes:
+      - "arte"
+      - "CLASSE_DA_ARTE"
+      - "RETENCAO_DA_ARTE"
+    nomes_nota:
+      - "StoragePorLigar"
+    variantes_literais: []
+  - seccao: "3.82"
+    conceito: "Finalidade do fundo gerado"
+    canonico: "geracao_de_imagem, em tenant_destinations.purpose (§3.49)"
+    literais:
+      - "geracao_de_imagem"
+      - "tenant_destinations.purpose"
+    nomes:
+      - "geracao_de_imagem"
+      - "tenant_destinations.purpose"
+    nomes_nota:
+      - "descricao_do_fundo"
+      - "TENTATIVAS_DO_FUNDO"
+    variantes_literais: []
+  - seccao: "3.82"
+    conceito: "OCR dos fundos"
+    canonico: "TesseractOcr, OcrIndisponivelError, MINIMO_DE_CARACTERES"
+    literais:
+      - "TesseractOcr"
+      - "OcrIndisponivelError"
+      - "MINIMO_DE_CARACTERES"
+    nomes:
+      - "TesseractOcr"
+      - "OcrIndisponivelError"
+      - "MINIMO_DE_CARACTERES"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.82"
+    conceito: "Compositor das artes"
+    canonico: "TEMPLATES, TIPOS_DE_NEGOCIO, FORMATOS"
+    literais:
+      - "TEMPLATES"
+      - "TIPOS_DE_NEGOCIO"
+      - "FORMATOS"
+    nomes:
+      - "TEMPLATES"
+      - "TIPOS_DE_NEGOCIO"
+      - "FORMATOS"
+    nomes_nota:
+      - "faltam_factos"
+      - "kz_display"
+    variantes_literais: []
+  - seccao: "3.82"
+    conceito: "Desenho da arte"
+    canonico: "RenderizadorPillow, preservar_marcas"
+    literais:
+      - "RenderizadorPillow"
+      - "preservar_marcas"
+    nomes:
+      - "RenderizadorPillow"
+      - "preservar_marcas"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.82"
+    conceito: "Tool da arte"
+    canonico: "generate_art (tool generate_art)"
+    literais:
+      - "generate_art"
+    nomes:
+      - "generate_art"
+    nomes_nota:
+      - "write"
+      - "social"
+      - "referencia"
+      - "formato"
+      - "nova"
+      - "pendente_aprovacao"
+      - "imagens_mes"
+      - "sem_imagens"
+    variantes_literais: []
+  - seccao: "3.82"
+    conceito: "Tool do pedido de aprovação"
+    canonico: "request_approval (tool request_approval)"
+    literais:
+      - "request_approval"
+    nomes:
+      - "request_approval"
+    nomes_nota:
+      - "write"
+      - "pendente_aprovacao"
+      - "aprovar_conteudo"
+      - "legenda"
+      - "condicional"
+      - "arte_desactualizada"
+    variantes_literais: []
+  - seccao: "3.82"
+    conceito: "Tool da aprovação"
+    canonico: "approve_content (tool approve_content)"
+    literais:
+      - "approve_content"
+    nomes:
+      - "approve_content"
+    nomes_nota:
+      - "write"
+      - "action_id"
+      - "confirm"
+      - "aprovado"
+      - "aprovacao_invalidada"
+      - "arte_desactualizada"
+      - "aprovar_conteudo"
+      - "ref"
+    variantes_literais: []
+  - seccao: "3.82"
+    conceito: "Tool da rejeição"
+    canonico: "reject_content (tool reject_content)"
+    literais:
+      - "reject_content"
+    nomes:
+      - "reject_content"
+    nomes_nota:
+      - "write"
+    variantes_literais: []
+  - seccao: "3.82"
+    conceito: "Tool da entrega"
+    canonico: "deliver_content (tool deliver_content)"
+    literais:
+      - "deliver_content"
+    nomes:
+      - "deliver_content"
+    nomes_nota:
+      - "write"
+      - "aprovado"
+      - "entregue"
+    variantes_literais: []
+  - seccao: "3.82"
+    conceito: "Publicação nas redes"
+    canonico: "SocialPublisher, ManualDelivery, NotEnabled"
+    literais:
+      - "SocialPublisher"
+      - "ManualDelivery"
+      - "NotEnabled"
+    nomes:
+      - "SocialPublisher"
+      - "ManualDelivery"
+      - "NotEnabled"
+    nomes_nota:
+      - "deliver"
+      - "publish"
+      - "ManualDelivery"
+      - "NotEnabled"
+      - "lint_arch"
+    variantes_literais: []
+  - seccao: "3.82"
+    conceito: "Botões de um item"
+    canonico: "arte:{referencia}, editar:{referencia}, rejeitar:{referencia}, enviar:{referencia}"
+    literais:
+      - "arte:{referencia}"
+      - "editar:{referencia}"
+      - "rejeitar:{referencia}"
+      - "enviar:{referencia}"
+    nomes:
+      - "arte"
+      - "referencia"
+      - "editar"
+      - "rejeitar"
+      - "enviar"
+    nomes_nota:
+      - "confirm"
+      - "action_id"
+      - "SOC"
+    variantes_literais: []
+  - seccao: "3.82"
+    conceito: "Recusas da arte, da aprovação e da entrega"
+    canonico: "texto_nao_cabe, tentativas_esgotadas, sem_arte, sem_legenda, aprovacao_invalidada, arte_desactualizada, por_aprovar, arte_por_ligar, fontes_em_falta"
+    literais:
+      - "texto_nao_cabe"
+      - "tentativas_esgotadas"
+      - "sem_arte"
+      - "sem_legenda"
+      - "aprovacao_invalidada"
+      - "arte_desactualizada"
+      - "por_aprovar"
+      - "arte_por_ligar"
+      - "fontes_em_falta"
+    nomes:
+      - "texto_nao_cabe"
+      - "tentativas_esgotadas"
+      - "sem_arte"
+      - "sem_legenda"
+      - "aprovacao_invalidada"
+      - "arte_desactualizada"
+      - "por_aprovar"
+      - "arte_por_ligar"
+      - "fontes_em_falta"
+    nomes_nota:
+      - "detalhe"
+    variantes_literais: []
+  - seccao: "3.83"
+    conceito: "Chave de idempotência do registo"
+    canonico: "onboarding_case.chave_idem, índice único onboarding_case_chave_idem_uq"
+    literais:
+      - "onboarding_case.chave_idem"
+      - "onboarding_case_chave_idem_uq"
+    nomes:
+      - "onboarding_case.chave_idem"
+      - "onboarding_case_chave_idem_uq"
+    nomes_nota:
+      - "CHAVE"
+      - "kamba_app"
+      - "INSERT"
+      - "UPDATE"
+    variantes_literais: []
+  - seccao: "3.83"
+    conceito: "Política das buscas do registo"
+    canonico: "registo_busca em platform.onboarding_case, FOR SELECT TO kamba_migrator USING (current_setting('app.registo_busca', true) = 'on')"
+    literais:
+      - "registo_busca"
+      - "platform.onboarding_case"
+      - "FOR SELECT TO kamba_migrator USING (current_setting('app.registo_busca', true) = 'on')"
+    nomes:
+      - "registo_busca"
+      - "platform.onboarding_case"
+      - "FOR"
+      - "SELECT"
+      - "TO"
+      - "kamba_migrator"
+      - "USING"
+      - "current_setting"
+      - "app.registo_busca"
+      - "true"
+      - "on"
+    nomes_nota:
+      - "resolver_leitura"
+      - "app.registo_busca"
+      - "SECURITY"
+      - "DEFINER"
+    variantes_literais: []
+  - seccao: "3.83"
+    conceito: "Buscas do registo"
+    canonico: "platform.registo_tenant_do_caso(uuid), platform.registo_caso_por_chave(text), platform.registo_caso_vivo_por_nif(text), platform.registo_casos_vivos_por_telefone(text), platform.registo_contar_por_dispositivo(text, timestamptz)"
+    literais:
+      - "platform.registo_tenant_do_caso(uuid)"
+      - "platform.registo_caso_por_chave(text)"
+      - "platform.registo_caso_vivo_por_nif(text)"
+      - "platform.registo_casos_vivos_por_telefone(text)"
+      - "platform.registo_contar_por_dispositivo(text, timestamptz)"
+    nomes:
+      - "platform.registo_tenant_do_caso"
+      - "uuid"
+      - "platform.registo_caso_por_chave"
+      - "text"
+      - "platform.registo_caso_vivo_por_nif"
+      - "platform.registo_casos_vivos_por_telefone"
+      - "platform.registo_contar_por_dispositivo"
+      - "timestamptz"
+    nomes_nota:
+      - "onboarding"
+      - "web"
+      - "SECURITY"
+      - "DEFINER"
+      - "plpgsql"
+      - "search_path"
+      - "pg_catalog"
+      - "platform"
+      - "app.registo_busca"
+      - "EXECUTE"
+      - "kamba_app"
+      - "id"
+      - "tenant_id"
+      - "FASES_MORTAS"
+      - "onboarding_nif_vivo"
+    variantes_literais: []
+  - seccao: "3.83"
+    conceito: "Desafio do OTP do registo"
+    canonico: "platform.onboarding_otp(onboarding_id, tenant_id, codigo_hmac, expira_at, tentativas, usado_at, criado_at)"
+    literais:
+      - "platform.onboarding_otp(onboarding_id, tenant_id, codigo_hmac, expira_at, tentativas, usado_at, criado_at)"
+    nomes:
+      - "platform.onboarding_otp"
+      - "onboarding_id"
+      - "tenant_id"
+      - "codigo_hmac"
+      - "expira_at"
+      - "tentativas"
+      - "usado_at"
+      - "criado_at"
+    nomes_nota:
+      - "FORCE"
+      - "hmacDoCodigo"
+      - "kamba_app"
+      - "apagar"
+      - "usado_at"
+      - "guardar"
+    variantes_literais: []
+  - seccao: "3.83"
+    conceito: "Contadores do registo"
+    canonico: "platform.onboarding_contador(chave, instantes, actualizado_at)"
+    literais:
+      - "platform.onboarding_contador(chave, instantes, actualizado_at)"
+    nomes:
+      - "platform.onboarding_contador"
+      - "chave"
+      - "instantes"
+      - "actualizado_at"
+    nomes_nota:
+      - "timestamptz"
+      - "INSTANTES_POR_CHAVE"
+      - "tenant_id"
+      - "kamba_app"
+      - "DELETE"
+      - "anotar"
+      - "INSERT"
+      - "ON"
+      - "CONFLICT"
+      - "DO"
+      - "UPDATE"
+      - "trocarUltimo"
+      - "actualizado_at"
+      - "PARADA_MS"
+      - "kamba_batch"
+      - "contadores_do_registo"
+      - "CAMINHO_CONTADORES_DO_REGISTO"
+    variantes_literais: []
+  - seccao: "3.83"
+    conceito: "Revogações do painel"
+    canonico: "platform.painel_revogacao(revogacao_id, tenant_id, sid, ate, expira_at, criado_at)"
+    literais:
+      - "platform.painel_revogacao(revogacao_id, tenant_id, sid, ate, expira_at, criado_at)"
+    nomes:
+      - "platform.painel_revogacao"
+      - "revogacao_id"
+      - "tenant_id"
+      - "sid"
+      - "ate"
+      - "expira_at"
+      - "criado_at"
+    nomes_nota:
+      - "sid"
+      - "ate"
+      - "painel_revogacao_alvo_ck"
+      - "painel_revogacao_corte_uq"
+      - "FORCE"
+      - "expira_at"
+      - "TECTO_DO_PAINEL_S"
+      - "DELETE"
+    variantes_literais: []
+  - seccao: "3.83"
+    conceito: "Os adaptadores do registo"
+    canonico: "casosNaBase, otpNaBase, contadoresNaBase, RevogacoesNaBase, numaLigacaoDaInscricao, PoolDaInscricao, CifraDoCaso, cifraDoCaso"
+    literais:
+      - "casosNaBase"
+      - "otpNaBase"
+      - "contadoresNaBase"
+      - "RevogacoesNaBase"
+      - "numaLigacaoDaInscricao"
+      - "PoolDaInscricao"
+      - "CifraDoCaso"
+      - "cifraDoCaso"
+    nomes:
+      - "casosNaBase"
+      - "otpNaBase"
+      - "contadoresNaBase"
+      - "RevogacoesNaBase"
+      - "numaLigacaoDaInscricao"
+      - "PoolDaInscricao"
+      - "CifraDoCaso"
+      - "cifraDoCaso"
+    nomes_nota:
+      - "numaLigacao"
+      - "revogar"
+      - "Revogacoes"
+      - "sid"
+    variantes_literais: []
+  - seccao: "3.83"
+    conceito: "A cifra do NIF e do e-mail do caso"
+    canonico: "segredo kek_dados_do_caso, anelDosDados, cifrarDadoDoCaso, decifrarDadoDoCaso, CAMPOS_DOS_DADOS ∈ {nif_enc, email_enc}"
+    literais:
+      - "kek_dados_do_caso"
+      - "anelDosDados"
+      - "cifrarDadoDoCaso"
+      - "decifrarDadoDoCaso"
+      - "CAMPOS_DOS_DADOS"
+      - "nif_enc"
+      - "email_enc"
+    nomes:
+      - "kek_dados_do_caso"
+      - "anelDosDados"
+      - "cifrarDadoDoCaso"
+      - "decifrarDadoDoCaso"
+      - "CAMPOS_DOS_DADOS"
+      - "nif_enc"
+      - "email_enc"
+    nomes_nota:
+      - "kek_telefone_do_caso"
+      - "nif_enc"
+      - "email_enc"
+      - "onboarding"
+      - "web"
+    variantes_literais: []
+  - seccao: "3.83"
+    conceito: "O registo na base"
+    canonico: "ONBOARDING_APP_DB_URL (obrigatória em prod), BaseEmFaltaEmProducaoError, LIGACOES_DA_INSCRICAO, registo_na_base, es_guia_fora_de_prod"
+    literais:
+      - "ONBOARDING_APP_DB_URL"
+      - "prod"
+      - "BaseEmFaltaEmProducaoError"
+      - "LIGACOES_DA_INSCRICAO"
+      - "registo_na_base"
+      - "es_guia_fora_de_prod"
+    nomes:
+      - "ONBOARDING_APP_DB_URL"
+      - "prod"
+      - "BaseEmFaltaEmProducaoError"
+      - "LIGACOES_DA_INSCRICAO"
+      - "registo_na_base"
+      - "es_guia_fora_de_prod"
+    nomes_nota:
+      - "prod"
     variantes_literais: []
 
 tabelas:
@@ -23545,8 +24550,9 @@ tabelas:
       - "preflight"
       - "criado_at"
       - "activo_at"
+      - "chave_idem"
     aberta: false
-    assinatura: "platform.onboarding_case(id, tenant_id, fase, fase_at, origem, nome_negocio, categoria_declarada, nif_enc, nif_hmac, phone_enc, phone_hmac, email_enc, device_hash, ip_prefix_hash, flags, owner_active_seconds, preflight, criado_at, activo_at)"
+    assinatura: "platform.onboarding_case(id, tenant_id, fase, fase_at, origem, nome_negocio, categoria_declarada, nif_enc, nif_hmac, phone_enc, phone_hmac, email_enc, device_hash, ip_prefix_hash, flags, owner_active_seconds, preflight, criado_at, activo_at, chave_idem)"
     seccao: "3.57"
     conceito: "Caso de onboarding"
   - nome: "kyc_check"
@@ -23971,8 +24977,9 @@ tabelas:
       - "versao"
       - "criado_at"
       - "atualizado_at"
+      - "termos_entrega_at"
     aberta: false
-    assinatura: "platform.brand_profile(tenant_id, nome, categoria, tom, cores, publico, slots_preferidos, factos, logo_asset_id, idioma, versao, criado_at, atualizado_at)"
+    assinatura: "platform.brand_profile(tenant_id, nome, categoria, tom, cores, publico, slots_preferidos, factos, logo_asset_id, idioma, versao, criado_at, atualizado_at, termos_entrega_at)"
     seccao: "3.82"
     conceito: "Perfil de marca"
   - nome: "content_calendar"
@@ -24009,10 +25016,112 @@ tabelas:
       - "agendado_at"
       - "criado_at"
       - "atualizado_at"
+      - "arte_ref"
+      - "arte_sha256"
+      - "arte_fundo"
+      - "arte_tentativas"
+      - "arte_custo_usd"
+      - "aprovacao_hash"
+      - "aprovado_at"
+      - "entregue_at"
+      - "arte_texto"
+      - "arte_formato"
     aberta: false
-    assinatura: "platform.content_items(content_item_id, tenant_id, calendar_id, semana_iso, tipo, tema, legenda, art_asset_id, estado, is_ai_generated, revisao_reforcada, versao_politica, versao, agendado_at, criado_at, atualizado_at)"
+    assinatura: "platform.content_items(content_item_id, tenant_id, calendar_id, semana_iso, tipo, tema, legenda, art_asset_id, estado, is_ai_generated, revisao_reforcada, versao_politica, versao, agendado_at, criado_at, atualizado_at, arte_ref, arte_sha256, arte_fundo, arte_tentativas, arte_custo_usd, aprovacao_hash, aprovado_at, entregue_at, arte_texto, arte_formato)"
     seccao: "3.82"
     conceito: "Item de conteúdo"
+  - nome: "numeric"
+    esquema: ""
+    colunas: []
+    aberta: false
+    assinatura: "numeric(12, 6)"
+    seccao: "3.82"
+    conceito: "Custo da arte"
+  - nome: "content_items_transicao"
+    esquema: "platform"
+    colunas: []
+    aberta: false
+    assinatura: "platform.content_items_transicao()"
+    seccao: "3.82"
+    conceito: "Máquina de estados do item"
+  - nome: "registo_tenant_do_caso"
+    esquema: "platform"
+    colunas:
+      - "uuid"
+    aberta: false
+    assinatura: "platform.registo_tenant_do_caso(uuid)"
+    seccao: "3.83"
+    conceito: "Buscas do registo"
+  - nome: "registo_caso_por_chave"
+    esquema: "platform"
+    colunas:
+      - "text"
+    aberta: false
+    assinatura: "platform.registo_caso_por_chave(text)"
+    seccao: "3.83"
+    conceito: "Buscas do registo"
+  - nome: "registo_caso_vivo_por_nif"
+    esquema: "platform"
+    colunas:
+      - "text"
+    aberta: false
+    assinatura: "platform.registo_caso_vivo_por_nif(text)"
+    seccao: "3.83"
+    conceito: "Buscas do registo"
+  - nome: "registo_casos_vivos_por_telefone"
+    esquema: "platform"
+    colunas:
+      - "text"
+    aberta: false
+    assinatura: "platform.registo_casos_vivos_por_telefone(text)"
+    seccao: "3.83"
+    conceito: "Buscas do registo"
+  - nome: "registo_contar_por_dispositivo"
+    esquema: "platform"
+    colunas:
+      - "text"
+      - "timestamptz"
+    aberta: false
+    assinatura: "platform.registo_contar_por_dispositivo(text, timestamptz)"
+    seccao: "3.83"
+    conceito: "Buscas do registo"
+  - nome: "onboarding_otp"
+    esquema: "platform"
+    colunas:
+      - "onboarding_id"
+      - "tenant_id"
+      - "codigo_hmac"
+      - "expira_at"
+      - "tentativas"
+      - "usado_at"
+      - "criado_at"
+    aberta: false
+    assinatura: "platform.onboarding_otp(onboarding_id, tenant_id, codigo_hmac, expira_at, tentativas, usado_at, criado_at)"
+    seccao: "3.83"
+    conceito: "Desafio do OTP do registo"
+  - nome: "onboarding_contador"
+    esquema: "platform"
+    colunas:
+      - "chave"
+      - "instantes"
+      - "actualizado_at"
+    aberta: false
+    assinatura: "platform.onboarding_contador(chave, instantes, actualizado_at)"
+    seccao: "3.83"
+    conceito: "Contadores do registo"
+  - nome: "painel_revogacao"
+    esquema: "platform"
+    colunas:
+      - "revogacao_id"
+      - "tenant_id"
+      - "sid"
+      - "ate"
+      - "expira_at"
+      - "criado_at"
+    aberta: false
+    assinatura: "platform.painel_revogacao(revogacao_id, tenant_id, sid, ate, expira_at, criado_at)"
+    seccao: "3.83"
+    conceito: "Revogações do painel"
 
 dominios:
   - coluna: "consent_event.purpose"
@@ -24097,6 +25206,7 @@ dominios:
       - "secret.rotate"
       - "secret.revoke"
       - "order.contact_view"
+      - "privacy.telefones_exportados"
     seccao: "3.2"
     conceito: "Acções auditadas"
     so_no_registo: false
@@ -25083,6 +26193,7 @@ dominios:
       - "embeddings"
       - "entrega_de_conteudo"
       - "facturacao"
+      - "geracao_de_imagem"
       - "imagem"
       - "observabilidade"
       - "otp_e_avisos_de_servico"
@@ -25271,6 +26382,7 @@ dominios:
       - "sem_caminho"
       - "particao_por_criar"
       - "erro"
+      - "branqueamento_sem_parecer"
     seccao: "3.55"
     conceito: "Motivo de uma unidade sem ok"
     so_no_registo: false
@@ -25899,6 +27011,27 @@ dominios:
       - "expirado"
     seccao: "3.82"
     conceito: "Estado de um item"
+    so_no_registo: false
+  - coluna: "content_items.arte_fundo"
+    valores:
+      - "gerado"
+      - "gradiente"
+    seccao: "3.82"
+    conceito: "Fundo da arte"
+    so_no_registo: false
+  - coluna: "content_items.arte_formato"
+    valores:
+      - "quadrado"
+      - "retrato"
+    seccao: "3.82"
+    conceito: "Formato da arte"
+    so_no_registo: false
+  - coluna: "CAMPOS_DOS_DADOS"
+    valores:
+      - "nif_enc"
+      - "email_enc"
+    seccao: "3.83"
+    conceito: "A cifra do NIF e do e-mail do caso"
     so_no_registo: false
 
 variantes:

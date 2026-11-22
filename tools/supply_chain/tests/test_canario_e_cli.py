@@ -167,7 +167,13 @@ class TestRepositorioReal(unittest.TestCase):
         # `graph.facebook.com`; o ADR-001 faz do GWY o unico endpoint de
         # *webhook*, e nao o unico servico que fala com a Meta. O proxy nao
         # muda: e o mesmo destino, com um terceiro declarante.
-        self.assertEqual(resumo["destinos"], 10)
+        # **KAM-231: de 10 para 13.** O `worker-canal-entrada` corre o MED e
+        # descarrega a media da Meta: declara `graph.facebook.com` (o URL da
+        # media) e `lookaside.fbsbx.com` (a CDN da descarga, NAO VERIFICADO;
+        # decisao do fundador de 2026-11-22). O proxy passa a abrir o
+        # `lookaside.fbsbx.com` tambem, e este e o unico FQDN novo: os outros
+        # dois sao declarantes novos de destinos que ja existiam.
+        self.assertEqual(resumo["destinos"], 13)
 
         _, resumo = licencas.verificar(ROOT)
         self.assertEqual(resumo["estados"]["pendente_de_decisao"], 2)  # redis e valkey: D12

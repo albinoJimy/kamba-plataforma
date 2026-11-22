@@ -717,6 +717,11 @@ services:
       # o AGR com a credencial **do painel**, que nao e a do shim. Como a troca, so
       # se usa com o painel montado (`ONBOARDING_COM_INTERNO_URL`).
       ONBOARDING_APP_DB_URL: postgresql://kamba_app:${KAMBA_SECRET_DB_APP_PASSWORD:-}@postgres:5432/${KAMBA_DB_NAME:-kamba_platform}
+      # KAM-236: com esta ligacao o registo corre sobre a base, como em `prod`, e
+      # o servico escreve o caso: as duas KEK do caso passam a obrigatorias no
+      # arranque (`<kid>:<base64 de 32 octetos>`; ver o `.env.example`).
+      KAMBA_SECRET_KEK_TELEFONE_DO_CASO: ${KAMBA_SECRET_KEK_TELEFONE_DO_CASO:?defina-o no .env}
+      KAMBA_SECRET_KEK_DADOS_DO_CASO: ${KAMBA_SECRET_KEK_DADOS_DO_CASO:?defina-o no .env}
       KAMBA_AGR_URL: ${KAMBA_AGR_URL:-http://agr:8000}
       KAMBA_SECRET_AGR_PAINEL_TOKEN: ${KAMBA_SECRET_AGR_PAINEL_TOKEN:-}
       # KAM-217: a troca de telefone do dono, como `kamba_identity` (o papel que

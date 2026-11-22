@@ -98,6 +98,7 @@ async function principal(): Promise<void> {
       // KAM-233: o LiteLLM, o Chatwoot e os telefones da exportação.
       portasDoOffboarding: portasDoOffboarding({
         lote,
+        app,
         ambiente: config.ambiente,
         env: process.env,
         ...(telefones === null ? {} : { telefones }),

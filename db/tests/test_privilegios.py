@@ -1648,6 +1648,51 @@ ESPERADO_POR_TABELA.update(
     }
 )
 
+#: A inscricao na base (KAM-236). As tres sao **da aplicacao**: o
+#: `onboarding-web` le e escreve como `kamba_app`, com o `INSERT` e o `UPDATE`
+#: por coluna no desafio e nas revogacoes (ver `COLUNAS_POR_PAPEL`), e
+#: **ninguem da aplicacao apaga** (dicionario §2): o desafio marca-se usado, e
+#: as revogacoes nao saem. Os contadores sao a excepcao do lote: o `INSERT` e de
+#: tabela (a chave e o `ON CONFLICT`), e quem apaga as chaves paradas e o
+#: executor da retencao, como `kamba_batch` (`CAMINHO_CONTADORES_DO_REGISTO`).
+ESPERADO_POR_TABELA.update(
+    {
+        "onboarding_otp": {
+            "kamba_app": {"SELECT"},
+            "kamba_batch": set(),
+            "kamba_resolver": set(),
+            "kamba_identity": set(),
+            "kamba_audit": set(),
+            "kamba_agr": set(),
+            "kamba_pay_hooks": set(),
+            "kamba_migrator": set(PRIVILEGIOS_DE_TABELA),
+            "public": set(),
+        },
+        "onboarding_contador": {
+            "kamba_app": {"SELECT", "INSERT"},
+            "kamba_batch": {"SELECT", "DELETE"},
+            "kamba_resolver": set(),
+            "kamba_identity": set(),
+            "kamba_audit": set(),
+            "kamba_agr": set(),
+            "kamba_pay_hooks": set(),
+            "kamba_migrator": set(PRIVILEGIOS_DE_TABELA),
+            "public": set(),
+        },
+        "painel_revogacao": {
+            "kamba_app": {"SELECT"},
+            "kamba_batch": set(),
+            "kamba_resolver": set(),
+            "kamba_identity": set(),
+            "kamba_audit": set(),
+            "kamba_agr": set(),
+            "kamba_pay_hooks": set(),
+            "kamba_migrator": set(PRIVILEGIOS_DE_TABELA),
+            "public": set(),
+        },
+    }
+)
+
 #: Os pedidos de orcamento (KAM-123, revisao do Orcamento expresso). **So a
 #: aplicacao**: o AGR corre como `kamba_app`, le, insere e actualiza por coluna
 #: (ver `COLUNAS_POR_PAPEL`). **Ninguem apaga**: um pedido fecha-se pelo
@@ -2658,6 +2703,20 @@ COLUNAS_POR_PAPEL = {
     # A troca insere a identidade do pedido e o canal do numero pedido, que
     # nao mudam depois; o `UPDATE` e o estado, o prazo, o contacto, o HMAC do
     # antigo e o desafio.
+    # KAM-236 (revisao da inscricao na base). O desafio insere-se com o caso e
+    # o tenant, e muda so o HMAC, o prazo, as tentativas e o `usado_at` (o
+    # `apagar` da porta); os contadores mudam os instantes e o
+    # `actualizado_at`, nunca a chave; uma revogacao insere-se com a sessao ou o
+    # corte, e so o corte sobe.
+    ("kamba_app", "onboarding_otp", "INSERT"): {
+        "onboarding_id", "tenant_id", "codigo_hmac", "expira_at", "tentativas",
+    },
+    ("kamba_app", "onboarding_otp", "UPDATE"): {
+        "codigo_hmac", "expira_at", "tentativas", "usado_at",
+    },
+    ("kamba_app", "onboarding_contador", "UPDATE"): {"instantes", "actualizado_at"},
+    ("kamba_app", "painel_revogacao", "INSERT"): {"tenant_id", "sid", "ate", "expira_at"},
+    ("kamba_app", "painel_revogacao", "UPDATE"): {"ate", "expira_at"},
     ("kamba_identity", "owner_phone_changes", "INSERT"): {
         "tenant_id", "pedido", "telefone_hmac", "owner_channel_wa", "prazo",
     },
@@ -2677,6 +2736,8 @@ COLUNAS_POR_PAPEL = {
     ("kamba_app", "brand_profile", "UPDATE"): {
         "nome", "categoria", "tom", "cores", "publico", "slots_preferidos", "factos",
         "logo_asset_id", "versao", "atualizado_at",
+        # KAM-122: a hora dos termos da primeira entrega.
+        "termos_entrega_at",
     },
     ("kamba_app", "content_calendar", "INSERT"): {
         "calendar_id", "tenant_id", "semana_iso", "geracao", "decisao", "versao_politica",
@@ -2689,6 +2750,11 @@ COLUNAS_POR_PAPEL = {
     ("kamba_app", "content_items", "UPDATE"): {
         "legenda", "art_asset_id", "estado", "revisao_reforcada", "versao_politica", "versao",
         "atualizado_at",
+        # KAM-122 (revisao da arte e da aprovacao do social): as colunas da arte
+        # e da aprovacao, que o AGR escreve num item que ja existe. Nenhum
+        # `INSERT` novo, e continua sem `UPDATE` no `is_ai_generated`.
+        "arte_ref", "arte_sha256", "arte_fundo", "arte_texto", "arte_formato", "arte_tentativas",
+        "arte_custo_usd", "aprovacao_hash", "aprovado_at", "entregue_at",
     },
     ("kamba_app", "quote_requests", "INSERT"): {
         "tenant_id", "contact_id", "conversation_id", "sku", "quantidade",

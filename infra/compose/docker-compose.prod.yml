@@ -278,7 +278,9 @@ services:
   # `services/worker-canal/egress.yaml` (`destinos: []`). Falam com a fila e a
   # base (`data`) e com o AGR (`app`); `app` e `data` sao `internal: true`, e
   # sem `HTTPS_PROXY` nao ha caminho para fora. Estao em `app` tambem porque e
-  # por la que o Prometheus os raspa.
+  # por la que o Prometheus os raspa. Excepcoes com lista propria em
+  # `infra/egress/`: o `worker-canal-consumidor` (KAM-227) e, desde o KAM-231,
+  # o `worker-canal-entrada`, que descarrega a foto do dono pela Graph.
   #
   # Os `mem_limit` sao os do `conjunto-reduzido.yaml`, com a razao de cada um.
   worker-canal-entrada:
@@ -290,8 +292,14 @@ services:
         KAMBA_COMMIT_SHA: ${KAMBA_COMMIT_SHA:?o deploy passa o SHA da release}
     command: ["node", "services/worker-canal/src/entrada.ts"]
     environment:
-      <<: *node-env
+      # `*saida` desde o KAM-231: o MED descarrega a foto do dono pela Graph
+      # (`infra/egress/worker-canal-entrada.yaml`), e so pelo `proxy-saida`.
+      # O armazenamento (`seaweedfs`) esta no `NO_PROXY`, na rede `data`.
+      <<: [*node-env, *saida]
       ENTRADA_PORT: "3013"
+      # O `fetch` do Node 24 ignora o `HTTPS_PROXY` sem esta variavel (medido no
+      # KAM-227, no `worker-canal-consumidor`).
+      NODE_USE_ENV_PROXY: "1"
       # As chaves de identidade vem do ambiente que o lancador do cofre enche
       # (ADR-L002; criterio 9 do KAM-008, emendado a 2026-11-20). Sem o *pepper*
       # ou sem a KEK abaixo, o `Identidade.arrancar` recusa em `prod`.
@@ -307,6 +315,22 @@ services:
       KAMBA_SECRET_PEPPER_CONTACT_HMAC_ANTERIOR: ${KAMBA_SECRET_PEPPER_CONTACT_HMAC_ANTERIOR:-}
       KAMBA_SECRET_KEK_CONTACT_DEK: ${KAMBA_SECRET_KEK_CONTACT_DEK:?o cofre entrega a KEK das DEK de contacto}
       KAMBA_SECRET_KEK_CONTACT_DEK_ANTERIOR: ${KAMBA_SECRET_KEK_CONTACT_DEK_ANTERIOR:-}
+      # KAM-231 (decisao do fundador de 2026-11-21, P4 A): o MED da foto do
+      # dono corre aqui, e o arranque recusa em `prod` sem estes tres segredos
+      # e sem o armazenamento. A KEK abre o criptograma do `token_ref` do canal
+      # da conversa (as instancias de `meta_client_token` nao se nomeiam aqui:
+      # sao por tenant, e chegam pelo lancador do cofre, como no consumidor);
+      # as duas do armazenamento assinam o `put` da foto.
+      KAMBA_SECRET_KEK_TOKEN_CLIENTE: ${KAMBA_SECRET_KEK_TOKEN_CLIENTE:?o cofre entrega a KEK dos tokens de cliente}
+      KAMBA_SECRET_KEK_TOKEN_CLIENTE_ANTERIOR: ${KAMBA_SECRET_KEK_TOKEN_CLIENTE_ANTERIOR:-}
+      KAMBA_STORAGE_ENDPOINT: ${KAMBA_STORAGE_ENDPOINT:?o deploy diz onde e o armazenamento (D6 aberta)}
+      KAMBA_STORAGE_BUCKET: ${KAMBA_STORAGE_BUCKET:?o deploy nomeia o bucket}
+      KAMBA_STORAGE_REGION: ${KAMBA_STORAGE_REGION:?o deploy nomeia a regiao}
+      KAMBA_STORAGE_DESTINO_COUNTRY: ${KAMBA_STORAGE_DESTINO_COUNTRY:?o deploy diz o pais do armazenamento (ADR-008)}
+      KAMBA_STORAGE_DESTINO_PROVIDER: ${KAMBA_STORAGE_DESTINO_PROVIDER:?o deploy diz o fornecedor do armazenamento}
+      KAMBA_STORAGE_DESTINO_APD_REF: ${KAMBA_STORAGE_DESTINO_APD_REF:-}
+      KAMBA_SECRET_STORAGE_ACCESS_KEY_ID: ${KAMBA_SECRET_STORAGE_ACCESS_KEY_ID:?o cofre entrega a chave de acesso do armazenamento}
+      KAMBA_SECRET_STORAGE_SECRET_ACCESS_KEY: ${KAMBA_SECRET_STORAGE_SECRET_ACCESS_KEY:?o cofre entrega o segredo do armazenamento}
     # Escala com replicas (cabecalho do `entrada.ts`): o *worker* trata um *job*
     # de cada vez, e o KAM-084 mediu-o como o primeiro recurso saturado do
     # segmento de entrada, entre 200 e 400 *webhooks*/s.
@@ -600,6 +624,21 @@ services:
       # verifica-a: tem de ser o mesmo valor, e e obrigatoria ao arranque dos dois.
       KAMBA_SECRET_COM_INTERNAL_TOKEN: ${KAMBA_SECRET_COM_INTERNAL_TOKEN:?o cofre entrega a credencial da API interna do COM}
       KAMBA_COM_URL: ${KAMBA_COM_URL:-http://com:3002}
+      # KAM-231 (decisao do fundador de 2026-11-21, P4 opcao A). O ambiente
+      # e o deste compose: sem ele o AGR lia `dev`, e nem a recusa de arranque
+      # sem o STO nem o «so imagens sinteticas fora de prod» do pipeline do
+      # catalogo mordiam. O STO serve a `FonteDoMed` (a foto que o MED guardou)
+      # e a foto limpa da ingestao; sem a configuracao e os dois segredos, o
+      # AGR nao arranca em `staging` nem em `prod`.
+      KAMBA_ENV: prod
+      KAMBA_STORAGE_ENDPOINT: ${KAMBA_STORAGE_ENDPOINT:?o deploy diz onde e o armazenamento (D6 aberta)}
+      KAMBA_STORAGE_BUCKET: ${KAMBA_STORAGE_BUCKET:?o deploy nomeia o bucket}
+      KAMBA_STORAGE_REGION: ${KAMBA_STORAGE_REGION:?o deploy nomeia a regiao}
+      KAMBA_STORAGE_DESTINO_COUNTRY: ${KAMBA_STORAGE_DESTINO_COUNTRY:?o deploy diz o pais do armazenamento (ADR-008)}
+      KAMBA_STORAGE_DESTINO_PROVIDER: ${KAMBA_STORAGE_DESTINO_PROVIDER:?o deploy diz o fornecedor do armazenamento}
+      KAMBA_STORAGE_DESTINO_APD_REF: ${KAMBA_STORAGE_DESTINO_APD_REF:-}
+      KAMBA_SECRET_STORAGE_ACCESS_KEY_ID: ${KAMBA_SECRET_STORAGE_ACCESS_KEY_ID:?o cofre entrega a chave de acesso do armazenamento}
+      KAMBA_SECRET_STORAGE_SECRET_ACCESS_KEY: ${KAMBA_SECRET_STORAGE_SECRET_ACCESS_KEY:?o cofre entrega o segredo do armazenamento}
       # KAM-228. O AGR verifica a credencial do `POST /internal/screening`, que o
       # classificador do `screen` do COM apresenta. Tem de ser o mesmo valor.
       KAMBA_SECRET_AGR_SCREENING_TOKEN: ${KAMBA_SECRET_AGR_SCREENING_TOKEN:?o cofre entrega a credencial da rota do classificador do AGR}
@@ -835,8 +874,38 @@ services:
     environment:
       <<: [*node-env, *saida]
       PORT: "3003"
+      # KAM-236: arranca em `prod` sobre a base. O registo, o desafio do OTP, os
+      # contadores do anti-abuso e as revogacoes do painel vivem na `0084`, pela
+      # ligacao **`kamba_app`** e so por ela: as buscas que atravessam tenants
+      # sao as funcoes `SECURITY DEFINER` da revisao (decisao do fundador de
+      # 2026-11-21, D1-A), e o processo nao tem `kamba_batch` nem
+      # `kamba_identity`. Sem a cadeia, o `server.ts` recusa o arranque.
+      KAMBA_AMBIENTE: prod
+      ONBOARDING_APP_DB_URL: ${ONBOARDING_APP_DB_URL:?o deploy passa a cadeia de ligacao do kamba_app}
+      # Um salto de confianca: o `proxy-tls` e a unica entrada, e o Caddy poe o
+      # `X-Forwarded-For`. Com zero, todos os registos vinham do endereco do
+      # proxy e partilhavam a quota de casos por prefixo de rede.
+      ONBOARDING_PROXIES_DE_CONFIANCA: "1"
+      # O painel do dono (KAM-099) e o `POST /painel/teste` (KAM-202): o COM
+      # interno, na rede `app`, com a credencial dele.
+      ONBOARDING_COM_INTERNO_URL: http://com:3002
+      KAMBA_SECRET_COM_INTERNAL_TOKEN: ${KAMBA_SECRET_COM_INTERNAL_TOKEN:?o cofre entrega a credencial da API interna do COM}
+      KAMBA_SECRET_PEPPER_ONBOARDING_IDENT: ${KAMBA_SECRET_PEPPER_ONBOARDING_IDENT:?o cofre entrega o pepper dos identificadores do onboarding}
+      KAMBA_SECRET_PEPPER_ONBOARDING_IDENT_ANTERIOR: ${KAMBA_SECRET_PEPPER_ONBOARDING_IDENT_ANTERIOR:-}
+      KAMBA_SECRET_SEGREDO_ONBOARDING_ASSINATURA: ${KAMBA_SECRET_SEGREDO_ONBOARDING_ASSINATURA:?o cofre entrega a chave de assinatura do onboarding}
+      KAMBA_SECRET_SEGREDO_ONBOARDING_ASSINATURA_ANTERIOR: ${KAMBA_SECRET_SEGREDO_ONBOARDING_ASSINATURA_ANTERIOR:-}
+      KAMBA_SECRET_PEPPER_SMS_DESTINO: ${KAMBA_SECRET_PEPPER_SMS_DESTINO:?o cofre entrega o pepper do destino do SMS}
+      KAMBA_SECRET_PEPPER_SMS_DESTINO_ANTERIOR: ${KAMBA_SECRET_PEPPER_SMS_DESTINO_ANTERIOR:-}
+      # As duas KEK do caso: a do telefone (KAM-215) e a do NIF e do e-mail
+      # (KAM-236). O escritor do caso e este processo.
+      KAMBA_SECRET_KEK_TELEFONE_DO_CASO: ${KAMBA_SECRET_KEK_TELEFONE_DO_CASO:?o cofre entrega a KEK do telefone do caso}
+      KAMBA_SECRET_KEK_TELEFONE_DO_CASO_ANTERIOR: ${KAMBA_SECRET_KEK_TELEFONE_DO_CASO_ANTERIOR:-}
+      KAMBA_SECRET_KEK_DADOS_DO_CASO: ${KAMBA_SECRET_KEK_DADOS_DO_CASO:?o cofre entrega a KEK do NIF e do e-mail do caso}
+      KAMBA_SECRET_KEK_DADOS_DO_CASO_ANTERIOR: ${KAMBA_SECRET_KEK_DADOS_DO_CASO_ANTERIOR:-}
+    # `data` para a base (KAM-236), `app` para o `proxy-tls` e o COM.
     networks:
       - app
+      - data
     mem_limit: 768m
     cpus: 0.5
     healthcheck:
@@ -852,6 +921,9 @@ services:
       timeout: 5s
       retries: 6
       start_period: 20s
+    depends_on:
+      postgres:
+        condition: service_healthy
 
   # ------------------------------------- processo de lote do onboarding (KAM-198)
   #
@@ -907,7 +979,7 @@ services:
       # do `*saida` ja os nomeia). As duas credenciais leem-se a cada chamada.
       # Enquanto o LiteLLM de `prod` arrancar sem `DATABASE_URL`, o `/key/list` que
       # confirma a revogacao responde 500 e a fase para na chave, com alerta
-      # (`docs/evidencia/KAM-233.md` §2; credor KAM-241).
+      # (`docs/evidencia/KAM-233.md` §2; credor KAM-247).
       KAMBA_LLM_PROXY_URL: http://litellm:4000
       KAMBA_CHATWOOT_URL: http://chatwoot:3000
       KAMBA_SECRET_LITELLM_MASTER_KEY: ${KAMBA_SECRET_LITELLM_MASTER_KEY:?do cofre (KAM-010)}

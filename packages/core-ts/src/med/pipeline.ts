@@ -61,6 +61,7 @@ import {
   type LimiteDaClasse,
 } from "./classes.ts";
 import {
+  MidiaInesperadaError,
   MidiaIndisponivelError,
   type AvisarAgr,
   type Classe,
@@ -238,7 +239,13 @@ export class Med {
       bytes = descarregada.bytes;
       contentType = descarregada.contentType;
     } catch (erro) {
-      if (!(erro instanceof MidiaIndisponivelError)) throw erro;
+      // **Uma `MidiaInesperadaError` também fecha a linha em `falhou`** (KAM-231,
+      // achado 3 da revisão adversarial). Relançada, deixava a reserva em
+      // `pendente` para sempre: o *job* da `wa-inbound* repetia, o `#comoEsta`
+      // devolvia `pendente`, e a foto perdia-se sem desfecho. Um 4xx da Graph,
+      // um URL fora da lista ou um canal sem credencial não melhoram com o
+      // tempo: são desfecho, e o dono é avisado como numa falha.
+      if (!(erro instanceof MidiaIndisponivelError) && !(erro instanceof MidiaInesperadaError)) throw erro;
       return await this.#falhar(pedido, assetId, classe);
     }
 

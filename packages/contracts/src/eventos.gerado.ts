@@ -181,6 +181,18 @@ export interface PayloadContactMergedV2 {
   readonly merged_into: string;
 }
 
+/** Payload de `content.approved` v1. */
+export interface PayloadContentApproved {
+  readonly content_item_id: string;
+  readonly versao: number;
+}
+
+/** Payload de `content.approved` v2. */
+export interface PayloadContentApprovedV2 {
+  readonly content_item_id: string;
+  readonly versao: number;
+}
+
 /** Payload de `conversation.mode_changed` v1. */
 export interface PayloadConversationModeChanged {
   readonly thread_id: string;
@@ -756,6 +768,11 @@ export const CATALOGO = {
     versoes: [1, 2],
     obrigatorios: ["contact_id", "merged_into"],
     permitidos: ["contact_id", "merged_into"],
+  },
+  "content.approved": {
+    versoes: [1, 2],
+    obrigatorios: ["content_item_id", "versao"],
+    permitidos: ["content_item_id", "versao"],
   },
   "conversation.mode_changed": {
     versoes: [1, 2],

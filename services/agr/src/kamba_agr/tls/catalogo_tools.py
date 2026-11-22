@@ -81,6 +81,7 @@ from kamba_core.catalogo.screening import REGRA_REVISAO_PENDENTE, REGRAS_DO_CLAS
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from ..catalogo import regras
+from ..catalogo.fonte import ler_asset
 from ..catalogo.montagem import FotoPorLigarError, PortasDoCatalogo
 from ..dono import accoes
 from .erros import NOT_FOUND, TENANT_MISMATCH, UPSTREAM_DOWN, UPSTREAM_TIMEOUT, VALIDATION_ERROR, Fact
@@ -139,6 +140,7 @@ class ArgumentosDeCreateProductDraft(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     media_id: str | None = Field(default=None, pattern=r"^[A-Za-z0-9._:-]{1,128}$")
+    asset_id: str | None = Field(default=None, pattern=_UUID)
     ingestao: str | None = Field(default=None, pattern=_UUID)
     respostas: dict[str, str] | None = Field(default=None, max_length=3)
     preco_confirmado: int | None = Field(default=None, ge=100, le=10**14)
@@ -148,14 +150,14 @@ class ArgumentosDeCreateProductDraft(BaseModel):
 
     @model_validator(mode="after")
     def _uma_operacao(self) -> ArgumentosDeCreateProductDraft:
-        if (self.media_id is None) == (self.ingestao is None):
+        if sum(x is not None for x in (self.media_id, self.asset_id, self.ingestao)) != 1:
             raise ValueError("ou uma foto, ou uma ingestao")
         operacoes = [
             x
             for x in (self.respostas, self.preco_confirmado, self.stock_confirmado, self.mesmo_produto)
             if x is not None
         ]
-        if self.media_id is not None and operacoes:
+        if (self.media_id is not None or self.asset_id is not None) and operacoes:
             raise ValueError("uma foto nova nao leva respostas")
         if self.ingestao is not None and len(operacoes) != 1:
             raise ValueError("uma ingestao leva uma operacao so")
@@ -357,9 +359,15 @@ def executores(
             abertas = regras.perguntas_em_aberto(_produto(lida), lida.perguntas_feitas, _sugestao(lida))
             if lida.estado != estados.A_PERGUNTAR or [p.campo for p in abertas] != esperado:
                 raise ErroDeBackend(VALIDATION_ERROR, "botao_antigo")
+        # KAM-231. A foto do dono chega pelo `asset_id` da invocacao, e o que o
+        # pipeline recebe e o `media_id` da linha: e por ele que a mesma foto
+        # entregue duas vezes da **uma** ingestao (`catalogo/fonte.py`).
+        media_id = args.media_id
         try:
-            if args.media_id is not None:
-                resultado = servico.receber(tenant, args.media_id, sintetica=portas.sintetica)
+            if args.asset_id is not None:
+                media_id = ler_asset(pedido.ligacao, tenant, args.asset_id).media_id
+            if media_id is not None:
+                resultado = servico.receber(tenant, media_id, sintetica=portas.sintetica)
             elif args.mesmo_produto is not None:
                 assert args.ingestao is not None
                 resultado = servico.mesmo_produto(
@@ -388,11 +396,11 @@ def executores(
             # O Registo recusou ou caiu **depois** de a ingestao ser gravada
             # (`rascunho` grava-se primeiro). A ingestao diz a verdade, e a
             # publicacao volta a sincronizar o Registo (`_sincronizar_registo`).
-            assert args.ingestao is not None or args.media_id is not None
+            assert args.ingestao is not None or media_id is not None
             linha = (
                 servico.repositorio.ler(tenant, args.ingestao)
                 if args.ingestao is not None
-                else servico.repositorio.por_media(tenant, args.media_id or "")
+                else servico.repositorio.por_media(tenant, media_id or "")
             )
             if linha is None:
                 raise

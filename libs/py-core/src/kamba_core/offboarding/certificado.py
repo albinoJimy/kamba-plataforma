@@ -73,7 +73,8 @@ FUNDAMENTO_REFERENCIADA: Final = (
 #: das provas que lhe apontam. Nao e retencao nova: e a FK que a purga nao fura.
 FUNDAMENTO_CASO_DE_ONBOARDING: Final = (
     "o caso de onboarding: o kyc_check, o screening_decision e o review_case apontam-lhe "
-    "sem cascata, e ficam; o caso sai com eles, pelo prazo das provas"
+    "sem cascata, e ficam; o caso sai com eles, pelo prazo das provas. E o onboarding_otp "
+    "(KAM-236) tambem lhe aponta sem cascata, e nao tem caminho de eliminacao"
 )
 CASO_DE_ONBOARDING: Final = "platform.onboarding_case"
 FUNDAMENTO_BRANQUEAMENTO: Final = (

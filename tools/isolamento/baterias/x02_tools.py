@@ -87,6 +87,14 @@ TOOLS_DECLARADAS = (
     "tool:update_brand_profile",
     "tool:generate_calendar",
     "tool:generate_caption",
+    # KAM-122: as cinco da arte, da aprovacao e da entrega, no mesmo modulo e
+    # pela mesma razao. O isolamento delas pela base (a RLS `FORCE` do
+    # `content_items` e da `owner_actions`) mede-se no gate 8.
+    "tool:generate_art",
+    "tool:request_approval",
+    "tool:approve_content",
+    "tool:reject_content",
+    "tool:deliver_content",
 )
 
 
