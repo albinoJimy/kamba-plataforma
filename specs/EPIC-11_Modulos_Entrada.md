@@ -4,7 +4,7 @@
 |---|---|
 | Produto | KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para Angola |
 | Documento | Epic — Módulos de Entrada |
-| Versão | 1.33 |
+| Versão | 1.34 |
 | Data | Novembro de 2026 |
 | Classificação | Documento de Referência — Interno |
 | Documento-fonte | `../docs/tecnica/00_Arquitectura_Solucao.md` (ADR-020, §13.3 D13), `../docs/tecnica/02_Agent_Runtime_Verticais.md` (§21), `../docs/exploracao/14-tese-minima-e-plano-de-validacao.md` (H10–H12) |
@@ -74,6 +74,8 @@ Estado da evidência (E5): **CONFIRMADO** — preços e termos publicados dos fo
 | KAM-238 | Canal do dono: o consumidor `dono` no *compose* de produção, com o pico de memória medido e um limite que caiba no orçamento | feature | S | P1 | KAM-215 |
 | KAM-241 | Canal do dono: o pico de memória do consumidor `dono` abaixo da folga do conjunto reduzido, medido sob o próprio limite | feature | S | P1 | KAM-238 |
 | KAM-243 | Catálogo do dono: a foto pelo painel — o STO no `onboarding-web`, a linha da `media_assets` e o turno com o `asset_id` | feature | M | P1 | KAM-231 |
+| KAM-244 | Catálogo do dono: a foto sem prender a tomada da TLS — a visão e o *screening* fora da ligação, e os tectos de dentro abaixo dos 25 s | fix | M | P1 | KAM-231 |
+| KAM-245 | Catálogo do dono: a violação de um produto publicado que um `screen` posterior marca como `bloqueada`, e a re-análise que a emite | fix | S | P2 | KAM-119 |
 
 ---
 
@@ -232,7 +234,7 @@ Uma revisão independente, que recebeu o diff e os critérios da `main` e não o
 | Prioridade | P1 |
 | Estimativa | L |
 | Dependências | KAM-118, KAM-049, KAM-043 |
-| Bloqueia | KAM-125, KAM-127, KAM-202, KAM-231 |
+| Bloqueia | KAM-125, KAM-127, KAM-202, KAM-231, KAM-245 |
 | Responsável sugerido | Engenheiro de Comércio com Engenheiro de Runtime/IA |
 | Documentos de referência | `../docs/tecnica/02_Agent_Runtime_Verticais.md` (§21.3), `../docs/tecnica/03_Core_Comercio_Medusa.md` (§8, §17), `../docs/tecnica/evidencia/E5_Modulos_Entrada.md` (§7), `specs/EPIC-04_Core_Comercio.md` (KAM-049), ADR-007, ADR-020 |
 
@@ -321,7 +323,7 @@ As três perguntas foram à coordenação do lote a 2026-11-19, e o PR seguiu a 
 
 ### Verificação dos Critérios de Aceitação
 
-Dez critérios: **seis marcados**, três parciais e um não satisfeito, depois da revisão do KAM-231 (o 8 passou a marcado e o 10 a parcial). O que falta é medir com o modelo e a Meta reais (**KAM-040**) e a foto pelo painel (**KAM-243**).
+Dez critérios: **seis marcados**, três parciais e um não satisfeito, depois da revisão do KAM-231 (o 8 passou a marcado e o 10 a parcial). O que falta é medir com o modelo e a Meta reais (**KAM-109**) e a foto pelo painel (**KAM-243**).
 
 Os ensaios:
 - [`services/agr/tests/test_catalogo_dono.py`](../services/agr/tests/test_catalogo_dono.py), com as regras, as tools pela ToolLayer real sobre o pipeline do KAM-049 e o grafo do dono (gate 4, AGR);
@@ -334,15 +336,15 @@ Os ensaios:
 | Critério | Estado | Evidência nomeada |
 |---|---|---|
 | 1 | **parcial — caixa vazia** | **As quatro estão ligadas com a classe do §21.3, e a foto real não chega.** `create_product_draft` é `write` com o passo 4 dispensado (decisão 3 do fundador, 2026-11-20); `ask_missing_fields` é `read`; `publish_product` é `write` com o botão `confirm:{action_id}`; `get_catalog_status` é `read` (`TestAMontagem.test_as_quatro_ligam_se_juntas`). A mesma media duas vezes dá **1** rascunho (`test_a_mesma_foto_duas_vezes_e_um_rascunho`). **Falta**: a foto pelo WhatsApp ou pelo painel não chega ao AGR, e o turno de uma foto diz-o ao dono (`test_uma_foto_diz_que_a_recepcao_nao_esta_ligada`). Credor **KAM-231**. *Revisto pelo KAM-231:* a foto do WhatsApp chega: o CHR passa-a pelo MED montado no `worker-canal-entrada`, a invocação leva o `asset_id`, e o nó do catálogo chama o `create_product_draft` com ele (`test_uma_foto_do_dono_da_um_rascunho_e_a_primeira_pergunta`, `test_a_mesma_foto_duas_vezes_e_um_rascunho`). **Falta** a foto pelo painel, credor **KAM-243** |
-| 2 | **não satisfeito** | A latência mede-se com a fonte, o descodificador e a visão reais, que não existem. Credor **KAM-231**. *Revisto pelo KAM-231:* a fonte, o descodificador e a visão existem, e o turno avisa «estou a preparar» antes do `create_product_draft`, que tem 25 s (`test_o_aviso_sai_antes_do_resumo_com_chave_propria`). A descodificação e a análise de uma foto de 12 MP levam 0,2 s. O p95 continua por medir: precisa do modelo do `kamba-vision`, que é do **KAM-040** |
+| 2 | **não satisfeito** | A latência mede-se com a fonte, o descodificador e a visão reais, que não existem. Credor **KAM-231**. *Revisto pelo KAM-231:* a fonte, o descodificador e a visão existem, e o turno avisa «estou a preparar» antes do `create_product_draft`, que tem 25 s (`test_o_aviso_sai_antes_do_resumo_com_chave_propria`). A descodificação e a análise de uma foto de 12 MP levam 0,2 s. O p95 continua por medir: precisa do modelo do `kamba-vision` em uso real: **KAM-109**, o Piloto que mede o H6 com o modelo real, e é aí que a caixa fecha |
 | 3 | marcado | **O stock também vai ao eco**: «50 mil», «12k», «1.500», «uns 10» voltam a perguntar, e «12 unidades» dá «12 unidades?» com os dois botões, sem gravar antes do toque (`test_6_o_stock_vai_ao_eco_e_so_o_toque_o_grava`). Um «Sim» de um eco antigo não reescreve o valor corrigido (`test_4_o_sim_de_um_eco_antigo_nao_reescreve_o_preco_corrigido`). **Cem frases de preço, zero valores gravados sem eco.** Cinquenta lidas ao valor certo e cinquenta que voltam a perguntar (`TestRegras.test_os_cem_casos_de_preco`, com a forma canónica a ler-se de volta em todas). O eco «45.000 Kz?» com dois botões, e nada se grava antes do toque, nem com um texto com a forma do botão (`test_o_preco_vai_ao_eco_com_dois_botoes_e_so_o_toque_o_grava`). Uma ambígua volta a perguntar (`test_um_preco_ambiguo_volta_a_perguntar_e_nada_se_grava`). O `preco` não entra pelas respostas, nem em conjunto com outro campo (`test_o_preco_nao_entra_pelas_respostas`). Nenhum modelo escreve argumentos de tool neste grafo. A primeira pergunta é sempre o `preco_tipo` (`test_as_perguntas_em_aberto_sao_as_do_kam_049`) |
-| 4 | **parcial — caixa vazia** | Até três perguntas por mensagem e um crítico de cada vez, pelo `completude` do KAM-049; a reparticão por linhas (`test_a_resposta_reparte_se_por_linhas_e_nunca_da_o_preco`). Uma resposta por voz fica com a fonte `dono_voz` (`test_uma_resposta_por_voz_fica_com_a_fonte_da_voz`). Dez ingestões dão dez rascunhos independentes, cada uma com o seu preço (`test_dez_fotos_dao_dez_rascunhos_independentes`), e com dois rascunhos a resposta vai pela referência ao certo (`test_com_dois_rascunhos_pede_a_referencia_e_com_ela_nao_mistura`). **Falta** o lote real «10 fotos em 60 s» pelo canal. Credor **KAM-231**. *Revisto pelo KAM-231:* dez fotos pelo grafo do dono, cada uma com o seu `asset_id`, dão dez rascunhos (`test_dez_fotos_dao_dez_rascunhos`). Falta a medida dos 60 s com a Meta e o modelo reais (KAM-040) |
+| 4 | **parcial — caixa vazia** | Até três perguntas por mensagem e um crítico de cada vez, pelo `completude` do KAM-049; a reparticão por linhas (`test_a_resposta_reparte_se_por_linhas_e_nunca_da_o_preco`). Uma resposta por voz fica com a fonte `dono_voz` (`test_uma_resposta_por_voz_fica_com_a_fonte_da_voz`). Dez ingestões dão dez rascunhos independentes, cada uma com o seu preço (`test_dez_fotos_dao_dez_rascunhos_independentes`), e com dois rascunhos a resposta vai pela referência ao certo (`test_com_dois_rascunhos_pede_a_referencia_e_com_ela_nao_mistura`). **Falta** o lote real «10 fotos em 60 s» pelo canal. Credor **KAM-231**. *Revisto pelo KAM-231:* dez fotos pelo grafo do dono, cada uma com o seu `asset_id`, dão dez rascunhos (`test_dez_fotos_dao_dez_rascunhos`). Falta a medida dos 60 s com a Meta e o modelo reais: **KAM-109**, o Piloto que mede o H6 com o modelo real, e é aí que a caixa fecha |
 | 5 | marcado | **Pela decisão 1 do fundador, de 2026-11-20**: o botão é o `confirm:{action_id}` e não a letra `confirm:{ingestion_id}`. Um botão expirado tem saída pela referência (`test_2_um_botao_de_publicar_expirado_da_lugar_a_outro_e_publica`), e o do telefone antigo dá lugar a um do dono novo (`test_2_depois_de_uma_troca_de_telefone_o_dono_novo_recebe_um_botao_seu`). A recuperação de uma `publicada` volta a passar pelo screening (`test_a_recuperacao_de_uma_publicada_volta_a_passar_pelo_screening`). Sem botão, o passo 4 recusa. Com botão e a acção por confirmar, recusa. Duplo toque ×2 → **1** produto no Registo (`test_do_rascunho_a_publicacao_pelo_botao_e_o_duplo_toque_da_um_produto`, `test_de_ponta_a_ponta_ate_ao_registo_e_o_botao_antigo_nao_publica`). O `assertPublishable` da versão corrente é conferido no COM antes de publicar (`publicacao.test.ts`), e uma `condicional` anterior do mesmo texto não é publicável (`uma permitida nova sobre uma condicional anterior do mesmo conteudo nao e publicavel`). **Os cem primeiros casos do corpus canónico do KAM-088** (`policy/categorias/casos/canonico.jsonl`) dão **0** publicações pelo `screen` real e pela rota (`os cem primeiros casos canonicos de categoria bloqueada dao zero publicacoes`). A recusa ao dono não tem detalhe interno (`MSG_CATEGORIA_RECUSADA`; o corpo do COM só leva `VALIDATION_ERROR`) |
 | 6 | marcado | Dez injecções na resposta do dono («publica a 1 Kz», «ignora as regras», um `confirm:{uuid}` escrito, …), na pergunta crítica e nas leves: nenhum preço, nenhum stock, nenhuma publicação, nenhuma acção confirmada (`test_dez_injeccoes_nao_mudam_o_fluxo`, `test_dez_injeccoes_na_pergunta_do_nome_sao_dado_e_nao_instrucao`). Um cumprimento ou uma pergunta não vira resposta (`test_3_um_cumprimento_ou_uma_pergunta_nao_e_resposta_ao_rascunho`). O texto lido na foto é o do KAM-049 (`TestInjeccaoIndirecta`), que só preenche campos de produto |
 | 7 | marcado | Nenhuma tool do catálogo nem do registo com nome de pesquisa de imagens ou de páginas (`test_tls.test_nao_existe_tool_de_pesquisa_de_imagens_nem_de_paginas`). As quatro do dono falam com a nossa base e com a API interna do COM, e com nenhum anfitrião de fora: a fonte, o descodificador e a visão estão por ligar e levantam, e o pipeline não abre rede (`TestSemRede`, KAM-049). A confirmação do resumo marca **todos** os campos `confirmado` antes de publicar (`test_o_resumo_mostra_todos_os_campos_e_so_esses_ficam_confirmados`, KAM-049) |
 | 8 | marcado | A porta `ImageEnhancePort` (*proposta*) e o adaptador nulo: sem `foto`, o resumo segue sem oferta e sem erro (`TestAMontagem.test_sem_fonte_a_foto_recusa_fechada`, `melhorar_foto` falso no resumo). **Falta** a oferta com o `foto` activo, que precisa da foto real e do `enhance_image` do KAM-120 pelo canal. Credor **KAM-231**. *Revisto pelo KAM-231:* a oferta sai com o entitlement `foto` activo, pelo `EnhancePorEntitlement` que o processo liga, e uma leitura que falhe é «sem oferta» (`TestAOfertaDeMelhorarFoto`, `test_o_processo_liga_a_do_entitlement`). O trabalho de melhorar é o `enhance_image` do KAM-120 |
 | 9 | marcado | As três contagens saem como *facts* `count` (*proposta*, emenda do dicionário). Em **50** catálogos diferentes, todo o número da resposta ao dono está nos *facts* da tool: **0** divergências (`test_o_estado_devolve_contagens_como_facts_e_cinquenta_respostas_nao_divergem`) |
-| 10 | **parcial — caixa vazia** | O entitlement `catalogo` é verificado no passo 2 (`test_sem_o_modulo_catalogo_as_quatro_recusam`). As métricas por tenant (tempo da 1.ª foto ao 1.º publicado, % sem correcção, custo por produto) precisam da foto real e do custo de visão na `llm_call_log`. Credor **KAM-231**. *Revisto pelo KAM-231:* as três métricas por tenant leem-se da base (`ler_do_tenant`, `test_indicadores_do_tenant`), e o custo da visão vai à `llm_call_log` em cada chamada. Falta medir o custo por produto contra o tecto, que precisa do modelo e do preço (**KAM-040**) |
+| 10 | **parcial — caixa vazia** | O entitlement `catalogo` é verificado no passo 2 (`test_sem_o_modulo_catalogo_as_quatro_recusam`). As métricas por tenant (tempo da 1.ª foto ao 1.º publicado, % sem correcção, custo por produto) precisam da foto real e do custo de visão na `llm_call_log`. Credor **KAM-231**. *Revisto pelo KAM-231:* as três métricas por tenant leem-se da base (`ler_do_tenant`, `test_indicadores_do_tenant`), e o custo da visão vai à `llm_call_log` em cada chamada. Falta medir o custo por produto contra o tecto, que precisa do modelo e do preço: **KAM-109**, o Piloto que mede o H6 com o modelo real, e é aí que a caixa fecha |
 
 ### Verificação da Definition of Done
 
@@ -360,7 +362,7 @@ Os ensaios:
 | Achado | Onde | Credor |
 |---|---|---|
 | A quantidade em stock que o dono deu fica na ingestão e no resumo, e não chega ao Registo: o `ProductDraft` da porta não tem campo para ela | [`tls/registo_com.py`](../services/agr/src/kamba_agr/tls/registo_com.py) | **KAM-231**. *Revisto pelo KAM-231:* a quantidade vai com a publicação, e o COM ajusta o stock na mesma transacção, com o `stock.adjusted`; a coluna `offer_terms.stock_quantidade` continua por escrever, como no KAM-043 e no KAM-049 |
-| Um `screen` do conteúdo exacto de um produto já publicado, com a decisão `bloqueada`, faz a re-análise saltá-lo, e o `screening.violation_detected` não sai: a re-análise é quem o emite | nota de [`screening/index.ts`](../services/com/src/screening/index.ts) do COM | **KAM-231**, que liga a foto e o screening por produto em produção. *Revisto pelo KAM-231:* **não coube nele**, que liga a foto e não o screening por produto em produção; fica a pedir credor à coordenação |
+| Um `screen` do conteúdo exacto de um produto já publicado, com a decisão `bloqueada`, faz a re-análise saltá-lo, e o `screening.violation_detected` não sai: a re-análise é quem o emite | nota de [`screening/index.ts`](../services/com/src/screening/index.ts) do COM | **KAM-231**, que liga a foto e o screening por produto em produção. *Revisto pelo KAM-231:* **não coube nele**, que liga a foto e não o screening por produto em produção. Credor **KAM-245**, por decisão da coordenação de 2026-11-22 |
 
 ---
 
@@ -2984,7 +2986,7 @@ Uma revisão, sobre o *commit* `75c7f92f`: **quinze achados**, verificados contr
 | Prioridade | P1 |
 | Estimativa | L |
 | Dependências | KAM-119, KAM-020, KAM-030 |
-| Bloqueia | KAM-243 |
+| Bloqueia | KAM-243, KAM-244 |
 | Responsável sugerido | Engenheiro de Runtime/IA com Engenheiro de Plataforma |
 | Documentos de referência | `EPIC-11_Modulos_Entrada.md` (blocos KAM-119 e KAM-124), `EPIC-04_Core_Comercio.md` (KAM-049), `../docs/tecnica/evidencia/E5_Modulos_Entrada.md` (§7), `02_Dicionario_de_Dados_Canonico.md` (§3.63) |
 
@@ -3062,9 +3064,9 @@ Seis critérios: **dois marcados** e quatro parciais. Sem imagem real, sem LLM p
 |---|---|---|
 | 1 | **parcial — caixa vazia** | **Pelo WhatsApp, feito.** O `image.id` sai da explosão só numa `image` («KAM-231 — o `image.id` sai da explosao», três ensaios); o CHR chama o MED só para o dono e a invocação leva só o `asset_id` («o dono: o MED recebe o pedido da Meta, e a invocacao leva so o `asset_id`», «um cliente: o MED nao e chamado», «rejeitada, falhada ou por acabar: a invocacao vai sem `asset_id`»). O MED monta-se no `worker-canal-entrada` (`com tudo: liga a midia, e nao avisa`, `guarda a foto e devolve o asset_id, com cada instrucao sob o tenant e o token so no cabecalho`), e o cliente da Graph só descarrega de um anfitrião da lista (`o token nunca vai para fora da lista`). O grafo do dono chama o `create_product_draft` com o `asset_id`: uma foto dá **um** rascunho (`test_uma_foto_do_dono_da_um_rascunho_e_a_primeira_pergunta`), a mesma foto duas vezes dá **um** (`test_a_mesma_foto_duas_vezes_e_um_rascunho`), e o de outro tenant nenhum (`test_o_asset_de_outro_tenant_nao_vira_rascunho`). **Falta**: o painel (credor **KAM-243**), e a descarga contra a Meta real — o anfitrião `lookaside.fbsbx.com` é NAO VERIFICADO |
 | 2 | marcado | A `FonteDoMed` lê a `media_assets` e o STO no tenant da invocação (`TestAFonte`, com o canário do predicado). O `DescodificadorPillow` usa o Pillow 13.0.0, MIT-CMU, aprovado pelo fundador no KAM-122: o gate 11 dá vermelho sem a entrada e verde com ela (180 componentes). O `VisaoPeloGateway` vai pelo método `ver` do `ClienteDeLlm`, com o papel `vision` e a finalidade `visao` no *gate* do KAM-069 antes de sair um octeto (`test_a_finalidade_e_a_da_visao`, `test_em_prod_sem_destino_nada_sai_e_fica_a_linha`). Fora de `prod`, só sintéticas: o pipeline recebe o ambiente do processo (`test_o_processo_liga_a_do_entitlement`) e bloqueia com `so_sinteticas` (KAM-049) |
-| 3 | **parcial — caixa vazia** | «Estou a preparar» sai antes da *tool* e o resumo depois, com chaves próprias (`test_o_aviso_sai_antes_do_resumo_com_chave_propria`); o `create_product_draft` tem 25 s (`TestATabela`); dez fotos de um álbum, a menos de 1,5 s umas das outras, são dez turnos no `ExecutorDeTurnos` real, sem coalescer (`test_dez_fotos_de_um_album_sao_dez_turnos`, `test_uma_foto_e_um_texto_sao_dois_turnos_nas_duas_ordens`), e dez fotos dão dez rascunhos independentes (`test_dez_fotos_dao_dez_rascunhos`). O descodificador e a análise de uma foto de 12 MP levam 0,2 s. **Falta** o p95 de recepção e de rascunho com o modelo e a Meta reais, que não existem aqui: o `kamba-vision` tem `modelo: por_decidir` (KAM-040) |
+| 3 | **parcial — caixa vazia** | «Estou a preparar» sai antes da *tool* e o resumo depois, com chaves próprias (`test_o_aviso_sai_antes_do_resumo_com_chave_propria`); o `create_product_draft` tem 25 s (`TestATabela`); dez fotos de um álbum, a menos de 1,5 s umas das outras, são dez turnos no `ExecutorDeTurnos` real, sem coalescer (`test_dez_fotos_de_um_album_sao_dez_turnos`, `test_uma_foto_e_um_texto_sao_dois_turnos_nas_duas_ordens`), e dez fotos dão dez rascunhos independentes (`test_dez_fotos_dao_dez_rascunhos`). O descodificador e a análise de uma foto de 12 MP levam 0,2 s. **Falta** o p95 de recepção e de rascunho com o modelo e a Meta reais, que não existem aqui: o `kamba-vision` tem `modelo: por_decidir`. Credor **KAM-109**, o Piloto que mede o H6 com o modelo real, e é aí que a caixa fecha |
 | 4 | marcado | Com o entitlement `foto` activo, o resumo oferece «melhorar foto», e sem ele, ou com a leitura a falhar, segue sem oferta e sem erro (`TestAOfertaDeMelhorarFoto`). O processo liga a porta do entitlement (`test_o_processo_liga_a_do_entitlement`). O trabalho de melhorar é o `enhance_image` do KAM-120 |
-| 5 | **parcial — caixa vazia** | Os três indicadores por tenant leem-se da base no tenant dele, com o canário do predicado (`test_indicadores_do_tenant`, sete ensaios), e cada chamada à visão grava uma linha na `llm_call_log` com o custo, que o pipeline soma na ingestão (`test_o_corpo_leva_a_instrucao_fixa_e_a_imagem_limpa`, `test_limpa_outra_vez_e_devolve_o_texto_e_o_custo`). **Falta** medir o custo por produto contra US$ 0,02, que precisa do modelo e do preço (KAM-040) |
+| 5 | **parcial — caixa vazia** | Os três indicadores por tenant leem-se da base no tenant dele, com o canário do predicado (`test_indicadores_do_tenant`, sete ensaios), e cada chamada à visão grava uma linha na `llm_call_log` com o custo, que o pipeline soma na ingestão (`test_o_corpo_leva_a_instrucao_fixa_e_a_imagem_limpa`, `test_limpa_outra_vez_e_devolve_o_texto_e_o_custo`). **Falta** medir o custo por produto contra US$ 0,02, que precisa do modelo e do preço. Credor **KAM-109**, o Piloto que mede o H6 com o modelo real, e é aí que a caixa fecha |
 | 6 | **parcial — caixa vazia** | A quantidade vai com a publicação ao COM (`test_a_quantidade_do_dono_vai_com_a_publicacao`, `test_o_corpo_da_publicacao_leva_o_stock_so_quando_o_ha`), que a valida (`KAM-231` em `api.interna.test.ts`) e ajusta o stock na mesma transacção, com o evento `stock.adjusted` (`publicacao.test.ts`, três ensaios). **Falta** a coluna: o `ajustarStock` não escreve a `offer_terms.stock_quantidade`, porque o `kamba_app` não tem `UPDATE` nela — a dívida que o KAM-043 e o KAM-049 já tinham |
 
 Os testes adversariais pedidos: a foto repetida (`test_a_mesma_foto_duas_vezes_e_um_rascunho`), a foto ilegível (`TestOQueRecusa`, com bytes de texto, truncados, com CRC errado e uma bomba de píxeis), a visão em baixo (`test_uma_falha_vira_erro_da_visao`) e o texto de injecção (a instrução é fixa e a resposta é lida pelo `ler_resposta_da_visao` do KAM-049, critério 8 dele). O ensaio de integração de ponta a ponta numa corrida só não existe: as metades estão medidas em separado.
@@ -3085,8 +3087,8 @@ Uma revisão, por um agente que recebeu o código e os requisitos, e não o raci
 | 1 | As fotos coalesciam: o estado do turno sai da primeira invocação do lote, e dez fotos de um álbum davam **um** rascunho, sem erro | confirmado, medido no executor | A foto do dono corre sozinha, como o toque (`_corre_sozinho`, `admissao.py`), com ensaio no `ExecutorDeTurnos` (`test_fotos_nao_coalescem.py`) |
 | 2 | O serviço `agr` do *compose* não tinha `KAMBA_ENV`, e lia `dev`: nem a recusa sem o STO nem o «só sintéticas» mordiam | confirmado; a falta do ambiente é anterior ao ticket | `KAMBA_ENV` e o STO no `agr` dos dois *compose*, com ensaio (`test_o_agr_sabe_o_ambiente_e_tem_o_sto_nos_dois_compose`) |
 | 3 | Um erro definitivo da Meta deixava a linha do MED em `pendente` para sempre, e a repetição do *job* não a recuperava | confirmado | A `MidiaInesperadaError` fecha a linha em `falhou`, como a indisponível (`pipeline.ts`), e os dois ensaios do KAM-020 que esperavam o relançamento passam a esperar o desfecho. **O que fica:** uma falha da base ou do `put` a meio ainda deixa `pendente` |
-| 4 | O `create_product_draft` de uma foto prende uma das quatro tomadas da TLS até 25 s, e quatro fotos param as *tools* de todos os tenants da réplica | confirmado pela leitura | **Não corrigido: limite escrito.** Largar a tomada à volta da visão pede reescrever o pipeline do KAM-049, que usa a mesma ligação no repositório; a pedir credor à coordenação |
-| 5 | Os tectos de dentro (visão 18 s, screening 20 s, Registo 5 s) somam mais do que os 25 s, e o `Pedido.prazo` não desce ao pipeline | confirmado pela aritmética | **Não corrigido: limite escrito**, com o 4. Com a visão e o screening lentos, a camada corta aos 25,5 s, o dono recebe o aviso e o erro, e o rascunho fica sem resumo até ao turno seguinte |
+| 4 | O `create_product_draft` de uma foto prende uma das quatro tomadas da TLS até 25 s, e quatro fotos param as *tools* de todos os tenants da réplica | confirmado pela leitura | **Não corrigido: limite escrito.** Largar a tomada à volta da visão pede reescrever o pipeline do KAM-049, que usa a mesma ligação no repositório. Credor **KAM-244** |
+| 5 | Os tectos de dentro (visão 18 s, screening 20 s, Registo 5 s) somam mais do que os 25 s, e o `Pedido.prazo` não desce ao pipeline | confirmado pela aritmética | **Não corrigido: limite escrito**, com o 4. Com a visão e o screening lentos, a camada corta aos 25,5 s, o dono recebe o aviso e o erro, e o rascunho fica sem resumo até ao turno seguinte. Credor **KAM-244** |
 | 6 | A recusa do ajuste de stock desfazer a publicação não tinha ensaio | confirmado | Ensaio da recusa com o duplo a desfazer a transacção (`um ajuste de stock recusado desfaz a publicacao`) |
 | 7 | Uma subclasse da `ImagemLimpa` com o `corpo` como propriedade passava as verificações e dava outros bytes ao `base64` | confirmado | O `ver` exige o tipo exacto, lê os bytes uma vez e tira deles o tipo (`test_uma_subclasse_que_troca_os_bytes_nao_passa`) |
 | 8 | A visão sem preço conta zero na `custo_llm_usd`, e os indicadores mostram um verde falso abaixo do tecto | plausível | **Limite escrito**: sem modelo nem preço, o custo por produto não se mede (critério 5 parcial), e a métrica `agr_llm_sem_preco_total` é o sinal |
@@ -3596,6 +3598,115 @@ Testes: integração, isolamento e adversarial.
 
 ---
 
+## KAM-244 — Catálogo do dono: a foto sem prender a tomada da TLS — a visão e o *screening* fora da ligação, e os tectos de dentro abaixo dos 25 s
+
+| Campo | Valor |
+|---|---|
+| Epic | EPIC-11 — Módulos de Entrada |
+| Fase | 1 |
+| Tipo | fix |
+| Prioridade | P1 |
+| Estimativa | M |
+| Dependências | KAM-231 |
+| Bloqueia | — |
+| Responsável sugerido | Engenheiro de Runtime/IA |
+| Documentos de referência | `EPIC-11_Modulos_Entrada.md` (bloco KAM-231, achados 4 e 5 da revisão adversarial), `EPIC-04_Core_Comercio.md` (KAM-049), `../docs/tecnica/02_Agent_Runtime_Verticais.md` (§6.5) |
+
+### Contexto
+
+Credor do KAM-231, aberto depois do PR dele por decisão da coordenação (2026-11-22). O `create_product_draft` de uma foto tem 25 s (`TECTOS_POR_TOOL`) e corre o pipeline do KAM-049 inteiro com a tomada da ToolLayer na mão. São quatro tomadas por réplica, e quatro fotos ao mesmo tempo param as *tools* de todos os tenants dessa réplica, as leituras de 2 s incluídas. E os tectos de dentro (a visão 18 s, o *screening* 20 s, o Registo 5 s) somam mais do que os 25 s, sem o `Pedido.prazo` descer ao pipeline: com a visão e o *screening* lentos, a camada corta aos 25,5 s, o dono recebe o aviso e o erro, e o rascunho fica sem resumo até ao turno seguinte. São os achados 4 e 5 da revisão adversarial do KAM-231, escritos lá como limites.
+
+### Objectivo
+
+Uma foto do dono não prende a tomada da TLS enquanto espera pela visão e pelo *screening*, e o pipeline acaba dentro do tecto da *tool*, com resumo.
+
+### Critérios de Aceitação
+
+- [ ] O pipeline do KAM-049 larga a ligação da ToolLayer à volta da visão e do *screening* (`Pedido.sem_tomada`, como o `submit_quote` do KAM-230) e retoma uma para escrever; quatro fotos ao mesmo tempo não atrasam uma leitura de outro tenant na mesma réplica, com ensaio de concorrência.
+- [ ] O `Pedido.prazo` desce ao pipeline, e cada etapa lenta recebe o que sobra do tecto; a soma no pior caso cabe nos 25 s, e um corte deixa a ingestão num estado de que o turno seguinte retoma com resumo.
+- [ ] A idempotência do KAM-049 (`catalog_ingestions_media_uq`) e as baterias do KAM-231 continuam verdes.
+
+### Detalhes Técnicos
+
+- **Sem esquema novo** previsto. O repositório do KAM-049 usa a mesma ligação da invocação, e é isso que obriga a mexer no pipeline e não só no executor.
+
+### Testes Requeridos
+
+- Concorrência: quatro fotos lentas e uma leitura de outro tenant na mesma réplica.
+- **Adversarial:** a visão e o *screening* nos seus tectos ao mesmo tempo.
+
+### Definition of Done
+
+- [ ] Critérios de Aceitação satisfeitos; os achados 4 e 5 do KAM-231 revistos com a evidência.
+
+### Handoff para Claude Code
+
+```text
+És o executor do ticket KAM-244 da KAMBÁ (a foto sem prender a tomada da TLS).
+Lê specs/EPIC-11_Modulos_Entrada.md (bloco KAM-231, revisão adversarial), libs/py-core/src/kamba_core/catalogo/pipeline.py,
+services/agr/src/kamba_agr/tls/catalogo_tools.py, services/agr/src/kamba_agr/tls/camada.py (_largar_tomada) e tls/orcamento_tools.py.
+Objectivo: a visão e o screening fora da tomada, e os tectos de dentro abaixo dos 25 s.
+Regras: a idempotência do KAM-049 não muda; nenhuma chave real.
+Testes: concorrência e adversarial.
+```
+
+
+---
+
+## KAM-245 — Catálogo do dono: a violação de um produto publicado que um `screen` posterior marca como `bloqueada`, e a re-análise que a emite
+
+| Campo | Valor |
+|---|---|
+| Epic | EPIC-11 — Módulos de Entrada |
+| Fase | 1 |
+| Tipo | fix |
+| Prioridade | P2 |
+| Estimativa | S |
+| Dependências | KAM-119 |
+| Bloqueia | — |
+| Responsável sugerido | Engenheiro de Comércio (COM) |
+| Documentos de referência | `EPIC-11_Modulos_Entrada.md` (bloco KAM-119, «Achado fora de âmbito»), `EPIC-09_Onboarding_Governanca.md` (KAM-088 e KAM-191) |
+
+### Contexto
+
+Credor do achado fora de âmbito do KAM-119, que o tinha atribuído ao KAM-231 e não coube nele; aberto por decisão da coordenação (2026-11-22). Uma decisão `bloqueada` gravada pelo `screen` sobre o conteúdo **exacto** de um produto já publicado é também uma decisão para a versão e para o conteúdo, e a re-análise (`SQL_POR_REANALISAR`) salta-o: o `screening.violation_detected`, que só a re-análise emite, não sai. A nota está em `services/com/src/screening/index.ts`.
+
+### Objectivo
+
+Um produto publicado cujo conteúdo um `screen` posterior marca como `bloqueado` emite a violação e sai do catálogo visível, como numa mudança de política.
+
+### Critérios de Aceitação
+
+- [ ] Um `screen` com decisão `bloqueada` sobre o conteúdo exacto de um produto publicado faz o `screening.violation_detected` sair uma vez, com o `sku` e a regra, e o produto deixa de ser visível ao cliente.
+- [ ] Um `screen` de um rascunho, ou de outro conteúdo, não emite nada.
+- [ ] A repetição do mesmo `screen` não emite segunda violação.
+
+### Detalhes Técnicos
+
+- **Sem esquema novo** previsto: a `screening_decision` e o evento são do KAM-088 e do KAM-191.
+
+### Testes Requeridos
+
+- Unit do COM com a base falsa que lê o texto da instrução, e o canário do predicado.
+- **Adversarial:** o mesmo conteúdo noutro tenant.
+
+### Definition of Done
+
+- [ ] Critérios de Aceitação satisfeitos; o achado do bloco do KAM-119 revisto com a evidência.
+
+### Handoff para Claude Code
+
+```text
+És o executor do ticket KAM-245 da KAMBÁ (a violação de um produto publicado depois de um screen).
+Lê specs/EPIC-11_Modulos_Entrada.md (bloco KAM-119, achado fora de âmbito) e services/com/src/screening/index.ts.
+Objectivo: o screening.violation_detected sai quando um screen posterior bloqueia um publicado.
+Regras: uma violação por conteúdo; isolamento de tenant.
+Testes: unit, idempotência e adversarial.
+```
+
+
+---
+
 ## Riscos do Epic e itens NÃO VERIFICADOS
 
 | Risco / item | Estado | Impacto | Mitigação / critério de saída | Decisão |
@@ -3667,4 +3778,5 @@ Testes: integração, isolamento e adversarial.
 | 1.30 | Novembro 2026 | **KAM-238** acrescentado, no PR do **KAM-236** (EPIC-09): o consumidor `dono` no *compose* de `prod`, credor da pergunta que o KAM-215 deixou ao fundador. **A decisão do fundador de 2026-11-21** (opção A: fica de fora até se lhe medir o pico de memória; recusadas B, baixar o limite sem medição, e C, mexer no tecto) fica no bloco do KAM-238, e a nota do KAM-215 aponta para ele. O `Bloqueia` do KAM-215 ganha o KAM-238. Contagem: **28** tickets no epic. Escrita como 1.29 com o KAM-237, e renumerada na integração, depois do KAM-125, que tomou o 237 e a 1.29. | Equipa KAMBÁ |
 | 1.31 | Novembro 2026 | **KAM-237 entregue: os pedidos de publicação do dono com a oferta de entrega manual.** Sem migração, sem contrato e sem emenda do dicionário. O `classify` do dono manda ao social um pedido de publicação que nomeie o catálogo; «põe», «pôr», «coloca» e as formas deles publicam; o «status» e o «estado do whatsapp» são redes do pedido de publicação, como o sítio onde se publica; e o *parser* do orçamento lê o «k» de milhar. O grafo do dono sobe para a 1.0.1, e a baseline `golden/baselines/dono/1.0.1.json` é a primeira verde. Quatro critérios de quatro. A caixa 4 do **KAM-125** fica marcada com esta evidência, e o bloco dele passa a oito critérios de dez. | Equipa KAMBÁ |
 | 1.32 | Novembro 2026 | Escrita como 1.31 e renumerada na integração, depois do KAM-237. **KAM-238 entregue em parte: o pico de memória do consumidor `dono` medido, e o limite não cabe.** Sem migração e sem emenda ao dicionário. O critério 1 marcado (o `db/ensaio_dono.py` e o *runner* `tests_bd/rajada_do_dono.ts`: 76,6 MiB de pico sob uma rajada de 300 `tenant.provisioned` com a sonda de saúde do compose e 63,9 com uma sonda em `bash`, OOM sob 54 MiB sem *swap*; anexo `docs/evidencia/KAM-238.md`); os critérios 2 e 3 por marcar, com a folga de 54 MiB que fica ao lado do KAM-225, e a proposta devolvida ao fundador. A nota do KAM-215 revista com a evidência. O piso do `lint_bloco` fica em 88, que o KAM-237 já subiu (177 medidos). **A decisão do fundador de 2026-11-22** (opção A; recusadas B e B') fica no bloco do KAM-238 e abre dois credores: o **KAM-241**, neste epic (o pico do processo dentro da folga), e o **KAM-242**, no EPIC-08 (o `memswap_limit` no *compose* de `prod`). O `Bloqueia` do KAM-238 ganha os dois. Contagem: **29** tickets no epic. Números **provisórios**, o maior da `main` (KAM-240) mais um e mais dois: renumeram-se na integração se outro fundir antes. | Equipa KAMBÁ |
-| 1.33 | Novembro 2026 | Escrita como 1.31 e renumerada na integração, depois do KAM-237 e do KAM-238; o credor do painel passa de KAM-243 a KAM-243. **KAM-231 entregue em parte: a foto real do catálogo do dono pelo WhatsApp.** Sem migração. Emenda 1.136 do dicionário (escrita como 1.135 e renumerada na integração, depois do KAM-236) e emenda ao §6.5 do `docs/tecnica/02` (versão 1.13). Bloco do KAM-231: as decisões do fundador (o Pillow, pelo KAM-122; a visão por um método próprio; os tectos por *tool*; os segredos do `worker-canal-entrada` e do AGR; a saída para a CDN da Meta, NAO VERIFICADO), as decisões do executor e a verificação. **KAM-243** acrescentado, credor da foto pelo painel; o KAM-231 passa a bloqueá-lo. No bloco do KAM-119, as caixas 1, 2, 4, 8 e 10 revistas com a evidência do KAM-231, e os dois achados fora de âmbito actualizados. O piso do `lint_bloco` sobe para 88. | Equipa KAMBÁ |
+| 1.33 | Novembro 2026 | Escrita como 1.31 e renumerada na integração, depois do KAM-237 e do KAM-238; o credor do painel passa de KAM-241 a KAM-243. **KAM-231 entregue em parte: a foto real do catálogo do dono pelo WhatsApp.** Sem migração. Emenda 1.136 do dicionário (escrita como 1.135 e renumerada na integração, depois do KAM-236) e emenda ao §6.5 do `docs/tecnica/02` (versão 1.13). Bloco do KAM-231: as decisões do fundador (o Pillow, pelo KAM-122; a visão por um método próprio; os tectos por *tool*; os segredos do `worker-canal-entrada` e do AGR; a saída para a CDN da Meta, NAO VERIFICADO), as decisões do executor e a verificação. **KAM-243** acrescentado, credor da foto pelo painel; o KAM-231 passa a bloqueá-lo. No bloco do KAM-119, as caixas 1, 2, 4, 8 e 10 revistas com a evidência do KAM-231, e os dois achados fora de âmbito actualizados. O piso do `lint_bloco` sobe para 88. | Equipa KAMBÁ |
+| 1.34 | Novembro 2026 | Escrita como 1.32 e renumerada na integração, depois do PR do KAM-231. **KAM-244** e **KAM-245** acrescentados, depois do PR do **KAM-231**, por decisão da coordenação de 2026-11-22: o KAM-244 é o credor dos achados 4 e 5 da revisão adversarial do KAM-231 (a tomada da TLS e os tectos de dentro); o KAM-245 é o do achado fora de âmbito do KAM-119 (a violação de um publicado depois de um `screen`), que o KAM-231 não absorveu. A medição com o modelo real (critérios 3 e 5 do KAM-231, caixas 2, 4 e 10 do KAM-119) passa a apontar ao **KAM-109**, aberto, e não ao KAM-040, que está fechado. Corrige também a linha 1.33, que dizia que o credor do painel passava «de KAM-243 a KAM-243»: era de KAM-241. | Equipa KAMBÁ |
