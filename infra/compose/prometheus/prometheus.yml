@@ -187,6 +187,15 @@ scrape_configs:
   # mesma porta das paginas, porque o `proxy-tls` so lhe encaminha `/onboarding/*`
   # e o `/metrics` fica na rede `app`. O `job` leva `_` pela gramatica das
   # etiquetas, como o `agr_shim`.
+  # KAM-225: o recolector do registo do PostgreSQL, em `ops` como este
+  # processo. Serve a recusa `42501` sobre `platform.trust_level` venha por onde
+  # vier (`registo_pg_tecto_recusado_total`, sem etiquetas).
+  - job_name: registo_pg
+    dns_sd_configs:
+      - names:
+          - registo-pg
+        type: A
+        port: 8225
   - job_name: onboarding_web
     dns_sd_configs:
       - names:

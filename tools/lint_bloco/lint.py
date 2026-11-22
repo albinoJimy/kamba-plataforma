@@ -455,6 +455,12 @@ REGRAS_OBRIGATORIAS = ("estado_contra_caixa",)
 #: #245 do KAM-206 ja fundido, com **171 medidos** na `main`): o bloco do
 #: KAM-232 ganha a verificacao. **172 medidos**, e `172 // 2` sao 86. Sobe para
 #: 86, que serve ate aos 173.
+#:
+#: **O 173.o e o do KAM-225**, medido no ramo sobre a `publico/main` em
+#: `b37d1ffe` (com **172 medidos** na `main`): o bloco do KAM-225 ganha a
+#: verificacao. **173 medidos**, e `173 // 2` sao 86. Fica em 86; o 174.o sobe-o
+#: para 87. Ha PRs ao lado nos lotes 17 e 18, e quem fundir em segundo remede na
+#: arvore integrada.
 MINIMO_DE_BLOCOS_MEDIDOS = 86
 
 #: Quantos blocos existem, no minimo. O mesmo argumento, para a camada de baixo:

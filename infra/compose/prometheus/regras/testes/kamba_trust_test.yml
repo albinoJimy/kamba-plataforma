@@ -204,3 +204,83 @@ tests:
       - eval_time: 25m
         alertname: confianca_tecto_escrita_recusada
         exp_alerts: []
+
+  # KAM-225: a mesma recusa, lida do registo do PostgreSQL. O caso e o controlo
+  # dos Testes Requeridos: uma ligacao directa do `kamba_app` faz subir a serie e
+  # dispara; o `kamba_batch` a escrever o tecto, que a base aceita, nao chega ao
+  # contador (o predicado do recolector, em `libs/py-core/tests/test_registo_pg.py`
+  # e no `db/ensaio_registo_pg.py`), e a serie fica a zero.
+  - interval: 1m
+    name: "registo: a primeira recusa dispara, e passada a janela resolve"
+    input_series:
+      - series: 'registo_pg_tecto_recusado_total{job="registo_pg",instance="registo-pg:8225"}'
+        values: '0x10 1x30'
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: confianca_tecto_recusado_no_registo
+        exp_alerts: []
+      - eval_time: 12m
+        alertname: confianca_tecto_recusado_no_registo
+        exp_alerts:
+          - exp_labels:
+              severity: P2
+              componente: gov
+              job: registo_pg
+            exp_annotations:
+              resumo: O registo do PostgreSQL tem uma recusa (42501) sobre platform.trust_level a um papel que nao e o kamba_batch.
+              qual_tenant: Nao se le desta serie (OBS-I); o registo do servidor diz o papel e a hora, e o runbook diz onde procurar.
+              runbook_url: https://github.com/albinoJimy/kamba-plataforma/blob/main/docs/runbooks/trust-e-safety.md
+      - eval_time: 35m
+        alertname: confianca_tecto_recusado_no_registo
+        exp_alerts: []
+
+  - interval: 1m
+    name: "registo: o controlo, a serie a zero, nao dispara"
+    input_series:
+      - series: 'registo_pg_tecto_recusado_total{job="registo_pg",instance="registo-pg:8225"}'
+        values: '0x40'
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: confianca_tecto_recusado_no_registo
+        exp_alerts: []
+      - eval_time: 40m
+        alertname: confianca_tecto_recusado_no_registo
+        exp_alerts: []
+
+  # O recolector comeca no fim do registo: um reinicio volta a zero e nao
+  # reconta, e o `increase` le a descida como reinicio.
+  - interval: 1m
+    name: "registo: um reinicio do recolector nao dispara"
+    input_series:
+      - series: 'registo_pg_tecto_recusado_total{job="registo_pg",instance="registo-pg:8225"}'
+        values: '0x10 3x50 0x30'
+    alert_rule_test:
+      - eval_time: 63m
+        alertname: confianca_tecto_recusado_no_registo
+        exp_alerts: []
+      - eval_time: 75m
+        alertname: confianca_tecto_recusado_no_registo
+        exp_alerts: []
+
+  # Uma recusa antes do primeiro *scrape*: a primeira amostra ja vale 1, e e o
+  # segundo ramo da regra que a ve.
+  - interval: 1m
+    name: "registo: um recolector que nasce ja com uma recusa dispara, e resolve"
+    input_series:
+      - series: 'registo_pg_tecto_recusado_total{job="registo_pg",instance="registo-pg:8225"}'
+        values: '_x5 1x40'
+    alert_rule_test:
+      - eval_time: 7m
+        alertname: confianca_tecto_recusado_no_registo
+        exp_alerts:
+          - exp_labels:
+              severity: P2
+              componente: gov
+              job: registo_pg
+            exp_annotations:
+              resumo: O registo do PostgreSQL tem uma recusa (42501) sobre platform.trust_level a um papel que nao e o kamba_batch.
+              qual_tenant: Nao se le desta serie (OBS-I); o registo do servidor diz o papel e a hora, e o runbook diz onde procurar.
+              runbook_url: https://github.com/albinoJimy/kamba-plataforma/blob/main/docs/runbooks/trust-e-safety.md
+      - eval_time: 25m
+        alertname: confianca_tecto_recusado_no_registo
+        exp_alerts: []
