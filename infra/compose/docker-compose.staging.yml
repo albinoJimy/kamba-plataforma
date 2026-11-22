@@ -813,6 +813,16 @@ services:
       # lancador do cofre (ADR-L002). Sem a KEK a fase falha pelo nome.
       KAMBA_SECRET_KEK_TOKEN_CLIENTE: ${KAMBA_SECRET_KEK_TOKEN_CLIENTE:?o cofre entrega a KEK dos tokens de cliente}
       KAMBA_SECRET_KEK_TOKEN_CLIENTE_ANTERIOR: ${KAMBA_SECRET_KEK_TOKEN_CLIENTE_ANTERIOR:-}
+      # KAM-233 (decisao do fundador de 2026-11-21, Q1 = A): a fase `revogacao`
+      # apaga a chave do tenant no LiteLLM pelo alias e suspende a conta dele no
+      # Chatwoot, os dois na rede `app` e fora do `proxy-saida` (o `NO_PROXY`
+      # do `*saida` ja os nomeia). As duas credenciais leem-se a cada chamada.
+      # Enquanto o LiteLLM de `staging` arrancar sem `DATABASE_URL`, o `/key/delete`
+      # responde 500 e a fase para na chave, com alerta (`docs/evidencia/KAM-233.md` §2).
+      KAMBA_LLM_PROXY_URL: http://litellm:4000
+      KAMBA_CHATWOOT_URL: http://chatwoot:3000
+      KAMBA_SECRET_LITELLM_MASTER_KEY: ${KAMBA_SECRET_LITELLM_MASTER_KEY:?do cofre (KAM-010), projecto staging}
+      KAMBA_SECRET_CHATWOOT_PLATFORM_TOKEN: ${KAMBA_SECRET_CHATWOOT_PLATFORM_TOKEN:?do cofre (KAM-010), projecto staging}
     networks:
       - app
       - data

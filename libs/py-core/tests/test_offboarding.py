@@ -22,6 +22,7 @@ from pathlib import Path
 
 from kamba_core.offboarding import (
     CAMINHOS_DO_ENCERRAMENTO,
+    RETIDAS_POR_PARECER,
     emitir_certificado,
     TABELAS_DOS_CONTACTOS,
     FaseForaDeOrdem,
@@ -35,7 +36,7 @@ from kamba_core.offboarding import (
     subestado,
     verificar_certificado,
 )
-from kamba_core.offboarding.certificado import FUNDAMENTO_FISCAL, assinar, montar
+from kamba_core.offboarding.certificado import FUNDAMENTO_BRANQUEAMENTO, FUNDAMENTO_FISCAL, assinar, montar
 from kamba_core.offboarding.contrato import LinhaDaFase
 from kamba_core.offboarding.exportacao import COLECCOES, RAZAO_SEM_CATALOGO
 from kamba_core.offboarding.purga import sem_caminho
@@ -281,8 +282,37 @@ class TestLigacao(unittest.TestCase):
 class TestClassesARetirEReter(unittest.TestCase):
     def test_os_caminhos_e_o_resto_sao_a_classe_relacao_inteira(self) -> None:
         relacao = [t.nome for t in politica.classe("relacao").tabelas]
-        com = [c.tabela for c in CAMINHOS_DO_ENCERRAMENTO]
-        self.assertEqual(sorted(com + list(TABELAS_DOS_CONTACTOS) + list(sem_caminho())), sorted(relacao))
+        # As `antes` de cada caminho contam quando sao da classe (o conteudo do
+        # calendario, KAM-233); as que nao sao (as mensagens de uma conversa)
+        # ficam fora da conta.
+        com = [t for c in CAMINHOS_DO_ENCERRAMENTO for t in c.tabelas if t in relacao]
+        self.assertEqual(
+            sorted(com + list(TABELAS_DOS_CONTACTOS) + list(RETIDAS_POR_PARECER) + list(sem_caminho())),
+            sorted(relacao),
+        )
+        # Nenhuma tabela em dois sitios: apagada e retida, ou retida e sem caminho.
+        self.assertEqual(len(com + list(RETIDAS_POR_PARECER) + list(sem_caminho())),
+                         len(set(com) | set(RETIDAS_POR_PARECER) | set(sem_caminho())))
+
+    def test_as_operacionais_saem_e_o_kyc_e_a_fraude_ficam_por_parecer(self) -> None:
+        """KAM-233, decisao do fundador de 2026-11-21 (Q3 = B), a lista dela."""
+        tabelas = {t for c in CAMINHOS_DO_ENCERRAMENTO for t in c.tabelas}
+        for operacional in (
+            "platform.onboarding_gate", "platform.onboarding_smoke", "platform.waitlist_entry",
+            "platform.catalog_ingestions", "platform.image_jobs", "platform.owner_actions",
+            "platform.owner_phone_changes", "platform.quote_requests", "platform.brand_profile",
+            "platform.content_calendar", "platform.content_items",
+        ):
+            with self.subTest(tabela=operacional):
+                self.assertIn(operacional, tabelas)
+        self.assertEqual(RETIDAS_POR_PARECER, ("platform.kyc_check", "platform.fraud_signals"))
+        # O caso fica: tres provas lhe apontam por FK (ver a nota da `purga`).
+        self.assertIn("platform.onboarding_case", sem_caminho())
+        # A ordem das FK: o pedido de orcamento antes da conversa, o conteudo
+        # antes do calendario.
+        ordem = [t for c in CAMINHOS_DO_ENCERRAMENTO for t in c.tabelas]
+        self.assertLess(ordem.index("platform.quote_requests"), ordem.index("platform.conversations"))
+        self.assertLess(ordem.index("platform.content_items"), ordem.index("platform.content_calendar"))
 
     def test_nenhuma_tabela_fiscal_tem_caminho(self) -> None:
         fiscais = {t.nome for c in politica.POLITICA if c.fiscal for t in c.tabelas}
@@ -316,9 +346,15 @@ class TestPurga(unittest.TestCase):
         tabelas = {t for c in CAMINHOS_DO_ENCERRAMENTO for t in c.tabelas}
         self.assertEqual(set(base.apagadas), tabelas)
         self.assertEqual(r["apagadas"]["platform.contacts"], 5)
-        self.assertEqual(set(r["retidas"]), set(sem_caminho()))
+        self.assertEqual(set(r["retidas"]), set(sem_caminho()) | set(RETIDAS_POR_PARECER))
         self.assertEqual(base.fases[A]["purga"].estado, "concluida")
         resultados = {(p[2], p[5]) for p in base.purge_log}
+        motivos = {p[2]: p[6] for p in base.purge_log}
+        for retida in RETIDAS_POR_PARECER:
+            with self.subTest(retida=retida):
+                self.assertIn((retida, "retida"), resultados)
+                self.assertEqual(motivos[retida], "branqueamento_sem_parecer")
+                self.assertNotIn(retida, base.apagadas)
         self.assertIn(("platform.conversations", "ok"), resultados)
         self.assertIn(("platform.tenants", "recusada"), resultados)
         # Repetir devolve o mesmo e nao apaga outra vez.
@@ -484,6 +520,19 @@ class TestCertificado(unittest.TestCase):
         self.assertTrue(all(x["fundamento"] for x in d["retidas"]))
         self.assertIn(FUNDAMENTO_FISCAL, {x["fundamento"] for x in d["retidas"]})
         self.assertEqual(d["prazo_fiscal"]["estado"], "NAO VERIFICADO")
+
+    def test_o_kyc_retido_por_parecer_leva_o_fundamento_do_branqueamento(self) -> None:
+        """KAM-233 (Q3 = B): o fundamento sai do motivo, e nao do nome da tabela."""
+        registos = [("platform.kyc_check", "retida", "branqueamento_sem_parecer", 0),
+                    ("platform.fraud_signals", "retida", "branqueamento_sem_parecer", 0),
+                    ("platform.onboarding_case", "recusada", "sem_caminho", 0)]
+        d = montar(A, D0, registos, copias_expiram_em_dias=35, anos_fiscais=None)
+        por_tabela = {x["tabela"]: x["fundamento"] for x in d["retidas"] if "tabela" in x}
+        self.assertEqual(por_tabela["platform.kyc_check"], FUNDAMENTO_BRANQUEAMENTO)
+        self.assertEqual(por_tabela["platform.fraud_signals"], FUNDAMENTO_BRANQUEAMENTO)
+        self.assertNotEqual(por_tabela["platform.onboarding_case"], FUNDAMENTO_BRANQUEAMENTO)
+        self.assertIn("branqueamento", FUNDAMENTO_BRANQUEAMENTO)
+        self.assertIn("parecer", FUNDAMENTO_BRANQUEAMENTO)
 
     def test_nao_afirma_o_apagamento_das_copias(self) -> None:
         d = self.doc()
