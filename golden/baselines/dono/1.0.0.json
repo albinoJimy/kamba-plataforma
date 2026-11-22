@@ -3,7 +3,7 @@
   "alegacoes": "440643074280740e",
   "alias_social_text": "ausente",
   "aliases": "1.2.1",
-  "codigo": "84e9c5f73f86f8a4b97ec49a0b2aa8b330ae8ae4f4e5c2397e71be26f5d626ac",
+  "codigo": "64c29c59dc7a43012c770a2a7a4b3f28f619af1fc777dffe448f010937cf0e76",
   "dataset": "1.0.0:15a5919de62881e9fefde27a7ea81e98021c8f6946b383a50062687feb49718a",
   "gate": "1.0.0",
   "grafo": "1.0.0",
@@ -79,8 +79,8 @@
  "monitorizado": {
   "chamadas_a_modelo": 0,
   "custo_usd": 0.0,
-  "latencia_p95_s": 0.244,
-  "segundos": 32.6
+  "latencia_p95_s": 0.1265,
+  "segundos": 17.43
  },
  "persona": "dono",
  "por_caso": {
