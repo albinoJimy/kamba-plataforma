@@ -42,7 +42,7 @@
  * Não está no *compose* de `prod` pelo orçamento de memória do conjunto
  * reduzido (bloco do KAM-215, decisões do executor). O fundador decidiu a
  * 2026-11-21 que fica de fora até se medir o pico de memória dele: o credor é
- * o KAM-237, que propõe o limite que caiba sem mexer no tecto.
+ * o KAM-238, que propõe o limite que caiba sem mexer no tecto.
  */
 
 import { healthz } from "@kamba/core-ts";

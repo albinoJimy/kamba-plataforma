@@ -26,13 +26,13 @@
  * **O guia do ES não se monta em `prod`** (D2-A): a reserva da lista de espera e
  * a fila de revisão correm como `kamba_batch`, que este processo não tem, e os
  * *gates* do guia só o lote os escreve. Passam ao processo de lote num credor
- * (KAM-238); até lá, o arranque di-lo numa linha (`es_guia_fora_de_prod`).
+ * (KAM-239); até lá, o arranque di-lo numa linha (`es_guia_fora_de_prod`).
  *
  * **E o arranque em `prod` continua a recusar**, agora por outra razão
  * (`SmsFalsoEmProducaoError`): o SMS do OTP é o `FakeSmsProvider` em todos os
  * ambientes, porque não há adaptador de agregador real. Os repositórios já não
- * são o motivo; o fornecedor de SMS é. A decisão de como `prod` arranca sem ele
- * está com a coordenação (bloco do KAM-236).
+ * são o motivo; o fornecedor de SMS é. Fica assim até ao agregador (KAM-116),
+ * por decisão da coordenação de 2026-11-22 (C1, no bloco do KAM-236).
  *
  * Em `dev` e `staging` sem a ligação, arranca sobre memória, e é o que torna o
  * fluxo exercitável ponta a ponta com o `FakeSmsProvider` (critério 8 do
@@ -380,7 +380,7 @@ function montarGuia(): OpcoesDoGuia | undefined {
   }
   // **Fora de `prod`** (D2-A, decisão do fundador de 2026-11-21): a lista, a
   // fila e os *gates* do guia são do lote, como `kamba_batch`, e o estado do
-  // guia é em memória. Credor: KAM-238. Ver a nota do módulo.
+  // guia é em memória. Credor: KAM-239. Ver a nota do módulo.
   if (env === "prod") {
     log.info({ outcome: "es_guia_fora_de_prod" });
     return undefined;

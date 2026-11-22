@@ -80,8 +80,8 @@ Fora deste epic (Clusters): estafetas, revendedores, rede de agentes de activaç
 | KAM-219 | Alerta da escrita recusada em `platform.trust_level`: ver o `42501` que a base já dá | feature | S | P2 | KAM-203 |
 | KAM-225 | A recusa em `platform.trust_level` fora do `tenant_guard`: o registo do PostgreSQL recolhido | feature | M | P2 | KAM-219 |
 | KAM-236 | `onboarding-web` em produção: o caso, o registo e o guia sobre a base, para que a página do dono arranque em `prod` | feature | L | P1 | KAM-202 |
-| KAM-238 | O guia do ES em `prod`: o estado do guia na base, e a lista de espera, a fila de revisão e os *gates* pelo processo de lote | feature | M | P1 | KAM-236 |
-| KAM-239 | A idempotência do `PATCH /painel/produtos/:id` na base: a deduplicação sobrevive a um reinício e vale entre réplicas | feature | S | P1 | KAM-236 |
+| KAM-239 | O guia do ES em `prod`: o estado do guia na base, e a lista de espera, a fila de revisão e os *gates* pelo processo de lote | feature | M | P1 | KAM-236 |
+| KAM-240 | A idempotência do `PATCH /painel/produtos/:id` na base: a deduplicação sobrevive a um reinício e vale entre réplicas | feature | S | P1 | KAM-236 |
 
 ---
 
@@ -4378,7 +4378,7 @@ Testes: a ligação directa com o alerta, e o controlo.
 | Prioridade | P1 |
 | Estimativa | L |
 | Dependências | KAM-202 |
-| Bloqueia | KAM-238, KAM-239 |
+| Bloqueia | KAM-239, KAM-240 |
 | Responsável sugerido | Engenheiro de Plataforma (TEN) |
 | Documentos de referência | `EPIC-04_Core_Comercio.md` (bloco KAM-202), `EPIC-09_Onboarding_Governanca.md` (blocos KAM-086 e KAM-093), `../services/onboarding-web/src/server.ts` |
 
@@ -4413,7 +4413,7 @@ do lote 17; a D1 chegou primeiro com duas respostas, e o fundador confirmou a A 
 | # | Pergunta | Escolha | Recusadas |
 |---|---|---|---|
 | D1 | As quatro buscas do registo que atravessam tenants (`porNifHmac`, `porTelefoneHmac`, `porChave`, `contarPorDispositivo`), com o `kamba_app` sob RLS | **A**: funções `SECURITY DEFINER` que devolvem só o caso e o tenant, com `EXECUTE` só para o `kamba_app`; o adaptador lê o resto pela RLS do tenant do caso | B, uma ligação `kamba_batch` no `onboarding-web` (dava `BYPASSRLS` ao processo virado para a Internet); C, um papel novo |
-| D2 | A lista de espera e a fila do guia correm como `kamba_batch` | **A**: o guia não se monta em `prod` até a reserva da lista, a fila e os *gates* passarem ao processo de lote, num credor (**KAM-238**) | B, uma terceira ligação `kamba_batch` no `onboarding-web` |
+| D2 | A lista de espera e a fila do guia correm como `kamba_batch` | **A**: o guia não se monta em `prod` até a reserva da lista, a fila e os *gates* passarem ao processo de lote, num credor (**KAM-239**) | B, uma terceira ligação `kamba_batch` no `onboarding-web` |
 | D3 | Os contadores do anti-abuso e as revogações do painel | **A**: tabelas no PostgreSQL | B, o Redis da fila |
 
 **A revisão** é a `0084`, sobre a `0083` (vaga dada pela coordenação do lote 17). **A estimativa** passa de M
@@ -4427,7 +4427,7 @@ escreve, sem produção, e reverte-as um PR pequeno; **o fundador pode reabri-la
 | # | Pergunta | Escolha | Recusada |
 |---|---|---|---|
 | C1 | O SMS do OTP em `prod`, sem adaptador de agregador real (achado 1 da revisão adversarial) | **A**: o arranque em `prod` recusa enquanto o SMS for o `FakeSmsProvider` (`SmsFalsoEmProducaoError`). O critério 1 fica **bloqueado pelo agregador**, o **KAM-116** | B, arrancar em `prod` com o registo e o OTP desligados |
-| C2 | A idempotência do `PATCH /painel/produtos/:id`, que continua num `Map` do processo (achado 4) | **A**: vai para um credor, o **KAM-239** (número *provisório*, a seguir ao KAM-237 e ao KAM-238). O critério 1 fica parcial nesse ponto | B, persisti-la neste ticket |
+| C2 | A idempotência do `PATCH /painel/produtos/:id`, que continua num `Map` do processo (achado 4) | **A**: vai para um credor, o **KAM-240** (aberto como KAM-239 e renumerado na integração, depois do KAM-125, que tomou o 237). O critério 1 fica parcial nesse ponto | B, persisti-la neste ticket |
 
 **Duas consequências medidas, escritas aqui porque mudam o que as decisões entregam:**
 
@@ -4445,7 +4445,7 @@ escreve, sem produção, e reverte-as um PR pequeno; **o fundador pode reabri-la
 - *A D2-A tira o guia inteiro de `prod`, e não só a lista e a fila.* Os dois *gates* do guia (`meta_es`,
   `meta_pagamento`) só o `kamba_batch` os escreve (o `kamba_app` tem só `SELECT` na `onboarding_gate`,
   revisão `0058`), e o estado do guia tem duas varreduras que atravessam tenants (`iniciadosAntesDe`,
-  `porPhoneNumberId`). O estado do guia na base vai, por isso, com o credor (KAM-238), que é quem o monta.
+  `porPhoneNumberId`). O estado do guia na base vai, por isso, com o credor (KAM-239), que é quem o monta.
 
 **E uma pergunta que fica com o fundador:** a chave que cifra o `nif_enc` e o `email_enc` do caso. Nenhum
 código os escrevia, e o `nif_enc` é `NOT NULL`. Foi implementada a opção recomendada — uma KEK própria,
@@ -4473,16 +4473,16 @@ Entregue neste ramo:
   e a cifra do NIF e do e-mail ([`../packages/core-ts/src/inscricao/dados_do_caso.ts`](../packages/core-ts/src/inscricao/dados_do_caso.ts),
   `kek_dados_do_caso`, decisão do fundador de 2026-11-21);
 - o `server.ts` sobre a base, o compose de `prod`, o inventário dos segredos, a política de retenção, a emenda
-  1.135 do dicionário (§3.83) e o credor **KAM-238** (o guia em `prod`, D2-A).
+  1.135 do dicionário (§3.83) e o credor **KAM-239** (o guia em `prod`, D2-A).
 
 **A D2-A, lida pela coordenação.** Que o estado do guia, os *gates*, a lista e a fila vão **todos** para o
-KAM-238, e não só a lista e a fila, é **decisão da coordenação do lote 17**, derivada da D2-A («até lá o guia
+KAM-239, e não só a lista e a fila, é **decisão da coordenação do lote 17**, derivada da D2-A («até lá o guia
 não se monta em `prod`»): o `kamba_app` não escreve os *gates* e o estado tem duas varreduras entre tenants.
 O fundador pode reabri-la.
 
 | Critério | Estado | Evidência |
 |---|---|---|
-| 1 — o caso, o registo e o guia em SQL com os papéis certos, e o `server.ts` arranca em `prod` sem repositório em memória | **parcial — caixa vazia** | **Feito:** o caso, o OTP, os contadores e as revogações sobre a base, como `kamba_app`, e o `server.ts` recusa `prod` sem a ligação (`BaseEmFaltaEmProducaoError`). Contra a base (`tests_lote`, `packages/core-ts/tests_bd/inscricao.bd.test.ts`, seis ensaios obrigatórios): o registo cria o caso num processo e outro processo acerta o código, conclui o OTP e reconhece a chave; as funções só devolvem o caso e o tenant e o `kamba_app` não lê o caso de outro tenant pela tabela; trinta verificações concorrentes comparam no máximo cinco; dois registos concorrentes do mesmo NIF, e a mesma chave, dão um caso; os contadores somam entre processos; as revogações sobrevivem. **Falta, três coisas:** (a) o guia não se monta em `prod` (D2-A), credor **KAM-238**; (b) o arranque em `prod` **continua a recusar**, agora pelo SMS (`SmsFalsoEmProducaoError`): o OTP é o `FakeSmsProvider` em todos os ambientes, porque não há adaptador de agregador real (achado 1 da revisão adversarial). **Bloqueado pelo agregador, o KAM-116** (decisão C1 da coordenação, 2026-11-22); (c) a idempotência do `PATCH /painel/produtos/:id` continua num `Map` do processo (achado 4), credor **KAM-239** (decisão C2). **O defeito:** um reinício ou uma segunda réplica perdem a deduplicação. A repetição da mesma chave já não recebe a resposta guardada e chega ao COM; como o pedido leva a versão, a segunda gravação recusa-se, e o dono recebe um `409` sobre um preço que ficou gravado, em vez do `200` da primeira |
+| 1 — o caso, o registo e o guia em SQL com os papéis certos, e o `server.ts` arranca em `prod` sem repositório em memória | **parcial — caixa vazia** | **Feito:** o caso, o OTP, os contadores e as revogações sobre a base, como `kamba_app`, e o `server.ts` recusa `prod` sem a ligação (`BaseEmFaltaEmProducaoError`). Contra a base (`tests_lote`, `packages/core-ts/tests_bd/inscricao.bd.test.ts`, seis ensaios obrigatórios): o registo cria o caso num processo e outro processo acerta o código, conclui o OTP e reconhece a chave; as funções só devolvem o caso e o tenant e o `kamba_app` não lê o caso de outro tenant pela tabela; trinta verificações concorrentes comparam no máximo cinco; dois registos concorrentes do mesmo NIF, e a mesma chave, dão um caso; os contadores somam entre processos; as revogações sobrevivem. **Falta, três coisas:** (a) o guia não se monta em `prod` (D2-A), credor **KAM-239**; (b) o arranque em `prod` **continua a recusar**, agora pelo SMS (`SmsFalsoEmProducaoError`): o OTP é o `FakeSmsProvider` em todos os ambientes, porque não há adaptador de agregador real (achado 1 da revisão adversarial). **Bloqueado pelo agregador, o KAM-116** (decisão C1 da coordenação, 2026-11-22); (c) a idempotência do `PATCH /painel/produtos/:id` continua num `Map` do processo (achado 4), credor **KAM-240** (decisão C2). **O defeito:** um reinício ou uma segunda réplica perdem a deduplicação. A repetição da mesma chave já não recebe a resposta guardada e chega ao COM; como o pedido leva a versão, a segunda gravação recusa-se, e o dono recebe um `409` sobre um preço que ficou gravado, em vez do `200` da primeira |
 | 2 — o `POST /painel/teste` corre em `prod`, e um reinício não perde a tentativa aberta | **parcial — caixa vazia** | A tentativa vive na `onboarding_smoke` desde o KAM-202, e o caso que a sessão do painel lê vive agora na base: o reinício (`…outro processo acerta o código…`) lê o mesmo caso e o mesmo tenant. **Falta:** `prod` não arranca enquanto o SMS for o falso (critério 1, b; bloqueado pelo KAM-116) |
 | 3 — o compose de produção monta o `onboarding-web` na rede `data` só com as ligações de que ele precisa | **satisfeito** | `infra/compose/docker-compose.prod.yml`: redes `app` e `data`, uma ligação só (`ONBOARDING_APP_DB_URL`, `kamba_app`), sem `kamba_batch` nem `kamba_identity`; o COM interno pela rede `app`; os segredos pelo cofre (`${…:?}`); `mem_limit` sem mudança. `compose_prod lint`: 0 achados; `env_lint lint`: 0 achados; as suites das duas ferramentas verdes |
 
@@ -4490,7 +4490,7 @@ O fundador pode reabri-la.
 
 | DoD | Estado | Evidência |
 |---|---|---|
-| Critérios satisfeitos; a caixa do critério 2 do KAM-202 revista | **parcial** | Um de três (os outros dois esperam o agregador do KAM-116, o KAM-238 e o KAM-239). A linha do critério 2 do KAM-202 foi revista com a evidência deste ticket e continua parcial |
+| Critérios satisfeitos; a caixa do critério 2 do KAM-202 revista | **parcial** | Um de três (os outros dois esperam o agregador do KAM-116, o KAM-239 e o KAM-240). A linha do critério 2 do KAM-202 foi revista com a evidência deste ticket e continua parcial |
 | Nenhum segredo no compose; `make up && make smoke` verde | **parcial** | Nenhum valor de segredo nos compose (o `scan_secrets` limpo em cada *commit*). O `make up && make smoke` **não correu** nesta máquina (não há `make`); em `dev` o serviço passa a exigir as duas KEK do caso no `.env` (`.env.example`) |
 
 **Medido nesta máquina:** as suites focadas do *gate* 8 (`test_catalogo`, `test_migracao`, `test_privilegios`,
@@ -4510,7 +4510,7 @@ do `criar` sem ensaio; a guarda da política alargada às vistas. **Antes dela**
 versão da política (`USING (true)`, o dono via os casos sem contexto) e o `test_privilegios` o `DELETE` do
 `kamba_app` (o desafio passou a marcar-se usado e os contadores saem pela retenção). **Levados à coordenação**, e
 decididos por ela a 2026-11-22: o SMS falso em `prod` (C1, a recusa, que falha fechado) e a idempotência do
-painel em memória (C2, credor KAM-239). **Escritos,
+painel em memória (C2, credor KAM-240). **Escritos,
 sem correcção:** o corte e o `usado_at` só sobem pelas instruções e não por *trigger* (o `kamba_app` é código
 nosso); o `guardar` de um desafio sem caso não guarda nada; o `.env` antigo de `dev` tem de ganhar as duas KEK;
 as duas divergências de canto dos contadores (janela nula, tecto entre réplicas com relógios diferentes).
@@ -4537,7 +4537,7 @@ Regras: papéis mínimos por ligação; nenhum repositório em memória em prod.
 
 ---
 
-## KAM-238 — O guia do ES em `prod`: o estado do guia na base, e a lista de espera, a fila de revisão e os *gates* pelo processo de lote
+## KAM-239 — O guia do ES em `prod`: o estado do guia na base, e a lista de espera, a fila de revisão e os *gates* pelo processo de lote
 
 | Campo | Valor |
 |---|---|
@@ -4595,7 +4595,7 @@ Que o guia do ES corra em `prod`: o estado na base, e o que pede `kamba_batch` n
 ### Handoff para Claude Code
 
 ```text
-És o executor do ticket KAM-238 da KAMBÁ (o guia do ES em prod).
+És o executor do ticket KAM-239 da KAMBÁ (o guia do ES em prod).
 Lê os blocos KAM-093, KAM-095, KAM-198 e KAM-236 de specs/EPIC-09_Onboarding_Governanca.md,
 services/onboarding-web/src/server.ts e services/onboarding-web/src/lote/processo.ts.
 Objectivo: o guia monta em prod, com o estado na base e o kamba_batch só no lote.
@@ -4604,7 +4604,7 @@ Regras: o onboarding-web não ganha kamba_batch (D2-A do KAM-236); papéis míni
 
 ---
 
-## KAM-239 — A idempotência do `PATCH /painel/produtos/:id` na base: a deduplicação sobrevive a um reinício e vale entre réplicas
+## KAM-240 — A idempotência do `PATCH /painel/produtos/:id` na base: a deduplicação sobrevive a um reinício e vale entre réplicas
 
 | Campo | Valor |
 |---|---|
@@ -4660,7 +4660,7 @@ Que a deduplicação do `PATCH /painel/produtos/:id` sobreviva a um reinício e 
 ### Handoff para Claude Code
 
 ```text
-És o executor do ticket KAM-239 da KAMBÁ (a idempotência do painel na base).
+És o executor do ticket KAM-240 da KAMBÁ (a idempotência do painel na base).
 Lê os blocos KAM-099 e KAM-236 de specs/EPIC-09_Onboarding_Governanca.md,
 services/onboarding-web/src/painel/idempotencia.ts e services/onboarding-web/src/server.ts.
 Objectivo: a Idempotency-Key do PATCH /painel/produtos/:id na base, por tenant, entre processos.
@@ -4749,4 +4749,4 @@ Regras: kamba_app sem DELETE (dicionário §2); a revisão de esquema é da fila
 | 1.38 | Novembro 2026 | **KAM-218 entregue**, e **KAM-233** aberto no mesmo PR como credor do que ele devolve. Satisfeito o processo dos dados (o serviço `offboarding-dados` nos três *compose*, que arranca em `prod` e não arranca sem as credenciais); parciais o canal da Meta (ligado pelo cofre no processo de lote, sem caminho para o *token* por tenant até ao contentor), a revogação (a chave do LiteLLM pelo alias, à mão), a exportação (a prova de aceite e as ofertas) e a purga (os contactos pelo cofre); por satisfazer as provas do titular, a entrega do certificado e o simulacro. As caixas do KAM-210 revistas no bloco dele. O KAM-233 escrito como o número a seguir ao maior da `main` (232), *provisório* até à integração. | Equipa KAMBÁ |
 | 1.39 | Novembro 2026 | **KAM-236 acrescentado**, no PR do **KAM-202** (EPIC-04): o `onboarding-web` em produção, credor do critério 2 do KAM-202 (decisão do fundador de 2026-11-20). E o bloco do KAM-094 revisto com a evidência do KAM-202: a publicação protegida pela base, a mudança de nome pelo COM, o processo que corre o teste e a activação, e o filtro de `is_test`. Escrito como KAM-233 e renumerado duas vezes na integração: para 234 depois do KAM-223, e para 236 depois do KAM-218 e do KAM-234 (EPIC-11). | Equipa KAMBÁ |
 | 1.40 | Novembro 2026 | KAM-206 (o contacto da encomenda ao dono e a lista de produtos em 3G): as decisões do fundador de 2026-11-20 (o COM decifra como `kamba_identity`, opção A; a regra, a máscara e a acção) e as duas secções de verificação — os **seis** critérios e as duas caixas da DoD satisfeitos, com a revisão `0082` sobre a `0081` do KAM-215. As linhas 6 e 9 do KAM-099 e 1 e 3 do KAM-190 passam a satisfeitas, e a DoD 1 do KAM-190 também. Escrita como 1.38 e renumerada na integração, depois do KAM-218 e do KAM-202. | Equipa KAMBÁ |
-| 1.41 | Novembro 2026 | **KAM-236**: as três decisões do fundador de 2026-11-21 registadas no bloco (D1-A, D2-A e D3-A), e as duas secções de verificação. **KAM-238 acrescentado** no mesmo PR, credor da D2-A: o guia do ES em `prod`, com o estado na base e a lista, a fila e os *gates* pelo processo de lote. O `Bloqueia` do KAM-236 ganha-o. As duas **decisões da coordenação** de 2026-11-22 (C1, o SMS em `prod`, e C2, a idempotência do painel) e os dois achados fora de âmbito também no bloco, e o **KAM-239** acrescentado, credor da C2: a idempotência do `PATCH /painel/produtos/:id` na base. Números *provisórios*, acertados na integração do lote 17. | Equipa KAMBÁ |
+| 1.41 | Novembro 2026 | **KAM-236**: as três decisões do fundador de 2026-11-21 registadas no bloco (D1-A, D2-A e D3-A), e as duas secções de verificação. **KAM-239 acrescentado** no mesmo PR, credor da D2-A: o guia do ES em `prod`, com o estado na base e a lista, a fila e os *gates* pelo processo de lote. O `Bloqueia` do KAM-236 ganha-o. As duas **decisões da coordenação** de 2026-11-22 (C1, o SMS em `prod`, e C2, a idempotência do painel) e os dois achados fora de âmbito também no bloco, e o **KAM-240** acrescentado, credor da C2: a idempotência do `PATCH /painel/produtos/:id` na base. Escrita com os números 238 e 239, renumerados na integração para 239 e 240, depois do KAM-125, que tomou o 237. | Equipa KAMBÁ |
