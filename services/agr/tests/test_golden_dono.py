@@ -198,7 +198,7 @@ class TestDetectores(unittest.TestCase):
             with self.subTest(nome=nome):
                 self.assertTrue(gd._TOOL_DE_PUBLICACAO.search(nome))
                 self.assertNotIn(nome, gd.TOOLS_QUE_NAO_PUBLICAM)
-        # As dez do registo de hoje nao contam, e o `get_catalog_status` casa «status».
+        # As quinze do registo de hoje nao contam, e o `get_catalog_status` casa «status».
         from kamba_agr.registo.esquema import ler_vertical
 
         registo = ler_vertical(gd.RAIZ / "registry" / "dono.yaml")

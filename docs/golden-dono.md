@@ -34,7 +34,7 @@ python services/agr/tests/golden_dono_casos.py escrever   # regenera o dataset a
 ## 2. O que entra gravado, e porquê
 
 O grafo é o do `registry/dono.yaml`, compilado pelo `grafos.compilar` como o
-processo o compila, com a ToolLayer real e as dez tools do registo sobre duplos
+processo o compila, com a ToolLayer real e as quinze tools do registo sobre duplos
 em memória. **Três portas são de modelo, e entram gravadas no próprio caso**: o
 Piloto não liga modelo nenhum, e esta casa não chama LLM pago.
 
@@ -187,3 +187,4 @@ revisores.
 |---|---|---|---|
 | 1.0 | Novembro 2026 | Versão inicial (KAM-125). | Equipa KAMBÁ |
 | 1.1 | Novembro 2026 | KAM-237: os três achados do gate duro 3 corrigidos e o «75k» lido pelo orçamento; baseline 1.0.1 **verde**, com o grafo do dono na 1.0.1 (§4, §5). | Equipa KAMBÁ |
+| 1.2 | Novembro 2026 | KAM-122: as tools do registo do dono passam de dez a quinze (`generate_art`, `request_approval`, `approve_content`, `reject_content` e `deliver_content`), e entram na lista fechada das que não publicam numa rede (`TOOLS_QUE_NAO_PUBLICAM`): a entrega é ao próprio dono, que publica à mão. Sem caso novo e sem baseline nova. Escrita como 1.1 e renumerada na integração, depois do KAM-237. | Equipa KAMBÁ |

@@ -58,7 +58,18 @@ CONTACTO = "33333333-3333-4333-8333-333333333333"
 AGORA = datetime.datetime(2026, 11, 20, 11, 0, tzinfo=datetime.UTC)
 HOJE = datetime.date(2026, 11, 20)
 
-TOOLS_DO_SOCIAL = ("get_brand_profile", "update_brand_profile", "generate_calendar", "generate_caption")
+TOOLS_DO_SOCIAL = (
+    "get_brand_profile",
+    "update_brand_profile",
+    "generate_calendar",
+    "generate_caption",
+    # KAM-122.
+    "generate_art",
+    "request_approval",
+    "approve_content",
+    "reject_content",
+    "deliver_content",
+)
 
 
 # ====================================================================== os duplos
@@ -521,12 +532,20 @@ class TestAsTools(unittest.TestCase):
         self.assertEqual(mundo.camada.catalogo["get_brand_profile"].klass, "read")
         for nome in TOOLS_DO_SOCIAL[1:]:
             self.assertEqual(mundo.camada.catalogo[nome].klass, "write", nome)
+            if nome == "approve_content":
+                # KAM-122: a unica com botao, o `confirm:{action_id}` (D4).
+                self.assertNotIn(nome, DISPENSAS_DO_PASSO_4)
+                self.assertEqual(mundo.camada.catalogo[nome].campo_de_confirmacao, "action_id")
+                continue
             self.assertIn(nome, DISPENSAS_DO_PASSO_4)
             self.assertTrue(mundo.camada.catalogo[nome].confirmacao_dispensada)
         with self.assertRaises(ValueError):
             catalogo_mod.especificacoes_do_piloto({"generate_calendar": lambda p: None})  # type: ignore[dict-item]
         declaradas = catalogo_do_piloto().declaradas()
-        self.assertEqual({n: declaradas[n] for n in TOOLS_DO_SOCIAL}, dict.fromkeys(TOOLS_DO_SOCIAL, "KAM-121"))
+        self.assertEqual(
+            {n: declaradas[n] for n in TOOLS_DO_SOCIAL},
+            {n: "KAM-121" if i < 4 else "KAM-122" for i, n in enumerate(TOOLS_DO_SOCIAL)},
+        )
 
     def test_sem_o_modulo_social_as_quatro_recusam(self) -> None:
         mundo = Mundo(modulos={"vendedor", "catalogo"})

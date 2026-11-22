@@ -528,15 +528,17 @@ class TestToolsNoArranque(unittest.TestCase):
         # duas do orcamento ligam-se sempre, como a `get_store_info`: oito. E
         # desde o KAM-119 as quatro do catalogo do dono tambem: doze. E desde o
         # KAM-121 as quatro do social, no catalogo e ligadas: dezasseis de 21.
-        self.assertEqual(self._linha(KAMBA_COM_URL="http://com.interno:3000"), "ligadas_16_de_21")
+        # E desde o KAM-122 as cinco da arte, ligadas com o social: 21 de 26.
+        self.assertEqual(self._linha(KAMBA_COM_URL="http://com.interno:3000"), "ligadas_21_de_26")
 
     def test_sem_o_com_a_da_plataforma_e_a_do_indice(self) -> None:
         # O `search_catalog` liga-se sem `KAMBA_COM_URL`: o indice vive na base
         # da plataforma, e nao depende do COM (KAM-061). E as duas do orcamento
         # escrevem na mesma base (KAM-220). As quatro do catalogo (KAM-119)
         # ligam-se sem COM, com o screening e o Registo por ligar: oito. As
-        # quatro do social (KAM-121) tambem, com o screening por ligar: doze.
-        self.assertEqual(self._linha(), "ligadas_12_de_21")
+        # quatro do social (KAM-121) tambem, com o screening por ligar: doze. E
+        # as cinco da arte (KAM-122), com o STO e o gerador por ligar: dezassete.
+        self.assertEqual(self._linha(), "ligadas_17_de_26")
 
 
 class TestPesquisaSemExecutor(unittest.TestCase):

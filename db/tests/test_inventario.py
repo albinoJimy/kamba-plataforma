@@ -2920,6 +2920,9 @@ INVENTARIO["brand_profile"] = {
     "versao": ("integer", NAO, "1", "nao"),
     "criado_at": ("timestamp with time zone", NAO, "now()", "nao"),
     "atualizado_at": ("timestamp with time zone", NAO, "now()", "nao"),
+    # KAM-122: a hora em que os termos sem garantia de exclusividade se
+    # mostraram, na primeira entrega (criterio 9). `NULL` e «ainda nao».
+    "termos_entrega_at": ("timestamp with time zone", SIM, None, "nao"),
 }
 
 #: O calendario semanal do social (KAM-121). Um `activo` por `(tenant_id,
@@ -2954,6 +2957,20 @@ INVENTARIO["content_items"] = {
     "agendado_at": ("timestamp with time zone", NAO, None, "nao"),
     "criado_at": ("timestamp with time zone", NAO, "now()", "nao"),
     "atualizado_at": ("timestamp with time zone", NAO, "now()", "nao"),
+    # KAM-122 (revisao da arte e da aprovacao do social). A arte e um objecto do
+    # STO do proprio tenant (`t/{tenant}/...`), o fundo e `gerado` ou
+    # `gradiente`, ate tres tentativas, o custo das tentativas, e a aprovacao
+    # ligada ao `hash(legenda, arte, versao)`. Nenhuma guarda dados pessoais.
+    "arte_ref": ("text", SIM, None, "nao — a chave do STO, presa ao tenant da linha"),
+    "arte_sha256": ("text", SIM, None, "nao"),
+    "arte_fundo": ("text", SIM, None, "nao — lista fechada de dois"),
+    "arte_texto": ("text", SIM, None, "nao — o texto que esta na imagem, composto por codigo dos factos da loja"),
+    "arte_formato": ("text", SIM, None, "nao — lista fechada de dois"),
+    "arte_tentativas": ("smallint", NAO, "0", "nao"),
+    "arte_custo_usd": ("numeric", NAO, "0", "nao"),
+    "aprovacao_hash": ("text", SIM, None, "nao"),
+    "aprovado_at": ("timestamp with time zone", SIM, None, "nao"),
+    "entregue_at": ("timestamp with time zone", SIM, None, "nao"),
 }
 
 #: A troca de telefone do dono (KAM-223). **Sem telefone em claro**: os dois
@@ -4950,6 +4967,28 @@ class TestInventario(ComBase):
                     "content_items_tipo_ck",
                     "content_items_versao_ck",
                     "content_items_versao_politica_ck",
+                    # ---------- KAM-122 (revisao da arte e da aprovacao do social)
+                    #
+                    # **Doze**, todas `CHECK` do item: a forma de cada coluna da
+                    # arte e do hash (a chave do STO presa ao tenant da linha, o
+                    # sha256, o fundo, o texto, o formato, as tres tentativas, o
+                    # custo nao negativo),
+                    # a arte completa ou nenhuma, e as tres que ligam o estado as
+                    # colunas: `pendente_aprovacao` com legenda e arte,
+                    # `aprovado`/`entregue` com a prova da aprovacao, e
+                    # `entregue` se e so se ha `entregue_at`.
+                    "content_items_aprovacao_hash_ck",
+                    "content_items_aprovado_ck",
+                    "content_items_arte_completa_ck",
+                    "content_items_arte_custo_ck",
+                    "content_items_arte_formato_ck",
+                    "content_items_arte_fundo_ck",
+                    "content_items_arte_ref_ck",
+                    "content_items_arte_sha256_ck",
+                    "content_items_arte_tentativas_ck",
+                    "content_items_arte_texto_ck",
+                    "content_items_entregue_ck",
+                    "content_items_pendente_ck",
                     "purge_log_classe_ck",
                     "purge_log_linhas_ck",
                     "purge_log_modo_ck",

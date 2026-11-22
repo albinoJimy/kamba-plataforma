@@ -655,7 +655,24 @@ dominios_historicos:
       1.129). O upgrade escreve as dezassete e o downgrade repoe as dezasseis
       da finalidade_das_condicoes; esta entrada cobre a segunda. O passo de
       descida recusa-se se houver destinos com essa finalidade. Renumerar a
-      revisao e mudar tambem o caminho desta entrada.
+      revisao e mudar tambem o caminho desta entrada. Desde o KAM-122 o upgrade
+      tambem e historico: escreve dezassete, e o dicionario declara dezoito.
+  - revisao: "db/migrations/versions/0085_arte_e_aprovacao_do_social.py"
+    tabela: "tenant_destinations"
+    coluna: "purpose"
+    ticket: "KAM-122"
+    data: "2026-11-21"
+    razao: >-
+      A revisao arte_e_aprovacao_do_social (KAM-122, decisao do fundador a
+      2026-11-21, D3 opcao A) acrescenta a geracao_de_imagem, a finalidade do
+      fornecedor que gera o fundo das artes do modulo social, pelos precedentes
+      do KAM-228 e do KAM-121 (um tratamento, uma finalidade), por DROP
+      CONSTRAINT mais ADD CONSTRAINT com o mesmo nome, e o dicionario §3.49
+      passa a declarar dezoito (emenda 1.137). O upgrade
+      escreve as dezoito e o downgrade repoe as dezassete da social_do_dono;
+      esta entrada cobre a segunda. O passo de descida recusa-se se houver
+      destinos com essa finalidade. Renumerar a revisao e mudar tambem o
+      caminho desta entrada.
   - revisao: "db/migrations/versions/0044_screening_de_categorias.py"
     tabela: "screening_decision"
     coluna: "sujeito_tipo"
