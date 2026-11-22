@@ -1066,6 +1066,28 @@ class TestUmaSoVia(unittest.TestCase):
                     for parte in partes.elts  # type: ignore[attr-defined]
                 ]
                 self.assertEqual(tipos, ["image_url"])
+                # E o URL e um `data:` de bytes em base64, e nao texto: o f-string
+                # comeca por `data:` e acaba em `;base64,{dados}`.
+                (parte,) = partes.elts  # type: ignore[attr-defined]
+                imagem = dict(zip([getattr(k, "value", None) for k in parte.keys], parte.values, strict=True))["image_url"]
+                url = dict(zip([getattr(k, "value", None) for k in imagem.keys], imagem.values, strict=True))["url"]
+                self.assertIsInstance(url, ast.JoinedStr)
+                self.assertEqual(url.values[0].value, "data:")  # type: ignore[attr-defined]
+                self.assertEqual(url.values[-2].value, ";base64,")  # type: ignore[attr-defined]
+                self.assertEqual(url.values[-1].value.id, "dados")  # type: ignore[attr-defined]
+        # O `system` do `ver` e a constante fixa, e nada mais.
+        sistemas = [
+            no
+            for no in ast.walk(ast.parse(texto))
+            if isinstance(no, ast.Dict)
+            and getattr(no, "lineno", 0) in visao
+            and any(getattr(k, "value", None) == "role" for k in no.keys)
+            and any(getattr(v, "value", None) == "system" for v in no.values)
+        ]
+        self.assertEqual(len(sistemas), 1)
+        conteudo = dict(zip([getattr(k, "value", None) for k in sistemas[0].keys], sistemas[0].values, strict=True))["content"]
+        self.assertIsInstance(conteudo, ast.Name)
+        self.assertEqual(conteudo.id, "INSTRUCAO_DA_VISAO")  # type: ignore[attr-defined]
 
     def test_o_ensaio_morde(self) -> None:
         """O canario: as tres formas que se escreveriam, e a *docstring* que nao conta."""

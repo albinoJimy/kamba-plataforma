@@ -303,7 +303,8 @@ describe("o ClienteDeMidiaDaGraph (KAM-231)", () => {
       avisarAgr: async () => {},
       dormir: async () => {},
     });
-    await assert.rejects(med2.receber(pedido), (e: unknown) => e instanceof MidiaInesperadaError);
+    // Um 4xx e desfecho: fecha a linha em `falhou`, sem repetir (KAM-231).
+    assert.equal((await med2.receber(pedido)).estado, "falhou");
     assert.equal(umQuatro.pedidos.length, 1);
   });
 });

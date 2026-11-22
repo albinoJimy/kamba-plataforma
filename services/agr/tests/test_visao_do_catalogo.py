@@ -127,6 +127,26 @@ class TestOVer(unittest.TestCase):
         self.assertEqual(t.chamadas, [])
         self.assertEqual(lig.linhas(), [])
 
+    def test_uma_subclasse_que_troca_os_bytes_nao_passa(self) -> None:
+        """Achado 7 da revisao: o `corpo` como propriedade dava bytes diferentes a cada leitura."""
+        limpa = ImagemLimpa.de(_jpeg_com_gps())
+        suja = _jpeg_com_gps()
+
+        class Troca(ImagemLimpa):
+            leituras = 0
+
+            def __getattribute__(self, nome: str):  # type: ignore[no-untyped-def]
+                if nome == "corpo":
+                    Troca.leituras += 1
+                    return limpa.corpo if Troca.leituras < 3 else suja
+                return super().__getattribute__(nome)
+
+        cliente, lig, t, _ = _cliente()
+        with self.assertRaises(TypeError):
+            cliente.ver(Troca(limpa.corpo), CTX)
+        self.assertEqual(t.chamadas, [])
+        self.assertEqual(lig.linhas(), [])
+
     def test_em_prod_sem_destino_nada_sai_e_fica_a_linha(self) -> None:
         cliente, lig, t, _ = _cliente(ambiente=destinos_mod.AMBIENTE_PROD)
         with self.assertRaises(DestinoNegado):

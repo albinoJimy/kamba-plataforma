@@ -53,7 +53,7 @@ from typing import Any, Callable, Final
 
 import base64
 
-from kamba_core.catalogo.exif import ImagemLimpa, tem_metadados
+from kamba_core.catalogo.exif import ImagemLimpa, formato, tem_metadados
 from kamba_core.catalogo.extraccao import CAMPOS_DA_VISAO, CHAVE_DA_ETIQUETA
 
 from .. import metricas as metricas_mod
@@ -457,9 +457,13 @@ class ClienteDeLlm:
         """
         # A segunda barreira, pela razao do `chamar`: nao ha verificador de
         # tipos, e um objecto construido sem `__post_init__` passava o tipo.
-        if not isinstance(imagem, ImagemLimpa) or not isinstance(imagem.corpo, bytes):
+        # O tipo **exacto**, e os bytes lidos **uma** vez (achado 7 da revisao
+        # adversarial): uma subclasse com `corpo` como propriedade passava o
+        # `isinstance` e o `tem_metadados` e dava outros bytes ao `base64`.
+        if type(imagem) is not ImagemLimpa:
             raise TypeError("a visao so aceita uma `ImagemLimpa` (KAM-231)")
-        if tem_metadados(imagem.corpo):
+        corpo = object.__getattribute__(imagem, "corpo")
+        if type(corpo) is not bytes or tem_metadados(corpo):
             raise TypeError("a imagem leva metadados: nao sai (KAM-231)")
         papel = PAPEL_DA_VISAO
         try:
@@ -479,7 +483,7 @@ class ClienteDeLlm:
             if tecto_s is None
             else tecto_s
         )
-        dados = base64.b64encode(imagem.corpo).decode("ascii")
+        dados = base64.b64encode(corpo).decode("ascii")
         try:
             estado, corpo, cabecalhos = self._transporte(
                 f"{self._url}/chat/completions",
@@ -496,7 +500,7 @@ class ClienteDeLlm:
                             "content": [
                                 {
                                     "type": "image_url",
-                                    "image_url": {"url": f"data:{imagem.content_type};base64,{dados}"},
+                                    "image_url": {"url": f"data:{_tipo_da_imagem(corpo)};base64,{dados}"},
                                 }
                             ],
                         },
@@ -740,6 +744,11 @@ class ClienteDeLlm:
 
         self._metricas.contar(metricas_mod.METRICA_LLM_SERVIDOR_DESCONHECIDO)
         return alias.fornecedores[0], alias.modelos[0]
+
+
+def _tipo_da_imagem(corpo: bytes) -> str:
+    """O `content-type` dos bytes que saem, e nao de um atributo que se possa trocar."""
+    return "image/png" if formato(corpo) == "png" else "image/jpeg"
 
 
 def _texto(corpo: Any) -> str:
