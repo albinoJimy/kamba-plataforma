@@ -12,7 +12,7 @@
 
 version: 1
 fonte: "specs/02_Dicionario_de_Dados_Canonico.md"
-versao_dicionario: "1.135"
+versao_dicionario: "1.136"
 entradas:
   - seccao: "3.1"
     conceito: "Contacto"
@@ -17108,6 +17108,154 @@ entradas:
       - "review_case"
       - "review_case.tipo"
     variantes_literais: []
+  - seccao: "3.63"
+    conceito: "Fonte da foto do dono"
+    canonico: "FonteDoMed, ler_asset, SQL_ASSET, SQL_OBJECTO_DA_MEDIA"
+    literais:
+      - "FonteDoMed"
+      - "ler_asset"
+      - "SQL_ASSET"
+      - "SQL_OBJECTO_DA_MEDIA"
+    nomes:
+      - "FonteDoMed"
+      - "ler_asset"
+      - "SQL_ASSET"
+      - "SQL_OBJECTO_DA_MEDIA"
+    nomes_nota:
+      - "FonteDeMedia"
+      - "platform.media_assets"
+      - "asset_id"
+      - "ler_asset"
+      - "media_id"
+      - "catalog_ingestions_media_uq"
+      - "kamba_app"
+      - "tenant_id"
+      - "armazenado"
+      - "media_imagem"
+    variantes_literais: []
+  - seccao: "3.63"
+    conceito: "Descodificador de produção"
+    canonico: "DescodificadorPillow, LADO_DA_ANALISE = 512, PIXEIS_MAXIMOS = 50 000 000"
+    literais:
+      - "DescodificadorPillow"
+      - "LADO_DA_ANALISE"
+      - "PIXEIS_MAXIMOS"
+    nomes:
+      - "DescodificadorPillow"
+      - "LADO_DA_ANALISE"
+      - "PIXEIS_MAXIMOS"
+    nomes_nota:
+      - "LADO_MINIMO"
+    variantes_literais: []
+  - seccao: "3.63"
+    conceito: "Imagem limpa"
+    canonico: "ImagemLimpa, ImagemComMetadados"
+    literais:
+      - "ImagemLimpa"
+      - "ImagemComMetadados"
+    nomes:
+      - "ImagemLimpa"
+      - "ImagemComMetadados"
+    nomes_nota:
+      - "limpar_metadados"
+      - "tem_metadados"
+    variantes_literais: []
+  - seccao: "3.63"
+    conceito: "Visão do catálogo"
+    canonico: "o método ver do ClienteDeLlm, PAPEL_DA_VISAO = vision, INSTRUCAO_DA_VISAO, VisaoPeloGateway, TECTO_DA_VISAO_S = 18"
+    literais:
+      - "ver"
+      - "ClienteDeLlm"
+      - "PAPEL_DA_VISAO"
+      - "vision"
+      - "INSTRUCAO_DA_VISAO"
+      - "VisaoPeloGateway"
+      - "TECTO_DA_VISAO_S"
+    nomes:
+      - "ver"
+      - "ClienteDeLlm"
+      - "PAPEL_DA_VISAO"
+      - "vision"
+      - "INSTRUCAO_DA_VISAO"
+      - "VisaoPeloGateway"
+      - "TECTO_DA_VISAO_S"
+    nomes_nota:
+      - "vision"
+      - "visao"
+      - "ImagemLimpa"
+      - "dat.llm_call_log"
+      - "custo_llm_usd"
+    variantes_literais: []
+  - seccao: "3.63"
+    conceito: "Entrada da foto no arranque do AGR"
+    canonico: "EntradaDaFoto, SEGREDOS_DO_STO"
+    literais:
+      - "EntradaDaFoto"
+      - "SEGREDOS_DO_STO"
+    nomes:
+      - "EntradaDaFoto"
+      - "SEGREDOS_DO_STO"
+    nomes_nota:
+      - "staging"
+      - "prod"
+      - "dev"
+    variantes_literais: []
+  - seccao: "3.63"
+    conceito: "Aviso antes da foto"
+    canonico: "MSG_A_PREPARAR, SEQ_DO_AVISO = 1"
+    literais:
+      - "MSG_A_PREPARAR"
+      - "SEQ_DO_AVISO"
+    nomes:
+      - "MSG_A_PREPARAR"
+      - "SEQ_DO_AVISO"
+    nomes_nota:
+      - "create_product_draft"
+      - "turn_id"
+      - "send"
+    variantes_literais: []
+  - seccao: "3.63"
+    conceito: "Oferta de melhorar a foto"
+    canonico: "EnhancePorEntitlement, MODULO_DA_FOTO = foto"
+    literais:
+      - "EnhancePorEntitlement"
+      - "MODULO_DA_FOTO"
+      - "foto"
+    nomes:
+      - "EnhancePorEntitlement"
+      - "MODULO_DA_FOTO"
+      - "foto"
+    nomes_nota:
+      - "ImageEnhancePort"
+      - "foto"
+      - "enhance_image"
+    variantes_literais: []
+  - seccao: "3.63"
+    conceito: "Quantidade na publicação"
+    canonico: "o campo stock do pedido de publicação ao COM"
+    literais:
+      - "stock"
+    nomes:
+      - "stock"
+    nomes_nota:
+      - "ajustarStock"
+      - "stock.adjusted"
+    variantes_literais: []
+  - seccao: "3.63"
+    conceito: "Indicadores por tenant"
+    canonico: "ler_do_tenant, primeira_foto_ate_primeiro_publicado, SQL_PUBLICADAS_DO_TENANT, SQL_INSTANTES_DO_TENANT"
+    literais:
+      - "ler_do_tenant"
+      - "primeira_foto_ate_primeiro_publicado"
+      - "SQL_PUBLICADAS_DO_TENANT"
+      - "SQL_INSTANTES_DO_TENANT"
+    nomes:
+      - "ler_do_tenant"
+      - "primeira_foto_ate_primeiro_publicado"
+      - "SQL_PUBLICADAS_DO_TENANT"
+      - "SQL_INSTANTES_DO_TENANT"
+    nomes_nota: []
+    variantes_literais: []
   - seccao: "3.64"
     conceito: "Papel do consumidor do PAY"
     canonico: "kamba_pay"
@@ -21492,6 +21640,18 @@ entradas:
       - "rascunho"
     variantes_literais: []
   - seccao: "3.79"
+    conceito: "Tecto de uma tool"
+    canonico: "TECTOS_POR_TOOL = {create_product_draft: 25 000 ms}"
+    literais:
+      - "TECTOS_POR_TOOL"
+      - "create_product_draft"
+    nomes:
+      - "TECTOS_POR_TOOL"
+      - "create_product_draft"
+    nomes_nota:
+      - "write"
+    variantes_literais: []
+  - seccao: "3.79"
     conceito: "Botão do pedido de orçamento"
     canonico: "confirm:{oferta}, com o texto «Pedir orçamento»"
     literais:
@@ -21732,6 +21892,98 @@ entradas:
       - "botao"
       - "mensagem_do_cliente"
       - "invocacao_invalida"
+    variantes_literais: []
+  - seccao: "3.81"
+    conceito: "Referência da foto na invocação"
+    canonico: "agent_invocation.asset_id"
+    literais:
+      - "agent_invocation.asset_id"
+    nomes:
+      - "agent_invocation.asset_id"
+    nomes_nota:
+      - "message_id"
+      - "platform.media_assets"
+      - "image"
+      - "dono"
+      - "dependentSchemas"
+      - "armazenado"
+      - "create_product_draft"
+      - "media_id"
+    variantes_literais:
+      - "media_id"
+  - seccao: "3.81"
+    conceito: "A recepção da média no CHR"
+    canonico: "RecepcaoDeMidia; os campos mediaId e mimeAnunciado do EventoDeEntrada"
+    literais:
+      - "RecepcaoDeMidia"
+      - "mediaId"
+      - "mimeAnunciado"
+      - "EventoDeEntrada"
+    nomes:
+      - "RecepcaoDeMidia"
+      - "mediaId"
+      - "mimeAnunciado"
+      - "EventoDeEntrada"
+    nomes_nota:
+      - "image.id"
+      - "mime_type"
+      - "image"
+      - "dono"
+      - "wa"
+      - "inbound"
+      - "asset_id"
+    variantes_literais: []
+  - seccao: "3.81"
+    conceito: "O cliente de média da Meta"
+    canonico: "ClienteDeMidiaDaGraph, ANFITRIOES_DA_DESCARGA, ESPERA_MAXIMA_DA_MIDIA_MS = 30 000"
+    literais:
+      - "ClienteDeMidiaDaGraph"
+      - "ANFITRIOES_DA_DESCARGA"
+      - "ESPERA_MAXIMA_DA_MIDIA_MS"
+    nomes:
+      - "ClienteDeMidiaDaGraph"
+      - "ANFITRIOES_DA_DESCARGA"
+      - "ESPERA_MAXIMA_DA_MIDIA_MS"
+    nomes_nota:
+      - "ClienteDeMidia"
+      - "media_id"
+      - "lookaside.fbsbx.com"
+      - "MidiaIndisponivelError"
+    variantes_literais: []
+  - seccao: "3.81"
+    conceito: "O token da foto"
+    canonico: "tokenDaConversa, SQL_TOKEN_REF_DA_CONVERSA"
+    literais:
+      - "tokenDaConversa"
+      - "SQL_TOKEN_REF_DA_CONVERSA"
+    nomes:
+      - "tokenDaConversa"
+      - "SQL_TOKEN_REF_DA_CONVERSA"
+    nomes_nota:
+      - "conversations.channel_id"
+      - "tenant_channels.token_ref"
+      - "kek_token_cliente"
+    variantes_literais: []
+  - seccao: "3.81"
+    conceito: "O MED no worker-canal-entrada"
+    canonico: "midiaDaEntrada, ambienteDaMidia, sqlDoTenant"
+    literais:
+      - "midiaDaEntrada"
+      - "ambienteDaMidia"
+      - "sqlDoTenant"
+    nomes:
+      - "worker"
+      - "canal"
+      - "entrada"
+      - "midiaDaEntrada"
+      - "ambienteDaMidia"
+      - "sqlDoTenant"
+    nomes_nota:
+      - "kek_token_cliente"
+      - "staging"
+      - "prod"
+      - "dev"
+      - "asset_id"
     variantes_literais: []
   - seccao: "3.81"
     conceito: "O turno do painel"

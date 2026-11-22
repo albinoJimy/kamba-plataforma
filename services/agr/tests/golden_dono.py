@@ -635,10 +635,11 @@ def montar(caso: Caso, fixtures: Mapping[str, Any]) -> tuple[Any, Mundo]:
 
     publicar_real = mundo.registo.publicar
 
-    def publicar(tenant_id: str, sku: str, confirmacao: Any) -> None:
+    def publicar(tenant_id: str, sku: str, confirmacao: Any, *, stock: int | None = None) -> None:
+        # O `stock` e o do KAM-231: a quantidade do dono vai com a publicacao.
         indice, tipo, botao = mundo.turno_actual
         mundo.publicacoes.append((indice, tipo, botao, sku))
-        publicar_real(tenant_id, sku, confirmacao)
+        publicar_real(tenant_id, sku, confirmacao, stock=stock)
 
     mundo.registo.publicar = publicar  # type: ignore[method-assign]
     mundo.remendos = [

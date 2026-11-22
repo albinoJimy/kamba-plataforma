@@ -158,6 +158,7 @@ import {
   RELOGIO_DO_SISTEMA,
   SQL_AUDITAR,
   SQL_EMITIR,
+  ajustarStock as ajustarStockDoModulo,
   alterarOferta as alterarOfertaDoModulo,
   confirmacaoValida,
   getOfferView as getOfferViewDoModulo,
@@ -487,6 +488,16 @@ export interface Registo {
  * `tenantId` nunca chega a abrir transacção, e por isso ISO-09 não depende de
  * haver base de dados. O que falha, falha antes de custar uma ligação.
  */
+/** O `ajustarStock` da publicação recusou (KAM-231): leva a recusa para fora da transacção. */
+class StockDaPublicacaoRecusado extends Error {
+  readonly resultado: Resultado<void>;
+  constructor(resultado: Resultado<void>) {
+    super("o stock da publicacao foi recusado");
+    this.name = "StockDaPublicacaoRecusado";
+    this.resultado = resultado;
+  }
+}
+
 export async function comRegisto<T>(
   deps: Dependencias,
   ctx: Ctx,
@@ -1064,8 +1075,29 @@ export function operacoesDoCom(
   const publicarDoCom = operacaoDePublicar({
     comTenant: deps.comTenant,
     politica: deps.politica ?? politicaCorrente(),
-    publicar: (ctx, ref, c, nomeEsperado) =>
-      comRegisto(deps, ctx, (r) => publishProductDoModulo(r, ref, c, { nomeEsperado })),
+    // KAM-231. A quantidade que o dono deu chega ao Registo **na mesma
+    // transacção** da publicação, pelo `ajustarStock` do módulo (auditado, com o
+    // `stock.adjusted`). Um stock recusado **lança** dentro da transacção, e o
+    // `comTenant` desfaz a publicação com ele: não fica um produto publicado
+    // sem a quantidade, e a repetição do botão refaz as duas.
+    publicar: async (ctx, ref, c, nomeEsperado, stock) => {
+      try {
+        return await comRegisto(deps, ctx, async (r) => {
+          const publicado = await publishProductDoModulo(r, ref, c, { nomeEsperado });
+          if (publicado.tipo !== "ok" || stock === undefined) return publicado;
+          const ajustado = await ajustarStockDoModulo(r, {
+            sku: ref.sku,
+            qty: stock,
+            motivo: "ajuste_do_dono",
+          });
+          if (ajustado.tipo !== "ok") throw new StockDaPublicacaoRecusado(ajustado);
+          return ajustado;
+        });
+      } catch (excepcao) {
+        if (excepcao instanceof StockDaPublicacaoRecusado) return excepcao.resultado;
+        throw excepcao;
+      }
+    },
   });
   const porta = adaptadorMedusa(deps, agora);
   return {

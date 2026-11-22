@@ -286,6 +286,13 @@ export interface PedidoDePublicacao {
   readonly sku: string;
   /** A confirmação do dono: o `actor` é `dono`, e o `id` é quem confirmou (o `contact_id`, pelo AGR). */
   readonly confirmacao: OwnerConfirmation;
+  /**
+   * A quantidade em stock que o dono deu e confirmou no eco (KAM-231), ou
+   * ausente. Vai ao `ajustarStock` do Registo **na mesma transacção** da
+   * publicação: um produto publicado sem a quantidade, com ela à espera de
+   * outro pedido, era o defeito que o bloco do KAM-119 deixou escrito.
+   */
+  readonly stock?: number;
 }
 
 /**
@@ -299,6 +306,7 @@ export type PublicarConferido = (
   ref: ProductRef,
   confirmacao: OwnerConfirmation,
   nomeEsperado: string,
+  stock?: number,
 ) => Promise<Resultado<void>>;
 
 export interface DependenciasDaPublicacao {
@@ -369,7 +377,13 @@ export function operacaoDePublicar(deps: DependenciasDaPublicacao): OperacaoDePu
     }
     if (entrada === null) return erro("NOT_FOUND");
     try {
-      return await deps.publicar(ctx, { sku: pedido.sku, registoId: null }, pedido.confirmacao, entrada.textos[0]!);
+      return await deps.publicar(
+        ctx,
+        { sku: pedido.sku, registoId: null },
+        pedido.confirmacao,
+        entrada.textos[0]!,
+        pedido.stock,
+      );
     } catch {
       return erro("UPSTREAM_DOWN");
     }

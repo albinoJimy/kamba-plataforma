@@ -102,6 +102,9 @@ CHAVES_DO_521 = (
     # KAM-211. O `botao` da invocacao, pela mesma razao: o `reply.id` de uma
     # resposta interactiva, **do turno**, e o que o no `confirm` do dono le.
     "botao",
+    # KAM-231. O `asset_id` da invocacao, pela razao do `botao`: a foto do dono
+    # **do turno**, que o no do catalogo passa ao `create_product_draft`.
+    "asset_id",
     # KAM-220. O contexto do «aceito» de um orcamento, **do turno**, pela razao
     # do `degradado`: nao esta no bloco do §5.3, vem do dicionario §3.79.
     "orcamento",

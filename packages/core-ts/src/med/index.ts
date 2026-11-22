@@ -74,3 +74,14 @@ export {
   TTL_DA_URL_INTERNA_S,
 } from "./pipeline.ts";
 export type { Dependencias } from "./pipeline.ts";
+
+// KAM-231: o `ClienteDeMidia` de producao, e o *token* do canal pela conversa.
+export {
+  ANFITRIOES_DA_DESCARGA,
+  ClienteDeMidiaDaGraph,
+  ESPERA_MAXIMA_DA_MIDIA_MS,
+  tectoDosLimites,
+} from "./graph.ts";
+export type { Buscar, OpcoesDoClienteDeMidia, TokenDoCanal } from "./graph.ts";
+export { SQL_TOKEN_REF_DA_CONVERSA, tokenDaConversa } from "./credencial.ts";
+export type { CofreDaMidia, OpcoesDoTokenDaConversa } from "./credencial.ts";

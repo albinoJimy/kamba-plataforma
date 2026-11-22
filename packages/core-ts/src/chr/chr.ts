@@ -58,6 +58,7 @@
 import type { Persona } from "../dono/contrato.ts";
 import { personaDe } from "../dono/persona.ts";
 import type { EventoDeEntrada, Interlocutor } from "../entrada/explosao.ts";
+import type { PedidoDeMidia, ResultadoDeMidia } from "../med/contrato.ts";
 import { type Accao, type DecisaoDoGate, tenantGate } from "../ten/estados.ts";
 import type { ResolvedorDeCanal } from "./canal.ts";
 import { SQL_GRAVAR_MENSAGEM_DO_WHATSAPP, SQL_MARCAR_TESTE_RECEBIDO, SQL_PAPEL } from "./consultas.ts";
@@ -191,6 +192,13 @@ export interface ResultadoDoChr {
  * transacção com contexto. Não há como escrever em `conversations` sem passar
  * por aqui.
  */
+/**
+ * A recepção de uma foto do dono (KAM-231): o `receber` do MED do KAM-020,
+ * montado por quem compõe o processo. **Opcional**: sem ela, uma `image` vai ao
+ * AGR sem `asset_id`, como até aqui, e o dono é encaminhado para o painel.
+ */
+export type RecepcaoDeMidia = (pedido: PedidoDeMidia) => Promise<ResultadoDeMidia>;
+
 export type ComTenant = <T>(
   tenant: string,
   trabalho: (cliente: ClienteDoChr) => Promise<T>,
@@ -235,6 +243,7 @@ export class Chr {
   readonly #registar: Registo | undefined;
   readonly #agora: () => Date;
   readonly #comTenant: ComTenant;
+  readonly #midia: RecepcaoDeMidia | undefined;
 
   constructor(opcoes: {
     readonly resolvedor: ResolvedorDeCanal;
@@ -245,6 +254,7 @@ export class Chr {
     readonly registar?: Registo;
     readonly agora?: () => Date;
     readonly comTenant: ComTenant;
+    readonly midia?: RecepcaoDeMidia;
   }) {
     this.#resolvedor = opcoes.resolvedor;
     this.#contacto = opcoes.contacto;
@@ -254,6 +264,7 @@ export class Chr {
     this.#registar = opcoes.registar;
     this.#agora = opcoes.agora ?? (() => new Date());
     this.#comTenant = opcoes.comTenant;
+    this.#midia = opcoes.midia;
   }
 
 
@@ -458,6 +469,43 @@ export class Chr {
       messageId = id;
     }
 
+    // ------------------------------------------ 6b. a foto do dono, pelo MED
+    //
+    // KAM-231. Uma `image` **do dono** passa pelo MED do KAM-020: descarrega da
+    // Meta, confere o tipo real, guarda no STO e devolve o `asset_id` da
+    // `media_assets`. A invocação leva esse identificador, e nunca os bytes nem
+    // o `media_id` da Meta: os detalhes da Meta não saem do CHR. **Só o dono**:
+    // a foto de um cliente não é um rascunho de catálogo, e o MED de um cliente
+    // é de outro ticket (KAM-036, KAM-087). Também só aqui, com a conversa em
+    // `bot` e a matriz a deixar processar, pela razão do texto.
+    //
+    // O MED é idempotente pela `(tenant_id, wamid, media_id)`: a reentrega do
+    // mesmo `wamid` não descarrega outra vez, e devolve o mesmo `asset_id`. Um
+    // `rejeitado`, um `falhou` ou um `pendente` vão ao AGR **sem** `asset_id`, e
+    // o dono recebe a resposta de uma foto que não chegou. Uma falha da base
+    // lança, e o *job* da `wa-inbound` repete.
+    let assetId: string | null = null;
+    if (
+      this.#midia !== undefined &&
+      persona === "dono" &&
+      evento.kind === "message" &&
+      evento.waType === "image" &&
+      typeof evento.mediaId === "string"
+    ) {
+      const recebida = await this.#midia({
+        tenantId: contexto.tenant_id,
+        contactId,
+        conversationId: conversa.id,
+        wamid: evento.eventKey,
+        mediaId: evento.mediaId,
+        waType: evento.waType,
+        ...(evento.mimeAnunciado === undefined
+          ? {}
+          : { contentTypeAnunciado: evento.mimeAnunciado }),
+      });
+      if (recebida.estado === "armazenado") assetId = recebida.assetId;
+    }
+
     const invocacao = montarInvocacao({
       contexto,
       contactId,
@@ -468,6 +516,7 @@ export class Chr {
       persona,
       botao: evento.botao ?? null,
       messageId,
+      assetId,
     });
     await this.#entrega.agr(invocacao);
     this.#metricas.contar(METRICA_RESOLUCOES, "encaminhado");
