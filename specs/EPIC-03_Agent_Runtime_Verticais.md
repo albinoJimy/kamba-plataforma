@@ -4,7 +4,7 @@
 |---|---|
 | Produto | KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para Angola |
 | Documento | Epic — Agent Runtime e Verticais |
-| Versão | 1.27 |
+| Versão | 1.28 |
 | Data | Outubro de 2026 |
 | Classificação | Documento de Referência — Interno |
 | Documento-fonte | `../docs/tecnica/02_Agent_Runtime_Verticais.md`, `../docs/tecnica/00_Arquitectura_Solucao.md` |
@@ -61,6 +61,7 @@ Concretiza ADR-002, ADR-005, ADR-007, ADR-009, ADR-010, ADR-012, ADR-013 e ADR-0
 | KAM-184 | Consumo dos eventos de pagamento na vertical Serviços: a acção, a origem do `booking_id` e o credor do `ACCOES_POR_LIGAR` | feature | M | P0 | KAM-035, KAM-047 |
 | KAM-186 | O processo do AGR liga a porta `grafos` e serve turnos | feature | L | P0 | KAM-027, KAM-031, KAM-035, KAM-178 |
 | KAM-214 | O ensaio das conversas diferentes na tranca do AGR mede uma janela de 10 ms, e falha ao acaso sob carga | fix | S | P1 | KAM-034 |
+| KAM-239 | LiteLLM com base, ou chaves sem base: o proxy de `prod` não tem onde guardar as chaves virtuais | fix | M | P1 | KAM-030, KAM-233 |
 
 ---
 
@@ -1360,7 +1361,7 @@ Testes: unit, integração, isolamento, idempotência. PR com o template §7. Co
 | Prioridade | P0 |
 | Estimativa | M |
 | Dependências | KAM-001, KAM-002, KAM-010, KAM-069 |
-| Bloqueia | KAM-031, KAM-033, KAM-036, KAM-049, KAM-063, KAM-081, KAM-087, KAM-088, KAM-091, KAM-107, KAM-112, KAM-121, KAM-231 |
+| Bloqueia | KAM-031, KAM-033, KAM-036, KAM-049, KAM-063, KAM-081, KAM-087, KAM-088, KAM-091, KAM-107, KAM-112, KAM-121, KAM-231, KAM-239 |
 | Responsável sugerido | Engenheiro de Plataforma (LLM) |
 | Documentos de referência | `../docs/tecnica/02_Agent_Runtime_Verticais.md` (§13, §14), `../docs/tecnica/06_Dados_Eventos_Analytics.md` (§14, `dat.llm_call_log`), ADR-005, ADR-008, ADR-018, `../docs/tecnica/evidencia/E4_Stack_Licencas.md` (§2.7, §3) |
 
@@ -5381,6 +5382,93 @@ services/agr/tests.
 
 ---
 
+## KAM-239 — LiteLLM com base, ou chaves sem base: o proxy de `prod` não tem onde guardar as chaves virtuais
+
+| Campo | Valor |
+|---|---|
+| Epic | EPIC-03 — Agent Runtime e Verticais |
+| Fase | 1 |
+| Tipo | fix |
+| Prioridade | P1 |
+| Estimativa | M |
+| Dependências | KAM-030, KAM-233 |
+| Bloqueia | — |
+| Responsável sugerido | Engenheiro de Runtime/IA, com o Engenheiro de Plataforma (TEN) |
+| Documentos de referência | `../docs/evidencia/KAM-233.md` §2 e §3, `../infra/llm/chaves.py`, `../infra/compose/docker-compose.llm.yml`, `../infra/compose/docker-compose.prod.yml`, blocos KAM-030, KAM-091 e KAM-233 |
+
+### Contexto
+
+**O LiteLLM de `prod` arranca sem base de dados, e sem base a imagem fixada não tem chaves virtuais.**
+Medido no KAM-233 (`../docs/evidencia/KAM-233.md` §2), na imagem
+`ghcr.io/berriai/litellm:v1.104.2` por digest: sem `DATABASE_URL`, o `POST /key/generate` responde
+**500** («DB not connected») e o `GET /key/list` também. O `docker-compose.llm.yml` (regra 6 do
+KAM-030) e o `docker-compose.prod.yml` arrancam o proxy assim, e o comentário diz que as chaves
+virtuais «vivem na memória do proxy» — não vivem em sítio nenhum. Logo o
+`infra/llm/chaves.py provisionar` falha em `prod`, e nenhum tenant tem a `litellm_virtual_key` que o
+`../ops/secrets-inventory.yaml` declara, com o orçamento e o tecto que o §13.3 do `docs/tecnica/02`
+pede.
+
+**E o docstring do `chaves.py` dizia «medido»** para o 200 do `/key/generate` e o 400 de um alias
+repetido, a apontar para o `../docs/evidencia/KAM-030-litellm.md`, que não traz nenhuma das duas
+medições. O KAM-233 corrigiu o texto: o 200 está medido com base (§3 do anexo dele), e o 400 ficou
+**NÃO VERIFICADO**.
+
+**A consequência que já está em código.** Pela decisão do fundador de 2026-11-21 (Q1 = A, bloco do
+KAM-233), a fase `revogacao` do off-boarding apaga a chave do tenant pelo alias no proxy e **falha
+alto** enquanto ele não tiver base: o 500 sobe, e a fase fica parada no passo `chave_llm`, com o alerta
+da fase parada. Nenhum tenant de `prod` se encerra até este ticket fechar.
+
+### Objectivo
+
+Uma de duas, **escolhida pelo fundador**: o proxy de `prod` com uma base onde as chaves virtuais
+persistam, ou um desenho sem chaves virtuais em que o orçamento por tenant se impõe por outro caminho
+e a revogação do encerramento deixa de ter recurso por construção.
+
+### Critérios de Aceitação
+
+- [ ] **A escolha registada.** O fundador escolhe entre (A) a base do proxy — onde vive, quem a
+  copia, quanto tempo guarda os *logs* de gasto — e (B) as chaves sem base; a decisão fica no bloco,
+  com a data e o autor.
+- [ ] **Com (A):** o `provisionar` e o `revogar` do `chaves.py` e o `ChaveDoLlmPeloProxy` do
+  KAM-233 medidos em *staging* com a base, uma chave a sobreviver a um reinício do proxy, e a base na
+  cobertura das cópias (`../infra/backup/cobertura.yaml`).
+- [ ] **Com (B):** a `litellm_virtual_key` sai do inventário e dos consumidores, o orçamento por tenant
+  impõe-se por um caminho medido, e o passo `chave_llm` da revogação dá `sem_recurso` por uma regra
+  escrita, e não pela leitura de um erro.
+- [ ] **O 400 de um alias repetido** medido na imagem fixada, ou a idempotência do `provisionar`
+  reescrita sem depender dele.
+- [ ] A fase `revogacao` de um tenant de ensaio conclui em *staging* sem passo à mão.
+
+### Detalhes Técnicos
+
+- **Componentes:** LLM (o proxy e o `chaves.py`), GOV (a fase `revogacao` no `onboarding-lote`), TEN
+  (a saga do KAM-091, que cria a chave no provisionamento).
+- **Esquema:** nenhum na base da plataforma; com (A), uma base do proxy, fora dela.
+- **Fora deste ticket:** o resto do off-boarding, que é do KAM-233.
+
+### Testes Requeridos
+
+- Contrato: o `chaves.py` e o `ChaveDoLlmPeloProxy` contra o duplo que lê o texto do pedido (já existem).
+- *Staging*: o provisionamento, o reinício e a revogação, com o comando registado.
+
+### Definition of Done
+
+- [ ] Critérios satisfeitos; o docstring do `chaves.py` e o comentário dos *compose* a dizer o que se mediu.
+- [ ] Sem segredos: a `litellm_master_key` e, com (A), a credencial da base, pelo cofre (ADR-L002).
+
+### Handoff para Claude Code
+
+```text
+És o executor do ticket KAM-239 da KAMBÁ (o LiteLLM de prod sem base, e sem chaves virtuais).
+Lê specs/EPIC-03_Agent_Runtime_Verticais.md (blocos KAM-030 e KAM-239), specs/EPIC-09_Onboarding_Governanca.md
+(bloco KAM-233), docs/evidencia/KAM-233.md, infra/llm/chaves.py e infra/compose/docker-compose.prod.yml.
+Objectivo: a escolha do fundador entre a base do proxy e as chaves sem base, e a implementação dela.
+Regras: a escolha é do fundador e não se infere; nenhum passo à mão no encerramento; sem segredos.
+Testes: contrato contra o duplo e o provisionamento, o reinício e a revogação em staging.
+```
+
+---
+
 ## Riscos do Epic e itens NÃO VERIFICADOS
 
 | # | Risco / item | Estado | Ligação | Tratamento no epic |
@@ -5444,3 +5532,4 @@ services/agr/tests.
 | 1.25 | Novembro 2026 | KAM-224 (EPIC-11): o achado da `PortaDeSaida` do bloco do KAM-186 revisto — a saída do AGR é a `SaidaPorEvento`, pela decisão 2 do fundador de 2026-11-19, e o que falta para o WhatsApp em produção tem credor no **KAM-227**. Nenhuma caixa deste epic muda. | Equipa KAMBÁ |
 | 1.26 | Novembro 2026 | **Aresta recíproca, sem alteração de conteúdo:** o `Bloqueia` do KAM-030 ganha o **KAM-231** (EPIC-11), aberto no PR do KAM-119: a visão do catálogo do dono vai pelo alias `kamba-vision` do gateway. | Equipa KAMBÁ |
 | 1.27 | Novembro 2026 | KAM-232 (EPIC-11): o critério 2 do KAM-033 revisto — a linha da `agent_messages` em claro 90 dias e o corpo da `wa-inbound` com prazo de 24 h, por decisão do fundador de 2026-11-20; a primeira é excepção escrita à letra do critério. Nenhuma caixa muda. Sobre a 1.26 da `main` em `28bb7e88` | Equipa KAMBÁ |
+| 1.28 | Novembro 2026 | **KAM-239** acrescentado, no PR do **KAM-233** (EPIC-09), que o abre e não o implementa, pela decisão do fundador de 2026-11-21 (Q1 = A): o LiteLLM de `prod` arranca sem base e a imagem fixada não tem chaves virtuais sem ela (medido, `../docs/evidencia/KAM-233.md` §2). O `Bloqueia` do KAM-030 ganha-o. Número **provisório**: o maior da `main` mais um, medido na integração | Equipa KAMBÁ |

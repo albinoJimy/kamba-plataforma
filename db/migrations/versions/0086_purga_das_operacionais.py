@@ -11,7 +11,7 @@ operacionais da classe `relacao` que ficavam `sem_caminho`, e deixa o
 `kyc_check` e o `fraud_signals` retidos, com o fundamento escrito. Duas coisas:
 
 1. **O `DELETE` do `kamba_batch`** em onze tabelas, e o `SELECT` so da coluna
-   `tenant_id` nas sete em que ele nao lia nada — e a unica coluna que o
+   `tenant_id` nas seis em que ele nao lia nada — e a unica coluna que o
    `DELETE ... WHERE tenant_id = %s` da purga le. O `kamba_batch` tem
    `BYPASSRLS`, e um `SELECT` da tabela inteira dava-lhe as colunas pessoais
    (o pedido de orcamento, a marca, o conteudo) que a purga nunca precisa de ver.
@@ -58,16 +58,20 @@ depends_on = None
 PAPEL_DE_LOTE = "kamba_batch"
 PURGE_LOG = "platform.purge_log"
 
-#: As sete em que o `kamba_batch` nao lia nada: `SELECT (tenant_id)` e `DELETE`.
+#: As seis em que o `kamba_batch` nao lia nada: `SELECT (tenant_id)` e `DELETE`.
 ACCOES = "platform.owner_actions"
 MUDANCAS_DE_TELEFONE = "platform.owner_phone_changes"
 PEDIDOS_DE_ORCAMENTO = "platform.quote_requests"
 MARCA = "platform.brand_profile"
 CALENDARIO = "platform.content_calendar"
 CONTEUDOS = "platform.content_items"
-INGESTOES = "platform.catalog_ingestions"
 
-#: As quatro em que ele ja lia a tabela: so o `DELETE`.
+#: As cinco em que ele ja lia o `tenant_id`: so o `DELETE`. **A ingestao vem
+#: para aqui**, e nao para as seis: o `kamba_batch` ja le dela o `id`, o
+#: `tenant_id` e o `phash` desde o KAM-097 (a varredura da foto repetida), e o
+#: `REVOKE SELECT (tenant_id)` do `downgrade` tirava-lhe uma coluna que esta
+#: revisao nao deu. Achado pela matriz do `test_privilegios`.
+INGESTOES = "platform.catalog_ingestions"
 GATES = "platform.onboarding_gate"
 TESTES = "platform.onboarding_smoke"
 LISTA_DE_ESPERA = "platform.waitlist_entry"
@@ -99,7 +103,7 @@ def _privilegios() -> None:
     op.execute(f"GRANT SELECT (tenant_id), DELETE ON {MARCA} TO {PAPEL_DE_LOTE}")
     op.execute(f"GRANT SELECT (tenant_id), DELETE ON {CALENDARIO} TO {PAPEL_DE_LOTE}")
     op.execute(f"GRANT SELECT (tenant_id), DELETE ON {CONTEUDOS} TO {PAPEL_DE_LOTE}")
-    op.execute(f"GRANT SELECT (tenant_id), DELETE ON {INGESTOES} TO {PAPEL_DE_LOTE}")
+    op.execute(f"GRANT DELETE ON {INGESTOES} TO {PAPEL_DE_LOTE}")
     op.execute(f"GRANT DELETE ON {GATES} TO {PAPEL_DE_LOTE}")
     op.execute(f"GRANT DELETE ON {TESTES} TO {PAPEL_DE_LOTE}")
     op.execute(f"GRANT DELETE ON {LISTA_DE_ESPERA} TO {PAPEL_DE_LOTE}")
@@ -126,7 +130,7 @@ def downgrade() -> None:
     op.execute(f"REVOKE DELETE ON {LISTA_DE_ESPERA} FROM {PAPEL_DE_LOTE}")
     op.execute(f"REVOKE DELETE ON {TESTES} FROM {PAPEL_DE_LOTE}")
     op.execute(f"REVOKE DELETE ON {GATES} FROM {PAPEL_DE_LOTE}")
-    op.execute(f"REVOKE SELECT (tenant_id), DELETE ON {INGESTOES} FROM {PAPEL_DE_LOTE}")
+    op.execute(f"REVOKE DELETE ON {INGESTOES} FROM {PAPEL_DE_LOTE}")
     op.execute(f"REVOKE SELECT (tenant_id), DELETE ON {CONTEUDOS} FROM {PAPEL_DE_LOTE}")
     op.execute(f"REVOKE SELECT (tenant_id), DELETE ON {CALENDARIO} FROM {PAPEL_DE_LOTE}")
     op.execute(f"REVOKE SELECT (tenant_id), DELETE ON {MARCA} FROM {PAPEL_DE_LOTE}")

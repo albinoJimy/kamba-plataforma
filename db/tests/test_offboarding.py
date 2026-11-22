@@ -45,6 +45,7 @@ if _NUCLEO not in sys.path:
 
 from kamba_core.offboarding import (  # noqa: E402
     CAMINHOS_DO_ENCERRAMENTO,
+    RETIDAS_POR_PARECER,
     FaseForaDeOrdem,
     LigacaoRecusada,
     abrir_ligacao,
@@ -68,6 +69,7 @@ from tests.base import (  # noqa: E402
     VIOLACAO_DE_CHECK,
     ComBase,
     alembic,
+    alembic_ok,
     sqlstate,
 )
 
@@ -144,6 +146,29 @@ class ComOffboarding(ComBase):
         self.pedido(tenant, pendentes="concluida", canal="concluida",
                     exportacao="concluida", revogacao="concluida")
 
+    def semear_operacionais(self, tenant: str, contacto: str) -> None:
+        """Uma linha em cada uma de cinco operacionais da `0086` (KAM-233), como o administrador."""
+        self.cur.execute(
+            "INSERT INTO platform.owner_actions (tenant_id, contact_id, tipo, ref, expira_at) "
+            "VALUES (%s, %s, 'aprovar_conteudo', %s, now() + interval '15 minutes')",
+            (tenant, contacto, tenant))
+        self.cur.execute(
+            "INSERT INTO platform.brand_profile (tenant_id, nome, publico) VALUES (%s, 'Loja', 'todos')",
+            (tenant,))
+        self.cur.execute(
+            "INSERT INTO platform.content_calendar "
+            "(calendar_id, tenant_id, semana_iso, geracao, decisao, versao_politica) "
+            "VALUES (gen_random_uuid(), %s, '2026-W48', 1, 'permitida', 'v1') RETURNING calendar_id::text",
+            (tenant,))
+        calendario = self.cur.fetchone()[0]
+        self.cur.execute(
+            "INSERT INTO platform.content_items (tenant_id, calendar_id, semana_iso, tipo, tema, agendado_at) "
+            "VALUES (%s, %s, '2026-W48', 'dica', 'tema', now())",
+            (tenant, calendario))
+        self.cur.execute(
+            "INSERT INTO platform.catalog_ingestions (tenant_id, media_ref) VALUES (%s, %s)",
+            (tenant, f"t/{tenant}/catalogo/2026/11/{uuid.uuid4()}"))
+
     def semear(self, tenant: str) -> dict[str, str]:
         """Um contacto, um canal e uma conversa: o minimo com FK entre classes."""
         canal = factories.canal(self.cur, tenant)
@@ -176,6 +201,18 @@ class ComOffboarding(ComBase):
 
 
 # ------------------------------------------------------------------- esquema
+
+
+#: KAM-233: as operacionais que a `semear_operacionais` enche, e as seis em que
+#: o `kamba_batch` so le o `tenant_id` (revisao `0086`).
+OPERACIONAIS_SEMEADAS = (
+    "platform.owner_actions", "platform.brand_profile", "platform.content_calendar",
+    "platform.content_items", "platform.catalog_ingestions",
+)
+SO_O_TENANT = (
+    "platform.owner_actions", "platform.owner_phone_changes", "platform.quote_requests",
+    "platform.brand_profile", "platform.content_calendar", "platform.content_items",
+)
 
 
 class TestEsquema(ComOffboarding):
@@ -285,6 +322,12 @@ class TestEsquema(ComOffboarding):
             cur.execute("DELETE FROM platform.offboarding_run WHERE tenant_id = %s", (tenant,))
             cur.execute("DELETE FROM platform.tenants WHERE id = %s", (tenant,))
             ligacao_propria.commit()
+            # **A descida recusada na 0068 ja tinha descido o que esta por cima
+            # dela**: cada revisao corre na sua transaccao, e so a da 0068
+            # desfez. Sem voltar a cabeca, os ensaios seguintes da classe correm
+            # numa base sem as tabelas das revisoes 0069 em diante — o que o
+            # KAM-233 expos, ao pôr nos caminhos da purga tabelas dessas revisoes.
+            alembic_ok("upgrade", "head")
 
     def test_os_caminhos_da_purga_sao_os_que_o_lote_pode_apagar(self) -> None:
         """Os caminhos foram medidos contra a base; isto mantem-nos medidos."""
@@ -293,6 +336,18 @@ class TestEsquema(ComOffboarding):
                 with self.subTest(tabela=tabela):
                     self.cur.execute("SELECT has_table_privilege('kamba_batch', %s, 'DELETE')", (tabela,))
                     self.assertTrue(self.cur.fetchone()[0])
+        # KAM-233 (`0086`): o lote le das operacionais so o `tenant_id`, e nao a
+        # tabela inteira — o `BYPASSRLS` dele nao lhe da a marca nem o pedido.
+        for tabela in SO_O_TENANT:
+            with self.subTest(so_o_tenant=tabela):
+                self.cur.execute("SELECT has_table_privilege('kamba_batch', %s, 'SELECT')", (tabela,))
+                self.assertFalse(self.cur.fetchone()[0])
+                self.cur.execute(
+                    "SELECT has_column_privilege('kamba_batch', %s, 'tenant_id', 'SELECT')", (tabela,))
+                self.assertTrue(self.cur.fetchone()[0])
+        # O caso de onboarding nao: tres provas lhe apontam por FK.
+        self.cur.execute("SELECT has_table_privilege('kamba_batch', 'platform.onboarding_case', 'DELETE')")
+        self.assertFalse(self.cur.fetchone()[0])
         # E as do cofre nao: e por isso que saem pelo `apagar_contactos`.
         for tabela in ("platform.contacts", "platform.contact_deks", "platform.contact_endpoints"):
             with self.subTest(tabela=tabela):
@@ -432,7 +487,10 @@ class TestPurga(ComOffboarding):
     def test_apaga_pelos_caminhos_regista_e_retem_o_resto(self) -> None:
         a, b = self.tenant(), self.tenant()
         sa = self.semear(a)
-        self.semear(b)
+        sb = self.semear(b)
+        # KAM-233: as operacionais da `0086`, nos dois tenants.
+        self.semear_operacionais(a, sa["contacto"])
+        self.semear_operacionais(b, sb["contacto"])
         self.ate_a_purga(a)
         r = purgar(self.batch, a, D31)
         # Varrimento: zero linhas do tenant nas tabelas com caminho.
@@ -443,13 +501,23 @@ class TestPurga(ComOffboarding):
         # O tenant B ficou inteiro.
         self.assertEqual(self.contar("platform.conversations", b), 1)
         self.assertEqual(self.contar("platform.tenant_channels", b), 1)
+        for tabela in OPERACIONAIS_SEMEADAS:
+            with self.subTest(de_b=tabela):
+                self.assertEqual(self.contar(tabela, b), 1)
         # O contacto nao tem caminho sem o cofre, e diz-se.
         self.assertEqual(self.contar("platform.contacts", a), 1)
         log = self.purge_log(r["execucao_id"])
         self.assertIn(("platform.conversations", "ok", None, 1), log)
         self.assertIn(("platform.tenant_channels", "ok", None, 1), log)
         self.assertIn(("platform.contacts", "recusada", "sem_caminho", 0), log)
-        self.assertEqual({t for t, res, *_ in log if res == "recusada"},
+        for tabela in OPERACIONAIS_SEMEADAS:
+            with self.subTest(apagada=tabela):
+                self.assertIn((tabela, "ok", None, 1), log)
+        # O KYC e a fraude ficam por parecer (Q3 = B), no `purge_log` real.
+        for tabela in RETIDAS_POR_PARECER:
+            with self.subTest(retida=tabela):
+                self.assertIn((tabela, "retida", "branqueamento_sem_parecer", 0), log)
+        self.assertEqual({t for t, res, *_ in log if res == "recusada"} | set(RETIDAS_POR_PARECER),
                          set(r["retidas"]))
         self.assertEqual(self.fase(a, "purga")[0], "concluida")
         self.assertEqual(r["apagadas"]["platform.conversations"], 1)
@@ -741,3 +809,57 @@ if __name__ == "__main__":
     import unittest
 
     unittest.main()
+
+
+# ----------------------------------------------------- a revisao 0086 (KAM-233)
+
+
+class TestDowngradeDaPurgaDasOperacionais(ComOffboarding):
+    """A `0086` desce e volta, e recusa descer com uma retencao por parecer escrita.
+
+    **Desce pelo `down_revision` lido do ficheiro, e nao por `-1`**, e volta a
+    cabeca no fim, pela razao do `test_contacto_da_encomenda.py`: o numero da
+    `0086` e o da vaga do lote, e a revisao de baixo e de outro ticket.
+    """
+
+    def _abaixo(self) -> str:
+        [ficheiro] = (_RAIZ / "db" / "migrations" / "versions").glob("*_purga_das_operacionais.py")
+        return re.search(r'(?m)^down_revision = "([^"]+)"', ficheiro.read_text(encoding="utf-8")).group(1)
+
+    def _pode(self, privilegio: str) -> bool:
+        self.cur.execute("SELECT has_table_privilege('kamba_batch', 'platform.owner_actions', %s)", (privilegio,))
+        return self.cur.fetchone()[0]
+
+    def test_desce_volta_e_recusa_com_o_motivo_novo_escrito(self) -> None:
+        tenant = factories.tenant(self.cur)
+        execucao = str(uuid.uuid4())
+        self.cur.execute(
+            "INSERT INTO platform.purge_log (execucao_id, classe, tabela, tenant_id, modo, resultado, "
+            "motivo, linhas, politica_versao, iniciado_at) VALUES "
+            "(%s, 'relacao', 'platform.kyc_check', %s, 'efectiva', 'retida', "
+            "'branqueamento_sem_parecer', 0, 'v', now())",
+            (execucao, tenant))
+        self.conexao.commit()
+        try:
+            recusa = alembic("downgrade", self._abaixo())
+            self.assertNotEqual(recusa.returncode, 0, "desceu com uma retencao por parecer escrita")
+            self.assertIn("purge_log_motivo_ck", recusa.stderr + recusa.stdout)
+        finally:
+            self.cur.execute("DELETE FROM platform.purge_log WHERE execucao_id = %s", (execucao,))
+            self.cur.execute("DELETE FROM platform.tenants WHERE id = %s", (tenant,))
+            self.conexao.commit()
+        try:
+            alembic_ok("downgrade", self._abaixo())
+            self.conexao.rollback()
+            self.assertFalse(self._pode("DELETE"))
+            self.cur.execute(
+                "SELECT has_column_privilege('kamba_batch', 'platform.owner_actions', 'tenant_id', 'SELECT')")
+            self.assertFalse(self.cur.fetchone()[0])
+            # A coluna que o KAM-097 deu a ingestao nao sai com a descida.
+            self.cur.execute(
+                "SELECT has_column_privilege('kamba_batch', 'platform.catalog_ingestions', 'tenant_id', 'SELECT')")
+            self.assertTrue(self.cur.fetchone()[0])
+        finally:
+            alembic_ok("upgrade", "head")
+        self.conexao.rollback()
+        self.assertTrue(self._pode("DELETE"))

@@ -46,8 +46,8 @@ STO nao**: expiram pelo `retain_until` de cada objecto, e o certificado di-lo.
 **As operacionais saem desde o KAM-233** (revisao `0086`): os gates, o teste e
 a lista de espera do caso, as accoes e as mudancas de telefone do dono, os
 pedidos de orcamento, a marca e o conteudo, as ingestoes do catalogo e os
-trabalhos de foto. Nenhuma tem gatilho de `DELETE`, e o `kamba_batch` le delas
-so o `tenant_id`.
+trabalhos de foto. Nenhuma tem gatilho de `DELETE`, e o `kamba_batch` nao ganha
+leitura delas alem do `tenant_id`.
 
 ## Disputa aberta suspende a purga
 

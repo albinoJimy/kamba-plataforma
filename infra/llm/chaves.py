@@ -11,16 +11,21 @@ provisioning; manualmente por *script* na Fase 0». O automatico e no evento
 
 ## Porque e que a idempotencia e nossa e nao do proxy
 
-Medido contra a imagem fixada (`docs/evidencia/KAM-030-litellm.md`):
+Contra a imagem fixada, **com base de dados** (`docs/evidencia/KAM-233.md` §3):
 
-* `POST /key/generate` com um `key_alias` novo → **200**;
+* `POST /key/generate` com um `key_alias` novo → **200** (medido no KAM-233);
 * o **mesmo** corpo outra vez → **400** `"Key with alias '…' already exists.
-  Unique key aliases across all keys are required."`
+  Unique key aliases across all keys are required."` — **NAO VERIFICADO**.
+
+Esta nota dizia «medido» e apontava o `docs/evidencia/KAM-030-litellm.md`, que nao
+traz nenhuma das duas medicoes (achado do KAM-233). **E sem base nao ha chave
+nenhuma**: o proxy de `prod` arranca sem `DATABASE_URL`, e o `/key/generate`
+responde 500 (`DB not connected`, §2 do mesmo anexo). Credor: KAM-239.
 
 Ou seja, o `/key/generate` **nao e idempotente**, e o criterio 4 exige que criar
 a chave de um tenant o seja. A idempotencia faz-se aqui, em tres passos:
-procurar em `/key/list`, e depois `/key/update` (que aceita `key_alias`, medido:
-200) ou `/key/generate`.
+procurar em `/key/list`, e depois `/key/update` (que aceita `key_alias`; o 200
+e **NAO VERIFICADO**, pela razao acima) ou `/key/generate`.
 
 **E isto e tambem a razao de o mapeamento de erro do cliente nao ser pelo 400**:
 o proxy usa o 400 para «alias repetido» e o **422** para orcamento esgotado. Um
