@@ -976,7 +976,7 @@ test("as portas da revogação (KAM-233): a chave pelo alias no proxy e a conta 
     pedidos.map((p) => [p.method, p.url]),
     [
       ["POST", "http://litellm:4000/key/delete"],
-      ["GET", "http://litellm:4000/key/list?return_full_object=true&size=500&page=1"],
+      ["GET", "http://litellm:4000/key/list?return_full_object=true&size=100&page=1"],
       ["PATCH", "http://chatwoot:3000/platform/api/v1/accounts/42"],
     ],
   );

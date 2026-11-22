@@ -133,7 +133,6 @@ function portasEspias(
 ) {
   return {
     chaveDeLlm: {
-      revogar: async (id: string) => void chamadas.push(`revogar:${id}`),
       revogarDoTenant: async (t: string) => {
         chamadas.push(`alias:${t}`);
         return o.chave ?? "revogada";
@@ -215,10 +214,11 @@ describe("o pedido, o canal e a revogação sobre a base falsa", () => {
     const portas = portasEspias(chamadas);
     const r = await revogar(bd, { tenantId: T, portas, agora: dia(7) });
     assert.equal(r.encerrado, true);
-    // A chave da saga pelo token dela, e nunca também pelo alias; a conta e o
-    // painel sem saga; o canal e a inbox sem registo não chegam à porta.
+    // A chave pelo alias, mesmo com o token na saga (achado 4 da revisão
+    // adversarial): o token não se confronta com a listagem. A conta e o painel
+    // sem saga; o canal e a inbox sem registo não chegam à porta.
     assert.deepEqual(chamadas, [
-      "revogar:llm-1",
+      `alias:${T}`,
       `arquivar-conta:${T}`,
       `painel:${T}:${Math.floor(dia(7).getTime() / 1000)}`,
     ]);

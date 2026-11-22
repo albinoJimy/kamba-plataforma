@@ -2,12 +2,14 @@
  * O adaptador do LiteLLM para a revogação do off-boarding (KAM-233, critério 2):
  * a chave virtual do tenant apagada no proxy.
  *
- * ## Pelo alias, porque a chave do tenant não está na saga
+ * ## Sempre pelo alias
  *
- * As chaves dos tenants nascem pelo `infra/llm/chaves.py provisionar`, com o
- * alias `tenant-<uuid>` (KAM-030), e não ficam no `provisioning_step`. Quando a
- * saga não registou o recurso, a revogação apaga pelo alias (`revogarDoTenant`);
- * quando registou, pelo *token* que a saga guardou (`revogar`). O alias é o do
+ * As chaves dos tenants nascem pelo `infra/llm/chaves.py provisionar` (KAM-030)
+ * ou pela saga (`aliasDoTenant`), as duas com o alias `tenant-<uuid>`. A fase
+ * `revogacao` apaga **sempre** pelo alias (`revogarDoTenant`): o identificador
+ * que a saga guarda não se confronta com nada da listagem, e um 404 por ele não
+ * provava que a chave do alias saiu (achado 4 da revisão adversarial). O
+ * `revogar` pelo *token* fica para quem o tiver do `/key/list`. O alias é o do
  * `alias_do_tenant` do `chaves.py`, e não um segundo nome.
  *
  * ## O que se mediu na imagem fixada (`docs/evidencia/KAM-233.md` §3)
@@ -83,7 +85,7 @@ export class ChaveDoLlmPeloProxy implements Pick<ChaveDeLlm, "revogar"> {
     await this.#apagar("keys", token);
   }
 
-  /** Pelo alias do tenant, quando a saga não registou a chave. */
+  /** Pelo alias do tenant: o caminho da fase `revogacao`. */
   async revogarDoTenant(tenantId: string): Promise<DesfechoDaRevogacaoDaChave> {
     return this.#apagar("key_aliases", aliasDaChaveDoTenant(tenantId));
   }
@@ -154,5 +156,9 @@ export class ChaveDoLlmPeloProxy implements Pick<ChaveDeLlm, "revogar"> {
   }
 }
 
-/** Quantas chaves por página da listagem. A mesma do `Proxy.POR_PAGINA` do `chaves.py`. */
-export const PAGINA_DO_KEY_LIST = 500;
+/**
+ * Quantas chaves por página da listagem: o tecto da imagem fixada, que recusa
+ * `size` acima de 100 com 422 (medido, `docs/evidencia/KAM-233.md` §3a). A
+ * mesma do `Proxy.POR_PAGINA` do `chaves.py`.
+ */
+export const PAGINA_DO_KEY_LIST = 100;

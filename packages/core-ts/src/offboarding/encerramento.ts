@@ -36,6 +36,7 @@
 import { executarNoCanalDoCliente, accoesDoCanalDoCliente, verificar } from "../provisioning/compensacao.ts";
 import type { AccaoDeCompensacao, Passo } from "../provisioning/contrato.ts";
 import { SQL_DEFINIR_CONTEXTO } from "../tenant_guard/index.ts";
+import { aliasDaChaveDoTenant } from "./litellm.ts";
 import type { PortaDosTelefones } from "./telefones.ts";
 import {
   ACTOR_DO_ENCERRAMENTO,
@@ -652,8 +653,8 @@ const PASSO_DA_SAGA: Readonly<Record<"chave_llm" | "canal_comercio" | "inbox", P
  * saga nunca os criou.
  *
  * **Três passos não dependem da saga** (KAM-233, decisão do fundador de
- * 2026-11-21, Q1 = A). A chave do LiteLLM sem registo na saga revoga-se pelo
- * alias `tenant-<uuid>`, que é onde o `chaves.py provisionar` a cria; a conta de
+ * 2026-11-21, Q1 = A). A chave do LiteLLM revoga-se **sempre** pelo alias
+ * `tenant-<uuid>`, que é onde o `chaves.py provisionar` e a saga a criam; a conta de
  * atendimento lê-se da `handoff_accounts` (o `archiveAccount` do HND), e
  * `sem_recurso` é só a falta da linha; as sessões do painel revogam-se até ao
  * instante do passo. Uma porta sem adaptador, ou um proxy sem base, **lança**: a
@@ -704,7 +705,13 @@ export async function revogar(
   let encerrado = false;
   for (const passo of PASSOS_DA_REVOGACAO) {
     if (feitos[passo] !== undefined) continue;
-    if (passo === "chave_llm" && !inicio.recursos.has(PASSO_DA_SAGA.chave_llm)) {
+    if (passo === "chave_llm") {
+      // **Sempre pelo alias**, e não pelo `external_id` da saga (achado 4 da
+      // revisão adversarial do KAM-233): a saga cria a chave com o mesmo
+      // `tenant-<uuid>` (`aliasDoTenant`), e o identificador que ela guarda não
+      // se confronta com nada da listagem — um 404 por ele não provava que a
+      // chave do alias tinha saído. O guarda da saga confere a acção, na mesma.
+      verificar({ tipo: "revogar", recurso: "chave_llm", ref: aliasDaChaveDoTenant(tenantId) }, PASSO_DA_SAGA.chave_llm);
       const desfecho = await portas.chaveDeLlm.revogarDoTenant(tenantId);
       await gravar(passo, desfecho === "revogada" ? "concluido" : "inexistente");
     } else if (passo === "conta_atendimento") {
@@ -718,21 +725,18 @@ export async function revogar(
       // aqui fica revogada, e o tenant já não tem painel onde entrar depois.
       await portas.sessoesDoPainel.revogarDoTenant(tenantId, Math.floor(agora.getTime() / 1000));
       await gravar(passo, "concluido");
-    } else if (passo === "chave_llm" || passo === "canal_comercio" || passo === "inbox") {
+    } else if (passo === "canal_comercio" || passo === "inbox") {
       const ref = inicio.recursos.get(PASSO_DA_SAGA[passo]);
       if (ref === undefined) {
         await gravar(passo, "sem_recurso");
         continue;
       }
       const accao: AccaoDeCompensacao =
-        passo === "chave_llm"
-          ? { tipo: "revogar", recurso: "chave_llm", ref }
-          : passo === "canal_comercio"
-            ? { tipo: "arquivar", recurso: "canal_comercio", ref }
-            : { tipo: "desactivar", recurso: "inbox", ref };
+        passo === "canal_comercio"
+          ? { tipo: "arquivar", recurso: "canal_comercio", ref }
+          : { tipo: "desactivar", recurso: "inbox", ref };
       verificar(accao, PASSO_DA_SAGA[passo]);
-      if (passo === "chave_llm") await portas.chaveDeLlm.revogar(ref);
-      else if (passo === "canal_comercio") await portas.canalDeComercio.arquivar(ref);
+      if (passo === "canal_comercio") await portas.canalDeComercio.arquivar(ref);
       else await portas.inbox.desligar(ref);
       await gravar(passo, "concluido");
     } else if (passo === "entitlements" || passo === "canais") {

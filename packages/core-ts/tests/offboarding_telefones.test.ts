@@ -242,6 +242,20 @@ describe("a fase pendentes entrega os telefones antes de fechar (KAM-233)", () =
     assert.equal(bd.fases.get("pendentes")?.estado, "em_curso", "sem os telefones, a exportacao nao arranca");
   });
 
+  it("uma encomenda que abre enquanto se decifram os telefones deixa a fase em curso (achado 6)", async () => {
+    const bd = new Fases();
+    const porta: PortaDosTelefones = {
+      async entregar() {
+        bd.pendentes = { encomendas: 1, disputas: 0, reservas: 0, reembolsos: 0 };
+        return { chave: "k", contactos: 0, telefones: 0 };
+      },
+    };
+    const r = await verificarPendentes(bd, { tenantId: T, agora: D0, telefones: porta });
+    assert.equal(r.concluida, false);
+    assert.equal(bd.fases.get("pendentes")?.estado, "em_curso");
+    assert.equal(bd.fases.get("pendentes")?.resultado.telefones, undefined, "sem a chave, a exportacao nao arranca");
+  });
+
   it("um cancelamento entre a entrega e o fecho ganha: a fase não fecha", async () => {
     const bd = new Fases();
     const porta: PortaDosTelefones = {

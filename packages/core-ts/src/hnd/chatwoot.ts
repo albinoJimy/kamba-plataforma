@@ -205,7 +205,8 @@ class Chamador {
           "content-type": "application/json",
           api_access_token: token,
         },
-        body: JSON.stringify(corpo),
+        // Um `GET` não leva corpo: o `fetch` do Node recusa-o (a sonda do arquivo).
+        ...(metodo === "GET" ? {} : { body: JSON.stringify(corpo) }),
         signal: controlador.signal,
       });
       if (resposta.status >= 500) {
@@ -388,6 +389,9 @@ export class ProvisionadorDoChatwoot implements ProvisionadorDoProvedor {
 /** O único estado para que se arquiva. Um valor fora do `enum` do Chatwoot dá 500 (medido). */
 export const ESTADO_DA_CONTA_ARQUIVADA = "suspended";
 
+/** A sonda que confirma que a base é um Chatwoot, antes de ler um 404 como «a conta já não está». */
+export const CAMINHO_DA_SONDA = "/api";
+
 export interface ConfiguracaoDoArquivo extends Transporte {
   /** O *token* da **Platform API**. Nunca é registado. */
   readonly tokenDaPlataforma: string;
@@ -418,9 +422,15 @@ export class ArquivoDoChatwoot implements ArquivoDoProvedor {
         status: ESTADO_DA_CONTA_ARQUIVADA,
       });
     } catch (erro) {
-      // A conta já não está lá: não há nada a arquivar (idempotente do lado de fora).
-      if (erro instanceof RespostaInesperadaError && erro.estado === 404) return "inexistente";
-      throw erro;
+      if (!(erro instanceof RespostaInesperadaError) || erro.estado !== 404) throw erro;
+      // A conta já não está lá: não há nada a arquivar (idempotente do lado de
+      // fora). **Mas só se a base for um Chatwoot**: uma base errada, ou um proxy
+      // à frente, dava 404 em todos os caminhos, e a conta ficava activa com o
+      // passo escrito `inexistente` (achado 5 da revisão adversarial do
+      // KAM-233). A `/api` é a sonda do *compose* (o `healthcheck` do serviço);
+      // se ela também falha, o erro sobe.
+      await this.#chamador.json<unknown>("GET", CAMINHO_DA_SONDA, this.#tokenDaPlataforma, {});
+      return "inexistente";
     }
     if (conta.status !== ESTADO_DA_CONTA_ARQUIVADA) {
       throw new RespostaInesperadaError(caminho, 200, "a conta nao ficou suspensa");

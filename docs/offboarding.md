@@ -98,7 +98,7 @@ ofertas e a prova de aceite do KAM-090 no pacote, e os contactos pelo cofre na p
 
 | Passo | O que faz | Por onde |
 |---|---|---|
-| `chave_llm` | apaga a chave do tenant no LiteLLM, pelo *token* da saga ou, sem ele, pelo alias `tenant-<uuid>`, e confirma-o pela listagem inteira | `ChaveDoLlmPeloProxy`, a `litellm_master_key` e o `KAMBA_LLM_PROXY_URL` |
+| `chave_llm` | apaga a chave do tenant no LiteLLM, sempre pelo alias `tenant-<uuid>`, e confirma-o pela listagem inteira | `ChaveDoLlmPeloProxy`, a `litellm_master_key` e o `KAMBA_LLM_PROXY_URL` |
 | `canal_comercio` | arquiva o canal da Medusa, só se a saga o criou | sem adaptador (D3) |
 | `inbox` | desliga a *inbox* do Chatwoot, só se a saga a criou | sem adaptador |
 | `conta_atendimento` | suspende a conta Chatwoot do tenant, lida da `handoff_accounts` | o `archiveAccount` do HND, o `chatwoot_platform_token` e o `KAMBA_CHATWOOT_URL` |

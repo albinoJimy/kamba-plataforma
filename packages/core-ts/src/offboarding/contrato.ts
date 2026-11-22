@@ -22,7 +22,7 @@
  * também. Estão aqui como números, e o dicionário diz que são proposta.
  */
 
-import type { ChaveDeLlm, InboxDeAtendimento, RegistoDeCanalDeComercio, CanalDoCliente } from "../provisioning/contrato.ts";
+import type { InboxDeAtendimento, RegistoDeCanalDeComercio, CanalDoCliente } from "../provisioning/contrato.ts";
 
 /** As sete fases, pela ordem do bloco. O `CHECK` da revisão tem as mesmas. */
 export const FASES = [
@@ -149,10 +149,11 @@ export interface ProvasDoTitular {
  * deles.
  */
 export interface PortasDaRevogacao {
-  readonly chaveDeLlm: Pick<ChaveDeLlm, "revogar"> & {
+  readonly chaveDeLlm: {
     /**
-     * Pelo alias `tenant-<uuid>`, quando a saga não registou a chave. `inexistente`
-     * só com a listagem a confirmar que ela não está lá (ver `./litellm.ts`).
+     * Pelo alias `tenant-<uuid>`, que é onde a saga e o `chaves.py` a criam.
+     * `inexistente` só com a listagem a confirmar que ela não está lá (ver
+     * `./litellm.ts`).
      */
     revogarDoTenant(tenantId: string): Promise<"revogada" | "inexistente">;
   };

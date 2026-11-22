@@ -230,7 +230,6 @@ describe("o ciclo do off-boarding", () => {
 
   it("as portas sem adaptador levantam pelo nome da porta, e nunca dão sucesso", async () => {
     await assert.rejects(CANAL_SEM_ADAPTADOR.cancelarSubscricao("w"), PortaSemAdaptadorError);
-    await assert.rejects(REVOGACAO_SEM_ADAPTADOR.chaveDeLlm.revogar("k"), /litellm/);
     await assert.rejects(REVOGACAO_SEM_ADAPTADOR.canalDeComercio.arquivar("c"), /medusa/);
     await assert.rejects(REVOGACAO_SEM_ADAPTADOR.inbox.desligar("i"), /chatwoot/);
     // As três do KAM-233, que se chamam sem a saga: nenhuma dá sucesso.

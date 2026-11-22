@@ -199,8 +199,11 @@ class Proxy:
         self._pedir = pedir or _pedir_http
 
     #: Quantas chaves se pedem por pagina. O proxy pagina, e o `total_count`
-    #: diz quantas ha.
-    POR_PAGINA = 500
+    #: diz quantas ha. **100, e nao 500**: a imagem fixada recusa `size` acima de
+    #: 100 com **422** («Input should be less than or equal to 100»), medido no
+    #: KAM-233 (`docs/evidencia/KAM-233.md` §3a). Com 500, o `listar` levantava em
+    #: todas as chamadas, e com ele o `provisionar`, o `revogar` e o `orcamentos`.
+    POR_PAGINA = 100
 
     def listar(self) -> list[dict[str, Any]]:
         """Todas as chaves, por paginas. **Levanta se nao as conseguir todas.**

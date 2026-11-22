@@ -397,7 +397,6 @@ describe("o off-boarding contra a base", () => {
     let falhar = true;
     const portas: PortasDaRevogacao = {
       chaveDeLlm: {
-        revogar: async (id) => void chamadas.push(`revogar:${id}`),
         revogarDoTenant: async (t) => {
           chamadas.push(`alias:${t}`);
           return "revogada";
@@ -449,13 +448,13 @@ describe("o off-boarding contra a base", () => {
     assert.deepEqual(
       chamadas,
       [
-        "revogar:llm-ensaio",
+        `alias:${tenant}`,
         "arquivar:medusa-ensaio",
         "desligar:inbox-ensaio",
         `conta:${conta}`,
         `painel:true:${Math.floor(dia(7).getTime() / 1000)}`,
       ],
-      "a chave não foi revogada duas vezes, nem também pelo alias",
+      "a chave sai pelo alias, uma vez, mesmo com o token na saga",
     );
     const passos = (await fases(tenant)).revogacao?.resultado.passos as Record<string, string> | undefined;
     assert.equal(passos?.conta_atendimento, "concluido");
@@ -515,8 +514,10 @@ describe("o ciclo do processo de lote (KAM-210, critério 1)", () => {
     const chamadas: string[] = [];
     const portas: PortasDaRevogacao = {
       chaveDeLlm: {
-        revogar: async (id) => void chamadas.push(`revogar:${id}`),
-        revogarDoTenant: async () => "revogada",
+        revogarDoTenant: async (t) => {
+          chamadas.push(`alias:${t === tenant}`);
+          return "revogada";
+        },
       },
       canalDeComercio: { arquivar: async (id) => void chamadas.push(`arquivar:${id}`) },
       inbox: { desligar: async (id) => void chamadas.push(`desligar:${id}`) },
@@ -562,7 +563,7 @@ describe("o ciclo do processo de lote (KAM-210, critério 1)", () => {
       await ciclo.correr();
       f = await fases(tenant);
       assert.equal(f.revogacao?.estado, "concluida");
-      assert.deepEqual(chamadas, ["revogar:llm-ciclo"]);
+      assert.deepEqual(chamadas, ["alias:true"]);
       const estado = await admin.query("SELECT estado FROM platform.tenants WHERE id = $1", [tenant]);
       assert.equal(estado.rows[0]?.estado, "encerrado");
 
@@ -570,7 +571,7 @@ describe("o ciclo do processo de lote (KAM-210, critério 1)", () => {
       await ciclo.correr();
       await ciclo.correr();
       assert.deepEqual(meta.chamadas.filter((c) => c.endsWith(waba)), [`cancelar:${waba}`]);
-      assert.deepEqual(chamadas, ["revogar:llm-ciclo"]);
+      assert.deepEqual(chamadas, ["alias:true"]);
       const ev = await admin.query(
         "SELECT count(*)::int AS n FROM platform.events_outbox WHERE tenant_id = $1 AND tipo = 'tenant.closed'",
         [tenant],

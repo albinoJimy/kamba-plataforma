@@ -171,7 +171,7 @@ export const CANAL_SEM_ADAPTADOR: CanalDaMeta = {
  * em vez de encerrar o tenant com a chave viva.
  */
 export const REVOGACAO_SEM_ADAPTADOR: PortasDaRevogacao = {
-  chaveDeLlm: { revogar: semAdaptador("litellm"), revogarDoTenant: semAdaptador("litellm") },
+  chaveDeLlm: { revogarDoTenant: semAdaptador("litellm") },
   canalDeComercio: { arquivar: semAdaptador("medusa") },
   inbox: { desligar: semAdaptador("chatwoot") },
   contaDeAtendimento: { archiveAccount: semAdaptador("chatwoot") },

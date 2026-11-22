@@ -56,6 +56,11 @@ function buscarFalso(pedidos: Pedido[], responder: (p: Pedido) => { estado: numb
   }) as unknown as typeof fetch;
 }
 
+/** O `token` de uma chave no duplo: um valor que não é o alias. */
+function tokenDe(alias: string): string {
+  return Buffer.from(alias, "utf8").toString("hex");
+}
+
 /**
  * O proxy medido: apaga o que lhe pedem e devolve-o no `deleted_keys`; o que não
  * tem dá 404. O `/key/list` devolve o que sobra, com a forma medida (`keys` e
@@ -68,12 +73,20 @@ function proxyMedido(chaves: Set<string>, porPagina = 500) {
       assert.equal(url.pathname, "/key/list");
       assert.equal(url.searchParams.get("return_full_object"), "true");
       const pagina = Number(url.searchParams.get("page"));
-      const todas = [...chaves].map((k) => ({ token: k, key_alias: k }));
+      // O `token` é outro valor que o alias, como na imagem real (o resumo
+      // SHA-256 da chave, §3 do anexo): um duplo com os dois iguais deixava
+      // passar um adaptador que procurasse o alias no `token` (achado 2 da
+      // revisão adversarial).
+      const todas = [...chaves].map((k) => ({ token: tokenDe(k), key_alias: k }));
       const keys = todas.slice((pagina - 1) * porPagina, pagina * porPagina);
       return { estado: 200, corpo: { keys, total_count: todas.length, current_page: pagina } };
     }
+    const porToken = p.corpo.keys !== undefined;
     const pedidas = [...((p.corpo.keys ?? p.corpo.key_aliases ?? []) as string[])];
-    const apagadas = pedidas.filter((k) => chaves.delete(k));
+    const apagadas = pedidas.filter((pedida) => {
+      const alvo = [...chaves].find((k) => (porToken ? tokenDe(k) : k) === pedida);
+      return alvo !== undefined && chaves.delete(alvo);
+    });
     if (apagadas.length === 0) return { estado: 404, corpo: { error: { message: "No keys found" } } };
     return { estado: 200, corpo: { deleted_keys: apagadas } };
   };
@@ -103,9 +116,11 @@ describe("a chave do LiteLLM (KAM-233, critério 2)", () => {
 
   it("revogar pelo token da saga manda keys, e não key_aliases", async () => {
     const pedidos: Pedido[] = [];
-    const llm = new ChaveDoLlmPeloProxy({ base: "http://litellm:4000", chaveMestra: MESTRA, buscar: buscarFalso(pedidos, proxyMedido(new Set(["resumo-a"]))) });
-    await llm.revogar("resumo-a");
-    assert.deepEqual(pedidos[0]?.corpo, { keys: ["resumo-a"] });
+    const chaves = new Set(["tenant-a"]);
+    const llm = new ChaveDoLlmPeloProxy({ base: "http://litellm:4000", chaveMestra: MESTRA, buscar: buscarFalso(pedidos, proxyMedido(chaves)) });
+    await llm.revogar(tokenDe("tenant-a"));
+    assert.deepEqual(pedidos[0]?.corpo, { keys: [tokenDe("tenant-a")] });
+    assert.equal(chaves.size, 0, "apagou a chave do token");
   });
 
   it("repetir é o 404 medido, e é o sucesso de uma repetição", async () => {
@@ -195,9 +210,13 @@ describe("a chave do LiteLLM (KAM-233, critério 2)", () => {
   });
 });
 
-/** O Chatwoot medido: suspende a conta que existe, 404 na que não existe. */
+/** O Chatwoot medido: suspende a conta que existe, 404 na que não existe, e a sonda `/api` responde. */
 function chatwootMedido(contas: Map<number, string>) {
   return (p: Pedido) => {
+    if (p.metodo === "GET") {
+      assert.ok(p.url.endsWith("/api"), "o unico GET e a sonda");
+      return { estado: 200, corpo: { version: "4.18.0" } };
+    }
     const id = Number(p.url.split("/").pop());
     if (!contas.has(id)) return { estado: 404, corpo: { status: 404, error: "Not Found" } };
     contas.set(id, String(p.corpo.status));
@@ -226,6 +245,14 @@ describe("a conta do Chatwoot (KAM-233, critério 2)", () => {
     assert.equal(await arquivo.arquivarConta(7), "arquivada");
     assert.equal(await arquivo.arquivarConta(7), "arquivada");
     assert.equal(await arquivo.arquivarConta(99), "inexistente");
+    // Uma base que dá 404 em tudo (errada, ou um proxy à frente) não é «a conta
+    // já não está»: a sonda falha, e o erro sobe (achado 5 da revisão adversarial).
+    const tudo404 = new ArquivoDoChatwoot({
+      base: "http://outra-coisa:3000",
+      tokenDaPlataforma: PLATAFORMA,
+      buscar: buscarFalso([], () => ({ estado: 404, corpo: { error: "Not Found" } })),
+    });
+    await assert.rejects(tudo404.arquivarConta(99), RespostaInesperadaError);
   });
 
   it("um 200 com a conta ainda activa levanta", async () => {

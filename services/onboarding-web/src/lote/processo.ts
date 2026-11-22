@@ -407,7 +407,6 @@ export function portasDoOffboarding(o: {
         baseDoLlm === ""
           ? REVOGACAO_SEM_ADAPTADOR.chaveDeLlm
           : {
-              revogar: async (ref) => (await proxy()).revogar(ref),
               revogarDoTenant: async (tenantId) => (await proxy()).revogarDoTenant(tenantId),
             },
       contaDeAtendimento:
