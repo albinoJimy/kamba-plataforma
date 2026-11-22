@@ -5143,7 +5143,7 @@ e à `brand_profile` o instante dos termos; acrescenta a `geracao_de_imagem` ao 
 no §3.5. Decisões do fundador de 2026-11-21: o Pillow e a Noto Sans pelo pacote Debian (D1, opção A),
 o OCR pelo tesseract (D2, opção B), a finalidade própria (D3, opção A), o botão da acção
 `aprovar_conteudo` (D4, opção A) e um ticket novo para a imagem no WhatsApp e a página do painel (D5,
-opção A, **KAM-244**). O código está em [arte.py](../services/agr/src/kamba_agr/social/arte.py),
+opção A, **KAM-246**). O código está em [arte.py](../services/agr/src/kamba_agr/social/arte.py),
 [aprovacao.py](../services/agr/src/kamba_agr/social/aprovacao.py),
 [publicacao.py](../services/agr/src/kamba_agr/social/publicacao.py) e
 [social_tools.py](../services/agr/src/kamba_agr/tls/social_tools.py).
@@ -5182,7 +5182,7 @@ não passou por `aprovado`.
 
 **O que esta emenda não decide, e a quem.** A arte como imagem no WhatsApp (a média no Outbound e no
 `worker-canal`, o carregamento na Meta e a coluna de média da `agent_replies`) e a página do painel com
-a ligação de descarga de 24 h (o padrão do `ligacao_assinada` do §3.77) são do **KAM-244** (D5); o
+a ligação de descarga de 24 h (o padrão do `ligacao_assinada` do §3.77) são do **KAM-246** (D5); o
 *golden* das artes é do **KAM-125**; o adaptador real do fornecedor do fundo, o reassinar do manifesto
 C2PA sobre a composição e a consolidação do custo da arte não têm ticket aberto, e ficam escritos no
 bloco do KAM-122.

@@ -719,7 +719,7 @@ Testes: matriz de estados, fusão idempotente, Fluxo B, isolamento. Abre PR com 
 | Prioridade | P0 |
 | Estimativa | L |
 | Dependências | KAM-013, KAM-014, KAM-004, KAM-024 |
-| Bloqueia | KAM-022, KAM-023, KAM-031, KAM-048, KAM-054, KAM-058, KAM-084, KAM-118, KAM-122, KAM-123, KAM-244 |
+| Bloqueia | KAM-022, KAM-023, KAM-031, KAM-048, KAM-054, KAM-058, KAM-084, KAM-118, KAM-122, KAM-123, KAM-246 |
 | Responsável sugerido | Engenheiro de Canais |
 | Documentos de referência | `../docs/tecnica/01_Canais_WhatsApp_Fluxo_Dual.md` (§8, §14), `../docs/tecnica/evidencia/E1_Meta_WhatsApp.md` (§1, §5, §7), `../docs/tecnica/08_Seguranca_Conformidade.md` (§7.3), ADR-007, ADR-009, ADR-013 |
 
@@ -3931,4 +3931,4 @@ bloquear. **Seis corrigidos neste ramo:**
 | 1.21 | Novembro 2026 | **Aresta recíproca, sem alteração de conteúdo:** o `Bloqueia` do KAM-020 ganha o **KAM-231** (EPIC-11), aberto no PR do KAM-119: a foto do dono chega ao catálogo pelo MED. | Equipa KAMBÁ |
 | 1.22 | Novembro 2026 | **KAM-235 acrescentado**, no PR do **KAM-202** (EPIC-04), que o abre e não o implementa: o credor dos factos do teste ponta a ponta que em produção ninguém escreve — o `delivered_at` dos *statuses* e o nome da loja na apresentação do vendedor. Decisão do fundador de 2026-11-20, no bloco do KAM-202. Escrito como KAM-232 e renumerado duas vezes na integração: para 233 depois do KAM-223, e para 235 depois do KAM-218 e do KAM-234 (EPIC-11), que tomaram o 233 e o 234. | Equipa KAMBÁ |
 | 1.23 | Novembro 2026 | **KAM-235 entregue.** Os *statuses* escrevem o `delivered_at` pelo estágio do `worker-canal` (o `Saida.ingerir` do KAM-015, sem esquema novo), a apresentação do vendedor nomeia a loja pelo `tenants.nome` do turno, com ou sem dígitos (proposta levada à coordenação, no bloco), e o teste ponta a ponta com o simulador passa com o `ConsentGate` montado e dá `sem_consentimento` sem ele. Três critérios e as duas caixas da DoD satisfeitos. Emenda 1.134 do dicionário; a linha do critério 1 do KAM-202 (EPIC-04) e a do critério 7 do KAM-080 (EPIC-08) revistas | Equipa KAMBÁ |
-| 1.24 | Novembro 2026 | **Aresta recíproca, sem alteração de conteúdo:** o `Bloqueia` do KAM-015 ganha o **KAM-244** (EPIC-11), aberto no PR do KAM-122: a arte do módulo social como imagem pelo Outbound e a página do painel com a ligação de descarga. Escrito como KAM-237 e renumerado na integração contra a `main` em `f5da45da`. | Equipa KAMBÁ |
+| 1.24 | Novembro 2026 | **Aresta recíproca, sem alteração de conteúdo:** o `Bloqueia` do KAM-015 ganha o **KAM-246** (EPIC-11), aberto no PR do KAM-122: a arte do módulo social como imagem pelo Outbound e a página do painel com a ligação de descarga. Escrito como KAM-237 e renumerado na integração contra a `main` em `f3d3a0eb`. | Equipa KAMBÁ |
