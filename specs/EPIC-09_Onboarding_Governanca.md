@@ -4381,8 +4381,7 @@ a vê — e lê-lo pede mudar a configuração de registo do PostgreSQL de produ
   pedia a vaga de migração e punha uma função do superutilizador a ler ficheiros do servidor.
 - **Com uma condição:** o orçamento de memória do conjunto reduzido. O processo mede-se, leva o limite
   medido, e o tecto de 80% do critério 4 do KAM-076 não se toca; o bloco diz quanto da folga o recolector
-  consome, porque o consumidor do dono ficou fora de `prod` por falta dela (o credor dele está num PR do
-  lote 17 ainda por fundir).
+  consome, porque o consumidor do dono ficou fora de `prod` por falta dela (credor KAM-237).
 
 
 ### Verificação dos Critérios de Aceitação
