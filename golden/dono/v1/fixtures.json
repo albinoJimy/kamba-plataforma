@@ -1,9 +1,91 @@
 {
- "base": {
-  "loja": {
+ "loja": {
+  "nome": "Loja Kianda",
+  "plus_code": "6GCR2F",
+  "zona": "Talatona"
+ },
+ "perfis": {
+  "base": {
+   "categoria": "roupa de mulher",
+   "factos": [
+    "Entregamos em Luanda",
+    "10% de desconto ate 30/11"
+   ],
    "nome": "Loja Kianda",
-   "zona": "Talatona",
-   "plus_code": "6GCR2F"
+   "publico": "maes jovens de Luanda",
+   "slots": "segunda as 18h, quarta as 12h, sabado 10:30",
+   "tom": "proximo"
+  },
+  "sem_factos": {
+   "categoria": "roupa de mulher",
+   "factos": [],
+   "nome": "Loja Kianda",
+   "publico": "mulheres que trabalham no centro",
+   "slots": "terca as 19h, sexta as 12h",
+   "tom": "profissional"
+  }
+ },
+ "versao": "1.0.0",
+ "visao": {
+  "camisa": {
+   "categoria": {
+    "confianca": 0.95,
+    "valor": "vestuario"
+   },
+   "cor": {
+    "confianca": 0.95,
+    "valor": "azul"
+   },
+   "nome": {
+    "confianca": 0.95,
+    "valor": "Camisa polo"
+   }
+  },
+  "camisa_com_etiqueta": {
+   "categoria": {
+    "confianca": 0.95,
+    "valor": "vestuario"
+   },
+   "cor": {
+    "confianca": 0.95,
+    "valor": "azul"
+   },
+   "nome": {
+    "confianca": 0.95,
+    "valor": "Camisa polo"
+   },
+   "preco_etiqueta": {
+    "confianca": 0.9,
+    "valor": "12 mil kz"
+   }
+  },
+  "sapatos": {
+   "categoria": {
+    "confianca": 0.95,
+    "valor": "calcado"
+   },
+   "cor": {
+    "confianca": 0.95,
+    "valor": "castanho"
+   },
+   "nome": {
+    "confianca": 0.95,
+    "valor": "Sandalias de couro"
+   }
+  },
+  "vestido": {
+   "categoria": {
+    "confianca": 0.95,
+    "valor": "vestuario"
+   },
+   "cor": {
+    "confianca": 0.95,
+    "valor": "amarelo"
+   },
+   "nome": {
+    "confianca": 0.95,
+    "valor": "Vestido de capulana"
+   }
   }
  }
 }
