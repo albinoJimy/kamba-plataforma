@@ -4,7 +4,7 @@
 |---|---|
 | Produto | KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para Angola |
 | Documento | Epic — Topologia e Operação |
-| Versão | 1.29 |
+| Versão | 1.30 |
 | Data | Novembro de 2026 |
 | Classificação | Documento de Referência — Interno |
 | Documento-fonte | `../docs/tecnica/09_Topologia_Operacao_Escala.md` |
@@ -348,7 +348,7 @@ Não expandas escopo: pgBackRest é KAM-079, métricas KAM-080. Testes: verifica
 | Prioridade | P0 |
 | Estimativa | L |
 | Dependências | KAM-002, KAM-076, KAM-024 |
-| Bloqueia | — |
+| Bloqueia | KAM-242 |
 | Responsável sugerido | Plataforma/SRE |
 | Documentos de referência | `specs/01_Engineering_Standards_e_Handoff.md` (§4, gates 14–18), `../docs/tecnica/09_Topologia_Operacao_Escala.md` (§6, §7), `../docs/tecnica/08_Seguranca_Conformidade.md` (§4.8), `../docs/tecnica/evidencia/E2_Pagamentos_Angola.md` (§1.2), ADR-005, ADR-009 |
 
@@ -1947,3 +1947,4 @@ Nao expandas escopo: ajustar limites no compose e um PR de seguimento. PR com o 
 | 1.27 | Novembro 2026 | **KAM-203**, emenda de **propagação** como a 1.25: o inventário fechado de módulos de métricas do `tools/obs_lint` ganha o `packages/core-ts/src/confianca/metricas.ts`, e a nota do bloco do KAM-080 passa a **32 módulos, 160 nomes**, 162 declaradas, com o KAM-210 já fundido. Nenhuma caixa muda. | Equipa KAMBÁ |
 | 1.28 | Novembro 2026 | **KAM-219**, emenda de **propagação** como a 1.25: o inventário fechado de módulos de métricas do `tools/obs_lint` ganha o `packages/core-ts/src/tenant_guard/metricas.ts`, e a nota do bloco do KAM-080 passa a **33 módulos, 161 nomes**, 163 declaradas. Nenhuma caixa muda. | Equipa KAMBÁ |
 | 1.29 | Novembro 2026 | **KAM-235**, emenda de **propagação**: a linha do critério 7 do KAM-080 regista que o `pricing` dos *statuses* passou a persistir pelo estágio de saída do `worker-canal`. A métrica agregada por categoria continua por fazer, e a caixa não muda | Equipa KAMBÁ |
+| 1.30 | Novembro 2026 | **Aresta recíproca, sem alteração de conteúdo:** o `Bloqueia` do KAM-078 ganha o **KAM-242** (EPIC-09), aberto no PR do KAM-233: o *token* de cada WABA chega ao `onboarding-lote` pelo lançador do cofre (ADR-L002) | Equipa KAMBÁ |

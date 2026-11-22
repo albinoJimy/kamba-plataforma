@@ -20,7 +20,7 @@ Contra a imagem fixada, **com base de dados** (`docs/evidencia/KAM-233.md` §3):
 Esta nota dizia «medido» e apontava o `docs/evidencia/KAM-030-litellm.md`, que nao
 traz nenhuma das duas medicoes (achado do KAM-233). **E sem base nao ha chave
 nenhuma**: o proxy de `prod` arranca sem `DATABASE_URL`, e o `/key/generate`
-responde 500 (`DB not connected`, §2 do mesmo anexo). Credor: KAM-239.
+responde 500 (`DB not connected`, §2 do mesmo anexo). Credor: KAM-241.
 
 Ou seja, o `/key/generate` **nao e idempotente**, e o criterio 4 exige que criar
 a chave de um tenant o seja. A idempotencia faz-se aqui, em tres passos:

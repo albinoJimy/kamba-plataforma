@@ -819,7 +819,7 @@ services:
       # do `*saida` ja os nomeia). As duas credenciais leem-se a cada chamada.
       # Enquanto o LiteLLM de `staging` arrancar sem `DATABASE_URL`, o `/key/list` que
       # confirma a revogacao responde 500 e a fase para na chave, com alerta
-      # (`docs/evidencia/KAM-233.md` §2; credor KAM-239).
+      # (`docs/evidencia/KAM-233.md` §2; credor KAM-241).
       KAMBA_LLM_PROXY_URL: http://litellm:4000
       KAMBA_CHATWOOT_URL: http://chatwoot:3000
       KAMBA_SECRET_LITELLM_MASTER_KEY: ${KAMBA_SECRET_LITELLM_MASTER_KEY:?do cofre (KAM-010), projecto staging}
