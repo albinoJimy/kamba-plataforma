@@ -1,4 +1,4 @@
-"""Purga das operacionais: DELETE do kamba_batch e o motivo da retencao por parecer (KAM-233).
+"""Purga das operacionais, o motivo da retencao por parecer e a auditoria dos telefones (KAM-233).
 
 A primeira linha e **sem acentos**, pela razao das revisoes anteriores: e a
 mensagem que o `alembic history` imprime.
@@ -8,14 +8,15 @@ mensagem que o `alembic history` imprime.
 **Decisao do fundador de 2026-11-21 (Q3 = B).** A purga do off-boarding
 (`libs/py-core/src/kamba_core/offboarding/purga.py`) passa a apagar as tabelas
 operacionais da classe `relacao` que ficavam `sem_caminho`, e deixa o
-`kyc_check` e o `fraud_signals` retidos, com o fundamento escrito. Duas coisas:
+`kyc_check` e o `fraud_signals` retidos, com o fundamento escrito. Tres coisas,
+a terceira pelas decisoes Q2 = B (2026-11-21) e Q2b = A (2026-11-22):
 
 1. **O `DELETE` do `kamba_batch`** em onze tabelas, e o `SELECT` so da coluna
    `tenant_id` nas seis em que ele nao lia nada — e a unica coluna que o
    `DELETE ... WHERE tenant_id = %s` da purga le. O `kamba_batch` tem
    `BYPASSRLS`, e um `SELECT` da tabela inteira dava-lhe as colunas pessoais
    (o pedido de orcamento, a marca, o conteudo) que a purga nunca precisa de ver.
-   Nenhuma das dez tem gatilho de `DELETE`: medido contra a base em `head`
+   Nenhuma das onze tem gatilho de `DELETE`: medido contra a base em `head`
    (`pg_trigger`), os gatilhos delas sao todos de `INSERT` ou `UPDATE`.
 2. **Um motivo novo no `purge_log`**, `branqueamento_sem_parecer`: a lei de
    prevencao do branqueamento pode pedir que a identificacao do cliente se
@@ -23,6 +24,13 @@ operacionais da classe `relacao` que ficavam `sem_caminho`, e deixa o
    ficam `retida` com ele, no `purge_log` e no certificado, ate o parecer
    chegar. Nenhum dos motivos que ja havia o dizia: `fiscal_sem_prazo` e o CGT,
    e `hold_*` e um *hold* legal posto por alguem.
+3. **Uma accao nova em `audit_log.action`**, `privacy.telefones_exportados`
+   (a vigesima primeira): o processo de lote decifrou os telefones de um
+   contacto para o pacote do titular. Escreve-a o `kamba_identity`, pelo
+   `audit_append` que a `0082` lhe deu, **na transaccao da decifra** (o `antes`
+   do `lerEndpoints`). Nenhuma das vinte o descrevia: `order.contact_view` e o
+   dono a ver um contacto mascarado, e `access.conversation` e o acesso a uma
+   conversa. Sem concessao nova: o papel ja tem o `EXECUTE` e as oito colunas.
 
 ## O que fica de fora
 
@@ -36,9 +44,10 @@ o tenant e as contas de pagamento ficam como estavam.
 ## O `downgrade`
 
 Tira o que o `upgrade` deu, tabela a tabela, e repoe o dominio do motivo da
-`0042`. **Falha** se o `purge_log` ja tiver uma linha com o motivo novo: o
-`purge_log` e *append-only* por privilegio, e apagar a prova de uma retencao
-para poder descer era pior do que nao descer.
+`0042` e o da accao da `0082`. **Falha** se o `purge_log` ja tiver uma linha
+com o motivo novo, ou o `audit_log` uma com a accao nova: os dois sao
+*append-only*, e apagar a prova de uma retencao ou de uma decifra para poder
+descer era pior do que nao descer.
 
 ## Numero
 
@@ -89,10 +98,57 @@ MOTIVOS = (
     "'sem_caminho', 'particao_por_criar', 'erro', 'branqueamento_sem_parecer'"
 )
 
+AUDIT_LOG = "platform.audit_log"
+RESTRICAO_DA_ACCAO = "audit_log_action"
+ACCAO_NOVA = "privacy.telefones_exportados"
+
+#: O dominio da accao da `0082` (vinte), e o de agora, com a nova no fim. Por
+#: extenso, pela razao dos motivos.
+LITERAIS_DE_ACCAO_0082 = (
+    "'price.update', 'stock.adjust', 'payment.manual_confirm', "
+    "'access.conversation', 'batch.run', 'breakglass.open', 'audit.read', "
+    "'privacy.dsar_recusado', 'privacy.dsar_rectificado', "
+    "'retention.hold_aplicado', 'retention.hold_levantado', "
+    "'order.refund_record', "
+    "'review.acesso', 'review.recusa', "
+    "'llm.orcamento_zerado', 'llm.orcamento_reposto', "
+    "'trust.tecto', "
+    "'secret.rotate', 'secret.revoke', "
+    "'order.contact_view'"
+)
+LITERAIS_DE_ACCAO = (
+    "'price.update', 'stock.adjust', 'payment.manual_confirm', "
+    "'access.conversation', 'batch.run', 'breakglass.open', 'audit.read', "
+    "'privacy.dsar_recusado', 'privacy.dsar_rectificado', "
+    "'retention.hold_aplicado', 'retention.hold_levantado', "
+    "'order.refund_record', "
+    "'review.acesso', 'review.recusa', "
+    "'llm.orcamento_zerado', 'llm.orcamento_reposto', "
+    "'trust.tecto', "
+    "'secret.rotate', 'secret.revoke', "
+    "'order.contact_view', "
+    "'privacy.telefones_exportados'"
+)
+
 
 def upgrade() -> None:
     _privilegios()
     _motivo()
+    _trocar_a_accao(LITERAIS_DE_ACCAO)
+
+
+def _trocar_a_accao(literais: str) -> None:
+    """Troca o `CHECK` da accao, com `NO FORCE` a volta (a armadilha da `0038`, como a `0082`)."""
+    op.execute(f"ALTER TABLE {AUDIT_LOG} NO FORCE ROW LEVEL SECURITY")
+    op.execute(f"ALTER TABLE {AUDIT_LOG} DROP CONSTRAINT {RESTRICAO_DA_ACCAO}")
+    op.execute(
+        f"""
+        ALTER TABLE {AUDIT_LOG}
+          ADD CONSTRAINT {RESTRICAO_DA_ACCAO}
+          CHECK (action IN ({literais}))
+        """
+    )
+    op.execute(f"ALTER TABLE {AUDIT_LOG} FORCE ROW LEVEL SECURITY")
 
 
 def _privilegios() -> None:
@@ -119,7 +175,28 @@ def _motivo() -> None:
 
 
 def downgrade() -> None:
-    # O motivo primeiro, que e a ordem inversa. Sem `NOT VALID`: uma linha com o
+    # A accao primeiro, que e a ordem inversa. A contagem corre com o `FORCE`
+    # desligado: com ele, o dono ve zero linhas e a guarda passava sempre (a
+    # armadilha que o KAM-050 mediu na `0038`).
+    op.execute(f"ALTER TABLE {AUDIT_LOG} NO FORCE ROW LEVEL SECURITY")
+    linhas = (
+        op.get_bind()
+        .exec_driver_sql(
+            "SELECT count(*) FROM platform.audit_log WHERE action = 'privacy.telefones_exportados'"
+        )
+        .scalar_one()
+    )
+    if linhas:
+        op.execute(f"ALTER TABLE {AUDIT_LOG} FORCE ROW LEVEL SECURITY")
+        raise RuntimeError(
+            f"downgrade da 0086 recusado: ha {linhas} linha(s) de audit_log com "
+            f"accao {ACCAO_NOVA} e o dominio da 0082 nao as aceita. O audit_log e "
+            "append-only e nenhum papel tem DELETE: exporte a cadeia e decida o que "
+            "fazer a essas linhas antes de descer."
+        )
+    op.execute(f"ALTER TABLE {AUDIT_LOG} FORCE ROW LEVEL SECURITY")
+    _trocar_a_accao(LITERAIS_DE_ACCAO_0082)
+    # O motivo a seguir. Sem `NOT VALID`: uma linha com o
     # motivo novo faz o `ADD CONSTRAINT` falhar, e a descida para (ver a nota).
     op.execute(f"ALTER TABLE {PURGE_LOG} DROP CONSTRAINT purge_log_motivo_ck")
     op.execute(

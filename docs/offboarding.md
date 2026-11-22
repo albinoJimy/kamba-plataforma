@@ -116,14 +116,26 @@ pára no passo `chave_llm`, com o alerta da fase parada, e nenhum tenant de `pro
 credor **KAM-239** (a base do proxy, ou as chaves sem base — escolha do fundador). O
 `python infra/llm/chaves.py revogar <tenant>` continua, para correr à mão onde houver base.
 
-**O que falta** (credor **KAM-233**, com a razão de cada um no bloco do KAM-218): o OTP e a ligação ao e-mail do
-dono, e a entrega do certificado — não há agregador de SMS nem fornecedor de e-mail escolhidos
-(fundador, KAM-116 e KAM-115); a revogação automática — o LiteLLM pela saga, a Medusa e o Chatwoot (a saga também
-não tem adaptadores, pelo que o passo é `sem_recurso`) — e as sessões do painel; o catálogo da Medusa no
-pacote (a D3 por ratificar) e os telefones dos clientes decifrados com auditoria; o caminho de
-eliminação das tabelas `sem_caminho`, que é esquema; o Chatwoot, os *traces*, as *caches* e o pedido
-aos fornecedores na purga; e o simulacro em *staging*. A assinatura do certificado é HMAC, e não
-assimétrica.
+**Os telefones na exportação (KAM-233).** Pelas decisões do fundador de 2026-11-21 (Q2 = B) e de 2026-11-22
+(Q2b = A), o fecho da fase `pendentes` decifra os telefones dos clientes vivos do tenant no `onboarding-lote`, como
+`kamba_identity` (uma linha `privacy.telefones_exportados` por contacto, na transacção da decifra), e grava-os no STO
+do tenant, na classe `dsar` e com o destino ADR-008 do pacote, a expirar no prazo da purga. A exportação lê-os pela
+chave que a fase guarda, e recusa sem ela. **O custo aceite** é uma segunda cópia em claro no STO até à purga, igual à
+do ZIP. Sem a `KAMBA_LOTE_IDENTITY_DB_URL`, ou com a identidade ou o STO a falhar no arranque, o processo arranca na
+mesma (`telefones_sem_adaptador` no registo) e a fase `pendentes` pára, com alerta.
+
+**A purga das operacionais (KAM-233).** Pela decisão do fundador de 2026-11-21 (Q3 = B), a purga apaga também os
+gates, o teste e a lista de espera do caso, as acções e as mudanças de telefone do dono, os pedidos de orçamento, a
+marca e o conteúdo, as ingestões do catálogo e os trabalhos de foto (revisão `0086`). O `kyc_check` e o
+`fraud_signals` ficam `retida`, com o motivo `branqueamento_sem_parecer`: a lei de prevenção do branqueamento pode
+pedir a retenção, e falta o parecer. O caso de onboarding fica `sem_caminho`, com o fundamento das três FK que lhe
+apontam (Q3b = A, 2026-11-22).
+
+**O que falta** (credor **KAM-233**, com a razão de cada um no bloco dele): o OTP e a ligação ao e-mail do dono, e a
+entrega do certificado — não há agregador de SMS nem fornecedor de e-mail escolhidos (fundador, KAM-116 e KAM-115);
+a Medusa na revogação e o catálogo dela no pacote (a D3 por ratificar); o LiteLLM com base (**KAM-239**); o Chatwoot,
+os *traces*, as *caches* e o pedido aos fornecedores na purga; o *token* de cada WABA até ao contentor (o lançador
+do cofre, ADR-L002); e o simulacro em *staging*. A assinatura do certificado é HMAC, e não assimétrica.
 
 ## 7. O processo dos dados em produção (*runbook*)
 

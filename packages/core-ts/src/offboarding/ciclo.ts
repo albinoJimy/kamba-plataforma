@@ -48,6 +48,7 @@
 import { comBatch } from "../tenant_guard/index.ts";
 import type { ConjuntoSql } from "../revisao/sql.ts";
 import { DIAS_DE_CANCELAMENTO, ESTADOS_DA_FASE, FASES, type CanalDaMeta, type EstadoDaFase, type Fase, type PortasDaRevogacao } from "./contrato.ts";
+import type { PortaDosTelefones } from "./telefones.ts";
 import { desligarCanal, revogar, verificarPendentes, type ClienteSql } from "./encerramento.ts";
 import { FASES_DO_CICLO, type FaseDoCiclo, type MetricasDoOffboarding } from "./metricas.ts";
 
@@ -177,10 +178,20 @@ export const REVOGACAO_SEM_ADAPTADOR: PortasDaRevogacao = {
   sessoesDoPainel: { revogarDoTenant: semAdaptador("painel") },
 };
 
+/**
+ * Os telefones sem adaptador: o fecho dos `pendentes` pára nele, com alerta, em
+ * vez de deixar a exportação correr sem a colecção que ela exige (KAM-233).
+ */
+export const TELEFONES_SEM_ADAPTADOR: PortaDosTelefones = {
+  entregar: semAdaptador("telefones"),
+};
+
 /** As portas que as fases deste lado usam. As da revogação são as da saga. */
 export interface PortasDoCiclo {
   readonly canal: CanalDaMeta;
   readonly revogacao: PortasDaRevogacao;
+  /** Os telefones dos clientes para a exportação, no fecho dos `pendentes` (KAM-233). */
+  readonly telefones: PortaDosTelefones;
 }
 
 export interface OpcoesDoCicloDoOffboarding {
@@ -271,7 +282,7 @@ export class CicloDoOffboarding {
       return "concluida";
     }
     if (fase === "pendentes") {
-      const r = await verificarPendentes(bd, { tenantId, agora });
+      const r = await verificarPendentes(bd, { tenantId, agora, telefones: portas.telefones });
       return r.concluida ? "concluida" : "em_curso";
     }
     await revogar(bd, { tenantId, portas: portas.revogacao, agora });

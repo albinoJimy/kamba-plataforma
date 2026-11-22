@@ -195,7 +195,8 @@ class TestPrivilegiosDoKambaIdentity(ComBase):
             "SELECT pg_get_constraintdef(oid) FROM pg_constraint WHERE conname = 'audit_log_action'"
         )
         self.assertIn("'order.contact_view'", definicao)
-        self.assertEqual(definicao.count("'::text"), 20)
+        # Vinte com a da `0082`; desde a `0086` (KAM-233), as da lista fechada.
+        self.assertEqual(definicao.count("'::text"), len(ACCOES))
 
 
 class TestDowngradeDoContacto(unittest.TestCase):
@@ -258,7 +259,8 @@ class TestDowngradeDoContacto(unittest.TestCase):
         alembic_ok("downgrade", abaixo)
         try:
             definicao = self._definicao()
-            esperadas = [a for a in ACCOES if a != "order.contact_view"]
+            # Descer a `0082` desce primeiro a `0086` (KAM-233), que tira a sua.
+            esperadas = [a for a in ACCOES if a not in {"order.contact_view", "privacy.telefones_exportados"}]
             for accao in esperadas:
                 self.assertIn(f"'{accao}'", definicao)
             self.assertEqual(definicao.count("'::text"), len(esperadas))

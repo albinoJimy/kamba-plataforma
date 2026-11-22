@@ -54,14 +54,33 @@ import {
   type CanalDaMeta,
   type PortasDaRevogacao,
   type ProvasDoTitular,
+  telefonesPeloCofre,
+  type PoolDaIdentidade,
+  type PortaDosTelefones,
 } from "../src/offboarding/index.ts";
 import type { ConjuntoSql } from "../src/revisao/sql.ts";
 import { tenantGate } from "../src/ten/estados.ts";
-import { BASE_DESCARTAVEL, activarTenant, criarCanal, criarTenant, ligar } from "./apoio.ts";
+import { criarStorageFake } from "../src/storage/index.ts";
+import {
+  BASE_DESCARTAVEL,
+  ChavesDeTeste,
+  activarTenant,
+  criarCanal,
+  criarTenant,
+  daquiAUmAno,
+  ligar,
+  poolDe,
+  telefoneDeEnsaio,
+} from "./apoio.ts";
 
 const MS_POR_DIA = 86_400_000;
 const D0 = new Date(Date.now() - 10 * MS_POR_DIA);
 const dia = (n: number) => new Date(D0.getTime() + n * MS_POR_DIA);
+
+/** Os telefones de ensaio: uma chave na forma do STO, e nenhum telefone (os ensaios do ciclo). */
+const TELEFONES_DE_ENSAIO: PortaDosTelefones = {
+  entregar: async ({ tenantId }) => ({ chave: `t/${tenantId}/dsar/2026/01/${randomUUID()}`, contactos: 0, telefones: 0 }),
+};
 
 let admin: pg.Client;
 let lote: pg.Client;
@@ -266,7 +285,7 @@ describe("o off-boarding contra a base", () => {
     for (const fase of ["pendentes", "exportacao", "revogacao", "purga", "certificado"]) {
       assert.equal(f[fase]?.estado, "cancelada", fase);
     }
-    await assert.rejects(verificarPendentes(lote, { tenantId: tenant, agora: dia(4) }), FaseForaDeOrdemError);
+    await assert.rejects(verificarPendentes(lote, { tenantId: tenant, agora: dia(4), telefones: TELEFONES_DE_ENSAIO }), FaseForaDeOrdemError);
     await assert.rejects(desligarCanal(lote, { tenantId: tenant, canal: meta.canal, agora: dia(4) }), FaseForaDeOrdemError);
     // Repetir o cancelamento não religa nada outra vez.
     assert.equal((await cancelarPedido(lote, { tenantId: tenant, canal: meta.canal, agora: dia(4) })).religados, 0);
@@ -285,13 +304,73 @@ describe("o off-boarding contra a base", () => {
     await assert.rejects(cancelarPedido(lote, { tenantId: outro.tenant, canal: meta.canal, agora: dia(7) }), PedidoError);
   });
 
-  it("os pendentes: sem encomendas, reservas nem reembolsos abertos, a fase conclui", async () => {
+  it("os pendentes: sem encomendas, reservas nem reembolsos abertos, a fase conclui com os telefones no STO", async () => {
     const { tenant } = await tenantAtivo("off-pendentes");
     await pedidoVerificado(tenant);
-    const r = await verificarPendentes(lote, { tenantId: tenant, agora: dia(1) });
-    assert.equal(r.concluida, true);
-    assert.deepEqual(r.pendentes, { encomendas: 0, disputas: 0, reservas: 0, reembolsos: 0 });
-    assert.equal((await fases(tenant)).pendentes?.estado, "concluida");
+    // KAM-233 (Q2 = B, Q2b = A): a porta real, como `kamba_identity`, com o STO em memória.
+    const chaves = new ChavesDeTeste("k233");
+    const identidade = await chaves.identidade();
+    const identidades = poolDe("identity", 1);
+    const sto = criarStorageFake();
+    try {
+      const id = await identidades.connect();
+      const telefone = telefoneDeEnsaio();
+      let contactId: string;
+      try {
+        await identidade.iniciarRotacao(id, "k233").catch(() => {});
+        ({ contactId } = await identidade.resolveContact(id, {
+          tenantId: tenant,
+          telefone,
+          guardarTelefone: { finalidade: "entrega", expiraAt: daquiAUmAno() },
+        }));
+      } finally {
+        id.release();
+      }
+      const porta = telefonesPeloCofre({
+        pool: identidades as unknown as PoolDaIdentidade,
+        identidade,
+        armazenamento: sto.storage,
+      });
+      const r = await verificarPendentes(lote, { tenantId: tenant, agora: dia(1), telefones: porta });
+      assert.equal(r.concluida, true);
+      assert.deepEqual(r.pendentes, { encomendas: 0, disputas: 0, reservas: 0, reembolsos: 0 });
+      const f = await fases(tenant);
+      assert.equal(f.pendentes?.estado, "concluida");
+      const guardado = f.pendentes?.resultado.telefones as { chave: string; contactos: number; telefones: number };
+      assert.equal(guardado.contactos, 1);
+      assert.equal(guardado.telefones, 1);
+      assert.ok(!JSON.stringify(f.pendentes?.resultado).includes(telefone), "o telefone nao fica na fase");
+      // O objecto: no tenant, na classe do pacote, a expirar com a purga, e os três campos.
+      assert.match(guardado.chave, new RegExp(`^t/${tenant}/dsar/`));
+      const [ref] = await sto.storage.list({ tenantId: tenant }, `t/${tenant}/dsar/`);
+      assert.equal(ref?.key, guardado.chave);
+      const info = await sto.storage.head({ tenantId: tenant }, ref!);
+      assert.equal(info.retainUntil.getTime(), f.purga?.prazo.getTime());
+      const partes: Uint8Array[] = [];
+      for await (const parte of await sto.storage.get({ tenantId: tenant }, ref!)) partes.push(parte);
+      const doc = JSON.parse(Buffer.concat(partes).toString("utf8")) as { linhas: Record<string, string>[] };
+      assert.deepEqual(doc.linhas, [{ contact_id: contactId, finalidade: "entrega", telefone: doc.linhas[0]?.telefone ?? "" }]);
+      assert.ok(doc.linhas[0]?.telefone.endsWith(telefone.slice(-9)), "o telefone decifrado");
+      // A auditoria: uma linha, como `kamba_identity`, do contacto, sem o telefone.
+      const auditoria = await admin.query(
+        "SELECT actor_type, actor_id, action, entity, entity_id, payload_hash FROM platform.audit_log WHERE tenant_id = $1",
+        [tenant],
+      );
+      assert.deepEqual(
+        auditoria.rows.map((l) => [l.actor_type, l.actor_id, l.action, l.entity, l.entity_id]),
+        [["system", "offboarding", "privacy.telefones_exportados", "contact", contactId]],
+      );
+      assert.ok(!JSON.stringify(auditoria.rows).includes(telefone.slice(-9)));
+    } finally {
+      await admin.query("ALTER TABLE platform.audit_log DISABLE TRIGGER audit_log_sem_update_nem_delete");
+      try {
+        await admin.query("DELETE FROM platform.audit_log WHERE tenant_id = $1", [tenant]);
+      } finally {
+        await admin.query("ALTER TABLE platform.audit_log ENABLE ALWAYS TRIGGER audit_log_sem_update_nem_delete");
+      }
+      await admin.query("DELETE FROM platform.audit_heads WHERE tenant_id = $1", [tenant]);
+      await identidades.end();
+    }
   });
 
   it("a revogação no D7: as portas da saga, os entitlements, os canais e um tenant.closed; um crash a meio retoma", async () => {
@@ -455,7 +534,7 @@ describe("o ciclo do processo de lote (KAM-210, critério 1)", () => {
       const metricas = new MetricasDoOffboarding();
       const ciclo = new CicloDoOffboarding({
         lote: pool as unknown as ConjuntoSql,
-        portas: { canal: meta.canal, revogacao: portas },
+        portas: { canal: meta.canal, revogacao: portas, telefones: TELEFONES_DE_ENSAIO },
         metricas,
         relogio: () => agora,
       });
@@ -523,7 +602,7 @@ describe("o ciclo do processo de lote (KAM-210, critério 1)", () => {
       };
       const r = await new CicloDoOffboarding({
         lote: pool as unknown as ConjuntoSql,
-        portas: { canal, revogacao: REVOGACAO_SEM_ADAPTADOR },
+        portas: { canal, revogacao: REVOGACAO_SEM_ADAPTADOR, telefones: TELEFONES_DE_ENSAIO },
         metricas,
         relogio: () => dia(3),
       }).correr();

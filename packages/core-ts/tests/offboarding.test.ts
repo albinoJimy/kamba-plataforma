@@ -195,11 +195,11 @@ describe("o pedido, o canal e a revogação sobre a base falsa", () => {
     const { verificarPendentes } = await import("../src/offboarding/index.ts");
     const bd = new BaseFalsa();
     bd.pendentes = { encomendas: 0, disputas: 0, reservas: 1, reembolsos: 0 };
-    assert.equal((await verificarPendentes(bd, { tenantId: T, agora: dia(1) })).concluida, false);
+    assert.equal((await verificarPendentes(bd, { tenantId: T, agora: dia(1), telefones: { entregar: async () => ({ chave: "k", contactos: 0, telefones: 0 }) } })).concluida, false);
     assert.equal(bd.fases.get("pendentes")?.estado, "em_curso");
     assert.equal(bd.fases.get("pendentes")?.resultado.reservas, 1);
     bd.pendentes = { encomendas: 0, disputas: 2, reservas: 0, reembolsos: 0 };
-    assert.equal((await verificarPendentes(bd, { tenantId: T, agora: dia(2) })).concluida, true);
+    assert.equal((await verificarPendentes(bd, { tenantId: T, agora: dia(2), telefones: { entregar: async () => ({ chave: "k", contactos: 0, telefones: 0 }) } })).concluida, true);
     assert.equal(bd.fases.get("pendentes")?.resultado.disputa, true);
   });
 

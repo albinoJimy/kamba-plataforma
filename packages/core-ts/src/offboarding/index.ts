@@ -10,3 +10,4 @@ export * from "./ciclo.ts";
 export * from "./metricas.ts";
 export * from "./meta.ts";
 export * from "./litellm.ts";
+export * from "./telefones.ts";

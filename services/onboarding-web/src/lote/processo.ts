@@ -159,12 +159,23 @@ import {
   INTERVALO_DO_OFFBOARDING_POR_OMISSAO_MS,
   MetricasDoOffboarding,
   REVOGACAO_SEM_ADAPTADOR,
+  TELEFONES_SEM_ADAPTADOR,
+  telefonesPeloCofre,
   tokenDoWabaPeloCofre,
+  type PoolDaIdentidade,
+  type PortaDosTelefones,
   type CofreDoToken,
   type PortasDoCiclo,
   type ResultadoDoCicloDoOffboarding,
 } from "@kamba/core-ts/offboarding";
 import { ArquivoDoChatwoot, arquivarContaDoTenant } from "@kamba/core-ts/hnd";
+import { EnvKeyProvider, Identidade } from "@kamba/core-ts/identity";
+import {
+  criarStorageS3,
+  lerConfig as lerConfigDoStorage,
+  type CofreLeitor,
+  type StorageProvider,
+} from "@kamba/core-ts/storage";
 import { GraphHttp, versaoDaGraph } from "@kamba/core-ts/onboarding";
 import { ANFITRIAO_DA_GRAPH } from "@kamba/core-ts/outbound";
 import { EnvSecretProvider } from "@kamba/core-ts/secrets";
@@ -371,6 +382,8 @@ export function portasDoOffboarding(o: {
   readonly cofre?: CofreDoToken;
   /** O `fetch` da Graph. Porta para os ensaios. */
   readonly buscar?: typeof fetch;
+  /** Os telefones para a exportação (KAM-233). Sem ela, o fecho dos `pendentes` pára. */
+  readonly telefones?: PortaDosTelefones;
 }): PortasDoCiclo {
   const graph: Pick<GraphHttp, "subscrever" | "anularSubscricao"> = new GraphHttp({
     base: ANFITRIAO_DA_GRAPH,
@@ -387,6 +400,7 @@ export function portasDoOffboarding(o: {
     new ChaveDoLlmPeloProxy({ base: baseDoLlm, chaveMestra: await cofre.get("litellm_master_key"), ...buscar });
   return {
     canal: new CanalDaMetaPelaGraph(graph, tokenDoWabaPeloCofre({ bd: o.lote, cofre })),
+    telefones: o.telefones ?? TELEFONES_SEM_ADAPTADOR,
     revogacao: {
       ...REVOGACAO_SEM_ADAPTADOR,
       chaveDeLlm:
@@ -414,6 +428,49 @@ export function portasDoOffboarding(o: {
             },
     },
   };
+}
+
+/** A cadeia de ligação do `kamba_identity`, para os telefones da exportação (KAM-233). */
+export const VARIAVEL_DA_IDENTIDADE_DO_LOTE = "KAMBA_LOTE_IDENTITY_DB_URL";
+
+/**
+ * Os telefones para a exportação do off-boarding (KAM-233; decisões do fundador
+ * de 2026-11-21, Q2 = B, e de 2026-11-22, Q2b = A): o cofre de contactos como
+ * `kamba_identity`, com a `kek_contact_dek` e **só** o `lerEndpoints` (o
+ * arranque confere só a KEK, como o COM do KAM-206), e o STO do tenant com o
+ * par de credenciais e o destino ADR-008 do ambiente — os mesmos do
+ * `offboarding-dados`, que lê o objecto.
+ *
+ * **O papel confere-se antes**: uma `KAMBA_LOTE_IDENTITY_DB_URL` com outro papel
+ * decifrava sob uma RLS que não é a do cofre. Uma falha aqui **não** derruba o
+ * processo de lote — a casca regista-a e monta os telefones sem adaptador, e o
+ * fecho dos `pendentes` pára nele, com alerta.
+ */
+export async function telefonesDoLote(o: {
+  readonly identidades: PoolDaIdentidade & { query<T>(sql: string): Promise<{ readonly rows: readonly T[] }> };
+  readonly ambiente: "dev" | "staging" | "prod";
+  readonly env: Ambiente;
+  /** O cofre. Por omissão, o do ambiente do processo (ADR-L002). */
+  readonly cofre?: CofreLeitor;
+  /** Portas para os ensaios. */
+  readonly identidade?: Pick<Identidade, "lerEndpoints">;
+  readonly armazenamento?: StorageProvider;
+}): Promise<PortaDosTelefones> {
+  const papel = await o.identidades.query<{ papel: string }>("SELECT current_user::text AS papel");
+  if (papel.rows[0]?.papel !== "kamba_identity") {
+    throw new PapelErradoError(VARIAVEL_DA_IDENTIDADE_DO_LOTE, "kamba_identity");
+  }
+  const env = o.env as NodeJS.ProcessEnv;
+  const identidade =
+    o.identidade ??
+    (await Identidade.arrancar({ chaves: new EnvKeyProvider({ ambiente: o.ambiente, env }), env, soLeEndpoints: true }));
+  const armazenamento =
+    o.armazenamento ??
+    criarStorageS3({
+      config: lerConfigDoStorage({ ambiente: o.ambiente, env }),
+      secrets: o.cofre ?? new EnvSecretProvider({ ambiente: o.ambiente, env }),
+    });
+  return telefonesPeloCofre({ pool: o.identidades, identidade, armazenamento });
 }
 
 /** Uma ligação que não é do papel que a variável promete. */
@@ -778,7 +835,11 @@ export function montarProcesso(o: OpcoesDoProcesso): ProcessoDeLote {
   const metricasDoOffboarding = o.metricasDoOffboarding ?? new MetricasDoOffboarding();
   const cicloDoOffboarding = new CicloDoOffboarding({
     lote: o.lote,
-    portas: o.portasDoOffboarding ?? { canal: CANAL_SEM_ADAPTADOR, revogacao: REVOGACAO_SEM_ADAPTADOR },
+    portas: o.portasDoOffboarding ?? {
+      canal: CANAL_SEM_ADAPTADOR,
+      revogacao: REVOGACAO_SEM_ADAPTADOR,
+      telefones: TELEFONES_SEM_ADAPTADOR,
+    },
     metricas: metricasDoOffboarding,
     ...(o.relogio === undefined ? {} : { relogio: o.relogio }),
   });

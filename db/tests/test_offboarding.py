@@ -136,11 +136,27 @@ class ComOffboarding(ComBase):
             resultado = {"origem": "titular", "confirmacoes": ["otp", "email"],
                          "d0": d0.isoformat(), "aviso": True} if fase == "verificacao" else {}
             estado = "concluida" if fase == "verificacao" else estados.get(fase, "pendente")
+            if fase == "pendentes" and estado == "concluida":
+                # KAM-233: o fecho dos `pendentes` deixa os telefones no STO, e a chave aqui.
+                resultado = {"telefones": self.telefones_no_sto(tenant, d0)}
             self.cur.execute(
                 "INSERT INTO platform.offboarding_run (tenant_id, fase, estado, prazo_at, resultado) "
                 "VALUES (%s, %s, %s, %s, %s::jsonb)",
                 (tenant, fase, estado, d0 + timedelta(days=DIAS[fase]), json.dumps(resultado)),
             )
+
+    def telefones_no_sto(self, tenant: str, d0: datetime) -> dict:
+        """O objecto que o processo de lote grava (KAM-233), com um telefone ficticio do tenant."""
+        from kamba_core.storage.chave import nova_chave
+        from kamba_core.storage.port import Ctx, ObjectMeta
+
+        ctx = Ctx(tenant)
+        chave = nova_chave(ctx, "dsar", d0)
+        corpo = {"coleccao": "telefones", "tenant_id": tenant,
+                 "linhas": [{"contact_id": tenant, "finalidade": "entrega", "telefone": f"+244999{tenant[:6]}"}]}
+        self.armazenamento.put(ctx, chave, json.dumps(corpo).encode("utf-8"),
+                               ObjectMeta("application/json", "dsar", d0 + timedelta(days=30)))
+        return {"chave": chave, "contactos": 1, "telefones": 1}
 
     def ate_a_purga(self, tenant: str) -> None:
         self.pedido(tenant, pendentes="concluida", canal="concluida",
@@ -353,6 +369,31 @@ class TestEsquema(ComOffboarding):
             with self.subTest(tabela=tabela):
                 self.cur.execute("SELECT has_table_privilege('kamba_batch', %s, 'DELETE')", (tabela,))
                 self.assertFalse(self.cur.fetchone()[0])
+
+    def test_o_delete_do_caso_e_recusado_pelas_tres_fk_sem_cascata(self) -> None:
+        """KAM-233 (Q3b = A): mesmo com o privilegio, um caso com prova nao se apaga.
+
+        Duas medicoes: o catalogo (as tres FK que apontam ao `onboarding_case`,
+        todas sem cascata, `confdeltype = 'a'`, NO ACTION), e o `DELETE` de um
+        caso com `kyc_check`, como o dono da base, que falha com 23503.
+        """
+        self.cur.execute(
+            "SELECT conrelid::regclass::text, confdeltype FROM pg_constraint "
+            "WHERE contype = 'f' AND confrelid = 'platform.onboarding_case'::regclass")
+        fks = dict(self.cur.fetchall())
+        for prova in ("platform.kyc_check", "platform.screening_decision", "platform.review_case"):
+            with self.subTest(prova=prova):
+                self.assertEqual(fks.get(prova), "a", f"{prova} deixou de apontar ao caso sem cascata")
+        # E o DELETE de verdade, como o dono da base (que tem o privilegio): a FK recusa.
+        tenant = factories.tenant(self.cur)
+        factories.confianca(self.cur, tenant)
+        self.cur.execute("SELECT count(*) FROM platform.kyc_check WHERE tenant_id = %s", (tenant,))
+        self.assertGreater(self.cur.fetchone()[0], 0)
+        self.cur.execute("SAVEPOINT caso")
+        with self.assertRaises(Exception) as recusa:
+            self.cur.execute("DELETE FROM platform.onboarding_case WHERE tenant_id = %s", (tenant,))
+        self.assertEqual(sqlstate(recusa.exception), "23503")
+        self.cur.execute("ROLLBACK TO SAVEPOINT caso")
 
 
 # ---------------------------------------------------------------- exportacao
@@ -714,6 +755,14 @@ class TestCertificado(ComOffboarding):
         self.assertTrue({"fiscal_pagamentos", "fiscal_encomendas", "platform.contacts"} <= retidas)
         for x in cert["retidas"]:
             self.assertTrue(x["fundamento"])
+        # KAM-233 (Q3b = A): o caso de onboarding fica, e o certificado nomeia as tres FK.
+        caso = next(x for x in cert["retidas"] if x.get("tabela") == "platform.onboarding_case")
+        for fk in ("kyc_check", "screening_decision", "review_case"):
+            self.assertIn(fk, caso["fundamento"])
+        # E o KYC e a fraude, retidos por parecer.
+        for tabela in RETIDAS_POR_PARECER:
+            fundamento = next(x["fundamento"] for x in cert["retidas"] if x.get("tabela") == tabela)
+            self.assertIn("branqueamento", fundamento)
         self.assertFalse(cert["copias_de_seguranca"]["apagamento_afirmado"])
         self.assertEqual(
             datetime.fromisoformat(cert["copias_de_seguranca"]["podem_conter_dados_ate"]) - D31,

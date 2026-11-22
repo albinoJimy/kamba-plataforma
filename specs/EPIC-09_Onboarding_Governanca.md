@@ -4168,6 +4168,60 @@ automática de cada recurso, a exportação e a purga completas, a entrega do ce
 - **Acção externa:** o pedido de eliminação aos fornecedores de LLM e STT é contactar subprocessadores, e não se faz por código sem o fundador; o simulacro pede o ambiente de *staging*.
 - **Fora deste ticket:** o prazo fiscal do CGT (NÃO VERIFICADO); a assinatura assimétrica do certificado e a aresta `restrito → encerrado`, que são decisões do fundador.
 
+### Decisões do fundador
+
+**1. A revogação automática do LiteLLM e do Chatwoot (Q1).**
+
+| Campo | Valor |
+|---|---|
+| Decisão | **Opção A — o processo de lote revoga sozinho.** O `onboarding-lote` passa a consumidor da `litellm_master_key` e do `chatwoot_platform_token`, com a rede até ao `litellm` e ao `chatwoot`. Usa só o `/key/delete` pelo alias `tenant-<uuid>` e o fecho da conta da `handoff_accounts`. A adenda do executor cabe nela: o adaptador lê o 404 como «já revogada» e confirma-o pela listagem, e **enquanto o LiteLLM de `prod` não tiver base, falha alto** — a fase fica parada, com alerta. O credor «LiteLLM com base, ou chaves sem base» abre-se neste PR, com a evidência medida com a base descartável e o achado do docstring do `chaves.py`, que dizia «medido: 200» sem evidência |
+| Autor | O fundador |
+| Data | 2026-11-21 |
+| Via | No chat com a coordenação do lote 18, que a transmitiu a este ramo |
+| Recusada | B — o passo manual (o `chaves.py revogar` à mão no D7, e o Chatwoot sem caminho) |
+
+**2. Os telefones na exportação (Q2).**
+
+| Campo | Valor |
+|---|---|
+| Decisão | **Opção B — um passo TypeScript no `onboarding-lote`** decifra pelo `lerEndpoints` com o `antes`, como o KAM-206 (a linha de auditoria na transacção da decifra), e entrega os telefones à exportação |
+| Autor | O fundador |
+| Data | 2026-11-21 |
+| Via | A mesma |
+| Recusadas | A — a decifra em Python, com o `offboarding-dados` a consumir a `kek_contact_dek` (uma porta de cifra numa segunda língua); C — um credor |
+
+**2b. Por onde os telefones chegam à exportação (Q2b).**
+
+| Campo | Valor |
+|---|---|
+| Decisão | **Opção A — pelo STO do tenant.** No fecho da fase `pendentes`, o `onboarding-lote` decifra pelo `lerEndpoints` com o `antes`, auditado na mesma transacção, e grava um objecto JSON com os campos exportáveis (`contact_id`, `finalidade` e `telefone`) em `t/<tenant>/dsar/…`, com a mesma classe e o mesmo destino ADR-008 do pacote, a expirar no prazo da purga. A exportação Python lê-o para uma colecção `telefones` e exige-o. O lote passa a consumidor da `storage_*`, da `db_identity_password` e da `kek_contact_dek`, cada linha do inventário com a nota de quem lê e porquê |
+| Custo aceite | Uma **segunda cópia em claro** dos telefones no STO, até à purga, igual à que o ZIP já leva |
+| Autor | O fundador |
+| Data | 2026-11-22 |
+| Via | No chat com a coordenação do lote 18, que a transmitiu a este ramo |
+| Recusadas | B — uma rota interna no `onboarding-lote` com segredo partilhado (uma rota que devolve os telefones decifrados de um tenant inteiro); C — um segundo anexo com ligação própria (duas ligações ao titular) |
+
+**3. O `DELETE` do `kamba_batch` nas tabelas `sem_caminho` (Q3).**
+
+| Campo | Valor |
+|---|---|
+| Decisão | **Opção B — só nas operacionais**: o `onboarding_case`, os gates, o teste, a lista de espera, as ingestões do catálogo, os trabalhos de foto, as acções e as mudanças de telefone do dono, os pedidos de orçamento, a marca e o conteúdo. O `kyc_check` e o `fraud_signals` ficam `retida` no `purge_log` e no certificado, com o fundamento: **a lei de prevenção do branqueamento pode pedir a retenção, e falta o parecer** |
+| Autor | O fundador |
+| Data | 2026-11-21 |
+| Via | A mesma |
+| Recusadas | A — todas, à letra do critério; C — nenhuma |
+| Vaga de migração | **`0086`**, com `down_revision = "0085"`, dada pela coordenação do lote 18: a fila é `0084` (KAM-236), `0085` (KAM-122) e `0086` (este) |
+
+**3b. O caso de onboarding, que a FK não deixa apagar (Q3b).**
+
+| Campo | Valor |
+|---|---|
+| Decisão | **Opção A — fica como hoje.** O `onboarding_case` continua `recusada`/`sem_caminho` no `purge_log` e no certificado, e o fundamento passa a nomear as três FK sem cascata que lhe apontam: o `kyc_check`, o `screening_decision` e o `review_case`. **Não há retenção nova:** o caso fica pelo prazo das provas que lhe apontam. Os outros dez da lista da Q3 apagam-se, como se mediu |
+| Autor | O fundador |
+| Data | 2026-11-22 |
+| Via | A mesma |
+| Recusadas | B — `retida` com o motivo do branqueamento; C — minimizar as colunas pessoais do caso (pedia o parecer para saber quais) |
+
 ### Testes Requeridos
 
 - Contrato: cada adaptador contra o seu duplo, que lê o texto do pedido.

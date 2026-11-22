@@ -69,6 +69,13 @@ FUNDAMENTO_SEM_CAMINHO: Final = (
 FUNDAMENTO_REFERENCIADA: Final = (
     "referenciada pelos registos fiscais, que ficam; sai com eles"
 )
+#: KAM-233 (decisao do fundador de 2026-11-22, Q3b = A): o caso fica pelo prazo
+#: das provas que lhe apontam. Nao e retencao nova: e a FK que a purga nao fura.
+FUNDAMENTO_CASO_DE_ONBOARDING: Final = (
+    "o caso de onboarding: o kyc_check, o screening_decision e o review_case apontam-lhe "
+    "sem cascata, e ficam; o caso sai com eles, pelo prazo das provas"
+)
+CASO_DE_ONBOARDING: Final = "platform.onboarding_case"
 FUNDAMENTO_BRANQUEAMENTO: Final = (
     "identificacao e prevencao de fraude: a lei de prevencao do branqueamento de capitais "
     "pode exigir que se guardem durante anos; ficam ate um parecer juridico dizer o prazo"
@@ -148,6 +155,8 @@ def montar(
             continue
         if motivo == purge_log.MOTIVO_BRANQUEAMENTO_SEM_PARECER:
             retidas[tabela] = FUNDAMENTO_BRANQUEAMENTO
+        elif tabela == CASO_DE_ONBOARDING:
+            retidas[tabela] = FUNDAMENTO_CASO_DE_ONBOARDING
         elif tabela == "platform.owner_contacts":
             retidas[tabela] = FUNDAMENTO_CANAL_DO_TITULAR
         elif tabela in REFERENCIADAS_PELO_FISCAL:

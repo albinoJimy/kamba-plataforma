@@ -36,6 +36,7 @@
 import { executarNoCanalDoCliente, accoesDoCanalDoCliente, verificar } from "../provisioning/compensacao.ts";
 import type { AccaoDeCompensacao, Passo } from "../provisioning/contrato.ts";
 import { SQL_DEFINIR_CONTEXTO } from "../tenant_guard/index.ts";
+import type { PortaDosTelefones } from "./telefones.ts";
 import {
   ACTOR_DO_ENCERRAMENTO,
   AVISO_DA_APP_BUSINESS,
@@ -472,12 +473,10 @@ export type Pendentes = {
  */
 export async function verificarPendentes(
   bd: ClienteSql,
-  opcoes: { readonly tenantId: string; readonly agora: Date },
+  opcoes: { readonly tenantId: string; readonly agora: Date; readonly telefones: PortaDosTelefones },
 ): Promise<{ readonly concluida: boolean; readonly pendentes: Pendentes }> {
   const { tenantId } = opcoes;
-  return emTransaccao(bd, tenantId, async () => {
-    const linhas = await fases(bd, tenantId);
-    exigirPedidoVivo(linhas, "pendentes");
+  const ler = async () => {
     const r = (await bd.query(SQL_PENDENTES, [tenantId])).rows[0] ?? {};
     const pendentes: Pendentes = {
       encomendas: Number(r.encomendas ?? 0),
@@ -485,15 +484,54 @@ export async function verificarPendentes(
       reservas: Number(r.reservas ?? 0),
       reembolsos: Number(r.reembolsos ?? 0),
     };
-    const concluida = pendentes.encomendas + pendentes.reservas + pendentes.reembolsos === 0;
-    const anterior = linhas.get("pendentes");
-    if (anterior?.estado === "concluida") return { concluida: true, pendentes };
-    await marcar(bd, tenantId, "pendentes", concluida ? "concluida" : "em_curso", {
-      ...pendentes,
-      disputa: pendentes.disputas > 0,
-      verificado_at: opcoes.agora.toISOString(),
+    return { pendentes, concluida: pendentes.encomendas + pendentes.reservas + pendentes.reembolsos === 0 };
+  };
+  const resultado = (pendentes: Pendentes) => ({
+    ...pendentes,
+    disputa: pendentes.disputas > 0,
+    verificado_at: opcoes.agora.toISOString(),
+  });
+  const primeira = await emTransaccao(bd, tenantId, async () => {
+    const linhas = await fases(bd, tenantId);
+    exigirPedidoVivo(linhas, "pendentes");
+    const lido = await ler();
+    if (linhas.get("pendentes")?.estado === "concluida") return { ...lido, concluida: true, feita: true, expira: null };
+    if (!lido.concluida) {
+      await marcar(bd, tenantId, "pendentes", "em_curso", resultado(lido.pendentes));
+      return { ...lido, feita: true, expira: null };
+    }
+    const purga = linhas.get("purga");
+    if (purga === undefined) throw new FaseForaDeOrdemError("pendentes", "o pedido nao tem a fase purga");
+    return { ...lido, feita: false, expira: purga.prazoAt };
+  });
+  if (primeira.feita || primeira.expira === null) {
+    return { concluida: primeira.concluida, pendentes: primeira.pendentes };
+  }
+
+  // **Os telefones dos clientes, antes de fechar** (KAM-233; decisões do
+  // fundador de 2026-11-21, Q2 = B, e de 2026-11-22, Q2b = A). A decifra e o
+  // STO correm fora desta base, e por isso fora da transacção: um *crash* entre
+  // os dois deixa um objecto órfão sob o tenant, que a purga apaga, e a volta
+  // seguinte grava outro. A exportação exige a chave que fica no resultado, e
+  // só corre com os `pendentes` concluídos — a ordem é por construção.
+  const entrega = await opcoes.telefones.entregar({ tenantId, expiraAt: primeira.expira, agora: opcoes.agora });
+
+  return emTransaccao(bd, tenantId, async () => {
+    const linhas = await fases(bd, tenantId);
+    // Um cancelamento que ganhou a corrida entretanto ganha; o objecto expira
+    // no prazo da purga e sai com o STO do tenant.
+    exigirPedidoVivo(linhas, "pendentes");
+    const lido = await ler();
+    if (linhas.get("pendentes")?.estado === "concluida") return { concluida: true, pendentes: lido.pendentes };
+    if (!lido.concluida) {
+      await marcar(bd, tenantId, "pendentes", "em_curso", resultado(lido.pendentes));
+      return { concluida: false, pendentes: lido.pendentes };
+    }
+    await marcar(bd, tenantId, "pendentes", "concluida", {
+      ...resultado(lido.pendentes),
+      telefones: { chave: entrega.chave, contactos: entrega.contactos, telefones: entrega.telefones },
     });
-    return { concluida, pendentes };
+    return { concluida: true, pendentes: lido.pendentes };
   });
 }
 
