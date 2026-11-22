@@ -211,7 +211,7 @@ class TestALigacao(unittest.TestCase):
                         import os
 
                         os.environ.pop(principal.VARIAVEL_DO_COM, None)
-                    principal._executores_do_catalogo(mock.Mock())
+                    principal._executores_do_catalogo(mock.Mock(), mock.Mock(), "dev")
                 self.assertEqual(len(vistas), 1)
                 self.assertIsInstance(vistas[0].descodificador, modulo.DescodificadorPillow)  # type: ignore[attr-defined]
 

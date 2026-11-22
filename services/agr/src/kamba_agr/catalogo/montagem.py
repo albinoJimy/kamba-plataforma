@@ -116,6 +116,30 @@ class EnhanceNulo:
         return False
 
 
+#: O modulo que abre a oferta de «melhorar foto» (`kamba_core.modulos.uso`).
+MODULO_DA_FOTO: Final = "foto"
+
+
+@dataclass(frozen=True)
+class EnhancePorEntitlement:
+    """A oferta de «melhorar foto» com o entitlement `foto` activo (KAM-231, criterio 4).
+
+    `ler` e o `LeitorDeEntitlements.ler` do processo: `(tenant, modulo) ->
+    Entitlement`, sob o `app.tenant_id` do tenant. **Falha fechada e calada**:
+    uma leitura que levante e «sem oferta», e o resumo segue sem erro — a oferta
+    e um extra, e nao vale um turno falhado. O trabalho de melhorar e o
+    `enhance_image` do KAM-120, pedido pelo dono depois da oferta.
+    """
+
+    ler: Callable[[str, str], Any]
+
+    def disponivel(self, tenant_id: str) -> bool:
+        try:
+            return bool(self.ler(tenant_id, MODULO_DA_FOTO).ativo)
+        except Exception:  # noqa: BLE001 — na duvida, sem oferta
+            return False
+
+
 class _NaoFecha:
     """A ligacao da ToolLayer emprestada ao `RepositorioDbapi`, que fecha a sua.
 
@@ -196,6 +220,8 @@ __all__ = [
     "DescodificadorPorLigar",
     "DestinosPorLigar",
     "EnhanceNulo",
+    "EnhancePorEntitlement",
+    "MODULO_DA_FOTO",
     "FontePorLigar",
     "FotoPorLigarError",
     "ImageEnhancePort",

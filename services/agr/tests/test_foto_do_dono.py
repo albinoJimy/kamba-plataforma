@@ -268,6 +268,27 @@ class TestAFotoPeloGrafo(unittest.TestCase):
         self.assertNotIn(conversa.MSG_FOTO_POR_LIGAR, texto)
         self.assertIn("PRD-", texto)
 
+    def test_o_aviso_sai_antes_do_resumo_com_chave_propria(self) -> None:
+        """P3 (opcao A): «estou a preparar» antes da tool de 25 s, e o resumo depois."""
+        antes = len(self.m.saida.enviadas)
+        self.m.foto(ASSET)
+        enviadas = self.m.saida.enviadas[antes:]
+        self.assertEqual(len(enviadas), 2)
+        (aviso, chave_do_aviso, _), (resumo, chave_do_resumo, _) = enviadas
+        self.assertEqual(aviso, conversa.MSG_A_PREPARAR)
+        self.assertTrue(chave_do_aviso.endswith(f":{conversa.SEQ_DO_AVISO}"))
+        self.assertTrue(chave_do_resumo.endswith(":0"))
+        self.assertEqual(chave_do_aviso.rsplit(":", 1)[0], chave_do_resumo.rsplit(":", 1)[0])
+        self.assertIn("PRD-", resumo)
+
+    def test_sem_foto_armazenada_nao_ha_aviso(self) -> None:
+        antes = len(self.m.saida.enviadas)
+        self.m.foto(None)
+        enviadas = self.m.saida.enviadas[antes:]
+        self.assertEqual(len(enviadas), 1)
+        self.assertIn(conversa.MSG_FOTO_POR_LIGAR, enviadas[0][0])
+        self.assertNotIn(conversa.MSG_A_PREPARAR, enviadas[0][0])
+
     def test_a_mesma_foto_duas_vezes_e_um_rascunho(self) -> None:
         self.m.foto(ASSET)
         self.m.foto(ASSET)
