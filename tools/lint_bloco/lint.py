@@ -473,7 +473,7 @@ REGRAS_OBRIGATORIAS = ("estado_contra_caixa",)
 #:
 #: **O 176.o e o do KAM-231**, medido na arvore integrada com a `publico/main`
 #: em `95826f19` (o #249 do KAM-236 ja fundido, com **175 medidos** na `main`):
-#: o bloco do KAM-231 ganha a verificacao, e o do KAM-243 nasce sem ela.
+#: o bloco do KAM-231 ganha a verificacao, e o do KAM-241 nasce sem ela.
 #: **176 medidos**, e `176 // 2` sao 88. Sobe para 88, que serve ate aos 177.
 MINIMO_DE_BLOCOS_MEDIDOS = 88
 
