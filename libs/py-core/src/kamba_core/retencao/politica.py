@@ -332,6 +332,18 @@ POLITICA: Final[tuple[Classe, ...]] = (
         fonte="docs/tecnica/06 §7.4",
     ),
     Classe(
+        "contadores_do_registo",
+        APAGAR,
+        "onboarding_contador.actualizado_at",
+        # KAM-236 (revisao da inscricao na base). As janelas do anti-abuso e do
+        # OTP do registo, por chave HMAC ou opaca, sem tenant. A maior janela
+        # perguntada e de 24 h. Apaga-as o executor, como lote, pela forma da
+        # quarentena da entrada: o `kamba_app` nao apaga linhas (dicionario §2).
+        (_t("platform.onboarding_contador", ligada=True),),
+        prazo=Prazo(horas=25),
+        fonte="packages/core-ts/src/inscricao/sql.ts (PARADA_MS)",
+    ),
+    Classe(
         "lg_checkpoints",
         DELEGADO,
         "ultima escrita da thread",
@@ -502,6 +514,10 @@ POLITICA: Final[tuple[Classe, ...]] = (
             _t("platform.onboarding_case", pendencia=_RELACAO),
             # KAM-092. Os gates de activacao vivem com o caso, e saem com ele.
             _t("platform.onboarding_gate", pendencia=_RELACAO),
+            # KAM-236 (revisao da inscricao na base). O desafio do OTP de um
+            # caso: so o HMAC do codigo, um por caso, marcado usado no acerto e
+            # no esgotamento (nunca apagado pela aplicacao); sai com o caso.
+            _t("platform.onboarding_otp", pendencia=_RELACAO + "; sai com o caso de onboarding"),
             # KAM-094 (revisao do catalogo minimo). As tentativas do teste
             # ponta a ponta vivem com o caso, que as aponta por FK composta, e
             # saem com ele. Nenhuma coluna de pessoa: o telefone de onde o dono
@@ -573,6 +589,9 @@ SEM_DADOS_PESSOAIS: Final[Mapping[str, str]] = {
     "platform.module_test_prices": "precos de teste dos modulos, iguais para todos",
     # KAM-095: o limite de clientes novos por 7 dias, uma linha da plataforma.
     "platform.onboarding_capacity": "limite de onboarding da plataforma, sem tenant",
+    # KAM-236: as sessoes do painel revogadas. Um identificador aleatorio da
+    # sessao ou um instante de corte, o tenant e o fim do tecto da sessao.
+    "platform.painel_revogacao": "sessoes revogadas do painel: identificador aleatorio e instantes",
     # KAM-096: o nivel de confianca e o tecto por pedido, uma linha por tenant.
     # O historico das alteracoes vive no `audit_log` (`trust.tecto`).
     "platform.trust_level": "nivel e tecto por pedido do tenant: um limite, sem pessoa",

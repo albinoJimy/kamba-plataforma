@@ -2394,6 +2394,42 @@ INVENTARIO["onboarding_case"] = {
     ),
     "criado_at": ("timestamp with time zone", NAO, "now()", "nao"),
     "activo_at": ("timestamp with time zone", SIM, None, "nao"),
+    # KAM-236 (revisao da inscricao na base): a chave de idempotencia do
+    # registo, que o cliente escolhe dentro da forma do `CHAVE` do SMS.
+    "chave_idem": ("text", SIM, None, "nao — identificador escolhido pelo cliente, sem pessoa"),
+}
+
+#: O desafio do OTP do registo (KAM-236, revisao da inscricao na base): um por
+#: caso, **so o HMAC do codigo**, preso ao caso. Marca-se usado (`usado_at`) no
+#: acerto e no esgotamento; nao se apaga.
+INVENTARIO["onboarding_otp"] = {
+    "onboarding_id": ("uuid", NAO, None, "nao"),
+    "tenant_id": ("uuid", NAO, None, "nao"),
+    "codigo_hmac": ("text", NAO, None, "HMAC do codigo do OTP, preso ao caso; nunca o codigo"),
+    "expira_at": ("timestamp with time zone", NAO, None, "nao"),
+    "tentativas": ("integer", NAO, "0", "nao"),
+    "usado_at": ("timestamp with time zone", SIM, None, "nao"),
+    "criado_at": ("timestamp with time zone", NAO, "now()", "nao"),
+}
+
+#: Os contadores do registo (KAM-236): as janelas deslizantes do anti-abuso e do
+#: OTP. **Sem `tenant_id`**. A chave e um HMAC (rede, dispositivo, telefone) ou
+#: um identificador opaco (o caso, o orcamento), nunca o valor de origem.
+INVENTARIO["onboarding_contador"] = {
+    "chave": ("text", NAO, None, "HMAC ou identificador opaco; nunca o telefone, o IP ou o NIF"),
+    "instantes": ("ARRAY", NAO, None, "nao"),
+    "actualizado_at": ("timestamp with time zone", NAO, None, "nao"),
+}
+
+#: As sessoes do painel revogadas (KAM-236). O `sid` e aleatorio e o `ate` um
+#: instante: nenhum identifica uma pessoa.
+INVENTARIO["painel_revogacao"] = {
+    "revogacao_id": ("uuid", NAO, "gen_random_uuid()", "nao"),
+    "tenant_id": ("uuid", NAO, None, "nao"),
+    "sid": ("uuid", SIM, None, "nao — identificador aleatorio da sessao"),
+    "ate": ("bigint", SIM, None, "nao"),
+    "expira_at": ("timestamp with time zone", NAO, None, "nao"),
+    "criado_at": ("timestamp with time zone", NAO, "now()", "nao"),
 }
 
 #: A verificacao K1 de um documento (KAM-087, revisao `0043`). **O documento
@@ -3884,6 +3920,9 @@ class TestInventario(ComBase):
                         # KAM-094 (revisao do catalogo minimo): a tentativa do
                         # teste aponta o caso pelo par, sem cascata.
                         "onboarding_smoke_caso_fk",
+                        # KAM-236 (revisao da inscricao na base): o desafio do
+                        # OTP aponta o caso pelo par, sem cascata.
+                        "onboarding_otp_caso_fk",
                         # KAM-096 (revisao da confianca gradual): o nivel aponta
                         # o tenant, sem cascata. Um tenant com nivel nao se apaga
                         # por arrasto.
@@ -4254,6 +4293,11 @@ class TestInventario(ComBase):
             # Perde-lo deixava duas replicas abrirem duas trocas, e a segunda
             # conclusao movia o papel outra vez.
             "owner_phone_changes_viva_uq": True,
+            # KAM-236: **uma** revogacao por sessao e **um** corte por tenant,
+            # que so sobe. Perder o `UNIQUE` do corte deixava duas linhas de
+            # corte, e o `ON CONFLICT` do `revogarDoTenant` sem arbitro.
+            "painel_revogacao_sid_uq": True,
+            "painel_revogacao_corte_uq": True,
             # KAM-121: **um calendario `activo` por (tenant_id, semana_iso)**.
             # Perde-lo deixava dois «NOVA» concorrentes abrirem duas geracoes
             # activas da mesma semana.
@@ -4516,6 +4560,23 @@ class TestInventario(ComBase):
                     "onboarding_case_pkey",
                     "onboarding_case_preflight_ck",
                     "onboarding_case_tenant_uq",
+                    # --------------------------------------- KAM-236 (0084)
+                    #
+                    # **Dez.** A forma da chave de idempotencia do caso; o
+                    # desafio do OTP (o HMAC, as tentativas e a chave); os
+                    # contadores (a chave, o tecto de instantes e a chave
+                    # primaria); e as revogacoes (o `ate` nao negativo, uma
+                    # sessao **ou** um corte, e a chave primaria).
+                    "onboarding_case_chave_idem_ck",
+                    "onboarding_otp_codigo_hmac_ck",
+                    "onboarding_otp_pkey",
+                    "onboarding_otp_tentativas_ck",
+                    "onboarding_contador_chave_ck",
+                    "onboarding_contador_instantes_ck",
+                    "onboarding_contador_pkey",
+                    "painel_revogacao_alvo_ck",
+                    "painel_revogacao_ate_ck",
+                    "painel_revogacao_pkey",
                     # A verificacao: os tres dominios, as formas, o
                     # prefixo do STO e a idempotencia por `sha256`.
                     "kyc_check_custo_micro_usd_ck",
