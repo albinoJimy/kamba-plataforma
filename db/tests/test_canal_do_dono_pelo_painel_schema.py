@@ -37,6 +37,13 @@ def _anterior() -> str:
     return achado.group(1)
 
 
+def _propria() -> str:
+    """O `revision` da revisao, lido dela, pela mesma razao."""
+    achado = re.search(r'^revision = "(\d{4})"$', REVISAO.read_text(encoding="utf-8"), re.M)
+    assert achado is not None
+    return achado.group(1)
+
+
 class TestDowngradeDoCanalDoDonoPeloPainel(unittest.TestCase):
     """Desce pelo numero da revisao anterior, lido da revisao, e volta.
 
@@ -79,6 +86,12 @@ class TestDowngradeDoCanalDoDonoPeloPainel(unittest.TestCase):
             conexao.close()
 
     def test_desce_e_volta(self) -> None:
+        na_cabeca = self._estado()
+        # O «antes» mede-se **na propria revisao**, e nao na cabeca: uma revisao
+        # de cima pode criar politicas em tabelas antigas (a `registo_busca` da
+        # `*_inscricao_na_base.py`, KAM-236, na `onboarding_case`), e contadas na
+        # cabeca pareciam largadas por esta. A forma e a do KAM-215.
+        alembic_ok("downgrade", _propria())
         tabelas, indices, politicas = self._estado()
         self.assertTrue(NOVAS <= set(tabelas))
         self.assertIn("owner_phone_changes_viva_uq", indices)
@@ -96,7 +109,7 @@ class TestDowngradeDoCanalDoDonoPeloPainel(unittest.TestCase):
             [p for p in politicas if p.split(".")[0] in TABELAS_ANTES_DO_CANAL_DO_DONO_PELO_PAINEL],
         )
         alembic_ok("upgrade", "head")
-        self.assertEqual(self._estado(), (tabelas, indices, politicas))
+        self.assertEqual(self._estado(), na_cabeca)
 
 
 if __name__ == "__main__":
