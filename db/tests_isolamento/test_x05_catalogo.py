@@ -299,6 +299,9 @@ class TestCatalogoReal(ComBase):
                 ("platform", "onboarding_case", "tenant_id"),
                 # KAM-092: os gates de activacao («onboarding_c» < «_g»).
                 ("platform", "onboarding_gate", "tenant_id"),
+                # KAM-239: o estado do guia («_ga» < «_gu» < «_o»). **Sem
+                # receita de sementes**, pela razao do desafio do OTP.
+                ("platform", "onboarding_guia", "tenant_id"),
                 # KAM-236: o desafio do OTP («_g» < «_o» < «_s»). **Sem receita
                 # de sementes**, pela razao das tentativas.
                 ("platform", "onboarding_otp", "tenant_id"),
@@ -653,6 +656,11 @@ class TestCatalogoReal(ComBase):
                 ("onboarding_case", "tenant_iso", "ALL", "{public}"),
                 # KAM-092: os gates de activacao.
                 ("onboarding_gate", "tenant_iso", "ALL", "{public}"),
+                # KAM-239: a da busca pelo numero ligado, so de leitura, so para
+                # o dono das tabelas e so com a variavel que a funcao
+                # `SECURITY DEFINER` da revisao do guia liga («g» < «t»).
+                ("onboarding_guia", "guia_busca", "SELECT", "{kamba_migrator}"),
+                ("onboarding_guia", "tenant_iso", "ALL", "{public}"),
                 # KAM-236: o desafio do OTP, uma politica so.
                 ("onboarding_otp", "tenant_iso", "ALL", "{public}"),
                 # KAM-094: as tentativas do teste ponta a ponta.
@@ -955,6 +963,8 @@ class TestCatalogoReal(ComBase):
              "onboarding_case",
              # KAM-092: os gates de activacao.
              "onboarding_gate",
+             # KAM-239: o estado do guia.
+             "onboarding_guia",
              # KAM-236: o desafio do OTP.
              "onboarding_otp",
              # KAM-094: as tentativas do teste ponta a ponta.
@@ -1542,6 +1552,11 @@ class TestFicheirosDePolitica(unittest.TestCase):
         }
     )
 
+    #: A busca do guia pelo numero ligado (KAM-239), na forma da D1-A do
+    #: KAM-236: devolve so o caso e o tenant, e o `EXECUTE` e so do `kamba_app`.
+    #: `../tests/test_guia_na_base_schema.py` mede as colunas e o `42501`.
+    GUIA_NA_ALLOWLIST = "platform.guia_caso_por_phone_number_id(p_phone_number_id text)"
+
     def test_os_ficheiros_reais_leem_se_e_tem_o_que_esta_declarado(self) -> None:
         """Os dois nasceram vazios e deixaram de o estar no KAM-012.
 
@@ -1588,7 +1603,8 @@ class TestFicheirosDePolitica(unittest.TestCase):
                 self.DONO_NA_ALLOWLIST,
             }
             | set(self.MANUAIS_NA_ALLOWLIST)
-            | set(self.REGISTO_NA_ALLOWLIST),
+            | set(self.REGISTO_NA_ALLOWLIST)
+            | {self.GUIA_NA_ALLOWLIST},
         )
 
 

@@ -758,6 +758,14 @@ TABELAS_SOCIAL_DO_DONO = ("brand_profile", "content_calendar", "content_items")
 #: do painel pode ainda nao ter linha em `tenants`; ninguem apaga).
 TABELAS_INSCRICAO_NA_BASE = ("onboarding_contador", "onboarding_otp", "painel_revogacao")
 
+#: O que a revisao do guia na base (KAM-239) acrescenta, pelo nome.
+#:
+#: Uma tabela: o estado do passo guiado do ES de um caso (`onboarding_guia`, de
+#: tenant, RLS `FORCE` pela `tenant_iso`, FK composta ao caso; o `kamba_app` le,
+#: insere e muda por coluna, o `kamba_batch` le e muda so o `estado` e o
+#: `actualizado_at`, para o abandono dos 30 minutos; ninguem apaga).
+TABELAS_GUIA_NA_BASE = ("onboarding_guia",)
+
 TABELAS = tuple(
     sorted(
         TABELAS_0001 + TABELAS_0003 + TABELAS_0004 + TABELAS_0005
@@ -779,6 +787,7 @@ TABELAS = tuple(
         + TABELAS_CANAL_DO_DONO_PELO_PAINEL
         + TABELAS_SOCIAL_DO_DONO
         + TABELAS_INSCRICAO_NA_BASE
+        + TABELAS_GUIA_NA_BASE
     )
 )
 
@@ -798,7 +807,14 @@ TABELAS = tuple(
 #: O que existe em `platform` antes da revisao da inscricao na base (KAM-236),
 #: que e o topo da cadeia desde ela. As `0080` a `0083`, entre o social e ela,
 #: nao criam tabela nenhuma.
-TABELAS_ANTES_DA_INSCRICAO_NA_BASE = tuple(sorted(set(TABELAS) - set(TABELAS_INSCRICAO_NA_BASE)))
+#: O que existe em `platform` antes da revisao do guia na base (KAM-239), que e
+#: o topo da cadeia desde ela.
+TABELAS_ANTES_DO_GUIA_NA_BASE = tuple(sorted(set(TABELAS) - set(TABELAS_GUIA_NA_BASE)))
+
+#: Deriva do de cima desde o KAM-239.
+TABELAS_ANTES_DA_INSCRICAO_NA_BASE = tuple(
+    sorted(set(TABELAS_ANTES_DO_GUIA_NA_BASE) - set(TABELAS_INSCRICAO_NA_BASE))
+)
 
 #: Deriva do de cima desde o KAM-236.
 TABELAS_ANTES_DO_SOCIAL_DO_DONO = tuple(

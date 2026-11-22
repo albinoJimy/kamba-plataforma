@@ -339,3 +339,20 @@ funcoes:
       o caso (ensaio). `EXECUTE` so para o `kamba_app`.
       `db/tests/test_inscricao_na_base_schema.py` mede as colunas devolvidas, o
       caso morto e o `42501` dos outros papeis.
+  - funcao: platform.guia_caso_por_phone_number_id(p_phone_number_id text)
+    adr: ADR-015
+    razao: >-
+      A busca do guia do ES pelo numero ligado (KAM-239, na forma da D1-A do
+      KAM-236): os sinais da Meta chegam por `phone_number_id`, **antes** de se
+      saber de que tenant e o numero, e o `kamba_app` e `NOBYPASSRLS`. Devolve
+      **so** o `id` do caso e o `tenant_id` — nem o estado, nem a conta da Meta
+      —, um caso so (o mais recente a tomar o numero), e o adaptador le o resto
+      como `kamba_app`, com o `app.tenant_id` desse caso, pela RLS. A
+      alternativa com `SECURITY INVOKER` era dar ao `onboarding-web` uma ligacao
+      `kamba_batch`, que o fundador recusou (D2-B do KAM-236). O `DEFINER`
+      sozinho nao atravessa a RLS: a politica `guia_busca` da
+      `onboarding_guia`, so de leitura, so para o `kamba_migrator` e so com a
+      variavel `app.guia_busca` que a funcao liga antes da consulta e desliga
+      depois; nenhuma outra funcao `SECURITY DEFINER` le o guia (ensaio).
+      `EXECUTE` so para o `kamba_app`. `db/tests/test_guia_na_base_schema.py`
+      mede as colunas devolvidas e o `42501` dos outros papeis.

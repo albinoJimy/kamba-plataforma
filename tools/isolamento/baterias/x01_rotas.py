@@ -1481,3 +1481,82 @@ registar_caso(
     precisa="node",
     origens=("corpo", "cabecalhos", "erro"),
 )
+
+
+# ----------------------------------- a rota interna do guia no lote (KAM-239)
+#
+# As oito operacoes da rota interna do `onboarding-lote`
+# (`services/onboarding-web/src/lote/interno.ts`; decisao do fundador de
+# 2026-11-22, A). O custo aceite e uma superficie HTTP num processo que passa a
+# RLS, e este caso mede as duas metades que o tornam pequeno, como o da API
+# interna do COM: **sem a credencial** — ausente, errada do mesmo comprimento,
+# no cabecalho errado, com um espaco a mais — as quatro respostas sao o mesmo
+# 401 e nenhuma chega as portas (`portas=0`); e **com ela**, nenhuma operacao le
+# o tenant do corpo (`tenant-do-corpo=ignorado`): a porta recebe o caso de A, e
+# nada de B. O canario de B vai no corpo dos ataques, e o oraculo varre as
+# respostas.
+ROTAS_INTERNAS_DO_GUIA = (
+    "rota:onboarding-web:lote/interno:criarAppInterna:POST:/interno/guia/reservar",
+    "rota:onboarding-web:lote/interno:criarAppInterna:POST:/interno/guia/libertar",
+    "rota:onboarding-web:lote/interno:criarAppInterna:POST:/interno/guia/posicao",
+    "rota:onboarding-web:lote/interno:criarAppInterna:POST:/interno/guia/convite",
+    "rota:onboarding-web:lote/interno:criarAppInterna:POST:/interno/guia/recusar",
+    "rota:onboarding-web:lote/interno:criarAppInterna:POST:/interno/guia/desistir",
+    "rota:onboarding-web:lote/interno:criarAppInterna:POST:/interno/guia/gate",
+    "rota:onboarding-web:lote/interno:criarAppInterna:POST:/interno/guia/revisao",
+)
+
+#: A unica recusa aceite: a credencial e o que se ataca, e vem antes de tudo.
+RECUSA_DA_ROTA_INTERNA_DO_GUIA = (401,)
+
+
+def _afirmacoes_do_guia_interno(item: str, entradas: list[dict]) -> list[str]:
+    """As medicoes de cada operacao que vem na `nota`, e que o oraculo nao ve."""
+    achados: list[str] = []
+    for chave, esperado, porque in (
+        (
+            "canario-de-b",
+            "presente",
+            "Sem o canario de B no corpo dos ataques, o zero do oraculo prova "
+            "que o varrimento nao encontra o que nunca la esteve.",
+        ),
+        (
+            "portas",
+            "0",
+            "Um pedido sem a credencial chegou a uma porta do lote: a rota "
+            "interna corre como `kamba_batch`, e passa a RLS.",
+        ),
+        (
+            "sonda",
+            "200",
+            "A metade positiva nao respondeu 200: o caso nao mediu a operacao "
+            "com a credencial, e o `tenant-do-corpo` nao diz nada.",
+        ),
+        (
+            "tenant-do-corpo",
+            "ignorado",
+            "A porta recebeu o tenant do corpo, ou nao recebeu o caso de A: o "
+            "tenant de um gate ou de um caso de revisao sai do caso, na base.",
+        ),
+    ):
+        achados.extend(_exigir_marca(item, entradas, chave, esperado, porque))
+    if len(entradas) != 4:
+        achados.append(f"{item}: {len(entradas)} ataques e nao quatro.")
+    return achados
+
+
+registar_caso(
+    id="X-01/ts/guia-interno",
+    bateria="X-01",
+    camada="rotas",
+    enumeravel=ROTAS_INTERNAS_DO_GUIA,
+    fn=_caso_ts(
+        "guia-interno",
+        ROTAS_INTERNAS_DO_GUIA,
+        com_idor=True,
+        aceitaveis=RECUSA_DA_ROTA_INTERNA_DO_GUIA,
+        afirmacoes=_afirmacoes_do_guia_interno,
+    ),
+    precisa="node",
+    origens=("corpo", "cabecalhos", "erro"),
+)

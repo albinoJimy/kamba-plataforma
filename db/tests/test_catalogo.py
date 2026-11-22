@@ -61,6 +61,10 @@ COLUNAS_DE_TELEFONE_ACEITES = {
     # Meta e nao se traduz, e a lista fechada e o que impede que um telefone de
     # cliente entre num dia com este nome.
     ("channel_onboarding", "phone_number_id"),
+    # KAM-239 (revisao do guia na base): o mesmo identificador opaco da Meta, o
+    # do numero que o popup do ES ligou. O numero em si nunca entra: a
+    # comparacao do criterio 4 do KAM-093 e pelo HMAC do telefone do caso.
+    ("onboarding_guia", "phone_number_id"),
     # KAM-087, revisao `0043`: o telefone do caso de onboarding, nas duas formas
     # que a `contacts` e a `contact_endpoints` ja tinham — cifrado em aplicacao
     # e em HMAC para o indice. Nenhuma guarda o numero em claro.
@@ -804,6 +808,9 @@ class TestConvencoes(ComBase):
                 # o «ultimo valor» do bloco. Depois do caso («_c» < «_g»).
                 ("onboarding_gate", "gate", "text", None),
                 ("onboarding_gate", "onboarding_id", "uuid", None),
+                # KAM-239: o estado do guia, um por caso: a chave e o caso
+                # («_ga» < «_gu» < «_o»).
+                ("onboarding_guia", "onboarding_id", "uuid", None),
                 # KAM-236: o desafio do OTP, um por caso: a chave e o caso, e o
                 # `guardar` substitui pelo `ON CONFLICT (onboarding_id)`
                 # («_g» < «_o»).
@@ -1557,7 +1564,10 @@ class TestConvencoes(ComBase):
              # caso; as revogacoes pelo `painel_revogacao_sid_uq (tenant_id,
              # sid)` e o `painel_revogacao_corte_uq (tenant_id)`, sem FK.
              "onboarding_otp",
-             "painel_revogacao"},
+             "painel_revogacao",
+             # KAM-239 (revisao do guia na base). Pelo
+             # `onboarding_guia_tenant_idx (tenant_id)`, com a FK composta ao caso.
+             "onboarding_guia"},
         )
         for tabela, anulavel in com_tenant:
             with self.subTest(tabela=tabela):
@@ -2267,7 +2277,11 @@ class TestConvencoes(ComBase):
         # `onboarding_otp_caso_fk (onboarding_id, tenant_id)`, que prende o
         # desafio ao caso e ao tenant dele. A `painel_revogacao` nao tem FK: o
         # tenant de uma sessao do painel pode ainda nao ter linha em `tenants`.
-        self.assertEqual(len(linhas), 123)
+        #
+        # **124** desde a revisao do guia na base (KAM-239): a composta
+        # `onboarding_guia_caso_fk (onboarding_id, tenant_id)`, que prende o
+        # estado do guia ao caso e ao tenant dele.
+        self.assertEqual(len(linhas), 124)
         for nome, alvo in linhas:
             with self.subTest(fk=nome):
                 self.assertTrue(alvo.startswith("platform."), alvo)

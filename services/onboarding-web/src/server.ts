@@ -23,10 +23,15 @@
  * (decisão do fundador de 2026-11-21, D1-A); o resto lê-se pela RLS do tenant
  * do caso. Os contadores e as revogações são tabelas (D3-A).
  *
- * **O guia do ES não se monta em `prod`** (D2-A): a reserva da lista de espera e
- * a fila de revisão correm como `kamba_batch`, que este processo não tem, e os
- * *gates* do guia só o lote os escreve. Passam ao processo de lote num credor
- * (KAM-239); até lá, o arranque di-lo numa linha (`es_guia_fora_de_prod`).
+ * **O guia do ES corre sobre a base e sobre o lote** (KAM-239). O estado dele
+ * vive na `onboarding_guia` (revisão do guia na base), pela mesma ligação
+ * `kamba_app`. A reserva da lista de espera, as quatro da lista, os dois *gates* e
+ * a abertura na fila de revisão correm como `kamba_batch` **no processo de lote**,
+ * que este processo chama pela rota interna dele (`ONBOARDING_LOTE_INTERNO_URL`,
+ * com a credencial `onboarding_lote_token`; decisão do fundador de 2026-11-22,
+ * A). Este processo continua sem ligação `kamba_batch` (D2-A do KAM-236). A volta
+ * dos 30 minutos e a da lista também passaram ao lote. Em `prod`, com o guia
+ * configurado e sem a rota interna, o arranque recusa (`LoteEmFaltaEmProducaoError`).
  *
  * **E o arranque em `prod` continua a recusar**, agora por outra razão
  * (`SmsFalsoEmProducaoError`): o SMS do OTP é o `FakeSmsProvider` em todos os
@@ -65,6 +70,8 @@ import {
   GuiaEmMemoria,
   PassoGuiado,
   RevisaoEmMemoria,
+  guiaNaBase,
+  type RepositorioDoGuia,
 } from "@kamba/core-ts/guia";
 import {
   Actividade,
@@ -101,6 +108,8 @@ import {
 import { createApp } from "./app.ts";
 import { exigirComunicacaoLimpa } from "./comunicacao.ts";
 import type { OpcoesDoGuia } from "./guia.ts";
+import { ClienteDoLote, portasDoGuia } from "./guia_pelo_lote.ts";
+import { REF_DA_CREDENCIAL_DO_LOTE } from "./lote/interno.ts";
 import { LigadorPorHttp } from "./ligador.ts";
 import { CanalPeloCom } from "./painel/canal.ts";
 import { ComercioPorHttp } from "./painel/comercio.ts";
@@ -182,6 +191,16 @@ const VARIAVEIS_DO_GUIA = {
   origem: "ONBOARDING_ORIGEM",
   gwy: "ONBOARDING_GWY_INTERNO_URL",
 } as const;
+
+/**
+ * A rota interna do processo de lote (KAM-239): a lista, os *gates* e a fila do
+ * guia, como `kamba_batch`. **Opcional fora de `prod`**: sem ela, o guia corre
+ * sobre os duplos em memória, como antes. Com ela, o estado do guia vai para a
+ * base, e a credencial do lote passa a obrigatória no arranque.
+ */
+const VARIAVEL_DO_LOTE = "ONBOARDING_LOTE_INTERNO_URL";
+const URL_DO_LOTE = (process.env[VARIAVEL_DO_LOTE] ?? "").trim().replace(/\/+$/, "");
+const GUIA_PELO_LOTE = URL_DO_LOTE !== "";
 
 /**
  * A KEK do NIF e do e-mail do caso (`nif_enc`, `email_enc`). Ver o
@@ -269,6 +288,10 @@ const env = ambiente();
 /** O registo corre sobre a base: sempre em `prod`, e em `dev` e `staging` com a ligação. */
 const NA_BASE = URL_DA_APP !== "";
 if (env === "prod" && !NA_BASE) throw new BaseEmFaltaEmProducaoError();
+// O guia pelo lote tem o estado na base: sem a ligação da aplicação, não há onde.
+if (GUIA_PELO_LOTE && !NA_BASE) {
+  throw new Error(`a ${VARIAVEL_DO_LOTE} pede a ${VARIAVEL_DA_APP}: o estado do guia vive na base`);
+}
 // O SMS é o falso em qualquer ambiente (ver o erro): em `prod`, recusa.
 if (env === "prod") throw new SmsFalsoEmProducaoError();
 
@@ -287,6 +310,7 @@ const secrets = await Secrets.arrancar({
     ...(TROCA_MONTA ? CHAVES_DA_TROCA : []),
     ...(CONVERSA_MONTA ? [SEGREDO_DO_AGR] : []),
     ...(NA_BASE ? CHAVES_DO_CASO : []),
+    ...(GUIA_PELO_LOTE ? [REF_DA_CREDENCIAL_DO_LOTE] : []),
   ],
 });
 
@@ -358,17 +382,25 @@ const actividade = new Actividade({ repositorio: casos, contadores });
  * Sem uma app da Meta não há popup a abrir, e o `dev` da maioria das máquinas
  * não tem uma. Montar a página sem ela era servir um botão que falha no
  * navegador; não a montar é a página dar 404, e o arranque di-lo numa linha.
- * As portas que ficam em memória são as das três tabelas que não existem — ver
- * a nota do `@kamba/core-ts/guia` — e o detector de pagamento responde
- * `desconhecido`, que deixa o `meta_pagamento` vermelho: **não há fonte
+ * Com a rota interna do lote, o estado vive na base e a lista, os *gates* e a
+ * fila correm no lote (KAM-239); sem ela, fora de `prod`, em memória. O aviso
+ * ao dono continua em memória (o canal é do KAM-115), e o detector de pagamento
+ * responde `desconhecido`, que deixa o `meta_pagamento` vermelho: **não há fonte
  * CONFIRMADA** de que a Graph diga se o WABA tem cartão antes do primeiro envio
  * (credor: KAM-023 / ext:KAM-102).
  */
 /**
  * O estado do guia, partilhado com a troca de telefone (KAM-216): o
- * `numeroConfirmado` é o que diz que o número da loja é o telefone do caso.
+ * `numeroConfirmado` é o que diz que o número da loja é o telefone do caso. **Na
+ * base com o lote** (KAM-239), pela ligação do registo; em memória sem ele.
  */
-const repositorioDoGuia = new GuiaEmMemoria();
+const repositorioDoGuia: RepositorioDoGuia =
+  GUIA_PELO_LOTE && poolDaInscricao !== null ? guiaNaBase({ pool: poolDaInscricao }) : new GuiaEmMemoria();
+
+/** O cliente da rota interna do lote, só com ela. A credencial lê-se a cada pedido: roda. */
+const clienteDoLote = GUIA_PELO_LOTE
+  ? new ClienteDoLote({ base: URL_DO_LOTE, credencial: () => secrets.get(REF_DA_CREDENCIAL_DO_LOTE) })
+  : null;
 
 function montarGuia(): OpcoesDoGuia | undefined {
   const valores = Object.fromEntries(
@@ -378,31 +410,34 @@ function montarGuia(): OpcoesDoGuia | undefined {
     log.info({ outcome: "es_guia_desligado" });
     return undefined;
   }
-  // **Fora de `prod`** (D2-A, decisão do fundador de 2026-11-21): a lista, a
-  // fila e os *gates* do guia são do lote, como `kamba_batch`, e o estado do
-  // guia é em memória. Credor: KAM-239. Ver a nota do módulo.
-  if (env === "prod") {
-    log.info({ outcome: "es_guia_fora_de_prod" });
-    return undefined;
-  }
-  // **A lista de espera (KAM-095) é o `CapacityGate`**, em memória como o
-  // resto do guia: o adaptador SQL (`ListaSql`) corre como `kamba_batch` e o
-  // processo onde vai ligar é o de lote (credor KAM-092). O limite em memória
-  // é o 10 CONFIRMADO; a origem dele está na `onboarding_capacity` da base.
-  const lista = new ListaDeEspera({
-    repositorio: new ListaEmMemoria(casos),
-    aviso: new AvisosDaListaEmMemoria(),
-    origem: valores.origem,
-    metricas: new MetricasDaLista(),
-    log,
+  // **A lista (KAM-095), os dois *gates* e a fila** correm como `kamba_batch`
+  // no processo de lote, pela rota interna dele (KAM-239). Sem a rota, em `dev`
+  // e `staging`, em memória: o limite em memória é o 10 CONFIRMADO, e a origem
+  // dele está na `onboarding_capacity` da base. Em `prod`, sem a rota, recusa.
+  const portas = portasDoGuia({
+    ambiente: env,
+    lote: clienteDoLote,
+    emMemoria: () => ({
+      lista: new ListaDeEspera({
+        repositorio: new ListaEmMemoria(casos),
+        aviso: new AvisosDaListaEmMemoria(),
+        origem: valores.origem,
+        metricas: new MetricasDaLista(),
+        log,
+      }),
+      gates: new GatesEmMemoria(),
+      revisao: new RevisaoEmMemoria(),
+    }),
   });
+  const lista = portas.lista;
+  log.info({ outcome: portas.voltaNoProcesso ? "es_guia_em_memoria" : "es_guia_pelo_lote" });
   const guia = new PassoGuiado({
     casos,
     repositorio: repositorioDoGuia,
     capacidade: lista,
     ligador: new LigadorPorHttp(valores.gwy),
-    gates: new GatesEmMemoria(),
-    revisao: new RevisaoEmMemoria(),
+    gates: portas.gates,
+    revisao: portas.revisao,
     pagamento: { verificar: async () => "desconhecido" },
     aviso: new AvisosEmMemoria(),
     anelDoPepper: [pepper, pepperAnterior],
@@ -411,18 +446,22 @@ function montarGuia(): OpcoesDoGuia | undefined {
     configId: valores.configId,
     log,
   });
-  // O temporizador dos 30 min (critério 5). Um por minuto basta: o prazo é de
-  // meia hora, e o erro máximo é um minuto a mais.
-  setInterval(() => {
-    guia.abandonarVencidos().catch((erro: unknown) => log.excepcao(erro, "abandono_falhou"));
-    // Os convites vencidos e a promocao (criterios 4 e 5). Um minuto de erro
-    // num prazo de 48 h.
-    lista
-      .expirarVencidos()
-      .then(() => lista.promover())
-      .then(() => lista.medir())
-      .catch((erro: unknown) => log.excepcao(erro, "lista_espera_falhou"));
-  }, 60_000).unref();
+  // O temporizador dos 30 min (critério 5), **só com as portas em memória**:
+  // pelo lote, a volta corre no `onboarding-lote`, uma vez e não uma por réplica
+  // (`CicloDoGuia`, KAM-239). Um por minuto basta: o prazo é de meia hora.
+  const listaDaVolta = portas.lista instanceof ListaDeEspera ? portas.lista : undefined;
+  if (portas.voltaNoProcesso && listaDaVolta !== undefined) {
+    setInterval(() => {
+      guia.abandonarVencidos().catch((erro: unknown) => log.excepcao(erro, "abandono_falhou"));
+      // Os convites vencidos e a promocao (criterios 4 e 5). Um minuto de erro
+      // num prazo de 48 h.
+      listaDaVolta
+        .expirarVencidos()
+        .then(() => listaDaVolta.promover())
+        .then(() => listaDaVolta.medir())
+        .catch((erro: unknown) => log.excepcao(erro, "lista_espera_falhou"));
+    }, 60_000).unref();
+  }
   return {
     guia,
     lista,

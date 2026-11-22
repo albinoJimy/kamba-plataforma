@@ -178,10 +178,14 @@ import {
   type MotivoPublicoDaSancao,
   type ResultadoDoCicloDoTrust,
 } from "@kamba/core-ts/trust";
+import { ListaDeEspera, ListaSql, MetricasDaLista, type AvisoDaLista } from "@kamba/core-ts/capacidade";
+import { gatesDoGuiaNaBase } from "@kamba/core-ts/guia";
+import { filaDoGuia } from "@kamba/core-ts/revisao";
 import { Hono } from "hono";
 import pg from "pg";
 
 import { SERVICE, VERSION } from "../meta.ts";
+import { CicloDoGuia, criarAppInterna, type ResultadoDoCicloDoGuia } from "./interno.ts";
 
 /** As variáveis que o processo lê. Nenhuma outra. */
 export const VARIAVEIS_DO_LOTE = {
@@ -204,7 +208,27 @@ export const VARIAVEIS_DO_LOTE = {
   intervaloDoOffboarding: "LOTE_OFFBOARDING_INTERVALO_MS",
   /** O dia em que a amostragem das aprovações automáticas começou (`AAAA-MM-DD`). */
   amostragem: "ONBOARDING_LOTE_AMOSTRAGEM_DESDE",
+  /**
+   * A porta da rota interna do guia (KAM-239). **Sem ela, a rota não se serve**:
+   * o guia do `onboarding-web` fica sem lote, e em `prod` ele recusa montá-lo.
+   * Nunca a das métricas.
+   */
+  portaInterna: "LOTE_INTERNO_PORT",
+  /**
+   * O anfitrião onde a rota interna escuta. `127.0.0.1` por omissão; no compose,
+   * um nome que só a rede `app` resolve, para que ela não escute fora dela.
+   */
+  anfitriaoInterno: "LOTE_INTERNO_HOST",
+  /** A origem pública do `onboarding-web`, para a ligação do convite da lista. */
+  origem: "ONBOARDING_ORIGEM",
 } as const;
+
+/** A rota interna do guia, quando configurada. */
+export interface ConfiguracaoDaRotaInterna {
+  readonly porta: number;
+  readonly anfitriao: string;
+  readonly origem: string;
+}
 
 /**
  * A subscrição do consumidor de T&S, **uma vez**: o consumidor corre com ela, e
@@ -240,6 +264,8 @@ export interface ConfiguracaoDoLote {
   readonly urlDaFila: string;
   readonly intervaloDoTrustMs: number;
   readonly intervaloDoOffboardingMs: number;
+  /** A rota interna do guia (KAM-239), ou `null` sem a porta. */
+  readonly interno: ConfiguracaoDaRotaInterna | null;
 }
 
 /**
@@ -318,6 +344,18 @@ export function lerConfiguracao(env: Ambiente): ConfiguracaoDoLote {
     }
     inicioDaAmostragem = dia;
   }
+  // A rota interna do guia, só com a porta; e então a origem é obrigatória — um
+  // convite sem origem era uma ligação para lado nenhum. A porta das métricas
+  // não serve: a rota interna não pode estar onde o Prometheus lê.
+  let interno: ConfiguracaoDaRotaInterna | null = null;
+  if ((env[VARIAVEIS_DO_LOTE.portaInterna] ?? "").trim() !== "") {
+    const portaInterna = inteiro(env, VARIAVEIS_DO_LOTE.portaInterna, 0, 1, 65_535);
+    if (portaInterna === porta) throw new ConfiguracaoDoLoteError(VARIAVEIS_DO_LOTE.portaInterna, "invalida");
+    const origem = exigir(env, VARIAVEIS_DO_LOTE.origem);
+    if (!/^https?:\/\/[^\s/]+$/.test(origem)) throw new ConfiguracaoDoLoteError(VARIAVEIS_DO_LOTE.origem, "invalida");
+    const anfitriao = (env[VARIAVEIS_DO_LOTE.anfitriaoInterno] ?? "").trim() || "127.0.0.1";
+    interno = { porta: portaInterna, anfitriao, origem };
+  }
   return {
     ambiente,
     urlDoLote,
@@ -328,6 +366,7 @@ export function lerConfiguracao(env: Ambiente): ConfiguracaoDoLote {
     urlDaFila,
     intervaloDoTrustMs,
     intervaloDoOffboardingMs,
+    interno,
   };
 }
 
@@ -590,6 +629,43 @@ export interface OpcoesDoProcesso {
   readonly metricasDoOffboarding?: MetricasDoOffboarding;
   /** As portas do off-boarding. Por omissão, as sem adaptador (ver a nota do módulo). */
   readonly portasDoOffboarding?: PortasDoCiclo;
+  /**
+   * O guia do ES (KAM-239): a origem pública do `onboarding-web`, para a ligação
+   * do convite da lista. Sem ele, o processo não monta a lista, os *gates* nem a
+   * volta do guia.
+   */
+  readonly guia?: { readonly origem: string };
+}
+
+/**
+ * O aviso do convite da lista **sem via**, e não levanta (KAM-239).
+ *
+ * O convite sai por SMS ou e-mail ao dono, e **nenhum dos dois tem adaptador**
+ * (o agregador é do KAM-116, o canal do KAM-115). Levantar, como o `AvisoSemVia`
+ * da fila, desfazia o convite e mandava o caso para o fim da fila em cada volta:
+ * a cabeça rodava, e a fila deixava de ser FIFO. Assim, o convite fica, e o dono
+ * que volta à página dentro das 48 h gasta-o ao carregar em «Ligar» (o `reserve`
+ * aceita o convite vivo sem o código). O que falta diz-se numa linha por convite,
+ * sem caso nem ligação, para que um convite por entregar se veja.
+ */
+export class AvisoDaListaSemVia implements AvisoDaLista {
+  readonly #log: Pick<Logger, "warn">;
+
+  constructor(log: Pick<Logger, "warn">) {
+    this.#log = log;
+  }
+
+  async convidar(): Promise<void> {
+    this.#log.warn({ outcome: "lista_espera_convite_por_entregar" });
+  }
+}
+
+/** O guia do lado do lote: o que a rota interna serve, e a volta dele. */
+export interface GuiaDoLote {
+  readonly lista: ListaDeEspera;
+  readonly gates: ReturnType<typeof gatesDoGuiaNaBase>;
+  readonly revisao: ReturnType<typeof filaDoGuia>;
+  readonly ciclo: CicloDoGuia;
 }
 
 /** O processo montado: o ciclo, o serviço da fila e o gancho do KAM-092. */
@@ -626,6 +702,8 @@ export interface ProcessoDeLote {
    * passa a aprovação ao `aprovacaoAutomatica` acima.
    */
   readonly aprovacaoDoKyc: AprovacaoDoKyc;
+  /** O guia do ES (KAM-239), só com a origem dele; `null` sem ela. */
+  readonly guia: GuiaDoLote | null;
 }
 
 /**
@@ -739,7 +817,27 @@ export function montarProcesso(o: OpcoesDoProcesso): ProcessoDeLote {
     fila: (maquina) => filaDoTeste(servico, maquina),
     ...(o.relogio === undefined ? {} : { relogio: o.relogio }),
   });
+  // KAM-239: a lista sobre a base, os dois gates do guia e o `es_falhado` na
+  // fila deste processo, todos como `kamba_batch`; e a volta que saiu do
+  // `onboarding-web` (os 30 minutos e a lista).
+  let guia: GuiaDoLote | null = null;
+  if (o.guia !== undefined) {
+    const lista = new ListaDeEspera({
+      repositorio: new ListaSql(o.lote),
+      aviso: new AvisoDaListaSemVia(o.log),
+      origem: o.guia.origem,
+      metricas: new MetricasDaLista(),
+      ...(o.relogio === undefined ? {} : { relogio: o.relogio }),
+    });
+    guia = {
+      lista,
+      gates: gatesDoGuiaNaBase(o.lote),
+      revisao: filaDoGuia(servico, onboardings),
+      ciclo: new CicloDoGuia({ lote: o.lote, lista, ...(o.relogio === undefined ? {} : { relogio: o.relogio }) }),
+    };
+  }
   return {
+    guia,
     servico,
     ciclo,
     trust,
@@ -853,6 +951,12 @@ export function registarVoltaDoOffboarding(log: Pick<Logger, "info" | "error">, 
 }
 
 /** A linha de registo de uma volta da activação (KAM-202): o que falhou, pelo passo. */
+/** Uma volta do guia: os abandonados contam-se, e cada passo que falhou diz-se pelo nome. */
+export function registarVoltaDoGuia(log: Pick<Logger, "info" | "error">, r: ResultadoDoCicloDoGuia): void {
+  if (r.abandonados > 0) log.info({ outcome: "es_popups_abandonados" });
+  for (const passo of r.falhou) log.error({ outcome: `guia_volta_${passo}_falhou`, error_code: `guia_volta_${passo}_falhou` });
+}
+
 export function registarVoltaDaActivacao(log: Pick<Logger, "info" | "error">, r: ResultadoDoCicloDaActivacao): void {
   if (r.falhas.length === 0) log.info({ outcome: "activacao_volta_concluida" });
   else log.error({ outcome: "activacao_volta_com_falhas", error_code: r.falhas.join(",") });
@@ -942,6 +1046,20 @@ export function opcoesDoConjunto(url: string, papel: "lote" | "app") {
 export interface Arranque {
   readonly processo: ProcessoDeLote;
   readonly app: Hono;
+  /**
+   * A rota interna do guia (KAM-239), **noutra app e noutra porta** que a das
+   * métricas; `null` sem o guia configurado.
+   */
+  readonly interna: Hono | null;
+}
+
+/** O guia configurado sem a credencial: a rota interna nunca se serve aberta. */
+export class CredencialDoGuiaEmFaltaError extends Error {
+  override readonly name = "CredencialDoGuiaEmFaltaError";
+
+  constructor() {
+    super("a rota interna do guia nao se serve sem a onboarding_lote_token");
+  }
 }
 
 /**
@@ -960,7 +1078,10 @@ export async function arrancar(o: {
   readonly inicioDaAmostragem: Date | null;
   /** As portas do off-boarding (KAM-218). Por omissão, as sem adaptador. */
   readonly portasDoOffboarding?: PortasDoCiclo;
+  /** O guia do ES (KAM-239): a origem e a credencial da rota interna. */
+  readonly guia?: { readonly origem: string; readonly credencial: string };
 }): Promise<Arranque> {
+  if (o.guia !== undefined && o.guia.credencial.trim() === "") throw new CredencialDoGuiaEmFaltaError();
   await verificarPapeis(o.lote, o.app);
   const processo = montarProcesso({
     lote: o.lote,
@@ -969,9 +1090,21 @@ export async function arrancar(o: {
     log: o.log,
     inicioDaAmostragem: o.inicioDaAmostragem,
     ...(o.portasDoOffboarding === undefined ? {} : { portasDoOffboarding: o.portasDoOffboarding }),
+    ...(o.guia === undefined ? {} : { guia: { origem: o.guia.origem } }),
   });
+  const interna =
+    o.guia === undefined || processo.guia === null
+      ? null
+      : criarAppInterna({
+          lista: processo.guia.lista,
+          gates: processo.guia.gates,
+          revisao: processo.guia.revisao,
+          credencial: o.guia.credencial,
+          log: o.log,
+        });
   return {
     processo,
+    interna,
     app: criarApp(
       processo.ciclo.metricas,
       processo.metricasDoTrust,

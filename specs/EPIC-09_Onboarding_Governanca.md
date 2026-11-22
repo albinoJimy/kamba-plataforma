@@ -4581,6 +4581,38 @@ Que o guia do ES corra em `prod`: o estado na base, e o que pede `kamba_batch` n
 - A decisão de como o `onboarding-web` pede ao lote a reserva e a abertura (evento, tabela de pedidos ou
   rota interna) é deste ticket, e leva-se à coordenação antes de escrever.
 
+### Decisões do fundador
+
+**Data: 2026-11-22. Autor: o fundador** (respondida no chat da coordenação do lote 19, e trazida por ela).
+
+| # | Pergunta | Escolha | Recusadas |
+|---|---|---|---|
+| D1 | Como o `onboarding-web` pede ao processo de lote a reserva da lista, as quatro operações da lista, os dois *gates* do guia e a abertura na fila de revisão | **A**: uma rota interna `/interno/guia/*` no `onboarding-lote`, numa porta própria na rede `app`, com uma credencial nova (`onboarding_lote_token`, no inventário dos segredos, só com o `onboarding-web` e o `onboarding-lote`). O lote corre a lista, os *gates* e a abertura na fila como `kamba_batch`; o `PassoGuiado` não muda | B, uma tabela de pedidos (a reserva ficava assíncrona e o popup passava a dois cliques; a posição e o convite deixavam de responder no pedido); C, um evento (os mesmos problemas, e contratos novos no `registry/`) |
+
+**O custo aceite**, escrito pelo fundador: uma superfície HTTP num processo que passa a RLS. Para que seja
+pequeno, quatro condições, e as quatro são critério deste ticket: a rota só aceita as operações fechadas do
+guia; recusa sem a credencial, com comparação em tempo constante; não escuta fora da rede `app`; e tem um
+caso X-01 no *gate* 6, como as rotas internas do COM.
+
+**E as duas varreduras que atravessam tenants**, que o critério 1 deixa ao ticket: o `iniciadosAntesDe` (o
+temporizador dos 30 minutos) e a volta da lista passam ao processo de lote, como `kamba_batch`; o
+`porPhoneNumberId` (os sinais da Meta) passa por uma função `SECURITY DEFINER` na forma da D1-A do KAM-236,
+que devolve só o caso e o tenant. Confirmadas pela coordenação no mesmo dia.
+
+**A revisão** é a `0090`, sobre a `0089` do KAM-240 (vaga dada pela coordenação do lote 19).
+
+### Decisões da coordenação
+
+**Data: 2026-11-22. Autor: a coordenação do lote 19.** É uma leitura e não um critério: o que o gate exige
+não muda. Se mudasse, era do fundador.
+
+| # | Pergunta | Escolha | Recusadas |
+|---|---|---|---|
+| C1 | Como a rota interna não escuta fora da rede `app`, com o lote nas redes `app` e `data` | **A**: a rota liga-se ao nome `onboarding-lote-interno`, um *alias* só da rede `app`; as redes do `onboarding-lote` passam a mapa no compose de `prod`, e o `r_redes_por_servico` do `tools/compose_prod/lint.py` passa a ler as duas formas (lista e mapa), como a outra leitura de redes do mesmo ficheiro (`_ligacao`) já lia | B, fixar a sub-rede da rede `app` e ligar ao IP dela (mexe na topologia); C, escutar também na `data` com a credencial só |
+
+**Uma regra que só lia a lista deixava escapar, calado, um serviço escrito em mapa.** O linter foi varrido
+inteiro: só as duas leituras de redes por serviço existiam, e só a do `r_redes_por_servico` lia uma forma.
+
 ### Testes Requeridos
 
 - Integração: o guia monta em `prod` contra a base; o estado sobrevive a um reinício; a reserva e o

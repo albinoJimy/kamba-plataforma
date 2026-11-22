@@ -64,6 +64,9 @@ FICHEIROS = (
     # KAM-236: o registo, o OTP, os contadores e as revogacoes do painel do
     # `onboarding-web` sobre a `0084`, como `kamba_app`, e o reinicio.
     "tests_bd/inscricao.bd.test.ts",
+    # KAM-239: o estado do guia na `onboarding_guia`, como `kamba_app`, e a
+    # lista, os gates e a fila pela rota interna do processo de lote real.
+    "tests_bd/guia.bd.test.ts",
 )
 
 #: Os `describe` do ficheiro: os dezanove cenarios do processo de lote partilham as
@@ -79,6 +82,7 @@ GRUPOS = (
     "adversarial (f) do KAM-096, os dois lados: a recusa da base e o alerta (KAM-219)",
     "a activação no lote contra a base",
     "a inscrição na base (KAM-236)",
+    "o guia na base (KAM-239)",
 )
 
 #: Os testes que **tem** de ter corrido e passado, pelo nome. Sao a letra dos
@@ -172,6 +176,11 @@ TESTES_OBRIGATORIOS = (
     "KAM-236: dois registos concorrentes do mesmo NIF dão um caso, e a mesma chave concorrente também",
     "KAM-236: vinte anotações de dois processos somam vinte, e o trocarUltimo concorrente devolve null uma vez",
     "KAM-236: uma sessão revogada continua revogada depois do reinício, e o corte de um tenant não toca o outro",
+    # KAM-239: o estado do guia sobrevive a um reinicio, a reserva e os gates
+    # chegam a base pelo lote, e a volta dos 30 minutos e do lote.
+    "KAM-239: o estado do guia escrito por um processo lê-se igual noutro processo, depois do reinício",
+    "KAM-239: a reserva, o meta_pagamento, o meta_es e o es_falhado chegam à base pela rota interna do lote",
+    "KAM-239: o abandono dos 30 minutos corre no lote em todos os tenants, e a aplicação recusa-o pelo nome",
 )
 
 

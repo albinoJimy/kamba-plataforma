@@ -716,7 +716,15 @@ def r_redes_por_servico(dados: Dados) -> list[Achado]:
     """Criterio 3: quem esta em `edge`, e quem nao sai de `data`."""
     achados: list[Achado] = []
     for nome, (no, chaves) in sorted(dados.prod.servicos.items()):
-        redes = set(_lista(dados.prod, chaves, "networks"))
+        # **As duas formas do compose**: a lista (`- app`) e o mapa (`app:` com
+        # `aliases`), como o `_ligacao` ja lia. So a lista deixava
+        # um servico escrito em mapa sem rede nenhuma para esta regra — um
+        # «servico-sem-rede» falso, ou, pior, uma rede proibida que ninguem via.
+        # A leitura muda e o criterio nao (decisao da coordenacao do lote 19,
+        # 2026-11-22, no bloco do KAM-239).
+        redes = set(_lista(dados.prod, chaves, "networks")) or set(
+            _submapa(dados.prod, chaves, "networks")
+        )
         linha = _linha(chaves, "networks", no.linha)
         if not redes:
             achados.append(

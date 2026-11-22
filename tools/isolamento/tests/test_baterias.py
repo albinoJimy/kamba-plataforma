@@ -125,6 +125,7 @@ class TestAsListasCoincidemComAEnumeracao(unittest.TestCase):
             + x01_rotas.ROTAS_DO_PAINEL
             + x01_rotas.ROTAS_DA_EQUIPA
             + x01_rotas.ROTAS_DO_LOTE
+            + x01_rotas.ROTAS_INTERNAS_DO_GUIA
         )
         # **As tres listas do AGR subtraem-se, e nao duas.** O conjunto de
         # TypeScript deriva-se por subtraccao, pelo que uma lista nova do AGR

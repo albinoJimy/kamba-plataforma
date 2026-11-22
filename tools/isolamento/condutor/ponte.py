@@ -97,6 +97,9 @@ GRUPOS = (
     "painel",
     "equipa",
     "lote",
+    # KAM-239: as oito operacoes da rota interna do guia no processo de lote,
+    # atacadas sem a credencial e com o tenant de B no corpo.
+    "guia-interno",
 )
 
 #: A imagem usada quando nao ha `node` no `PATH`. A mesma versao de
