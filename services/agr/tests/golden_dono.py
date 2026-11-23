@@ -319,7 +319,9 @@ class ScreeningGravado:
         self.termos = tuple(chave(t) for t in (gravacao or {}).get("termos", ()))
         self.chamadas: list[tuple[str, tuple[str, ...], str]] = []
 
-    def screen(self, tenant_id: str, sujeito_ref: str, categoria: str | None, textos: Any):  # noqa: ANN201
+    def screen(  # noqa: ANN201
+        self, tenant_id: str, sujeito_ref: str, categoria: str | None, textos: Any, *, tecto_s: float | None = None
+    ):
         from kamba_core.catalogo.screening import ResultadoDoScreen
 
         textos = tuple(str(t) for t in textos)

@@ -78,7 +78,7 @@ class VisaoPorLigar:
 
     fornecedores: tuple[str, ...] = ()
 
-    def extrair(self, tenant_id: str, imagem: bytes) -> RespostaDaVisao:
+    def extrair(self, tenant_id: str, imagem: bytes, *, tecto_s: float | None = None) -> RespostaDaVisao:
         raise ErroDaVisao(f"sem adaptador de visao (credor {CREDOR_DA_FOTO})")
 
 
@@ -165,6 +165,41 @@ class _NaoFecha:
         return getattr(self._ligacao, nome)
 
 
+class TomadaDaInvocacao:
+    """A ligacao **corrente** de uma invocacao, que o pipeline larga e retoma (KAM-244).
+
+    O pipeline do KAM-049 corre a visao e o screening fora da ligacao
+    (`ServicoDeIngestao.fora_da_ligacao`), e a ToolLayer pode devolver-lhe
+    **outra** quando a retoma (`Pedido.sem_tomada`, KAM-230): a largada ja pode
+    estar noutra invocacao. Este objecto e a ligacao que o repositorio, a fonte
+    e o executor usam: cada operacao le o `ligacao` de agora, e nunca a do
+    inicio. O `close` e nada, pela razao do `_NaoFecha`.
+
+    Sem `largar` (um `Pedido` feito a mao, ou fora de um `invoke`), o trabalho
+    corre com a ligacao, e ela nao muda.
+    """
+
+    __slots__ = ("ligacao", "_largar", "__weakref__")
+
+    def __init__(
+        self, ligacao: Any, largar: Callable[[Callable[[], Any]], tuple[Any, Any]] | None = None
+    ) -> None:
+        self.ligacao = ligacao
+        self._largar = largar
+
+    def fora_da_ligacao(self, trabalho: Callable[[], Any]) -> Any:
+        if self._largar is None:
+            return trabalho()
+        resultado, self.ligacao = self._largar(trabalho)
+        return resultado
+
+    def close(self) -> None:
+        return None
+
+    def __getattr__(self, nome: str) -> Any:
+        return getattr(self.ligacao, nome)
+
+
 def repositorio_sobre(ligacao: Any) -> Repositorio:
     """O `RepositorioDbapi` sobre a ligacao de uma invocacao, sem a fechar."""
     emprestada = _NaoFecha(ligacao)
@@ -198,9 +233,19 @@ class PortasDoCatalogo:
     repositorio: Callable[[Any], Repositorio] = repositorio_sobre
     agora: Callable[[], datetime] = field(default=lambda: datetime.now(UTC))
 
-    def servico(self, ligacao: Any) -> ServicoDeIngestao:
-        """O pipeline para uma invocacao: o repositorio sobre a ligacao dela."""
+    def servico(self, ligacao: Any, *, prazo: float | None = None) -> ServicoDeIngestao:
+        """O pipeline para uma invocacao: o repositorio sobre a ligacao dela.
+
+        Com uma `TomadaDaInvocacao` (KAM-244), a visao e o screening correm fora
+        da ligacao, e o repositorio e a fonte leem a de agora. O `prazo` e o
+        `Pedido.prazo`: cada etapa lenta recebe o que sobra dele.
+        """
+        extra: dict[str, Any] = {}
+        if isinstance(ligacao, TomadaDaInvocacao):
+            extra["fora_da_ligacao"] = ligacao.fora_da_ligacao
         return ServicoDeIngestao(
+            prazo=prazo,
+            **extra,
             repositorio=self.repositorio(ligacao),
             fonte=self.fonte if self.fonte_sobre is None else self.fonte_sobre(ligacao),
             storage=self.storage,
@@ -227,6 +272,7 @@ __all__ = [
     "ImageEnhancePort",
     "PortasDoCatalogo",
     "StoragePorLigar",
+    "TomadaDaInvocacao",
     "VisaoPorLigar",
     "repositorio_sobre",
 ]
