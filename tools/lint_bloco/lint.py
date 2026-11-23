@@ -528,10 +528,16 @@ REGRAS_OBRIGATORIAS = ("estado_contra_caixa",)
 #: medidos**, e `185 // 2` sao 92. O piso fica em 92, que serve ate aos 185:
 #: o bloco seguinte sobe-o para 93.
 #:
-#: **O 186.o e o do KAM-209**, medido na arvore da integracao com a
+#: **O 186.o e o do KAM-241**, medido na arvore da integracao com a
 #: `publico/main` em `97c5ce4e` (o #258 do KAM-242 ja fundido, com **185
-#: medidos** na `main`): o bloco do KAM-209 ganha a verificacao. **186
+#: medidos** na `main`): o bloco do KAM-241 ganha a verificacao. **186
 #: medidos**, e `186 // 2` sao 93. Sobe para 93, que serve ate aos 187.
+#:
+#: **O 187.o e o do KAM-209**, medido na arvore da integracao com a
+#: `publico/main` em `d7445570` (o #262 do KAM-241 ja fundido, com **186
+#: medidos** na `main`): o bloco do KAM-209 ganha a verificacao. **187
+#: medidos**, e `187 // 2` sao 93. O piso fica em 93, que serve ate aos 187:
+#: o bloco seguinte sobe-o para 94.
 MINIMO_DE_BLOCOS_MEDIDOS = 93
 
 #: Quantos blocos existem, no minimo. O mesmo argumento, para a camada de baixo:

@@ -295,6 +295,10 @@ MARCADORES = {
     # razao e mesmo sintoma.
     "KAMBA_SECRET_CHATWOOT_PLATFORM_TOKEN": "marcador",
     "KAMBA_LOTE_IDENTITY_DB_URL": "postgresql://marcador@marcador.invalid:5432/marcador",
+    # KAM-241: o consumidor `dono` entra no compose de producao com as duas
+    # ligacoes dele (`kamba_app` e `kamba_identity`). Mesma razao e mesmo sintoma.
+    "KAMBA_PROVISIONAMENTO_APP_DB_URL": "postgresql://marcador@marcador.invalid:5432/marcador",
+    "KAMBA_PROVISIONAMENTO_IDENTITY_DB_URL": "postgresql://marcador@marcador.invalid:5432/marcador",
 }
 
 
