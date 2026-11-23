@@ -22438,15 +22438,13 @@ entradas:
       - "SEGREDOS_DO_STO"
       - "montarArmazenamento"
     nomes_nota:
-      - "worker"
-      - "canal"
-      - "entrada"
       - "storage_access_key_id"
       - "storage_secret_access_key"
       - "staging"
       - "prod"
       - "dev"
       - "kamba_app"
+      - "media_imagem"
     variantes_literais: []
   - seccao: "3.81"
     conceito: "Troca de telefone persistida"

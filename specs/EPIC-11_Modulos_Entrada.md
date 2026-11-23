@@ -77,6 +77,7 @@ Estado da evidência (E5): **CONFIRMADO** — preços e termos publicados dos fo
 | KAM-244 | Catálogo do dono: a foto sem prender a tomada da TLS — a visão e o *screening* fora da ligação, e os tectos de dentro abaixo dos 25 s | fix | M | P1 | KAM-231 |
 | KAM-245 | Catálogo do dono: a violação de um produto publicado que um `screen` posterior marca como `bloqueada`, e a re-análise que a emite | fix | S | P2 | KAM-119 |
 | KAM-246 | Social AI: a arte como imagem no WhatsApp e a página do painel com a ligação de descarga | feature | M | P1 | KAM-122, KAM-015 |
+| KAM-249 | STO no `onboarding-web`: a credencial do painel só de escrita na classe `media_imagem`, ou fora do painel | fix | M | P1 | KAM-243 |
 
 ---
 
@@ -3704,7 +3705,7 @@ Regras: mede sob o limite e sem swap; não mexer no tecto nem no limite de outro
 | Prioridade | P1 |
 | Estimativa | M |
 | Dependências | KAM-231 |
-| Bloqueia | — |
+| Bloqueia | KAM-249 |
 | Responsável sugerido | Engenheiro de Plataforma com Engenheiro de Runtime/IA |
 | Documentos de referência | `EPIC-11_Modulos_Entrada.md` (blocos KAM-223 e KAM-231), `02_Dicionario_de_Dados_Canonico.md` (§3.16 e §3.81) |
 
@@ -3754,7 +3755,8 @@ Testes: integração, isolamento e adversarial.
 | Data | Autor | Pergunta | Decisão |
 |---|---|---|---|
 | 2026-11-21 | O fundador, no KAM-231 (P2, P3 e P4), transmitidas pela coordenação | A visão, o tecto da *tool* e os segredos dos processos da foto | **As três na opção A, e não se reabrem.** A visão só pelo `ClienteDeLlm.ver`, com a `ImagemLimpa`; o `create_product_draft` a 25 s no `TECTOS_POR_TOOL`; cada processo recebe só os segredos de que precisa, com nota no inventário, e recusa arrancar sem eles em `staging` e `prod` |
-| 2026-11-23 | A coordenação, no *briefing* do KAM-243 | Critério 3: o `onboarding-web` é um consumidor novo das credenciais do STO | **Segue o padrão da P4-A.** As duas chaves do STO, com a nota no inventário, e o arranque recusa sem elas e sem a configuração do STO em `staging` e `prod` |
+| 2026-11-23 | A coordenação, no *briefing* do KAM-243 | Critério 3: o `onboarding-web` é um consumidor novo das credenciais do STO | **Segue o padrão da P4-A.** As duas chaves do STO, com a nota no inventário, e o arranque recusa sem elas e sem a configuração do STO em `staging` e `prod`. *Substituída pela decisão do fundador da linha seguinte* |
+| 2026-11-23 | O fundador, no chat da coordenação, depois do PR do KAM-243 | O `onboarding-web` recebe o par de credenciais do STO, que lê e escreve os objectos de todos os tenants | **Opção A, com credor.** O `onboarding-web` fica consumidor do `storage_access_key_id` e do `storage_secret_access_key`, como no PR. O credor **KAM-249** dá à credencial do painel um âmbito só de escrita na classe `media_imagem`, ou tira-a ao painel, quando a D6 fixar o armazenamento |
 
 ### Decisões do executor
 
@@ -3913,6 +3915,61 @@ Testes: unit, idempotência e adversarial.
 
 ---
 
+## KAM-249 — STO no `onboarding-web`: a credencial do painel só de escrita na classe `media_imagem`, ou fora do painel
+
+| Campo | Valor |
+|---|---|
+| Epic | EPIC-11 — Módulos de Entrada |
+| Fase | 1 |
+| Tipo | fix |
+| Prioridade | P1 |
+| Estimativa | M |
+| Dependências | KAM-243 |
+| Bloqueia | — |
+| Responsável sugerido | Engenheiro de Plataforma com SRE |
+| Documentos de referência | `EPIC-11_Modulos_Entrada.md` (bloco KAM-243, «Decisões em vigor»), `../ops/secrets-inventory.yaml` (`storage_access_key_id`, `storage_secret_access_key`), `../docs/tecnica/00_Arquitectura_Solucao.md` (§13.3, D6) |
+
+### Contexto
+
+Credor do KAM-243, aberto no PR dele por decisão do fundador de 2026-11-23. Para gravar a foto do dono pelo painel, o `onboarding-web` recebeu o par de credenciais do STO. Esse par é um só por ambiente e lê e escreve os objectos de **todos** os tenants: o isolamento por prefixo é da porta, não do servidor. O processo que serve a sessão do dono fica assim com mais alcance do que a rota precisa, porque ela só escreve na classe `media_imagem` do tenant da sessão. O fundador aceitou-o (opção A) com este credor, que se faz quando a D6 (SeaweedFS ou S3 gerido) fixar o armazenamento.
+
+### Objectivo
+
+A credencial do STO que o painel usa só chega para o que a rota da foto faz, ou o painel deixa de ter credencial do STO.
+
+### Critérios de Aceitação
+
+- [ ] Uma de duas, escolhida depois da D6 e escrita no bloco: o `onboarding-web` recebe uma credencial própria, só de escrita (sem leitura, listagem nem apagamento) no prefixo da classe `media_imagem`, com a nota no inventário de segredos; ou o `onboarding-web` deixa de ter credencial do STO, e os bytes da foto passam a um processo que já a tem.
+- [ ] Com a credencial do painel, uma leitura, uma listagem e um apagamento de um objecto de outro tenant ou de outra classe são recusados pelo servidor, e não só pela porta, com ensaio contra o armazenamento escolhido.
+- [ ] O `onboarding-web` deixa de constar como consumidor do `storage_access_key_id` e do `storage_secret_access_key` no inventário, e o arranque em `staging` e `prod` continua a recusar sem o que passar a precisar.
+
+### Detalhes Técnicos
+
+- **Espera pela D6.** As políticas por prefixo são do servidor, e o SeaweedFS e um S3 gerido não as escrevem da mesma forma.
+- **Sem esquema novo** previsto.
+
+### Testes Requeridos
+
+- Integração contra o armazenamento escolhido, com a credencial do painel.
+- **Adversarial:** a credencial do painel a ler, a listar e a apagar fora da classe e do tenant.
+
+### Definition of Done
+
+- [ ] Critérios de Aceitação satisfeitos; o inventário de segredos e o bloco do KAM-243 revistos com a evidência.
+
+### Handoff para Claude Code
+
+```text
+És o executor do ticket KAM-249 da KAMBÁ (a credencial do STO no painel).
+Lê specs/EPIC-11_Modulos_Entrada.md (blocos KAM-243 e KAM-249), ops/secrets-inventory.yaml (storage_access_key_id),
+services/onboarding-web/src/server.ts (montarArmazenamento) e packages/core-ts/src/storage/.
+Objectivo: a credencial do painel só escreve na classe media_imagem, ou o painel deixa de a ter.
+Regras: só depois da D6; nenhuma chave real no repositório; os segredos novos são decisão do fundador.
+Testes: integração e adversarial.
+```
+
+---
+
 ## Riscos do Epic e itens NÃO VERIFICADOS
 
 | Risco / item | Estado | Impacto | Mitigação / critério de saída | Decisão |
@@ -3987,4 +4044,4 @@ Testes: unit, idempotência e adversarial.
 | 1.33 | Novembro 2026 | Escrita como 1.31 e renumerada na integração, depois do KAM-237 e do KAM-238; o credor do painel passa de KAM-241 a KAM-243. **KAM-231 entregue em parte: a foto real do catálogo do dono pelo WhatsApp.** Sem migração. Emenda 1.136 do dicionário (escrita como 1.135 e renumerada na integração, depois do KAM-236) e emenda ao §6.5 do `docs/tecnica/02` (versão 1.13). Bloco do KAM-231: as decisões do fundador (o Pillow, pelo KAM-122; a visão por um método próprio; os tectos por *tool*; os segredos do `worker-canal-entrada` e do AGR; a saída para a CDN da Meta, NAO VERIFICADO), as decisões do executor e a verificação. **KAM-243** acrescentado, credor da foto pelo painel; o KAM-231 passa a bloqueá-lo. No bloco do KAM-119, as caixas 1, 2, 4, 8 e 10 revistas com a evidência do KAM-231, e os dois achados fora de âmbito actualizados. O piso do `lint_bloco` sobe para 88. | Equipa KAMBÁ |
 | 1.34 | Novembro 2026 | Escrita como 1.32 e renumerada na integração, depois do PR do KAM-231. **KAM-244** e **KAM-245** acrescentados, depois do PR do **KAM-231**, por decisão da coordenação de 2026-11-22: o KAM-244 é o credor dos achados 4 e 5 da revisão adversarial do KAM-231 (a tomada da TLS e os tectos de dentro); o KAM-245 é o do achado fora de âmbito do KAM-119 (a violação de um publicado depois de um `screen`), que o KAM-231 não absorveu. A medição com o modelo real (critérios 3 e 5 do KAM-231, caixas 2, 4 e 10 do KAM-119) passa a apontar ao **KAM-109**, aberto, e não ao KAM-040, que está fechado. Corrige também a linha 1.33, que dizia que o credor do painel passava «de KAM-243 a KAM-243»: era de KAM-241. | Equipa KAMBÁ |
 | 1.35 | Novembro 2026 | **KAM-122 entregue em parte: a arte, a aprovação e a entrega do módulo `social`, e o KAM-246 acrescentado como credor.** Revisão `0085` (sobre a `0084` do KAM-236): o *trigger* da máquina de estados do item, as colunas da arte e da aprovação, os termos da primeira entrega e a finalidade `geracao_de_imagem`. Emenda 1.137 do dicionário (§3.82, §3.5, §3.49, §3.78, §3.79, §3.26). Bloco do KAM-122: as cinco decisões do fundador de 2026-11-21 (D1 a D5), as decisões do executor e a verificação dos critérios (cinco marcados, quatro parciais), da DoD e da revisão adversarial (onze achados: dez corrigidos, com três residuais escritos, e um que não é defeito). **KAM-246** (a arte como imagem no WhatsApp e a página do painel com a ligação de 24 h), aberto por este PR pela decisão D5 e não implementado; depende do KAM-122 e do KAM-015, cujos `Bloqueia` o ganham. Medido contra a `main` em `f3d3a0eb`: escritos como 1.29, emenda 1.134 e KAM-237, renumerados na integração depois do KAM-235, do KAM-125, do KAM-236, do KAM-237, do KAM-238, do KAM-231 e do #254 (que tomou o 244 e o 245); a `0085` fica sobre a `0084`, que fundiu. | Equipa KAMBÁ |
-| 1.36 | Novembro 2026 | **KAM-243 entregue: a foto do dono pelo painel.** Sem migração. Emenda 1.140 do dicionário (§3.81 e §3.56). Bloco do KAM-243: as decisões em vigor (a P4-A do KAM-231, que a coordenação aplicou ao `onboarding-web`), as decisões do executor e a verificação dos critérios (quatro marcados), da DoD e da revisão adversarial (cinco achados: dois confirmados e dois plausíveis corrigidos, e um morto). No bloco do KAM-231, o critério 1 revisto com a evidência do painel, e a caixa fica vazia só pela descarga contra a Meta real; no do KAM-119, o critério 1 revisto da mesma forma. Número **provisório**: renumera-se na integração. | Equipa KAMBÁ |
+| 1.36 | Novembro 2026 | **KAM-243 entregue: a foto do dono pelo painel.** Sem migração. Emenda 1.140 do dicionário (§3.81 e §3.56). Bloco do KAM-243: as decisões em vigor (a P4-A do KAM-231, que a coordenação aplicou ao `onboarding-web`, e a decisão do fundador de 2026-11-23, que a substitui: o `onboarding-web` fica com o par do STO, opção A, com credor), as decisões do executor e a verificação dos critérios (quatro marcados), da DoD e da revisão adversarial (cinco achados: dois confirmados e dois plausíveis corrigidos, e um morto). No bloco do KAM-231, o critério 1 revisto com a evidência do painel, e a caixa fica vazia só pela descarga contra a Meta real; no do KAM-119, o critério 1 revisto da mesma forma. **KAM-249** acrescentado, credor do KAM-243 por decisão do fundador de 2026-11-23: a credencial do STO do painel só de escrita na classe `media_imagem`, ou fora do painel, quando a D6 fixar o armazenamento. Depende do KAM-243, cujo `Bloqueia` o ganha. Número **provisório**: renumera-se na integração. | Equipa KAMBÁ |
