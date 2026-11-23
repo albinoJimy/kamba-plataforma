@@ -158,7 +158,15 @@ class ScreeningPeloCom:
         sujeito_ref: str,
         categoria_declarada: str | None,
         textos: Sequence[str],
+        *,
+        tecto_s: float | None = None,
     ) -> ResultadoDoScreen:
+        # KAM-244: o menor do tecto da porta e do que sobra do prazo da
+        # invocacao. Sem tempo nao se chama o COM: a falha e fechada, como a de
+        # um COM que nao responde.
+        tecto = self.timeout_ms if tecto_s is None else int(min(self.timeout_ms, tecto_s * 1000))
+        if tecto <= 0:
+            raise ScreeningIndisponivelError("sem_tempo")
         ctx = _Ctx(tenant_id=tenant_id, vertical=self.vertical, turn_id=uuid.uuid4().hex)
         corpo = {
             "sujeito_tipo": self.sujeito_tipo,
@@ -167,10 +175,10 @@ class ScreeningPeloCom:
             "textos": list(textos),
             "finalidade": FINALIDADE_DO_SUJEITO[self.sujeito_tipo],
             # O mesmo tecto do transporte: e o que o COM tem para responder.
-            "prazo_ms": self.timeout_ms,
+            "prazo_ms": tecto,
         }
         try:
-            valor = self.cliente.chamar(ROTA, ctx, corpo, self.timeout_ms)
+            valor = self.cliente.chamar(ROTA, ctx, corpo, tecto)
         except Exception as excepcao:  # noqa: BLE001 — qualquer falha e fechada
             # O `ErroDeBackend` diz o codigo e a rota, e nao o corpo. Mesmo
             # assim nao se encadeia a mensagem: a classe basta a quem opera.
