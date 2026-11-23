@@ -41,7 +41,7 @@ from kamba_core.catalogo.extraccao import Campo
 from kamba_core.catalogo.pipeline import ConfirmacaoDoDono
 
 from .com import ClienteDoCom
-from .erros import VALIDATION_ERROR
+from .erros import UPSTREAM_TIMEOUT, VALIDATION_ERROR
 from .especificacoes import ErroDeBackend
 
 #: As duas rotas. Iguais as da constante `ROTAS` de `services/com/src/api/interna.ts`.
@@ -106,11 +106,32 @@ class RegistoPeloCom:
     def _ctx(self, tenant_id: str) -> _Ctx:
         return _Ctx(tenant_id=tenant_id, vertical=self.vertical, turn_id=uuid.uuid4().hex)
 
-    def rascunho(self, tenant_id: str, sku: str, campos: Mapping[str, Campo]) -> None:
-        self.cliente.chamar(ROTA_DO_RASCUNHO, self._ctx(tenant_id), corpo_do_rascunho(sku, campos), self.timeout_ms)
+    def _tecto_ms(self, tecto_s: float | None) -> int:
+        """O menor dos dois tectos (KAM-244); sem tempo, recusa sem chamar o COM.
+
+        A recusa e a de um COM que nao respondeu, e o executor ja a trata: a
+        ingestao gravada diz a verdade, e a publicacao volta a sincronizar o
+        Registo (`_sincronizar_registo` do KAM-049).
+        """
+        tecto = self.timeout_ms if tecto_s is None else int(min(self.timeout_ms, tecto_s * 1000))
+        if tecto <= 0:
+            raise ErroDeBackend(UPSTREAM_TIMEOUT, "registo_sem_tempo")
+        return tecto
+
+    def rascunho(
+        self, tenant_id: str, sku: str, campos: Mapping[str, Campo], *, tecto_s: float | None = None
+    ) -> None:
+        corpo = corpo_do_rascunho(sku, campos)
+        self.cliente.chamar(ROTA_DO_RASCUNHO, self._ctx(tenant_id), corpo, self._tecto_ms(tecto_s))
 
     def publicar(
-        self, tenant_id: str, sku: str, confirmacao: ConfirmacaoDoDono, *, stock: int | None = None
+        self,
+        tenant_id: str,
+        sku: str,
+        confirmacao: ConfirmacaoDoDono,
+        *,
+        stock: int | None = None,
+        tecto_s: float | None = None,
     ) -> None:
         if confirmacao.em.tzinfo is None:
             raise ErroDeBackend(VALIDATION_ERROR, "confirmacao_sem_fuso")
@@ -122,17 +143,25 @@ class RegistoPeloCom:
         }
         if stock is not None:
             corpo["stock"] = stock
-        self.cliente.chamar(ROTA_DA_PUBLICACAO, self._ctx(tenant_id), corpo, self.timeout_ms)
+        self.cliente.chamar(ROTA_DA_PUBLICACAO, self._ctx(tenant_id), corpo, self._tecto_ms(tecto_s))
 
 
 class RegistoPorLigar:
     """A porta sem COM configurado (`KAMBA_COM_URL` vazio). **Levanta sempre**."""
 
-    def rascunho(self, tenant_id: str, sku: str, campos: Mapping[str, Campo]) -> None:
+    def rascunho(
+        self, tenant_id: str, sku: str, campos: Mapping[str, Campo], *, tecto_s: float | None = None
+    ) -> None:
         raise ErroDeBackend("UPSTREAM_DOWN", "registo_por_ligar")
 
     def publicar(
-        self, tenant_id: str, sku: str, confirmacao: ConfirmacaoDoDono, *, stock: int | None = None
+        self,
+        tenant_id: str,
+        sku: str,
+        confirmacao: ConfirmacaoDoDono,
+        *,
+        stock: int | None = None,
+        tecto_s: float | None = None,
     ) -> None:
         raise ErroDeBackend("UPSTREAM_DOWN", "registo_por_ligar")
 
