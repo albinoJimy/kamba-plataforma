@@ -20,6 +20,7 @@ export {
   TIPOS_CONSUMIDOS,
   efeitoDeTrust,
   refDaJanela,
+  refDaViolacao,
   purgarPseudonimos,
   sinaisDoEvento,
   varrerCompradoresDoDono,

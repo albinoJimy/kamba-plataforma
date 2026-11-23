@@ -38,7 +38,9 @@ import {
   SQL_POR_REANALISAR,
   TIPO_VIOLACAO,
   type LinhaDeDecisao,
+  type PorProduto,
 } from "@kamba/core-ts/screening";
+import { refDaViolacao, sinaisDoEvento } from "@kamba/core-ts/trust";
 
 import {
   operacaoDePublicar,
@@ -84,6 +86,11 @@ interface Estado {
   eventos: Evento[];
   /** As transacções em que uma oferta mudou de estado. */
   despublicacoes: number[];
+  /**
+   * As transacções abertas e ainda por confirmar: as decisões delas não se
+   * vêem das outras, como no `READ COMMITTED` do PostgreSQL.
+   */
+  porConfirmar: Set<number>;
 }
 
 interface Base {
@@ -91,6 +98,8 @@ interface Base {
   readonly estado: Estado;
   readonly consultas: string[];
   readonly cliente: ClienteSql;
+  /** O número da transacção corrente (0 fora de uma). */
+  readonly corrente: () => number;
 }
 
 /** Os predicados de uma instrução sobre a oferta: cada um só filtra se estiver no texto. */
@@ -120,10 +129,13 @@ function base(opcoes: {
     decisoes: (opcoes.decisoes ?? []).map((d) => ({ ...d, transaccao: 0 })),
     eventos: [],
     despublicacoes: [],
+    porConfirmar: new Set(),
   };
   const consultas: string[] = [];
   let tenantDaTransaccao: string | null = null;
+  /** A transacção corrente; `contador` numera-as. Encaixam-se para a corrida. */
   let transaccao = 0;
+  let contador = 0;
   const cliente: ClienteSql = {
     async query(original, parametros = []) {
       const sql = opcoes.mutar ? opcoes.mutar(original) : original;
@@ -170,7 +182,9 @@ function base(opcoes: {
               l.sujeitoTipo === tipo &&
               l.sujeitoRef === ref &&
               l.versaoPolitica === versao &&
-              Buffer.from(l.conteudoSha256).equals(Buffer.from(sha)),
+              Buffer.from(l.conteudoSha256).equals(Buffer.from(sha)) &&
+              // A decisão de outra transacção por confirmar não se vê.
+              !(estado.porConfirmar.has(l.transaccao) && l.transaccao !== transaccao),
           )
           .map((l) => ({ decisao: l.decisao, origem: l.origem }));
         return { rows };
@@ -234,8 +248,12 @@ function base(opcoes: {
       eventos: [...estado.eventos],
       despublicacoes: [...estado.despublicacoes],
     };
+    // Uma transacção pode abrir-se dentro de outra (a corrida): ao fechar, a de
+    // fora volta a ser a corrente.
+    const fora = { tenant: tenantDaTransaccao, numero: transaccao };
     tenantDaTransaccao = tenantId;
-    transaccao += 1;
+    contador += 1;
+    transaccao = contador;
     try {
       return await trabalho(cliente);
     } catch (excepcao) {
@@ -245,10 +263,11 @@ function base(opcoes: {
       estado.despublicacoes = antes.despublicacoes;
       throw excepcao;
     } finally {
-      tenantDaTransaccao = null;
+      tenantDaTransaccao = fora.tenant;
+      transaccao = fora.numero;
     }
   };
-  return { comTenant, estado, consultas, cliente };
+  return { comTenant, estado, consultas, cliente, corrente: () => transaccao };
 }
 
 function ctx(tenantId: string): Ctx {
@@ -393,6 +412,62 @@ test("KAM-245, decisao A: a re-analise de uma mudanca de politica continua a emi
   assert.equal(b.estado.ofertas[0]!.estado, "publicado");
   assert.equal(b.estado.despublicacoes.length, 0);
   assert.ok(!b.consultas.some((c) => c.includes("UPDATE platform.offer_terms")));
+});
+
+test("KAM-245, D1: a corrida do screen com a re-analise, nas duas ordens, emite duas vezes o mesmo conteudo, e o T&S le uma chave", async () => {
+  // A re-análise não tranca a oferta, e a decisão D1 do fundador (2026-11-23)
+  // não a muda: as duas violações saem, e é o consumidor que as junta pela
+  // chave do conteúdo. As duas ordens da corrida:
+  //   - o screen confirma depois de a re-análise ler o lote e antes de ela decidir;
+  //   - a re-análise grava e emite, e o screen corre antes de ela confirmar.
+  const ordens: Record<string, (b: Base) => PorProduto> = {
+    "o screen confirma primeiro": (b) => async (tenantId, trabalho) => {
+      await operar(b)(ctx(TENANT), pedido());
+      return b.comTenant(tenantId, () => trabalho());
+    },
+    "a re-analise grava primeiro, sem confirmar": (b) => (tenantId, trabalho) =>
+      b.comTenant(tenantId, async () => {
+        const r = await trabalho();
+        const aberta = b.corrente();
+        b.estado.porConfirmar.add(aberta);
+        await operar(b)(ctx(TENANT), pedido());
+        b.estado.porConfirmar.delete(aberta);
+        return r;
+      }),
+  };
+  for (const [ordem, porProduto] of Object.entries(ordens)) {
+    const b = base({ ofertas: [publicado()], categorias: { [TENANT]: "moda" } });
+    const r = await reanalisar(
+      {
+        politica: politicaCorrente(),
+        classificador: null,
+        escritor: new EscritorSql(b.cliente as never),
+        emissor: new EmissorSql(b.cliente as never),
+        catalogo: new CatalogoSql(b.cliente as never),
+        porProduto: porProduto(b),
+      },
+      { tamanhoDoLote: 10, maximoPorExecucao: 10 },
+    );
+    assert.equal(r.violacoes, 1, ordem);
+    const violacoes = b.estado.eventos.filter((e) => e.tipo === TIPO_VIOLACAO);
+    assert.equal(violacoes.length, 2, `${ordem}: a corrida existe, e emite duas`);
+    assert.equal(new Set(violacoes.map((e) => e.transaccao)).size, 2, ordem);
+    assert.equal(b.estado.ofertas[0]!.estado, "rascunho", ordem);
+    // As duas dão o mesmo sinal: a chave é o conteúdo, e não o envelope.
+    const semBase = { query: () => Promise.reject(new Error("a violacao nao le a base")) };
+    const refs = await Promise.all(
+      violacoes.map(async (e, i) => {
+        const [sinal] = await sinaisDoEvento(
+          semBase,
+          { id: `evt-${i}-${ordem}`, tipo: e.tipo, tenant_id: e.tenantId, ocorrido_em: CONFIRMACAO.em, payload: e.payload },
+          new Date(CONFIRMACAO.em),
+        );
+        return sinal!.refEvento;
+      }),
+    );
+    assert.equal(refs[0], refs[1], ordem);
+    assert.equal(refs[0], refDaViolacao(TENANT, SKU, VERSAO, sha256EmBase32(conteudoSha256({ categoria_declarada: "moda", textos: [NOME] }))), ordem);
+  }
 });
 
 test("KAM-245, decisao A: o recurso humano deixa o dono republicar o que o screen tirou", async () => {

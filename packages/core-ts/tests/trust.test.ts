@@ -44,6 +44,7 @@ import {
   recusaDaSancao,
   risco,
   refDaJanela,
+  refDaViolacao,
   sinaisDoEvento,
   type FilaDoTrust,
   type MotivoPublicoDaSancao,
@@ -600,7 +601,54 @@ describe("suite adversarial (KAM-097)", () => {
   it("a violacao de categoria vira sinal alto, com o sku e a versao e nada mais", async () => {
     const env = envelope("screening.violation_detected", { sku: "SKU-1", regras: ["alcool"], versao_politica: "1.0.0+m.2", sha256: "x" });
     const s = await sinaisDoEvento(bdDeFactos(new Map()), env, SEXTA);
-    assert.deepEqual(s.map((x) => [x.tipo, x.refEvento, x.detalhe]), [["violacao_de_categoria", env.id, { sku: "SKU-1", versao_politica: "1.0.0+m.2" }]]);
+    const ref = refDaViolacao(env.tenant_id, "SKU-1", "1.0.0+m.2", "x");
+    assert.deepEqual(s.map((x) => [x.tipo, x.refEvento, x.detalhe]), [["violacao_de_categoria", ref, { sku: "SKU-1", versao_politica: "1.0.0+m.2" }]]);
+  });
+
+  it("KAM-245, D1: a chave da violacao e o conteudo, e cada parte dele a muda", () => {
+    const t = randomUUID();
+    const a = refDaViolacao(t, "SKU-1", "1.0.0+m.2", "abc");
+    assert.equal(refDaViolacao(t, "SKU-1", "1.0.0+m.2", "abc"), a);
+    for (const outra of [
+      refDaViolacao(randomUUID(), "SKU-1", "1.0.0+m.2", "abc"),
+      refDaViolacao(t, "SKU-2", "1.0.0+m.2", "abc"),
+      refDaViolacao(t, "SKU-1", "1.1.0+m.2", "abc"),
+      refDaViolacao(t, "SKU-1", "1.0.0+m.2", "abd"),
+    ]) {
+      assert.notEqual(outra, a);
+    }
+    // A chave é um `uuid` (a `ts_signal.ref_evento` é `uuid`), e não a de uma janela.
+    assert.match(a, /^[0-9a-f]{8}-[0-9a-f]{4}-8[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+    assert.notEqual(a, refDaJanela(t, "violacao_de_categoria", SEXTA, 30));
+  });
+
+  it("KAM-245, D1: a corrida do screen com a re-analise, nas duas ordens, da um sinal e nenhuma limitacao", async () => {
+    // O `/internal/screen` do COM e a re-análise emitem a mesma violação: dois
+    // envelopes com ids diferentes e o mesmo conteúdo. As regras podem vir
+    // noutra ordem, e não fazem parte da chave.
+    for (const ordem of [["screen", "reanalise"], ["reanalise", "screen"]] as const) {
+      const m = montar();
+      const conteudo = { sku: "SKU-1", versao_politica: "1.0.0+m.2", sha256: "a2".repeat(26) };
+      const envelopes = {
+        screen: envelope("screening.violation_detected", { ...conteudo, regras: ["alcool"] }, m.tenantId),
+        reanalise: envelope("screening.violation_detected", { ...conteudo, regras: ["alcool", "nao_listada"] }, m.tenantId),
+      };
+      const resultados = [];
+      for (const origem of ordem) {
+        const [sinal] = await sinaisDoEvento(bdDeFactos(new Map()), envelopes[origem], SEXTA);
+        resultados.push(await m.trust.sinalizar(sinal!));
+      }
+      assert.deepEqual(resultados.map((r) => r.repetido), [false, true], ordem.join(" > "));
+      assert.equal(m.repositorio.sinais.length, 1, ordem.join(" > "));
+      assert.deepEqual(m.repositorio.sancoes.map((s) => s.passo), ["aviso"], ordem.join(" > "));
+      assert.equal(await m.trust.passoEmVigor(m.tenantId), "aviso", "sem limitacao automatica");
+    }
+    // O controlo: com a chave antiga (o `envelope.id`), as mesmas duas davam a limitação.
+    const m = montar();
+    for (let i = 0; i < 2; i++) {
+      await m.trust.sinalizar({ tenantId: m.tenantId, tipo: "violacao_de_categoria", refEvento: randomUUID(), detalhe: {}, ocorridoEm: SEXTA });
+    }
+    assert.equal(await m.trust.passoEmVigor(m.tenantId), "limitacao");
   });
 
   it("o order.delivered e o payment.confirmed consomem-se sem sinal e sem ler a base", async () => {

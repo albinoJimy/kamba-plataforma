@@ -644,7 +644,8 @@ test("o consumidor de T&S: as dezasseis filas do trust, por ordem, com a máquin
     versao: 2,
     tenant_id: "99999999-9999-4999-8999-999999999999",
     ocorrido_em: new Date().toISOString(),
-    payload: { sku: "sku-1", versao_politica: "1.0.0" },
+    // O payload do contrato v1: a chave do sinal é o conteúdo (KAM-245, D1).
+    payload: { sku: "sku-1", regras: ["alcool"], versao_politica: "1.0.0", sha256: "a2".repeat(26) },
   } as never);
   assert.ok(escritas.some((s) => /INSERT INTO platform\.ts_signal/.test(s)), "o efeito do consumidor nao grava sinais");
 });

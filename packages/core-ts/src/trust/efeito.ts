@@ -109,7 +109,28 @@ function contar(o: OpcoesDoTrust): { readonly contadores?: ContadoresDoTrust } {
  */
 export function refDaJanela(tenantId: string, familia: string, agora: Date, dias: number): string {
   const janela = (agora.getTime() - (agora.getTime() % (dias * DIA))) / (dias * DIA);
-  const h = createHash("sha256").update(`kamba/trust/${familia}/v1\0${tenantId}\0${janela}`, "utf8").digest();
+  return uuidDoResumo(`kamba/trust/${familia}/v1\0${tenantId}\0${janela}`);
+}
+
+/**
+ * A chave do sinal de uma violação de categoria (KAM-245, decisão D1 do
+ * fundador de 2026-11-23): o **conteúdo** que violou — o `sku`, a versão da
+ * política e o `sha256` do payload — e não o `envelope.id`.
+ *
+ * O `/internal/screen` do COM e a re-análise podem emitir a mesma violação em
+ * corrida: a re-análise não tranca a oferta nem volta a ler o produto na
+ * transacção dele. Com o `envelope.id` como chave, as duas davam dois sinais
+ * altos (35 + 35) e a `limitacao` automática por um só produto. Com esta, a
+ * segunda é a reentrega da primeira. Uma versão nova da política, ou um texto
+ * novo, é outra chave, e volta a contar, como antes.
+ */
+export function refDaViolacao(tenantId: string, sku: string, versaoPolitica: string, sha256: string): string {
+  return uuidDoResumo(`kamba/trust/violacao_de_categoria/v1\0${tenantId}\0${sku}\0${versaoPolitica}\0${sha256}`);
+}
+
+/** Os primeiros 16 octetos de um SHA-256, com os bits de versão (8) e de variante do RFC 9562. */
+function uuidDoResumo(texto: string): string {
+  const h = createHash("sha256").update(texto, "utf8").digest();
   h[6] = ((h[6] ?? 0) & 0x0f) | 0x80;
   h[8] = ((h[8] ?? 0) & 0x3f) | 0x80;
   const x = h.subarray(0, 16).toString("hex");
@@ -244,7 +265,12 @@ export async function sinaisDoEvento(
       sinais.push({
         tenantId,
         tipo: "violacao_de_categoria",
-        refEvento: envelope.id,
+        refEvento: refDaViolacao(
+          tenantId,
+          texto(payload["sku"]),
+          texto(payload["versao_politica"]),
+          texto(payload["sha256"]),
+        ),
         detalhe: { sku: texto(payload["sku"]), versao_politica: texto(payload["versao_politica"]) },
         ocorridoEm,
       });
