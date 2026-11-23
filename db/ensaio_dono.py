@@ -30,7 +30,10 @@ relatorio: `--sonda` (`compose`, a omissao, corre a do ficheiro; `node` e a
 (o `NODE_OPTIONS`; o relatorio le-o do contentor, e um veredicto exige-o igual ao
 pedido) e `--entrada` (o ficheiro que o `node` corre, para comparar o `.ts` com o
 compilado). Sem elas, o guiao mede o servico como o compose de *staging* o declara,
-que e o de producao.
+que e o de producao, com uma unica diferenca escrita sempre: a paciencia da sonda
+no arranque (`start_period` e `timeout`, ver `_sobreposicao`). O instrumento le o
+cgroup por `docker exec`, que corre **dentro** do cgroup medido: o pico e o CPU
+que mede sao maiores ou iguais aos do processo so com a sonda.
 
 **O `memswap_limit` nao e enfeite, e custou uma medicao.** O Docker Desktop tem
 *swap*, e um `mem_limit` sozinho deixa o contentor usar outro tanto: a primeira

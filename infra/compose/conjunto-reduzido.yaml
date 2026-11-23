@@ -241,8 +241,9 @@ servicos:
       filas `evt.dono.p<n>` e cria o contacto `dono` do `tenant.provisioned`.
       Processo proprio e nao o lote, porque a KEK do telefone do caso e so dele
       (decisao do fundador de 2026-11-20). 54 MiB **medidos** sob o proprio
-      limite e sem *swap*, com uma rajada de 300 `tenant.provisioned`: oito
-      veredictos verdes, e o `memory.peak` encostado ao limite
+      limite e sem *swap*, com uma rajada de 300 `tenant.provisioned` e o
+      `NODE_OPTIONS=--max-semi-space-size=1 --max-old-space-size=24`: todos os
+      veredictos verdes em tres corridas, e o `memory.peak` em 44-46 MiB
       (`docs/evidencia/KAM-238.md` §6).
 
   - nome: chatwoot
