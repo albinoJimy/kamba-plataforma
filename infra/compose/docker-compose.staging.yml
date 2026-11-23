@@ -1093,9 +1093,33 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:-kamba_platform}
       POSTGRES_HOST_AUTH_METHOD: scram-sha-256
       POSTGRES_INITDB_ARGS: "--auth-host=scram-sha-256"
+    # KAM-225: o registo do servidor em `jsonlog`, num volume proprio que o
+    # `registo-pg` le so de leitura. A mesma configuracao de producao, com a
+    # razao de cada valor no `docker-compose.prod.yml`.
+    command:
+      - postgres
+      - -c
+      - logging_collector=on
+      - -c
+      - log_destination=jsonlog
+      - -c
+      - log_directory=/var/log/postgresql
+      - -c
+      - log_filename=postgresql-%H.log
+      - -c
+      - log_rotation_age=60
+      - -c
+      - log_rotation_size=0
+      - -c
+      - log_truncate_on_rotation=on
+      - -c
+      - log_file_mode=0640
+      - -c
+      - log_min_error_statement=panic
     volumes:
       - postgres-data:/var/lib/postgresql
       - ./postgres/initdb:/docker-entrypoint-initdb.d:ro
+      - postgres-log:/var/log/postgresql
     networks:
       - data
     mem_limit: 5120m
@@ -1164,6 +1188,72 @@ services:
       start_period: 20s
 
   # =============================================================== operacao
+  # KAM-225. O recolector do registo do PostgreSQL — `python -m
+  # kamba_core.registo_pg` — com a imagem do AGR, como o `idx`. Le os `*.json`
+  # do volume `postgres-log`, **so de leitura**, conta a recusa `42501` sobre
+  # `platform.trust_level` a um papel que nao e o `kamba_batch`, e serve
+  # `registo_pg_tecto_recusado_total` ao Prometheus. Le tres campos de cada
+  # linha (`user`, `state_code`, `message`); o texto das consultas nao sai
+  # daqui. Decisao do fundador de 2026-11-21 (opcao A): codigo nosso, sem peca
+  # de terceiros nem migracao.
+  #
+  # So em `ops`: nao fala com a base nem sai para fora
+  # (`infra/egress/registo-pg.yaml`, `destinos: []`), e o volume nao e rede.
+  registo-pg:
+    <<: *endurecido
+    user: "nobody"
+    # O grupo `postgres` da imagem do servidor (gid 999): os ficheiros sao 0640.
+    group_add:
+      - "999"
+    build:
+      context: ../..
+      dockerfile: services/agr/Dockerfile
+      args:
+        KAMBA_COMMIT_SHA: ${KAMBA_COMMIT_SHA:?o deploy passa o SHA da release}
+    command: ["python", "-m", "kamba_core.registo_pg"]
+    environment:
+      HOST: 0.0.0.0
+      REGISTO_PG_PORT: "8225"
+      KAMBA_REGISTO_PG_DIR: /var/log/postgresql
+      KAMBA_COMMIT_SHA: ${KAMBA_COMMIT_SHA:?o deploy passa o SHA da release}
+      KAMBA_ENV: staging
+    volumes:
+      - postgres-log:/var/log/postgresql:ro
+    networks:
+      - ops
+    # **Medido** (`docs/evidencia/KAM-225.md`): 28 MiB de RSS em repouso, e
+    # 32 MiB de pico do cgroup com 2 000 recusas de rajada, uma linha de 5 MB e
+    # 20 sondas do `/healthz` ao mesmo tempo, sob este limite e sem OOM.
+    mem_limit: 48m
+    # 0.25, como o `idx`. Com 0.1 o arranque do Python (que compila o que
+    # importa, sem `.pyc` na imagem) passou dos 80 s da sonda numa maquina
+    # carregada, e o contentor ficou *unhealthy* sem chegar a registar nada
+    # (medido no ensaio do KAM-225). Em repouso gasta 0,05%.
+    cpus: 0.25
+    # **A sonda e `bash`, e nao Python como a do `idx`, e foi medido.** A imagem
+    # oficial do Python nao traz `.pyc`, e cada sonda em Python compila o que
+    # importa: 1,3 s de CPU com o `urllib.request` e 0,9 s so com o `socket`,
+    # o que sob `cpus: 0.1` dava 9 a 16 s e passava o `timeout`. O `/dev/tcp`
+    # do `bash` gasta 0,16 s, e falha na porta e na rota erradas. O
+    # redireccionamento vai no fim do bloco, e nao num `exec`: o `supply_chain`
+    # le a primeira palavra depois do `exec` como o ficheiro que se executa.
+    healthcheck:
+      test:
+        - CMD
+        - bash
+        - -c
+        - >-
+          { printf 'GET /healthz HTTP/1.0\r\n\r\n' >&3 &&
+          head -c 12 <&3; } 3<>/dev/tcp/127.0.0.1/8225 |
+          grep -q '^HTTP/1.0 200'
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 60s
+    depends_on:
+      postgres:
+        condition: service_healthy
+
   prometheus:
     image: prom/prometheus:v3.7.3@sha256:49214755b6153f90a597adcbff0252cc61069f8ab69ce8411285cd4a560e8038
     <<: *endurecido
@@ -1288,6 +1378,8 @@ networks:
 
 volumes:
   postgres-data:
+  # KAM-225: o registo do servidor, em `jsonlog`.
+  postgres-log:
   queue-data:
   seaweedfs-data:
   prometheus-data:

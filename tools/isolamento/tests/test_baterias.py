@@ -145,6 +145,8 @@ class TestAsListasCoincidemComAEnumeracao(unittest.TestCase):
             - set(x01_rotas.SONDAS_DO_IDX)
             # KAM-218: a sonda do processo dos dados do off-boarding, idem.
             - set(x01_rotas.SONDA_DO_OFFBOARDING)
+            # KAM-225: as duas do recolector do registo do PostgreSQL, idem.
+            - set(x01_rotas.SONDAS_DO_REGISTO_PG)
         )
         self.assertEqual(set(declaradas), enumeradas)
 
@@ -169,12 +171,24 @@ class TestAsListasCoincidemComAEnumeracao(unittest.TestCase):
             item for item in self.itens if item.startswith("rota:py-core:kamba_core/offboarding/")
         }
         self.assertEqual(do_offboarding, set(x01_rotas.SONDA_DO_OFFBOARDING))
-        # E as rotas Python da biblioteca padrao sao so estas quatro.
+        # E as rotas Python da biblioteca padrao sao so estas seis (as duas do
+        # recolector do registo do PostgreSQL desde o KAM-225).
         self.assertEqual(
             {item for item in self.itens if item.startswith("rota:py-core:")},
             set(x01_rotas.ROTA_INTERNA_DO_IDX) | set(x01_rotas.SONDAS_DO_IDX)
-            | set(x01_rotas.SONDA_DO_OFFBOARDING),
+            | set(x01_rotas.SONDA_DO_OFFBOARDING) | set(x01_rotas.SONDAS_DO_REGISTO_PG),
         )
+
+    def test_as_sondas_do_recolector_do_registo(self) -> None:
+        """KAM-225: o `processo.py` do recolector da **exactamente** duas rotas.
+
+        Uma terceira rota no `tratador` aparece aqui como item que ninguem declarou.
+        """
+        do_registo = {
+            item for item in self.itens if item.startswith("rota:py-core:kamba_core/registo_pg/")
+        }
+        self.assertEqual(do_registo, set(x01_rotas.SONDAS_DO_REGISTO_PG))
+        self.assertEqual(len(do_registo), 2)
 
     def test_as_dezassete_superficies_da_api_interna_do_com(self) -> None:
         """As dezassete (KAM-178, KAM-099, KAM-190, KAM-222, KAM-119 e KAM-206) sao **exactamente** as que a enumeracao da ao COM.

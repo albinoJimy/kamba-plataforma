@@ -1,0 +1,15 @@
+# Lista de saidas de `registo-pg` — KAM-067 criterio 9; servico do KAM-225.
+#
+# Negado por omissao: o que nao esta em `destinos` nao sai.
+#
+# O `registo-pg` corre `python -m kamba_core.registo_pg` com a imagem do AGR, e
+# o nome do servico nao e o de uma pasta de `services/`: o
+# `services/agr/egress.yaml` nao o cobre, e o `supply_chain` pede esta lista.
+# **Vazia**: o processo le o registo do PostgreSQL de um volume montado so de
+# leitura e serve um contador ao Prometheus; `ops` e `internal: true`, o
+# servico nao tem `HTTPS_PROXY` e nao abre ligacao a base. O texto das consultas
+# que o registo traz nao sai daqui (Detalhes Tecnicos do KAM-225).
+version: 1
+servico: registo-pg
+por_omissao: negar
+destinos: []
