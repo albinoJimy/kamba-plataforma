@@ -112,6 +112,14 @@ def verificar(raiz: Path, hoje: datetime.date | None = None) -> tuple[list[Achad
     novos, estatisticas_docs = documentos.verificar(textos, saber, permitidas, hoje)
     achados += novos
 
+    # KAM-127: o tecto dos modulos de entrada conta-se num ficheiro so.
+    do_registo = {}
+    for relativo in por_superficie["registo"]:
+        fonte = _ler(raiz, relativo)
+        if fonte is not None:
+            do_registo[relativo] = fonte
+    achados += registo.modulos_em_mais_de_um_ficheiro(do_registo)
+
     # KAM-124, criterio 3: um preco de teste nao aparece em Kz num texto ao
     # cliente. Le os precos do ficheiro de planos e varre o corpus do registo.
     planos = _ler(raiz, "registry/plans.yaml")

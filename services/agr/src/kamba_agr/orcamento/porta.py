@@ -38,15 +38,22 @@ from ..tls import orcamento as repositorio
 class PortaDeOrcamento:
     """`enviar(tenant_id, contact_id, action_id) -> Envio` e `libertar(invocacao)`, assincronos."""
 
-    __slots__ = ("_abrir", "_saida", "_relogio")
+    __slots__ = ("_abrir", "_saida", "_relogio", "_desligado")
 
     def __init__(
         self,
         abrir_ligacao: Callable[[], Any],
         saida: Any | None = None,
         relogio: Callable[[], datetime.datetime] | None = None,
+        desligado: bool = False,
     ) -> None:
         self._abrir = abrir_ligacao
+        #: KAM-127: o `orcamento` abatido no `registry/modulos_entrada.yaml`.
+        #: As tres portas fora da ToolLayer obedecem-lhe, sem ir a base: o botao
+        #: «Pedir orcamento» deixa de se oferecer ao cliente, uma proposta
+        #: respondida antes do abate nao sai, e a janela que o cliente abre nao
+        #: liberta as que esperavam por ela.
+        self._desligado = desligado
         self._saida = saida if saida is not None else OutboundPorLigar()
         self._relogio = relogio or (lambda: datetime.datetime.now(datetime.UTC))
 
@@ -61,6 +68,8 @@ class PortaDeOrcamento:
                 pass
 
     async def enviar(self, tenant_id: str, contact_id: str, action_id: str) -> repositorio.Envio:
+        if self._desligado:
+            return repositorio.Envio(repositorio.NAO_ENVIADO)
         return await asyncio.to_thread(
             self._com_ligacao,
             repositorio.enviar,
@@ -105,6 +114,8 @@ class PortaDeOrcamento:
 
     async def activo(self, tenant_id: str) -> bool:
         """Se o tenant tem o modulo `orcamento` (o passo 2, perguntado antes)."""
+        if self._desligado:
+            return False
         return await asyncio.to_thread(self._com_ligacao, repositorio.modulo_activo, tenant_id)
 
     def agora(self) -> datetime.datetime:
@@ -120,7 +131,7 @@ class PortaDeOrcamento:
         `aguarda_janela` saem agora. Uma mensagem do dono (outra persona) nao
         abre a janela de cliente nenhum, e nao se vai a base por ela.
         """
-        if getattr(invocacao, "persona", None) != PERSONA_CLIENTE:
+        if self._desligado or getattr(invocacao, "persona", None) != PERSONA_CLIENTE:
             return []
         return await asyncio.to_thread(
             self._com_ligacao,

@@ -132,8 +132,13 @@ class EnhancePorEntitlement:
     """
 
     ler: Callable[[str, str], Any]
+    #: KAM-127: o `foto` abatido no `registry/modulos_entrada.yaml`. Sem oferta
+    #: a ninguem, e sem ler o entitlement.
+    desligado: bool = False
 
     def disponivel(self, tenant_id: str) -> bool:
+        if self.desligado:
+            return False
         try:
             return bool(self.ler(tenant_id, MODULO_DA_FOTO).ativo)
         except Exception:  # noqa: BLE001 — na duvida, sem oferta

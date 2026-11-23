@@ -1794,6 +1794,26 @@ ESPERADO_POR_TABELA.update(
     }
 )
 
+#: O experimento dos modulos de entrada (KAM-127). As duas tabelas sao do lote,
+#: so de acrescentar: `SELECT` e `INSERT`, e nenhum `UPDATE` nem `DELETE` — os
+#: gatilhos `ENABLE ALWAYS` recusam-nos tambem ao dono. A aplicacao nao as ve.
+ESPERADO_POR_TABELA.update(
+    {
+        tabela: {
+            "kamba_app": set(),
+            "kamba_batch": {"SELECT", "INSERT"},
+            "kamba_resolver": set(),
+            "kamba_identity": set(),
+            "kamba_audit": set(),
+            "kamba_agr": set(),
+            "kamba_pay_hooks": set(),
+            "kamba_migrator": set(PRIVILEGIOS_DE_TABELA),
+            "public": set(),
+        }
+        for tabela in ("module_decisions", "module_experiment_exclusions")
+    }
+)
+
 #: O billing da plataforma (KAM-059, revisao do billing). Quem escreve e o
 #: `kamba_pay`, que nao aparece aqui: o papel do PAY declara-se de uma vez, no
 #: `PRIVILEGIOS_DO_PAY` abaixo.
@@ -2468,7 +2488,12 @@ COLUNAS_POR_PAPEL = {
     },
     # KAM-097: a varredura da foto repetida le tres colunas da ingestao, e so
     # elas — o `extraido` e os media ficam fora do lote.
-    ("kamba_batch", "catalog_ingestions", "SELECT"): {"id", "tenant_id", "phash"},
+    # KAM-127: e o experimento dos modulos le mais duas — o `estado` e o
+    # `confirmado_at` —, o produto publicado e quando, que e o resultado de valor
+    # do `catalogo`. Continua sem o `extraido`, sem os media e sem o sku.
+    ("kamba_batch", "catalog_ingestions", "SELECT"): {
+        "id", "tenant_id", "phash", "estado", "confirmado_at",
+    },
     # KAM-233 (`0086`): a purga do off-boarding le das operacionais so o
     # `tenant_id` do `DELETE ... WHERE tenant_id = %s`. O `BYPASSRLS` do lote
     # nao lhe da a marca, o pedido, o conteudo nem as accoes do dono.

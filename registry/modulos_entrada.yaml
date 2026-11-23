@@ -1,0 +1,51 @@
+# registry/modulos_entrada.yaml — a regra de escopo dos modulos de entrada (KAM-127, ADR-020)
+#
+# A QUINTA FORMA dos ficheiros de `registry/` (chave de topo `modulos_entrada`).
+# Diz duas coisas, e so duas:
+#
+# 1. QUANTOS MODULOS HA. O ADR-020 admite **no maximo quatro** modulos de
+#    entrada activos (EPIC-11 §1, regra 7). O gate 3b
+#    (`tools/canon_lint/registo.py`, `forma_de_modulos`) conta os `activo: true`
+#    e recusa um quinto sem `emenda_adr_020` — o caminho de um ficheiro
+#    `docs/adr/ADR-020-emenda-<slug>.md` que exista e cite o ADR-020. O quinto
+#    modulo falha tambem no dicionario §3.7 enquanto la nao estiver; sao duas
+#    barreiras, e nenhuma faz as vezes da outra.
+#
+# 2. QUE MODULO ESTA LIGADO. `activo: false` e o efeito de um abate (criterio 8
+#    do KAM-127): a ToolLayer recusa as tools desse modulo no passo 2 com
+#    `ENTITLEMENT_DENIED`, antes de ler o entitlement do tenant, e o grafo do
+#    dono responde com a frase estatica que ja tinha para «modulo nao activo».
+#    As portas fora da ToolLayer obedecem tambem: a oferta de «melhorar foto»
+#    (o `foto` nao tem tool) e a `PortaDeOrcamento` (o botao «Pedir orcamento»
+#    do Vendedor, o envio da proposta e a janela). Os outros modulos nao mudam;
+#    no atendimento, so desaparece o que e do proprio modulo. O AGR le este
+#    ficheiro **no arranque**: desligar e editar, rever e reiniciar o AGR — sem
+#    migracao e sem tocar nos `entitlements` de ninguem.
+#
+#    Os planos novos sao a outra metade (o `registry/plans.yaml`, que o
+#    provisionamento le): um modulo abatido sai dos planos `entrada_*` na mesma
+#    alteracao. Quem o faz, e quando, e a decisao registada em
+#    `platform.module_decisions` (docs/experimento-modulos.md).
+#
+# `abatavel` e o criterio de abate (d): o Catalogo AI **nunca se abate**, so se
+# ajusta (ADR-020, pre-requisito do onboarding). O gate 3b recusa
+# `activo: false` ou `abatavel: true` no `catalogo`.
+#
+# Os quatro nomes sao os do dicionario §3.7, do
+# `registry/entitlement_keys.schema.json` (`$defs.modulo_de_entrada`) e do
+# `kamba_core.modulos.MODULOS_DE_ENTRADA`; um ensaio confronta-os.
+
+version: 1.0.0
+modulos_entrada:
+  - modulo: catalogo
+    activo: true
+    abatavel: false
+  - modulo: foto
+    activo: true
+    abatavel: true
+  - modulo: social
+    activo: true
+    abatavel: true
+  - modulo: orcamento
+    activo: true
+    abatavel: true
