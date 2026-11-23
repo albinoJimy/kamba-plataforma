@@ -611,6 +611,10 @@ class TestConvencoes(ComBase):
                 ("consent_texts", "version", "text", None),
                 ("contact_deks", "dek_id", "uuid", "gen_random_uuid()"),
                 ("contact_endpoints", "id", "uuid", "gen_random_uuid()"),
+                # KAM-208: chave natural, o contacto no seu tenant: um
+                # pseudonimo por contacto.
+                ("contact_xtenant_pseudonym", "contact_id", "uuid", None),
+                ("contact_xtenant_pseudonym", "tenant_id", "uuid", None),
                 ("contacts", "contact_id", "uuid", "gen_random_uuid()"),
                 # KAM-121: o calendario e o item do social, pela regra geral
                 # («conta» < «conte» < «contr»).
@@ -1557,7 +1561,11 @@ class TestConvencoes(ComBase):
              # caso; as revogacoes pelo `painel_revogacao_sid_uq (tenant_id,
              # sid)` e o `painel_revogacao_corte_uq (tenant_id)`, sem FK.
              "onboarding_otp",
-             "painel_revogacao"},
+             "painel_revogacao",
+             # KAM-208 (revisao da correlacao entre tenants). Pela chave
+             # primaria `(tenant_id, contact_id)`. **Com** FK para `tenants` e
+             # a composta para o contacto.
+             "contact_xtenant_pseudonym"},
         )
         for tabela, anulavel in com_tenant:
             with self.subTest(tabela=tabela):
@@ -2267,7 +2275,9 @@ class TestConvencoes(ComBase):
         # `onboarding_otp_caso_fk (onboarding_id, tenant_id)`, que prende o
         # desafio ao caso e ao tenant dele. A `painel_revogacao` nao tem FK: o
         # tenant de uma sessao do painel pode ainda nao ter linha em `tenants`.
-        self.assertEqual(len(linhas), 123)
+        # **125** desde a revisao da correlacao entre tenants (KAM-208): a do
+        # tenant e a composta do contacto da `contact_xtenant_pseudonym`.
+        self.assertEqual(len(linhas), 125)
         for nome, alvo in linhas:
             with self.subTest(fk=nome):
                 self.assertTrue(alvo.startswith("platform."), alvo)

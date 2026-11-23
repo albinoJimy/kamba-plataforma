@@ -12,7 +12,7 @@
 
 version: 1
 fonte: "specs/02_Dicionario_de_Dados_Canonico.md"
-versao_dicionario: "1.139"
+versao_dicionario: "1.140"
 entradas:
   - seccao: "3.1"
     conceito: "Contacto"
@@ -123,6 +123,27 @@ entradas:
     nomes_nota: []
     variantes_literais:
       - "msisdn_hash"
+  - seccao: "3.1"
+    conceito: "Pseudónimo do telefone sem tenant"
+    canonico: "contact_xtenant_pseudonym(tenant_id, contact_id, pseudonimo, kid, visto_at)"
+    literais:
+      - "contact_xtenant_pseudonym(tenant_id, contact_id, pseudonimo, kid, visto_at)"
+    nomes:
+      - "contact_xtenant_pseudonym"
+      - "tenant_id"
+      - "contact_id"
+      - "pseudonimo"
+      - "kid"
+      - "visto_at"
+    nomes_nota:
+      - "pepper_contact_xtenant"
+      - "kid"
+      - "phone_hmac"
+      - "kamba_identity"
+      - "contacts_xtenant_esquecer"
+      - "platform.contact_xtenant_esquecer"
+      - "visto_at"
+    variantes_literais: []
   - seccao: "3.1"
     conceito: "Prova de consentimento"
     canonico: "consent_event (append-only)"
@@ -18293,7 +18314,7 @@ entradas:
     variantes_literais: []
   - seccao: "3.68"
     conceito: "Tipo de sinal"
-    canonico: "ts_signal.tipo ∈ {auto_compra, burla_provavel, confirmacao_suspeita, foto_repetida, preco_anomalo, queixa_recorrente, nao_entrega, mudanca_de_conta, violacao_de_categoria}"
+    canonico: "ts_signal.tipo ∈ {auto_compra, burla_provavel, confirmacao_suspeita, foto_repetida, preco_anomalo, queixa_recorrente, nao_entrega, mudanca_de_conta, violacao_de_categoria, comprador_noutra_loja_do_dono}"
     literais:
       - "ts_signal.tipo"
       - "auto_compra"
@@ -18305,6 +18326,7 @@ entradas:
       - "nao_entrega"
       - "mudanca_de_conta"
       - "violacao_de_categoria"
+      - "comprador_noutra_loja_do_dono"
     nomes:
       - "ts_signal.tipo"
       - "auto_compra"
@@ -18316,7 +18338,9 @@ entradas:
       - "nao_entrega"
       - "mudanca_de_conta"
       - "violacao_de_categoria"
+      - "comprador_noutra_loja_do_dono"
     nomes_nota:
+      - "comprador_noutra_loja_do_dono"
       - "mudanca_de_conta"
       - "preco_anomalo"
     variantes_literais: []
@@ -18644,6 +18668,60 @@ entradas:
       - "fotos"
       - "encerramentos"
       - "mudancas_de_conta"
+      - "pseudonimos"
+      - "compradores_do_dono"
+    variantes_literais: []
+  - seccao: "3.68"
+    conceito: "Comprador noutra loja do mesmo dono"
+    canonico: "comprador_noutra_loja_do_dono, um ts_signal.tipo de severidade baixa e peso 0"
+    literais:
+      - "comprador_noutra_loja_do_dono"
+      - "ts_signal.tipo"
+      - "baixa"
+    nomes:
+      - "comprador_noutra_loja_do_dono"
+      - "ts_signal.tipo"
+      - "baixa"
+    nomes_nota:
+      - "detalhe"
+    variantes_literais: []
+  - seccao: "3.68"
+    conceito: "A comparação"
+    canonico: "platform.ts_compradores_noutra_loja_do_dono(p_tenants) → o tenant e a contagem"
+    literais:
+      - "platform.ts_compradores_noutra_loja_do_dono(p_tenants)"
+    nomes:
+      - "platform.ts_compradores_noutra_loja_do_dono"
+      - "p_tenants"
+    nomes_nota:
+      - "SECURITY"
+      - "DEFINER"
+      - "kamba_batch"
+      - "kid"
+    variantes_literais: []
+  - seccao: "3.68"
+    conceito: "A purga do pseudónimo"
+    canonico: "platform.contact_xtenant_purgar(p_tenants, p_antes) → quantos apagou"
+    literais:
+      - "platform.contact_xtenant_purgar(p_tenants, p_antes)"
+    nomes:
+      - "platform.contact_xtenant_purgar"
+      - "p_tenants"
+      - "p_antes"
+    nomes_nota:
+      - "SECURITY"
+      - "DEFINER"
+      - "kamba_batch"
+    variantes_literais: []
+  - seccao: "3.68"
+    conceito: "O interruptor"
+    canonico: "KAMBA_CORRELACAO_ENTRE_TENANTS, que só liga com o valor ligada"
+    literais:
+      - "KAMBA_CORRELACAO_ENTRE_TENANTS"
+    nomes:
+      - "KAMBA_CORRELACAO_ENTRE_TENANTS"
+    nomes_nota:
+      - "compradores_do_dono"
     variantes_literais: []
   - seccao: "3.69"
     conceito: "Ledger de custo por módulo"
@@ -23476,6 +23554,18 @@ tabelas:
     assinatura: "hmac_key_versions(kid, estado, criado_at)"
     seccao: "3.1"
     conceito: "Versões da chave de pesquisa"
+  - nome: "contact_xtenant_pseudonym"
+    esquema: ""
+    colunas:
+      - "tenant_id"
+      - "contact_id"
+      - "pseudonimo"
+      - "kid"
+      - "visto_at"
+    aberta: false
+    assinatura: "contact_xtenant_pseudonym(tenant_id, contact_id, pseudonimo, kid, visto_at)"
+    seccao: "3.1"
+    conceito: "Pseudónimo do telefone sem tenant"
   - nome: "tenants"
     esquema: "platform"
     colunas:
@@ -24752,6 +24842,23 @@ tabelas:
     assinatura: "platform.ts_limitacao_do_catalogo()"
     seccao: "3.68"
     conceito: "A limitação no catálogo"
+  - nome: "ts_compradores_noutra_loja_do_dono"
+    esquema: "platform"
+    colunas:
+      - "p_tenants"
+    aberta: false
+    assinatura: "platform.ts_compradores_noutra_loja_do_dono(p_tenants)"
+    seccao: "3.68"
+    conceito: "A comparação"
+  - nome: "contact_xtenant_purgar"
+    esquema: "platform"
+    colunas:
+      - "p_tenants"
+      - "p_antes"
+    aberta: false
+    assinatura: "platform.contact_xtenant_purgar(p_tenants, p_antes)"
+    seccao: "3.68"
+    conceito: "A purga do pseudónimo"
   - nome: "module_cost_gravar"
     esquema: "platform"
     colunas:
@@ -26691,6 +26798,7 @@ dominios:
       - "nao_entrega"
       - "mudanca_de_conta"
       - "violacao_de_categoria"
+      - "comprador_noutra_loja_do_dono"
     seccao: "3.68"
     conceito: "Tipo de sinal"
     so_no_registo: false

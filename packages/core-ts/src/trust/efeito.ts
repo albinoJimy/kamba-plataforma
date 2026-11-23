@@ -29,11 +29,16 @@
  * papel auditado que atravessa tenants. A foto repetida é a única correlação
  * entre tenants deste ticket, e sai só como sinal informativo (peso 0) com uma
  * contagem — nunca o outro tenant.
+ *
+ * O KAM-208 acrescenta a segunda: o comprador que compra noutro tenant do mesmo
+ * dono (`varrerCompradoresDoDono`), também informativa e também só com uma
+ * contagem, e a purga do pseudónimo que a sustenta (`purgarPseudonimos`).
  */
 
 import { createHash } from "node:crypto";
 
 import type { Efeito } from "../eventos/consumo.ts";
+import { DIAS_DE_RETENCAO_DO_PSEUDONIMO } from "../identity/correlacao.ts";
 import type { SinalNovo } from "./contrato.ts";
 import type { ContadoresDoTrust } from "./metricas.ts";
 import {
@@ -51,12 +56,14 @@ import { ServicoDeTrust } from "./servico.ts";
 import {
   RepositorioDeTrustSql,
   type ClienteSql,
+  SQL_COMPRADORES_NOUTRA_LOJA_DO_DONO,
   SQL_COMPRADORES_PAGOS,
   SQL_CONTACTOS_DO_DONO,
   SQL_FOTOS_REPETIDAS,
   SQL_NAO_ENTREGUES,
   SQL_PEDIDO_E_COMPRADOR,
   SQL_PEDIDOS_MANUAIS,
+  SQL_PURGAR_PSEUDONIMOS,
   SQL_QUEIXAS,
   SQL_TENANT_E_TECTO,
 } from "./sql.ts";
@@ -298,4 +305,50 @@ export async function varrerFotos(bd: ClienteSql, o: OpcoesDoTrust = {}): Promis
     if (!r.repetido) n++;
   }
   return n;
+}
+
+/**
+ * Dias para trás em que uma encomenda paga ou entregue faz do contacto um
+ * «comprador» para a correlação entre tenants (D6 do KAM-208, *proposta*: a
+ * janela do KAM-096). É também a janela do sinal: um por tenant em cada uma.
+ */
+export const DIAS_DO_COMPRADOR_NOUTRA_LOJA = 30;
+
+/**
+ * O comprador que compra noutro tenant do mesmo dono (KAM-208): informativo,
+ * peso 0, com a contagem e nunca o outro tenant. Corre como `kamba_batch`, e só
+ * com o interruptor ligado — quem o decide é o `CicloDoTrust`.
+ */
+export async function varrerCompradoresDoDono(bd: ClienteSql, o: OpcoesDoTrust = {}): Promise<number> {
+  const p = o.politica ?? POLITICA_DE_RISCO;
+  const agora = (o.relogio ?? (() => new Date()))();
+  const servico = new ServicoDeTrust({ repositorio: new RepositorioDeTrustSql(bd, "lote"), politica: p, relogio: () => agora, ...contar(o) });
+  let n = 0;
+  // As janelas (30 dias de compras, 90 de pseudónimo visto) são da função da
+  // base, e não argumento: com elas aqui, quem chama bissectava uma encomenda.
+  for (const l of (await bd.query(SQL_COMPRADORES_NOUTRA_LOJA_DO_DONO)).rows) {
+    const tenantId = String(l["tenant_id"]);
+    const r = await servico.sinalizar({
+      tenantId,
+      tipo: "comprador_noutra_loja_do_dono",
+      refEvento: refDaJanela(tenantId, "compradores_do_dono", agora, DIAS_DO_COMPRADOR_NOUTRA_LOJA),
+      detalhe: { contagem: inteiro(l["contagem"]) },
+      ocorridoEm: agora,
+    });
+    if (!r.repetido) n++;
+  }
+  return n;
+}
+
+/**
+ * A retenção do pseudónimo sem tenant (D4 do KAM-208): apaga os vistos há mais
+ * de `DIAS_DE_RETENCAO_DO_PSEUDONIMO`. **Corre com o interruptor desligado
+ * também**: apagar nunca é o risco, e desligar não pode deixar pseudónimos
+ * para trás. Devolve quantos apagou.
+ */
+export async function purgarPseudonimos(bd: ClienteSql, o: Pick<OpcoesDoTrust, "relogio"> = {}): Promise<number> {
+  const agora = (o.relogio ?? (() => new Date()))();
+  const antes = new Date(agora.getTime() - DIAS_DE_RETENCAO_DO_PSEUDONIMO * DIA);
+  const [l] = (await bd.query(SQL_PURGAR_PSEUDONIMOS, [antes])).rows;
+  return l === undefined ? 0 : inteiro(l["apagados"]);
 }

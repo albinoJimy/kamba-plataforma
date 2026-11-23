@@ -1403,9 +1403,11 @@ MUTACOES = [
      '            cifrar(dek, bsuid, contextoDaCifra(tenant, dekId, "bsuid_enc")),',
      '            Buffer.from(bsuid, "utf8"),', IDENTIDADE),
     ("identidade: trocar de numero deixa a cifra do antigo", ID_SERVICO,
+     # KAM-208: o bloco ganhou o apagamento do pseudonimo sem tenant antes da
+     # `}`; a mutacao tira so o dos telefones, que e o que ela mede.
      "        if (telefoneDoContacto !== null && !eOMesmoNumero) {\n"
-     "          await executar(cliente, SQL.APAGAR_TELEFONES, [tenant, contacto]);\n        }\n",
-     "", IDENTIDADE),
+     "          await executar(cliente, SQL.APAGAR_TELEFONES, [tenant, contacto]);\n",
+     "        if (telefoneDoContacto !== null && !eOMesmoNumero) {\n", IDENTIDADE),
     # ----------------------------------- KAM-008, revisao adversarial (ANALISE-08)
     # As que **sobreviveram** a primeira versao dos testes, mais as dos defeitos
     # que as duas revisoes encontraram.

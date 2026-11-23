@@ -5527,7 +5527,7 @@ também. Nenhum ticket aberto o reclama, e foi levado à coordenação para lhe 
   `aliases`, como as do vendedor e dos serviços já estão (na 1.1.0); nenhum modelo mudou, e o CI não
   corre o `verificar`;
 - o inventário ganha o `db_litellm_password`, só para o LLM, em `staging` e `prod`;
-- o dicionário ganha a emenda 1.139;
+- o dicionário ganha a emenda 1.140;
 - a regra 6 do `docker-compose.llm.yml` deixa de dizer que as chaves vivem na memória do proxy.
 
 **Sem esquema na base da plataforma:** a base do proxy nasce no `bootstrap.py`, fora do Alembic, e não
@@ -5540,8 +5540,9 @@ reprovou-o. Os achados confirmados foram tratados neste PR:
   **sete** mutações novas para o código do papel: 1314 conferidas, 0 por aplicar.
 - **O `test_catalogo.TestPapeis` exigia nove papéis `kamba_*`.** Passa a dez, com o
   `kamba_litellm` e a razão.
-- **O piso do `lint_bloco`** sobe de 90 para 91, nas três superfícies, porque este bloco passa os
-  medidos de 181 para 182.
+- **O piso do `lint_bloco`** fica em 91: este bloco passa os medidos de 182 para 183 na árvore
+  integrada com o KAM-208, que já tinha pago a subida de 90 para 91. O `lint.py`, o `mutacao.py` e o
+  §4 do `docs/lint-bloco.md` dizem-no.
 - **Os ensaios não mexiam no papel à mão.** Entram dois: atributos, configuração e pertenças
   alteradas à mão são repostas, e um `CONNECT` dado à mão na base da plataforma é revogado. Para
   este último o `bootstrap.py` ganha o `REVOKE ALL ON DATABASE <plataforma> FROM kamba_litellm`.
