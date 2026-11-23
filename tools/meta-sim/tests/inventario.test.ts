@@ -249,8 +249,12 @@ describe("o inventario deste repositorio", () => {
     // exportacao do off-boarding, quatro no ensaio da porta de TypeScript e
     // quatro no da colecao de Python. Ficticios, do intervalo `+244 999`, e
     // medidos com `varrer` depois da ultima edicao.
-    assert.equal(totalDeclarado(), 175);
-    assert.equal(INVENTARIO.length, 46);
+    //
+    // **179 em 47 ficheiros desde o KAM-208**: os quatro do ensaio do
+    // pseudonimo do telefone sem tenant, ficticios do intervalo `+244 999`, e
+    // medidos com `varrer` depois da ultima edicao.
+    assert.equal(totalDeclarado(), 179);
+    assert.equal(INVENTARIO.length, 47);
   });
 
   it("nenhuma entrada e de uma pasta inteira", () => {

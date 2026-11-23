@@ -211,6 +211,9 @@ class TestCatalogoReal(ComBase):
                 ("platform", "consent_event", "tenant_id"),
                 ("platform", "contact_deks", "tenant_id"),
                 ("platform", "contact_endpoints", "tenant_id"),
+                # KAM-208: o pseudonimo sem tenant («contact_x» < «contacts»,
+                # porque '_' < 's').
+                ("platform", "contact_xtenant_pseudonym", "tenant_id"),
                 ("platform", "contacts", "tenant_id"),
                 # KAM-121: o calendario e os itens do social («conta» < «conte»).
                 ("platform", "content_calendar", "tenant_id"),
@@ -571,6 +574,8 @@ class TestCatalogoReal(ComBase):
                 ("consent_event", "tenant_iso", "ALL", "{public}"),
                 ("contact_deks", "tenant_iso", "ALL", "{public}"),
                 ("contact_endpoints", "tenant_iso", "ALL", "{public}"),
+                # KAM-208: o pseudonimo sem tenant.
+                ("contact_xtenant_pseudonym", "tenant_iso", "ALL", "{public}"),
                 ("contacts", "tenant_iso", "ALL", "{public}"),
                 # KAM-121: o calendario e os itens do social, uma politica cada.
                 ("content_calendar", "tenant_iso", "ALL", "{public}"),
@@ -897,7 +902,8 @@ class TestCatalogoReal(ComBase):
              # KAM-059: a sombra da comissao («com» < «con»).
              "commission_accruals",
              "consent_event",
-             "contact_deks", "contact_endpoints", "contacts",
+             # KAM-208: o pseudonimo sem tenant, entre as da identidade.
+             "contact_deks", "contact_endpoints", "contact_xtenant_pseudonym", "contacts",
              # KAM-121: o calendario e os itens do social («conta» < «conte»).
              "content_calendar", "content_items",
              # KAM-090: a prova de aceite, com a `tenant_iso` do `db/rls.py`.
@@ -1542,6 +1548,15 @@ class TestFicheirosDePolitica(unittest.TestCase):
         }
     )
 
+    #: KAM-208 (decisao do fundador de 2026-11-21, D2): a comparacao da
+    #: correlacao entre tenants e a purga do pseudonimo sem tenant. O `EXECUTE`
+    #: e so do `kamba_batch`, que nao tem privilegio nenhum na tabela; a funcao
+    #: devolve o tenant e a contagem, nunca o pseudonimo nem o outro tenant.
+    CORRELACAO_NA_ALLOWLIST = (
+        "platform.ts_compradores_noutra_loja_do_dono(p_tenants uuid[])",
+        "platform.contact_xtenant_purgar(p_tenants uuid[], p_antes timestamp with time zone)",
+    )
+
     def test_os_ficheiros_reais_leem_se_e_tem_o_que_esta_declarado(self) -> None:
         """Os dois nasceram vazios e deixaram de o estar no KAM-012.
 
@@ -1588,7 +1603,8 @@ class TestFicheirosDePolitica(unittest.TestCase):
                 self.DONO_NA_ALLOWLIST,
             }
             | set(self.MANUAIS_NA_ALLOWLIST)
-            | set(self.REGISTO_NA_ALLOWLIST),
+            | set(self.REGISTO_NA_ALLOWLIST)
+            | set(self.CORRELACAO_NA_ALLOWLIST),
         )
 
 
