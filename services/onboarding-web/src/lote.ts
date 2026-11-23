@@ -103,6 +103,8 @@ async function principal(): Promise<void> {
         env: process.env,
         ...(telefones === null ? {} : { telefones }),
       }),
+      // KAM-208: a varredura da correlação entre tenants; em `prod`, trancada.
+      correlacao: config.correlacao,
     });
     // **Espera-se pela porta aberta antes de dizer `service_started`.** O
     // `serve` devolve antes de o `listen` acabar, e uma porta ocupada chegava

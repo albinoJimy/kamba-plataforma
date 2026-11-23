@@ -59,6 +59,14 @@ import {
 } from "./chaves.ts";
 import * as SQL from "./consultas.ts";
 import {
+  type FonteDaCorrelacao,
+  correlacaoDoAmbienteDoProcesso,
+  estadoDaCorrelacao,
+  exigirChaveDeCorrelacao,
+  pseudonimoSemTenant,
+  VARIAVEL_DA_CORRELACAO,
+} from "./correlacao.ts";
+import {
   type CampoCifrado,
   cifrar,
   contextoDaCifra,
@@ -399,6 +407,12 @@ export interface OpcoesDeIdentidade {
    * KEK confere-se sempre — não há operação deste módulo que não a use.
    */
   readonly soLeEndpoints?: boolean;
+  /**
+   * A chave do pseudónimo sem tenant (KAM-208). **Só se usa com o interruptor
+   * ligado** (`KAMBA_CORRELACAO_ENTRE_TENANTS=ligada`, nunca em `prod`); por
+   * omissão, a do ambiente do processo. Desligado, nada se calcula.
+   */
+  readonly correlacao?: FonteDaCorrelacao;
 }
 
 interface EstadoDoContacto {
@@ -517,10 +531,13 @@ export class Identidade {
   readonly #chaves: KeyProvider;
   readonly #agora: () => Date;
   readonly #ganchos = new Set<GanchoDeFusao>();
+  /** A chave do pseudónimo sem tenant, ou `null` com o interruptor desligado (KAM-208). */
+  readonly #correlacao: FonteDaCorrelacao | null;
 
-  private constructor(chaves: KeyProvider, agora: () => Date) {
+  private constructor(chaves: KeyProvider, agora: () => Date, correlacao: FonteDaCorrelacao | null) {
     this.#chaves = chaves;
     this.#agora = agora;
+    this.#correlacao = correlacao;
   }
 
   /**
@@ -529,16 +546,30 @@ export class Identidade {
    * @throws {AmbienteDeIdentidadeError} se `KAMBA_ENV` faltar ou não bater com o provedor.
    * @throws {ChavesDeIdentidadeEmFaltaError} em `KAMBA_ENV=prod`, sem uma chave que
    *   o processo usa (critério 9 do KAM-008, emendado a 2026-11-20).
+   * @throws {ChaveDeCorrelacaoEmFaltaError} com o interruptor do KAM-208 ligado
+   *   e sem a chave do pseudónimo sem tenant (nunca em `prod`, onde não liga).
    */
   static async arrancar(opcoes: OpcoesDeIdentidade): Promise<Identidade> {
-    const ambiente = exigirAmbienteDoKeyProvider(opcoes.chaves, opcoes.env ?? process.env);
+    const env = opcoes.env ?? process.env;
+    const ambiente = exigirAmbienteDoKeyProvider(opcoes.chaves, env);
     if (ambiente === "prod") {
       await exigirChavesNoArranque(
         opcoes.chaves,
         opcoes.soLeEndpoints === true ? [REF_KEK] : [REF_KEK, REF_CHAVE_DE_PESQUISA],
       );
     }
-    return new Identidade(opcoes.chaves, opcoes.agora ?? (() => new Date()));
+    // KAM-208, D1: só com o interruptor ligado, e nunca em `prod` (a tranca
+    // está no `estadoDaCorrelacao`). Um processo que só lê endpoints não
+    // resolve contactos, e não precisa da chave.
+    let correlacao: FonteDaCorrelacao | null = null;
+    if (
+      opcoes.soLeEndpoints !== true &&
+      estadoDaCorrelacao(ambiente, env[VARIAVEL_DA_CORRELACAO]) === "ligada"
+    ) {
+      correlacao = opcoes.correlacao ?? correlacaoDoAmbienteDoProcesso(ambiente, opcoes.env);
+      await exigirChaveDeCorrelacao(correlacao);
+    }
+    return new Identidade(opcoes.chaves, opcoes.agora ?? (() => new Date()), correlacao);
   }
 
   /**
@@ -623,6 +654,8 @@ export class Identidade {
           };
         }
         const endpointsApagados = await executar(cliente, SQL.APAGAR_ENDPOINTS, [tenant, alvo.id]);
+        // KAM-208: o pseudónimo sem tenant vai com o contacto, ligado ou não.
+        await executar(cliente, SQL.APAGAR_PSEUDONIMO_SEM_TENANT, [tenant, alvo.id]);
         const deksDestruidas = await executar(cliente, SQL.DESTRUIR_DEKS, [tenant, alvo.id]);
         const [marcado] = await consultar(cliente, SQL.MARCAR_APAGADO, [tenant, alvo.id]);
         if (marcado === undefined) throw new Repetir();
@@ -1245,6 +1278,8 @@ export class Identidade {
           iguais(telefoneDoContacto.hmac, hmacAnteriorDoTelefone);
         if (telefoneDoContacto !== null && !eOMesmoNumero) {
           await executar(cliente, SQL.APAGAR_TELEFONES, [tenant, contacto]);
+          // O pseudónimo era do número antigo (KAM-208): vai com ele.
+          await executar(cliente, SQL.APAGAR_PSEUDONIMO_SEM_TENANT, [tenant, contacto]);
         }
         await executar(cliente, SQL.DEFINIR_TELEFONE, [
           tenant,
@@ -1268,6 +1303,24 @@ export class Identidade {
           dek.fill(0);
         }
       }
+      // KAM-208: o pseudónimo sem tenant, sob a versão actual da chave dele, e
+      // o `visto_at` renovado. Só com o interruptor ligado.
+      if (this.#correlacao !== null) {
+        const { kid, chave } = await this.#correlacao.chaveActual();
+        await executar(cliente, SQL.DEFINIR_PSEUDONIMO_SEM_TENANT, [
+          tenant,
+          contacto,
+          pseudonimoSemTenant(chave, telefone),
+          kid,
+          this.#agora(),
+        ]);
+      }
+    }
+
+    // KAM-208, D4: sem telefone não há pseudónimo a calcular, mas a resolução
+    // conta — o `visto_at` do que o contacto já tenha renova-se.
+    if (telefone === null && this.#correlacao !== null) {
+      await executar(cliente, SQL.RENOVAR_PSEUDONIMO_SEM_TENANT, [tenant, contacto, this.#agora()]);
     }
 
     return { tenantId: tenant, contactId: contacto, desfecho, evento };
@@ -1287,6 +1340,7 @@ export class Identidade {
   ): Promise<void> {
     await executar(cliente, SQL.APAGAR_TELEFONES, [tenant, contactId]);
     await executar(cliente, SQL.LIMPAR_TELEFONE, [tenant, contactId]);
+    await executar(cliente, SQL.APAGAR_PSEUDONIMO_SEM_TENANT, [tenant, contactId]);
   }
 
   /**
@@ -1306,6 +1360,9 @@ export class Identidade {
     if (a.phoneHmac !== null) await this.#tirarTelefone(cliente, tenant, a.id);
     await executar(cliente, SQL.MOVER_ENDPOINTS, [tenant, sai.id, fica.id]);
     await executar(cliente, SQL.MOVER_DEKS, [tenant, sai.id, fica.id]);
+    // KAM-208: o absorvido deixa de ter número; o pseudónimo de quem fica
+    // escreve-se no fim do `#resolver`, que é onde o telefone passa a ser dele.
+    await executar(cliente, SQL.APAGAR_PSEUDONIMO_SEM_TENANT, [tenant, sai.id]);
     const [lapide] = await consultar(cliente, SQL.MARCAR_FUNDIDO, [tenant, sai.id, fica.id]);
     if (lapide === undefined) throw new Repetir();
     if (sai.id === p.id && p.phoneHmac !== null && p.hmacKid !== null) {

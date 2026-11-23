@@ -232,8 +232,13 @@ function descodificarChave(ref: string, texto: string): Buffer {
   return chave;
 }
 
-/** Separa `<kid>:<base64>`. A mensagem de erro nunca repete o valor. */
-function lerVersionada(ref: string, valor: string): { kid: string; chave: Buffer } {
+/**
+ * Separa `<kid>:<base64>`. A mensagem de erro nunca repete o valor.
+ *
+ * Exportada para o pseudónimo sem tenant (`correlacao.ts`, KAM-208), cuja chave
+ * tem a mesma forma: uma segunda leitura da forma era uma segunda forma.
+ */
+export function lerVersionada(ref: string, valor: string): { kid: string; chave: Buffer } {
   const corte = valor.indexOf(":");
   if (corte === -1) {
     throw new ChaveMalFormadaError(ref, "falta a versão (esperava <kid>:<base64>)");

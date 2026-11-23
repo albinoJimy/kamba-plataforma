@@ -565,6 +565,16 @@ _UMA_ENCOMENDA = (
 )
 
 
+def _pseudonimo_sem_tenant(cursor, tenant_id: str, canario: str) -> None:
+    """O pseudonimo do telefone sem tenant (KAM-208). O canario vai no proprio
+    pseudonimo, pelo `_resumo`: a coluna so aceita 32 octetos, como um HMAC."""
+    cursor.execute(
+        "INSERT INTO platform.contact_xtenant_pseudonym (tenant_id, contact_id, pseudonimo, kid) "
+        f"VALUES (%s, {_UM_CONTACTO}, %s, %s)",
+        (tenant_id, tenant_id, _resumo(canario), "x1"),
+    )
+
+
 def _dek(cursor, tenant_id: str, canario: str) -> None:
     cursor.execute(
         "INSERT INTO platform.contact_deks (tenant_id, contact_id, wrapped_dek, kek_id) "
@@ -1835,6 +1845,11 @@ RECEITAS: dict[tuple[str, str], Receita] = {
     ("platform", "contact_endpoints"): _identidade(
         _endpoint, "bsuid_enc", "expira_at", "2099-01-01T00:00:00+00:00", _octetos
     ),
+    # KAM-208: o pseudonimo sem tenant. So o `kamba_identity` o le e escreve, e
+    # a coluna que ele altera e o `visto_at` (a resolucao renova-o).
+    ("platform", "contact_xtenant_pseudonym"): _identidade(
+        _pseudonimo_sem_tenant, "pseudonimo", "visto_at", "2099-01-01T00:00:00+00:00", _resumo
+    ),
     # KAM-014. A primeira tabela isolada sem coluna de texto livre: o canario
     # vai na chave primaria (ver `_uuid`). O papel que a le e escreve e o
     # `kamba_app` — e o CHR —, e a coluna que ele pode alterar e a
@@ -2503,6 +2518,8 @@ ORDEM = (
     ("platform", "contacts"),
     ("platform", "contact_deks"),
     ("platform", "contact_endpoints"),
+    # KAM-208: depende de `contacts`.
+    ("platform", "contact_xtenant_pseudonym"),
     # KAM-014: depende de `contacts` e de `tenant_channels`, e vem depois das
     # duas. Na ordem inversa, apaga-se antes delas.
     ("platform", "conversations"),
