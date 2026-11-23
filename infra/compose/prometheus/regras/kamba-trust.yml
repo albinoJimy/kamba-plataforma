@@ -1,6 +1,7 @@
 # Regras de alerta de Trust & Safety — KAM-200, criterio 3; a do recalculo
-# da confianca gradual, que corre no mesmo processo — KAM-203; e a da recusa
-# da base sobre o tecto — KAM-219.
+# da confianca gradual, que corre no mesmo processo — KAM-203; e as duas da
+# recusa da base sobre o tecto — KAM-219, vista pelo `tenant_guard`, e KAM-225,
+# lida do registo do PostgreSQL.
 #
 # Validado por `make obs-promtool`: `promtool check rules` (sintaxe) e
 # `promtool test rules` (comportamento, em `testes/kamba_trust_test.yml`).
@@ -110,4 +111,58 @@ groups:
         annotations:
           resumo: A base recusou (42501) a uma transaccao da aplicacao uma operacao sobre platform.trust_level.
           qual_tenant: Nao se le desta serie (OBS-I); o job diz o processo, e o runbook diz onde procurar.
+          runbook_url: https://github.com/albinoJimy/kamba-plataforma/blob/main/docs/runbooks/trust-e-safety.md
+
+      # KAM-225: a mesma recusa, lida do **registo do PostgreSQL** pelo
+      # `registo-pg` (`libs/py-core/src/kamba_core/registo_pg/`). Ve o que a de
+      # cima nao ve — uma ligacao directa com a credencial do `kamba_app`, um
+      # processo Python, uma consulta solta num *pool* — e nao conta o
+      # `kamba_batch` (o criterio 1 do KAM-225 pede a recusa «por um papel que
+      # nao e o `kamba_batch`»). **As duas regras coexistem de proposito:** uma
+      # recusa pelo `comTenant` dispara as duas, e a de cima diz que processo a
+      # recebeu, o que o registo nao diz. P2 e a janela de 10 min sao os da de
+      # cima, *proposta*.
+      #
+      # **Os mesmos dois ramos.** O recolector nasce a zero e comeca no fim do
+      # registo — um reinicio nao reconta, e o `increase` le a descida como
+      # reinicio —, mas uma recusa antes do primeiro *scrape* faz a primeira
+      # amostra valer 1, e e o segundo ramo que a apanha. **Fica de fora**: uma
+      # recusa escrita enquanto o recolector esta em baixo (o `alvo_em_baixo`
+      # do `kamba.yml` ve o processo parado — o alvo e fixo no `prometheus.yml`
+      # para isso —, nao a recusa perdida), e uma recusa que um bloco PL/pgSQL
+      # apanha com `EXCEPTION`, que o servidor nao escreve no registo.
+      #
+      # **Um falso positivo, herdado da regra de cima:** um buraco de raspagem de
+      # 10 min ou mais faz o segundo ramo ver de novo uma serie acima de zero sem
+      # serie 10 min antes, e a regra volta a disparar sobre uma recusa antiga
+      # (medido com o `promtool` na revisao adversarial do KAM-225; a de cima faz
+      # o mesmo). O runbook manda confirmar no registo antes de tratar o alerta.
+      - alert: confianca_tecto_recusado_no_registo
+        expr: 'sum by (job) (increase(registo_pg_tecto_recusado_total[10m])) > 0 or (sum by (job) (registo_pg_tecto_recusado_total) > 0 unless sum by (job) (registo_pg_tecto_recusado_total offset 10m))'
+        for: 0m
+        labels:
+          severity: P2
+          componente: gov
+        annotations:
+          resumo: O registo do PostgreSQL tem uma recusa (42501) sobre platform.trust_level a um papel que nao e o kamba_batch.
+          qual_tenant: Nao se le desta serie (OBS-I); o registo do servidor diz o papel e a hora, e o runbook diz onde procurar.
+          runbook_url: https://github.com/albinoJimy/kamba-plataforma/blob/main/docs/runbooks/trust-e-safety.md
+
+      # KAM-225: o recolector deixou de ver o registo. Com o servidor de pe e o
+      # `jsonlog` ligado, a rotacao por tempo cria ou trunca o ficheiro de cada
+      # hora mesmo sem nada para escrever (medido), pelo que a idade do mais novo
+      # fica abaixo de uma hora. Acima de duas, o servidor deixou de escrever o
+      # `jsonlog` — o `postgres` recriado sem o `command:`, a configuracao mudada
+      # —, e a regra de cima esta cega com o `/healthz` a 200. Achado da revisao
+      # adversarial do KAM-225. As duas horas e o P2 sao *proposta*. Um servidor
+      # parado tambem a faz disparar, ao lado dos alertas dele.
+      - alert: registo_pg_registo_parado
+        expr: 'max by (job) (registo_pg_idade_do_registo_segundos) > 7200'
+        for: 5m
+        labels:
+          severity: P2
+          componente: gov
+        annotations:
+          resumo: O registo do PostgreSQL nao muda ha mais de duas horas; a recusa sobre o tecto deixou de se ver.
+          qual_tenant: Nao se aplica; e o registo do servidor, e nao um tenant.
           runbook_url: https://github.com/albinoJimy/kamba-plataforma/blob/main/docs/runbooks/trust-e-safety.md

@@ -106,7 +106,12 @@ class TestRepositorioReal(unittest.TestCase):
         # **KAM-215: de 68 para 70.** O consumidor `dono` (imagem do
         # `onboarding-web`), **+1 em desenvolvimento e em *staging*** e nao em
         # producao: la o `Identidade.arrancar` recusa o `EnvKeyProvider`.
-        self.assertEqual(resumo["servicos"], 70)
+        #
+        # **KAM-225: de 70 para 72.** O recolector do registo do PostgreSQL
+        # (imagem do AGR), **+1 em producao e em *staging*** e nao em
+        # desenvolvimento: la o `postgres` nao escreve o `jsonlog`, e o
+        # recolector recusava arrancar sem nada para ler.
+        self.assertEqual(resumo["servicos"], 72)
 
         _, resumo = egress.verificar(ROOT)
         # Idem: as quatro listas de saidas sao **vazias** com `por_omissao:
@@ -142,7 +147,9 @@ class TestRepositorioReal(unittest.TestCase):
         # armazenamento, os dois em `data`.
         # **KAM-215: de 27 para 28.** O `onboarding-provisionamento`, com a sua
         # lista e `destinos: []`: fala com a base e com a fila, e e raspado.
-        self.assertEqual(resumo["servicos"], 28)
+        # **KAM-225: de 28 para 29.** O `registo-pg`, com a sua lista e
+        # `destinos: []`: le o registo do PostgreSQL de um volume e e raspado.
+        self.assertEqual(resumo["servicos"], 29)
         # **E os destinos de 3 para 8**, que e a conta que importa ler devagar:
         # os 3 do `litellm` continuam, o `gwy` passa a declarar
         # `graph.facebook.com` (ADR-001 faz dele o unico servico que fala com a
