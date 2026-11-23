@@ -914,12 +914,22 @@ class TestDowngradeDa0003(unittest.TestCase):
         # funcao, que nao entra em nenhuma das tres contagens. Nenhuma concessao
         # de tabela: o papel continua sem ler o `audit_log`. A descida da `0082`
         # larga-as.
-        self.assertEqual(em_head["identidade"], (True, 12, 48, 8))
+        #
+        # **(16, 48, 8) e nao (12, 48, 8) desde o KAM-208.** A revisao da
+        # correlacao entre tenants da ao `kamba_identity` os quatro de dados na
+        # `contact_xtenant_pseudonym` (12 -> 16), que e dele e de mais ninguem.
+        # Nenhuma concessao por coluna. A descida da `0087` larga-as com a
+        # tabela, e a politica dela entra na lista de baixo pelo `contact%`.
+        self.assertEqual(em_head["identidade"], (True, 16, 48, 8))
+        # `sorted` e nao a ordem da base: o `ORDER BY` de texto segue a
+        # colacao do servidor, e com o `_` de `contact_xtenant_pseudonym` contra
+        # o `s` de `contacts` duas colacoes dao duas ordens.
         self.assertEqual(
-            em_head["politicas"],
+            sorted(em_head["politicas"]),
             [
                 ("contact_deks", "tenant_iso"),
                 ("contact_endpoints", "tenant_iso"),
+                ("contact_xtenant_pseudonym", "tenant_iso"),
                 ("contacts", "tenant_iso"),
             ],
         )

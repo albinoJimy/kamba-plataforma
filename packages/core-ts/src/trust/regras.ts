@@ -37,6 +37,7 @@ export const TIPOS_DE_SINAL = [
   "nao_entrega",
   "mudanca_de_conta",
   "violacao_de_categoria",
+  "comprador_noutra_loja_do_dono",
 ] as const;
 export type TipoDeSinal = (typeof TIPOS_DE_SINAL)[number];
 
@@ -58,6 +59,7 @@ export const SEVERIDADE_DO_TIPO: Readonly<Record<TipoDeSinal, Severidade>> = {
   nao_entrega: "media",
   mudanca_de_conta: "alta",
   violacao_de_categoria: "alta",
+  comprador_noutra_loja_do_dono: "baixa",
 };
 
 /** A escada, por ordem. Domínio de `ts_sanction.passo`. */
@@ -71,7 +73,11 @@ export const PASSOS_AUTOMATICOS: readonly Passo[] = ["aviso", "limitacao"];
 export interface PoliticaDeRisco {
   /** SemVer. Vai para o `detalhe` de cada sanção automática. */
   readonly versao: string;
-  /** Peso de cada tipo no risco composto. O `foto_repetida` é informativo: peso 0. */
+  /**
+   * Peso de cada tipo no risco composto. O `foto_repetida` e o
+   * `comprador_noutra_loja_do_dono` são informativos: peso 0 (o segundo por
+   * decisão do fundador de 2026-11-21, D6 do KAM-208).
+   */
   readonly pesos: Readonly<Record<TipoDeSinal, number>>;
   /** Meia-vida do decaimento, em dias. */
   readonly meiaVidaDias: number;
@@ -113,6 +119,7 @@ export const POLITICA_DE_RISCO: PoliticaDeRisco = {
     nao_entrega: 15,
     mudanca_de_conta: 30,
     violacao_de_categoria: 35,
+    comprador_noutra_loja_do_dono: 0,
   },
   meiaVidaDias: 30,
   limiarDoAviso: 30,

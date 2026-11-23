@@ -108,4 +108,20 @@ export type {
   ResultadoSql,
 } from "./contactos.ts";
 
+export {
+  ChaveDeCorrelacaoEmFaltaError,
+  CorrelacaoDoCofre,
+  DIAS_DE_RETENCAO_DO_PSEUDONIMO,
+  DOMINIO_DA_CORRELACAO,
+  REF_CHAVE_DE_CORRELACAO,
+  VALOR_LIGADA,
+  VARIAVEL_DA_CORRELACAO,
+  correlacaoDoAmbiente,
+  correlacaoDoAmbienteDoProcesso,
+  estadoDaCorrelacao,
+  exigirChaveDeCorrelacao,
+  pseudonimoSemTenant,
+} from "./correlacao.ts";
+export type { ChaveDeCorrelacao, EstadoDaCorrelacao, FonteDaCorrelacao } from "./correlacao.ts";
+
 export * as CONSULTAS from "./consultas.ts";
