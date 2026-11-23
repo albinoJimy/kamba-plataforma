@@ -970,8 +970,9 @@ def _swap(dados: Dados, nome: str, no, chaves: dict) -> list[Achado]:
     contentor usar outro tanto em *swap* se o *host* o tiver, e o `mem_limit`
     deixa de ser um tecto: o KAM-238 viu um contentor «sobreviver» sob 54m com
     19 MiB em *swap* (`docs/evidencia/KAM-238.md` §3). Compara-se o valor lido,
-    e nao o texto, para que `1g` e `1024m` sejam iguais; um `-1` (sem limite de
-    *swap*) ou um `0` (que o Docker le como «nao fixado») nao sao.
+    e nao o texto, para que `1g` e `1024m` sejam iguais; um `-1` (*swap* sem
+    tecto) ou um `0` (o mesmo que nao fixado) nao sao — os dois medidos em
+    `docs/evidencia/KAM-242.md` §2.
     """
     bruto = _valor(dados.prod, chaves, "mem_limit") or ""
     bruto_swap = _valor(dados.prod, chaves, "memswap_limit")

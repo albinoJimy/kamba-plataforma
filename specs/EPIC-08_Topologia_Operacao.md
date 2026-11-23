@@ -1949,15 +1949,15 @@ pelo `make smoke`, que não correu). Medido no ramo `feature/KAM-242-sem-swap` s
 2026-11-23. Os comandos, a medição e o que fica por medir estão em
 [`../docs/evidencia/KAM-242.md`](../docs/evidencia/KAM-242.md).
 
-> **O `worker-canal-entrada` é o limite que este ticket não consegue absolver.** A medição do KAM-084
-> chegou a 251,7 MiB contra 256, sem ler o *swap*: se o processo precisava dele, passa a dar OOM. O
-> limite não muda aqui — o bloco proíbe-o —, e o KAM-188 mede-o agora sem *swap* por construção. O
-> «200,6 MiB» que o manifesto lhe dá não está no anexo do KAM-084 (dívida 216).
+> **Nenhum limite medido assentava em *swap*.** O KAM-084 já aplicava os limites com `--memory-swap`
+> igual a eles (`db/tests_dimensionamento/test_cenarios.py`), e o KAM-225 também; o resto é estimativa ou
+> proposta. O «200,6 MiB» que o manifesto dá ao `worker-canal-entrada` é de uma corrida do KAM-084 **sem**
+> limites, numa versão do anexo que a corrida 5 substituiu (dívida 216).
 
 | # | Critério | Estado | Evidência | Credor |
 |---|---|---|---|---|
-| 1 | Cada serviço de `prod` com `mem_limit` tem `memswap_limit` igual | **satisfeito** | Os **24** serviços, com o `memswap_limit` na linha a seguir ao `mem_limit` e o mesmo valor; `python -m compose_prod --root .. lint` → 24 serviços, **0 achados**; `test_todos_os_servicos_de_prod_tem_memswap_igual_ao_limite` lê-os um a um sem passar pela regra. Medido nesta máquina que o `docker compose` o honra: `memory.swap.max` a **0** com ele, e igual ao limite sem ele (anexo §2). Nenhum limite assentava numa medição com *swap*, salvo o `worker-canal-entrada`, que fica NÃO VERIFICADO (anexo §3 e a nota acima) | — |
-| 2 | O `compose_prod` recusa um serviço com `mem_limit` sem `memswap_limit` igual, com regra nova e canário | **satisfeito** | A regra **`memoria-com-swap`** (`../tools/compose_prod/lint.py`, `_swap`, chamada pelo `r_endurecimento`), que compara o valor lido (`1g` = `1024m`; `-1` e `0` recusados). Três casos de canário — `swap-em-falta`, `swap-maior-que-o-limite`, `swap-ilimitado` — e a entrada em `MINIMO_POR_REGRA`; os quatro casos que trocavam o texto do `mem_limit` passaram a trocar os dois. `test_o_mesmo_valor_noutra_unidade_nao_e_achado` e `test_zero_nao_e_igual_ao_limite` | — |
+| 1 | Cada serviço de `prod` com `mem_limit` tem `memswap_limit` igual | **satisfeito** | Os **24** serviços, com o `memswap_limit` na linha a seguir ao `mem_limit` e o mesmo valor; `python -m compose_prod --root .. lint` → 24 serviços, **0 achados**; `test_todos_os_servicos_de_prod_tem_memswap_igual_ao_limite` lê-os um a um sem passar pela regra. Medido nesta máquina que o `docker compose` o honra: `memory.swap.max` a **0** com ele, e igual ao limite sem ele (anexo §2). Nenhum limite assentava numa medição com *swap* (anexo §3 e a nota acima) | — |
+| 2 | O `compose_prod` recusa um serviço com `mem_limit` sem `memswap_limit` igual, com regra nova e canário | **satisfeito** | A regra **`memoria-com-swap`** (`../tools/compose_prod/lint.py`, `_swap`, chamada pelo `r_endurecimento`), que compara o valor lido (`1g` = `1024m`; `-1` e `0` recusados, os dois medidos no anexo §2). Três casos de canário — `swap-em-falta`, `swap-maior-que-o-limite`, `swap-ilimitado` — e a entrada em `MINIMO_POR_REGRA`; os quatro casos que trocavam o texto do `mem_limit` passaram a trocar os dois. `test_o_mesmo_valor_noutra_unidade_nao_e_achado` e `test_zero_nao_e_igual_ao_limite` | — |
 | 3 | O *swap* do *host* registado, com estado e o que o mede | **satisfeito** | **NÃO VERIFICADO** — não há *host* (D1). Três linhas no anexo §4 (tem *swap* e quanto; a política; o *kernel* honra o limite por contentor), cada uma com o comando que a responde, e uma linha nos «Riscos do Epic e itens NÃO VERIFICADOS» deste epic | — |
 
 #### Definition of Done
@@ -1965,7 +1965,7 @@ pelo `make smoke`, que não correu). Medido no ramo `feature/KAM-242-sem-swap` s
 | # | Linha | Estado | Evidência | Credor |
 |---|---|---|---|---|
 | 1 | Critérios satisfeitos; o §3 do anexo do KAM-238 aponta para o resultado | **satisfeito** | Os três acima; o `../docs/evidencia/KAM-238.md` §3 ganha o parágrafo «Resolvido pelo KAM-242» (versão 1.1) | — |
-| 2 | Nenhum segredo no *compose*; `make up && make smoke` verde | **parcial** | O diff do *compose* são 24 linhas `memswap_limit` e um comentário, sem segredo nenhum. O `make smoke` **não correu**: levanta o `docker-compose.dev.yml`, que este ticket não toca, e nesta máquina não há `make` | quem fundir, se o quiser à letra |
+| 2 | Nenhum segredo no *compose*; `make up && make smoke` verde | **parcial** | O diff do *compose* são 24 linhas `memswap_limit` e um comentário, sem segredo nenhum. O `make smoke` **não correu**: levanta o `docker-compose.dev.yml`, que este ticket não toca, e nesta máquina não há `make` | nenhum ticket: a caixa fica vazia até o `make smoke` correr |
 
 
 ---

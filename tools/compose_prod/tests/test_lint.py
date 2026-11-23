@@ -254,15 +254,20 @@ class TestSemSwap(unittest.TestCase):
     """
 
     def test_todos_os_servicos_de_prod_tem_memswap_igual_ao_limite(self) -> None:
-        dados = lint.ler(RAIZ)
-        self.assertGreaterEqual(len(dados.prod.servicos), 13)
-        for nome, (_no, chaves) in sorted(dados.prod.servicos.items()):
-            with self.subTest(servico=nome):
-                memoria = lint._valor(dados.prod, chaves, "mem_limit")
-                swap = lint._valor(dados.prod, chaves, "memswap_limit")
-                self.assertIsNotNone(memoria)
-                self.assertIsNotNone(swap)
-                self.assertEqual(lint._memoria_mb(swap or ""), lint._memoria_mb(memoria or ""))
+        """Lido do texto, linha a linha, sem o parser nem o `_memoria_mb` do lint.
+
+        Um oraculo importado do alvo nao e oraculo: se o `_memoria_mb` passasse
+        a devolver sempre `None`, comparar os dois valores lidos por ele dava
+        igual. Aqui cada `mem_limit` tem de ter, na linha seguinte, um
+        `memswap_limit` com o **mesmo texto** — a forma que o compose usa.
+        """
+        linhas = (RAIZ / lint.PROD).read_text(encoding="utf-8").splitlines()
+        limites = [i for i, l in enumerate(linhas) if l.startswith("    mem_limit: ")]
+        self.assertEqual(len(limites), len(lint.ler(RAIZ).prod.servicos))
+        for i in limites:
+            valor = linhas[i].split(": ", 1)[1]
+            with self.subTest(linha=i + 1):
+                self.assertEqual(linhas[i + 1], f"    memswap_limit: {valor}")
 
     def test_o_mesmo_valor_noutra_unidade_nao_e_achado(self) -> None:
         pasta, destino = _copia()
@@ -274,7 +279,10 @@ class TestSemSwap(unittest.TestCase):
             self.assertEqual([str(a) for a in achados], [])
 
     def test_zero_nao_e_igual_ao_limite(self) -> None:
-        """O Docker le `memswap_limit: 0` como «nao fixado»: deixa usar swap."""
+        """`memswap_limit: 0` e o mesmo que nao o fixar: deixa usar swap.
+
+        Medido: `memory.swap.max` igual ao limite (`docs/evidencia/KAM-242.md` §2).
+        """
         pasta, destino = _copia()
         with pasta:
             canario.Copia(destino).trocar(
