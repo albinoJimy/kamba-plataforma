@@ -13,6 +13,7 @@ de tool sai de um modelo de linguagem.
 | botao `preco:{ingestao}:{centimos}` | grava o preco do eco (`create_product_draft`, `preco_confirmado`) |
 | botao `preco_corrigir:{ingestao}` | pede o preco outra vez; nada se grava |
 | botao `mesmo_produto:` / `outro_produto:` | a resposta a «e o mesmo produto?» |
+| botao `retomar:` | o screening outra vez, numa ingestao que ele nao decidiu (KAM-244) |
 | uma foto com `asset_id` | o rascunho pela foto (`create_product_draft`, `asset_id`), KAM-231 |
 | uma foto sem `asset_id` | a foto nao chegou ao STO (o MED recusou, falhou ou nao esta montado): diz-se ao dono |
 | texto, com rascunho a espera de resposta | a resposta as perguntas em aberto; o preco vai so ao eco |
@@ -140,6 +141,11 @@ async def _da_foto(deps: Dependencias, estado: Mapping[str, Any]) -> dict[str, A
     await deps.saida.enfileirar(estado, MSG_A_PREPARAR, chave=chave_de_envio(str(estado["turn_id"]), SEQ_DO_AVISO))
     recebida = await _invocar(deps, estado, "create_product_draft", {"asset_id": asset_id})
     if not recebida.ok:
+        if getattr(recebida.error, "codigo", "") == UPSTREAM_TIMEOUT:
+            # KAM-244: a camada cortou, e o pipeline acaba na *thread* dele e
+            # grava o estado. O dono ve-o no turno seguinte, pelo estado do
+            # catalogo (as referencias `PRD-…` dos que esperam por ele).
+            return _resposta_estatica(MSG_FOTO_EM_CURSO)
         return _resposta_estatica(_frase_do_erro(recebida.error))
     return _resposta_da_ingestao(recebida.data)
 
@@ -221,6 +227,10 @@ async def _do_botao(deps: Dependencias, estado: Mapping[str, Any], toque: regras
         argumentos: dict[str, Any] = {"ingestao": toque.ingestao, "preco_confirmado": toque.valor}
     elif toque.accao == "stock":
         argumentos = {"ingestao": toque.ingestao, "stock_confirmado": toque.valor}
+    elif toque.accao == "retomar":
+        # KAM-244: «tentar outra vez» o screening que nao decidiu. Sem respostas,
+        # o executor pergunta-lhe outra vez (`retomar` do KAM-049).
+        argumentos = {"ingestao": toque.ingestao, "respostas": {}}
     else:
         argumentos = {"ingestao": toque.ingestao, "mesmo_produto": toque.accao == "mesmo_produto"}
     gravada = await _invocar(deps, estado, "create_product_draft", argumentos)
@@ -303,6 +313,12 @@ def _resposta_da_ingestao(dados: Mapping[str, Any]) -> dict[str, Any]:
         resposta = _resposta_estatica("\n".join(linhas))
         resposta["draft"]["botoes"] = (f"confirm:{dados['action_id']}",)
         return resposta
+    if estado_da_ingestao == "bloqueada_categoria" and dados.get("retomavel"):
+        # KAM-244: o screening nao chegou a decidir (sem tempo, ou em baixo). Nao
+        # e «nao pode ser publicado»: o toque seguinte pergunta-lhe outra vez.
+        resposta = _resposta_estatica(MSG_POR_VERIFICAR)
+        resposta["draft"]["botoes"] = (regras.botao_de_retomar(str(dados["ingestao"])),)
+        return resposta
     return _resposta_estatica(FRASE_DO_ESTADO.get(str(estado_da_ingestao), MSG_NAO_CONSEGUI))
 
 
@@ -344,6 +360,14 @@ MSG_CATALOGO_INACTIVO: Final = "O modulo do catalogo nao esta activo para a sua 
 MSG_A_PREPARAR: Final = "Recebi a foto. Estou a preparar o produto, ja lhe digo o que vi."
 #: O `seq` do aviso no turno: o resumo e o `0` do `send`.
 SEQ_DO_AVISO: Final = 1
+#: KAM-244: a camada cortou a tool da foto, que continua a preparar o produto.
+MSG_FOTO_EM_CURSO: Final = (
+    "Ainda estou a preparar este produto. Daqui a pouco escreva produtos para ver em que ficou."
+)
+#: KAM-244: o screening nao decidiu a categoria a tempo. Vai com o botao «Tentar outra vez».
+MSG_POR_VERIFICAR: Final = (
+    "Ainda nao consegui verificar a categoria deste produto. Toque no botao para eu tentar outra vez."
+)
 MSG_FOTO_POR_LIGAR: Final = (
     "Nao consegui receber esta foto. Envie-a outra vez, ou crie o produto pelo painel da loja."
 )

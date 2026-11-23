@@ -168,15 +168,50 @@ CAMISA = resposta(
 
 
 @dataclass
+class RelogioFake:
+    """O relogio do prazo (KAM-244): so avanca quando uma porta «espera»."""
+
+    agora: float = 1000.0
+
+    def __call__(self) -> float:
+        return self.agora
+
+
+class SemTempo(TimeoutError):
+    """A porta passou do tecto que recebeu."""
+
+
+def _esperar(relogio: RelogioFake | None, demora_s: float, tecto_s: float | None) -> None:
+    """O contrato do `tecto_s` das tres portas, num duplo (KAM-244).
+
+    Com zero ou menos nao chama e levanta; senao espera a demora, cortada ao
+    tecto, e levanta se a demora passar dele. O relogio avanca o que esperou.
+    """
+    if tecto_s is not None and tecto_s <= 0:
+        raise SemTempo("sem tempo")
+    esperou = demora_s if tecto_s is None else min(demora_s, tecto_s)
+    if relogio is not None:
+        relogio.agora += esperou
+    if tecto_s is not None and demora_s > tecto_s:
+        raise SemTempo("passou do tecto")
+
+
+@dataclass
 class VisaoFake:
     texto: str = CAMISA
     custo: Decimal = Decimal("0.0042")
     fornecedores: tuple[str, ...] = ("anthropic",)
     falhar: bool = False
     imagens: list[bytes] = field(default_factory=list)
+    #: KAM-244: o `tecto_s` de cada chamada, e quanto ela demora no `relogio`.
+    tectos: list[float | None] = field(default_factory=list)
+    demora_s: float = 0.0
+    relogio: RelogioFake | None = None
 
-    def extrair(self, tenant_id: str, imagem: bytes) -> RespostaDaVisao:
+    def extrair(self, tenant_id: str, imagem: bytes, *, tecto_s: float | None = None) -> RespostaDaVisao:
+        self.tectos.append(tecto_s)
         self.imagens.append(imagem)
+        _esperar(self.relogio, self.demora_s, tecto_s)
         if self.falhar:
             raise ErroDaVisao("o proxy falhou", custo_usd=self.custo)
         return RespostaDaVisao(texto=self.texto, custo_usd=self.custo)
@@ -200,13 +235,25 @@ class ScreeningFake:
     pedidos: list[tuple[str, str, str, tuple[str, ...]]] = field(default_factory=list)
     decisao_forcada: ResultadoDoScreen | None = None
     falhar: bool = False
+    #: KAM-244: o `tecto_s` de cada chamada, e quanto ela demora no `relogio`.
+    tectos: list[float | None] = field(default_factory=list)
+    demora_s: float = 0.0
+    relogio: RelogioFake | None = None
 
     def screen(
-        self, tenant_id: str, sujeito_ref: str, categoria_declarada: str | None, textos: Sequence[str]
+        self,
+        tenant_id: str,
+        sujeito_ref: str,
+        categoria_declarada: str | None,
+        textos: Sequence[str],
+        *,
+        tecto_s: float | None = None,
     ) -> ResultadoDoScreen:
         # `None` e «a categoria do tenant» (KAM-222): o screening da publicacao
         # (KAM-119) chama assim, com o `sku` e o `nome`.
+        self.tectos.append(tecto_s)
         self.pedidos.append((tenant_id, sujeito_ref, categoria_declarada or "", tuple(textos)))
+        _esperar(self.relogio, self.demora_s, tecto_s)
         if self.falhar:
             raise RuntimeError("motor em baixo")
         if self.decisao_forcada is not None:
@@ -222,13 +269,29 @@ class RegistoFake:
     publicados: list[tuple[str, str, ConfirmacaoDoDono]] = field(default_factory=list)
     #: KAM-231: a quantidade de cada publicacao, por `sku`.
     stocks: dict[str, int | None] = field(default_factory=dict)
+    #: KAM-244: o `tecto_s` de cada chamada, e quanto ela demora no `relogio`.
+    tectos: list[float | None] = field(default_factory=list)
+    demora_s: float = 0.0
+    relogio: RelogioFake | None = None
 
-    def rascunho(self, tenant_id: str, sku: str, campos: Mapping[str, Campo]) -> None:
+    def rascunho(
+        self, tenant_id: str, sku: str, campos: Mapping[str, Campo], *, tecto_s: float | None = None
+    ) -> None:
+        self.tectos.append(tecto_s)
+        _esperar(self.relogio, self.demora_s, tecto_s)
         self.rascunhos.append((tenant_id, sku, dict(campos)))
 
     def publicar(
-        self, tenant_id: str, sku: str, confirmacao: ConfirmacaoDoDono, *, stock: int | None = None
+        self,
+        tenant_id: str,
+        sku: str,
+        confirmacao: ConfirmacaoDoDono,
+        *,
+        stock: int | None = None,
+        tecto_s: float | None = None,
     ) -> None:
+        self.tectos.append(tecto_s)
+        _esperar(self.relogio, self.demora_s, tecto_s)
         self.publicados.append((tenant_id, sku, confirmacao))
         self.stocks[sku] = stock
 
