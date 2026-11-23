@@ -135,7 +135,7 @@ eliminação para ninguém (o que isso faz ao prazo do caso é do fundador, KAM-
 
 **O que falta** (credor **KAM-233**, com a razão de cada um no bloco dele): o OTP e a ligação ao e-mail do dono, e a
 entrega do certificado — não há agregador de SMS nem fornecedor de e-mail escolhidos (fundador, KAM-116 e KAM-115);
-a Medusa na revogação e o catálogo dela no pacote (a D3 por ratificar); o LiteLLM com base (**KAM-247**); o Chatwoot,
+a Medusa na revogação e o catálogo dela no pacote (a D3 por ratificar); a fase `revogacao` medida em *staging* com o LiteLLM com base (o KAM-247 deu-lhe a base e mediu-a na pilha local); o Chatwoot,
 os *traces*, as *caches* e o pedido aos fornecedores na purga; o *token* de cada WABA até ao contentor (o lançador
 do cofre, ADR-L002); e o simulacro em *staging*. A assinatura do certificado é HMAC, e não assimétrica.
 
@@ -189,4 +189,4 @@ não duplica nada (KAM-098, critério 9).
 | 1.0 | Novembro 2026 | KAM-098: emissão inicial — as sete fases, o cancelamento e a reabertura, o que fica (incluindo o que vive fora da base), as cópias de segurança e o que fazer quando uma fase pára. Um tenant `restrito` não se encerra: o grafo da `0058` não tem a aresta. | Equipa KAMBÁ |
 | 1.1 | Novembro 2026 | KAM-210: o §6 passa a dizer o processo que corre as fases, as métricas e o alerta da fase parada (com o *runbook* próprio), e o STO na exportação e na purga; o que falta tem credor, o KAM-218. | Equipa KAMBÁ |
 | 1.2 | Novembro 2026 | KAM-218: o §6 passa a dizer os dois processos e o que está ligado (a Meta pelo cofre, os contactos pelo cofre, as ofertas e a prova de aceite no pacote); o §3 tira os contactos do que não tem caminho; o §7 novo é o *runbook* do processo dos dados (`offboarding-dados`). O que falta continua com credor no KAM-218. | Equipa KAMBÁ |
-| 1.3 | Novembro 2026 | KAM-247: o §6 deixa de dizer que nenhum tenant de `prod` se encerra por falta de base no LiteLLM. O proxy tem a base `kamba_litellm` (decisão do fundador de 2026-11-23, opção A1), e o que fica por medir é a fase em *staging*. | Equipa KAMBÁ |
+| 1.3 | Novembro 2026 | KAM-247: o §6 deixa de dizer que nenhum tenant de `prod` se encerra por falta de base no LiteLLM. O proxy tem a base `kamba_litellm` (decisão do fundador de 2026-11-23, opção A1), e o que fica por medir é a fase em *staging*; a lista do que falta diz o mesmo. | Equipa KAMBÁ |

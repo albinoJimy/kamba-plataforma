@@ -20,7 +20,13 @@ import unittest
 
 import bootstrap
 import ligacao
-from tests.base import PRIVILEGIO_INSUFICIENTE, exigir_base_descartavel, sqlstate
+from tests.base import (
+    PRIVILEGIO_INSUFICIENTE,
+    alembic_ok,
+    em_head,
+    exigir_base_descartavel,
+    sqlstate,
+)
 
 PAPEL = bootstrap.PAPEL_DO_LITELLM
 BASE = bootstrap.BASE_DO_LITELLM
@@ -53,6 +59,10 @@ class TestPapelDoLitellm(unittest.TestCase):
                 "o `db/gate_bd.py` gera-a para a suite"
             )
         cls.feito = bootstrap.aplicar()
+        # Em `head`, como o `ComBase`: o ensaio dos privilegios le o esquema
+        # `platform`, e contar zero sobre um esquema que nao existe nao media nada.
+        if not em_head():
+            alembic_ok("upgrade", "head")
         cls.plataforma = ligacao.alvo().base
 
     def setUp(self) -> None:
@@ -128,18 +138,18 @@ class TestPapelDoLitellm(unittest.TestCase):
         Le-se do catalogo da base da plataforma, ligado como admin: o que o
         papel pode fazer la dentro, contado objecto a objecto, e zero.
         """
-        esquemas = self._uma(
-            "SELECT count(*) FROM pg_namespace n "
+        self.cursor.execute(
+            "SELECT n.nspname FROM pg_namespace n "
             "WHERE n.nspname NOT LIKE 'pg\\_%%' AND n.nspname <> 'information_schema' "
             "AND (has_schema_privilege(%s, n.oid, 'USAGE') "
-            "  OR has_schema_privilege(%s, n.oid, 'CREATE'))",
+            "  OR has_schema_privilege(%s, n.oid, 'CREATE')) ORDER BY 1",
             (PAPEL, PAPEL),
         )
         # O `public` tem USAGE para o PUBLIC por omissao, e o papel herda-o como
         # qualquer outro; nao e privilegio dele, e nao da acesso a nada que la
         # nao esteja concedido ao PUBLIC. Os esquemas da plataforma e que
-        # contam, e esses tem de ser zero.
-        self.assertLessEqual(esquemas, 1)
+        # contam, e esses tem de ficar de fora.
+        self.assertIn([tuple(l) for l in self.cursor.fetchall()], ([], [("public",)]))
         self.assertFalse(
             self._uma("SELECT has_schema_privilege(%s, 'platform', 'USAGE')", (PAPEL,))
         )
@@ -207,6 +217,51 @@ class TestPapelDoLitellm(unittest.TestCase):
         self.assertEqual(segunda, terceira)
         self.assertIn(f"papel {PAPEL} ja existia; atributos repostos", terceira)
         self.assertIn(f"base {BASE} ja existia; dono reposto", terceira)
+
+    def test_o_que_se_muda_a_mao_no_papel_e_reposto(self) -> None:
+        """Atributos, configuracao e pertencas, como o `test_migracao` mede no `kamba_app`."""
+        self.cursor.execute(f"ALTER ROLE {PAPEL} CREATEDB BYPASSRLS")
+        self.cursor.execute(f"ALTER ROLE {PAPEL} SET search_path = public, platform")
+        self.cursor.execute(f"GRANT kamba_app TO {PAPEL}")
+        self.cursor.execute(f"GRANT {PAPEL} TO kamba_batch")
+        try:
+            feito = bootstrap.aplicar()
+            self.cursor.execute(
+                "SELECT rolcreatedb, rolbypassrls, rolconfig FROM pg_roles WHERE rolname = %s",
+                (PAPEL,),
+            )
+            depois = tuple(self.cursor.fetchone())
+        finally:
+            # Se o bootstrap falhar, nao deixa o papel aberto para os ensaios
+            # seguintes. Repor o que ja esta reposto nao muda nada.
+            self.cursor.execute(f"ALTER ROLE {PAPEL} NOCREATEDB NOBYPASSRLS")
+            self.cursor.execute(f"ALTER ROLE {PAPEL} RESET ALL")
+            for grupo, membro in (("kamba_app", PAPEL), (PAPEL, "kamba_batch")):
+                self.cursor.execute(
+                    "SELECT 1 FROM pg_auth_members a JOIN pg_roles g ON g.oid = a.roleid "
+                    "JOIN pg_roles m ON m.oid = a.member WHERE g.rolname = %s AND m.rolname = %s",
+                    (grupo, membro),
+                )
+                if self.cursor.fetchone() is not None:
+                    self.cursor.execute(f"REVOKE {grupo} FROM {membro}")
+        self.assertEqual(depois, (False, False, None))
+        self.assertEqual(
+            sum(1 for l in feito if "pertenca revogada" in l and PAPEL in l), 2
+        )
+
+    def test_um_connect_dado_a_mao_na_plataforma_e_revogado(self) -> None:
+        self.cursor.execute(f'GRANT CONNECT ON DATABASE "{self.plataforma}" TO {PAPEL}')
+        try:
+            bootstrap.aplicar()
+            depois = self._uma(
+                "SELECT has_database_privilege(%s, %s, 'CONNECT')",
+                (PAPEL, self.plataforma),
+            )
+        finally:
+            self.cursor.execute(
+                f'REVOKE CONNECT ON DATABASE "{self.plataforma}" FROM {PAPEL}'
+            )
+        self.assertFalse(depois)
 
     def test_o_dono_e_reposto(self) -> None:
         """Uma base passada a outro dono a mao volta ao do proxy."""

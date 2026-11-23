@@ -43,8 +43,9 @@
 #    a auditoria de chamadas e **nossa** (`dat.llm_call_log`, ADR-018, E4
 #    §2.7), e o proxy nao guarda uma linha por chamada (`disable_spend_logs`
 #    no `llm/litellm.config.yaml` gerado). O preco aceite e o que o E4 temia: o
-#    componente de maior superficie de ataque alcanca o PostgreSQL pela rede,
-#    separado da plataforma pelo papel (`docs/evidencia/KAM-247.md`).
+#    componente de maior superficie de ataque fica na rede `data`, e alcanca o
+#    PostgreSQL (separado da plataforma pelo papel), a fila e o armazenamento
+#    de objectos (`docs/evidencia/KAM-247.md` §5).
 
 name: kamba-llm-proxy
 

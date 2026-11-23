@@ -1086,7 +1086,8 @@ services:
       timeout: 10s
       retries: 8
       # 600 s, como em `prod` (KAM-247): com base, o proxy corre as migracoes
-      # dele em cada arranque, e mediram-se 167 s e 458 s (`docs/evidencia/KAM-247.md`).
+      # dele em cada arranque, e mediram-se 167 s, 294 s e 458 s
+      # (`docs/evidencia/KAM-247.md`).
       start_period: 600s
     depends_on:
       postgres:

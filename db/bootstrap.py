@@ -72,8 +72,12 @@ E um decimo, **fora da plataforma** (KAM-247, decisao do fundador de
 
 So nasce quando o ambiente traz a `KAMBA_SECRET_DB_LITELLM_PASSWORD`: o proxy
 corre em `staging` e `prod`, e o `dev` e os ensaios que nao o levantam nao
-ganham uma base que ninguem usa. A falta dela em `prod` nao passa calada: o
-compose recusa-se a arrancar o proxy sem a variavel (`:?`).
+ganham uma base que ninguem usa. **A falta dela aqui nao e um erro, e por isso
+diz-se na saida**: o compose recusa-se a arrancar o proxy sem a variavel
+(`:?`), mas isso e o ambiente do contentor e nao o deste passo. Um `bootstrap`
+corrido sem ela em `prod` sai com 0, e o proxy fica a falhar a autenticacao em
+ciclo de reinicio. Em `staging` e `prod` corre-se com ela, antes do `litellm`
+(`db/migrations/README.md`).
 """
 
 from __future__ import annotations
@@ -211,7 +215,7 @@ def _papel_e_base_do_litellm(cursor, senha: str, feito: list[str]) -> None:
     else:
         cursor.execute(f"ALTER ROLE {papel} {ATRIBUTOS_DO_LITELLM}")
         feito.append(f"papel {papel} ja existia; atributos repostos")
-    cursor.execute(f"ALTER ROLE {papel} RESET ALL")
+    _executar_formatado(cursor, "ALTER ROLE %I RESET ALL", papel)
     _executar_formatado(
         cursor, "ALTER ROLE %I PASSWORD %L", papel, verificador_scram(senha)
     )
@@ -228,11 +232,29 @@ def _papel_e_base_do_litellm(cursor, senha: str, feito: list[str]) -> None:
     # papeis da plataforma entravam na base do proxy, e o dele nao precisa de
     # companhia. O dono conserva os seus privilegios: o REVOKE ao PUBLIC nao
     # lhos tira.
+    #
+    # **Escrito com outra ordem das palavras de proposito**: o `db/mutacoes.py`
+    # muta o REVOKE da base da plataforma pelo texto, e exige que ele apareca
+    # uma vez so neste ficheiro.
     _executar_formatado(
-        cursor, "REVOKE TEMPORARY, CONNECT ON DATABASE %I FROM PUBLIC", base
+        cursor, "REVOKE CONNECT, TEMPORARY ON DATABASE %I FROM PUBLIC", base
     )
     _executar_formatado(cursor, "GRANT CONNECT ON DATABASE %I TO %I", base, papel)
     feito.append(f"privilegios da base {base}: CONNECT so ao {papel}")
+
+
+def _litellm_fora_da_plataforma(cursor, base: str, feito: list[str]) -> None:
+    """Tira ao `kamba_litellm` o que alguem lhe tenha dado na base da plataforma.
+
+    O bootstrap nunca lho da, e a base da plataforma ja revoga o CONNECT ao
+    PUBLIC; mas um `GRANT CONNECT ... TO kamba_litellm` feito a mao punha o
+    proxy dentro da plataforma, e nenhuma execucao o desfazia. Repoe-se, como os
+    atributos e as pertencas (achado da revisao adversarial do KAM-247).
+    """
+    _executar_formatado(
+        cursor, "REVOKE ALL ON DATABASE %I FROM %I", base, PAPEL_DO_LITELLM
+    )
+    feito.append(f"papel {PAPEL_DO_LITELLM}: nada na base {base}")
 
 
 def aplicar(ambiente=None) -> list[str]:
@@ -277,10 +299,17 @@ def aplicar(ambiente=None) -> list[str]:
         if senha_do_litellm:
             _papel_e_base_do_litellm(cursor, senha_do_litellm, feito)
         else:
+            # Sem a variavel nao se cria nada, e nao se apaga nada: um papel e
+            # uma base que ja existam ficam como estao, e a frase di-lo.
             feito.append(
                 f"papel {PAPEL_DO_LITELLM}: {VARIAVEL_DO_PAPEL_DO_LITELLM} nao "
-                "definida; nem papel nem base (o proxy de LLM nao corre aqui)"
+                "definida; o papel e a base do proxy de LLM nao foram criados nem "
+                "repostos. Em staging e prod o proxy precisa dos dois: corra-se "
+                "com ela antes de o arrancar"
             )
+        cursor.execute("SELECT 1 FROM pg_roles WHERE rolname = %s", (PAPEL_DO_LITELLM,))
+        if cursor.fetchone() is not None:
+            _litellm_fora_da_plataforma(cursor, base, feito)
 
         _revogar_pertencas(cursor, feito)
 

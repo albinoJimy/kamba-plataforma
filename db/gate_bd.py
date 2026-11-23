@@ -492,12 +492,15 @@ def com_bd_existente(suite: str) -> int:
             "AGR",
             "PAY_HOOKS",
             "PAY",
+            # KAM-247: o papel do proxy de LLM, que o `test_papel_do_litellm`
+            # mede e exige.
+            "LITELLM",
         )
         if not ambiente.get(f"KAMBA_SECRET_DB_{papel}_PASSWORD")
     ]
     if em_falta:
         print(
-            "gate de BD: --bd-existente exige as palavras-passe dos nove papeis no "
+            "gate de BD: --bd-existente exige as palavras-passe dos dez papeis no "
             f"ambiente; faltam: {', '.join(em_falta)}.\n"
             "    Os papeis sao globais a instancia: gera-las aqui trocava as "
             "credenciais de todos os servicos que a usam.",

@@ -38,8 +38,8 @@ Quatro factos medidos que, hoje, explicam estes alertas antes de o LLM os explic
    *tenant*» é o `python infra/llm/chaves.py provisionar <tenant> <plano>` e o
    «`max_budget: 0`» é um `/key/update`; o orçamento esgotado responde **422**
    `budget_exceeded` (medido em [`../evidencia/KAM-247.md`](../evidencia/KAM-247.md)). **O
-   proxy demora a arrancar**: corre as migrações dele em cada arranque (167 s e 458 s
-   medidos, 115 s e 174 s num reinício), e o `start_period` é de 600 s. Um `litellm`
+   proxy demora a arrancar**: corre as migrações dele em cada arranque (167 s, 294 s e
+   458 s medidos; 115 s, 174 s e 235 s num reinício), e o `start_period` é de 600 s. Um `litellm`
    `starting` durante minutos depois de um reinício é isto antes de ser outra coisa; e
    com o `postgres` em baixo o proxy não arranca.
 4. **O Prometheus não raspa o LiteLLM**; erros por fornecedor leem-se nos logs dele e em
@@ -158,10 +158,10 @@ docker logs --since 30m kamba-prod-agr-1
    é *denial of wallet* — vai para lá.
 2. Subir o limite de um *tenant* é **decisão humana**, registada (doc 09 §13). O
    mecanismo desenhado é `python infra/llm/chaves.py provisionar "<tenant_id>" "<plano>"`
-   com a mensalidade do plano nova — e **não funciona contra este compose** (§0, ponto 3).
-   Credor: quem der base de dados ao LiteLLM (KAM-030/fundador).
-3. Enquanto não houver orçamento por *tenant*, o turno sem orçamento degrada para **N2**
-   (motivo `budget`) e o cliente recebe o menu determinístico e o caminho para humano.
+   com a mensalidade do plano nova, que actualiza a chave e não a reemite (§0, ponto 3;
+   medido em [`../evidencia/KAM-247.md`](../evidencia/KAM-247.md) §3).
+3. Até a decisão sair, o turno sem orçamento degrada para **N2** (motivo `budget`) e o
+   cliente recebe o menu determinístico e o caminho para humano.
 
 ### 3.4 O AGR não responde
 
@@ -195,7 +195,7 @@ comercial — o texto do RB-K01 §6 com «o assistente está a responder em modo
 | Facto | Estado | Fonte |
 |---|---|---|
 | O orçamento esgotado chega do LiteLLM como HTTP 422 `budget_exceeded` | **CONFIRMADO** no ensaio do KAM-030 | `docs/evidencia/KAM-030-litellm.md` §4 |
-| As chaves virtuais do LiteLLM exigem base de dados | **CONFIRMADO** contra a imagem fixada, a 2026-11-09 | §0, ponto 3 |
+| As chaves virtuais do LiteLLM exigem base de dados | **CONFIRMADO** contra a imagem fixada, a 2026-11-09 e outra vez a 2026-11-23; desde o KAM-247 o proxy de `staging` e `prod` tem a `kamba_litellm` | §0, ponto 3; `docs/evidencia/KAM-247.md` §2 |
 | Limites de TPM/RPM dos fornecedores | **NÃO VERIFICADO** | doc 09 §11 |
 
 ---
@@ -207,4 +207,4 @@ comercial — o texto do RB-K01 §6 com «o assistente está a responder em modo
 | 1.0 | Novembro 2026 | O *stub* do KAM-080 passa a runbook no modelo comum (**KAM-083**): um ramo por alerta, as consultas ao Prometheus e à base verificadas, a separação «indisponível» contra «sem *budget*», e o N1/N2 como o que já acontece sozinho. O §0 regista que o LiteLLM do compose não tem chaves virtuais nem orçamentos (medido) | KAM-083 |
 | 1.1 | Novembro 2026 | **KAM-186**: o §0, ponto 1, e o §2 deixam de dizer que a porta `grafos` está por ligar. O 503 passa a ser o `saida_por_ligar` — o grafo corre e a resposta não tem Outbound a que sair —, e esse aparece no registo do AGR, ao contrário do `grafo_nao_registado`, que só vivia no corpo da resposta. | Equipa KAMBÁ |
 | 1.2 | Novembro 2026 | **KAM-187**, integrado depois deste: a falta de consumidor da `wa-inbound` passa a ter a causa certa — o compose corre o `entrada.ts`, e em `prod` ele não arranca (`../identidade.md` §8, linha 2) | Equipa KAMBÁ |
-| 1.3 | Novembro 2026 | **KAM-247**: o §0, ponto 3, deixa de dizer que o LiteLLM não tem base. Tem a `kamba_litellm` (decisão do fundador de 2026-11-23, opção A1); o ponto passa a dizer como se sobe o limite e o arranque lento do proxy com base. | Equipa KAMBÁ |
+| 1.3 | Novembro 2026 | **KAM-247**: o §0, ponto 3, deixa de dizer que o LiteLLM não tem base. Tem a `kamba_litellm` (decisão do fundador de 2026-11-23, opção A1); o ponto passa a dizer como se sobe o limite e o arranque lento do proxy com base. O §3.3 e o §7 deixam de dizer que o `chaves.py` não funciona contra o compose. | Equipa KAMBÁ |

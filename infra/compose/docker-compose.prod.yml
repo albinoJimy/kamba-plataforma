@@ -1143,10 +1143,16 @@ services:
     # do `docs/tecnica/02` §13.3, nao existia. A base e a `kamba_litellm`, no
     # cluster `postgres`, como a do Chatwoot; o papel `kamba_litellm` e dono
     # dela e **nao liga a base da plataforma** (`db/bootstrap.py`, ensaiado em
-    # `db/tests/test_papel_do_litellm.py`). **O custo aceite e este**: o
-    # componente de maior superficie de ataque da pilha (E4) alcanca o
-    # PostgreSQL pela rede. O que o separa da plataforma e o papel, e nao a
-    # rede. Sem registos de gasto por chamada (`disable_spend_logs`, no
+    # `db/tests/test_papel_do_litellm.py`). **O custo aceite e estar em
+    # `data`**, e e maior do que o PostgreSQL: o componente de maior superficie
+    # de ataque da pilha (E4) passa a alcancar pela rede **tudo** o que la vive,
+    # como os outros quinze servicos de aplicacao que ja la estavam —
+    #   * o `postgres`: separado da plataforma pelo papel, e nao pela rede; o
+    #     PUBLIC ainda tem CONNECT nas bases `postgres`, `kamba_chatwoot` e
+    #     `kamba_medusa` (divida 95 de `docs/dividas-documentais.md`);
+    #   * a `queue`, que nao pede credencial nenhuma (sem `requirepass`);
+    #   * o `seaweedfs`, quando o perfil `sto-proprio` o levanta.
+    # Sem registos de gasto por chamada (`disable_spend_logs`, no
     # `llm/litellm.config.yaml` gerado): a base guarda chaves e gasto acumulado,
     # e a auditoria continua a ser a `dat.llm_call_log`.
     image: ghcr.io/berriai/litellm:v1.104.2@sha256:3d88bd757134a00e8c00237b85a021ab1f6d54abb9c1df750f411dbe7256a500
@@ -1205,12 +1211,12 @@ services:
       retries: 8
       # **600 s, e nao 60** (KAM-247, decisao do fundador de 2026-11-23): com
       # base, o proxy corre as migracoes dele em cada arranque. Medido na imagem
-      # fixada, endurecida como aqui (`docs/evidencia/KAM-247.md` §2): 67 s ate
-      # `healthy` sem base; **167 s e 458 s** com base, em duas corridas; e
-      # **115 s e 174 s** num reinicio, com o esquema ja aplicado. A janela
-      # antiga era 60 + 8 x 15 = 180 s. **O host de `prod` nao esta medido**: os
-      # numeros sao de uma maquina de 8 GB partilhada, e medem-se de novo em
-      # `staging`.
+      # fixada, endurecida como aqui (`docs/evidencia/KAM-247.md` §2 e §3): 67 s
+      # ate `healthy` sem base; **167 s, 294 s e 458 s** com base, em tres
+      # corridas; e **115 s, 174 s e 235 s** num reinicio, com o esquema ja
+      # aplicado. A janela antiga era 60 + 8 x 15 = 180 s. **O host de `prod` nao
+      # esta medido**: os numeros sao de uma maquina de 8 GB partilhada, e
+      # medem-se de novo em `staging`.
       start_period: 600s
     depends_on:
       postgres:

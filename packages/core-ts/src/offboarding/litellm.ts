@@ -29,14 +29,15 @@
  * pode ter a chave. Um 404 de um proxy que a perdeu de vista não fecha o passo
  * se ela ainda lá estiver.
  *
- * ## O limite que fica: o proxy de `prod` não tem base
+ * ## Um proxy sem base
  *
- * Sem `DATABASE_URL` a imagem fixada não tem chaves virtuais nenhumas: o
+ * Sem base a imagem fixada não tem chaves virtuais nenhumas: o
  * `/key/generate` e o `/key/list` respondem 500 (`DB not connected`, medido no
- * §2 do mesmo anexo). O `/key/delete` sem base não se mediu, e não precisa: a
- * listagem que confirma a revogação é um desses 500. Esse 500 **sobe**, como
- * qualquer outro: a fase fica parada com alerta, e o passo não se dá por
- * `sem_recurso` pela leitura de uma mensagem de erro.
+ * §2 do mesmo anexo). Desde o KAM-247 o proxy de `staging` e `prod` tem a base
+ * `kamba_litellm` (`docs/evidencia/KAM-247.md`); um que arranque sem ela dá
+ * esse 500, e ele **sobe**, como qualquer outro: a fase fica parada com
+ * alerta, e o passo não se dá por `sem_recurso` pela leitura de uma mensagem
+ * de erro.
  */
 
 import type { ChaveDeLlm } from "../provisioning/contrato.ts";

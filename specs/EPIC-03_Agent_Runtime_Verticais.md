@@ -5439,7 +5439,16 @@ e a revogação do encerramento deixa de ter recurso por construção.
 | Autor | o fundador |
 
 As opções foram medidas antes da escolha e levadas pela coordenação; os números estão no §4 do
-`../docs/evidencia/KAM-247.md`.
+`../docs/evidencia/KAM-247.md`. Uma terceira corrida, já com o `bootstrap.py` deste ticket, deu
+294 s no arranque e 235 s num reinício (§3 do anexo): cabem nos 600 s.
+
+**O que «estar na rede `data`» quer dizer, medido no compose depois da decisão** (achado da
+revisão adversarial): o proxy alcança tudo o que lá vive, como os quinze serviços de aplicação
+que já lá estavam. Alcança o `postgres`, de que o separa o papel e não a rede, e onde o PUBLIC
+ainda tem `CONNECT` nas bases `postgres`, `kamba_chatwoot` e `kamba_medusa` (dívida 95 de
+`../docs/dividas-documentais.md`). Alcança a `queue`, que não pede credencial nenhuma. E alcança o
+`seaweedfs`, quando o perfil `sto-proprio` o levanta. Fica escrito no `docker-compose.prod.yml`, e
+foi levado à coordenação.
 
 ### Critérios de Aceitação
 
@@ -5499,10 +5508,14 @@ o papel novo):
 Medido também de fora, com o `bootstrap.py` deste ramo contra a imagem do `postgres` de `prod` (§3 do
 anexo, passos 1 a 4).
 
-**A chave do screening (KAM-195) fica reparada.** Era uma chave virtual como as dos tenants, e sem
-base não podia existir. Medido (§3 do anexo, passos 8 a 12): o `provisionar-screening` cria-a e
-depois actualiza-a; ela chama o `screening-nano` (200), é recusada no `kamba-chat` (403) e continua a
-servir depois de um reinício.
+**A chave do screening (KAM-195) passa a poder existir.** Era uma chave virtual como as dos
+tenants, e sem base não podia existir. Medido (§3 do anexo, passos 8 a 12): o
+`provisionar-screening` cria-a e depois actualiza-a; ela chama o `screening-nano` (200), é recusada
+no `kamba-chat` (403) e continua a servir depois de um reinício. **O que não fica reparado:** o
+valor da chave não chega ao cofre. O `provisionar` e o `provisionar-screening` não o devolvem nem
+o imprimem, e a porta do cofre não tem escrita (`../docs/adr/ADR-L002-injeccao-de-segredos.md` §6).
+Na medição, o valor só se obteve envolvendo o `Proxy.gerar`. Vale para as chaves dos tenants
+também. Nenhum ticket aberto o reclama, e foi levado à coordenação para lhe dar credor.
 
 **O que mudou no código:**
 - `../db/bootstrap.py` cria o papel e a base quando a `KAMBA_SECRET_DB_LITELLM_PASSWORD` existe, e o
@@ -5519,6 +5532,30 @@ servir depois de um reinício.
 
 **Sem esquema na base da plataforma:** a base do proxy nasce no `bootstrap.py`, fora do Alembic, e não
 leva número de migração.
+
+**A revisão adversarial**, independente e só de leitura, correu sobre o primeiro commit e
+reprovou-o. Os achados confirmados foram tratados neste PR:
+- **O gate 8 caía no `--aplicaveis`.** O REVOKE da base do proxy repetia o texto que o
+  `db/mutacoes.py` muta na base da plataforma. Passou a ter outra ordem das palavras, e entram
+  **sete** mutações novas para o código do papel: 1314 conferidas, 0 por aplicar.
+- **O `test_catalogo.TestPapeis` exigia nove papéis `kamba_*`.** Passa a dez, com o
+  `kamba_litellm` e a razão.
+- **O piso do `lint_bloco`** sobe de 90 para 91, nas três superfícies, porque este bloco passa os
+  medidos de 181 para 182.
+- **Os ensaios não mexiam no papel à mão.** Entram dois: atributos, configuração e pertenças
+  alteradas à mão são repostas, e um `CONNECT` dado à mão na base da plataforma é revogado. Para
+  este último o `bootstrap.py` ganha o `REVOKE ALL ON DATABASE <plataforma> FROM kamba_litellm`.
+- **O docstring do `bootstrap.py` prometia um aviso que não existe.** Passa a dizer que a falta da
+  variável sai com 0, e a frase de saída diz o que fazer. O `db/migrations/README.md` acrescenta a
+  variável e a ordem: o `bootstrap.py` corre antes do `litellm`.
+- **O `--bd-existente` do `gate_bd.py` falhava sempre.** Passa a exigir a palavra-passe do papel.
+- **Onze superfícies continuavam a dizer «LiteLLM sem base»**: o RB-K03 (§3.3 e §7), o
+  `offboarding.md` (§8), o `runbooks/offboarding.md`, a resposta a incidentes, o runbook de
+  rotação, os comentários do `litellm.ts` e do `processo.ts`, e a linha do `litellm` no doc 09.
+  Todas foram corrigidas.
+- **Os números do reinício** passam a ser os três medidos.
+- **O alcance da rede `data`, e a chave do screening sem caminho para o cofre**, estão escritos
+  acima e foram levados à coordenação.
 
 ### Handoff para Claude Code
 
