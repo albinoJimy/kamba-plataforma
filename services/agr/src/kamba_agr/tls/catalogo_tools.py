@@ -51,6 +51,23 @@ accao esta `confirmada`, e deste contacto, e e do tipo certo.
 | accao de outro contacto | `TENANT_MISMATCH` |
 
 O `detalhe` e o codigo do dominio, e nunca um valor nem o texto do dono.
+
+## A tomada e o prazo (KAM-244)
+
+O `create_product_draft` de uma foto tem 25 s (`TECTOS_POR_TOOL`), e corre o
+pipeline do KAM-049 inteiro. **A visao e o screening correm sem a tomada da
+ToolLayer** (`Pedido.sem_tomada`, como o `submit_quote` do KAM-230): o executor
+da ao pipeline uma `TomadaDaInvocacao`, que o repositorio, a fonte e as
+escritas do fim leem **na ligacao de agora** — a retomada, e nao a largada,
+que ja pode estar noutra invocacao. **E o `Pedido.prazo` desce ao pipeline**:
+cada etapa lenta recebe o que sobra dele menos o que as seguintes precisam
+(`RESERVA_*` do `pipeline.py`), e o pior caso acaba antes dos 25 s.
+
+Um screening que nao decide — sem tempo, ou em baixo — deixa a ingestao
+`bloqueada_categoria` com uma das `REGRAS_RETOMAVEIS`. Nao e uma decisao: a
+vista diz `retomavel`, o grafo oferece «Tentar outra vez», e o toque chega aqui
+como uma ingestao sem respostas, que o executor passa ao `retomar` do KAM-049.
+O `publish_product` larga a tomada, mas sem o prazo (ver a nota no executor).
 """
 
 from __future__ import annotations
@@ -66,6 +83,7 @@ from kamba_core.catalogo import estados
 from kamba_core.catalogo.extraccao import DONO_TEXTO, DONO_VOZ
 from kamba_core.catalogo.pipeline import (
     MOTIVO_CATEGORIA,
+    REGRAS_RETOMAVEIS,
     SUGESTAO,
     ConfirmacaoDoDono,
     ConfirmacaoRecusada,
@@ -82,7 +100,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from ..catalogo import regras
 from ..catalogo.fonte import ler_asset
-from ..catalogo.montagem import FotoPorLigarError, PortasDoCatalogo
+from ..catalogo.montagem import FotoPorLigarError, PortasDoCatalogo, TomadaDaInvocacao
 from ..dono import accoes
 from .erros import NOT_FOUND, TENANT_MISMATCH, UPSTREAM_DOWN, UPSTREAM_TIMEOUT, VALIDATION_ERROR, Fact
 from .especificacoes import ErroDeBackend, Executor, Pedido, Resposta
@@ -120,10 +138,14 @@ SQL_CONTAGENS: Final = (
     "WHERE tenant_id = %s::uuid GROUP BY estado"
 )
 
-#: Os rascunhos a espera do dono, os mais recentes primeiro.
+#: Os rascunhos a espera do dono, os mais recentes primeiro. **E as bloqueadas
+#: que o screening nao decidiu** (KAM-244, `REGRAS_RETOMAVEIS`): esperam pelo
+#: toque «tentar outra vez», e a referencia `PRD-…` delas leva-o ao dono depois
+#: de a camada cortar a foto. As bloqueadas por decisao nao entram.
 SQL_PENDENTES: Final = (
     "SELECT id::text, estado FROM platform.catalog_ingestions "
-    "WHERE tenant_id = %s::uuid AND estado IN ('a_perguntar', 'rascunho') "
+    "WHERE tenant_id = %s::uuid AND (estado IN ('a_perguntar', 'rascunho') "
+    "OR (estado = 'bloqueada_categoria' AND categoria_restrita = ANY(%s::text[]))) "
     "ORDER BY atualizado_at DESC, id LIMIT %s"
 )
 
@@ -199,6 +221,20 @@ def _iso(instante: datetime.datetime) -> str:
     return instante.astimezone(datetime.UTC).isoformat()
 
 
+def _retomavel(linha: Ingestao | None) -> bool:
+    """Se a ingestao esta `bloqueada_categoria` sem decisao do screening (KAM-244).
+
+    E a que ficou assim por o screening nao ter respondido — sem tempo no prazo
+    da invocacao, ou em baixo (`REGRAS_RETOMAVEIS` do KAM-049). O dono pode
+    pedir outra vez; uma decisao restritiva nao se retoma por aqui.
+    """
+    return (
+        linha is not None
+        and linha.estado == estados.BLOQUEADA_CATEGORIA
+        and linha.categoria_restrita in REGRAS_RETOMAVEIS
+    )
+
+
 def vista(linha: Ingestao, *, motivo: str | None = None, mesmo_produto_que: str | None = None) -> dict[str, Any]:
     """O que o grafo precisa de uma ingestao para falar com o dono. Sem texto da foto em registos."""
     dados: dict[str, Any] = {
@@ -210,6 +246,8 @@ def vista(linha: Ingestao, *, motivo: str | None = None, mesmo_produto_que: str 
         "perguntas": [],
         "resumo": None,
         "versao_texto": None,
+        # KAM-244: bloqueada porque o screening nao decidiu, e nao por decisao.
+        "retomavel": _retomavel(linha),
     }
     if linha.estado == estados.A_PERGUNTAR:
         dados["perguntas"] = [
@@ -263,7 +301,7 @@ def ler_estado(ligacao: Any, tenant_id: str) -> tuple[dict[str, int], list[tuple
     with tenant_guard.tx(ligacao, tenant_id) as cursor:
         cursor.execute(SQL_CONTAGENS, (tenant_id,))
         por_estado = {str(e): int(n) for e, n in cursor.fetchall()}
-        cursor.execute(SQL_PENDENTES, (tenant_id, LIMITE_DE_PENDENTES))
+        cursor.execute(SQL_PENDENTES, (tenant_id, list(REGRAS_RETOMAVEIS), LIMITE_DE_PENDENTES))
         pendentes = [(str(i), str(e)) for i, e in cursor.fetchall()]
     return por_estado, pendentes
 
@@ -304,7 +342,8 @@ def executores(
     """Os quatro executores, sobre as portas do processo (ou as de um ensaio)."""
     agora = relogio or (lambda: datetime.datetime.now(datetime.UTC))
 
-    def _depois(pedido: Pedido, servico: ServicoDeIngestao, resultado: Resultado) -> Resposta:
+    def _depois(pedido: Pedido, ligacao: Any, resultado: Resultado) -> Resposta:
+        """A resposta da ingestao. `ligacao` e a **corrente** (KAM-244), e nao a do `pedido`."""
         linha = resultado.ingestao
         dados = vista(linha, motivo=resultado.motivo, mesmo_produto_que=resultado.mesmo_produto_que)
         instante = agora()
@@ -314,14 +353,14 @@ def executores(
             # para `papel='dono'`), e se chegasse o `propor` recusava.
             for tentativa in range(1, TENTATIVAS_DO_BOTAO + 1):
                 action_id = accoes.propor(
-                    pedido.ligacao,
+                    ligacao,
                     pedido.ctx.tenant_id,
                     pedido.ctx.contact_id,
                     TIPO_DA_ACCAO,
                     _ref_da_accao(linha.id, dados["versao_texto"], tentativa),
                     instante,
                 )
-                lida = ler_accao(pedido.ligacao, pedido.ctx.tenant_id, action_id)
+                lida = ler_accao(ligacao, pedido.ctx.tenant_id, action_id)
                 if _serve(lida, pedido.ctx.contact_id, instante):
                     break
             else:
@@ -336,7 +375,11 @@ def executores(
         args = pedido.args
         assert isinstance(args, ArgumentosDeCreateProductDraft)
         tenant = pedido.ctx.tenant_id
-        servico = portas.servico(pedido.ligacao)
+        # KAM-244: a visao e o screening correm sem a tomada da ToolLayer, e cada
+        # etapa lenta recebe o que sobra do prazo da invocacao. Depois do
+        # pipeline, a ligacao e a da `tomada`, e nao a do `pedido`.
+        tomada = TomadaDaInvocacao(pedido.ligacao, pedido.sem_tomada)
+        servico = portas.servico(tomada, prazo=pedido.prazo)
         respostas: dict[str, str] = dict(args.respostas or {})
         if args.preco_confirmado is not None:
             try:
@@ -365,7 +408,7 @@ def executores(
         media_id = args.media_id
         try:
             if args.asset_id is not None:
-                media_id = ler_asset(pedido.ligacao, tenant, args.asset_id).media_id
+                media_id = ler_asset(tomada.ligacao, tenant, args.asset_id).media_id
             if media_id is not None:
                 resultado = servico.receber(tenant, media_id, sintetica=portas.sintetica)
             elif args.mesmo_produto is not None:
@@ -373,6 +416,13 @@ def executores(
                 resultado = servico.mesmo_produto(
                     tenant, args.ingestao, e_o_mesmo=args.mesmo_produto, sintetica=portas.sintetica
                 )
+            elif not respostas and _retomavel(servico.repositorio.ler(tenant, args.ingestao or "")):
+                # KAM-244: o botao «tentar outra vez» de uma ingestao que o
+                # screening nao chegou a decidir (sem tempo, ou em baixo). O
+                # `retomar` pergunta-lhe outra vez e so sai se ele agora permitir:
+                # nao levanta bloqueio nenhum por si.
+                assert args.ingestao is not None
+                resultado = servico.retomar(tenant, args.ingestao, sintetica=portas.sintetica)
             else:
                 assert args.ingestao is not None
                 resultado = servico.responder(
@@ -404,8 +454,8 @@ def executores(
             )
             if linha is None:
                 raise
-            return _depois(pedido, servico, Resultado(linha))
-        return _depois(pedido, servico, resultado)
+            return _depois(pedido, tomada.ligacao, Resultado(linha))
+        return _depois(pedido, tomada.ligacao, resultado)
 
     def ask_missing_fields(pedido: Pedido) -> Resposta:
         _exigir_ligacao(pedido)
@@ -432,7 +482,12 @@ def executores(
         if estado != "confirmada" or confirmada_at is None:
             raise ErroDeBackend(VALIDATION_ERROR, "accao_por_confirmar")
         ingestao_id, versao_texto = lido
-        servico = portas.servico(pedido.ligacao)
+        # KAM-244: o screening da publicacao tambem corre sem a tomada. **Sem o
+        # prazo**: o tecto desta tool e o de uma `write` (8 s), e o screening da
+        # publicacao continua com os 20 s dele; o corte da camada aos 8,5 s ja
+        # tem frase (`MSG_PUBLICACAO_EM_CURSO`, achado 5 do KAM-119) e o toque
+        # seguinte e idempotente.
+        servico = portas.servico(TomadaDaInvocacao(pedido.ligacao, pedido.sem_tomada))
         confirmacao = ConfirmacaoDoDono(
             # O dono, e nao a mensagem: o `actor` tem de ser o mesmo quando o
             # mesmo botao repete uma publicacao que o Registo nao recebeu

@@ -36,7 +36,7 @@ SEGREDO_DA_LIGACAO = {"KAMBA_SECRET_CHAVE_DA_LIGACAO_DE_DESCARGA": "l" * 32}
 class _Visao:
     fornecedores = ("anthropic",)
 
-    def extrair(self, tenant_id: str, imagem: bytes) -> RespostaDaVisao:
+    def extrair(self, tenant_id: str, imagem: bytes, *, tecto_s: float | None = None) -> RespostaDaVisao:
         return RespostaDaVisao(texto="{}", custo_usd=Decimal("0.001"))
 
 

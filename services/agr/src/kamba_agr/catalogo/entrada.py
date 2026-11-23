@@ -78,11 +78,11 @@ class _VisaoTardia:
         visao = self._entrada._visao
         return () if visao is None else tuple(visao.fornecedores)
 
-    def extrair(self, tenant_id: str, imagem: bytes) -> RespostaDaVisao:
+    def extrair(self, tenant_id: str, imagem: bytes, *, tecto_s: float | None = None) -> RespostaDaVisao:
         visao = self._entrada._visao
         if visao is None:
             raise ErroDaVisao(f"sem adaptador de visao (credor {CREDOR_DA_FOTO})")
-        return visao.extrair(tenant_id, imagem)
+        return visao.extrair(tenant_id, imagem, tecto_s=tecto_s)
 
 
 class _DestinosTardios:

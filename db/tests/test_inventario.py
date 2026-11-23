@@ -134,6 +134,17 @@ INVENTARIO = {
         "recolhido_at": ("timestamp with time zone", NAO, "now()", "nao"),
         "expira_at": ("timestamp with time zone", SIM, None, "nao"),
     },
+    # KAM-208 (revisao `0087`): o pseudonimo do telefone sem tenant. Um HMAC com
+    # segredo do cofre, como o `bsuid_hmac`, mas **sem** o tenant na mensagem: o
+    # mesmo numero da o mesmo valor em todos os tenants, e e por isso que so o
+    # `kamba_identity` o le.
+    "contact_xtenant_pseudonym": {
+        "tenant_id": ("uuid", NAO, None, "nao"),
+        "contact_id": ("uuid", NAO, None, "referencia opaca ao contacto"),
+        "pseudonimo": ("bytea", NAO, None, "pseudonimo do telefone sem tenant: HMAC-SHA256 com segredo do cofre; so para a correlacao entre tenants de T&S"),
+        "kid": ("text", NAO, None, "versao do segredo do pseudonimo; nao e o segredo"),
+        "visto_at": ("timestamp with time zone", NAO, "now()", "nao"),
+    },
     "hmac_key_versions": {
         "kid": ("text", NAO, None, "identificador da versao do segredo; nao e o segredo"),
         "estado": ("text", NAO, None, "nao"),
@@ -4202,6 +4213,13 @@ class TestInventario(ComBase):
                         "contact_endpoints_dek_fk",
                         "contact_endpoints_hmac_kid_fk",
                         "contact_endpoints_tenant_fk",
+                        # KAM-208: o pseudonimo sem tenant, para o contacto
+                        # (composta) e para o tenant. Sem cascata: um contacto
+                        # nao se apaga (fica como lapide), e o pseudonimo vai
+                        # pelo *trigger* `contacts_xtenant_esquecer` quando o
+                        # contacto e apagado a pedido, fundido ou perde o numero.
+                        "contact_xtenant_pseudonym_contact_fk",
+                        "contact_xtenant_pseudonym_tenant_fk",
                         "contacts_hmac_kid_fk",
                         "contacts_merged_fk",
                         "contacts_tenant_fk",
@@ -5759,6 +5777,10 @@ class TestInventario(ComBase):
                     "contact_endpoints_forma_ck",
                     "contact_endpoints_pkey",
                     "contact_endpoints_tipo_ck",
+                    # KAM-208: o pseudonimo sem tenant.
+                    "contact_xtenant_pseudonym_kid_ck",
+                    "contact_xtenant_pseudonym_pkey",
+                    "contact_xtenant_pseudonym_pseudonimo_ck",
                     "contacts_inactivo_sem_phone_ck",
                     "contacts_merged_outro_ck",
                     "contacts_merged_par_ck",

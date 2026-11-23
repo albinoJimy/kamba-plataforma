@@ -471,6 +471,14 @@ POLITICA: Final[tuple[Classe, ...]] = (
             _t("platform.tenant_channels", pendencia=_RELACAO),
             _t("platform.contacts", pendencia=_RELACAO),
             _t("platform.contact_endpoints", pendencia=_RELACAO + "; expira_at com KAM-072"),
+            # KAM-208 (revisao `0087`). O pseudonimo do telefone sem tenant: sai
+            # com o contacto (o *trigger* `contacts_xtenant_esquecer`) e vence
+            # aos 90 dias do `visto_at` pela purga do lote de T&S (D4), menos o
+            # do dono enquanto for dono (D4b). Nao e este *job* que o apaga.
+            _t(
+                "platform.contact_xtenant_pseudonym",
+                pendencia=_RELACAO + "; visto_at aos 90 dias pela purga do lote de T&S (KAM-208)",
+            ),
             _t("platform.contact_deks", pendencia=_RELACAO),
             _t("platform.conversations", pendencia=_RELACAO),
             _t("platform.owner_contacts", pendencia=_RELACAO),

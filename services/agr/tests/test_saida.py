@@ -303,6 +303,8 @@ class TestTitulosDosBotoes(unittest.TestCase):
             regras.botao_de_corrigir_stock(ingestao),
             regras.botao_do_mesmo_produto(ingestao),
             regras.botao_de_outro_produto(ingestao),
+            # KAM-244: a retoma de uma ingestao que o screening nao decidiu.
+            regras.botao_de_retomar(ingestao),
         ):
             with self.subTest(botao=identificador):
                 self.assertTrue(saida.titulo_do_botao(identificador))
@@ -316,6 +318,7 @@ class TestTitulosDosBotoes(unittest.TestCase):
                 regras.PREFIXO_DE_CORRIGIR_STOCK,
                 regras.PREFIXO_DO_MESMO_PRODUTO,
                 regras.PREFIXO_DE_OUTRO_PRODUTO,
+                regras.PREFIXO_DE_RETOMAR,
                 # KAM-121: a legenda de um item do social.
                 social_regras.PREFIXO_DA_LEGENDA,
             },

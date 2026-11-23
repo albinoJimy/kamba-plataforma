@@ -497,9 +497,10 @@ test("onContactMerge devolve a função que retira o gancho", async () => {
 
 // --------------------------------------------------- as regras do SQL e do registo
 
-const TABELAS_DE_TENANT = ["contacts", "contact_endpoints", "contact_deks"];
+// KAM-208: e o pseudónimo sem tenant, que é tabela de tenant como as outras.
+const TABELAS_DE_TENANT = ["contacts", "contact_endpoints", "contact_deks", "contact_xtenant_pseudonym"];
 
-test("todo o SQL do módulo usa só parâmetros ligados, e só as quatro tabelas de identidade", () => {
+test("todo o SQL do módulo usa só parâmetros ligados, e só as cinco tabelas de identidade", () => {
   const instrucoes = Object.entries(SQL.TODAS);
   assert.ok(instrucoes.length >= 30);
   // Nenhuma constante exportada ficou fora da lista que este teste percorre.
@@ -540,7 +541,9 @@ test("toda a instrução sobre uma tabela de tenant filtra (ou escreve) o tenant
       continue;
     }
     // Uma vez por cada tabela de tenant referida (as subconsultas também).
-    const referencias = [...sql.matchAll(/platform\.(contacts|contact_endpoints|contact_deks) /g)].length;
+    const referencias = [
+      ...sql.matchAll(/platform\.(contacts|contact_endpoints|contact_deks|contact_xtenant_pseudonym) /g),
+    ].length;
     const filtros = [...sql.matchAll(/tenant_id = (\$1|e\.tenant_id)/g)].length;
     assert.ok(filtros >= referencias, `${nome}: ${referencias} tabela(s), ${filtros} filtro(s) de tenant`);
     assert.match(sql, /tenant_id = \$1/, `${nome}: sem tenant_id = $1`);
@@ -552,7 +555,7 @@ test("o módulo não regista nada: nem console, nem saída do processo, nem um l
   // lista de campos permitidos é do KAM-068, e até lá a regra aqui é zero.
   const pasta = new URL("../src/identity/", import.meta.url);
   const ficheiros = readdirSync(pasta).filter((nome) => nome.endsWith(".ts"));
-  assert.deepEqual(ficheiros.sort(), ["chaves.ts", "consultas.ts", "contactos.ts", "cripto.ts", "index.ts"]);
+  assert.deepEqual(ficheiros.sort(), ["chaves.ts", "consultas.ts", "contactos.ts", "correlacao.ts", "cripto.ts", "index.ts"]);
   for (const ficheiro of ficheiros) {
     const fonte = readFileSync(new URL(ficheiro, pasta), "utf8");
     const codigo = fonte

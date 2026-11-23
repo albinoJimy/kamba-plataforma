@@ -152,6 +152,8 @@ TITULOS_POR_PREFIXO: Final = {
     "stock_corrigir:": "Corrigir",
     "mesmo_produto:": "Sim, e o mesmo",
     "outro_produto:": "Nao, e outro",
+    # KAM-244: uma ingestao que o screening nao chegou a decidir.
+    "retomar:": "Tentar outra vez",
     # KAM-121: a legenda de um item do calendario, pela referencia `SOC-…`. O
     # titulo leva a referencia (`titulo_do_botao`); este e o de reserva.
     "legenda:": "Escrever a legenda",

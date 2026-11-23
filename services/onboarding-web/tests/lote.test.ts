@@ -155,6 +155,15 @@ test("lerConfiguracao arranca em prod com as duas credenciais e as omissões", (
   assert.equal(c.inicioDaAmostragem, null);
   assert.equal(c.urlDaFila, URL_FILA);
   assert.equal(c.intervaloDoTrustMs, INTERVALO_DO_TRUST_POR_OMISSAO_MS);
+  assert.equal(c.correlacao, "desligada", "KAM-208: o interruptor nasce desligado");
+});
+
+test("KAM-208: o interruptor da correlação entre tenants está trancado em prod e liga só fora dele", () => {
+  assert.equal(lerConfiguracao({ ...BASE, [VARIAVEIS_DO_LOTE.correlacao]: "ligada" }).correlacao, "trancada");
+  const fora = { ...BASE, [VARIAVEIS_DO_LOTE.ambiente]: "staging" };
+  assert.equal(lerConfiguracao(fora).correlacao, "desligada");
+  assert.equal(lerConfiguracao({ ...fora, [VARIAVEIS_DO_LOTE.correlacao]: "ligada" }).correlacao, "ligada");
+  assert.equal(lerConfiguracao({ ...fora, [VARIAVEIS_DO_LOTE.correlacao]: "sim" }).correlacao, "desligada");
 });
 
 test("sem a credencial de lote, ou a da app, não arranca — e o valor da outra não sai", () => {

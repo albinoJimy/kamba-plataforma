@@ -40,8 +40,11 @@ from kamba_core.catalogo.pipeline import ErroDaVisao, RespostaDaVisao
 from ..llm.cliente import PAPEL_DA_VISAO, ClienteDeLlm, ContextoDeChamada
 from ..llm.erros import ErroDeLlm
 
-#: O tecto da chamada a visao, em segundos (*proposta*). Cabe no tecto de 25 s
-#: do `create_product_draft` de foto (P3), com o resto do pipeline.
+#: O tecto da chamada a visao, em segundos (*proposta*). **Nao e o que ela tem
+#: dentro do `create_product_draft`**: ai recebe o que sobra do prazo da
+#: invocacao menos o que o screening, o Registo e as escritas precisam
+#: (`RESERVA_DEPOIS_DA_VISAO_MS` do KAM-049, KAM-244), que e menos. Este e o
+#: tecto sem prazo.
 TECTO_DA_VISAO_S = 18.0
 
 
@@ -56,7 +59,12 @@ class VisaoPeloGateway:
     def __post_init__(self) -> None:
         object.__setattr__(self, "fornecedores", self.cliente.fornecedores_de(PAPEL_DA_VISAO))
 
-    def extrair(self, tenant_id: str, imagem: bytes) -> RespostaDaVisao:
+    def extrair(self, tenant_id: str, imagem: bytes, *, tecto_s: float | None = None) -> RespostaDaVisao:
+        # KAM-244: o menor dos dois tectos, e sem tempo nao se chama o modelo
+        # (nem se paga): o pipeline segue sem extraccao e pergunta tudo ao dono.
+        tecto = self.tecto_s if tecto_s is None else min(self.tecto_s, tecto_s)
+        if tecto <= 0:
+            raise ErroDaVisao("sem tempo para a visao no prazo da invocacao")
         try:
             limpa = ImagemLimpa.de(imagem)
         except (FormatoNaoSuportado, ImagemInvalida, ImagemComMetadados) as erro:
@@ -68,7 +76,7 @@ class VisaoPeloGateway:
             no_grafo="catalogo",
         )
         try:
-            resposta = self.cliente.ver(limpa, ctx, tecto_s=self.tecto_s)
+            resposta = self.cliente.ver(limpa, ctx, tecto_s=tecto)
         except ErroDeLlm as erro:
             # A linha da falha ja ficou gravada pelo cliente, sem custo.
             raise ErroDaVisao(f"a visao falhou: {erro.resultado}") from None
