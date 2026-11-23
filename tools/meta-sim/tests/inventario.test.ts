@@ -244,8 +244,13 @@ describe("o inventario deste repositorio", () => {
     // **167 em 44 ficheiros desde o KAM-215**: os dois do telefone do caso que
     // se cifra no `phone_enc` (com separadores e em E.164), pela mesma razao das
     // baterias da inscricao.
-    assert.equal(totalDeclarado(), 167);
-    assert.equal(INVENTARIO.length, 44);
+    //
+    // **175 em 46 ficheiros desde o KAM-233**: os telefones decifrados para a
+    // exportacao do off-boarding, quatro no ensaio da porta de TypeScript e
+    // quatro no da colecao de Python. Ficticios, do intervalo `+244 999`, e
+    // medidos com `varrer` depois da ultima edicao.
+    assert.equal(totalDeclarado(), 175);
+    assert.equal(INVENTARIO.length, 46);
   });
 
   it("nenhuma entrada e de uma pasta inteira", () => {

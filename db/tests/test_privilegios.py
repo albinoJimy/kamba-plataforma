@@ -1471,7 +1471,9 @@ ESPERADO_POR_TABELA.update(
     {
         "onboarding_gate": {
             "kamba_app": {"SELECT"},
-            "kamba_batch": {"SELECT", "INSERT"},
+            # KAM-233 (`0086`, decisao do fundador de 2026-11-21, Q3 = B): o
+            # `DELETE` da purga do off-boarding.
+            "kamba_batch": {"SELECT", "INSERT", "DELETE"},
             "kamba_resolver": set(),
             "kamba_identity": set(),
             "kamba_audit": set(),
@@ -1504,7 +1506,9 @@ ESPERADO_POR_TABELA.update(
     {
         "catalog_ingestions": {
             "kamba_app": {"SELECT"},
-            "kamba_batch": set(),
+            # KAM-233 (`0086`, decisao do fundador de 2026-11-21, Q3 = B): o
+            # `DELETE` da purga do off-boarding.
+            "kamba_batch": {"DELETE"},
             "kamba_resolver": set(),
             "kamba_identity": set(),
             "kamba_audit": set(),
@@ -1528,7 +1532,9 @@ ESPERADO_POR_TABELA.update(
             "kamba_app": {"SELECT"},
             # KAM-124: a consolidacao do custo de imagem le a tabela (revisao
             # do custo dos modulos). Leitura e mais nada.
-            "kamba_batch": {"SELECT"},
+            # KAM-233 (`0086`, decisao do fundador de 2026-11-21, Q3 = B): o
+            # `DELETE` da purga do off-boarding.
+            "kamba_batch": {"SELECT", "DELETE"},
             "kamba_resolver": set(),
             "kamba_identity": set(),
             "kamba_audit": set(),
@@ -1567,7 +1573,9 @@ ESPERADO_POR_TABELA.update(
     {
         "brand_profile": {
             "kamba_app": {"SELECT"},
-            "kamba_batch": set(),
+            # KAM-233 (`0086`, decisao do fundador de 2026-11-21, Q3 = B): o
+            # `DELETE` da purga do off-boarding.
+            "kamba_batch": {"DELETE"},
             "kamba_resolver": set(),
             "kamba_identity": set(),
             "kamba_audit": set(),
@@ -1578,7 +1586,9 @@ ESPERADO_POR_TABELA.update(
         },
         "content_calendar": {
             "kamba_app": {"SELECT"},
-            "kamba_batch": set(),
+            # KAM-233 (`0086`, decisao do fundador de 2026-11-21, Q3 = B): o
+            # `DELETE` da purga do off-boarding.
+            "kamba_batch": {"DELETE"},
             "kamba_resolver": set(),
             "kamba_identity": set(),
             "kamba_audit": set(),
@@ -1589,7 +1599,9 @@ ESPERADO_POR_TABELA.update(
         },
         "content_items": {
             "kamba_app": {"SELECT"},
-            "kamba_batch": set(),
+            # KAM-233 (`0086`, decisao do fundador de 2026-11-21, Q3 = B): o
+            # `DELETE` da purga do off-boarding.
+            "kamba_batch": {"DELETE"},
             "kamba_resolver": set(),
             "kamba_identity": set(),
             "kamba_audit": set(),
@@ -1622,7 +1634,9 @@ ESPERADO_POR_TABELA.update(
         },
         "owner_phone_changes": {
             "kamba_app": set(),
-            "kamba_batch": set(),
+            # KAM-233 (`0086`, decisao do fundador de 2026-11-21, Q3 = B): o
+            # `DELETE` da purga do off-boarding.
+            "kamba_batch": {"DELETE"},
             "kamba_resolver": set(),
             "kamba_identity": {"SELECT"},
             "kamba_audit": set(),
@@ -1687,7 +1701,9 @@ ESPERADO_POR_TABELA.update(
     {
         "quote_requests": {
             "kamba_app": {"SELECT"},
-            "kamba_batch": set(),
+            # KAM-233 (`0086`, decisao do fundador de 2026-11-21, Q3 = B): o
+            # `DELETE` da purga do off-boarding.
+            "kamba_batch": {"DELETE"},
             "kamba_resolver": set(),
             "kamba_identity": set(),
             "kamba_audit": set(),
@@ -1840,7 +1856,9 @@ ESPERADO_POR_TABELA.update(
     {
         "waitlist_entry": {
             "kamba_app": set(),
-            "kamba_batch": {"SELECT", "INSERT"},
+            # KAM-233 (`0086`, decisao do fundador de 2026-11-21, Q3 = B): o
+            # `DELETE` da purga do off-boarding.
+            "kamba_batch": {"SELECT", "INSERT", "DELETE"},
             "kamba_resolver": set(),
             "kamba_identity": set(),
             "kamba_audit": {"SELECT"},
@@ -1918,7 +1936,9 @@ ESPERADO_POR_TABELA.update(
     {
         "onboarding_smoke": {
             "kamba_app": {"SELECT"},
-            "kamba_batch": {"SELECT"},
+            # KAM-233 (`0086`, decisao do fundador de 2026-11-21, Q3 = B): o
+            # `DELETE` da purga do off-boarding.
+            "kamba_batch": {"SELECT", "DELETE"},
             "kamba_resolver": set(),
             "kamba_identity": set(),
             "kamba_audit": {"SELECT"},
@@ -1963,7 +1983,9 @@ ESPERADO_POR_TABELA.update(
     {
         "owner_actions": {
             "kamba_app": {"SELECT", "INSERT"},
-            "kamba_batch": set(),
+            # KAM-233 (`0086`, decisao do fundador de 2026-11-21, Q3 = B): o
+            # `DELETE` da purga do off-boarding.
+            "kamba_batch": {"DELETE"},
             "kamba_resolver": set(),
             "kamba_identity": set(),
             "kamba_audit": set(),
@@ -2447,6 +2469,15 @@ COLUNAS_POR_PAPEL = {
     # KAM-097: a varredura da foto repetida le tres colunas da ingestao, e so
     # elas — o `extraido` e os media ficam fora do lote.
     ("kamba_batch", "catalog_ingestions", "SELECT"): {"id", "tenant_id", "phash"},
+    # KAM-233 (`0086`): a purga do off-boarding le das operacionais so o
+    # `tenant_id` do `DELETE ... WHERE tenant_id = %s`. O `BYPASSRLS` do lote
+    # nao lhe da a marca, o pedido, o conteudo nem as accoes do dono.
+    ("kamba_batch", "owner_actions", "SELECT"): {"tenant_id"},
+    ("kamba_batch", "owner_phone_changes", "SELECT"): {"tenant_id"},
+    ("kamba_batch", "quote_requests", "SELECT"): {"tenant_id"},
+    ("kamba_batch", "brand_profile", "SELECT"): {"tenant_id"},
+    ("kamba_batch", "content_calendar", "SELECT"): {"tenant_id"},
+    ("kamba_batch", "content_items", "SELECT"): {"tenant_id"},
     # KAM-097: o consumidor de T&S le dos sinais e das sancoes so o que a escada
     # e a idempotencia precisam. **Nao le** o `detalhe`, o `motivo_interno`, a
     # `regra`, os `sinais`, o `autor`, o `case_id` nem a `justificacao_salto`: a

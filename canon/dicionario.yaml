@@ -12,7 +12,7 @@
 
 version: 1
 fonte: "specs/02_Dicionario_de_Dados_Canonico.md"
-versao_dicionario: "1.137"
+versao_dicionario: "1.138"
 entradas:
   - seccao: "3.1"
     conceito: "Contacto"
@@ -711,7 +711,7 @@ entradas:
     variantes_literais: []
   - seccao: "3.2"
     conceito: "Acções auditadas"
-    canonico: "action ∈ {price.update, stock.adjust, payment.manual_confirm, access.conversation, batch.run, breakglass.open, audit.read, privacy.dsar_recusado, privacy.dsar_rectificado, retention.hold_aplicado, retention.hold_levantado, order.refund_record, review.acesso, review.recusa, llm.orcamento_zerado, llm.orcamento_reposto, trust.tecto, secret.rotate, secret.revoke, order.contact_view}"
+    canonico: "action ∈ {price.update, stock.adjust, payment.manual_confirm, access.conversation, batch.run, breakglass.open, audit.read, privacy.dsar_recusado, privacy.dsar_rectificado, retention.hold_aplicado, retention.hold_levantado, order.refund_record, review.acesso, review.recusa, llm.orcamento_zerado, llm.orcamento_reposto, trust.tecto, secret.rotate, secret.revoke, order.contact_view, privacy.telefones_exportados}"
     literais:
       - "action"
       - "price.update"
@@ -734,6 +734,7 @@ entradas:
       - "secret.rotate"
       - "secret.revoke"
       - "order.contact_view"
+      - "privacy.telefones_exportados"
     nomes:
       - "action"
       - "price.update"
@@ -756,11 +757,13 @@ entradas:
       - "secret.rotate"
       - "secret.revoke"
       - "order.contact_view"
+      - "privacy.telefones_exportados"
     nomes_nota:
       - "kamba_identity"
-      - "order_id"
+      - "contact_id"
       - "entity_id"
       - "payload_hash"
+      - "order_id"
       - "entity"
       - "trust.tecto"
       - "order.refund_record"
@@ -14692,7 +14695,7 @@ entradas:
     variantes_literais: []
   - seccao: "3.55"
     conceito: "Motivo de uma unidade sem ok"
-    canonico: "purge_log.motivo ∈ {fiscal_sem_prazo, fiscal_imutavel, hold_tenant, hold_contacto, sem_caminho, particao_por_criar, erro}"
+    canonico: "purge_log.motivo ∈ {fiscal_sem_prazo, fiscal_imutavel, hold_tenant, hold_contacto, sem_caminho, particao_por_criar, erro, branqueamento_sem_parecer}"
     literais:
       - "purge_log.motivo"
       - "fiscal_sem_prazo"
@@ -14702,6 +14705,7 @@ entradas:
       - "sem_caminho"
       - "particao_por_criar"
       - "erro"
+      - "branqueamento_sem_parecer"
     nomes:
       - "ok"
       - "purge_log.motivo"
@@ -14712,9 +14716,13 @@ entradas:
       - "sem_caminho"
       - "particao_por_criar"
       - "erro"
+      - "branqueamento_sem_parecer"
     nomes_nota:
       - "ok"
       - "CHECK"
+      - "kyc_check"
+      - "fraud_signals"
+      - "retida"
     variantes_literais: []
   - seccao: "3.55"
     conceito: "Hold legal no registo de auditoria"
@@ -20486,10 +20494,10 @@ entradas:
     variantes_literais: []
   - seccao: "3.77"
     conceito: "O pacote do titular"
-    canonico: "manifesto com VERSAO_DO_MANIFESTO = 1.2.0, num ZIP reproduzível na classe dsar do STO"
+    canonico: "manifesto com VERSAO_DO_MANIFESTO = 1.3.0, num ZIP reproduzível na classe dsar do STO"
     literais:
       - "VERSAO_DO_MANIFESTO"
-      - "1.2.0"
+      - "1.3.0"
       - "dsar"
     nomes:
       - "VERSAO_DO_MANIFESTO"
@@ -20503,6 +20511,33 @@ entradas:
       - "contract_acceptance"
       - "catalogo"
       - "indisponivel"
+      - "telefones"
+    variantes_literais: []
+  - seccao: "3.77"
+    conceito: "Os telefones para a exportação"
+    canonico: "telefonesPeloCofre, a porta PortaDosTelefones, a colecção telefones num objecto da classe dsar, com três campos por linha: o contact_id, a finalidade e o telefone em claro"
+    literais:
+      - "telefonesPeloCofre"
+      - "PortaDosTelefones"
+      - "telefones"
+      - "dsar"
+      - "contact_id"
+      - "finalidade"
+    nomes:
+      - "telefonesPeloCofre"
+      - "PortaDosTelefones"
+      - "telefones"
+      - "dsar"
+      - "contact_id"
+      - "finalidade"
+    nomes_nota:
+      - "pendentes"
+      - "onboarding"
+      - "lote"
+      - "kamba_identity"
+      - "lerEndpoints"
+      - "antes"
+      - "privacy.telefones_exportados"
     variantes_literais: []
   - seccao: "3.77"
     conceito: "A ligação de 24 h"
@@ -20532,6 +20567,11 @@ entradas:
       - "sem_caminho"
       - "ok"
       - "apagar_contactos"
+      - "tenant_id"
+      - "kyc_check"
+      - "screening_decision"
+      - "review_case"
+      - "onboarding_otp"
     variantes_literais: []
   - seccao: "3.77"
     conceito: "O certificado de eliminação"
@@ -20635,18 +20675,96 @@ entradas:
     variantes_literais: []
   - seccao: "3.77"
     conceito: "Revogação da chave do LiteLLM"
-    canonico: "o comando revogar do ../infra/llm/chaves.py, pelo alias tenant-<uuid>"
+    canonico: "ChaveDoLlmPeloProxy, o revogarDoTenant pelo alias tenant-<uuid> (aliasDaChaveDoTenant); à mão, o comando revogar do ../infra/llm/chaves.py"
     literais:
-      - "revogar"
+      - "ChaveDoLlmPeloProxy"
+      - "revogarDoTenant"
       - "tenant-<uuid>"
-    nomes:
+      - "aliasDaChaveDoTenant"
       - "revogar"
+    nomes:
+      - "ChaveDoLlmPeloProxy"
+      - "revogarDoTenant"
       - "tenant"
       - "uuid"
+      - "aliasDaChaveDoTenant"
+      - "revogar"
     nomes_nota:
-      - "provisionar"
+      - "chave_llm"
+      - "revogacao"
+      - "chaves.py"
       - "revogada"
       - "inexistente"
+      - "deleted_keys"
+      - "prod"
+    variantes_literais: []
+  - seccao: "3.77"
+    conceito: "A conta de atendimento arquivada"
+    canonico: "o archiveAccount do HandoffProvider, arquivarContaDoTenant, ArquivoDoChatwoot, ESTADO_DA_CONTA_ARQUIVADA = suspended"
+    literais:
+      - "archiveAccount"
+      - "HandoffProvider"
+      - "arquivarContaDoTenant"
+      - "ArquivoDoChatwoot"
+      - "ESTADO_DA_CONTA_ARQUIVADA"
+      - "suspended"
+    nomes:
+      - "archiveAccount"
+      - "HandoffProvider"
+      - "arquivarContaDoTenant"
+      - "ArquivoDoChatwoot"
+      - "ESTADO_DA_CONTA_ARQUIVADA"
+      - "suspended"
+    nomes_nota:
+      - "handoff_accounts"
+      - "chatwoot_platform_token"
+      - "arquivada"
+      - "inexistente"
+      - "sem_conta"
+    variantes_literais: []
+  - seccao: "3.77"
+    conceito: "Os passos da revogação"
+    canonico: "PASSOS_DA_REVOGACAO: chave_llm, canal_comercio, inbox, conta_atendimento, entitlements, canais, sessoes_do_painel, encerramento"
+    literais:
+      - "PASSOS_DA_REVOGACAO"
+      - "chave_llm"
+      - "canal_comercio"
+      - "inbox"
+      - "conta_atendimento"
+      - "entitlements"
+      - "canais"
+      - "sessoes_do_painel"
+      - "encerramento"
+    nomes:
+      - "PASSOS_DA_REVOGACAO"
+      - "chave_llm"
+      - "canal_comercio"
+      - "inbox"
+      - "conta_atendimento"
+      - "entitlements"
+      - "canais"
+      - "sessoes_do_painel"
+      - "encerramento"
+    nomes_nota:
+      - "concluido"
+      - "inexistente"
+      - "sem_recurso"
+    variantes_literais: []
+  - seccao: "3.77"
+    conceito: "A rede da revogação"
+    canonico: "KAMBA_LLM_PROXY_URL e KAMBA_CHATWOOT_URL no onboarding-lote"
+    literais:
+      - "KAMBA_LLM_PROXY_URL"
+      - "KAMBA_CHATWOOT_URL"
+      - "onboarding-lote"
+    nomes:
+      - "KAMBA_LLM_PROXY_URL"
+      - "KAMBA_CHATWOOT_URL"
+      - "onboarding"
+      - "lote"
+    nomes_nota:
+      - "litellm_master_key"
+      - "chatwoot_platform_token"
     variantes_literais: []
   - seccao: "3.78"
     conceito: "Papel do contacto"
@@ -25088,6 +25206,7 @@ dominios:
       - "secret.rotate"
       - "secret.revoke"
       - "order.contact_view"
+      - "privacy.telefones_exportados"
     seccao: "3.2"
     conceito: "Acções auditadas"
     so_no_registo: false
@@ -26263,6 +26382,7 @@ dominios:
       - "sem_caminho"
       - "particao_por_criar"
       - "erro"
+      - "branqueamento_sem_parecer"
     seccao: "3.55"
     conceito: "Motivo de uma unidade sem ok"
     so_no_registo: false

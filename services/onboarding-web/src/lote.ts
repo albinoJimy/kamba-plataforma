@@ -33,6 +33,7 @@
 import { serve } from "@hono/node-server";
 import { INTERVALO_DA_CONFIANCA_POR_OMISSAO_MS } from "@kamba/core-ts/confianca";
 import { instalar } from "@kamba/core-ts/logger";
+import type { PortaDosTelefones } from "@kamba/core-ts/offboarding";
 import pg from "pg";
 
 import { SERVICE } from "./meta.ts";
@@ -44,6 +45,8 @@ import {
   opcoesDoConjunto,
   portasDoOffboarding,
   registarVolta,
+  telefonesDoLote,
+  VARIAVEL_DA_IDENTIDADE_DO_LOTE,
   registarVoltaDaActivacao,
   registarVoltaDaConfianca,
   registarVoltaDoOffboarding,
@@ -66,6 +69,24 @@ async function principal(): Promise<void> {
       log.warn({ outcome: "ligacao_perdida", error_code: erro.code ?? erro.name }),
     );
   }
+  // KAM-233: os telefones da exportação, pelo cofre de contactos. **Sem a
+  // cadeia, ou com uma falha a montá-los, o processo arranca na mesma**: o fecho
+  // dos `pendentes` pára na porta sem adaptador, com alerta, e o resto do lote
+  // (a fila, o T&S, a confiança) não fica refém de um ticket.
+  const urlDaIdentidade = process.env[VARIAVEL_DA_IDENTIDADE_DO_LOTE]?.trim() || null;
+  const identidades =
+    urlDaIdentidade === null ? null : new pg.Pool({ ...opcoesDoConjunto(urlDaIdentidade, "lote"), application_name: "onboarding-lote:identidade" });
+  identidades?.on("error", (erro: Error & { code?: string }) =>
+    log.warn({ outcome: "ligacao_perdida", error_code: erro.code ?? erro.name }),
+  );
+  let telefones: PortaDosTelefones | null = null;
+  if (identidades !== null) {
+    try {
+      telefones = await telefonesDoLote({ identidades: identidades as never, ambiente: config.ambiente, env: process.env });
+    } catch (erro) {
+      log.warn({ outcome: "telefones_sem_adaptador", error_code: erro instanceof Error ? erro.name : "desconhecido" });
+    }
+  }
   let arrancou = false;
   try {
     const { processo, app: http } = await arrancar({
@@ -74,7 +95,14 @@ async function principal(): Promise<void> {
       log,
       inicioDaAmostragem: config.inicioDaAmostragem,
       // KAM-218: a Meta ligada, com o *token* de cada WABA lido do cofre.
-      portasDoOffboarding: portasDoOffboarding({ lote, ambiente: config.ambiente, env: process.env }),
+      // KAM-233: o LiteLLM, o Chatwoot e os telefones da exportação.
+      portasDoOffboarding: portasDoOffboarding({
+        lote,
+        app,
+        ambiente: config.ambiente,
+        env: process.env,
+        ...(telefones === null ? {} : { telefones }),
+      }),
     });
     // **Espera-se pela porta aberta antes de dizer `service_started`.** O
     // `serve` devolve antes de o `listen` acabar, e uma porta ocupada chegava
@@ -167,7 +195,7 @@ async function principal(): Promise<void> {
     ]);
     servidor.close();
   } finally {
-    await Promise.allSettled([lote.end(), app.end()]);
+    await Promise.allSettled([lote.end(), app.end(), ...(identidades === null ? [] : [identidades.end()])]);
     // Só quem arrancou pára: um arranque recusado diz-se pelo `arranque_falhou`.
     if (arrancou) log.info({ outcome: "service_stopped" });
   }

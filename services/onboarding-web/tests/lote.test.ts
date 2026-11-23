@@ -77,6 +77,9 @@ import {
   depoisDoTrust,
   portasDoOffboarding,
 } from "../src/lote/processo.ts";
+import { SQL_CONTA } from "@kamba/core-ts/hnd";
+import { SQL_REVOGAR_DO_TENANT } from "../src/painel/revogacoes_sql.ts";
+import { TECTO_DO_PAINEL_S } from "../src/painel/sessao.ts";
 import { CanalDaMetaPelaGraph, REVOGACAO_SEM_ADAPTADOR, SQL_TOKENS_DO_WABA } from "@kamba/core-ts/offboarding";
 import { cifrarToken } from "@kamba/core-ts/onboarding";
 
@@ -932,10 +935,85 @@ test("as portas do off-boarding: a Meta ligada pelo cofre e pela Graph de produ�
     buscar,
   });
   assert.ok(portas.canal instanceof CanalDaMetaPelaGraph, "a Meta deixa de estar sem adaptador");
-  assert.equal(portas.revogacao, REVOGACAO_SEM_ADAPTADOR);
+  // Sem a base do LiteLLM e do Chatwoot no ambiente, as duas portas ficam sem
+  // adaptador: a fase pára nelas, e nunca dá a chave por revogada.
+  assert.equal(portas.revogacao.chaveDeLlm, REVOGACAO_SEM_ADAPTADOR.chaveDeLlm);
+  assert.equal(portas.revogacao.contaDeAtendimento, REVOGACAO_SEM_ADAPTADOR.contaDeAtendimento);
+  assert.equal(portas.revogacao.canalDeComercio, REVOGACAO_SEM_ADAPTADOR.canalDeComercio);
   await portas.canal.cancelarSubscricao("w1");
   assert.deepEqual(pedidos, [
     { url: "https://graph.facebook.com/v21.0/w1/subscribed_apps", method: "DELETE", auth: "Bearer EAAG-ensaio" },
   ]);
   assert.ok(lote.consultas.some((c) => c.texto === SQL_TOKENS_DO_WABA), "o token lê-se pela ligação do lote");
+});
+
+test("as portas da revogação (KAM-233): a chave pelo alias no proxy e a conta da handoff_accounts suspensa, pelo cofre", async () => {
+  const tenant = "11111111-1111-4111-8111-111111111111";
+  const alias = `tenant-${tenant}`;
+  const lote = new ConjuntoFalso((texto) =>
+    texto === SQL_CONTA ? { rows: [{ tenant_id: tenant, provedor: "chatwoot", account_id: "42" }] } : undefined,
+  );
+  const pedidos: { url: string; method: string | undefined; auth: string | null; token: string | null; corpo: string }[] = [];
+  const buscar = (async (url: string, o: RequestInit) => {
+    const h = new Headers(o.headers);
+    pedidos.push({ url, method: o.method, auth: h.get("authorization"), token: h.get("api_access_token"), corpo: String(o.body ?? "") });
+    if (url.endsWith("/key/delete")) return new Response(JSON.stringify({ deleted_keys: [alias] }), { status: 200 });
+    if (url.includes("/key/list")) return new Response(JSON.stringify({ keys: [], total_count: 0 }), { status: 200 });
+    return new Response(JSON.stringify({ id: 42, status: "suspended" }), { status: 200 });
+  }) as unknown as typeof fetch;
+  const portas = portasDoOffboarding({
+    lote,
+    ambiente: "prod",
+    env: {
+      KAMBA_LLM_PROXY_URL: "http://litellm:4000",
+      KAMBA_CHATWOOT_URL: "http://chatwoot:3000",
+      KAMBA_SECRET_LITELLM_MASTER_KEY: "m1",
+      KAMBA_SECRET_CHATWOOT_PLATFORM_TOKEN: "p1",
+    },
+    buscar,
+  });
+  assert.equal(await portas.revogacao.chaveDeLlm.revogarDoTenant(tenant), "revogada");
+  assert.equal(await portas.revogacao.contaDeAtendimento.archiveAccount(tenant), "arquivada");
+  assert.deepEqual(
+    pedidos.map((p) => [p.method, p.url]),
+    [
+      ["POST", "http://litellm:4000/key/delete"],
+      ["GET", "http://litellm:4000/key/list?return_full_object=true&size=100&page=1"],
+      ["PATCH", "http://chatwoot:3000/platform/api/v1/accounts/42"],
+    ],
+  );
+  assert.deepEqual(JSON.parse(pedidos[0]?.corpo ?? ""), { key_aliases: [alias] });
+  assert.equal(pedidos[0]?.auth, "Bearer m1");
+  assert.equal(pedidos[2]?.token, "p1");
+  assert.deepEqual(JSON.parse(pedidos[2]?.corpo ?? ""), { status: "suspended" });
+  const leitura = lote.consultas.find((c) => c.texto === SQL_CONTA);
+  assert.deepEqual(leitura?.valores, [tenant, "chatwoot"], "a conta lê-se pela ligação do lote, do tenant e do provedor");
+  // Sem as ligações do `kamba_app`, as sessões do painel ficam sem adaptador: o passo pára.
+  await assert.rejects(portas.revogacao.sessoesDoPainel.revogarDoTenant(tenant, 1), /painel/);
+});
+
+test("as sessões do painel (KAM-233): o corte do tenant na painel_revogacao, pela ligação do kamba_app e sob a RLS dele", async () => {
+  const tenant = "11111111-1111-4111-8111-111111111111";
+  const consultas: { texto: string; valores: readonly unknown[] | undefined }[] = [];
+  const libertadas: unknown[] = [];
+  const app = {
+    connect: async () => ({
+      query: async (texto: string, valores?: readonly unknown[]) => {
+        consultas.push({ texto, valores });
+        return { rows: [], rowCount: 0 };
+      },
+      release: (destruir?: unknown) => {
+        libertadas.push(destruir);
+      },
+    }),
+  };
+  const lote = new ConjuntoFalso(() => undefined);
+  const portas = portasDoOffboarding({ lote, app: app as never, ambiente: "prod", env: {} });
+  await portas.revogacao.sessoesDoPainel.revogarDoTenant(tenant, 1_700_000_000);
+  const corte = consultas.find((c) => c.texto === SQL_REVOGAR_DO_TENANT);
+  assert.deepEqual(corte?.valores, [tenant, 1_700_000_000, 1_700_000_000 + TECTO_DO_PAINEL_S]);
+  const contexto = consultas.findIndex((c) => /app\.tenant_id/.test(c.texto) && c.valores?.includes(tenant));
+  assert.ok(contexto >= 0 && contexto < consultas.indexOf(corte!), "o tenant posto antes do INSERT, pela RLS");
+  assert.equal(lote.consultas.length, 0, "nada pela ligação do kamba_batch");
+  assert.deepEqual(libertadas, [false], "a ligação volta ao pool");
 });

@@ -3,7 +3,7 @@
 **Produto:** KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para o mercado angolano
 **Natureza:** Produto/plataforma standalone (sem cliente institucional)
 **Documentos-fonte:** conjunto técnico [`../docs/tecnica/`](../docs/tecnica/INDICE.md) e [`../docs/exploracao/14-tese-minima-e-plano-de-validacao.md`](../docs/exploracao/14-tese-minima-e-plano-de-validacao.md)
-**Versão do conjunto:** 1.102
+**Versão do conjunto:** 1.103
 **Data de emissão:** Outubro de 2026
 **Classificação:** Documento de Referência — Interno
 **Estado:** backlog **proposto** (nenhum ticket ratificado; ver `00_KAMBA_Carta.md` §6)
@@ -12,7 +12,7 @@
 
 ## 1. Propósito
 
-Este conjunto materializa o **backlog executável** da KAMBÁ para a **Fase 0 (Fundação / esqueleto andante)** e a **Fase 1 (Piloto)**. Decompõe o trabalho em **246 tickets atómicos (KAM-001 a KAM-246)** distribuídos por **11 epics** (KAM-111 a KAM-117 foram acrescentados na consolidação, e o KAM-128 a KAM-148, e o KAM-149 depois dela; todos pertencem aos epics indicados no §3.1), cada um com critérios de aceitação SMART, Definition of Done, testes requeridos e prompt de handoff para o **Claude Code (CLI)**.
+Este conjunto materializa o **backlog executável** da KAMBÁ para a **Fase 0 (Fundação / esqueleto andante)** e a **Fase 1 (Piloto)**. Decompõe o trabalho em **248 tickets atómicos (KAM-001 a KAM-248)** distribuídos por **11 epics** (KAM-111 a KAM-117 foram acrescentados na consolidação, e o KAM-128 a KAM-148, e o KAM-149 depois dela; todos pertencem aos epics indicados no §3.1), cada um com critérios de aceitação SMART, Definition of Done, testes requeridos e prompt de handoff para o **Claude Code (CLI)**.
 
 O que **não** está aqui: a Fase 2 (Clusters) e a Fase 3 (Escala). Esses epics (geo e logística, estafetas, analytics e Score, índice federado, AdsEngine, vitrine SEO, API pública, Fluxo B) só se escrevem quando o **Gate do Piloto (KAM-110)** for verde. Está declarado em §6.
 
@@ -51,16 +51,16 @@ O backlog é a interface entre o conjunto técnico (`../docs/tecnica/`) e a exec
 |------|-------|-------------|------|
 | EPIC-01 Fundações e Dados | KAM-001 – KAM-012, KAM-111, KAM-128 – KAM-148, KAM-150 – KAM-174, KAM-177, KAM-180 – KAM-183, KAM-185, KAM-194, KAM-213, KAM-229 | 68 | 0–1 |
 | EPIC-02 Canais WhatsApp e Handoff | KAM-013 – KAM-024, KAM-115, KAM-235 | 14 | 0–1 |
-| EPIC-03 Agent Runtime e Verticais | KAM-025 – KAM-040, KAM-114, KAM-184, KAM-186, KAM-214 | 20 | 0–1 |
+| EPIC-03 Agent Runtime e Verticais | KAM-025 – KAM-040, KAM-114, KAM-184, KAM-186, KAM-214, KAM-247 | 21 | 0–1 |
 | EPIC-04 Core de Comércio | KAM-041 – KAM-051, KAM-176, KAM-178, KAM-179, KAM-202, KAM-204 | 16 | 0–1 |
 | EPIC-05 Pagamentos e Billing | KAM-052 – KAM-060, KAM-175, KAM-197 | 11 | 0–1 |
 | EPIC-06 Índice e Pesquisa | KAM-061 – KAM-064, KAM-193, KAM-199, KAM-212 | 7 | 1 |
 | EPIC-07 Segurança e Conformidade | KAM-065 – KAM-074, KAM-112, KAM-113, KAM-149, KAM-189, KAM-205 | 15 | 0–1 |
 | EPIC-08 Topologia e Operação | KAM-075 – KAM-085, KAM-187, KAM-188, KAM-242 | 14 | 0–1 |
-| EPIC-09 Onboarding e Governação | KAM-086 – KAM-099, KAM-116, KAM-117, KAM-190 – KAM-192, KAM-195, KAM-196, KAM-198, KAM-200, KAM-201, KAM-203, KAM-206 – KAM-210, KAM-218 – KAM-219, KAM-225, KAM-233, KAM-236, KAM-239, KAM-240 | 37 | 1 |
+| EPIC-09 Onboarding e Governação | KAM-086 – KAM-099, KAM-116, KAM-117, KAM-190 – KAM-192, KAM-195, KAM-196, KAM-198, KAM-200, KAM-201, KAM-203, KAM-206 – KAM-210, KAM-218 – KAM-219, KAM-225, KAM-233, KAM-236, KAM-239, KAM-240, KAM-248 | 38 | 1 |
 | EPIC-10 Spikes, Validação e Gates | KAM-100 – KAM-110 | 11 | 0–1 |
 | EPIC-11 Módulos de Entrada | KAM-118 – KAM-127, KAM-211, KAM-215 – KAM-217, KAM-220 – KAM-224, KAM-226 – KAM-228, KAM-230 – KAM-232, KAM-234, KAM-237, KAM-238, KAM-241, KAM-243 – KAM-246 | 33 | 1 |
-| **TOTAL** | **KAM-001 – KAM-246** | **246** | — |
+| **TOTAL** | **KAM-001 – KAM-248** | **248** | — |
 
 ### 3.2 Fases
 
@@ -195,6 +195,7 @@ Itens com tempo de espera externo (arrancam na **semana 1**, em paralelo ao cód
 | KAM-184 | Consumo dos eventos de pagamento na vertical Serviços: a acção, a origem do `booking_id` e o credor do `ACCOES_POR_LIGAR` | feature | M | P0 | 0 | KAM-035, KAM-047 |
 | KAM-186 | O processo do AGR liga a porta `grafos` e serve turnos | feature | L | P0 | 0 | KAM-027, KAM-031, KAM-035, KAM-178 |
 | KAM-214 | O ensaio das conversas diferentes na tranca do AGR mede uma janela de 10 ms, e falha ao acaso sob carga | fix | S | P1 | 1 | KAM-034 |
+| KAM-247 | LiteLLM com base, ou chaves sem base: o proxy de `prod` não tem onde guardar as chaves virtuais | fix | M | P1 | 1 | KAM-030, KAM-233 |
 
 ### EPIC-04 — Core de Comércio
 
@@ -325,6 +326,7 @@ Itens com tempo de espera externo (arrancam na **semana 1**, em paralelo ao cód
 | KAM-236 | `onboarding-web` em produção: o caso, o registo e o guia sobre a base, para que a página do dono arranque em `prod` | feature | L | P1 | 1 | KAM-202 |
 | KAM-239 | O guia do ES em `prod`: o estado do guia na base, e a lista de espera, a fila de revisão e os *gates* pelo processo de lote | feature | M | P1 | 1 | KAM-236 |
 | KAM-240 | A idempotência do `PATCH /painel/produtos/:id` na base: a deduplicação sobrevive a um reinício e vale entre réplicas | feature | S | P1 | 1 | KAM-236 |
+| KAM-248 | Off-boarding, o que depende de fora: as provas e a entrega ao titular, a Medusa, o simulacro, o *token* de cada WABA e o resto da purga | feature | L | P1 | 1 | KAM-233, KAM-115, KAM-116, KAM-078 |
 
 ### EPIC-10 — Spikes, Validação e Gates
 
@@ -521,3 +523,4 @@ Um defeito encontrado fora do escopo não é corrigido no meio de outro ticket: 
 | 1.100 | Novembro 2026 | Escrita como 1.99 e renumerada na integração, depois do KAM-238. **KAM-243** acrescentado ao **EPIC-11**, no PR do **KAM-231**, que o abre e não o implementa, por decisão da coordenação de 2026-11-22: a foto do dono pelo painel, com o STO no `onboarding-web`. Número tomado como o maior da `main` + 1 (decisão da coordenação, 2026-11-22): quem fundir depois renumera. Total: 243 tickets. | Equipa KAMBÁ |
 | 1.101 | Novembro 2026 | Escrita como 1.100 e renumerada na integração, depois do PR do KAM-231. **KAM-244** e **KAM-245** acrescentados ao **EPIC-11**, depois do PR do **KAM-231**, por decisão da coordenação de 2026-11-22: os credores da tomada da TLS presa durante a foto e dos tectos de dentro (KAM-244), e da violação de um produto publicado depois de um `screen` (KAM-245). Números provisórios: o maior da `main` + 1 e + 2, e quem fundir depois renumera. Total: 245 tickets. | Equipa KAMBÁ |
 | 1.102 | Novembro 2026 | **KAM-246** acrescentado ao **EPIC-11**, no PR do **KAM-122**, que o abre e não o implementa, pela decisão do fundador de 2026-11-21 (D5, opção A, bloco do KAM-122): é o credor do critério 8 do KAM-122 — a arte como imagem pelo WhatsApp (um `Corpo` de média no Outbound e no `worker-canal`, o carregamento na Meta e a coluna de média da `agent_replies`) e a página do painel com a ligação de descarga de 24 h. Depende do KAM-122 e do KAM-015. Escrita como 1.99 e renumerada na integração, depois do KAM-238, do KAM-231 e do #254. Escrito como KAM-237 e renumerado três vezes na integração: o KAM-125 tomou o 237, o KAM-236 o 238 a 240, o KAM-238 o 241 e o 242, e o KAM-231 o 243 e, pelo #254, o 244 e o 245; o 246 é o seguinte ao maior da `main` em `f3d3a0eb`. **Superfícies:** a linha do §4, a gama e a contagem do §1, a linha do EPIC-11 (**33**) e o TOTAL do §3.1, a «Tabela Resumo» do EPIC-11, o `../README.md` e a prosa do `EPIC-07`. **Arestas recíprocas:** o `Bloqueia` do KAM-122 e o do KAM-015 ganham o KAM-246. **246** tickets em 11 epics. | Equipa KAMBÁ |
+| 1.103 | Novembro 2026 | **KAM-247** acrescentado ao **EPIC-03** e **KAM-248** ao **EPIC-09**, no PR do **KAM-233**, que os abre e não os implementa. O KAM-247 é o credor do LiteLLM de `prod` sem base, pela decisão do fundador de 2026-11-21 (Q1 = A): sem `DATABASE_URL`, a imagem fixada responde 500 ao `/key/generate` e ao `/key/list` (medido, `../docs/evidencia/KAM-233.md` §2), e a fase `revogacao` do off-boarding pára na chave até ele fechar; a escolha entre a base do proxy e as chaves sem base é do fundador. O KAM-248 é o credor único do que o off-boarding espera de fora, pela decisão da coordenação do lote 18 de 2026-11-22: as provas e a entrega ao titular (KAM-116 e KAM-115), a Medusa (D3), o *token* de cada WABA (KAM-078), o 404 da Graph, o resto da purga, as duas tabelas da `0084` sem caminho de eliminação e o simulacro. Escritos como KAM-241 e KAM-242, e renumerados na integração contra a `main` em `25babeca` (o maior era o KAM-246). **Superfícies:** as duas linhas do §4, a gama e a contagem do §1, as linhas do EPIC-03 (**21**) e do EPIC-09 (**38**) e o TOTAL do §3.1, as «Tabela Resumo» dos dois epics e o `../README.md`. **Arestas recíprocas:** o `Bloqueia` do KAM-233 ganha os dois, o do KAM-030 o KAM-247, e os do KAM-115, do KAM-116 e do KAM-078 o KAM-248. **248** tickets em 11 epics. | Equipa KAMBÁ |

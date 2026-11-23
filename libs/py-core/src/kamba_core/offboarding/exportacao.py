@@ -15,12 +15,24 @@ ja da zero linhas de outro tenant, e o predicado no texto e a segunda barreira,
 a que vale se alguem correr isto com o papel errado (o `kamba_batch` contorna a
 RLS). O isolamento mede-se pelo ensaio cruzado (exportacao de A sem nada de B).
 
+## Os telefones dos clientes chegam pelo STO (KAM-233)
+
+Decisoes do fundador de 2026-11-21 (Q2 = B) e de 2026-11-22 (Q2b = A). A
+decifra e do TypeScript: no fecho da fase `pendentes`, o processo de lote le
+cada contacto pelo `lerEndpoints` do cofre, com a linha de `audit_log` na
+transaccao da decifra, e grava um objecto JSON com os tres campos exportaveis
+(`contact_id`, `finalidade`, `telefone`) no STO do tenant, na classe `dsar`, a
+expirar no prazo da purga. A fase guarda a chave no resultado. **Esta exportacao
+le o objecto por essa chave, e exige-o**: sem ela, a fase recusa, em vez de
+gerar um pacote sem os telefones que parecia completo. O objecto nao entra nos
+`objectos/` do pacote (a listagem salta a classe `dsar`), e sai na purga com o
+resto do STO do tenant. **O custo aceite** e uma segunda copia em claro no STO
+ate a purga, igual a que o ZIP ja leva.
+
 ## O que nao sai, e e lacuna declarada
 
-* **O telefone e o BSUID dos clientes.** Vivem cifrados no `contact_endpoints`,
-  que so o `kamba_identity` le, e decifra-los exige a DEK — a mesma lacuna da
-  exportacao do titular do KAM-070, com o mesmo credor. O bloco pede «telefones
-  decifrados so para campos exportaveis, com auditoria»: fica por fazer.
+* **O BSUID dos clientes.** E um identificador da Meta, e nao um dado do titular;
+  o processo de lote nao o decifra (`soTelefones`).
 * **O catalogo da Medusa**, quando nao ha fonte: o registo de produtos da opcao
   B da D3 nao existe (o KAM-042 deixou o `RegistoAdmin` sem cliente, e a D3 esta
   por ratificar). Com `fonte_do_catalogo`, entra; sem ela, o manifesto diz
@@ -78,8 +90,9 @@ from .contrato import (
 #: A versao do manifesto, em SemVer (bloco: «formato estruturado estavel»). Sobe
 #: o *major* quando um campo muda de sentido ou sai; o *minor* quando entra um.
 #: 1.1.0 (KAM-210): os bytes dos objectos do STO em `objectos/<chave>`.
+#: 1.3.0 (KAM-233): a coleccao `telefones`.
 #: 1.2.0 (KAM-218): as coleccoes `ofertas` e `aceites`.
-VERSAO_DO_MANIFESTO: Final = "1.2.0"
+VERSAO_DO_MANIFESTO: Final = "1.3.0"
 
 #: O tecto dos bytes dos objectos dentro do pacote. *Proposta*, sem medicao: o
 #: pacote monta-se em memoria no processo dos dados. Acima dele, os bytes ficam
@@ -170,6 +183,36 @@ RAZAO_SEM_CATALOGO: Final = (
     "o registo de produtos da opcao B da D3 (a Medusa) nao existe nesta plataforma; "
     "os termos comerciais por SKU saem em ofertas"
 )
+
+#: A coleccao dos telefones, e os tres campos dela, por esta ordem (KAM-233).
+COLECCAO_DOS_TELEFONES: Final = "telefones"
+CAMPOS_DOS_TELEFONES: Final = ("contact_id", "finalidade", "telefone")
+
+
+def ler_telefones(armazenamento: StorageProvider, tenant_id: str, chave: str) -> list[dict[str, Any]]:
+    """O objecto que o processo de lote gravou, pela chave da fase `pendentes`.
+
+    **Recusa o que nao e dele**: um documento de outra coleccao, de outro
+    tenant, ou uma linha com um campo a mais ou a menos. A chave passa pela
+    guarda do STO com o contexto do tenant, que recusa uma chave de outro.
+    """
+    corpo = b"".join(armazenamento.get(Ctx(tenant_id), ObjectRef(chave, 0)))
+    try:
+        doc = json.loads(corpo.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as erro:
+        raise FaseForaDeOrdem("o objecto dos telefones nao e JSON") from erro
+    if not isinstance(doc, dict) or doc.get("coleccao") != COLECCAO_DOS_TELEFONES or doc.get("tenant_id") != tenant_id:
+        raise FaseForaDeOrdem("o objecto dos telefones nao e a coleccao deste tenant")
+    linhas = doc.get("linhas")
+    if not isinstance(linhas, list):
+        raise FaseForaDeOrdem("o objecto dos telefones nao tem linhas")
+    saida: list[dict[str, Any]] = []
+    for linha in linhas:
+        if not isinstance(linha, dict) or tuple(sorted(linha)) != tuple(sorted(CAMPOS_DOS_TELEFONES)):
+            raise FaseForaDeOrdem("uma linha dos telefones nao tem os tres campos exportaveis")
+        saida.append({campo: str(linha[campo]) for campo in CAMPOS_DOS_TELEFONES})
+    return saida
+
 
 #: A fonte do catalogo: o tenant, e as linhas. Nenhuma implementacao ainda.
 FonteDoCatalogo = Callable[[str], Sequence[Mapping[str, Any]]]
@@ -277,9 +320,15 @@ def exportar(
         exigir_concluida(fases, "pendentes", "exportacao")
         if fases["purga"].estado == "concluida":
             raise FaseForaDeOrdem("a fase exportacao nao pode correr: a purga ja correu")
-        return fases["purga"].prazo_at
+        telefones = fases["pendentes"].resultado.get("telefones")
+        chave = telefones.get("chave") if isinstance(telefones, dict) else None
+        if not isinstance(chave, str) or not chave:
+            # KAM-233: a fase `pendentes` fecha so com os telefones entregues; uma
+            # fechada sem eles e de antes do KAM-233, e o pacote ficava sem eles.
+            raise FaseForaDeOrdem("a fase exportacao nao pode correr: a fase pendentes nao entregou os telefones")
+        return fases["purga"].prazo_at, chave
 
-    expira = _em_batch(abrir_batch, "offboarding_exportacao", antes)
+    expira, chave_dos_telefones = _em_batch(abrir_batch, "offboarding_exportacao", antes)
 
     ligacao = abrir_app()
     try:
@@ -290,6 +339,8 @@ def exportar(
                 coleccoes[nome] = _linhas(cursor)
     finally:
         ligacao.close()
+
+    coleccoes[COLECCAO_DOS_TELEFONES] = ler_telefones(armazenamento, tenant_id, chave_dos_telefones)
 
     indisponiveis: dict[str, str] = {}
     if fonte_do_catalogo is None:

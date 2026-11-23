@@ -847,6 +847,35 @@ services:
       # lancador do cofre (ADR-L002). Sem a KEK a fase falha pelo nome.
       KAMBA_SECRET_KEK_TOKEN_CLIENTE: ${KAMBA_SECRET_KEK_TOKEN_CLIENTE:?o cofre entrega a KEK dos tokens de cliente}
       KAMBA_SECRET_KEK_TOKEN_CLIENTE_ANTERIOR: ${KAMBA_SECRET_KEK_TOKEN_CLIENTE_ANTERIOR:-}
+      # KAM-233 (decisao do fundador de 2026-11-21, Q1 = A): a fase `revogacao`
+      # apaga a chave do tenant no LiteLLM pelo alias e suspende a conta dele no
+      # Chatwoot, os dois na rede `app` e fora do `proxy-saida` (o `NO_PROXY`
+      # do `*saida` ja os nomeia). As duas credenciais leem-se a cada chamada.
+      # Enquanto o LiteLLM de `staging` arrancar sem `DATABASE_URL`, o `/key/list` que
+      # confirma a revogacao responde 500 e a fase para na chave, com alerta
+      # (`docs/evidencia/KAM-233.md` §2; credor KAM-247).
+      KAMBA_LLM_PROXY_URL: http://litellm:4000
+      KAMBA_CHATWOOT_URL: http://chatwoot:3000
+      KAMBA_SECRET_LITELLM_MASTER_KEY: ${KAMBA_SECRET_LITELLM_MASTER_KEY:?do cofre (KAM-010), projecto staging}
+      KAMBA_SECRET_CHATWOOT_PLATFORM_TOKEN: ${KAMBA_SECRET_CHATWOOT_PLATFORM_TOKEN:?do cofre (KAM-010), projecto staging}
+      # KAM-233 (decisoes do fundador de 2026-11-21, Q2 = B, e 2026-11-22, Q2b = A):
+      # no fecho da fase `pendentes`, os telefones dos clientes decifrados como
+      # `kamba_identity` (so o `lerEndpoints`, auditado na transaccao da decifra)
+      # e gravados no STO do tenant, na classe `dsar`, com o destino ADR-008 do
+      # pacote, para a exportacao do `offboarding-dados` os ler. O `KAMBA_ENV` e o
+      # que o `Identidade.arrancar` confere contra o ambiente das chaves.
+      KAMBA_ENV: staging
+      KAMBA_LOTE_IDENTITY_DB_URL: ${KAMBA_LOTE_IDENTITY_DB_URL:?o deploy passa a cadeia de ligacao do kamba_identity}
+      KAMBA_SECRET_KEK_CONTACT_DEK: ${KAMBA_SECRET_KEK_CONTACT_DEK:?do cofre (KAM-010), projecto staging}
+      KAMBA_SECRET_KEK_CONTACT_DEK_ANTERIOR: ${KAMBA_SECRET_KEK_CONTACT_DEK_ANTERIOR:-}
+      KAMBA_STORAGE_ENDPOINT: ${KAMBA_STORAGE_ENDPOINT:?o deploy diz onde e o armazenamento (D6 aberta)}
+      KAMBA_STORAGE_BUCKET: ${KAMBA_STORAGE_BUCKET:?o deploy nomeia o bucket}
+      KAMBA_STORAGE_REGION: ${KAMBA_STORAGE_REGION:?o deploy nomeia a regiao}
+      KAMBA_STORAGE_DESTINO_COUNTRY: ${KAMBA_STORAGE_DESTINO_COUNTRY:?o deploy diz o pais do armazenamento (ADR-008)}
+      KAMBA_STORAGE_DESTINO_PROVIDER: ${KAMBA_STORAGE_DESTINO_PROVIDER:?o deploy diz o fornecedor do armazenamento}
+      KAMBA_STORAGE_DESTINO_APD_REF: ${KAMBA_STORAGE_DESTINO_APD_REF:-}
+      KAMBA_SECRET_STORAGE_ACCESS_KEY_ID: ${KAMBA_SECRET_STORAGE_ACCESS_KEY_ID:?o cofre entrega a chave de acesso do armazenamento}
+      KAMBA_SECRET_STORAGE_SECRET_ACCESS_KEY: ${KAMBA_SECRET_STORAGE_SECRET_ACCESS_KEY:?o cofre entrega o segredo do armazenamento}
     networks:
       - app
       - data

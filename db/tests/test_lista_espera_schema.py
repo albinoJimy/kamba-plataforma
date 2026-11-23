@@ -481,7 +481,11 @@ class TestPrivilegios(ComBase):
             with self.subTest(coluna=coluna):
                 self.assertErroSql(PRIVILEGIO_INSUFICIENTE, lote,
                                    f"UPDATE {ENTRADA} SET {coluna} = {valor} WHERE onboarding_id = %s", (onb,))
-        self.assertErroSql(PRIVILEGIO_INSUFICIENTE, lote, f"DELETE FROM {ENTRADA} WHERE onboarding_id = %s", (onb,))
+        # Desde a `0086` (KAM-233, decisao do fundador de 2026-11-21, Q3 = B) o lote
+        # **apaga** a entrada, e so a purga do encerramento o faz (`CAMINHOS_DO_ENCERRAMENTO`);
+        # a chave FIFO e o limite continuam fora do alcance dele.
+        lote.execute("SELECT has_table_privilege('kamba_batch', %s, 'DELETE')", (ENTRADA,))
+        self.assertTrue(lote.fetchone()[0])
         self.assertErroSql(PRIVILEGIO_INSUFICIENTE, lote, f"UPDATE {LIMITE} SET es_max_por_7d = 11")
 
     def test_a_rls_esta_forcada_na_fila(self) -> None:

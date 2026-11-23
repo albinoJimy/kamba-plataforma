@@ -36,6 +36,8 @@
 import { executarNoCanalDoCliente, accoesDoCanalDoCliente, verificar } from "../provisioning/compensacao.ts";
 import type { AccaoDeCompensacao, Passo } from "../provisioning/contrato.ts";
 import { SQL_DEFINIR_CONTEXTO } from "../tenant_guard/index.ts";
+import { aliasDaChaveDoTenant } from "./litellm.ts";
+import type { PortaDosTelefones } from "./telefones.ts";
 import {
   ACTOR_DO_ENCERRAMENTO,
   AVISO_DA_APP_BUSINESS,
@@ -472,12 +474,10 @@ export type Pendentes = {
  */
 export async function verificarPendentes(
   bd: ClienteSql,
-  opcoes: { readonly tenantId: string; readonly agora: Date },
+  opcoes: { readonly tenantId: string; readonly agora: Date; readonly telefones: PortaDosTelefones },
 ): Promise<{ readonly concluida: boolean; readonly pendentes: Pendentes }> {
   const { tenantId } = opcoes;
-  return emTransaccao(bd, tenantId, async () => {
-    const linhas = await fases(bd, tenantId);
-    exigirPedidoVivo(linhas, "pendentes");
+  const ler = async () => {
     const r = (await bd.query(SQL_PENDENTES, [tenantId])).rows[0] ?? {};
     const pendentes: Pendentes = {
       encomendas: Number(r.encomendas ?? 0),
@@ -485,15 +485,54 @@ export async function verificarPendentes(
       reservas: Number(r.reservas ?? 0),
       reembolsos: Number(r.reembolsos ?? 0),
     };
-    const concluida = pendentes.encomendas + pendentes.reservas + pendentes.reembolsos === 0;
-    const anterior = linhas.get("pendentes");
-    if (anterior?.estado === "concluida") return { concluida: true, pendentes };
-    await marcar(bd, tenantId, "pendentes", concluida ? "concluida" : "em_curso", {
-      ...pendentes,
-      disputa: pendentes.disputas > 0,
-      verificado_at: opcoes.agora.toISOString(),
+    return { pendentes, concluida: pendentes.encomendas + pendentes.reservas + pendentes.reembolsos === 0 };
+  };
+  const resultado = (pendentes: Pendentes) => ({
+    ...pendentes,
+    disputa: pendentes.disputas > 0,
+    verificado_at: opcoes.agora.toISOString(),
+  });
+  const primeira = await emTransaccao(bd, tenantId, async () => {
+    const linhas = await fases(bd, tenantId);
+    exigirPedidoVivo(linhas, "pendentes");
+    const lido = await ler();
+    if (linhas.get("pendentes")?.estado === "concluida") return { ...lido, concluida: true, feita: true, expira: null };
+    if (!lido.concluida) {
+      await marcar(bd, tenantId, "pendentes", "em_curso", resultado(lido.pendentes));
+      return { ...lido, feita: true, expira: null };
+    }
+    const purga = linhas.get("purga");
+    if (purga === undefined) throw new FaseForaDeOrdemError("pendentes", "o pedido nao tem a fase purga");
+    return { ...lido, feita: false, expira: purga.prazoAt };
+  });
+  if (primeira.feita || primeira.expira === null) {
+    return { concluida: primeira.concluida, pendentes: primeira.pendentes };
+  }
+
+  // **Os telefones dos clientes, antes de fechar** (KAM-233; decisões do
+  // fundador de 2026-11-21, Q2 = B, e de 2026-11-22, Q2b = A). A decifra e o
+  // STO correm fora desta base, e por isso fora da transacção: um *crash* entre
+  // os dois deixa um objecto órfão sob o tenant, que a purga apaga, e a volta
+  // seguinte grava outro. A exportação exige a chave que fica no resultado, e
+  // só corre com os `pendentes` concluídos — a ordem é por construção.
+  const entrega = await opcoes.telefones.entregar({ tenantId, expiraAt: primeira.expira, agora: opcoes.agora });
+
+  return emTransaccao(bd, tenantId, async () => {
+    const linhas = await fases(bd, tenantId);
+    // Um cancelamento que ganhou a corrida entretanto ganha; o objecto expira
+    // no prazo da purga e sai com o STO do tenant.
+    exigirPedidoVivo(linhas, "pendentes");
+    const lido = await ler();
+    if (linhas.get("pendentes")?.estado === "concluida") return { concluida: true, pendentes: lido.pendentes };
+    if (!lido.concluida) {
+      await marcar(bd, tenantId, "pendentes", "em_curso", resultado(lido.pendentes));
+      return { concluida: false, pendentes: lido.pendentes };
+    }
+    await marcar(bd, tenantId, "pendentes", "concluida", {
+      ...resultado(lido.pendentes),
+      telefones: { chave: entrega.chave, contactos: entrega.contactos, telefones: entrega.telefones },
     });
-    return { concluida, pendentes };
+    return { concluida: true, pendentes: lido.pendentes };
   });
 }
 
@@ -584,8 +623,10 @@ export const PASSOS_DA_REVOGACAO = [
   "chave_llm",
   "canal_comercio",
   "inbox",
+  "conta_atendimento",
   "entitlements",
   "canais",
+  "sessoes_do_painel",
   "encerramento",
 ] as const;
 export type PassoDaRevogacao = (typeof PASSOS_DA_REVOGACAO)[number];
@@ -604,10 +645,20 @@ const PASSO_DA_SAGA: Readonly<Record<"chave_llm" | "canal_comercio" | "inbox", P
  * tenant `encerrado` com o `tenant.closed` (bloco: «emite `tenant.closed` no
  * fim da revogação»).
  *
- * Cada passo grava o seu desfecho no resultado (`concluido` ou `sem_recurso`)
- * numa transacção própria; um passo já gravado não corre outra vez. Um recurso
- * de fora sem `external_id` na saga é `sem_recurso` — a saga nunca o criou, e
- * não há nada a revogar.
+ * Cada passo grava o seu desfecho no resultado numa transacção própria; um
+ * passo já gravado não corre outra vez. Os desfechos são três: `concluido`,
+ * `inexistente` (o recurso já não estava lá fora, e a listagem confirmou-o — a
+ * repetição depois de um *crash*) e `sem_recurso` (não havia o que revogar). O
+ * canal da Medusa e a *inbox* sem `external_id` na saga são `sem_recurso` — a
+ * saga nunca os criou.
+ *
+ * **Três passos não dependem da saga** (KAM-233, decisão do fundador de
+ * 2026-11-21, Q1 = A). A chave do LiteLLM revoga-se **sempre** pelo alias
+ * `tenant-<uuid>`, que é onde o `chaves.py provisionar` e a saga a criam; a conta de
+ * atendimento lê-se da `handoff_accounts` (o `archiveAccount` do HND), e
+ * `sem_recurso` é só a falta da linha; as sessões do painel revogam-se até ao
+ * instante do passo. Uma porta sem adaptador, ou um proxy sem base, **lança**: a
+ * fase fica parada, com alerta, e o tenant não se encerra com a chave viva.
  */
 export async function revogar(
   bd: ClienteSql,
@@ -654,21 +705,38 @@ export async function revogar(
   let encerrado = false;
   for (const passo of PASSOS_DA_REVOGACAO) {
     if (feitos[passo] !== undefined) continue;
-    if (passo === "chave_llm" || passo === "canal_comercio" || passo === "inbox") {
+    if (passo === "chave_llm") {
+      // **Sempre pelo alias**, e não pelo `external_id` da saga (achado 4 da
+      // revisão adversarial do KAM-233): a saga cria a chave com o mesmo
+      // `tenant-<uuid>` (`aliasDoTenant`), e o identificador que ela guarda não
+      // se confronta com nada da listagem — um 404 por ele não provava que a
+      // chave do alias tinha saído. O guarda da saga confere a acção, na mesma.
+      verificar({ tipo: "revogar", recurso: "chave_llm", ref: aliasDaChaveDoTenant(tenantId) }, PASSO_DA_SAGA.chave_llm);
+      const desfecho = await portas.chaveDeLlm.revogarDoTenant(tenantId);
+      await gravar(passo, desfecho === "revogada" ? "concluido" : "inexistente");
+    } else if (passo === "conta_atendimento") {
+      const desfecho = await portas.contaDeAtendimento.archiveAccount(tenantId);
+      await gravar(
+        passo,
+        desfecho === "arquivada" ? "concluido" : desfecho === "inexistente" ? "inexistente" : "sem_recurso",
+      );
+    } else if (passo === "sessoes_do_painel") {
+      // O corte é o instante do passo, em segundos: toda a sessão emitida até
+      // aqui fica revogada, e o tenant já não tem painel onde entrar depois.
+      await portas.sessoesDoPainel.revogarDoTenant(tenantId, Math.floor(agora.getTime() / 1000));
+      await gravar(passo, "concluido");
+    } else if (passo === "canal_comercio" || passo === "inbox") {
       const ref = inicio.recursos.get(PASSO_DA_SAGA[passo]);
       if (ref === undefined) {
         await gravar(passo, "sem_recurso");
         continue;
       }
       const accao: AccaoDeCompensacao =
-        passo === "chave_llm"
-          ? { tipo: "revogar", recurso: "chave_llm", ref }
-          : passo === "canal_comercio"
-            ? { tipo: "arquivar", recurso: "canal_comercio", ref }
-            : { tipo: "desactivar", recurso: "inbox", ref };
+        passo === "canal_comercio"
+          ? { tipo: "arquivar", recurso: "canal_comercio", ref }
+          : { tipo: "desactivar", recurso: "inbox", ref };
       verificar(accao, PASSO_DA_SAGA[passo]);
-      if (passo === "chave_llm") await portas.chaveDeLlm.revogar(ref);
-      else if (passo === "canal_comercio") await portas.canalDeComercio.arquivar(ref);
+      if (passo === "canal_comercio") await portas.canalDeComercio.arquivar(ref);
       else await portas.inbox.desligar(ref);
       await gravar(passo, "concluido");
     } else if (passo === "entitlements" || passo === "canais") {

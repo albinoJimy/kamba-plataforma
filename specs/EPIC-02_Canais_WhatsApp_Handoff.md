@@ -4,7 +4,7 @@
 |---|---|
 | Produto | KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para Angola |
 | Documento | Epic — Canais WhatsApp e Handoff |
-| Versão | 1.24 |
+| Versão | 1.25 |
 | Data | Outubro de 2026 |
 | Classificação | Documento de Referência — Interno |
 | Documento-fonte | `../docs/tecnica/00_Arquitectura_Solucao.md`, `../docs/tecnica/01_Canais_WhatsApp_Fluxo_Dual.md`, `../docs/tecnica/06_Dados_Eventos_Analytics.md`, `../docs/tecnica/08_Seguranca_Conformidade.md`, `../docs/tecnica/10_Onboarding_Governanca.md` (§6–§7), `../docs/tecnica/evidencia/E1_Meta_WhatsApp.md` |
@@ -3430,7 +3430,7 @@ O `cli.ts` vai para `excluidos` pela mesma razão que os
 | Prioridade | P1 |
 | Estimativa | S |
 | Dependências | KAM-017, KAM-021, KAM-023, KAM-116 |
-| Bloqueia | — |
+| Bloqueia | KAM-248 |
 | Responsável sugerido | Engenheiro de Canais |
 | Documentos de referência | `../docs/tecnica/10_Onboarding_Governanca.md` (§6.4, §13), `../docs/tecnica/01_Canais_WhatsApp_Fluxo_Dual.md` (§10.5, §11.4, §14), `../docs/tecnica/evidencia/E1_Meta_WhatsApp.md` (§1, §2), `../docs/tecnica/evidencia/E3_Regulatorio_Dados.md` (§1, Art. 19.º), `../docs/tecnica/00_Arquitectura_Solucao.md` (§13.3, D10), ADR-001, ADR-008, ADR-010 |
 
@@ -3932,3 +3932,4 @@ bloquear. **Seis corrigidos neste ramo:**
 | 1.22 | Novembro 2026 | **KAM-235 acrescentado**, no PR do **KAM-202** (EPIC-04), que o abre e não o implementa: o credor dos factos do teste ponta a ponta que em produção ninguém escreve — o `delivered_at` dos *statuses* e o nome da loja na apresentação do vendedor. Decisão do fundador de 2026-11-20, no bloco do KAM-202. Escrito como KAM-232 e renumerado duas vezes na integração: para 233 depois do KAM-223, e para 235 depois do KAM-218 e do KAM-234 (EPIC-11), que tomaram o 233 e o 234. | Equipa KAMBÁ |
 | 1.23 | Novembro 2026 | **KAM-235 entregue.** Os *statuses* escrevem o `delivered_at` pelo estágio do `worker-canal` (o `Saida.ingerir` do KAM-015, sem esquema novo), a apresentação do vendedor nomeia a loja pelo `tenants.nome` do turno, com ou sem dígitos (proposta levada à coordenação, no bloco), e o teste ponta a ponta com o simulador passa com o `ConsentGate` montado e dá `sem_consentimento` sem ele. Três critérios e as duas caixas da DoD satisfeitos. Emenda 1.134 do dicionário; a linha do critério 1 do KAM-202 (EPIC-04) e a do critério 7 do KAM-080 (EPIC-08) revistas | Equipa KAMBÁ |
 | 1.24 | Novembro 2026 | **Aresta recíproca, sem alteração de conteúdo:** o `Bloqueia` do KAM-015 ganha o **KAM-246** (EPIC-11), aberto no PR do KAM-122: a arte do módulo social como imagem pelo Outbound e a página do painel com a ligação de descarga. Escrito como KAM-237 e renumerado na integração contra a `main` em `f3d3a0eb`. | Equipa KAMBÁ |
+| 1.25 | Novembro 2026 | **Aresta recíproca, sem alteração de conteúdo:** o `Bloqueia` do KAM-115 ganha o **KAM-248** (EPIC-09), aberto no PR do KAM-233: a ligação ao e-mail do titular e a entrega do certificado vão pelo canal alternativo dele | Equipa KAMBÁ |

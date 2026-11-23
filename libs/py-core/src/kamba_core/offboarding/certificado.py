@@ -69,6 +69,18 @@ FUNDAMENTO_SEM_CAMINHO: Final = (
 FUNDAMENTO_REFERENCIADA: Final = (
     "referenciada pelos registos fiscais, que ficam; sai com eles"
 )
+#: KAM-233 (decisao do fundador de 2026-11-22, Q3b = A): o caso fica pelo prazo
+#: das provas que lhe apontam. Nao e retencao nova: e a FK que a purga nao fura.
+FUNDAMENTO_CASO_DE_ONBOARDING: Final = (
+    "o caso de onboarding: o kyc_check, o screening_decision e o review_case apontam-lhe "
+    "sem cascata, e ficam; o caso sai com eles, pelo prazo das provas. E o onboarding_otp "
+    "(KAM-236) tambem lhe aponta sem cascata, e nao tem caminho de eliminacao"
+)
+CASO_DE_ONBOARDING: Final = "platform.onboarding_case"
+FUNDAMENTO_BRANQUEAMENTO: Final = (
+    "identificacao e prevencao de fraude: a lei de prevencao do branqueamento de capitais "
+    "pode exigir que se guardem durante anos; ficam ate um parecer juridico dizer o prazo"
+)
 FUNDAMENTO_CANAL_DO_TITULAR: Final = (
     "o contacto por onde este certificado chega ao titular; apaga-se logo a seguir a entrega"
 )
@@ -135,14 +147,18 @@ def montar(
             objectos_apagados = (objectos_apagados or 0) + int(linhas)
         elif resultado == "ok":
             apagadas[tabela] = apagadas.get(tabela, 0) + int(linhas)
-    for tabela, resultado, _motivo, _linhas in registos:
+    for tabela, resultado, motivo, _linhas in registos:
         # Uma tabela que saiu numa execucao nao fica retida por outra.
         if resultado == "ok" or tabela in apagadas:
             continue
         if tabela == UNIDADE_DO_STO:
             # O STO declara-se pelo escopo, abaixo, e nao como tabela.
             continue
-        if tabela == "platform.owner_contacts":
+        if motivo == purge_log.MOTIVO_BRANQUEAMENTO_SEM_PARECER:
+            retidas[tabela] = FUNDAMENTO_BRANQUEAMENTO
+        elif tabela == CASO_DE_ONBOARDING:
+            retidas[tabela] = FUNDAMENTO_CASO_DE_ONBOARDING
+        elif tabela == "platform.owner_contacts":
             retidas[tabela] = FUNDAMENTO_CANAL_DO_TITULAR
         elif tabela in REFERENCIADAS_PELO_FISCAL:
             retidas[tabela] = FUNDAMENTO_REFERENCIADA

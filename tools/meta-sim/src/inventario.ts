@@ -557,6 +557,26 @@ export const INVENTARIO: readonly Entrada[] = [
       "o literal o ensaio provava que a forma recusa um valor que nao tem forma " +
       "de telefone, que e o contrario do que ele existe para fazer. Sequencial",
   },
+  // --- O off-boarding: os telefones na exportacao (KAM-233) -----------------
+  {
+    ficheiro: "packages/core-ts/tests/offboarding_telefones.test.ts",
+    ocorrencias: 4,
+    razao:
+      "os dois telefones decifrados pelo cofre para a exportacao do " +
+      "off-boarding (Q2b = A): o ensaio prova que o telefone chega ao STO e nao " +
+      "fica na fase nem na auditoria, e sem um valor com forma de telefone essa " +
+      "ausencia nao se mede. Ficticios, do intervalo +244 999; cada um casa os " +
+      "dois padroes",
+  },
+  {
+    ficheiro: "libs/py-core/tests/test_offboarding.py",
+    ocorrencias: 4,
+    razao:
+      "o telefone do objecto do STO que a exportacao le para a colecao " +
+      "telefones (KAM-233, Q2b = A), e a prova de que ele chega ao CSV do " +
+      "pacote. Ficticio, do intervalo +244 999; as duas ocorrencias casam os " +
+      "dois padroes",
+  },
 ];
 
 /** O que o *scan* mediu num ficheiro. */

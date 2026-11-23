@@ -4,7 +4,7 @@
 |---|---|
 | Produto | KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para Angola |
 | Documento | Epic — Topologia e Operação |
-| Versão | 1.31 |
+| Versão | 1.32 |
 | Data | Novembro de 2026 |
 | Classificação | Documento de Referência — Interno |
 | Documento-fonte | `../docs/tecnica/09_Topologia_Operacao_Escala.md` |
@@ -349,7 +349,7 @@ Não expandas escopo: pgBackRest é KAM-079, métricas KAM-080. Testes: verifica
 | Prioridade | P0 |
 | Estimativa | L |
 | Dependências | KAM-002, KAM-076, KAM-024 |
-| Bloqueia | — |
+| Bloqueia | KAM-248 |
 | Responsável sugerido | Plataforma/SRE |
 | Documentos de referência | `specs/01_Engineering_Standards_e_Handoff.md` (§4, gates 14–18), `../docs/tecnica/09_Topologia_Operacao_Escala.md` (§6, §7), `../docs/tecnica/08_Seguranca_Conformidade.md` (§4.8), `../docs/tecnica/evidencia/E2_Pagamentos_Angola.md` (§1.2), ADR-005, ADR-009 |
 
@@ -2013,3 +2013,4 @@ Regras: não mexer no tecto nem nos limites; uma regra nova com canário; o swap
 | 1.29 | Novembro 2026 | **KAM-235**, emenda de **propagação**: a linha do critério 7 do KAM-080 regista que o `pricing` dos *statuses* passou a persistir pelo estágio de saída do `worker-canal`. A métrica agregada por categoria continua por fazer, e a caixa não muda | Equipa KAMBÁ |
 | 1.30 | Novembro 2026 | **KAM-242** acrescentado, no PR do **KAM-238** (EPIC-11), por decisão do fundador de 2026-11-22: o *compose* de `prod` passa a fixar o `memswap_limit` igual ao `mem_limit`, com o `compose_prod` a exigi-lo, e o *swap* do *host* fica registado (hoje NÃO VERIFICADO). Um bloco e uma linha na «Tabela Resumo», e a fase no §1. Arestas recíprocas: o `Bloqueia` do KAM-076 ganha o KAM-242 (e o do KAM-238, no EPIC-11). Número **provisório**, o maior da `main` (KAM-240) mais dois: renumera-se na integração se outro fundir antes. Nenhuma caixa deste epic muda. | Equipa KAMBÁ |
 | 1.31 | Novembro 2026 | **KAM-225**, emenda de **propagação** como a 1.25: o inventário fechado de módulos de métricas do `tools/obs_lint` ganha o `libs/py-core/src/kamba_core/registo_pg/metricas.py`, e a nota do bloco do KAM-080 passa a **34 módulos, 163 nomes**, 165 declaradas. Nenhuma caixa muda. | Equipa KAMBÁ |
+| 1.32 | Novembro 2026 | **Aresta recíproca, sem alteração de conteúdo:** o `Bloqueia` do KAM-078 ganha o **KAM-248** (EPIC-09), aberto no PR do KAM-233: o *token* de cada WABA chega ao `onboarding-lote` pelo lançador do cofre (ADR-L002) | Equipa KAMBÁ |

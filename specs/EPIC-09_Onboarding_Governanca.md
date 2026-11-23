@@ -4,7 +4,7 @@
 |---|---|
 | Produto | KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para Angola |
 | Documento | Epic — Onboarding e Governação |
-| Versão | 1.42 |
+| Versão | 1.43 |
 | Data | Outubro de 2026 |
 | Classificação | Documento de Referência — Interno |
 | Documento-fonte | `../docs/tecnica/10_Onboarding_Governanca.md`, `../docs/tecnica/00_Arquitectura_Solucao.md` (ADR-019) |
@@ -82,6 +82,7 @@ Fora deste epic (Clusters): estafetas, revendedores, rede de agentes de activaç
 | KAM-236 | `onboarding-web` em produção: o caso, o registo e o guia sobre a base, para que a página do dono arranque em `prod` | feature | L | P1 | KAM-202 |
 | KAM-239 | O guia do ES em `prod`: o estado do guia na base, e a lista de espera, a fila de revisão e os *gates* pelo processo de lote | feature | M | P1 | KAM-236 |
 | KAM-240 | A idempotência do `PATCH /painel/produtos/:id` na base: a deduplicação sobrevive a um reinício e vale entre réplicas | feature | S | P1 | KAM-236 |
+| KAM-248 | Off-boarding, o que depende de fora: as provas e a entrega ao titular, a Medusa, o simulacro, o *token* de cada WABA e o resto da purga | feature | L | P1 | KAM-233, KAM-115, KAM-116, KAM-078 |
 
 ---
 
@@ -2156,7 +2157,7 @@ Testes: unit, integração, isolamento (IDOR), idempotência, conflito 409, XSS 
 | Prioridade | P0 |
 | Estimativa | S |
 | Dependências | — |
-| Bloqueia | KAM-086, KAM-115 |
+| Bloqueia | KAM-086, KAM-115, KAM-248 |
 | Responsável sugerido | Responsável de Produto, com Engenheiro de Plataforma |
 | Documentos de referência | `../docs/tecnica/10_Onboarding_Governanca.md` (§4.1 passo 2, §6.3, §19), `../docs/tecnica/09_Topologia_Operacao_Escala.md` (§13 RB-K01, §14), `../docs/tecnica/01_Canais_WhatsApp_Fluxo_Dual.md` (§18, L10), `../docs/tecnica/08_Seguranca_Conformidade.md` (§8.3.2), `../docs/tecnica/evidencia/E1_Meta_WhatsApp.md` (§5), `../docs/tecnica/evidencia/E3_Regulatorio_Dados.md` (§1, Art. 19.º), ADR-008, ADR-010, ADR-019 |
 
@@ -4111,6 +4112,14 @@ a D6.
 | 1 | Critérios satisfeitos; as caixas do KAM-210 revistas com a evidência | **parcial** | Um de oito. As caixas do KAM-210 revistas no bloco dele (a nota «Revistas pelo KAM-218»): a 1 ganha o processo dos dados, a 3 o canal da Meta ligado e a chave do LiteLLM à mão, a 4 a prova de aceite, a 5 os contactos; a 2, a 6 e a 7 não mudam |
 | 2 | O *runbook* do processo dos dados no `../docs/offboarding.md`; sem segredos | **satisfeito** | O §7 do `../docs/offboarding.md` (arrancar, cada volta, o certificado por entregar, rodar a chave, correr à mão), e o *runbook* da fase parada actualizado. **Sem segredos**: os nomes no `../ops/secrets-inventory.yaml` (`offboarding_certificate_key`, `kid: true`), os valores pelo lançador do cofre (ADR-L002), e o ensaio do arranque confirma que nenhuma credencial vai ao registo |
 
+**Revistas pelo KAM-233.** Nenhuma caixa deste bloco muda de estado — o que cada uma pedia de fora
+continua por chegar —, e o que cada uma ganhou fica escrito: a **4** ganha a revogação automática do
+LiteLLM (pelo alias, confirmada pela listagem) e do Chatwoot (a conta suspensa, pelo `archiveAccount`
+novo do `HandoffProvider`), e as sessões do painel chamadas no encerramento; a **5** ganha os telefones
+dos clientes, decifrados pelo cofre com auditoria e entregues pelo STO; a **6** ganha o `DELETE` das
+operacionais (revisão `0086`), com o KYC e a fraude retidos por parecer. A 2, a 3, a 7 e a 8 não mudam.
+O resto passa ao **KAM-248**, e o LiteLLM sem base ao **KAM-247**.
+
 ### Handoff para Claude Code
 
 ```text
@@ -4135,7 +4144,7 @@ Testes: contrato por adaptador, integração com o processo, e o simulacro em st
 | Prioridade | P1 |
 | Estimativa | L |
 | Dependências | KAM-218 |
-| Bloqueia | — |
+| Bloqueia | KAM-247, KAM-248 |
 | Responsável sugerido | Engenheiro de Plataforma (TEN), com o Responsável de Segurança |
 | Documentos de referência | `EPIC-09_Onboarding_Governanca.md` (blocos KAM-098, KAM-210 e KAM-218), `../docs/offboarding.md`, `../docs/runbooks/offboarding.md` |
 
@@ -4171,6 +4180,72 @@ automática de cada recurso, a exportação e a purga completas, a entrega do ce
 - **Acção externa:** o pedido de eliminação aos fornecedores de LLM e STT é contactar subprocessadores, e não se faz por código sem o fundador; o simulacro pede o ambiente de *staging*.
 - **Fora deste ticket:** o prazo fiscal do CGT (NÃO VERIFICADO); a assinatura assimétrica do certificado e a aresta `restrito → encerrado`, que são decisões do fundador.
 
+### Decisões do fundador
+
+**1. A revogação automática do LiteLLM e do Chatwoot (Q1).**
+
+| Campo | Valor |
+|---|---|
+| Decisão | **Opção A — o processo de lote revoga sozinho.** O `onboarding-lote` passa a consumidor da `litellm_master_key` e do `chatwoot_platform_token`, com a rede até ao `litellm` e ao `chatwoot`. Usa só o `/key/delete` pelo alias `tenant-<uuid>` e o fecho da conta da `handoff_accounts`. A adenda do executor cabe nela: o adaptador lê o 404 como «já revogada» e confirma-o pela listagem, e **enquanto o LiteLLM de `prod` não tiver base, falha alto** — a fase fica parada, com alerta. O credor «LiteLLM com base, ou chaves sem base» abre-se neste PR, com a evidência medida com a base descartável e o achado do docstring do `chaves.py`, que dizia «medido: 200» sem evidência |
+| Autor | O fundador |
+| Data | 2026-11-21 |
+| Via | No chat com a coordenação do lote 18, que a transmitiu a este ramo |
+| Recusada | B — o passo manual (o `chaves.py revogar` à mão no D7, e o Chatwoot sem caminho) |
+
+**2. Os telefones na exportação (Q2).**
+
+| Campo | Valor |
+|---|---|
+| Decisão | **Opção B — um passo TypeScript no `onboarding-lote`** decifra pelo `lerEndpoints` com o `antes`, como o KAM-206 (a linha de auditoria na transacção da decifra), e entrega os telefones à exportação |
+| Autor | O fundador |
+| Data | 2026-11-21 |
+| Via | A mesma |
+| Recusadas | A — a decifra em Python, com o `offboarding-dados` a consumir a `kek_contact_dek` (uma porta de cifra numa segunda língua); C — um credor |
+
+**2b. Por onde os telefones chegam à exportação (Q2b).**
+
+| Campo | Valor |
+|---|---|
+| Decisão | **Opção A — pelo STO do tenant.** No fecho da fase `pendentes`, o `onboarding-lote` decifra pelo `lerEndpoints` com o `antes`, auditado na mesma transacção, e grava um objecto JSON com os campos exportáveis (`contact_id`, `finalidade` e `telefone`) em `t/<tenant>/dsar/…`, com a mesma classe e o mesmo destino ADR-008 do pacote, a expirar no prazo da purga. A exportação Python lê-o para uma colecção `telefones` e exige-o. O lote passa a consumidor da `storage_*`, da `db_identity_password` e da `kek_contact_dek`, cada linha do inventário com a nota de quem lê e porquê |
+| Custo aceite | Uma **segunda cópia em claro** dos telefones no STO, até à purga, igual à que o ZIP já leva |
+| Autor | O fundador |
+| Data | 2026-11-22 |
+| Via | No chat com a coordenação do lote 18, que a transmitiu a este ramo |
+| Recusadas | B — uma rota interna no `onboarding-lote` com segredo partilhado (uma rota que devolve os telefones decifrados de um tenant inteiro); C — um segundo anexo com ligação própria (duas ligações ao titular) |
+
+**3. O `DELETE` do `kamba_batch` nas tabelas `sem_caminho` (Q3).**
+
+| Campo | Valor |
+|---|---|
+| Decisão | **Opção B — só nas operacionais**: o `onboarding_case`, os gates, o teste, a lista de espera, as ingestões do catálogo, os trabalhos de foto, as acções e as mudanças de telefone do dono, os pedidos de orçamento, a marca e o conteúdo. O `kyc_check` e o `fraud_signals` ficam `retida` no `purge_log` e no certificado, com o fundamento: **a lei de prevenção do branqueamento pode pedir a retenção, e falta o parecer** |
+| Autor | O fundador |
+| Data | 2026-11-21 |
+| Via | A mesma |
+| Recusadas | A — todas, à letra do critério; C — nenhuma |
+| Vaga de migração | **`0086`**, com `down_revision = "0085"`, dada pela coordenação do lote 18: a fila é `0084` (KAM-236), `0085` (KAM-122) e `0086` (este) |
+
+**3b. O caso de onboarding, que a FK não deixa apagar (Q3b).**
+
+| Campo | Valor |
+|---|---|
+| Decisão | **Opção A — fica como hoje.** O `onboarding_case` continua `recusada`/`sem_caminho` no `purge_log` e no certificado, e o fundamento passa a nomear as três FK sem cascata que lhe apontam: o `kyc_check`, o `screening_decision` e o `review_case`. **Não há retenção nova:** o caso fica pelo prazo das provas que lhe apontam. Os outros dez da lista da Q3 apagam-se, como se mediu |
+| Autor | O fundador |
+| Data | 2026-11-22 |
+| Via | A mesma |
+| Recusadas | B — `retida` com o motivo do branqueamento; C — minimizar as colunas pessoais do caso (pedia o parecer para saber quais) |
+
+### Decisão da coordenação
+
+**4. Os credores do que não fecha.**
+
+| Campo | Valor |
+|---|---|
+| Decisão | **Opção A — um credor para tudo o que depende de fora**, o **KAM-248**, com as dependências do §4 no KAM-115, no KAM-116 e no KAM-078, e os bloqueios que não são ticket (a D3, o ambiente de *staging*, um *token* real de um WABA, o fundador) escritos no bloco, cada caixa com o seu dono; cada um dos oito critérios deste ticket aponta para a caixa que o fecha. O LiteLLM sem base fica **separado**, no **KAM-247** (EPIC-03), por ser código que não espera ninguém |
+| Autor | A coordenação do lote 18 (não é decisão de canon, de segurança, de retenção nem de *gate*) |
+| Data | 2026-11-22 |
+| Via | Mensagem da coordenação a este ramo |
+| Números | Escritos como KAM-241 e KAM-242 (o #249 reclamava o 238, o 239 e o 240) e renumerados na integração contra a `main` em `25babeca`, onde o maior era o KAM-246 |
+
 ### Testes Requeridos
 
 - Contrato: cada adaptador contra o seu duplo, que lê o texto do pedido.
@@ -4181,6 +4256,57 @@ automática de cada recurso, a exportação e a purga completas, a entrega do ce
 
 - [ ] Critérios satisfeitos; as caixas do KAM-218 revistas com a evidência.
 - [ ] O *runbook* sem passos à mão no `../docs/offboarding.md`; sem segredos.
+
+### Verificação dos Critérios de Aceitação
+
+**Nenhum dos oito critérios fecha inteiro: quatro ficam parciais e quatro por fazer, e o que falta
+depende de fora em todos.** O que este ticket entrega é o que o código consegue sozinho, pelas cinco
+decisões do fundador escritas acima: a revogação ligada ao LiteLLM e ao Chatwoot, os telefones dos
+clientes na exportação pelo cofre e pelo STO, o `DELETE` das operacionais com o KYC e a fraude
+retidos, e a medição dos dois pedidos de fora nas imagens fixadas ([`../docs/evidencia/KAM-233.md`](../docs/evidencia/KAM-233.md)).
+O que fica vai para dois credores abertos neste PR: o **KAM-248** (o que depende de fora, uma caixa por
+dono) e o **KAM-247** (EPIC-03: o LiteLLM de `prod` sem base, que é código e não espera ninguém).
+Revisão `0086`; dicionário §3.2, §3.55 e §3.77 (emenda 1.138).
+
+**Um achado que muda o alcance do critério 2.** O LiteLLM de `prod` arranca sem `DATABASE_URL`, e sem
+base a imagem fixada não tem chaves virtuais: o `/key/generate` e o `/key/list` respondem 500 (§2 do
+anexo). A revogação, como o fundador decidiu (Q1 = A), **falha alto** nesse caso: a fase pára no passo
+`chave_llm`, com o alerta da fase parada, e nenhum tenant de `prod` se encerra até ao KAM-247. E o
+docstring do `../infra/llm/chaves.py` dizia «medido» para o 200 e o 400 do `/key/generate`, a apontar
+para um anexo do KAM-030 que não traz nenhuma das duas medições: corrigido (o 200 está medido com base
+no §3 do anexo deste ticket; o 400 fica **NÃO VERIFICADO**).
+
+**O que a revisão adversarial mudou.** Uma revisão independente, sem o raciocínio do executor,
+levantou oito achados; fecharam-se cinco com código e ensaio. (1) O passo `sessoes_do_painel` estava sem
+adaptador no processo de lote: ligado à `RevogacoesNaBase` do KAM-236 na integração. (2) O duplo do
+LiteLLM dava o mesmo valor ao `token` e ao `key_alias`, e um adaptador que procurasse o alias no `token`
+passava verde: o duplo dá agora o resumo, como a imagem. (3) O `size=500` da listagem não estava medido,
+e **mediu-se 422** (o tecto é 100, §3a do anexo) — no `ChaveDoLlmPeloProxy` e no `chaves.py` do
+KAM-030, que falhava assim desde que nasceu: os dois pedem 100. (4) Com o `external_id` na saga, a chave
+revogava-se pelo identificador dela, que não se confronta com a listagem: passa a ser **sempre** pelo
+alias. (5) Um 404 do Chatwoot dava `inexistente` mesmo com a base errada: só vale com a sonda `/api` da
+mesma base a responder. (6) A reabertura de um pendente durante a decifra não tinha ensaio: tem.
+**Ficam escritos, sem ensaio:** uma sessão do painel aberta entre o passo `sessoes_do_painel` e o
+`encerramento` (milissegundos, ou um *crash* entre os dois) fica fora do corte — o painel do KAM-236
+fecha-se quando o caso deixa de estar activo (PLAUSÍVEL); e um tenant com os `pendentes` concluídos
+**antes** deste ticket não tem a chave dos telefones, e a exportação recusa-o — sem `prod`, não há
+nenhum, e o *runbook* manda reabrir a fase.
+
+| # | Critério | Estado | O que se mediu, e com que comando |
+|---|---|---|---|
+| 1 | As provas do titular | **não satisfeito** | Nada entregue: o OTP espera o agregador do KAM-116 e a ligação ao e-mail o canal do KAM-115. Credor: **KAM-248**, caixa 1 |
+| 2 | A revogação automática: o LiteLLM, o Chatwoot e a Medusa, idempotentes do lado de fora; as revogações do painel persistidas e chamadas no encerramento | **parcial** — o LiteLLM e o Chatwoot ligados; a Medusa e o LiteLLM com base por fazer | `ChaveDoLlmPeloProxy` ([`../packages/core-ts/src/offboarding/litellm.ts`](../packages/core-ts/src/offboarding/litellm.ts)): sempre pelo alias (o da saga e o do `chaves.py`), o 404 só vale confirmado pela listagem inteira, por páginas de 100 (o tecto medido, §3a do anexo), e um 200 com a chave ainda lá levanta — `offboarding_revogacao.test.ts` (o LiteLLM, o Chatwoot e a leitura da `handoff_accounts`, contra duplos que lêem o pedido). O `archiveAccount` novo do `HandoffProvider` e o `ArquivoDoChatwoot` (a conta suspensa pela Platform API, medida no §5 do anexo), lidos da `handoff_accounts`. Os oito passos de `PASSOS_DA_REVOGACAO`: `offboarding.test.ts` (a ordem, os desfechos, e uma porta que falha pára e retoma no passo) e `offboarding.bd.test.ts` (contra a base, com a `handoff_accounts` real). O processo de lote ligado: `lote.test.ts` «as portas da revogação (KAM-233)». As sessões do painel: chamadas no encerramento (passo `sessoes_do_painel`), e o corte do tenant gravado na `painel_revogacao` da `0084` do KAM-236 pela ligação do `kamba_app` do processo de lote, sob a RLS dele (`RevogacoesNaBase`, a mesma do painel) — `lote.test.ts` «as sessões do painel (KAM-233)». **A falta:** a Medusa (D3; **KAM-248**, caixa 3) e o LiteLLM com base (**KAM-247**) |
+| 3 | A exportação completa: o catálogo da Medusa e os telefones decifrados com auditoria | **parcial** — os telefones | `telefonesPeloCofre` ([`../packages/core-ts/src/offboarding/telefones.ts`](../packages/core-ts/src/offboarding/telefones.ts)): `offboarding_telefones.test.ts` (só os contactos vivos, uma auditoria por contacto no `antes`, nenhum telefone na auditoria nem na fase, os três campos no STO); `offboarding.bd.test.ts` «os pendentes … com os telefones no STO» (como `kamba_identity`, contra a base: a linha `privacy.telefones_exportados`, o objecto com o prazo da purga). A exportação: `TestTelefonesNaExportacao` (a colecção, a recusa sem a chave, de outro tenant e com um campo a mais, e o objecto purgado com o pacote). **A falta:** o catálogo da Medusa (D3; **KAM-248**, caixa 3) |
+| 4 | A purga completa: o `DELETE` do lote nas `sem_caminho`; o Chatwoot, os *traces*, as *caches* e o pedido aos fornecedores | **parcial** — o `DELETE` das operacionais | Revisão `0086`: onze tabelas, com o lote a ler só o `tenant_id` das seis em que não lia nada. Contra a base: `TestPurga.test_apaga_pelos_caminhos_regista_e_retem_o_resto` (as operacionais de A a zero, as de B intactas, o KYC e a fraude `retida` com `branqueamento_sem_parecer`), `test_o_delete_do_caso_e_recusado_pelas_tres_fk_sem_cascata`, `TestDowngradeDaPurgaDasOperacionais`, e a matriz do `test_privilegios`. **A falta:** o Chatwoot, os *traces*, as *caches* e o pedido aos fornecedores (**KAM-248**, caixa 6) |
+| 5 | A entrega do certificado | **não satisfeito** | Sem agregador nem canal alternativo. Credor: **KAM-248**, caixa 2 |
+| 6 | O simulacro em *staging* | **não satisfeito** | Não há *staging*. Credor: **KAM-248**, caixa 7 |
+| 7 | O *token* de cada WABA no processo de lote | **não satisfeito** | Espera o lançador do cofre do KAM-078 (o mesmo ponto em que o KAM-227 está). Credor: **KAM-248**, caixa 4 |
+| 8 | As duas respostas de fora, medidas | **parcial** — o LiteLLM | O `/key/delete` medido na imagem fixada, com base descartável (§3 do anexo): 200 com o `deleted_keys`, 404 numa repetição, 401 da chave apagada. **A falta:** o 404 da Graph, que pede um *token* real (**KAM-248**, caixa 5) |
+
+| # | Definition of Done | Estado | O que se mediu |
+|---|---|---|---|
+| 1 | Critérios satisfeitos; as caixas do KAM-218 revistas com a evidência | **parcial** | Nenhum dos oito inteiro (acima). As caixas do KAM-218 revistas no bloco dele (a nota «Revistas pelo KAM-233») |
+| 2 | O *runbook* sem passos à mão; sem segredos | **parcial** | A revogação deixou de ter o passo à mão do D7 (`../docs/offboarding.md` §6 e `../docs/runbooks/offboarding.md`); a entrega do certificado continua manual (KAM-248). **Sem segredos**: a `litellm_master_key`, o `chatwoot_platform_token`, a `kek_contact_dek`, a `db_identity_password` e o par do STO pelo cofre (ADR-L002), cada linha do inventário com a nota de quem lê e porquê; os valores dos ensaios sem forma de chave (`scan_secrets` limpo em cada *commit*) |
 
 ### Handoff para Claude Code
 
@@ -4769,6 +4895,78 @@ Regras: kamba_app sem DELETE (dicionário §2); a revisão de esquema é da fila
 
 ---
 
+## KAM-248 — Off-boarding, o que depende de fora: as provas e a entrega ao titular, a Medusa, o simulacro, o *token* de cada WABA e o resto da purga
+
+| Campo | Valor |
+|---|---|
+| Epic | EPIC-09 — Onboarding e Governação |
+| Fase | 1 |
+| Tipo | feature |
+| Prioridade | P1 |
+| Estimativa | L |
+| Dependências | KAM-233, KAM-115, KAM-116, KAM-078 |
+| Bloqueia | — |
+| Responsável sugerido | Engenheiro de Plataforma (TEN), com o Responsável de Segurança |
+| Documentos de referência | `EPIC-09_Onboarding_Governanca.md` (blocos KAM-218 e KAM-233), `../docs/offboarding.md`, `../docs/runbooks/offboarding.md`, `../docs/evidencia/KAM-233.md` |
+
+### Contexto
+
+O KAM-233 pôs a revogação, a exportação e a purga a correr sem passos à mão onde o código chega
+sozinho: a chave do LiteLLM pelo alias e a conta do Chatwoot suspensa, os telefones dos clientes pelo
+cofre e pelo STO, e o `DELETE` das operacionais. **O que fica depende de fora**, e cada caixa abaixo
+diz de quem: dois tickets por fechar (o agregador de SMS do KAM-116 e o canal alternativo do KAM-115),
+o lançador do cofre do KAM-078, a D3, o ambiente de *staging*, um *token* real de um WABA, e decisões
+do fundador. Nasce no PR do KAM-233, pela decisão da coordenação do lote 18 de 2026-11-22 (o precedente
+do KAM-218, que abriu o KAM-233), e é o credor dos critérios dele que não fecharam. O LiteLLM sem base
+fica **separado**, no KAM-247: é trabalho de código que não espera ninguém.
+
+### Objectivo
+
+O off-boarding de ponta a ponta em `prod` sem passos à mão também nas partes que esperam alguém de fora,
+com o simulacro em *staging* a prová-lo.
+
+### Critérios de Aceitação
+
+- [ ] **As provas do titular** (critério 1 do KAM-233). Um adaptador da `ProvasDoTitular`: o OTP ao telefone provado, pelo agregador do **KAM-116**, e a ligação ao e-mail registado, pelo canal do **KAM-115**; validade e uso único, persistidos (esquema novo, com a vaga de migração do lote), e nenhum dado do dono no `resultado`.
+- [ ] **A entrega do certificado** (critério 5 do KAM-233) pelo canal disponível — o do **KAM-116** ou o do **KAM-115** —, registada, no lugar da `entrega_sem_adaptador`.
+- [ ] **A Medusa** (critérios 2 e 3 do KAM-233): o canal arquivado na revogação e o catálogo no pacote, depois da **D3** (fundador).
+- [ ] **O *token* de cada WABA no processo de lote** (critério 7 do KAM-233): as instâncias de `meta_client_token` de cada tenant chegam ao contentor do `onboarding-lote` pelo lançador do cofre do **KAM-078** (ADR-L002), e a fase `canal` cancela a subscrição em `prod`.
+- [ ] **O 404 da Graph, medido** (a metade do critério 8 do KAM-233 que ficou): o `DELETE` de uma subscrição que já não existe, com o registo de evidência. Pede um *token* real de um WABA (o fundador, ou *staging*).
+- [ ] **O resto da purga** (critério 4 do KAM-233): as conversas espelhadas no Chatwoot, os *traces* e as *caches* por tenant, cada um no `purge_log`; e o pedido de eliminação aos fornecedores de LLM e STT, que é contactar subprocessadores — **do fundador**, e não por código sem ele.
+- [ ] **O simulacro** (critério 6 do KAM-233) em *staging*, com um tenant sintético, como o critério 7 do KAM-210 o descreve: documentado e repetível. Pede o ambiente.
+- [ ] **As duas tabelas da `0084` sem caminho de eliminação** (achado do KAM-233 na integração): o `onboarding_otp` aponta ao caso de onboarding sem cascata e não se apaga para ninguém, pelo que o caso deixa de sair com as provas; e a `painel_revogacao` também fica `sem_caminho` na purga. Se o `kamba_batch` ganha `DELETE` nelas, ou se ficam pela expiração, é retenção — **do fundador**.
+
+### Detalhes Técnicos
+
+- **Componentes:** GOV (o lote e o processo dos dados), TEN, HND, COM, LLM, STO, CHR.
+- **Esquema:** o registo dos desafios do OTP, com a vaga de migração do lote em que entrar.
+- **Fora deste ticket:** o LiteLLM com base, ou as chaves sem base (KAM-247); o prazo fiscal do CGT (NÃO VERIFICADO); a assinatura assimétrica do certificado e a aresta `restrito → encerrado`, que são do fundador.
+
+### Testes Requeridos
+
+- Contrato: cada adaptador contra o seu duplo, que lê o texto do pedido.
+- Integração: as provas do titular contra o PostgreSQL do *gate* 8.
+- *Staging*: o simulacro, documentado e repetível.
+
+### Definition of Done
+
+- [ ] Critérios satisfeitos; as caixas do KAM-233 revistas com a evidência.
+- [ ] O *runbook* sem passos à mão no `../docs/offboarding.md`; sem segredos.
+
+### Handoff para Claude Code
+
+```text
+És o executor do ticket KAM-248 da KAMBÁ (o off-boarding, o que depende de fora).
+Lê specs/EPIC-09_Onboarding_Governanca.md (blocos KAM-218, KAM-233 e KAM-248), docs/offboarding.md,
+packages/core-ts/src/offboarding/ e libs/py-core/src/kamba_core/offboarding/.
+Objectivo: as provas e a entrega ao titular, a Medusa, o token de cada WABA, o resto da purga e o simulacro.
+Regras: cada caixa espera o seu dono (KAM-115, KAM-116, KAM-078, a D3, staging, o fundador); uma porta sem
+adaptador falha e nunca finge; nenhum dado pessoal no resultado das fases; contactar um fornecedor é do fundador.
+Testes: contrato por adaptador, integração com a base, e o simulacro em staging.
+```
+
+---
+
 ## Riscos do Epic e itens NÃO VERIFICADOS
 
 | Risco / item | Estado | Impacto | Mitigação / critério de saída | Decisão |
@@ -4851,3 +5049,4 @@ Regras: kamba_app sem DELETE (dicionário §2); a revisão de esquema é da fila
 | 1.40 | Novembro 2026 | KAM-206 (o contacto da encomenda ao dono e a lista de produtos em 3G): as decisões do fundador de 2026-11-20 (o COM decifra como `kamba_identity`, opção A; a regra, a máscara e a acção) e as duas secções de verificação — os **seis** critérios e as duas caixas da DoD satisfeitos, com a revisão `0082` sobre a `0081` do KAM-215. As linhas 6 e 9 do KAM-099 e 1 e 3 do KAM-190 passam a satisfeitas, e a DoD 1 do KAM-190 também. Escrita como 1.38 e renumerada na integração, depois do KAM-218 e do KAM-202. | Equipa KAMBÁ |
 | 1.41 | Novembro 2026 | **KAM-236**: as três decisões do fundador de 2026-11-21 registadas no bloco (D1-A, D2-A e D3-A), e as duas secções de verificação. **KAM-239 acrescentado** no mesmo PR, credor da D2-A: o guia do ES em `prod`, com o estado na base e a lista, a fila e os *gates* pelo processo de lote. O `Bloqueia` do KAM-236 ganha-o. As duas **decisões da coordenação** de 2026-11-22 (C1, o SMS em `prod`, e C2, a idempotência do painel) e os dois achados fora de âmbito também no bloco, e o **KAM-240** acrescentado, credor da C2: a idempotência do `PATCH /painel/produtos/:id` na base. Escrita com os números 238 e 239, renumerados na integração para 239 e 240, depois do KAM-125, que tomou o 237. | Equipa KAMBÁ |
 | 1.42 | Novembro 2026 | **KAM-225 entregue**: a recusa `42501` sobre `platform.trust_level` vê-se também fora do `tenant_guard`. A decisão do fundador de 2026-11-21 (opção A) fica no bloco, com «Data: 2026-11-21. Autor: o fundador»: o PostgreSQL de produção e de *staging* escreve `jsonlog` num volume próprio (24 h), e um recolector nosso, `python -m kamba_core.registo_pg` (serviço `registo-pg`, rede `ops`, 48 MiB medidos), conta-a em `registo_pg_tecto_recusado_total`; a regra `confianca_tecto_recusado_no_registo` dispara, com runbook. As duas secções de verificação, os três critérios e as duas caixas da DoD marcados, com um ensaio contra a pilha de *staging* (`../db/ensaio_registo_pg.py`). A revisão adversarial mudou cinco coisas: o alvo do Prometheus passou a fixo, o servidor deixou de escrever o texto das consultas, nasceu a regra `registo_pg_registo_parado` sobre a idade do registo, o RB-K08 passou a ler o volume, e os limites — o PL/pgSQL que apanha o erro, a retenção depois de um arranque, o falso positivo de um buraco de raspagem — ficaram escritos. Revistas com a evidência: a caixa 1 do KAM-219 e a 7 do KAM-203 passam a marcadas, com a DoD de cada um; a 7 do KAM-096 continua parcial, só pelo nascimento pelo superutilizador. | Equipa KAMBÁ |
+| 1.43 | Novembro 2026 | **KAM-248 acrescentado**, no PR do **KAM-233**, que o abre e não o implementa, pela decisão da coordenação do lote 18 de 2026-11-22 (o precedente do KAM-218): o credor único do que o off-boarding espera de fora — as provas e a entrega ao titular (KAM-116 e KAM-115), a Medusa (D3), o *token* de cada WABA (KAM-078), o 404 da Graph, o resto da purga (o fundador) e o simulacro (*staging*). O `Bloqueia` do KAM-233 ganha-o, e o do KAM-247 (EPIC-03), o credor do LiteLLM sem base; o do KAM-116 ganha o KAM-248. E o KAM-233 entregue em parte: as decisões do fundador de 2026-11-21 e 2026-11-22 e a verificação dos critérios no bloco dele. Escritos como KAM-241 e KAM-242, e renumerados na integração contra a `main` em `25babeca` (o maior era o KAM-246) | Equipa KAMBÁ |

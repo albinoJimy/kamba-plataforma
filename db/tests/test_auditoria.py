@@ -120,6 +120,12 @@ ACCOES = (
     # decifra (decisao do fundador de 2026-11-20, opcao A), com o `order_id` e
     # nunca o telefone. A mesma recusa no `downgrade` se houver linhas.
     "order.contact_view",
+    # A vigesima primeira, da revisao `0086` (KAM-233): o processo de lote
+    # decifrou os telefones de um contacto para o pacote do titular. Escrita pelo
+    # `kamba_identity`, na transaccao da decifra (decisoes do fundador de
+    # 2026-11-21 e 2026-11-22), com o `contact_id` e nunca o telefone. A mesma
+    # recusa no `downgrade` se houver linhas.
+    "privacy.telefones_exportados",
 )
 
 #: O dominio de `actor_type`.

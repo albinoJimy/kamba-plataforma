@@ -34,10 +34,20 @@ STO nao**: expiram pelo `retain_until` de cada objecto, e o certificado di-lo.
   (KAM-210): cada objecto sob `t/<tenant>/` apagado, e uma linha `sto.objectos`
   no `purge_log` com a contagem em `objectos`. Sem ele, o certificado declara-os
   retidos, com o fundamento;
-* **os casos de onboarding e o que deles depende** (`onboarding_case`, os
-  gates, o teste, o KYC, a lista de espera), **as ingestoes do catalogo e os
-  trabalhos de foto**, e os `fraud_signals`: o `kamba_batch` nao tem `DELETE`
-  nelas, ou um gatilho de transicao recusa-o.
+* **o caso de onboarding** (`onboarding_case`): o `kyc_check`, o
+  `screening_decision` e o `review_case` apontam-lhe por FK sem cascata, e os
+  tres ficam (o primeiro retido, os outros dois em classes de prova que esta
+  purga nao toca) — um `DELETE` do caso falhava sempre;
+* **o KYC e os sinais de fraude** (`kyc_check`, `fraud_signals`): `retida`, e
+  nao `recusada`, com o motivo `branqueamento_sem_parecer` (KAM-233, decisao do
+  fundador de 2026-11-21): a lei de prevencao do branqueamento pode pedir que se
+  guardem anos, e falta o parecer.
+
+**As operacionais saem desde o KAM-233** (revisao `0086`): os gates, o teste e
+a lista de espera do caso, as accoes e as mudancas de telefone do dono, os
+pedidos de orcamento, a marca e o conteudo, as ingestoes do catalogo e os
+trabalhos de foto. Nenhuma tem gatilho de `DELETE`, e o `kamba_batch` nao ganha
+leitura delas alem do `tenant_id`.
 
 ## Disputa aberta suspende a purga
 
@@ -116,12 +126,32 @@ CAMINHOS_DO_ENCERRAMENTO: Final[tuple[Caminho, ...]] = (
     Caminho("platform.provisioning_step"),
     Caminho("platform.payment_confirmers"),
     Caminho("servicos.bookings"),
+    # KAM-233 (decisao do fundador de 2026-11-21, Q3 = B; revisao `0086`): as
+    # operacionais. O pedido de orcamento aponta para a conversa, e sai antes
+    # dela; o conteudo aponta para o calendario, e sai com ele.
+    Caminho("platform.owner_actions"),
+    Caminho("platform.owner_phone_changes"),
+    Caminho("platform.quote_requests"),
+    Caminho("platform.brand_profile"),
+    Caminho("platform.content_calendar", ("platform.content_items",)),
+    Caminho("platform.catalog_ingestions"),
+    Caminho("platform.image_jobs"),
+    Caminho("platform.onboarding_gate"),
+    Caminho("platform.onboarding_smoke"),
+    Caminho("platform.waitlist_entry"),
     Caminho(
         "platform.conversations",
         ("platform.outbound_messages", "platform.handoffs", "platform.media_assets"),
     ),
     Caminho("platform.tenant_channels", ("platform.channel_quality_log",)),
 )
+
+#: KAM-233 (Q3 = B): retidas, e nao recusadas. A lei de prevencao do
+#: branqueamento pode pedir que a identificacao do cliente e os sinais de fraude
+#: se guardem anos, e falta o parecer; ficam `retida` com o motivo que o diz, no
+#: `purge_log` e no certificado, ate ele chegar. Nao e um *hold*: nao suspendem
+#: o resto da purga.
+RETIDAS_POR_PARECER: Final = ("platform.kyc_check", "platform.fraud_signals")
 
 #: A unidade do STO no `purge_log`. Nao e uma tabela: e o nome da unidade, na
 #: forma `<esquema>.<nome>` que o `purge_log_tabela_ck` exige, e o certificado
@@ -190,7 +220,11 @@ def _relacao() -> tuple[str, ...]:
 
 def sem_caminho() -> tuple[str, ...]:
     """As tabelas da classe `relacao` que esta purga nao apaga, pela ordem da politica."""
-    com = {c.tabela for c in CAMINHOS_DO_ENCERRAMENTO} | set(TABELAS_DOS_CONTACTOS)
+    com = (
+        {t for c in CAMINHOS_DO_ENCERRAMENTO for t in c.tabelas}
+        | set(TABELAS_DOS_CONTACTOS)
+        | set(RETIDAS_POR_PARECER)
+    )
     return tuple(t for t in _relacao() if t not in com)
 
 
@@ -385,8 +419,10 @@ class _Corrida:
             return
         self.contactos(apagar_contactos)
         _em_batch(self.abrir, "offboarding_purga", lambda cur: [
-            self.anotar(cur, t, purge_log.RESULTADO_RECUSADA, purge_log.MOTIVO_SEM_CAMINHO)
-            for t in sem_caminho()
+            *(self.anotar(cur, t, purge_log.RESULTADO_RETIDA, purge_log.MOTIVO_BRANQUEAMENTO_SEM_PARECER)
+              for t in RETIDAS_POR_PARECER),
+            *(self.anotar(cur, t, purge_log.RESULTADO_RECUSADA, purge_log.MOTIVO_SEM_CAMINHO)
+              for t in sem_caminho()),
         ])
 
     @property
@@ -403,7 +439,8 @@ class _Corrida:
             "execucoes": [*anteriores, self.execucao_id],
             "apagadas": apagadas,
             "retidas": sorted({r.tabela for r in self.registos
-                               if r.resultado == purge_log.RESULTADO_RECUSADA}),
+                               if r.resultado == purge_log.RESULTADO_RECUSADA
+                               or r.motivo == purge_log.MOTIVO_BRANQUEAMENTO_SEM_PARECER}),
             "falhas": sorted(set(self.falhas)),
         }
 
@@ -549,6 +586,7 @@ def reaplicar_apos_restauro(
 
 __all__ = [
     "CAMINHOS_DO_ENCERRAMENTO",
+    "RETIDAS_POR_PARECER",
     "CANAL_DO_TITULAR",
     "CLASSE",
     "Caminho",
