@@ -124,6 +124,7 @@ def _servico(nome: str, extra: str = "") -> str:
     networks:
       - app
     mem_limit: 512m
+    memswap_limit: 512m
     cpus: 0.5
     healthcheck:
       test: ["CMD", "true"]
@@ -422,8 +423,8 @@ CASOS: tuple[Caso, ...] = (
         "o LiteLLM ganha `edge` e com ela um caminho de saida sem proxy",
         lambda c: c.trocar(
             lint.PROD,
-            r"^    networks:\n      - app\n    mem_limit: 2048m\n    cpus: 1\.5$",
-            "    networks:\n      - app\n      - edge\n    mem_limit: 2048m\n    cpus: 1.5",
+            r"^    networks:\n      - app\n    mem_limit: 2048m\n    memswap_limit: 2048m\n    cpus: 1\.5$",
+            "    networks:\n      - app\n      - edge\n    mem_limit: 2048m\n    memswap_limit: 2048m\n    cpus: 1.5",
         ),
     ),
     Caso(
@@ -491,15 +492,44 @@ CASOS: tuple[Caso, ...] = (
         "sem-limite-de-memoria",
         frozenset({"sem-limite-de-memoria"}),
         "um servico deixa de ter `mem_limit`",
-        lambda c: c.trocar(lint.PROD, r"^    mem_limit: 1024m\n    cpus: 0\.5$", "    cpus: 0.5"),
+        # Os dois limites saem juntos: e o defeito real (o servico fica sem
+        # tecto), e um `memswap_limit` sozinho nao e o que este caso prova.
+        lambda c: c.trocar(
+            lint.PROD,
+            r"^    mem_limit: 1024m\n    memswap_limit: 1024m\n    cpus: 0\.5$",
+            "    cpus: 0.5",
+        ),
     ),
     Caso(
         "sem-limite-de-cpu",
         frozenset({"sem-limite-de-cpu"}),
         "um servico deixa de ter `cpus`",
         lambda c: c.trocar(
-            lint.PROD, r"^    mem_limit: 1024m\n    cpus: 0\.5$", "    mem_limit: 1024m"
+            lint.PROD,
+            r"^    mem_limit: 1024m\n    memswap_limit: 1024m\n    cpus: 0\.5$",
+            "    mem_limit: 1024m\n    memswap_limit: 1024m",
         ),
+    ),
+    # KAM-242: cada `mem_limit` com um `memswap_limit` igual, ou seja zero de
+    # *swap*. As tres formas do defeito: o `memswap_limit` em falta (o estado
+    # da arvore antes do KAM-242), maior do que o limite, e `-1` (sem tecto).
+    Caso(
+        "swap-em-falta",
+        frozenset({"memoria-com-swap"}),
+        "um servico deixa de ter `memswap_limit`, e pode usar outro tanto em swap",
+        lambda c: c.trocar(lint.PROD, r"^    memswap_limit: 5120m\n", ""),
+    ),
+    Caso(
+        "swap-maior-que-o-limite",
+        frozenset({"memoria-com-swap"}),
+        "o `memswap_limit` passa a ser o dobro do `mem_limit`",
+        lambda c: c.trocar(lint.PROD, r"^    memswap_limit: 3072m$", "    memswap_limit: 6g"),
+    ),
+    Caso(
+        "swap-ilimitado",
+        frozenset({"memoria-com-swap"}),
+        "o `memswap_limit` passa a `-1`, swap sem limite",
+        lambda c: c.trocar(lint.PROD, r"^    memswap_limit: 48m$", "    memswap_limit: -1"),
     ),
     Caso(
         "capacidade-acrescentada",
@@ -563,7 +593,9 @@ CASOS: tuple[Caso, ...] = (
         frozenset({"memoria-divergente"}),
         "o `mem_limit` passa a ser o total do servico em cada replica",
         lambda c: c.trocar(
-            lint.PROD, r"^    mem_limit: 256m\n    cpus: 1\.0$", "    mem_limit: 512m\n    cpus: 1.0"
+            lint.PROD,
+            r"^    mem_limit: 256m\n    memswap_limit: 256m\n    cpus: 1\.0$",
+            "    mem_limit: 512m\n    memswap_limit: 512m\n    cpus: 1.0",
         ),
     ),
     Caso(
@@ -604,7 +636,12 @@ CASOS: tuple[Caso, ...] = (
         "memoria-divergente",
         frozenset({"memoria-divergente"}),
         "o `mem_limit` de um servico deixa de ser o do manifesto",
-        lambda c: c.trocar(lint.PROD, r"^    mem_limit: 1024m$", "    mem_limit: 128m"),
+        # O `memswap_limit` muda com ele, senao era tambem `memoria-com-swap`.
+        lambda c: c.trocar(
+            lint.PROD,
+            r"^    mem_limit: 1024m\n    memswap_limit: 1024m$",
+            "    mem_limit: 128m\n    memswap_limit: 128m",
+        ),
     ),
     Caso(
         "soma-de-memoria",
@@ -758,6 +795,7 @@ MINIMO_POR_REGRA: dict[str, frozenset[str]] = {
             "utilizador-root",
             "utilizador-por-omissao",
             "sem-limite-de-memoria",
+            "memoria-com-swap",
             "sem-limite-de-cpu",
             "capacidade-acrescentada",
             "sem-cap-drop",

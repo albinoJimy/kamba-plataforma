@@ -244,6 +244,46 @@ class TestArvoreReal(unittest.TestCase):
         self.assertNotIn("%REQ(COOKIE)%", texto, "o registo nunca leva conteudo")
 
 
+class TestSemSwap(unittest.TestCase):
+    """KAM-242: cada `mem_limit` com um `memswap_limit` igual (zero de *swap*).
+
+    O canario prova que a regra `memoria-com-swap` morde (`swap-em-falta`,
+    `swap-maior-que-o-limite`, `swap-ilimitado`). Aqui prende-se a arvore real,
+    lida servico a servico e sem passar pela regra, e o que ela **nao** pode
+    recusar: o mesmo valor escrito noutra unidade.
+    """
+
+    def test_todos_os_servicos_de_prod_tem_memswap_igual_ao_limite(self) -> None:
+        dados = lint.ler(RAIZ)
+        self.assertGreaterEqual(len(dados.prod.servicos), 13)
+        for nome, (_no, chaves) in sorted(dados.prod.servicos.items()):
+            with self.subTest(servico=nome):
+                memoria = lint._valor(dados.prod, chaves, "mem_limit")
+                swap = lint._valor(dados.prod, chaves, "memswap_limit")
+                self.assertIsNotNone(memoria)
+                self.assertIsNotNone(swap)
+                self.assertEqual(lint._memoria_mb(swap or ""), lint._memoria_mb(memoria or ""))
+
+    def test_o_mesmo_valor_noutra_unidade_nao_e_achado(self) -> None:
+        pasta, destino = _copia()
+        with pasta:
+            canario.Copia(destino).trocar(
+                lint.PROD, r"^    memswap_limit: 1024m$", "    memswap_limit: 1g"
+            )
+            achados, _ = lint.varrer(destino)
+            self.assertEqual([str(a) for a in achados], [])
+
+    def test_zero_nao_e_igual_ao_limite(self) -> None:
+        """O Docker le `memswap_limit: 0` como «nao fixado»: deixa usar swap."""
+        pasta, destino = _copia()
+        with pasta:
+            canario.Copia(destino).trocar(
+                lint.PROD, r"^    memswap_limit: 1024m$", "    memswap_limit: 0"
+            )
+            achados, _ = lint.varrer(destino)
+            self.assertEqual(sorted({a.regra for a in achados}), ["memoria-com-swap"])
+
+
 class TestGuiaoDosDezDestinos(unittest.TestCase):
     def test_sao_dez(self) -> None:
         self.assertEqual(len(DESTINOS), 10, "o criterio 3 pede dez destinos")
