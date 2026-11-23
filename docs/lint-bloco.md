@@ -202,7 +202,7 @@ continua a dizer «0 achados». Abaixo de qualquer um deles o comando sai com **
 > **O piso de emparelhados sobe quando o corpus cresce, e já subiu quatro
 > vezes.** O ensaio exige `piso >= medidos // 2`, pelo que cada **dois** blocos
 > de verificação novos pedem uma emenda: 40 → **41**, 41 → **42**, 42 → **43**,
-> 43 → **44** e, daí, até **92** (184 emparelhados na integração do KAM-247 com o KAM-244; a linha ficou em 50
+> 43 → **44** e, daí, até **92** (185 emparelhados na integração do KAM-242 com o KAM-247; a linha ficou em 50
 > desde o KAM-186, a terceira vez atrás do código), cada uma medida na
 > árvore de quem fundiu em segundo. **Quem a paga
 > é um dado sobre a ordem de fusão e não sobre o corpus**, e é por isso que o
@@ -403,3 +403,4 @@ importações é mais longa do que parece.)
 | 1.5 | Novembro 2026 | **KAM-233: esta linha volta a dizer o que o código diz, e o piso fica em 90.** Medido na árvore da integração com a `main` em `fec6fdce`: **181** emparelhados (180 na `main`, mais a secção de verificação do KAM-233), e `181 // 2` são 90 — o 89 → 90 já o pagou a integração anterior a esta. O §4 estava em **50** desde o KAM-186, com o código já em 89: a terceira superfície ficou atrás outra vez, pela razão escrita na 1.3. | Equipa KAMBÁ |
 | 1.6 | Novembro 2026 | **KAM-244: o piso fica em 91, e esta linha volta a dizer o que o código diz.** Medido na árvore da integração com a `main` em `3054739c`: **183** emparelhados (182 na `main`, mais a secção de verificação do KAM-244), e `183 // 2` são 91 — o 90 → 91 já o pagou o KAM-208 no `lint.py` e no `mutacao.py`, e deixou o §4 em 90: a terceira superfície ficou atrás outra vez, pela razão escrita na 1.3. O bloco seguinte sobe-o para 92. | Equipa KAMBÁ |
 | 1.7 | Novembro 2026 | **KAM-247: o piso sobe para 92, nas três superfícies.** Medido na árvore da integração com a `main` em `b5529017`: **184** emparelhados (183 na `main`, mais a secção de verificação do KAM-247), e `184 // 2` são 92. | Equipa KAMBÁ |
+| 1.8 | Novembro 2026 | **KAM-242: o piso fica em 92, e as três superfícies dizem-no.** Medido na árvore da integração com a `main` em `a87c2e72`: **185** emparelhados (184 na `main`, mais a secção de verificação do KAM-242), e `185 // 2` são 92 — o 91 → 92 já o pagou o KAM-247 no `lint.py`, no `mutacao.py` e no §4. O bloco seguinte sobe-o para 93. Número **provisório**: renumera-se na integração. | Equipa KAMBÁ |

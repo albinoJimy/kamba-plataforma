@@ -71,6 +71,15 @@ name: kamba-prod
 # utilizador nao-root, `mem_limit` e `cpus`. As tres primeiras ficam aqui; o
 # `mem_limit` e o `cpus` sao por servico, porque sao numeros diferentes.
 #
+# Cada `mem_limit` leva ao lado um `memswap_limit` **igual** (KAM-242). O
+# `memswap_limit` e a memoria **mais** o *swap*: igual quer dizer zero de
+# *swap*. Sem ele, o Docker deixa o contentor usar outro tanto em *swap*, se o
+# *host* o tiver — medido no KAM-238 (`docs/evidencia/KAM-238.md` §3), com um
+# contentor a «sobreviver» sob 54m com 19 MiB em *swap* — e a soma do criterio
+# 4 media metade do que os processos podem ocupar. O `compose_prod` exige-o
+# (`memoria-com-swap`). Se o *host* de producao tem *swap* e NAO VERIFICADO
+# (`docs/evidencia/KAM-242.md`); com isto, deixa de importar para o tecto.
+#
 # `no-new-privileges` e `cap_drop: ALL` nao estao em nenhum criterio e ficam
 # porque o compose de desenvolvimento ja os tem: um contentor de producao nao
 # pode estar menos fechado do que o de quem o escreve.
@@ -148,6 +157,7 @@ services:
       - edge
       - app
     mem_limit: 512m
+    memswap_limit: 512m
     cpus: 0.5
     healthcheck:
       test: ["CMD", "wget", "-q", "-O", "-", "http://127.0.0.1:2019/config/"]
@@ -188,6 +198,7 @@ services:
       - app
       - edge
     mem_limit: 512m
+    memswap_limit: 512m
     cpus: 0.5
     healthcheck:
       # A sonda vive em `envoy/sonda.sh` e nao nesta linha: as duas razoes —
@@ -228,6 +239,7 @@ services:
     # do compose e por contentor. O lint exige `mem_limit x replicas` == o
     # total do manifesto (512 MiB).
     mem_limit: 256m
+    memswap_limit: 256m
     cpus: 1.0
     healthcheck:
       test:
@@ -340,6 +352,7 @@ services:
       - app
       - data
     mem_limit: 256m
+    memswap_limit: 256m
     cpus: 0.5
     healthcheck:
       test:
@@ -385,6 +398,7 @@ services:
       - app
       - data
     mem_limit: 192m
+    memswap_limit: 192m
     cpus: 0.25
     healthcheck:
       test:
@@ -425,6 +439,7 @@ services:
       - app
       - data
     mem_limit: 128m
+    memswap_limit: 128m
     cpus: 0.25
     healthcheck:
       test:
@@ -490,6 +505,7 @@ services:
       - app
       - data
     mem_limit: 192m
+    memswap_limit: 192m
     cpus: 0.25
     healthcheck:
       test:
@@ -539,6 +555,7 @@ services:
       - app
       - data
     mem_limit: 192m
+    memswap_limit: 192m
     cpus: 0.25
     healthcheck:
       test:
@@ -583,6 +600,7 @@ services:
       - app
       - data
     mem_limit: 192m
+    memswap_limit: 192m
     cpus: 0.25
     healthcheck:
       test:
@@ -655,6 +673,7 @@ services:
       - data
     # 1280 MiB **por replica**: o bloco propoe 2,5 GB para os «AGR workers x2».
     mem_limit: 1280m
+    memswap_limit: 1280m
     cpus: 2.0
     healthcheck:
       test:
@@ -717,6 +736,7 @@ services:
     # por pedido e no maximo dezasseis ligacoes abertas (cabecalho do
     # `processo.py`). Medir sob carga e o KAM-084.
     mem_limit: 192m
+    memswap_limit: 192m
     cpus: 0.25
     healthcheck:
       test:
@@ -790,6 +810,7 @@ services:
     # e o que a folga do orcamento de producao comporta; reve-se com a primeira
     # exportacao medida em `staging`.
     mem_limit: 256m
+    memswap_limit: 256m
     cpus: 0.25
     healthcheck:
       test:
@@ -846,6 +867,7 @@ services:
       - app
       - data
     mem_limit: 512m
+    memswap_limit: 512m
     cpus: 1.0
     healthcheck:
       test:
@@ -907,6 +929,7 @@ services:
       - app
       - data
     mem_limit: 768m
+    memswap_limit: 768m
     cpus: 0.5
     healthcheck:
       test:
@@ -1008,6 +1031,7 @@ services:
     # de T&S (KAM-200), que o `worker-canal-consumidor` tem em 192m; reve-se com
     # a primeira medicao de repouso do processo em `staging`.
     mem_limit: 128m
+    memswap_limit: 128m
     cpus: 0.25
     healthcheck:
       test:
@@ -1066,6 +1090,7 @@ services:
       - app
       - data
     mem_limit: 3072m
+    memswap_limit: 3072m
     cpus: 2.0
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3000/api || exit 1"]
@@ -1111,6 +1136,7 @@ services:
       - app
       - data
     mem_limit: 2048m
+    memswap_limit: 2048m
     cpus: 1.5
     healthcheck:
       # O Sidekiq nao serve HTTP. A sonda pergunta ao proprio processo se esta
@@ -1202,6 +1228,7 @@ services:
       - app
       - data
     mem_limit: 2048m
+    memswap_limit: 2048m
     cpus: 1.5
     healthcheck:
       # O `/health/liveliness` nao exige a *master key*; o `/health` exige.
@@ -1312,6 +1339,7 @@ services:
     networks:
       - data
     mem_limit: 5120m
+    memswap_limit: 5120m
     cpus: 2.0
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-kamba} -d ${POSTGRES_DB:-kamba_platform}"]
@@ -1354,6 +1382,7 @@ services:
     networks:
       - data
     mem_limit: 768m
+    memswap_limit: 768m
     cpus: 1.0
     healthcheck:
       test: ["CMD-SHELL", "${KAMBA_QUEUE_CLI:-valkey-cli} ping | grep -q PONG"]
@@ -1384,6 +1413,7 @@ services:
     networks:
       - data
     mem_limit: 1024m
+    memswap_limit: 1024m
     cpus: 1.0
     healthcheck:
       # **As duas portas, e nao so a do master.** A sonda antiga interrogava
@@ -1434,6 +1464,7 @@ services:
     # 32 MiB de pico do cgroup com 2 000 recusas de rajada, uma linha de 5 MB e
     # 20 sondas do `/healthz` ao mesmo tempo, sob este limite e sem OOM.
     mem_limit: 48m
+    memswap_limit: 48m
     # 0.25, como o `idx`. Com 0.1 o arranque do Python (que compila o que
     # importa, sem `.pyc` na imagem) passou dos 80 s da sonda numa maquina
     # carregada, e o contentor ficou *unhealthy* sem chegar a registar nada
@@ -1553,6 +1584,7 @@ services:
       - ops
       - app
     mem_limit: 1024m
+    memswap_limit: 1024m
     cpus: 0.5
     healthcheck:
       test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:9090/-/healthy || exit 1"]
@@ -1605,6 +1637,7 @@ services:
     networks:
       - ops
     mem_limit: 256m
+    memswap_limit: 256m
     cpus: 0.25
     healthcheck:
       # `wget` da BusyBox, confirmado dentro desta imagem (`wget --version` deu
