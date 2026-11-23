@@ -1,0 +1,137 @@
+# Categorias de produto — KAM-209.
+#
+# A lista fechada da categoria de uma oferta (`offer_terms.categoria`), e a
+# fonte das tres copias que a usam:
+#
+#   * o `CHECK offer_terms_categoria_ck` da revisao `0088`;
+#   * `CATEGORIAS_DE_PRODUTO` em `packages/core-ts/src/trust/categorias.ts` (o
+#     COM recusa um rascunho fora dela, e a varredura do preco anomalo salta as
+#     que nao se avaliam);
+#   * `CATEGORIAS` em `libs/py-core/src/kamba_core/catalogo/categorias.py` (o
+#     catalogo por IA le a categoria dita ou vista nestes termos).
+#
+# O `libs/py-core/tests/test_categorias_de_produto.py` le este ficheiro e
+# recusa uma copia que divirja. Mudar a lista e mudar a `versao`, as tres
+# copias e o dicionario §3.68 no mesmo PR.
+#
+# A LISTA E DECISAO DO FUNDADOR (2026-11-21): as cinco familias do KYC
+# (`packages/core-ts/src/kyc/regras.ts`), mais `servicos`, `material_construcao`
+# e `outra`. A `outra` e a categoria de quem nao cabe nas outras: **nao se
+# avalia** (`avalia_preco: false`), porque a mediana de produtos que nada tem
+# em comum nao e referencia de nada.
+#
+# OS TERMOS SAO PROPOSTA. Sao as palavras que levam o texto livre da categoria
+# (o que o dono diz, ou o que a visao le e o dono confirma no resumo) a um `id`
+# desta lista, comparadas palavra a palavra depois do `passo_1` da normalizacao
+# do IDX (minusculas, sem acentos). Vem das `FAMILIAS` do KYC e das palavras de
+# perfil da completude do catalogo (KAM-049), e nao de ocorrencias contadas
+# (sem `acessorios`, que as `FAMILIAS` poem na moda e que levava «telemoveis e
+# acessorios» para la):
+# calibram-se com o catalogo do Piloto. Um texto que nenhuma apanha cai na
+# `outra`, e o dono ve-o no resumo antes de confirmar.
+
+versao: "1.0.0"
+
+categorias:
+  - id: moda
+    avalia_preco: true
+    termos:
+      - moda
+      - roupa
+      - roupas
+      - vestuario
+      - calcado
+      - calcados
+      - sapato
+      - sapatos
+      - sapatilha
+      - sapatilhas
+      - camisa
+      - camisas
+      - vestido
+      - vestidos
+      - calcas
+      - saia
+      - blusa
+
+  - id: mercearia
+    avalia_preco: true
+    termos:
+      - mercearia
+      - alimentacao
+      - alimentar
+      - alimento
+      - alimentos
+      - supermercado
+      - congelados
+      - bebida
+      - bebidas
+      - sumo
+      - sumos
+      - arroz
+      - oleo
+      - farinha
+
+  - id: restauracao
+    avalia_preco: true
+    termos:
+      - restaurante
+      - restauracao
+      - comida
+      - refeicao
+      - refeicoes
+      - pastelaria
+      - padaria
+
+  - id: beleza
+    avalia_preco: true
+    termos:
+      - beleza
+      - cabeleireiro
+      - estetica
+      - salao
+      - cosmetica
+      - cosmeticos
+      - perfume
+      - perfumes
+
+  - id: electronica
+    avalia_preco: true
+    termos:
+      - electronica
+      - eletronica
+      - electronicos
+      - telemovel
+      - telemoveis
+      - telefone
+      - portatil
+      - computador
+      - informatica
+      - televisor
+      - electrodomestico
+      - electrodomesticos
+
+  - id: servicos
+    avalia_preco: true
+    termos:
+      - servico
+      - servicos
+      - reparacao
+      - manutencao
+      - instalacao
+      - limpeza
+
+  - id: material_construcao
+    avalia_preco: true
+    termos:
+      - construcao
+      - cimento
+      - tijolo
+      - tijolos
+      - ferragens
+      - tinta
+      - tintas
+
+  - id: outra
+    avalia_preco: false
+    termos: []

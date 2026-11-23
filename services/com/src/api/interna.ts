@@ -427,9 +427,14 @@ function rascunhoDeProdutoDoCorpo(corpo: Record<string, unknown>): ProductDraft 
   const precoMinor = bruto === null ? null : emMinor(bruto);
   if (bruto !== null && precoMinor === null) return null;
   if (stockModo !== undefined && typeof stockModo !== "string") return null;
+  // KAM-209: a categoria da lista fechada, opcional. O domínio é do adaptador
+  // (`rascunhoDoDraft`), que recusa uma fora da lista com o mesmo `VALIDATION_ERROR`.
+  const categoria = corpo["categoria"];
+  if (categoria !== undefined && typeof categoria !== "string") return null;
   return {
     sku,
     nome,
+    ...(categoria === undefined ? {} : { categoria }),
     atributos: {
       preco_tipo: precoTipo,
       // Cadeia de dígitos e não `bigint`: o `rascunhoDoDraft` aceita as duas, e

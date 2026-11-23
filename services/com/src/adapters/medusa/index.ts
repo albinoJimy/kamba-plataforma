@@ -132,6 +132,7 @@ import {
   type RepoBase,
 } from "../../repo-base/index.ts";
 import { SQL_TECTO } from "@kamba/core-ts/ten";
+import { eCategoriaDeProduto } from "@kamba/core-ts/trust";
 import {
   politicaCorrente,
   type ClassificadorDeCategorias,
@@ -328,12 +329,18 @@ export function rascunhoDoDraft(d: ProductDraft): RascunhoDeProduto | null {
   // que `{stockModo: undefined}` e `{}` são tipos diferentes — e o certo aqui é
   // o segundo, porque quem decide a omissão (`indicativo`) é o módulo e não o
   // adaptador, e passar `undefined` obrigava-o a tratar os dois casos.
+  // KAM-209: a `categoria` do `ProductDraft` é a da lista fechada, e passa a
+  // ter coluna (`offer_terms.categoria`, revisão `0088`). Fora da lista recusa;
+  // ausente (ou nula) não vai, e o módulo guarda a que a oferta já tem.
+  const categoria = d.categoria;
+  if (categoria !== undefined && categoria !== null && !eCategoriaDeProduto(categoria)) return null;
   const base = {
     sku: String(d.sku ?? ""),
     nome: String(d.nome ?? ""),
     precoTipo: precoTipo as RascunhoDeProduto["precoTipo"],
     precoMinor,
     precoValidoAte: typeof validoAte === "string" ? validoAte : null,
+    ...(categoria === undefined || categoria === null ? {} : { categoria }),
   };
   return stockBruto === undefined
     ? base
@@ -553,11 +560,12 @@ export function adaptadorMedusa(
      *
      * O `ProductDraft` da porta tem `sku`, `nome`, `descricao`, `categoria` e
      * `atributos`; o módulo escreve os três primeiros campos que a
-     * `offer_terms` tem e os termos de preço e de stock. A `descricao`, a
-     * `categoria` e os `atributos` **não têm coluna** na revisão `0028` e não se
-     * perdem em silêncio: pertencem ao Registo, que é quem guarda o produto
-     * (§3.3), e o perfil de completude que os valida é o **KAM-049**. Ver a
-     * verificação do bloco.
+     * `offer_terms` tem e os termos de preço e de stock. A `descricao` e os
+     * `atributos` **não têm coluna** na revisão `0028` e não se perdem em
+     * silêncio: pertencem ao Registo, que é quem guarda o produto (§3.3), e o
+     * perfil de completude que os valida é o **KAM-049**. Ver a verificação do
+     * bloco. A `categoria` tem coluna desde a revisão `0088` (KAM-209), e é a
+     * da lista fechada de `policy/categorias_de_produto.yaml`.
      *
      * Os termos de preço entram pelo `d.atributos`, que é o único campo aberto
      * que a porta dá — e é assim e não com um método novo porque o §3.39 fecha a
