@@ -1152,6 +1152,8 @@ services:
     #     `kamba_medusa` (divida 95 de `docs/dividas-documentais.md`);
     #   * a `queue`, que nao pede credencial nenhuma (sem `requirepass`);
     #   * o `seaweedfs`, quando o perfil `sto-proprio` o levanta.
+    # A A1 foi confirmada com este custo por inteiro (fundador, 2026-11-23); a
+    # fila e o S3 tem credor no KAM-249.
     # Sem registos de gasto por chamada (`disable_spend_logs`, no
     # `llm/litellm.config.yaml` gerado): a base guarda chaves e gasto acumulado,
     # e a auditoria continua a ser a `dat.llm_call_log`.

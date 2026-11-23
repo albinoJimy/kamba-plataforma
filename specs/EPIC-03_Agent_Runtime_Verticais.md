@@ -18,7 +18,7 @@ O **Agent Runtime (AGR)** é o serviço que transforma uma mensagem já resolvid
 
 O epic existe porque é onde as quatro fundações não-negociáveis do produto se tornam verificáveis por teste: mediação total pelo runtime, números só de tools, dinheiro só por evento, e verticais como configuração validadas pela **regra de dois** (Vendedor + Serviços, ADR-012). Dá corpo aos dois grafos do Piloto (tabela de arestas de `../docs/tecnica/02` §7.3 para o Vendedor; diagrama de §8.1 para os Serviços), ao padrão de dois nós para `interrupt()` idempotente (handoff), à voz com fallback a humano, ao modo determinístico sem LLM e ao dataset *golden* PT-AO como gate de deploy. Piloto = **só Fluxo A**: a persona `assistente` (Fluxo B) não é registada em produção (ADR-011).
 
-Concretiza ADR-002, ADR-005, ADR-007, ADR-009, ADR-010, ADR-012, ADR-013 e ADR-015, com adjacência a ADR-008 (chamadas a LLM/STT no estrangeiro são transferências até parecer em contrário) e ADR-018 (golden sintético, custo por tenant). São **21 tickets**: 13 na **Fase 0** (esqueleto andante: KAM-025 a KAM-032, KAM-035, KAM-038, KAM-039, KAM-184, KAM-186) e 8 na **Fase 1** (KAM-033, KAM-034, KAM-036, KAM-037, KAM-040, KAM-114, KAM-214, KAM-247). Qualidade em português de Angola, latência real dos modelos e WER dos STT são **NÃO VERIFICADOS** (`../docs/tecnica/02` §19, L1–L3): medem-se no golden e no staging, não se assumem.
+Concretiza ADR-002, ADR-005, ADR-007, ADR-009, ADR-010, ADR-012, ADR-013 e ADR-015, com adjacência a ADR-008 (chamadas a LLM/STT no estrangeiro são transferências até parecer em contrário) e ADR-018 (golden sintético, custo por tenant). São **22 tickets**: 13 na **Fase 0** (esqueleto andante: KAM-025 a KAM-032, KAM-035, KAM-038, KAM-039, KAM-184, KAM-186) e 9 na **Fase 1** (KAM-033, KAM-034, KAM-036, KAM-037, KAM-040, KAM-114, KAM-214, KAM-247, KAM-250). Qualidade em português de Angola, latência real dos modelos e WER dos STT são **NÃO VERIFICADOS** (`../docs/tecnica/02` §19, L1–L3): medem-se no golden e no staging, não se assumem.
 
 ---
 
@@ -62,6 +62,7 @@ Concretiza ADR-002, ADR-005, ADR-007, ADR-009, ADR-010, ADR-012, ADR-013 e ADR-0
 | KAM-186 | O processo do AGR liga a porta `grafos` e serve turnos | feature | L | P0 | KAM-027, KAM-031, KAM-035, KAM-178 |
 | KAM-214 | O ensaio das conversas diferentes na tranca do AGR mede uma janela de 10 ms, e falha ao acaso sob carga | fix | S | P1 | KAM-034 |
 | KAM-247 | LiteLLM com base, ou chaves sem base: o proxy de `prod` não tem onde guardar as chaves virtuais | fix | M | P1 | KAM-030, KAM-233 |
+| KAM-250 | As chaves virtuais no cofre: o valor que o proxy emite chega à `litellm_virtual_key` e à `litellm_screening_key` | feature | M | P1 | KAM-247, KAM-010 |
 
 ---
 
@@ -5392,7 +5393,7 @@ services/agr/tests.
 | Prioridade | P1 |
 | Estimativa | M |
 | Dependências | KAM-030, KAM-233 |
-| Bloqueia | — |
+| Bloqueia | KAM-249, KAM-250 |
 | Responsável sugerido | Engenheiro de Runtime/IA, com o Engenheiro de Plataforma (TEN) |
 | Documentos de referência | `../docs/evidencia/KAM-233.md` §2 e §3, `../infra/llm/chaves.py`, `../infra/compose/docker-compose.llm.yml`, `../infra/compose/docker-compose.prod.yml`, blocos KAM-030, KAM-091 e KAM-233 |
 
@@ -5438,6 +5439,18 @@ e a revogação do encerramento deixa de ter recurso por construção.
 | Data | 2026-11-23 |
 | Autor | o fundador |
 
+| Campo | Valor |
+|---|---|
+| Decisão | **A1 confirmada pelo fundador a 2026-11-23, com o custo da rede `data` por inteiro** (a `queue` sem credencial, o S3 do `seaweedfs`, e o `CONNECT` da dívida 95). O risco da fila já existia para os quinze serviços de aplicação, e o `litellm` herda-o. Credor da fila e do S3: o **KAM-249**. A dívida 95 fica onde está |
+| Data | 2026-11-23 |
+| Autor | o fundador |
+
+| Campo | Valor |
+|---|---|
+| Decisão | **Credor novo para as chaves no cofre**: a do screening e as dos tenants são geradas pelo proxy, mas o valor nunca chega ao cofre (o `chaves.py` não o devolve, e o `ADR-L002` §6 não tem escrita). O **KAM-250** desenha e implementa essa escrita |
+| Data | 2026-11-23 |
+| Autor | o fundador |
+
 As opções foram medidas antes da escolha e levadas pela coordenação; os números estão no §4 do
 `../docs/evidencia/KAM-247.md`. Uma terceira corrida, já com o `bootstrap.py` deste ticket, deu
 294 s no arranque e 235 s num reinício (§3 do anexo): cabem nos 600 s.
@@ -5447,8 +5460,8 @@ revisão adversarial): o proxy alcança tudo o que lá vive, como os quinze serv
 que já lá estavam. Alcança o `postgres`, de que o separa o papel e não a rede, e onde o PUBLIC
 ainda tem `CONNECT` nas bases `postgres`, `kamba_chatwoot` e `kamba_medusa` (dívida 95 de
 `../docs/dividas-documentais.md`). Alcança a `queue`, que não pede credencial nenhuma. E alcança o
-`seaweedfs`, quando o perfil `sto-proprio` o levanta. Fica escrito no `docker-compose.prod.yml`, e
-foi levado à coordenação.
+`seaweedfs`, quando o perfil `sto-proprio` o levanta. Fica escrito no `docker-compose.prod.yml`. O
+fundador confirmou a A1 com este custo (acima), e o credor da fila e do S3 é o **KAM-249**.
 
 ### Critérios de Aceitação
 
@@ -5515,7 +5528,7 @@ no `kamba-chat` (403) e continua a servir depois de um reinício. **O que não f
 valor da chave não chega ao cofre. O `provisionar` e o `provisionar-screening` não o devolvem nem
 o imprimem, e a porta do cofre não tem escrita (`../docs/adr/ADR-L002-injeccao-de-segredos.md` §6).
 Na medição, o valor só se obteve envolvendo o `Proxy.gerar`. Vale para as chaves dos tenants
-também. Nenhum ticket aberto o reclama, e foi levado à coordenação para lhe dar credor.
+também. Credor: o **KAM-250**, por decisão do fundador de 2026-11-23.
 
 **O que mudou no código:**
 - `../db/bootstrap.py` cria o papel e a base quando a `KAMBA_SECRET_DB_LITELLM_PASSWORD` existe, e o
@@ -5556,7 +5569,8 @@ reprovou-o. Os achados confirmados foram tratados neste PR:
   Todas foram corrigidas.
 - **Os números do reinício** passam a ser os três medidos.
 - **O alcance da rede `data`, e a chave do screening sem caminho para o cofre**, estão escritos
-  acima e foram levados à coordenação.
+  acima. O fundador decidiu os dois a 2026-11-23: a A1 mantém-se, com o KAM-249 para a fila e o S3,
+  e o KAM-250 para as chaves no cofre.
 
 ### Handoff para Claude Code
 
@@ -5567,6 +5581,78 @@ Lê specs/EPIC-03_Agent_Runtime_Verticais.md (blocos KAM-030 e KAM-247), specs/E
 Objectivo: a escolha do fundador entre a base do proxy e as chaves sem base, e a implementação dela.
 Regras: a escolha é do fundador e não se infere; nenhum passo à mão no encerramento; sem segredos.
 Testes: contrato contra o duplo e o provisionamento, o reinício e a revogação em staging.
+```
+
+---
+
+## KAM-250 — As chaves virtuais no cofre: o valor que o proxy emite chega à `litellm_virtual_key` e à `litellm_screening_key`
+
+| Campo | Valor |
+|---|---|
+| Epic | EPIC-03 — Agent Runtime e Verticais |
+| Fase | 1 |
+| Tipo | feature |
+| Prioridade | P1 |
+| Estimativa | M |
+| Dependências | KAM-247, KAM-010 |
+| Bloqueia | — |
+| Responsável sugerido | Engenheiro de Runtime/IA, com o Engenheiro de Plataforma (segredos) |
+| Documentos de referência | bloco KAM-247, `../docs/evidencia/KAM-247.md` §3, `../infra/llm/chaves.py`, `../docs/adr/ADR-L002-injeccao-de-segredos.md` §6, `../ops/secrets-inventory.yaml` (`litellm_virtual_key`, `litellm_screening_key`), `../packages/core-ts/src/provisioning/passos.ts` (o passo `chave_llm` do KAM-091) |
+
+### Contexto
+
+Credor do KAM-247, aberto no PR dele por decisão do fundador de 2026-11-23. Com a base do KAM-247 o
+proxy emite as chaves virtuais — a de cada tenant e a do screening (KAM-195) —, mas **o valor nunca
+chega ao cofre**: o `infra/llm/chaves.py provisionar` e o `provisionar-screening` não o devolvem nem o
+imprimem, o passo `chave_llm` da saga do KAM-091 guarda só o identificador, e a porta do cofre não tem
+caminho de escrita (`ADR-L002` §6). Medido no KAM-247 (§3 do anexo): a chave do screening só se obteve
+envolvendo o `Proxy.gerar`. Logo nenhum consumidor — o AGR com a `litellm_virtual_key/<tenant_id>`, o
+classificador com a `litellm_screening_key` — a recebe pelo procedimento escrito.
+
+### Objectivo
+
+Que o valor de cada chave virtual que o proxy emite chegue ao cofre, na referência que o inventário
+declara, sem passar por um terminal nem por um registo, e que o consumidor a leia de lá.
+
+### Critérios de Aceitação
+
+- [ ] A escrita no cofre desenhada e implementada na porta de segredos (`ADR-L002` §6), com a forma
+  da API do fornecedor medida ou o NÃO VERIFICADO dela declarado e isolado.
+- [ ] O `provisionar` e o `provisionar-screening` do `chaves.py`, e o passo `chave_llm` do KAM-091,
+  gravam o valor que o `/key/generate` devolve na referência do inventário, e nunca o imprimem.
+- [ ] Uma repetição não perde a chave nem a reemite sem necessidade: o valor que está no cofre continua
+  a autenticar no proxy.
+- [ ] O AGR lê a chave do tenant e a do screening do cofre e chama o proxy com elas, medido contra o
+  proxy com base.
+- [ ] Nenhum valor de chave em *log*, em *stdout* ou na base da plataforma (ensaio).
+
+### Detalhes Técnicos
+
+- **Componentes:** LLM (o `chaves.py`), TEN (a saga do KAM-091), a porta de segredos (KAM-010,
+  `ADR-L002`), o AGR (o consumidor).
+- **Esquema:** nenhum na base da plataforma.
+- **Fora deste ticket:** a rotação das chaves virtuais (o runbook de rotação).
+
+### Testes Requeridos
+
+- Contrato: a escrita no cofre contra um duplo que lê o texto do pedido; o `chaves.py` e o passo da
+  saga contra o duplo do proxy.
+- Integração: a chave emitida, gravada, lida e usada contra o proxy com base.
+
+### Definition of Done
+
+- [ ] Critérios satisfeitos, com a evidência nomeada.
+- [ ] Sem segredos: nenhum valor de chave fora do cofre e do proxy.
+
+### Handoff para Claude Code
+
+```text
+És o executor do ticket KAM-250 da KAMBÁ (as chaves virtuais no cofre).
+Lê specs/EPIC-03_Agent_Runtime_Verticais.md (blocos KAM-247 e KAM-250), docs/evidencia/KAM-247.md,
+infra/llm/chaves.py, docs/adr/ADR-L002-injeccao-de-segredos.md e ops/secrets-inventory.yaml.
+Objectivo: o valor de cada chave virtual que o proxy emite gravado no cofre e lido pelo consumidor.
+Regras: nunca imprimir nem registar uma chave; a forma da API do cofre medida ou declarada NÃO VERIFICADO.
+Testes: contrato contra os duplos, e a chave emitida, gravada, lida e usada contra o proxy com base.
 ```
 
 ---
@@ -5635,4 +5721,4 @@ Testes: contrato contra o duplo e o provisionamento, o reinício e a revogação
 | 1.26 | Novembro 2026 | **Aresta recíproca, sem alteração de conteúdo:** o `Bloqueia` do KAM-030 ganha o **KAM-231** (EPIC-11), aberto no PR do KAM-119: a visão do catálogo do dono vai pelo alias `kamba-vision` do gateway. | Equipa KAMBÁ |
 | 1.27 | Novembro 2026 | KAM-232 (EPIC-11): o critério 2 do KAM-033 revisto — a linha da `agent_messages` em claro 90 dias e o corpo da `wa-inbound` com prazo de 24 h, por decisão do fundador de 2026-11-20; a primeira é excepção escrita à letra do critério. Nenhuma caixa muda. Sobre a 1.26 da `main` em `28bb7e88` | Equipa KAMBÁ |
 | 1.28 | Novembro 2026 | **KAM-247** acrescentado, no PR do **KAM-233** (EPIC-09), que o abre e não o implementa, pela decisão do fundador de 2026-11-21 (Q1 = A): o LiteLLM de `prod` arranca sem base e a imagem fixada não tem chaves virtuais sem ela (medido, `../docs/evidencia/KAM-233.md` §2). O `Bloqueia` do KAM-030 ganha-o. Escrito como KAM-239 e depois KAM-241, e renumerado na integração contra a `main` em `25babeca` (o maior era o KAM-246) | Equipa KAMBÁ |
-| 1.29 | Novembro 2026 | **KAM-247 entregue**, pela decisão do fundador de 2026-11-23 (opção A1, e o `start_period` a 600 s): o bloco ganha a «Decisão do fundador» e a «Verificação dos Critérios de Aceitação». Marcados os critérios 1 e 4 e a caixa dos segredos; os critérios 2 e 5 ficam **parciais**, à espera de *staging*, e o 3 não se aplica. | Equipa KAMBÁ |
+| 1.29 | Novembro 2026 | **KAM-247 entregue**, pela decisão do fundador de 2026-11-23 (opção A1, e o `start_period` a 600 s): o bloco ganha a «Decisão do fundador» e a «Verificação dos Critérios de Aceitação». Marcados os critérios 1 e 4 e a caixa dos segredos; os critérios 2 e 5 ficam **parciais**, à espera de *staging*, e o 3 não se aplica. **E o KAM-250 acrescentado**, credor das chaves virtuais no cofre, pela decisão do fundador de 2026-11-23; o `Bloqueia` do KAM-247 ganha o KAM-249 (EPIC-08) e o KAM-250. | Equipa KAMBÁ |
