@@ -27,10 +27,25 @@
  * de uma foto não dizer nada sobre a mesma foto noutro tenant. Uma foto
  * recomprimida é outra foto, e dá outro rascunho.
  *
- * O `wamid` da invocação é `painel.{asset_id}`, e é o `turn_id` do AGR: o mesmo
- * envio repetido é o mesmo turno, e as respostas dele (`turn_id:seq`) não saem
- * duas vezes. A admissão do AGR exige exactamente esta forma com a credencial do
- * painel (`invocacao_do_painel_admitida`).
+ * O `wamid` da invocação é `painel.{asset_id}.{envio}`, com um envio novo por
+ * pedido (32 hexadecimais). É o `turn_id` do AGR, e é por isso que o envio entra:
+ * com `painel.{asset_id}` só, a mesma foto reenviada era o mesmo turno, as
+ * respostas dele (`turn_id:seq`) já tinham saído, e o dono não recebia nada
+ * (achado 3 da revisão adversarial). O rascunho continua a ser um só, pela
+ * idempotência do KAM-049. A admissão do AGR exige esta forma com a credencial
+ * do painel (`invocacao_do_painel_admitida`), e o executor confere, antes do
+ * grafo, que a linha é a desta conversa e que o contacto é o dono.
+ *
+ * ## Uma linha `pendente` antiga retoma-se
+ *
+ * Se o `put` no STO falhar, ou o processo cair entre a reserva e a marcação, a
+ * linha fica em `pendente`, e com o `media_id` determinístico a mesma foto
+ * voltava sempre a ela: o MED devolve `pendente` («outro está a tratar») e o dono
+ * nunca mais a conseguia enviar (achado 2 da revisão adversarial). Aqui os bytes
+ * vêm no pedido, pelo que uma linha `pendente` com mais de `PRAZO_DA_RETOMA_S`
+ * se acaba neste pedido: o `put` e a marcação condicional do MED
+ * (`SQL_MARCAR_ARMAZENADO`, `AND estado = 'pendente'`). Uma linha mais nova é de
+ * outro pedido a correr, e continua a dar `pendente`.
  *
  * ## O tenant é o da sessão
  *
@@ -40,7 +55,7 @@
  * `app.tenant_id` dele, e o STO recusa uma chave fora do prefixo do tenant.
  */
 
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 
 import type { AgentInvocation } from "../chr/contrato.ts";
 import { threadIdDe } from "../chr/contrato.ts";
@@ -50,6 +65,8 @@ import {
   LIMITES_POR_OMISSAO,
   Med,
   MetricasDoMed,
+  PREFIXO_INTERNO,
+  SQL_MARCAR_ARMAZENADO,
   type ClienteDeMidia,
   type ClienteSql as ClienteSqlDoMed,
   type LimiteDaClasse,
@@ -57,7 +74,7 @@ import {
   type ResultadoDeMidia,
 } from "../med/index.ts";
 import type { Classe } from "../med/contrato.ts";
-import type { StorageProvider } from "../storage/index.ts";
+import { novaChave, type StorageProvider } from "../storage/index.ts";
 import { comTenant, type ClienteSql } from "../tenant_guard/index.ts";
 import { PREFIXO_DO_TURNO_DO_PAINEL, type ContextoDoDono, type DesfechoDaEntrega, type SemContexto } from "./conversa.ts";
 import { numaLigacao, type PoolDeIdentidade } from "./sql.ts";
@@ -116,18 +133,28 @@ export function mediaIdDoPainel(tenantId: string, bytes: Uint8Array): string {
   return `${PREFIXO_DO_TURNO_DO_PAINEL}${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }
 
+/** Um envio novo: um uuid aleatório sem hífens (32 hexadecimais). */
+export function novoEnvio(): string {
+  return randomUUID().replace(/-/g, "");
+}
+
 /**
  * A invocação de uma foto do painel: `type` `image`, persona `dono`, o
- * `asset_id`, **sem `message_id`** e com o `wamid` `painel.{asset_id}`. Os bytes,
- * a chave do STO e o `media_id` não entram.
+ * `asset_id`, **sem `message_id`** e com o `wamid` `painel.{asset_id}.{envio}`.
+ * Os bytes, a chave do STO e o `media_id` não entram.
  */
-export function invocacaoDaFoto(tenantId: string, contexto: ContextoDoDono, assetId: string): AgentInvocation {
+export function invocacaoDaFoto(
+  tenantId: string,
+  contexto: ContextoDoDono,
+  assetId: string,
+  envio: string = novoEnvio(),
+): AgentInvocation {
   return {
     tenant_id: tenantId,
     contact_id: contexto.contactId,
     conversation_id: contexto.conversationId,
     channel_id: contexto.channelId,
-    wamid: `${PREFIXO_DO_TURNO_DO_PAINEL}${assetId}`,
+    wamid: `${PREFIXO_DO_TURNO_DO_PAINEL}${assetId}.${envio}`,
     type: TIPO_DA_FOTO_NA_INVOCACAO,
     modo: contexto.modo,
     thread_id: threadIdDe(tenantId, contexto.contactId),
@@ -255,19 +282,77 @@ export interface OpcoesDaRecepcaoDoPainel {
   readonly armazenamento: StorageProvider;
   readonly metricas?: MetricasDoMed;
   readonly log?: Logger;
+  /** O relógio da chave do STO. Porta para os ensaios. */
+  readonly agora?: () => Date;
+}
+
+/**
+ * Quanto tempo, em segundos, uma linha `pendente` do painel espera antes de outro
+ * pedido com a mesma foto a acabar. ***Proposta***: muito mais do que um `put` de
+ * 5 MiB demora, e pouco para um dono que repete depois de um erro.
+ */
+export const PRAZO_DA_RETOMA_S = 60;
+
+/** A linha `pendente` de um `asset_id` deste tenant, se tiver mais de `$3` segundos. */
+export const SQL_PENDENTE_ANTIGA = `
+  SELECT asset_id
+    FROM platform.media_assets
+   WHERE tenant_id = $1 AND asset_id = $2
+     AND estado = 'pendente'
+     AND criado_at < now() - make_interval(secs => $3)
+`;
+
+/**
+ * Acaba uma linha `pendente` antiga com os bytes deste pedido: o `put` com a
+ * chave do tenant e a marcação condicional do MED. Ver a nota do módulo. Se
+ * outro a acabar primeiro, a marcação não casa e devolve-se `pendente` — o
+ * pedido seguinte encontra a linha `armazenado`.
+ */
+async function retomar(
+  bd: ClienteSqlDoMed,
+  armazenamento: StorageProvider,
+  pedido: PedidoDeMidia,
+  foto: FotoDoPedido,
+  assetId: string,
+  agora: Date,
+): Promise<ResultadoDeMidia> {
+  const antiga = await bd.query<{ asset_id: string }>(SQL_PENDENTE_ANTIGA, [pedido.tenantId, assetId, PRAZO_DA_RETOMA_S]);
+  if (antiga.rows.length === 0) return { estado: "pendente", assetId };
+  const ctx = { tenantId: pedido.tenantId };
+  const ref = await armazenamento.put(ctx, novaChave(ctx, "media_imagem", agora), foto.bytes, {
+    contentType: foto.tipo,
+    classe: "media_imagem",
+    // A data distante do MED para as classes sem prazo curto: a retenção das
+    // fotos do catálogo é do KAM-071.
+    retainUntil: new Date(agora.getTime() + 100 * 365 * 24 * 3600 * 1000),
+  });
+  const marcada = await bd.query<{ asset_id: string }>(SQL_MARCAR_ARMAZENADO, [
+    pedido.tenantId,
+    assetId,
+    foto.tipo,
+    ref.tamanho,
+    ref.sha256,
+    ref.key,
+    null,
+  ]);
+  if (marcada.rows.length === 0) return { estado: "pendente", assetId };
+  return { estado: "armazenado", assetId, referencia: `${PREFIXO_INTERNO}${assetId}`, repetido: true };
 }
 
 /**
  * A porta `receber` sobre o MED: **um `Med` por pedido**, porque o cliente de
  * mídia são os bytes do pedido, e uma ligação do *pool* por pedido, com o tenant
- * em cada instrução. As métricas são partilhadas.
+ * em cada instrução. As métricas são partilhadas. Um `pendente` antigo retoma-se
+ * (`retomar`).
  */
 export function recepcaoDoPainel(o: OpcoesDaRecepcaoDoPainel): PortasDaFoto["receber"] {
   const metricas = o.metricas ?? new MetricasDoMed();
+  const agora = o.agora ?? ((): Date => new Date());
   return (pedido, foto) =>
-    numaLigacao(o.pool, (ligacao) =>
-      new Med({
-        bd: sqlNoTenant(ligacao, pedido.tenantId),
+    numaLigacao(o.pool, async (ligacao) => {
+      const bd = sqlNoTenant(ligacao, pedido.tenantId);
+      const recebida = await new Med({
+        bd,
         armazenamento: o.armazenamento,
         midia: midiaDoPedido(foto),
         // Sem aviso ao AGR: um `falhou` volta a quem chamou, que é o painel, e o
@@ -275,7 +360,10 @@ export function recepcaoDoPainel(o: OpcoesDaRecepcaoDoPainel): PortasDaFoto["rec
         avisarAgr: async () => {},
         limites: LIMITES_DO_PAINEL,
         metricas,
+        agora,
         ...(o.log === undefined ? {} : { log: o.log }),
-      }).receber(pedido),
-    );
+      }).receber(pedido);
+      if (recebida.estado !== "pendente") return recebida;
+      return await retomar(bd, o.armazenamento, pedido, foto, recebida.assetId, agora());
+    });
 }

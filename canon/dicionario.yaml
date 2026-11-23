@@ -22135,7 +22135,7 @@ entradas:
     variantes_literais: []
   - seccao: "3.81"
     conceito: "O turno do painel"
-    canonico: "wamid = painel.{message_id}, type = text, persona = dono; e, desde a emenda 1.139 (KAM-243), o da foto: wamid = painel.{asset_id}, type = image, persona = dono, sem message_id"
+    canonico: "wamid = painel.{message_id}, type = text, persona = dono; e, desde a emenda 1.139 (KAM-243), o da foto: wamid = painel.{asset_id}.{envio} (wamid_da_foto_do_painel; o envio são 32 hexadecimais, um por pedido), type = image, persona = dono, sem message_id"
     literais:
       - "wamid"
       - "painel.{message_id}"
@@ -22144,7 +22144,8 @@ entradas:
       - "persona"
       - "dono"
       - "wamid"
-      - "painel.{asset_id}"
+      - "painel.{asset_id}.{envio}"
+      - "wamid_da_foto_do_painel"
       - "type"
       - "image"
       - "persona"
@@ -22159,6 +22160,8 @@ entradas:
       - "persona"
       - "dono"
       - "asset_id"
+      - "envio"
+      - "wamid_da_foto_do_painel"
       - "image"
     nomes_nota:
       - "wamid"
@@ -22235,7 +22238,12 @@ entradas:
       - "painel"
       - "asset_id"
       - "image"
+      - "envio"
+      - "ler_foto_do_painel_sincrono"
+      - "SQL_LER_FOTO_DO_PAINEL"
       - "invocacao_invalida"
+      - "FotoDoPainelNaoEncontradaError"
+      - "SQL_LER_MENSAGEM"
     variantes_literais: []
   - seccao: "3.81"
     conceito: "A conversa do dono pelo painel"
@@ -22332,7 +22340,12 @@ entradas:
       - "media_id"
       - "painel"
       - "uuid"
+      - "pendente"
+      - "PRAZO_DA_RETOMA_S"
+      - "put"
+      - "SQL_PENDENTE_ANTIGA"
       - "invocacaoDaFoto"
+      - "wamid"
       - "asset_id"
     variantes_literais: []
   - seccao: "3.81"

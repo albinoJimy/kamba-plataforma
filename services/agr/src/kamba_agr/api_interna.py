@@ -43,7 +43,7 @@ resposta decide se o *job* se repete:
 | descartado por ritmo (criterio 5) | **200** | completa o *job* |
 | corpo invalido | 400 | descarta o *job* — nao melhora com repeticao |
 | o `message_id` nao se le com o tenant, o contacto e a conversa — ou, com a persona `dono`, o contacto nao e o dono (KAM-223) | 400 `invocacao_invalida` | descarta o *job* — o turno nao entrou no grafo |
-| credencial do painel (`agr_painel_token`) fora dos dois turnos do dono: o de texto (`persona` `dono`, `message_id`, `type` `text`, `wamid` `painel.{message_id}`) e o da foto (KAM-243: `persona` `dono`, `asset_id`, sem `message_id`, `type` `image`, `wamid` `painel.{asset_id}`), e nunca com `botao` | 401 | nao repete — e a mesma resposta de uma credencial errada |
+| credencial do painel (`agr_painel_token`) fora dos dois turnos do dono: o de texto (`persona` `dono`, `message_id`, `type` `text`, `wamid` `painel.{message_id}`) e o da foto (KAM-243: `persona` `dono`, `asset_id`, sem `message_id`, `type` `image`, `wamid` `painel.{asset_id}.{envio}`), e nunca com `botao` | 401 | nao repete — e a mesma resposta de uma credencial errada |
 | tecto do *tenant* cheio | 503 + `Retry-After` | devolve o *job* a fila com atraso |
 | a vertical recusada pelo registo — sem entitlement, ou desconhecida (KAM-186) | **200** `servico_indisponivel` | completa o *job* — e configuracao, e nenhuma tentativa a muda |
 | nao ha grafo registado para a vertical | 503 + `Retry-After` | devolve o *job* a fila com atraso |
@@ -90,6 +90,7 @@ from .contexto import (
     PREFIXO_DO_WAMID_DO_PAINEL,
     InvocacaoInvalidaError,
     ler_invocacao,
+    wamid_da_foto_do_painel,
 )
 from .eventos import EntregaInvalidaError, EntregaPorRepetir, ler_entrega
 from .handoff.autenticacao import CABECALHO_DO_BOT
@@ -130,7 +131,7 @@ TIPO_DO_PAINEL: Final = "text"
 TIPO_DA_FOTO_DO_PAINEL: Final = "image"
 
 #: O prefixo do `wamid` de um turno do painel (`painel.{message_id}` ou, desde o
-#: KAM-243, `painel.{asset_id}`) vive em `contexto.py`, porque o executor tambem
+#: KAM-243, `painel.{asset_id}.{envio}`) vive em `contexto.py`, porque o executor tambem
 #: o le: e por ele que o turno de uma foto do painel responde pelo canal
 #: `painel` (`turno.py`).
 
@@ -255,7 +256,10 @@ def invocacao_do_painel_admitida(invocacao: Any) -> bool:
       exactamente `painel.{message_id}`;
     - o turno da foto (KAM-243): ha `asset_id` (a linha da `media_assets` que o
       painel guardou pelo MED), **nao** ha `message_id`, o `type` e `image`, e o
-      `wamid` e exactamente `painel.{asset_id}`.
+      `wamid` e `painel.{asset_id}.{envio}` (`wamid_da_foto_do_painel`), com
+      um envio por pedido. A admissao so confere a forma: que a foto e do
+      painel, desta conversa, e que o contacto e o dono le-o o executor
+      antes do grafo (`mensagens.ler_foto_do_painel_sincrono`).
 
     O `wamid` e o `turn_id` e a chave de idempotencia da resposta
     (`turn_id:seq`): um `wamid` escolhido por quem chama podia colidir com o de
@@ -273,7 +277,7 @@ def invocacao_do_painel_admitida(invocacao: Any) -> bool:
     if asset_id is not None and message_id is None:
         return (
             invocacao.type == TIPO_DA_FOTO_DO_PAINEL
-            and invocacao.wamid == f"{PREFIXO_DO_WAMID_DO_PAINEL}{asset_id}"
+            and wamid_da_foto_do_painel(invocacao.wamid, asset_id)
         )
     return False
 

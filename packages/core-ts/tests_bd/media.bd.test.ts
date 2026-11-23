@@ -46,7 +46,7 @@ import {
 } from "../src/med/index.ts";
 import { criarStorageFake } from "../src/storage/index.ts";
 import type { AgentInvocation } from "../src/chr/contrato.ts";
-import { FotoDoDono, mediaIdDoPainel, recepcaoDoPainel } from "../src/dono/index.ts";
+import { FotoDoDono, mediaIdDoPainel, PRAZO_DA_RETOMA_S, recepcaoDoPainel } from "../src/dono/index.ts";
 import { BASE_DESCARTAVEL, apagarTenant, criarCanal, criarTenant, ligar, poolDe } from "./apoio.ts";
 
 /**
@@ -680,7 +680,7 @@ describe("o MED contra a base (KAM-020)", () => {
       assert.equal(linhas.rows[0]?.media_id, mediaIdDoPainel(tenant, jpeg(1)));
       assert.ok(linhas.rows[0]?.storage_ref.startsWith(`t/${tenant}/media_imagem/`));
       assert.equal(f.sto.total(), 1);
-      assert.ok(f.invocacoes.every((i) => i.asset_id === r3.assetId && i.wamid === `painel.${r3.assetId}`));
+      assert.ok(f.invocacoes.every((i) => i.asset_id === r3.assetId && i.wamid.startsWith(`painel.${r3.assetId}.`)));
     });
 
     it("a mesma foto noutro tenant e outra linha, e a sessao de A nao a ve nem a escreve", async () => {
@@ -707,6 +707,53 @@ describe("o MED contra a base (KAM-020)", () => {
         [deB.assetId],
       );
       assert.equal(escrita.rows.length, 0, "a sessao de A escreveu a foto de B");
+    });
+
+    it("uma linha pendente antiga (o STO falhou) retoma-se com a mesma foto, e uma nova nao", async () => {
+      const [tenant, conversa, contacto] = await tenantNovo("foto-painel-retoma");
+      const sto = criarStorageFake();
+      let falhar = true;
+      const armazenamento = new Proxy(sto.storage, {
+        get(alvo, nome, recetor) {
+          if (nome === "put" && falhar) {
+            return async () => {
+              falhar = false;
+              throw new Error("o STO nao respondeu");
+            };
+          }
+          const valor = Reflect.get(alvo, nome, recetor) as unknown;
+          return typeof valor === "function" ? (valor as (...a: unknown[]) => unknown).bind(alvo) : valor;
+        },
+      });
+      const foto = new FotoDoDono({
+        contexto: async () => ({
+          contactId: contacto,
+          conversationId: conversa,
+          channelId: "00000000-0000-4000-8000-000000000000",
+          vertical: "vendedor",
+          modo: "bot",
+        }),
+        receber: recepcaoDoPainel({ pool, armazenamento }),
+        invocar: async () => ({ estado: 200, desfecho: "executado" }),
+      });
+      await assert.rejects(foto.enviar(tenant, jpeg(4)));
+      const cedo = await foto.enviar(tenant, jpeg(4));
+      assert.deepEqual(cedo.enviada ? null : cedo.motivo, "a_tratar", "uma linha nova e de outro pedido");
+      // A linha envelhece (pelo administrador: o que se mede e a retoma).
+      await admin.query(
+        "UPDATE platform.media_assets SET criado_at = now() - make_interval(secs => $2) WHERE tenant_id = $1",
+        [tenant, PRAZO_DA_RETOMA_S + 5],
+      );
+      const depois = await foto.enviar(tenant, jpeg(4));
+      assert.ok(depois.enviada, JSON.stringify(depois));
+      await definirContexto(app, tenant);
+      const linhas = await app.query<{ estado: string; storage_ref: string }>(
+        "SELECT estado, storage_ref FROM platform.media_assets WHERE tenant_id = $1",
+        [tenant],
+      );
+      assert.equal(linhas.rows.length, 1);
+      assert.equal(linhas.rows[0]?.estado, "armazenado");
+      assert.ok(linhas.rows[0]?.storage_ref.startsWith(`t/${tenant}/media_imagem/`));
     });
 
     it("o que nao e imagem nao reserva linha", async () => {

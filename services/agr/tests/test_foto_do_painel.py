@@ -2,12 +2,14 @@
 
 O painel guarda a foto pelo MED (no `onboarding-web`) e invoca o AGR com a
 credencial **dele** (`agr_painel_token`), num turno `image` com o `asset_id`,
-sem `message_id` e com o `wamid` `painel.{asset_id}`. Aqui mede-se:
+sem `message_id` e com o `wamid` `painel.{asset_id}.{envio}`. Aqui mede-se:
 
 - a admissao: essa forma passa com a credencial do painel, e qualquer outra da
   o mesmo 401 de uma credencial errada (criterio 2);
 - o canal: o turno de uma foto do painel responde pelo `painel`, e o de uma foto
   do WhatsApp continua a responder pelo WhatsApp;
+- a prova de que a foto e do painel e o contacto e o dono, antes do grafo
+  (achado 1 da revisao adversarial): sem ela, 400 `invocacao_invalida`;
 - a ponta a ponta do lado do AGR: a invocacao que o painel monta, admitida, da
   **um** rascunho e a primeira pergunta, e a mesma foto duas vezes da **um**.
 """
@@ -25,23 +27,29 @@ from test_catalogo_dono import A, B, CONTACTO_A, jpeg
 from test_foto_do_dono import ASSET, _MundoDaFoto
 from test_mensagens import (
     CREDENCIAL_DO_PAINEL,
-    BaseDeMensagens,
     GrafoQueRegista,
     aplicacao,
     correr_lote,
-    executor_com,
     invocacao_do_painel,
 )
+from apoio import TrancaFalsa
 from test_saida import Base as BaseDeRespostas
 from test_saida import Ligacao as LigacaoDeRespostas
 from test_vendedor import PERSONA
 
 from kamba_agr.api_interna import TIPO_DA_FOTO_DO_PAINEL, invocacao_do_painel_admitida
-from kamba_agr.contexto import PREFIXO_DO_WAMID_DO_PAINEL, ler_invocacao
+from kamba_agr.admissao import Admissao, Tectos
+from kamba_agr.contexto import PREFIXO_DO_WAMID_DO_PAINEL, ler_invocacao, wamid_da_foto_do_painel
+from kamba_agr.mensagens import (
+    CODIGO_FOTO_NAO_ENCONTRADA,
+    SQL_LER_FOTO_DO_PAINEL,
+    FotoDoPainelNaoEncontradaError,
+    LeituraDeMensagensPorLigarError,
+)
 from kamba_agr.estado import estado_inicial
 from kamba_agr.metricas import METRICAS
 from kamba_agr.saida import SaidaPorEvento, canal_do_turno
-from kamba_agr.turno import DesfechoDoTurno, turno_da_foto_do_painel
+from kamba_agr.turno import DesfechoDoTurno, ExecutorDeTurnos, Palavra, turno_da_foto_do_painel
 from kamba_agr.verticais.dono import build_graph as grafo_do_dono
 from kamba_agr.verticais.dono import catalogo as conversa
 from kamba_agr.verticais.dono import nos as nos_do_dono
@@ -51,16 +59,42 @@ from kamba_core.catalogo import estados
 
 def foto_do_painel(**sobrepor: Any) -> dict[str, Any]:
     """A invocacao que o `invocacaoDaFoto` do core-ts monta: `image`, persona
-    `dono`, o `asset_id`, sem `message_id`, e o `wamid` `painel.{asset_id}`."""
+    `dono`, o `asset_id`, sem `message_id`, e o `wamid` `painel.{asset_id}.{envio}`."""
     asset_id = sobrepor.pop("asset_id", str(uuid.uuid4()))
     campos: dict[str, Any] = {
         "persona": "dono",
         "type": "image",
         "asset_id": asset_id,
-        "wamid": f"painel.{asset_id}",
+        "wamid": f"painel.{asset_id}.{uuid.uuid4().hex}",
     }
     campos.update(sobrepor)
     return invocacao_crua(**campos)
+
+
+def executor_da_foto(grafo: GrafoQueRegista, *, e_do_dono: bool = True, porta: bool = True) -> ExecutorDeTurnos:
+    """O `ExecutorDeTurnos` real, com a porta da foto do painel a dizer `e_do_dono`."""
+    lidas: list[Any] = []
+
+    async def ler_palavra(_inv: Any) -> Palavra:
+        return Palavra(modo="bot", handoff_a_espera=False)
+
+    async def reencaminhar(_invs: Any) -> None:
+        return None
+
+    async def ler_foto(invocacao: Any) -> bool:
+        lidas.append(invocacao)
+        return e_do_dono
+
+    executor = ExecutorDeTurnos(
+        trancas=TrancaFalsa(),
+        ler_palavra=ler_palavra,
+        grafos=lambda _inv: grafo,
+        reencaminhar=reencaminhar,
+        admissao=Admissao(tectos=Tectos(coalescencia_ms=0)),
+        ler_foto_do_painel=ler_foto if porta else None,
+    )
+    executor.lidas = lidas  # type: ignore[attr-defined]
+    return executor
 
 
 class TestAForma(unittest.TestCase):
@@ -77,7 +111,11 @@ class TestAForma(unittest.TestCase):
     def test_outra_forma_nao(self) -> None:
         asset = str(uuid.uuid4())
         casos = {
-            "o wamid de outro asset": foto_do_painel(asset_id=asset, wamid=f"painel.{uuid.uuid4()}"),
+            "o wamid de outro asset": foto_do_painel(
+                asset_id=asset, wamid=f"painel.{uuid.uuid4()}.{uuid.uuid4().hex}"
+            ),
+            "o wamid sem envio": foto_do_painel(asset_id=asset, wamid=f"painel.{asset}"),
+            "o envio fora da forma": foto_do_painel(asset_id=asset, wamid=f"painel.{asset}.x"),
             "o wamid do whatsapp": foto_do_painel(
                 wamid="wamid.HBgMMjQ0OTAwMDAwMDAwFQIAEhgg" + uuid.uuid4().hex[:8]
             ),
@@ -127,7 +165,8 @@ class TestARota(unittest.IsolatedAsyncioTestCase):
     async def test_outra_forma_e_a_mesma_401_e_nao_corre(self) -> None:
         asset = str(uuid.uuid4())
         casos = {
-            "o wamid de outro asset": foto_do_painel(wamid=f"painel.{uuid.uuid4()}"),
+            "o wamid de outro asset": foto_do_painel(wamid=f"painel.{uuid.uuid4()}.{uuid.uuid4().hex}"),
+            "o wamid sem envio": foto_do_painel(asset_id=asset, wamid=f"painel.{asset}"),
             "o wamid do whatsapp": foto_do_painel(
                 wamid="wamid.HBgMMjQ0OTAwMDAwMDAwFQIAEhgg" + uuid.uuid4().hex[:8]
             ),
@@ -171,7 +210,7 @@ class TestOCanal(unittest.TestCase):
 
         grafo = GrafoQueRegista(ao_correr=responder)
         invocacao = ler_invocacao(corpo)
-        asyncio.run(correr_lote(executor_com(BaseDeMensagens(), grafo), [invocacao]))
+        asyncio.run(correr_lote(executor_da_foto(grafo), [invocacao]))
         return respostas, grafo.canais
 
     def test_o_reconhecimento(self) -> None:
@@ -181,7 +220,9 @@ class TestOCanal(unittest.TestCase):
                 ler_invocacao(invocacao_crua(persona="dono", type="image", asset_id=str(uuid.uuid4())))
             )
         )
-        self.assertFalse(turno_da_foto_do_painel(ler_invocacao(foto_do_painel(wamid=f"painel.{uuid.uuid4()}"))))
+        self.assertFalse(
+            turno_da_foto_do_painel(ler_invocacao(foto_do_painel(wamid=f"painel.{uuid.uuid4()}.{uuid.uuid4().hex}")))
+        )
         self.assertFalse(turno_da_foto_do_painel(ler_invocacao(invocacao_do_painel())))
 
     def test_a_foto_do_painel_responde_pelo_painel(self) -> None:
@@ -194,6 +235,91 @@ class TestOCanal(unittest.TestCase):
         respostas, canais = self.correr(corpo)
         self.assertEqual(canais, [None])
         self.assertEqual(respostas.respostas[0]["canal"], "whatsapp")
+
+
+class TestAProvaAntesDoGrafo(unittest.IsolatedAsyncioTestCase):
+    """Achado 1 da revisao adversarial: a credencial do painel nao corre o dono
+    para um contacto que nao e o dono, nem com uma foto que nao e a do painel."""
+
+    async def test_uma_foto_que_nao_se_prova_da_400_e_nao_corre_o_grafo(self) -> None:
+        METRICAS.repor()
+        grafo = GrafoQueRegista()
+        executor = executor_da_foto(grafo, e_do_dono=False)
+        corpo = foto_do_painel()
+        estado, _, resposta = await pedir(
+            aplicacao(executor.correr),
+            "/internal/turn",
+            "POST",
+            como_json(corpo),
+            {"x-kamba-interno": CREDENCIAL_DO_PAINEL},
+        )
+        self.assertEqual(estado, 400)
+        self.assertEqual(
+            json.loads(resposta),
+            {"outcome": "invocacao_invalida", "error_code": CODIGO_FOTO_NAO_ENCONTRADA},
+        )
+        self.assertNotIn(corpo["asset_id"], resposta.decode())
+        self.assertEqual(grafo.entradas, [])
+        self.assertEqual([i.asset_id for i in executor.lidas], [corpo["asset_id"]])
+
+    async def test_a_foto_que_se_prova_corre_o_turno(self) -> None:
+        grafo = GrafoQueRegista()
+        estado, _, resposta = await pedir(
+            aplicacao(executor_da_foto(grafo).correr),
+            "/internal/turn",
+            "POST",
+            como_json(foto_do_painel()),
+            {"x-kamba-interno": CREDENCIAL_DO_PAINEL},
+        )
+        self.assertEqual(estado, 200)
+        self.assertEqual(json.loads(resposta)["outcome"], "executado")
+        self.assertEqual(len(grafo.entradas), 1)
+
+    async def test_sem_a_porta_o_turno_nao_corre(self) -> None:
+        grafo = GrafoQueRegista()
+        (resultado,) = await correr_lote(
+            executor_da_foto(grafo, porta=False), [ler_invocacao(foto_do_painel())]
+        )
+        self.assertIsInstance(resultado, LeituraDeMensagensPorLigarError)
+        self.assertEqual(grafo.entradas, [])
+
+    async def test_a_foto_do_whatsapp_nao_passa_pela_porta(self) -> None:
+        grafo = GrafoQueRegista()
+        executor = executor_da_foto(grafo, e_do_dono=False)
+        corpo = invocacao_crua(persona="dono", type="image", asset_id=str(uuid.uuid4()))
+        (resultado,) = await correr_lote(executor, [ler_invocacao(corpo)])
+        self.assertNotIsInstance(resultado, BaseException)
+        self.assertEqual(executor.lidas, [])
+
+    def test_o_erro_e_uma_invocacao_invalida_com_codigo_proprio(self) -> None:
+        erro = FotoDoPainelNaoEncontradaError()
+        self.assertEqual(erro.codigo, CODIGO_FOTO_NAO_ENCONTRADA)
+
+    def test_a_instrucao_le_a_linha_desta_conversa_do_dono(self) -> None:
+        # A semantica mede-se contra o PostgreSQL (`db/tests_agr/test_foto_do_painel.py`);
+        # aqui, que nenhuma das condicoes da prova saiu do texto.
+        sql = " ".join(SQL_LER_FOTO_DO_PAINEL.split())
+        for condicao in (
+            "a.asset_id = %s::uuid",
+            "a.tenant_id = %s::uuid",
+            "a.contact_id = %s::uuid",
+            "a.conversation_id = %s::uuid",
+            "a.estado = 'armazenado'",
+            "a.classe = 'media_imagem'",
+            "starts_with(a.media_id, 'painel.')",
+            "c.papel = 'dono'",
+            "c.erased_at IS NULL",
+            "c.merged_into IS NULL",
+        ):
+            with self.subTest(condicao):
+                self.assertIn(condicao, sql)
+
+    def test_o_envio_tem_a_forma_de_32_hexadecimais(self) -> None:
+        asset = str(uuid.uuid4())
+        self.assertTrue(wamid_da_foto_do_painel(f"painel.{asset}.{uuid.uuid4().hex}", asset))
+        for wamid in (f"painel.{asset}", f"painel.{asset}.", f"painel.{asset}.{uuid.uuid4()}", f"painel.{uuid.uuid4()}.{uuid.uuid4().hex}"):
+            with self.subTest(wamid):
+                self.assertFalse(wamid_da_foto_do_painel(wamid, asset))
 
 
 class TestDoPainelAoRascunho(unittest.TestCase):

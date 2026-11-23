@@ -90,12 +90,13 @@ from .saida import CANAL_DO_TURNO, CANAL_PAINEL, INICIO_DO_TURNO
 from .contexto import (
     MODO_DO_BOT,
     PERSONA_DONO,
-    PREFIXO_DO_WAMID_DO_PAINEL,
     InvocacaoDoAgente,
+    wamid_da_foto_do_painel,
 )
 from .estado import estado_inicial
 from .guardas.entrada import mensagem_do_cliente
 from .mensagens import (
+    FotoDoPainelNaoEncontradaError,
     LeituraDeMensagensPorLigarError,
     MensagemLida,
     MensagemNaoEncontradaError,
@@ -131,7 +132,7 @@ def turno_da_foto_do_painel(invocacao: InvocacaoDoAgente) -> bool:
     """O turno de uma foto do dono enviada pelo painel (KAM-243)?
 
     A forma que a admissao exige a credencial do painel: a persona `dono`, o
-    `asset_id`, sem `message_id`, e o `wamid` `painel.{asset_id}`. Uma foto do
+    `asset_id`, sem `message_id`, e o `wamid` `painel.{asset_id}.{envio}`. Uma foto do
     WhatsApp tem o `wamid` da Meta, e responde pelo WhatsApp como ate aqui.
     """
     asset_id = getattr(invocacao, "asset_id", None)
@@ -139,7 +140,7 @@ def turno_da_foto_do_painel(invocacao: InvocacaoDoAgente) -> bool:
         asset_id is not None
         and invocacao.message_id is None
         and getattr(invocacao, "persona", None) == PERSONA_DONO
-        and invocacao.wamid == f"{PREFIXO_DO_WAMID_DO_PAINEL}{asset_id}"
+        and wamid_da_foto_do_painel(invocacao.wamid, asset_id)
     )
 
 
@@ -246,6 +247,7 @@ class ExecutorDeTurnos:
         ler_mensagem: Callable[[InvocacaoDoAgente], Awaitable[MensagemLida | None]]
         | None = None,
         ao_cliente_escrever: Callable[[InvocacaoDoAgente], Awaitable[Any]] | None = None,
+        ler_foto_do_painel: Callable[[InvocacaoDoAgente], Awaitable[bool]] | None = None,
     ) -> None:
         self._trancas = trancas
         self._ler_palavra = ler_palavra
@@ -265,6 +267,11 @@ class ExecutorDeTurnos:
         # sem porta levanta `LeituraDeMensagensPorLigarError` — o turno nao corre
         # sem o texto que a invocacao diz ter.
         self._ler_mensagem = ler_mensagem
+        # KAM-243. A leitura da foto de um turno do painel
+        # (`mensagens.LeitorDeMensagens.foto_do_painel`). Por omissao `None`, e
+        # um turno de foto do painel sem porta levanta: nao corre sem a prova
+        # de que o contacto e o dono.
+        self._ler_foto_do_painel = ler_foto_do_painel
         # KAM-221, criterio 2: a mensagem de um cliente abre-lhe a janela, e as
         # propostas de orcamento dele em `aguarda_janela` saem. `None` e um AGR
         # sem orcamento ligado, que nao tem propostas a espera.
@@ -323,9 +330,18 @@ class ExecutorDeTurnos:
         for pendente in lote:
             invocacao = pendente.invocacao
             if invocacao.message_id is None:
-                aceites.append(pendente)
                 if turno_da_foto_do_painel(invocacao):
+                    # KAM-243, achado 1 da revisao: a foto tem de ser a que o
+                    # painel guardou para esta conversa, e o contacto o dono —
+                    # a prova que o turno de texto faz no `SQL_LER_MENSAGEM`.
+                    if self._ler_foto_do_painel is None:
+                        raise LeituraDeMensagensPorLigarError("foto_do_painel_por_ligar")
+                    if not await self._ler_foto_do_painel(invocacao):
+                        if not pendente.espera.done():
+                            pendente.espera.set_exception(FotoDoPainelNaoEncontradaError())
+                        continue
                     canal = CANAL_PAINEL
+                aceites.append(pendente)
                 continue
             if self._ler_mensagem is None:
                 raise LeituraDeMensagensPorLigarError("mensagens_por_ligar")

@@ -2762,7 +2762,7 @@ async function grupoDoGuia(relatorio: Relatorio): Promise<void> {
 //                           tenant de B na consulta e no cabecalho, foram ao MED e
 //                           ao AGR no tenant e no thread de A, com o `type`
 //                           `image`, a persona `dono`, o `asset_id` de A e o
-//                           `wamid` `painel.{asset_id}`, sem `message_id`
+//                           `wamid` `painel.{asset_id}.{envio}`, sem `message_id`
 //   sonda=viva (foto)       (KAM-243) a resposta das tres trouxe o `asset_id` de A
 
 const ITENS_DO_PAINEL = [
@@ -3570,7 +3570,7 @@ async function grupoDoPainel(relatorio: Relatorio): Promise<void> {
           i["type"] === "image" &&
           i["persona"] === "dono" &&
           i["asset_id"] === ASSET_DE_A_NO_PAINEL &&
-          i["wamid"] === `painel.${ASSET_DE_A_NO_PAINEL}` &&
+          String(i["wamid"]).startsWith(`painel.${ASSET_DE_A_NO_PAINEL}.`) &&
           !("message_id" in i) &&
           !("botao" in i),
       );

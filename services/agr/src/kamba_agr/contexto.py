@@ -98,6 +98,24 @@ TIPO_INTERACTIVO: Final = "interactive"
 #: executor (`turno.py`) responde pelo canal `painel` ao turno da foto.
 PREFIXO_DO_WAMID_DO_PAINEL: Final = "painel."
 
+#: O sufixo de envio do `wamid` de uma foto do painel: 32 hexadecimais (um uuid
+#: aleatorio sem hifens), um por envio (KAM-243). Ver `wamid_da_foto_do_painel`.
+_ENVIO_DA_FOTO = re.compile(r"\A[0-9a-f]{32}\Z")
+
+
+def wamid_da_foto_do_painel(wamid: str, asset_id: str) -> bool:
+    """O `wamid` de um turno de foto do painel: `painel.{asset_id}.{envio}`.
+
+    **O envio e de cada pedido, e nao da foto** (achado 3 da revisao adversarial
+    do KAM-243): com `painel.{asset_id}` so, a mesma foto reenviada era o mesmo
+    `turn_id`, e as respostas dele (`turn_id:seq`) ja tinham saido — o dono que
+    voltasse a mandar a foto nao recebia nada. O rascunho continua a ser um so,
+    pela idempotencia do KAM-049 sobre o `media_id` da linha. O `asset_id` fica
+    no `wamid` para a admissao o casar com o do corpo.
+    """
+    prefixo = f"{PREFIXO_DO_WAMID_DO_PAINEL}{asset_id}."
+    return wamid.startswith(prefixo) and _ENVIO_DA_FOTO.fullmatch(wamid[len(prefixo) :]) is not None
+
 #: O `wa_type` de uma foto. So ele leva `asset_id` (KAM-231).
 TIPO_IMAGEM: Final = "image"
 

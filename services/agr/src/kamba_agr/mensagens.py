@@ -142,35 +142,108 @@ def ler_mensagem_sincrono(ligacao: Any, invocacao: InvocacaoDoAgente) -> Mensage
     return MensagemLida(texto=texto, canal=canal)
 
 
+# ---------------------------------------------------------------------------
+# A foto do dono pelo painel (KAM-243)
+#
+# O turno da foto nao traz `message_id`, e por isso nao passa pelo
+# `SQL_LER_MENSAGEM` — que e onde o turno do painel prova que o contacto e o
+# dono. Sem esta leitura, quem tivesse o `agr_painel_token` corria as tools do
+# dono para **qualquer** contacto do tenant, com qualquer foto dele (achado 1 da
+# revisao adversarial do KAM-243). A linha da `media_assets` tem de ser a que o
+# painel guardou para **esta** invocacao: o tenant, o contacto e a conversa dela,
+# `armazenado`, da classe `media_imagem` e com o `media_id` do painel — e o
+# contacto tem de ser o dono vivo do tenant, pela condicao do texto.
+
+#: A leitura da foto de um turno do painel. Parametros: `asset_id`, `tenant_id`,
+#: `contact_id` e `conversation_id` da invocacao, por esta ordem.
+SQL_LER_FOTO_DO_PAINEL: Final = """
+  SELECT 1
+    FROM platform.media_assets a
+   WHERE a.asset_id = %s::uuid
+     AND a.tenant_id = %s::uuid
+     AND a.contact_id = %s::uuid
+     AND a.conversation_id = %s::uuid
+     AND a.estado = 'armazenado'
+     AND a.classe = 'media_imagem'
+     AND starts_with(a.media_id, 'painel.')
+     AND EXISTS (
+       SELECT 1
+         FROM platform.contacts c
+        WHERE c.tenant_id = a.tenant_id
+          AND c.contact_id = a.contact_id
+          AND c.papel = 'dono'
+          AND c.erased_at IS NULL
+          AND c.merged_into IS NULL
+     )
+"""
+
+#: O codigo da recusa da foto. Forma de identificador, e nunca leva o `asset_id`.
+CODIGO_FOTO_NAO_ENCONTRADA: Final = "foto_do_painel_nao_encontrada"
+
+
+class FotoDoPainelNaoEncontradaError(InvocacaoInvalidaError):
+    """O turno de uma foto do painel traz um `asset_id` que nao e uma foto do
+    painel desta conversa, ou um contacto que nao e o dono. 400
+    `invocacao_invalida`, como a mensagem que nao se encontra."""
+
+    def __init__(self) -> None:
+        super().__init__(CODIGO_FOTO_NAO_ENCONTRADA)
+
+
+def ler_foto_do_painel_sincrono(ligacao: Any, invocacao: InvocacaoDoAgente) -> bool:
+    """`True` se a foto do turno e a que o painel guardou para esta conversa do dono."""
+    asset_id = getattr(invocacao, "asset_id", None)
+    if asset_id is None:
+        return False
+    with tenant_guard.tx(ligacao, invocacao.tenant_id) as cursor:
+        cursor.execute(
+            SQL_LER_FOTO_DO_PAINEL,
+            (asset_id, invocacao.tenant_id, invocacao.contact_id, invocacao.conversation_id),
+        )
+        return cursor.fetchone() is not None
+
+
 class LeitorDeMensagens:
-    """A porta `ler_mensagem` do `ExecutorDeTurnos`: uma ligacao `kamba_app` por
-    leitura (`ligacao.ligar_para_mensagens`), fechada no fim."""
+    """As portas `ler_mensagem` e `ler_foto_do_painel` do `ExecutorDeTurnos`: uma
+    ligacao `kamba_app` por leitura (`ligacao.ligar_para_mensagens`), fechada no
+    fim."""
 
     __slots__ = ("_abrir",)
 
     def __init__(self, abrir_ligacao: Callable[[], Any]) -> None:
         self._abrir = abrir_ligacao
 
-    def _ler(self, invocacao: InvocacaoDoAgente) -> MensagemLida | None:
+    def _numa_ligacao(self, leitura: Callable[[Any, InvocacaoDoAgente], Any], invocacao: InvocacaoDoAgente) -> Any:
         ligacao = self._abrir()
         try:
-            return ler_mensagem_sincrono(ligacao, invocacao)
+            return leitura(ligacao, invocacao)
         finally:
             try:
                 ligacao.close()
             except Exception:  # noqa: BLE001 — a leitura ja ficou ou ja falhou
                 pass
 
+    def _ler(self, invocacao: InvocacaoDoAgente) -> MensagemLida | None:
+        return self._numa_ligacao(ler_mensagem_sincrono, invocacao)
+
     async def ler(self, invocacao: InvocacaoDoAgente) -> MensagemLida | None:
         return await asyncio.to_thread(self._ler, invocacao)
 
+    async def foto_do_painel(self, invocacao: InvocacaoDoAgente) -> bool:
+        """KAM-243. A foto do turno e a que o painel guardou para o dono?"""
+        return await asyncio.to_thread(self._numa_ligacao, ler_foto_do_painel_sincrono, invocacao)
+
 
 __all__ = [
+    "CODIGO_FOTO_NAO_ENCONTRADA",
     "CODIGO_NAO_ENCONTRADA",
+    "FotoDoPainelNaoEncontradaError",
     "LeitorDeMensagens",
     "LeituraDeMensagensPorLigarError",
     "MensagemLida",
     "MensagemNaoEncontradaError",
+    "SQL_LER_FOTO_DO_PAINEL",
     "SQL_LER_MENSAGEM",
+    "ler_foto_do_painel_sincrono",
     "ler_mensagem_sincrono",
 ]

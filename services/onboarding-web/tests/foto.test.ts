@@ -15,7 +15,7 @@
  */
 
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
@@ -35,6 +35,7 @@ import {
   SQL_POR_ORIGEM,
   SQL_RESERVAR,
 } from "@kamba/core-ts/med";
+import { PRAZO_DA_RETOMA_S, SQL_PENDENTE_ANTIGA } from "@kamba/core-ts/dono";
 import { criarStorageFake } from "@kamba/core-ts/storage";
 
 import { CanalEmMemoria } from "../src/painel/canal.ts";
@@ -68,7 +69,7 @@ function jpeg(semente = 1, tamanho = 256): Uint8Array {
   return bytes;
 }
 
-interface Linha {
+type Linha = {
   asset_id: string;
   tenant_id: string;
   wamid: string;
@@ -77,7 +78,8 @@ interface Linha {
   estado: string;
   storage_ref: string | null;
   sha256: string | null;
-}
+  criado_ms: number;
+};
 
 /**
  * A `media_assets` de vários tenants. **O tenant que conta é o do `set_config`**
@@ -87,6 +89,8 @@ interface Linha {
 class BaseDeMedia {
   linhas: Linha[] = [];
   seq = 0;
+  /** O `now()` da base, em ms. */
+  agora = INICIO.getTime();
 
   ligacao() {
     let contextoDoTenant: string | null = null;
@@ -116,9 +120,14 @@ class BaseDeMedia {
             estado: "pendente",
             storage_ref: null,
             sha256: null,
+            criado_ms: base.agora,
           };
           base.linhas.push(linha);
           return { rows: [{ asset_id: linha.asset_id }] };
+        }
+        if (sql === SQL_PENDENTE_ANTIGA) {
+          const limite = base.agora - Number(p[2]) * 1000;
+          return { rows: visiveis.filter((l) => l.asset_id === p[1] && l.estado === "pendente" && l.criado_ms < limite) };
         }
         if (sql === SQL_POR_ORIGEM) return { rows: visiveis.filter((l) => l.wamid === p[1] && l.media_id === p[2]) };
         if (sql === SQL_POR_ASSET) return { rows: visiveis.filter((l) => l.asset_id === p[1]) };
@@ -152,18 +161,32 @@ interface Montagem {
   invocacoes: AgentInvocation[];
   contextos: string[];
   estadoDoAgr: number;
+  falharPut: number;
 }
 
 function montar(sobre: { semFoto?: boolean } = {}): Montagem {
   const base = new BaseDeMedia();
   const sto = criarStorageFake();
-  const m = { base, objectos: sto.total, invocacoes: [], contextos: [], estadoDoAgr: 200 } as unknown as Montagem;
+  // O STO pode falhar o proximo `put` (o achado 2 da revisao).
+  const armazenamento = new Proxy(sto.storage, {
+    get(alvo, nome, recetor) {
+      if (nome === "put" && m.falharPut > 0) {
+        return async () => {
+          m.falharPut -= 1;
+          throw new Error("o STO nao respondeu");
+        };
+      }
+      const valor = Reflect.get(alvo, nome, recetor) as unknown;
+      return typeof valor === "function" ? (valor as (...a: unknown[]) => unknown).bind(alvo) : valor;
+    },
+  });
+  const m = { base, objectos: sto.total, invocacoes: [], contextos: [], estadoDoAgr: 200, falharPut: 0 } as unknown as Montagem;
   const foto = new FotoDoDono({
     contexto: async (tenantId) => {
       m.contextos.push(tenantId);
       return contexto(tenantId);
     },
-    receber: recepcaoDoPainel({ pool: base.pool(), armazenamento: sto.storage }),
+    receber: recepcaoDoPainel({ pool: base.pool(), armazenamento }),
     invocar: async (invocacao) => {
       m.invocacoes.push(invocacao);
       return { estado: m.estadoDoAgr, desfecho: m.estadoDoAgr === 200 ? "executado" : "desconhecido" };
@@ -226,13 +249,13 @@ describe("KAM-243 — a foto do dono pelo painel", () => {
     assert.equal(inv?.asset_id, linha?.asset_id);
     assert.equal(inv?.type, "image");
     assert.equal(inv?.persona, "dono");
-    assert.equal(inv?.wamid, `painel.${corpo.asset}`);
+    assert.match(String(inv?.wamid), new RegExp(`^painel\\.${corpo.asset}\\.[0-9a-f]{32}$`));
     assert.equal(inv?.message_id, undefined);
     assert.equal(inv?.tenant_id, TENANT_A);
     assert.equal(m.metricas.valor("foto"), 1);
   });
 
-  it("a mesma foto duas vezes e uma linha, um objecto e o mesmo turno", async () => {
+  it("a mesma foto duas vezes e uma linha e um objecto, e dois turnos", async () => {
     const m = montar();
     const deA = cookie(TENANT_A, CASO_A);
     const primeira = (await (await enviar(m, jpeg(), deA)).json()) as { asset: string };
@@ -242,7 +265,10 @@ describe("KAM-243 — a foto do dono pelo painel", () => {
     assert.equal(m.base.linhas.length, 1);
     assert.equal(m.objectos(), 1);
     assert.equal(m.invocacoes.length, 2);
-    assert.equal(m.invocacoes[0]?.wamid, m.invocacoes[1]?.wamid);
+    // Dois turnos, para o dono ter resposta ao reenvio (achado 3 da revisao);
+    // o rascunho continua um, pela idempotencia do KAM-049 sobre o media_id.
+    assert.notEqual(m.invocacoes[0]?.wamid, m.invocacoes[1]?.wamid);
+    assert.equal(m.invocacoes[0]?.asset_id, m.invocacoes[1]?.asset_id);
     // Outra foto e outra linha.
     await enviar(m, jpeg(2), deA);
     assert.equal(m.base.linhas.length, 2);
@@ -327,6 +353,28 @@ describe("KAM-243 — a foto do dono pelo painel", () => {
     assert.equal(m.base.linhas.length, 0);
   });
 
+  it("o STO em baixo deixa a linha pendente; repetida logo, 409; depois do prazo, retoma-se e guarda", async () => {
+    const m = montar();
+    const deA = cookie(TENANT_A, CASO_A);
+    m.falharPut = 1;
+    const primeira = await enviar(m, jpeg(), deA);
+    assert.equal(primeira.status, 503);
+    assert.equal(m.base.linhas[0]?.estado, "pendente");
+    assert.equal(m.invocacoes.length, 0);
+    // Dentro do prazo a linha e de um pedido que pode estar a correr.
+    const cedo = await enviar(m, jpeg(), deA);
+    assert.equal(cedo.status, 409);
+    assert.deepEqual(await cedo.json(), { erro: "a_tratar" });
+    // Passado o prazo, a mesma foto acaba a linha com os bytes deste pedido.
+    m.base.agora += (PRAZO_DA_RETOMA_S + 1) * 1000;
+    const depois = await enviar(m, jpeg(), deA);
+    assert.equal(depois.status, 200);
+    assert.equal(m.base.linhas.length, 1);
+    assert.equal(m.base.linhas[0]?.estado, "armazenado");
+    assert.ok(String(m.base.linhas[0]?.storage_ref).startsWith(`t/${TENANT_A}/media_imagem/`));
+    assert.equal(m.invocacoes[0]?.asset_id, m.base.linhas[0]?.asset_id);
+  });
+
   it("o AGR em baixo: 502, e a foto fica guardada para o dono repetir", async () => {
     const m = montar();
     m.estadoDoAgr = 503;
@@ -395,5 +443,42 @@ describe("KAM-243 — o STO no arranque do onboarding-web", () => {
     const saida = `${r.stdout}${r.stderr}`;
     assert.match(saida, /ArranqueAbortadoError/);
     assert.doesNotMatch(saida, /service_started/);
+  });
+
+  it("o controlo: o mesmo staging com o STO completo arranca e abre a porta", async () => {
+    // Sem ele, os dois de cima ficavam verdes por qualquer outro obrigatorio em
+    // falta (achado 5 da revisao adversarial): a unica diferenca e o STO.
+    const env = ambienteDeStaging({
+      PORT: "3997",
+      KAMBA_STORAGE_ENDPOINT: "http://sto.invalido:8333",
+      KAMBA_STORAGE_BUCKET: "kamba-ensaio",
+      KAMBA_STORAGE_REGION: "ao-luanda-1",
+      KAMBA_STORAGE_DESTINO_COUNTRY: "AO",
+      KAMBA_STORAGE_DESTINO_PROVIDER: "seaweedfs",
+      KAMBA_SECRET_STORAGE_ACCESS_KEY_ID: "chave de ensaio que nao serve",
+      KAMBA_SECRET_STORAGE_SECRET_ACCESS_KEY: "segredo de ensaio que nao serve",
+    });
+    const ficheiro = fileURLToPath(new URL("../src/server.ts", import.meta.url));
+    const processo = spawn(process.execPath, [ficheiro], { env });
+    let saida = "";
+    const arrancou = await new Promise<boolean>((resolver) => {
+      const prazo = setTimeout(() => resolver(false), 120_000);
+      const ler = (pedaco: Buffer): void => {
+        saida += pedaco.toString("utf8");
+        if (saida.includes("service_started")) {
+          clearTimeout(prazo);
+          resolver(true);
+        }
+      };
+      processo.stdout.on("data", ler);
+      processo.stderr.on("data", ler);
+      processo.on("exit", () => {
+        clearTimeout(prazo);
+        resolver(saida.includes("service_started"));
+      });
+    });
+    processo.kill();
+    assert.ok(arrancou, saida);
+    assert.doesNotMatch(saida, /ArranqueAbortadoError/);
   });
 });

@@ -121,12 +121,15 @@ describe("KAM-243 — o media_id de uma foto do painel", () => {
 });
 
 describe("KAM-243 — a invocacao de uma foto do painel", () => {
-  it("leva o asset_id e o type image, com a persona dono, sem message_id e com o wamid painel.{asset_id}", () => {
+  it("leva o asset_id e o type image, com a persona dono, sem message_id e com o wamid painel.{asset_id}.{envio}", () => {
     const inv = invocacaoDaFoto(TENANT, CONTEXTO, ASSET);
     assert.equal(inv.asset_id, ASSET);
     assert.equal(inv.type, "image");
     assert.equal(inv.persona, "dono");
-    assert.equal(inv.wamid, `painel.${ASSET}`);
+    assert.match(inv.wamid, new RegExp(`^painel\\.${ASSET}\\.[0-9a-f]{32}$`));
+    // Um envio por invocacao: a mesma foto reenviada e outro turno (achado 3).
+    assert.notEqual(invocacaoDaFoto(TENANT, CONTEXTO, ASSET).wamid, inv.wamid);
+    assert.equal(invocacaoDaFoto(TENANT, CONTEXTO, ASSET, "a".repeat(32)).wamid, `painel.${ASSET}.${"a".repeat(32)}`);
     assert.equal(inv.thread_id, `${TENANT}:${CONTEXTO.contactId}`);
     assert.equal(inv.message_id, undefined);
     assert.equal(inv.botao, undefined);
@@ -165,14 +168,15 @@ describe("KAM-243 — a FotoDoDono", () => {
     assert.equal(invocacoes[0]?.tenant_id, TENANT);
   });
 
-  it("a mesma foto duas vezes e o mesmo media_id, e a segunda diz-se repetida", async () => {
+  it("a mesma foto duas vezes e o mesmo media_id, a segunda diz-se repetida, e sao dois turnos", async () => {
     const { p, pedidos, invocacoes } = portas({ estado: "armazenado", assetId: ASSET, referencia: `media://${ASSET}`, repetido: true });
     const foto = new FotoDoDono(p);
     await foto.enviar(TENANT, jpeg());
     const r = await foto.enviar(TENANT, jpeg());
     assert.equal(r.enviada && r.repetida, true);
     assert.equal(pedidos[0]?.pedido.mediaId, pedidos[1]?.pedido.mediaId);
-    assert.equal(invocacoes[0]?.wamid, invocacoes[1]?.wamid);
+    assert.notEqual(invocacoes[0]?.wamid, invocacoes[1]?.wamid);
+    assert.ok(invocacoes.every((i) => i.wamid.startsWith(`painel.${ASSET}.`)));
   });
 
   it("o que nao e imagem recusa-se antes do contexto e do MED", async () => {
