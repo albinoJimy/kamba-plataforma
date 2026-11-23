@@ -45,6 +45,7 @@ import { TIPO_PRODUCT_CHANGED } from "../src/produtos/index.ts";
 import {
   operacaoDePublicar,
   SQL_CATEGORIA_DO_TENANT,
+  SQL_DESPUBLICAR,
   SQL_NOME_DA_OFERTA,
   SUJEITO_DO_PRODUTO,
 } from "../src/screening/index.ts";
@@ -122,13 +123,20 @@ function base(opcoes: Opcoes = {}) {
         return { rows: [{ event_id: `evt-${eventos.length}` }] };
       }
       if (sql.includes("platform.offer_terms")) {
+        // A saida de publicado do `screen` (KAM-245) nao e uma publicacao.
+        if (sql === SQL_DESPUBLICAR) {
+          escritas.push("despublicar");
+          return { rows: [{ sku: SKU }] };
+        }
         if (/^\s*UPDATE/i.test(sql)) {
           escritas.push("publicar");
           return { rows: [{ sku: SKU, estado: "publicado", atualizado_at: "x" }] };
         }
         if (/FOR UPDATE/.test(sql)) {
+          // A tranca do `screen` (KAM-245) so ve a oferta publicada.
+          const soPublicada = sql.includes("estado = 'publicado'") && (opcoes.estado ?? "rascunho") !== "publicado";
           return {
-            rows: opcoes.semOferta
+            rows: opcoes.semOferta || soPublicada
               ? []
               : [
                   {

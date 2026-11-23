@@ -475,6 +475,21 @@ test("KAM-245, criterio 2: o screen de outro conteudo nao emite — outro nome, 
   assert.deepEqual(tipos(permitida), []);
 });
 
+test("KAM-245, criterio 2: a bloqueada de outro conteudo nao tira o publicado que a re-analise ja bloqueou", async () => {
+  // O publicado já tem uma `bloqueada` da re-análise, que não o despublicou.
+  // Um `screen` de outro texto, também bloqueado, decide sobre esse texto: não
+  // é a decisão do publicado, e não o tira nem emite por ele.
+  const b = base({
+    ofertas: [publicado()],
+    categorias: { [TENANT]: "moda" },
+    decisoes: [decisao("bloqueada", "regra")],
+  });
+  const r = await operar(b)(ctx(TENANT), pedido(["Cerveja preta 33cl"]));
+  assert.equal(r.tipo === "ok" && r.valor.decisao, "bloqueada");
+  assert.deepEqual(tipos(b), []);
+  assert.equal(b.estado.ofertas[0]!.estado, "publicado");
+});
+
 test("KAM-245, adversarial: o mesmo conteudo noutro tenant", async () => {
   // O outro tenant tem o mesmo sku publicado com o mesmo nome e a mesma
   // categoria. O `screen` do primeiro, sem oferta dele, não emite nada a
