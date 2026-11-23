@@ -4,7 +4,7 @@
 |---|---|
 | Produto | KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para Angola |
 | Documento | Técnica — Topologia, Operação e Escala |
-| Versão | 1.4 |
+| Versão | 1.5 |
 | Data | Outubro de 2026 |
 | Classificação | Documento de Referência — Interno |
 | Documento-fonte | `00_Arquitectura_Solucao.md`, `../exploracao/11-arquitetura-detalhada-engenharia.md` §1, §10, §11, `../exploracao/08-arquitetura-tecnica-v2.md` §7–§8 |
@@ -72,11 +72,11 @@ Princípios do doc 00: 11 (custo medido por tenant), 12 (degradar, nunca calar),
 | `chatwoot` v4.18 | Mantém (MIT fora de `enterprise/`); 1 conta por PME; ≥ 4 GB e 4 núcleos | P | `E4` §2.2; requisitos oficiais (§4) |
 | `medusa` v2 + Mercur | Medusa **v2.21.x**; Mercur só se D3 passar; RBAC/OIDC Enterprise desligados | P | `E4` §2.1 |
 | `storefront` Next.js 15 | **Vitrine fora do Piloto** (Clusters). Em seu lugar entra o **`onboarding-web`**: aplicação web mínima para o onboarding self-service (registo, OTP, documentos, aceite, ES v4, fotografia de produtos) e, depois, o painel light da PME | P (onboarding-web) / C (vitrine) | ADR-019; `10` §4.1 |
-| `postgres` 16 | **PostgreSQL 18.6** + pgvector 0.8.7 + pg_trgm; bases separadas para plataforma, Medusa e Chatwoot; RLS (`08` §3) | P | `E4` §2.9 |
+| `postgres` 16 | **PostgreSQL 18.6** + pgvector 0.8.7 + pg_trgm; bases separadas para plataforma, Medusa, Chatwoot e o proxy de LLM (`kamba_litellm`, KAM-247); RLS (`08` §3) | P | `E4` §2.9 |
 | `redis` 7 | Redis-compatível persistente (AOF). Redis ≥ 7.4 mudou de licença (RSAL/SSPL; Redis 8 volta a oferecer AGPL — conhecimento geral, NÃO VERIFICADO); **propõe-se Valkey** (BSD-3) a validar em *staging* com BullMQ, Chatwoot e Medusa (§20) | P | `E4` §2.8 refere Redis/Valkey |
 | `n8n` | **Fora de produção**; automações internas correm no *host* de operações/*staging* | — | SUL; ADR-002 |
 | `langfuse` v3 | **Langfuse v4 exige Postgres + ClickHouse + Redis + S3** e a doc recomenda 4 núcleos/16 GiB/100 GiB → **não entra em produção no Piloto**; métricas leves (§9.3); Langfuse v4 só em *staging* com dados sintéticos | C | `E4` §2.8; docs Langfuse (CONFIRMADO) |
-| `litellm` proxy | **Imagem por digest**, ≥ 1.83.0 (actual 1.104.2), cosign, rede isolada, sem `pip install` | P | `E4` §2.7 |
+| `litellm` proxy | **Imagem por digest**, ≥ 1.83.0 (actual 1.104.2), cosign, rede isolada, sem `pip install`; base `kamba_litellm` para as chaves virtuais, com um papel que não entra na base da plataforma, e sem *spend logs* (KAM-247, decisão do fundador de 2026-11-23) | P | `E4` §2.7 |
 | `minio` | **Excluído** (arquivado 2026-04-24). `StorageProvider` → **SeaweedFS 4.48** (Apache-2.0) *single node* ou **S3 gerido** conforme D1/D6 | P | `E4` §2.11 |
 | `nominatim` | **Fora do Piloto** (GEO é Clusters); mínimo oficial 2 GB, planear 4–8 GB | C | `E4` §2.12 |
 | `typebot` | **Fora de produção**; uso interno apenas (FSL «Competing Use»); fluxos determinísticos dos tenants em LangGraph | — | `E4` §2.3 |
@@ -620,3 +620,4 @@ Isto soma-se ao custo técnico do doc 09 §9; com 10 PMEs são ~13 a ~45 USD/mê
 | 1.2 | Outubro 2026 | KAM-128: As **23** referências aos documentos irmãos de `docs/tecnica/` passam a resolver: eram relativas à antiga raiz do conjunto e, depois de a árvore passar para `docs/`, não resolviam de posição nenhuma. Linha acrescentada pelo **KAM-146**, que paga as onze que o KAM-128 não escreveu. | Equipa KAMBÁ |
 | 1.3 | Outubro 2026 | KAM-130: a divergência (2) deixa de acusar a contagem de ADRs do `INDICE.md`. A metade do ADR-008 mantém-se aberta. | Equipa KAMBÁ |
 | 1.4 | Novembro 2026 | KAM-113: a linha RB-K10 do §13 remete para o runbook de resposta a incidentes (`docs/seguranca/resposta_incidentes.md`), que é o seu conteúdo. | Equipa KAMBÁ |
+| 1.5 | Novembro 2026 | **KAM-247**: o §3.1 dá ao `postgres` a quarta base, a `kamba_litellm`, e ao `litellm` a base dele, pela decisão do fundador de 2026-11-23 (opção A1): sem base, a imagem fixada não tem chaves virtuais (`../evidencia/KAM-233.md` §2), e o orçamento por *tenant* do `02` §13.3 não existia. O proxy passa a estar também na rede `data`; o que o separa da plataforma é o papel (`../evidencia/KAM-247.md`). | Equipa KAMBÁ |

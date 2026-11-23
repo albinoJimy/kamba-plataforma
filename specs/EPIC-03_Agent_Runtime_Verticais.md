@@ -4,7 +4,7 @@
 |---|---|
 | Produto | KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para Angola |
 | Documento | Epic — Agent Runtime e Verticais |
-| Versão | 1.28 |
+| Versão | 1.29 |
 | Data | Outubro de 2026 |
 | Classificação | Documento de Referência — Interno |
 | Documento-fonte | `../docs/tecnica/02_Agent_Runtime_Verticais.md`, `../docs/tecnica/00_Arquitectura_Solucao.md` |
@@ -5424,9 +5424,26 @@ Uma de duas, **escolhida pelo fundador**: o proxy de `prod` com uma base onde as
 persistam, ou um desenho sem chaves virtuais em que o orçamento por tenant se impõe por outro caminho
 e a revogação do encerramento deixa de ter recurso por construção.
 
+### Decisão do fundador
+
+| Campo | Valor |
+|---|---|
+| Decisão | **Opção A1**: a base `kamba_litellm` no cluster PostgreSQL da plataforma, com um papel próprio, `kamba_litellm`, que é dono dela e não entra na base da plataforma; sem registos de gasto por chamada (`disable_spend_logs: true`). Não gasta memória no manifesto, e as cópias ficam na stanza do cluster. **O proxy passa a estar na rede `data`: é o custo aceite.** Recusadas: a **A2** (um PostgreSQL só do proxy, que não cabe nos 54 MiB de folga do tecto de 80%) e a **B** (as chaves sem base) |
+| Data | 2026-11-23 |
+| Autor | o fundador |
+
+| Campo | Valor |
+|---|---|
+| Decisão | O `start_period` do *healthcheck* do `litellm` em `prod` sobe para **600 s**. Com base, o proxy corre as migrações dele em cada arranque: 167 s e 458 s no arranque, 115 s e 174 s num reinício, contra a janela antiga de 180 s. **A máquina de `prod` não está medida** |
+| Data | 2026-11-23 |
+| Autor | o fundador |
+
+As opções foram medidas antes da escolha e levadas pela coordenação; os números estão no §4 do
+`../docs/evidencia/KAM-247.md`.
+
 ### Critérios de Aceitação
 
-- [ ] **A escolha registada.** O fundador escolhe entre (A) a base do proxy — onde vive, quem a
+- [x] **A escolha registada.** O fundador escolhe entre (A) a base do proxy — onde vive, quem a
   copia, quanto tempo guarda os *logs* de gasto — e (B) as chaves sem base; a decisão fica no bloco,
   com a data e o autor.
 - [ ] **Com (A):** o `provisionar` e o `revogar` do `chaves.py` e o `ChaveDoLlmPeloProxy` do
@@ -5435,7 +5452,7 @@ e a revogação do encerramento deixa de ter recurso por construção.
 - [ ] **Com (B):** a `litellm_virtual_key` sai do inventário e dos consumidores, o orçamento por tenant
   impõe-se por um caminho medido, e o passo `chave_llm` da revogação dá `sem_recurso` por uma regra
   escrita, e não pela leitura de um erro.
-- [ ] **O 400 de um alias repetido** medido na imagem fixada, ou a idempotência do `provisionar`
+- [x] **O 400 de um alias repetido** medido na imagem fixada, ou a idempotência do `provisionar`
   reescrita sem depender dele.
 - [ ] A fase `revogacao` de um tenant de ensaio conclui em *staging* sem passo à mão.
 
@@ -5453,8 +5470,55 @@ e a revogação do encerramento deixa de ter recurso por construção.
 
 ### Definition of Done
 
-- [ ] Critérios satisfeitos; o docstring do `chaves.py` e o comentário dos *compose* a dizer o que se mediu.
-- [ ] Sem segredos: a `litellm_master_key` e, com (A), a credencial da base, pelo cofre (ADR-L002).
+- [ ] Critérios satisfeitos; o docstring do `chaves.py` e o comentário dos *compose* a dizer o que se mediu. **Parcial:** o docstring e os três *compose* dizem o que se mediu; os critérios 2 e 5 esperam por *staging*.
+- [x] Sem segredos: a `litellm_master_key` e, com (A), a credencial da base, pelo cofre (ADR-L002).
+
+### Verificação dos Critérios de Aceitação
+
+Ramo `feature/KAM-247-litellm-com-base`, base `4e9909b9` (`publico/main`). As medições estão no
+`../docs/evidencia/KAM-247.md`, na imagem fixada por *digest*, endurecida como em `prod`, numa rede
+Docker `--internal` e com modelos falsos.
+
+| # | Critério | Estado | Evidência |
+|---|---|---|---|
+| 1 | A escolha registada | satisfeito | A secção «Decisão do fundador» deste bloco: A1 e o `start_period` a 600 s, com a data e o autor. Onde vive a base: no cluster `postgres`, como a do Chatwoot (`../infra/compose/docker-compose.prod.yml`, `DATABASE_HOST: postgres`). Quem a copia: a stanza `kamba` do pgBackRest, que cobre o cluster (`../infra/backup/cobertura.yaml`, item `base litellm`, `configurado`, credor KAM-105). Quanto tempo guarda os *logs* de gasto: **nenhum**, porque não os escreve (`disable_spend_logs: true` no `../llm/litellm.config.yaml` gerado; 0 linhas depois de 22 chamadas, §2 do anexo) |
+| 2 | Com (A): medido em *staging* | **parcial** | Medido **na pilha local** e não em *staging*, que não existe. O `provisionar` cria e depois actualiza, o `revogar` revoga e depois dá `inexistente`, e a chave sobrevive a um `docker restart` (§2 e §3 do anexo, passos 6, 7, 12, 13 e 14). A base entra na cobertura das cópias (`base litellm`). O `ChaveDoLlmPeloProxy` (TypeScript) **não** foi medido contra o proxy: fica nos ensaios de contrato contra o duplo. **Credor: o primeiro *deploy* de *staging*** |
+| 3 | Com (B) | não aplicável | A escolha foi a A1. A caixa fica vazia |
+| 4 | O 400 de um alias repetido | satisfeito | **400** «Key with alias '…' already exists. Unique key aliases across all keys are required.», nas duas corridas com base (§2 do anexo). O `chaves.py` cai para o `/key/update` pelo texto, e o 200 do `/key/update` também está medido. O docstring diz agora o que se mediu |
+| 5 | A fase `revogacao` em *staging* | **parcial** | Não há *staging*. O que a fase pede ao proxy está medido na pilha local: o `/key/list` paginado responde e o `/key/delete` revoga (§3 do anexo, passos 13 e 14). Um tenant de ensaio de ponta a ponta fica por correr. **Credor: o primeiro *deploy* de *staging*** |
+
+**O papel, ensaiado no gate 8** (`../db/tests/test_papel_do_litellm.py`, decisão do fundador sobre
+o papel novo):
+- o `kamba_litellm` não liga à base da plataforma (42501), com o controlo positivo ao lado (liga à
+  dele e cria tabelas no `public`);
+- não tem privilégio nenhum sobre os esquemas `platform`, `lg` e `dat`;
+- o PUBLIC não tem `CONNECT` nem `TEMPORARY` na base dele, e nenhum papel de `ligacao.PAPEIS` lá entra;
+- o dono é reposto a cada `bootstrap.py`;
+- o `bootstrap.py` recusa uma base da plataforma com o nome da do proxy.
+
+Medido também de fora, com o `bootstrap.py` deste ramo contra a imagem do `postgres` de `prod` (§3 do
+anexo, passos 1 a 4).
+
+**A chave do screening (KAM-195) fica reparada.** Era uma chave virtual como as dos tenants, e sem
+base não podia existir. Medido (§3 do anexo, passos 8 a 12): o `provisionar-screening` cria-a e
+depois actualiza-a; ela chama o `screening-nano` (200), é recusada no `kamba-chat` (403) e continua a
+servir depois de um reinício.
+
+**O que mudou no código:**
+- `../db/bootstrap.py` cria o papel e a base quando a `KAMBA_SECRET_DB_LITELLM_PASSWORD` existe, e o
+  `../db/gate_bd.py` dá-a ao gate 8;
+- o `litellm` de `prod` e de `staging` ganha a rede `data`, as quatro `DATABASE_*`, o
+  `depends_on: postgres` e o `start_period: 600s`;
+- a configuração gerada ganha o `disable_spend_logs`, com os aliases na **1.2.2**. A baseline do
+  golden do dono fica na 1.2.1, e o `golden verificar` passa a dizê-la caducada pelo artefacto
+  `aliases`, como as do vendedor e dos serviços já estão (na 1.1.0); nenhum modelo mudou, e o CI não
+  corre o `verificar`;
+- o inventário ganha o `db_litellm_password`, só para o LLM, em `staging` e `prod`;
+- o dicionário ganha a emenda 1.139;
+- a regra 6 do `docker-compose.llm.yml` deixa de dizer que as chaves vivem na memória do proxy.
+
+**Sem esquema na base da plataforma:** a base do proxy nasce no `bootstrap.py`, fora do Alembic, e não
+leva número de migração.
 
 ### Handoff para Claude Code
 
@@ -5533,3 +5597,4 @@ Testes: contrato contra o duplo e o provisionamento, o reinício e a revogação
 | 1.26 | Novembro 2026 | **Aresta recíproca, sem alteração de conteúdo:** o `Bloqueia` do KAM-030 ganha o **KAM-231** (EPIC-11), aberto no PR do KAM-119: a visão do catálogo do dono vai pelo alias `kamba-vision` do gateway. | Equipa KAMBÁ |
 | 1.27 | Novembro 2026 | KAM-232 (EPIC-11): o critério 2 do KAM-033 revisto — a linha da `agent_messages` em claro 90 dias e o corpo da `wa-inbound` com prazo de 24 h, por decisão do fundador de 2026-11-20; a primeira é excepção escrita à letra do critério. Nenhuma caixa muda. Sobre a 1.26 da `main` em `28bb7e88` | Equipa KAMBÁ |
 | 1.28 | Novembro 2026 | **KAM-247** acrescentado, no PR do **KAM-233** (EPIC-09), que o abre e não o implementa, pela decisão do fundador de 2026-11-21 (Q1 = A): o LiteLLM de `prod` arranca sem base e a imagem fixada não tem chaves virtuais sem ela (medido, `../docs/evidencia/KAM-233.md` §2). O `Bloqueia` do KAM-030 ganha-o. Escrito como KAM-239 e depois KAM-241, e renumerado na integração contra a `main` em `25babeca` (o maior era o KAM-246) | Equipa KAMBÁ |
+| 1.29 | Novembro 2026 | **KAM-247 entregue**, pela decisão do fundador de 2026-11-23 (opção A1, e o `start_period` a 600 s): o bloco ganha a «Decisão do fundador» e a «Verificação dos Critérios de Aceitação». Marcados os critérios 1 e 4 e a caixa dos segredos; os critérios 2 e 5 ficam **parciais**, à espera de *staging*, e o 3 não se aplica. | Equipa KAMBÁ |

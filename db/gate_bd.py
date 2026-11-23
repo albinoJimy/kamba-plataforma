@@ -321,6 +321,9 @@ def _ambiente_da_suite(host: str, porta: str, senha_admin: str) -> dict[str, str
             "KAMBA_SECRET_DB_PAY_HOOKS_PASSWORD": secrets.token_urlsafe(24),
             # KAM-197: o papel do consumidor do PAY.
             "KAMBA_SECRET_DB_PAY_PASSWORD": secrets.token_urlsafe(24),
+            # KAM-247: o papel do proxy de LLM, fora da plataforma. Opcional no
+            # `bootstrap.py`, e dado aqui para que o gate 8 o crie e o meca.
+            "KAMBA_SECRET_DB_LITELLM_PASSWORD": secrets.token_urlsafe(24),
         }
     )
     return ambiente

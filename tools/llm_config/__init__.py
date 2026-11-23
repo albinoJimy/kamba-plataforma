@@ -370,6 +370,15 @@ def render(dados: dict[str, Any]) -> str:
         "",
         "general_settings:",
         f"  master_key: os.environ/{_nome_master_key()}",
+        # **Sem registos de gasto por chamada** (KAM-247, decisao do fundador
+        # de 2026-11-23). Com base, o proxy escreve uma linha por chamada em
+        # `LiteLLM_SpendLogs`; a auditoria de chamadas e nossa
+        # (`dat.llm_call_log`, ADR-018), e uma segunda copia, noutra base e
+        # sem retencao nossa, era a duplicacao que a regra 6 do KAM-030 recusa.
+        # Medido na imagem fixada (`docs/evidencia/KAM-247.md`): com isto, zero
+        # linhas depois de 22 chamadas, e o `spend` da chave e o 422 do
+        # orcamento continuam, porque vivem na tabela das chaves.
+        "  disable_spend_logs: true",
         "",
         "litellm_settings:",
         # **Sem isto o proxy sai para `raw.githubusercontent.com` no arranque**,

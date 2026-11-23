@@ -12,7 +12,7 @@
 
 version: 1
 fonte: "specs/02_Dicionario_de_Dados_Canonico.md"
-versao_dicionario: "1.138"
+versao_dicionario: "1.139"
 entradas:
   - seccao: "3.1"
     conceito: "Contacto"
@@ -7577,6 +7577,35 @@ entradas:
       - "KAMBA_LLM_PROXY_URL"
     nomes_nota:
       - "destinos"
+    variantes_literais: []
+  - seccao: "3.29"
+    conceito: "Base do proxy de LLM"
+    canonico: "kamba_litellm — a base e o papel que é dono dela, com o mesmo nome"
+    literais:
+      - "kamba_litellm"
+    nomes:
+      - "kamba_litellm"
+    nomes_nota:
+      - "prod"
+      - "postgres"
+      - "PAPEIS"
+      - "CONNECT"
+      - "dat.llm_call_log"
+      - "data"
+    variantes_literais: []
+  - seccao: "3.29"
+    conceito: "Palavra-passe do papel do proxy"
+    canonico: "db_litellm_password, lida como KAMBA_SECRET_DB_LITELLM_PASSWORD"
+    literais:
+      - "db_litellm_password"
+      - "KAMBA_SECRET_DB_LITELLM_PASSWORD"
+    nomes:
+      - "db_litellm_password"
+      - "KAMBA_SECRET_DB_LITELLM_PASSWORD"
+    nomes_nota:
+      - "staging"
+      - "prod"
+      - "DATABASE_PASSWORD"
     variantes_literais: []
   - seccao: "3.30"
     conceito: "Veredicto do validador"

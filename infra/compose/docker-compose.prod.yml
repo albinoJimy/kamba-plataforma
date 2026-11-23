@@ -977,9 +977,8 @@ services:
       # apaga a chave do tenant no LiteLLM pelo alias e suspende a conta dele no
       # Chatwoot, os dois na rede `app` e fora do `proxy-saida` (o `NO_PROXY`
       # do `*saida` ja os nomeia). As duas credenciais leem-se a cada chamada.
-      # Enquanto o LiteLLM de `prod` arrancar sem `DATABASE_URL`, o `/key/list` que
-      # confirma a revogacao responde 500 e a fase para na chave, com alerta
-      # (`docs/evidencia/KAM-233.md` §2; credor KAM-247).
+      # Desde o KAM-247 o LiteLLM tem base (a `kamba_litellm`), e o `/key/list`
+      # que confirma a revogacao responde: medido em `docs/evidencia/KAM-247.md`.
       KAMBA_LLM_PROXY_URL: http://litellm:4000
       KAMBA_CHATWOOT_URL: http://chatwoot:3000
       KAMBA_SECRET_LITELLM_MASTER_KEY: ${KAMBA_SECRET_LITELLM_MASTER_KEY:?do cofre (KAM-010)}
@@ -1136,6 +1135,20 @@ services:
     # passa pelo `proxy-saida`, como a de todos os outros. Era a tentacao obvia
     # dar-lhe rota propria — e seria o unico servico da pilha com um caminho
     # para fora que ninguem registava.
+    #
+    # **E esta em `data` desde o KAM-247** (decisao do fundador de 2026-11-23,
+    # opcao A1): sem base, a imagem fixada nao tem chaves virtuais — o
+    # `/key/generate` responde 500 «DB not connected» (`docs/evidencia/KAM-233.md`
+    # §2) — e a `litellm_virtual_key` de cada tenant, com o orcamento e o tecto
+    # do `docs/tecnica/02` §13.3, nao existia. A base e a `kamba_litellm`, no
+    # cluster `postgres`, como a do Chatwoot; o papel `kamba_litellm` e dono
+    # dela e **nao liga a base da plataforma** (`db/bootstrap.py`, ensaiado em
+    # `db/tests/test_papel_do_litellm.py`). **O custo aceite e este**: o
+    # componente de maior superficie de ataque da pilha (E4) alcanca o
+    # PostgreSQL pela rede. O que o separa da plataforma e o papel, e nao a
+    # rede. Sem registos de gasto por chamada (`disable_spend_logs`, no
+    # `llm/litellm.config.yaml` gerado): a base guarda chaves e gasto acumulado,
+    # e a auditoria continua a ser a `dat.llm_call_log`.
     image: ghcr.io/berriai/litellm:v1.104.2@sha256:3d88bd757134a00e8c00237b85a021ab1f6d54abb9c1df750f411dbe7256a500
     <<: *endurecido
     user: "1000:1000"
@@ -1169,8 +1182,17 @@ services:
       # esta na allowlist do `proxy-saida` e nao vai estar: fecha-se desligando
       # a saida, nao declarando o destino.
       LITELLM_LOCAL_MODEL_COST_MAP: "True"
+      # A base das chaves virtuais (KAM-247). Em variaveis separadas e nao num
+      # `DATABASE_URL`: a imagem monta o URL e escapa a palavra-passe ela
+      # propria (`construct_database_url_from_env_vars`), pelo que o valor do
+      # cofre nao tem de ser seguro para URL.
+      DATABASE_HOST: postgres
+      DATABASE_NAME: kamba_litellm
+      DATABASE_USERNAME: kamba_litellm
+      DATABASE_PASSWORD: ${KAMBA_SECRET_DB_LITELLM_PASSWORD:?do cofre (KAM-010); o db/bootstrap.py cria o papel com ela}
     networks:
       - app
+      - data
     mem_limit: 2048m
     cpus: 1.5
     healthcheck:
@@ -1181,7 +1203,18 @@ services:
       interval: 15s
       timeout: 10s
       retries: 8
-      start_period: 60s
+      # **600 s, e nao 60** (KAM-247, decisao do fundador de 2026-11-23): com
+      # base, o proxy corre as migracoes dele em cada arranque. Medido na imagem
+      # fixada, endurecida como aqui (`docs/evidencia/KAM-247.md` §2): 67 s ate
+      # `healthy` sem base; **167 s e 458 s** com base, em duas corridas; e
+      # **115 s e 174 s** num reinicio, com o esquema ja aplicado. A janela
+      # antiga era 60 + 8 x 15 = 180 s. **O host de `prod` nao esta medido**: os
+      # numeros sao de uma maquina de 8 GB partilhada, e medem-se de novo em
+      # `staging`.
+      start_period: 600s
+    depends_on:
+      postgres:
+        condition: service_healthy
 
   # ================================================================== dados
   postgres:
