@@ -4416,7 +4416,7 @@ RSS em repouso, e 32 MiB de pico do *cgroup* sob `--memory 48m` com uma rajada d
 5 MB e 20 sondas ao mesmo tempo, sem OOM. O limite é **48 MiB**, 1,5× esse pico. Na soma do critério 4 do
 KAM-076, contando os pendentes, o manifesto passa de 26 112 para **26 160 MiB** (79,8% do *host*): **da folga de
 102 MiB até ao tecto de 26 214, o recolector consome 48, e sobram 54**, medidos sobre a `publico/main` em
-`b37d1ffe`; o tecto de 80% não se tocou, e o `compose_prod` dá 0 achados. **A sonda é `bash`, e não Python**:
+`b37d1ffe` e remedidos em `25babeca` (com o KAM-231, o KAM-238 e o KAM-122, a soma não mudou); o tecto de 80% não se tocou, e o `compose_prod` dá 0 achados. **A sonda é `bash`, e não Python**:
 sob `cpus: 0.1`, a do `idx` levava 13 s e passava o `timeout` (a imagem não traz `.pyc`); a de `bash` gasta
 0,16 s de CPU (evidência §3.1). O limite de CPU ficou em 0.25, como o do `idx`: sob 0.1, numa máquina
 carregada, o arranque do Python passava os 80 s da sonda.

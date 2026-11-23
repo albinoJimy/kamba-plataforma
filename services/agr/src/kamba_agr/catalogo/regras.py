@@ -100,9 +100,6 @@ _COMECOS_SOCIAIS: Final = ("bom dia", "boa tarde", "boa noite", "ola", "oi ")
 class StockRecusado(ValueError):
     """O texto nao e um stock sem duvidas: volta a perguntar."""
 
-#: O «k» de milhar: «45k», «45 k», «1,5k». Nao casa dentro de palavras («kz»).
-_MILHAR_EM_K: Final = re.compile(r"(\d)\s*[kK](?![A-Za-z])")
-
 #: A numeracao que o dono pode por a frente de cada linha: «1) azul», «2. M e L».
 _NUMERACAO: Final = re.compile(r"^\(?\d{1,2}[).]\s+")
 
@@ -200,9 +197,9 @@ def repartir_respostas(texto: str, perguntas: Sequence[PerguntaEmAberto]) -> dic
 def ler_preco_do_dono(texto: str) -> int:
     """O preco que o dono escreveu, em centimos. Levanta `ValorRecusadoError` se nao for um.
 
-    O *parser* do KAM-123, com o «k» de milhar trocado por «mil». Ver o cabecalho.
+    O *parser* do KAM-123, que le o «k» de milhar desde o KAM-237. Ver o cabecalho.
     """
-    return ler_valor_do_dono(_MILHAR_EM_K.sub(r"\1 mil", texto))
+    return ler_valor_do_dono(texto)
 
 
 def texto_canonico(centimos: int) -> str:

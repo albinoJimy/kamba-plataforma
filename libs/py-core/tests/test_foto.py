@@ -27,6 +27,7 @@ from kamba_core.destinos import (
     FINALIDADE_CLASSIFICACAO,
     FINALIDADE_CONDICOES,
     FINALIDADE_CONTEUDO,
+    FINALIDADE_GERACAO_DE_IMAGEM,
     FINALIDADE_IMAGEM,
     FINALIDADES,
 )
@@ -772,16 +773,23 @@ class TestEstadosERevisao(unittest.TestCase):
             self._tupla(texto, "MOTIVOS_DO_TRABALHO"), estados.MOTIVOS_DO_BLOQUEIO + estados.MOTIVOS_DA_FALHA
         )
         # As catorze que esta revisao escreve: as do nucleo menos a
-        # `classificacao_de_catalogo`, a `classificacao_de_condicoes` e a
-        # `classificacao_de_conteudo`, que a `finalidade_do_screening` (KAM-195),
-        # a `finalidade_das_condicoes` (KAM-230) e a `social_do_dono` (KAM-121)
-        # acrescentam por cima. A paridade da cabeca e a desses ensaios.
+        # `classificacao_de_catalogo`, a `classificacao_de_condicoes`, a
+        # `classificacao_de_conteudo` e a `geracao_de_imagem`, que a
+        # `finalidade_do_screening` (KAM-195), a `finalidade_das_condicoes`
+        # (KAM-230), a `social_do_dono` (KAM-121) e a `arte_e_aprovacao_do_social`
+        # (KAM-122) acrescentam por cima. A paridade da cabeca e a desses ensaios.
         self.assertEqual(
             self._tupla(texto, "FINALIDADES_DE_TRANSFERENCIA"),
             tuple(
                 f
                 for f in FINALIDADES
-                if f not in (FINALIDADE_CLASSIFICACAO, FINALIDADE_CONDICOES, FINALIDADE_CONTEUDO)
+                if f
+                not in (
+                    FINALIDADE_CLASSIFICACAO,
+                    FINALIDADE_CONDICOES,
+                    FINALIDADE_CONTEUDO,
+                    FINALIDADE_GERACAO_DE_IMAGEM,
+                )
             ),
         )
 

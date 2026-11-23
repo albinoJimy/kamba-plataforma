@@ -791,7 +791,8 @@ class TestCatalogo(_Base):
         # KAM-123: as duas do `orcamento` que sao tools (o `send_quote` e o
         # botao, e nao tool: ver `tls/catalogo.py`).
         # KAM-121: as quatro do `social` (§21.3, com a `update_brand_profile`).
-        self.assertEqual(len(self.catalogo.nomes()), 21)
+        # KAM-122: as cinco da arte, da aprovacao e da entrega.
+        self.assertEqual(len(self.catalogo.nomes()), 26)
         self.assertEqual(
             self.catalogo.nomes(),
             frozenset(
@@ -805,6 +806,8 @@ class TestCatalogo(_Base):
                     "request_quote", "submit_quote",
                     "get_brand_profile", "update_brand_profile",
                     "generate_calendar", "generate_caption",
+                    "generate_art", "request_approval", "approve_content",
+                    "reject_content", "deliver_content",
                 }
             ),
         )
@@ -812,10 +815,14 @@ class TestCatalogo(_Base):
     def test_uma_esta_ligada_e_catorze_estao_declaradas_com_credor(self) -> None:
         self.assertEqual(self.catalogo.ligadas(), ("get_store_info",))
         declaradas = self.catalogo.declaradas()
-        self.assertEqual(len(declaradas), 20)
+        self.assertEqual(len(declaradas), 25)
         self.assertEqual(
             {nome for nome, credor in declaradas.items() if credor == "KAM-121"},
             {"get_brand_profile", "update_brand_profile", "generate_calendar", "generate_caption"},
+        )
+        self.assertEqual(
+            {nome for nome, credor in declaradas.items() if credor == "KAM-122"},
+            {"generate_art", "request_approval", "approve_content", "reject_content", "deliver_content"},
         )
         self.assertEqual(
             {nome for nome, credor in declaradas.items() if credor == "KAM-220"},
@@ -870,6 +877,10 @@ class TestCatalogo(_Base):
                 "request_quote", "submit_quote",
                 # KAM-121, §21.3: as tres de escrita do social, que so gravam.
                 "update_brand_profile", "generate_calendar", "generate_caption",
+                # KAM-122: a arte, o pedido, a aprovacao (com o botao), a
+                # rejeicao e a entrega ao dono.
+                "generate_art", "request_approval", "approve_content",
+                "reject_content", "deliver_content",
             },
         )
         # As restantes dez sao `read`: as sete do §6.2, as duas do catalogo do
@@ -1611,9 +1622,10 @@ class TestImportacaoIsolada(unittest.TestCase):
         )
 
         # Dezassete desde o KAM-123 (as duas do orcamento; quinze desde o
-        # KAM-118), vinte e uma desde o KAM-121 (as quatro do social), e o
-        # numero segue o catalogo sem ninguem tocar no `metricas.py`.
-        self.assertEqual(len(_valores_derivados(METRICA_TOOL_INVOCACOES)), 21)
+        # KAM-118), vinte e uma desde o KAM-121 (as quatro do social), vinte e
+        # seis desde o KAM-122 (as cinco da arte), e o numero segue o catalogo
+        # sem ninguem tocar no `metricas.py`.
+        self.assertEqual(len(_valores_derivados(METRICA_TOOL_INVOCACOES)), 26)
         # Onze desde o KAM-029, e derivados: confronta-se com `CODIGOS` e nao
         # com um numero, que e o que «continuam derivadas» quer dizer.
         self.assertEqual(

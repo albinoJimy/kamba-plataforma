@@ -635,7 +635,12 @@ describe("a descarga que falha (criterio 6)", () => {
       },
       avisarAgr: async () => undefined,
     });
-    await assert.rejects(() => medComMetaErrada.receber(pedido()), MidiaInesperadaError);
+    // **E fecha a linha em `falhou`** (KAM-231, achado 3 da revisao adversarial):
+    // relancada, a reserva ficava em `pendente` para sempre, e a repeticao do
+    // *job* devolvia `pendente` sem desfecho.
+    const resultado = await medComMetaErrada.receber(pedido());
+    assert.equal(resultado.estado, "falhou");
+    assert.equal((await medComMetaErrada.receber(pedido())).estado, "falhou", "a repeticao ve o desfecho");
     assert.equal(chamadas, 1, "um 4xx repetido e uma fila que nunca drena");
     void med;
   });
