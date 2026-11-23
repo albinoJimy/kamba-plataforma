@@ -321,6 +321,9 @@ def _ambiente_da_suite(host: str, porta: str, senha_admin: str) -> dict[str, str
             "KAMBA_SECRET_DB_PAY_HOOKS_PASSWORD": secrets.token_urlsafe(24),
             # KAM-197: o papel do consumidor do PAY.
             "KAMBA_SECRET_DB_PAY_PASSWORD": secrets.token_urlsafe(24),
+            # KAM-247: o papel do proxy de LLM, fora da plataforma. Opcional no
+            # `bootstrap.py`, e dado aqui para que o gate 8 o crie e o meca.
+            "KAMBA_SECRET_DB_LITELLM_PASSWORD": secrets.token_urlsafe(24),
         }
     )
     return ambiente
@@ -489,12 +492,15 @@ def com_bd_existente(suite: str) -> int:
             "AGR",
             "PAY_HOOKS",
             "PAY",
+            # KAM-247: o papel do proxy de LLM, que o `test_papel_do_litellm`
+            # mede e exige.
+            "LITELLM",
         )
         if not ambiente.get(f"KAMBA_SECRET_DB_{papel}_PASSWORD")
     ]
     if em_falta:
         print(
-            "gate de BD: --bd-existente exige as palavras-passe dos nove papeis no "
+            "gate de BD: --bd-existente exige as palavras-passe dos dez papeis no "
             f"ambiente; faltam: {', '.join(em_falta)}.\n"
             "    Os papeis sao globais a instancia: gera-las aqui trocava as "
             "credenciais de todos os servicos que a usam.",

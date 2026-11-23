@@ -851,9 +851,8 @@ services:
       # apaga a chave do tenant no LiteLLM pelo alias e suspende a conta dele no
       # Chatwoot, os dois na rede `app` e fora do `proxy-saida` (o `NO_PROXY`
       # do `*saida` ja os nomeia). As duas credenciais leem-se a cada chamada.
-      # Enquanto o LiteLLM de `staging` arrancar sem `DATABASE_URL`, o `/key/list` que
-      # confirma a revogacao responde 500 e a fase para na chave, com alerta
-      # (`docs/evidencia/KAM-233.md` §2; credor KAM-247).
+      # Desde o KAM-247 o LiteLLM tem base (a `kamba_litellm`), e o `/key/list`
+      # que confirma a revogacao responde: medido em `docs/evidencia/KAM-247.md`.
       KAMBA_LLM_PROXY_URL: http://litellm:4000
       KAMBA_CHATWOOT_URL: http://chatwoot:3000
       KAMBA_SECRET_LITELLM_MASTER_KEY: ${KAMBA_SECRET_LITELLM_MASTER_KEY:?do cofre (KAM-010), projecto staging}
@@ -1065,8 +1064,17 @@ services:
       KAMBA_SECRET_LLM_PROVIDER_KEY__openai: ${KAMBA_SECRET_LLM_PROVIDER_KEY__openai:?do cofre (KAM-010), projecto staging}
       KAMBA_SECRET_LLM_PROVIDER_KEY__google: ${KAMBA_SECRET_LLM_PROVIDER_KEY__google:?do cofre (KAM-010), projecto staging}
       LITELLM_LOCAL_MODEL_COST_MAP: "True"
+      # A base das chaves virtuais (KAM-247, decisao do fundador de 2026-11-23,
+      # opcao A1), como em `prod`: a `kamba_litellm` no cluster `postgres`, com o
+      # papel `kamba_litellm`, que nao liga a base da plataforma. Ver a nota do
+      # mesmo servico no `docker-compose.prod.yml`.
+      DATABASE_HOST: postgres
+      DATABASE_NAME: kamba_litellm
+      DATABASE_USERNAME: kamba_litellm
+      DATABASE_PASSWORD: ${KAMBA_SECRET_DB_LITELLM_PASSWORD:?do cofre (KAM-010), projecto staging}
     networks:
       - app
+      - data
     mem_limit: 2048m
     cpus: 1.5
     healthcheck:
@@ -1077,7 +1085,13 @@ services:
       interval: 15s
       timeout: 10s
       retries: 8
-      start_period: 60s
+      # 600 s, como em `prod` (KAM-247): com base, o proxy corre as migracoes
+      # dele em cada arranque, e mediram-se 167 s, 294 s e 458 s
+      # (`docs/evidencia/KAM-247.md`).
+      start_period: 600s
+    depends_on:
+      postgres:
+        condition: service_healthy
 
   # ================================================================== dados
   postgres:

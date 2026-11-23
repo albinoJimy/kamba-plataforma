@@ -340,6 +340,11 @@ class TestAConfiguracaoGerada(_ComCopia):
         for suspeito in ("sk-", "Bearer ", "password"):
             self.assertNotIn(suspeito, self.config)
 
+    def test_sem_registos_de_gasto_no_proxy(self) -> None:
+        """KAM-247: com base, o proxy guarda chaves e gasto, e nao uma linha por chamada."""
+        self.assertIn("general_settings:\n  master_key: os.environ/", self.config)
+        self.assertIn("\n  disable_spend_logs: true\n", self.config)
+
     def test_o_nome_da_chave_e_do_inventario(self) -> None:
         """`llm_provider_key/<provedor>`, como `ops/secrets-inventory.yaml` diz."""
         self.assertIn("os.environ/KAMBA_SECRET_LLM_PROVIDER_KEY__anthropic", self.config)

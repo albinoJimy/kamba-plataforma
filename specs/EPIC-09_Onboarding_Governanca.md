@@ -3869,7 +3869,7 @@ O código: a revisão `0088` (`../db/migrations/versions/0088_categoria_da_ofert
 `../packages/core-ts/src/trust/precos.ts` ligada ao `CicloDoTrust` (`lote.ts`), o COM
 (`../services/com/src/produtos/`, o `rascunhoDoDraft` e a API interna) e o catálogo por IA (o `resumo` de
 `../libs/py-core/src/kamba_core/catalogo/pipeline.py` e o `corpo_do_rascunho` de
-`../services/agr/src/kamba_agr/tls/registo_com.py`). O dicionário ganhou a emenda 1.140 no §3.68.
+`../services/agr/src/kamba_agr/tls/registo_com.py`). O dicionário ganhou a emenda 1.141 no §3.68.
 
 | Critério | Estado | Evidência |
 |---|---|---|
