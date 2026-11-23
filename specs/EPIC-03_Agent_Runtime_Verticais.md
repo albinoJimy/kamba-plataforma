@@ -5553,9 +5553,9 @@ reprovou-o. Os achados confirmados foram tratados neste PR:
   **sete** mutações novas para o código do papel: 1314 conferidas, 0 por aplicar.
 - **O `test_catalogo.TestPapeis` exigia nove papéis `kamba_*`.** Passa a dez, com o
   `kamba_litellm` e a razão.
-- **O piso do `lint_bloco`** fica em 91: este bloco passa os medidos de 182 para 183 na árvore
-  integrada com o KAM-208, que já tinha pago a subida de 90 para 91. O `lint.py`, o `mutacao.py` e o
-  §4 do `docs/lint-bloco.md` dizem-no.
+- **O piso do `lint_bloco`** sobe de 91 para 92: este bloco passa os medidos de 183 para 184 na
+  árvore integrada com o KAM-244. O `lint.py`, o `mutacao.py` e o §4 do `docs/lint-bloco.md`
+  dizem-no.
 - **Os ensaios não mexiam no papel à mão.** Entram dois: atributos, configuração e pertenças
   alteradas à mão são repostas, e um `CONNECT` dado à mão na base da plataforma é revogado. Para
   este último o `bootstrap.py` ganha o `REVOKE ALL ON DATABASE <plataforma> FROM kamba_litellm`.
