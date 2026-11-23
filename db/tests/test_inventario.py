@@ -134,6 +134,17 @@ INVENTARIO = {
         "recolhido_at": ("timestamp with time zone", NAO, "now()", "nao"),
         "expira_at": ("timestamp with time zone", SIM, None, "nao"),
     },
+    # KAM-208 (revisao `0087`): o pseudonimo do telefone sem tenant. Um HMAC com
+    # segredo do cofre, como o `bsuid_hmac`, mas **sem** o tenant na mensagem: o
+    # mesmo numero da o mesmo valor em todos os tenants, e e por isso que so o
+    # `kamba_identity` o le.
+    "contact_xtenant_pseudonym": {
+        "tenant_id": ("uuid", NAO, None, "nao"),
+        "contact_id": ("uuid", NAO, None, "referencia opaca ao contacto"),
+        "pseudonimo": ("bytea", NAO, None, "pseudonimo do telefone sem tenant: HMAC-SHA256 com segredo do cofre; so para a correlacao entre tenants de T&S"),
+        "kid": ("text", NAO, None, "versao do segredo do pseudonimo; nao e o segredo"),
+        "visto_at": ("timestamp with time zone", NAO, "now()", "nao"),
+    },
     "hmac_key_versions": {
         "kid": ("text", NAO, None, "identificador da versao do segredo; nao e o segredo"),
         "estado": ("text", NAO, None, "nao"),
@@ -2403,6 +2414,42 @@ INVENTARIO["onboarding_case"] = {
     ),
     "criado_at": ("timestamp with time zone", NAO, "now()", "nao"),
     "activo_at": ("timestamp with time zone", SIM, None, "nao"),
+    # KAM-236 (revisao da inscricao na base): a chave de idempotencia do
+    # registo, que o cliente escolhe dentro da forma do `CHAVE` do SMS.
+    "chave_idem": ("text", SIM, None, "nao — identificador escolhido pelo cliente, sem pessoa"),
+}
+
+#: O desafio do OTP do registo (KAM-236, revisao da inscricao na base): um por
+#: caso, **so o HMAC do codigo**, preso ao caso. Marca-se usado (`usado_at`) no
+#: acerto e no esgotamento; nao se apaga.
+INVENTARIO["onboarding_otp"] = {
+    "onboarding_id": ("uuid", NAO, None, "nao"),
+    "tenant_id": ("uuid", NAO, None, "nao"),
+    "codigo_hmac": ("text", NAO, None, "HMAC do codigo do OTP, preso ao caso; nunca o codigo"),
+    "expira_at": ("timestamp with time zone", NAO, None, "nao"),
+    "tentativas": ("integer", NAO, "0", "nao"),
+    "usado_at": ("timestamp with time zone", SIM, None, "nao"),
+    "criado_at": ("timestamp with time zone", NAO, "now()", "nao"),
+}
+
+#: Os contadores do registo (KAM-236): as janelas deslizantes do anti-abuso e do
+#: OTP. **Sem `tenant_id`**. A chave e um HMAC (rede, dispositivo, telefone) ou
+#: um identificador opaco (o caso, o orcamento), nunca o valor de origem.
+INVENTARIO["onboarding_contador"] = {
+    "chave": ("text", NAO, None, "HMAC ou identificador opaco; nunca o telefone, o IP ou o NIF"),
+    "instantes": ("ARRAY", NAO, None, "nao"),
+    "actualizado_at": ("timestamp with time zone", NAO, None, "nao"),
+}
+
+#: As sessoes do painel revogadas (KAM-236). O `sid` e aleatorio e o `ate` um
+#: instante: nenhum identifica uma pessoa.
+INVENTARIO["painel_revogacao"] = {
+    "revogacao_id": ("uuid", NAO, "gen_random_uuid()", "nao"),
+    "tenant_id": ("uuid", NAO, None, "nao"),
+    "sid": ("uuid", SIM, None, "nao — identificador aleatorio da sessao"),
+    "ate": ("bigint", SIM, None, "nao"),
+    "expira_at": ("timestamp with time zone", NAO, None, "nao"),
+    "criado_at": ("timestamp with time zone", NAO, "now()", "nao"),
 }
 
 #: A verificacao K1 de um documento (KAM-087, revisao `0043`). **O documento
@@ -2893,6 +2940,9 @@ INVENTARIO["brand_profile"] = {
     "versao": ("integer", NAO, "1", "nao"),
     "criado_at": ("timestamp with time zone", NAO, "now()", "nao"),
     "atualizado_at": ("timestamp with time zone", NAO, "now()", "nao"),
+    # KAM-122: a hora em que os termos sem garantia de exclusividade se
+    # mostraram, na primeira entrega (criterio 9). `NULL` e «ainda nao».
+    "termos_entrega_at": ("timestamp with time zone", SIM, None, "nao"),
 }
 
 #: O calendario semanal do social (KAM-121). Um `activo` por `(tenant_id,
@@ -2927,6 +2977,20 @@ INVENTARIO["content_items"] = {
     "agendado_at": ("timestamp with time zone", NAO, None, "nao"),
     "criado_at": ("timestamp with time zone", NAO, "now()", "nao"),
     "atualizado_at": ("timestamp with time zone", NAO, "now()", "nao"),
+    # KAM-122 (revisao da arte e da aprovacao do social). A arte e um objecto do
+    # STO do proprio tenant (`t/{tenant}/...`), o fundo e `gerado` ou
+    # `gradiente`, ate tres tentativas, o custo das tentativas, e a aprovacao
+    # ligada ao `hash(legenda, arte, versao)`. Nenhuma guarda dados pessoais.
+    "arte_ref": ("text", SIM, None, "nao — a chave do STO, presa ao tenant da linha"),
+    "arte_sha256": ("text", SIM, None, "nao"),
+    "arte_fundo": ("text", SIM, None, "nao — lista fechada de dois"),
+    "arte_texto": ("text", SIM, None, "nao — o texto que esta na imagem, composto por codigo dos factos da loja"),
+    "arte_formato": ("text", SIM, None, "nao — lista fechada de dois"),
+    "arte_tentativas": ("smallint", NAO, "0", "nao"),
+    "arte_custo_usd": ("numeric", NAO, "0", "nao"),
+    "aprovacao_hash": ("text", SIM, None, "nao"),
+    "aprovado_at": ("timestamp with time zone", SIM, None, "nao"),
+    "entregue_at": ("timestamp with time zone", SIM, None, "nao"),
 }
 
 #: A troca de telefone do dono (KAM-223). **Sem telefone em claro**: os dois
@@ -3893,6 +3957,9 @@ class TestInventario(ComBase):
                         # KAM-094 (revisao do catalogo minimo): a tentativa do
                         # teste aponta o caso pelo par, sem cascata.
                         "onboarding_smoke_caso_fk",
+                        # KAM-236 (revisao da inscricao na base): o desafio do
+                        # OTP aponta o caso pelo par, sem cascata.
+                        "onboarding_otp_caso_fk",
                         # KAM-096 (revisao da confianca gradual): o nivel aponta
                         # o tenant, sem cascata. Um tenant com nivel nao se apaga
                         # por arrasto.
@@ -4155,6 +4222,13 @@ class TestInventario(ComBase):
                         "contact_endpoints_dek_fk",
                         "contact_endpoints_hmac_kid_fk",
                         "contact_endpoints_tenant_fk",
+                        # KAM-208: o pseudonimo sem tenant, para o contacto
+                        # (composta) e para o tenant. Sem cascata: um contacto
+                        # nao se apaga (fica como lapide), e o pseudonimo vai
+                        # pelo *trigger* `contacts_xtenant_esquecer` quando o
+                        # contacto e apagado a pedido, fundido ou perde o numero.
+                        "contact_xtenant_pseudonym_contact_fk",
+                        "contact_xtenant_pseudonym_tenant_fk",
                         "contacts_hmac_kid_fk",
                         "contacts_merged_fk",
                         "contacts_tenant_fk",
@@ -4263,6 +4337,11 @@ class TestInventario(ComBase):
             # Perde-lo deixava duas replicas abrirem duas trocas, e a segunda
             # conclusao movia o papel outra vez.
             "owner_phone_changes_viva_uq": True,
+            # KAM-236: **uma** revogacao por sessao e **um** corte por tenant,
+            # que so sobe. Perder o `UNIQUE` do corte deixava duas linhas de
+            # corte, e o `ON CONFLICT` do `revogarDoTenant` sem arbitro.
+            "painel_revogacao_sid_uq": True,
+            "painel_revogacao_corte_uq": True,
             # KAM-121: **um calendario `activo` por (tenant_id, semana_iso)**.
             # Perde-lo deixava dois «NOVA» concorrentes abrirem duas geracoes
             # activas da mesma semana.
@@ -4525,6 +4604,23 @@ class TestInventario(ComBase):
                     "onboarding_case_pkey",
                     "onboarding_case_preflight_ck",
                     "onboarding_case_tenant_uq",
+                    # --------------------------------------- KAM-236 (0084)
+                    #
+                    # **Dez.** A forma da chave de idempotencia do caso; o
+                    # desafio do OTP (o HMAC, as tentativas e a chave); os
+                    # contadores (a chave, o tecto de instantes e a chave
+                    # primaria); e as revogacoes (o `ate` nao negativo, uma
+                    # sessao **ou** um corte, e a chave primaria).
+                    "onboarding_case_chave_idem_ck",
+                    "onboarding_otp_codigo_hmac_ck",
+                    "onboarding_otp_pkey",
+                    "onboarding_otp_tentativas_ck",
+                    "onboarding_contador_chave_ck",
+                    "onboarding_contador_instantes_ck",
+                    "onboarding_contador_pkey",
+                    "painel_revogacao_alvo_ck",
+                    "painel_revogacao_ate_ck",
+                    "painel_revogacao_pkey",
                     # A verificacao: os tres dominios, as formas, o
                     # prefixo do STO e a idempotencia por `sha256`.
                     "kyc_check_custo_micro_usd_ck",
@@ -4898,6 +4994,28 @@ class TestInventario(ComBase):
                     "content_items_tipo_ck",
                     "content_items_versao_ck",
                     "content_items_versao_politica_ck",
+                    # ---------- KAM-122 (revisao da arte e da aprovacao do social)
+                    #
+                    # **Doze**, todas `CHECK` do item: a forma de cada coluna da
+                    # arte e do hash (a chave do STO presa ao tenant da linha, o
+                    # sha256, o fundo, o texto, o formato, as tres tentativas, o
+                    # custo nao negativo),
+                    # a arte completa ou nenhuma, e as tres que ligam o estado as
+                    # colunas: `pendente_aprovacao` com legenda e arte,
+                    # `aprovado`/`entregue` com a prova da aprovacao, e
+                    # `entregue` se e so se ha `entregue_at`.
+                    "content_items_aprovacao_hash_ck",
+                    "content_items_aprovado_ck",
+                    "content_items_arte_completa_ck",
+                    "content_items_arte_custo_ck",
+                    "content_items_arte_formato_ck",
+                    "content_items_arte_fundo_ck",
+                    "content_items_arte_ref_ck",
+                    "content_items_arte_sha256_ck",
+                    "content_items_arte_tentativas_ck",
+                    "content_items_arte_texto_ck",
+                    "content_items_entregue_ck",
+                    "content_items_pendente_ck",
                     "purge_log_classe_ck",
                     "purge_log_linhas_ck",
                     "purge_log_modo_ck",
@@ -5671,6 +5789,10 @@ class TestInventario(ComBase):
                     "contact_endpoints_forma_ck",
                     "contact_endpoints_pkey",
                     "contact_endpoints_tipo_ck",
+                    # KAM-208: o pseudonimo sem tenant.
+                    "contact_xtenant_pseudonym_kid_ck",
+                    "contact_xtenant_pseudonym_pkey",
+                    "contact_xtenant_pseudonym_pseudonimo_ck",
                     "contacts_inactivo_sem_phone_ck",
                     "contacts_merged_outro_ck",
                     "contacts_merged_par_ck",

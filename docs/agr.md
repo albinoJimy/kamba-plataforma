@@ -1101,9 +1101,9 @@ determinístico.
 A proibição de dígitos num `text` **é** a regra que impede prosa numérica
 (ADR-007) e não se desliga. Em Fase 0 sai o que não tem dígitos — o nome e a zona
 da loja, a palavra do estado da encomenda — e o resto fica calado: mutilar o valor
-era pior, porque parecia certo. É a dívida **124**, e é a mesma lacuna que faz a
-identificação do §8.4 cair para uma frase sem o nome da loja quando esse nome tem
-um dígito («Kero 24» fazia o turno inteiro rebentar na camada 1).
+era pior, porque parecia certo. É a dívida **124**. A identificação do §8.4 não
+passa por aqui: junta-se no `send`, fora do *renderer*, e nomeia uma loja «Kero 24»
+com os dígitos (decisão do fundador de 2026-11-21, no KAM-235).
 
 ### O que é Fase 0, e o que é atalho
 

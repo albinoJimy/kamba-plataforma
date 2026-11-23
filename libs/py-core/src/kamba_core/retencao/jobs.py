@@ -175,6 +175,16 @@ CAMINHO_QUARENTENA: Final = Caminho(
     global_=True,
 )
 
+#: KAM-236: os contadores do registo, sem tenant, pelo `actualizado_at` (o
+#: instante mais recente que a chave viu). Indice `onboarding_contador_actualizado_idx`.
+CAMINHO_CONTADORES_DO_REGISTO: Final = Caminho(
+    "platform.onboarding_contador",
+    "",
+    "SELECT count(*) FROM platform.onboarding_contador WHERE actualizado_at < %s",
+    "DELETE FROM platform.onboarding_contador WHERE actualizado_at < %s",
+    global_=True,
+)
+
 #: **O fecho da conversa**, que o bloco manda definir no PR: o mais tardio de
 #: `window_expires_at` (a janela de 24 h do canal, que fecha sozinha) e
 #: `last_human_activity_at` (o humano do HND). Um contacto com varias conversas
@@ -210,6 +220,7 @@ CAMINHOS: Final[Mapping[str, tuple[Caminho, ...]]] = {
     "events_consumed": (CAMINHO_CONSUMIDOS,),
     "events_dlq": (CAMINHO_DLQ,),
     "entrada_em_quarentena": (CAMINHO_QUARENTENA,),
+    "contadores_do_registo": (CAMINHO_CONTADORES_DO_REGISTO,),
 }
 
 # ---------------------------------------------------------------- objectos

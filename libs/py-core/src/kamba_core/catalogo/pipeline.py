@@ -171,7 +171,11 @@ class PortaDoRegisto(Protocol):
 
     def rascunho(self, tenant_id: str, sku: str, campos: Mapping[str, Campo]) -> None: ...
 
-    def publicar(self, tenant_id: str, sku: str, confirmacao: ConfirmacaoDoDono) -> None: ...
+    def publicar(
+        self, tenant_id: str, sku: str, confirmacao: ConfirmacaoDoDono, *, stock: int | None = None
+    ) -> None:
+        """Publica. `stock` e a quantidade que o dono deu (KAM-231), ou `None`."""
+        ...
 
 
 class ConfirmacaoRecusada(ValueError):
@@ -752,7 +756,15 @@ class ServicoDeIngestao:
             raise ConfirmacaoRecusada("sem sku")
         produto = {n: c for n, c in linha.campos.items() if n != SUGESTAO}
         self.registo.rascunho(linha.tenant_id, linha.sku, produto)
-        self.registo.publicar(linha.tenant_id, linha.sku, confirmacao)
+        # KAM-231: a quantidade que o dono deu vai ao Registo **com** a
+        # publicacao, e nao fica so na ingestao e no resumo. So quando a ha: um
+        # produto sem quantidade (stock por confirmar, ilimitado) publica sem ela.
+        stock = produto.get("stock")
+        quantidade = stock.valor if stock is not None and isinstance(stock.valor, str) else None
+        if quantidade is not None and quantidade.isdigit():
+            self.registo.publicar(linha.tenant_id, linha.sku, confirmacao, stock=int(quantidade))
+        else:
+            self.registo.publicar(linha.tenant_id, linha.sku, confirmacao)
 
     def _sem_escrever(self, linha: Ingestao) -> Resultado:
         """O estado de agora, sem gravar nada: a resposta a uma mensagem repetida."""

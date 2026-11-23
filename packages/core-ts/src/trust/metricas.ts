@@ -23,8 +23,8 @@
  * shortcut: contagem antes do COMMIT no consumidor; revê-se quando o `consumir`
  * ganhar um gancho depois da transacção (ou um contador por `events_consumed`).
  *
- * **As etiquetas são domínios fechados** (`tipo` 9, `passo` 4, `origem` 2,
- * `varredura` 5, `desfecho` 2, `motivo` 2), e nenhuma leva tenant, sinal nem caso
+ * **As etiquetas são domínios fechados** (`tipo` 10, `passo` 4, `origem` 2,
+ * `varredura` 7, `desfecho` 2, `motivo` 2), e nenhuma leva tenant, sinal nem caso
  * (`OBS-I`). Qual tenant é lê-se da `ts_sanction`, por quem tem papel para isso.
  *
  * **Nascem a zero**: todas as séries saem desde o arranque, e uma regra de
@@ -51,7 +51,15 @@ export const MOTIVOS_DE_NAO_AVALIADA = ["sem_categoria", "poucas_lojas"] as cons
 export type MotivoDeNaoAvaliada = (typeof MOTIVOS_DE_NAO_AVALIADA)[number];
 
 /** As varreduras do lote. Domínio da etiqueta `varredura`. */
-export const VARREDURAS = ["nao_entrega", "fotos", "encerramentos", "mudancas_de_conta", "precos"] as const;
+export const VARREDURAS = [
+  "nao_entrega",
+  "fotos",
+  "encerramentos",
+  "mudancas_de_conta",
+  "pseudonimos",
+  "compradores_do_dono",
+  "precos",
+] as const;
 export type Varredura = (typeof VARREDURAS)[number];
 
 /** O desfecho de uma corrida. Uma falha não pára as outras varreduras. */

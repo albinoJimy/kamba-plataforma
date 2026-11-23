@@ -1072,7 +1072,7 @@ class TestPipeline(unittest.TestCase):
         r = _ate_ao_rascunho(m, m.servico.receber(A, "m1").ingestao.id)
         publicar = m.registo.publicar
 
-        def falha(*_: object) -> None:
+        def falha(*_: object, **__: object) -> None:
             raise ConnectionError("COM em baixo")
 
         m.registo.publicar = falha  # type: ignore[method-assign]

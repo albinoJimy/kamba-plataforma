@@ -86,6 +86,13 @@ _CONCIERGE: contextvars.ContextVar[tuple[str, bool] | None] = contextvars.Contex
     "kamba_agr_concierge_do_turno", default=None
 )
 
+#: O nome da loja deste turno, lido antes do `ainvoke`: `(tenant, tenants.nome)`
+#: (KAM-235). `None` fora de um turno, e a apresentacao cai entao para a frase
+#: sem nome — e a retoma e a decisao de rascunho, que nao passam pela resolucao.
+_LOJA: contextvars.ContextVar[tuple[str, str | None] | None] = contextvars.ContextVar(
+    "kamba_agr_loja_do_turno", default=None
+)
+
 
 class PortasIncoerentesError(RuntimeError):
     """O `Dependencias` tem a politica de concierge e nao tem o servico.
@@ -108,6 +115,18 @@ def importar_build_graph(alvo: str) -> Callable[[Any], Grafo]:
 def admitir(_estado: Mapping[str, Any]) -> str | None:
     """A porta `admitir` das `Dependencias`: o veredicto da resolucao do turno."""
     return _ADMISSAO.get()
+
+
+def loja_do_turno(estado: Mapping[str, Any]) -> str | None:
+    """A porta `loja` das `Dependencias` (KAM-235): o `tenants.nome` do turno.
+
+    So o do *tenant* do estado: um nome lido para outro *tenant* nao serve, e
+    da `None` — a frase sem nome, que identifica o assistente na mesma.
+    """
+    lida = _LOJA.get()
+    if lida is not None and lida[0] == estado.get("tenant_id"):
+        return lida[1]
+    return None
 
 
 class PoliticaDoTurno:
@@ -192,24 +211,28 @@ def para_validar(vertical: Any) -> Grafo:
 class _GrafoDoTurno:
     """O grafo da vertical, com o que se leu antes do turno: admissao e politica."""
 
-    __slots__ = ("_grafo", "_admissao", "_concierge")
+    __slots__ = ("_grafo", "_admissao", "_concierge", "_loja")
 
     def __init__(
         self,
         grafo: Grafo,
         admissao: str | None,
         concierge: tuple[str, bool] | None = None,
+        loja: tuple[str, str | None] | None = None,
     ) -> None:
         self._grafo = grafo
         self._admissao = admissao
         self._concierge = concierge
+        self._loja = loja
 
     async def ainvoke(self, estado: dict[str, Any], config: dict[str, Any]) -> Any:
         marca = _ADMISSAO.set(self._admissao)
         marca_da_politica = _CONCIERGE.set(self._concierge)
+        marca_da_loja = _LOJA.set(self._loja)
         try:
             return await self._grafo.ainvoke(estado, config)
         finally:
+            _LOJA.reset(marca_da_loja)
             _CONCIERGE.reset(marca_da_politica)
             _ADMISSAO.reset(marca)
 
@@ -224,6 +247,7 @@ class PortaDeGrafos:
         "_bloqueado",
         "_papel",
         "_politica",
+        "_loja",
     )
 
     def __init__(
@@ -235,6 +259,7 @@ class PortaDeGrafos:
         contacto_bloqueado: Callable[[InvocacaoDoAgente], Awaitable[bool]],
         papel_do_contacto: Callable[[str, str], Awaitable[object]],
         politica: PoliticaDoTurno | None = None,
+        nome_da_loja: Callable[[str], Awaitable[str | None]] | None = None,
     ) -> None:
         self._registo = registo
         self._grafos = dict(grafos)
@@ -242,6 +267,7 @@ class PortaDeGrafos:
         self._bloqueado = contacto_bloqueado
         self._papel = papel_do_contacto
         self._politica = politica
+        self._loja = nome_da_loja
 
     def _grafo(self, vertical: object) -> Grafo:
         grafo = self._grafos.get(vertical) if isinstance(vertical, str) else None
@@ -267,7 +293,13 @@ class PortaDeGrafos:
                 self._politica.politica.activa, invocacao.tenant_id
             )
             concierge = (invocacao.tenant_id, bool(activa))
-        return _GrafoDoTurno(grafo, admissao, concierge)
+        # KAM-235: o nome da loja para a apresentacao, lido aqui pela razao da
+        # politica — o no que o usa e sincrono. Uma leitura que falhe **sobe**,
+        # como a do contacto: o turno falha antes de tocar na base.
+        loja = None
+        if self._loja is not None:
+            loja = (invocacao.tenant_id, await self._loja(invocacao.tenant_id))
+        return _GrafoDoTurno(grafo, admissao, concierge, loja)
 
     async def _admissao(self, invocacao: InvocacaoDoAgente, grafo: Any) -> str | None:
         if await self._bloqueado(invocacao):

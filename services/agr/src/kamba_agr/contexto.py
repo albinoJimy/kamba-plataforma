@@ -81,15 +81,18 @@ MODO_DO_BOT: Final = "bot"
 VERTICAIS: Final = ("vendedor", "servicos")
 
 #: Os campos opcionais do contrato: a `persona` (KAM-118), o `botao`
-#: (KAM-211) e o `message_id` (KAM-223). **Aditivos da v1**: um CHR anterior nao
+#: (KAM-211), o `message_id` (KAM-223) e o `asset_id` (KAM-231). **Aditivos da v1**: um CHR anterior nao
 #: os escreve, e a porta le entao a omissao. Ficam fora do `CAMPOS` de proposito
 #: — o `CAMPOS` e a lista dos **obrigatorios**, e ha ensaios que a percorrem a
 #: apagar um campo de cada vez e a esperar `campo_em_falta`.
-CAMPOS_OPCIONAIS: Final = ("persona", "botao", "message_id")
+CAMPOS_OPCIONAIS: Final = ("persona", "botao", "message_id", "asset_id")
 
 #: O `wa_type` da resposta a um botao ou a uma lista (`button_reply`,
 #: `list_reply`). So ele leva `botao`.
 TIPO_INTERACTIVO: Final = "interactive"
+
+#: O `wa_type` de uma foto. So ele leva `asset_id` (KAM-231).
+TIPO_IMAGEM: Final = "image"
 
 #: A forma do `botao`: o `reply.id` que **nos** emitimos — `confirm:{uuid}`,
 #: `falar_com_humano`, os `id` do aviso do §3.19 —, e nunca o titulo. Alfabeto
@@ -180,6 +183,11 @@ class InvocacaoDoAgente:
     #: conversa desta invocacao, e passa o texto pelo
     #: `guardas.mensagem_do_cliente` antes da janela (`mensagens.py`).
     message_id: str | None = None
+    #: KAM-231. O `asset_id` da foto do dono em `platform.media_assets`, ou
+    #: `None`. **Nunca os bytes** nem o `media_id` da Meta: o executor do
+    #: `create_product_draft` le a linha por ele, no tenant da invocacao. So
+    #: numa `image` do dono.
+    asset_id: str | None = None
 
     @property
     def chave_do_registo(self) -> str:
@@ -293,8 +301,23 @@ def ler_invocacao(corpo: Any) -> InvocacaoDoAgente:
         if not isinstance(message_id, str) or not _UUID.fullmatch(message_id):
             raise InvocacaoInvalidaError("campo_invalido_message_id")
 
+    # **O `asset_id` so vem numa `image` do dono, e com a forma de um UUID**
+    # (KAM-231). Pela razao do `botao`: noutro tipo ou noutra persona e um corpo
+    # incoerente, e um cliente nao cria rascunhos de catalogo. O codigo nunca
+    # leva o valor.
+    asset_id = None
+    if "asset_id" in corpo:
+        asset_id = corpo["asset_id"]
+        if (
+            not isinstance(asset_id, str)
+            or not _UUID.fullmatch(asset_id)
+            or valores["type"] != TIPO_IMAGEM
+            or persona != PERSONA_DONO
+        ):
+            raise InvocacaoInvalidaError("campo_invalido_asset_id")
+
     return InvocacaoDoAgente(
-        **valores, persona=persona, botao=botao, message_id=message_id
+        **valores, persona=persona, botao=botao, message_id=message_id, asset_id=asset_id
     )
 
 

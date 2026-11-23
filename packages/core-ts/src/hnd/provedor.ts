@@ -49,7 +49,9 @@ import {
   PROVEDORES,
   ProvedorIndisponivelError,
   SemPrivilegioError,
+  type ArquivoDoProvedor,
   type ClienteDoProvedor,
+  type DesfechoDoArquivo,
   type ProvisionadorDoProvedor,
   type ClienteSql,
   type ContaDeAtendimento,
@@ -63,6 +65,7 @@ import {
   type PedidoDeHandoff,
   type Provedor,
 } from "./contrato.ts";
+import { arquivarContaDoTenant } from "./arquivo.ts";
 import { lerAcontecimento, type Corpo } from "./eventos.ts";
 import { ESTADOS_QUE_FECHAM, concluido, estadoDe, outcomeDoProvedor } from "./estados.ts";
 import {
@@ -111,6 +114,12 @@ export interface Dependencias {
    * que atenda conversas não pode ter o poder de criar contas.
    */
   readonly provisionador: ProvisionadorDoProvedor;
+  /**
+   * O arquivo da conta no encerramento (KAM-233). **Opcional**, porque só o
+   * processo do encerramento o monta: sem ele o `archiveAccount` levanta pelo
+   * nome, como o `setBotMuted`, e nunca finge.
+   */
+  readonly arquivo?: ArquivoDoProvedor;
   readonly fila: FilaDoEspelho;
   /** A `SecretRef` do *token* do bot, por *tenant*. Nunca o *token*. */
   readonly refDoTokenDoBot: (tenantId: string) => string;
@@ -157,6 +166,7 @@ export class Handoff implements HandoffProvider {
   readonly #bd: ClienteSql;
   readonly #provedor: ClienteDoProvedor;
   readonly #provisionador: ProvisionadorDoProvedor;
+  readonly #arquivo: ArquivoDoProvedor | undefined;
   readonly #fila: FilaDoEspelho;
   readonly #refDoTokenDoBot: (tenantId: string) => string;
   readonly #refDoTokenDoUtilizador: (tenantId: string) => string;
@@ -172,6 +182,7 @@ export class Handoff implements HandoffProvider {
     this.#bd = dependencias.bd;
     this.#provedor = dependencias.provedor;
     this.#provisionador = dependencias.provisionador;
+    this.#arquivo = dependencias.arquivo;
     this.#fila = dependencias.fila;
     this.#refDoTokenDoBot = dependencias.refDoTokenDoBot;
     this.#refDoTokenDoUtilizador = dependencias.refDoTokenDoUtilizador;
@@ -598,6 +609,14 @@ export class Handoff implements HandoffProvider {
       return;
     }
     this.#metricas.contar(METRICA_HANDOFFS, estado);
+  }
+
+  /** Ver `HandoffProvider.archiveAccount` e `arquivo.ts`. */
+  async archiveAccount(tenantId: string): Promise<DesfechoDoArquivo | "sem_conta"> {
+    if (this.#arquivo === undefined) {
+      throw new SemPrivilegioError("archiveAccount", "o HND foi montado sem o arquivo da Platform API");
+    }
+    return arquivarContaDoTenant({ bd: this.#bd, arquivo: this.#arquivo, tenantId, provedor: this.#qual });
   }
 
   /** `true` quando a passagem já está concluída. */

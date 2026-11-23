@@ -76,6 +76,20 @@ class TestValorDoDono(unittest.TestCase):
             with self.subTest(texto=texto):
                 self.assertEqual(regras.ler_valor_do_dono(texto), VALOR)
 
+    def test_o_k_de_milhar_le_se_como_no_catalogo(self) -> None:
+        """KAM-237: «75k» e 75 000 Kz, como no catalogo (`don-orc-005`). O «kz» nao e um «k»."""
+        from kamba_agr.catalogo import regras as do_catalogo
+
+        for texto, kz in (("75k", 75_000), ("75 k", 75_000), ("75K", 75_000), ("1,5k", 1_500), ("120k", 120_000)):
+            with self.subTest(texto=texto):
+                self.assertEqual(regras.ler_valor_do_dono(texto), kz * 100)
+                self.assertEqual(do_catalogo.ler_preco_do_dono(texto), kz * 100)
+        self.assertEqual(regras.ler_valor_do_dono("75kz"), 75 * 100)
+        for texto in ("75k a 80k", "75k cada", "120.000k"):
+            with self.subTest(texto=texto):
+                with self.assertRaises(regras.ValorRecusadoError):
+                    regras.ler_valor_do_dono(texto)
+
     def test_o_ambiguo_e_o_composto_recusam_sem_adivinhar(self) -> None:
         casos = {
             "1,500": regras.VALOR_AMBIGUO,

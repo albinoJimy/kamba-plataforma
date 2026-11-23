@@ -102,6 +102,12 @@ ESPERADO_POR_TABELA.update(
         # titular e um `DELETE` verdadeiro (doc 06 §7.6), e so aqui.
         "contact_endpoints": _identidade("SELECT", "INSERT", "DELETE"),
         "hmac_key_versions": _identidade("SELECT", "INSERT"),
+        # KAM-208 (revisao `0087`, decisao do fundador de 2026-11-21, D2): o
+        # pseudonimo sem tenant e do `kamba_identity` e de mais ninguem — nem do
+        # `kamba_batch`, que so o compara pela funcao `SECURITY DEFINER`. Os
+        # quatro de dados porque a resolucao o escreve (`INSERT ... ON CONFLICT
+        # DO UPDATE`, que le a linha que substitui) e o apaga com o numero.
+        "contact_xtenant_pseudonym": _identidade("SELECT", "INSERT", "UPDATE", "DELETE"),
     }
 )
 
@@ -1471,7 +1477,9 @@ ESPERADO_POR_TABELA.update(
     {
         "onboarding_gate": {
             "kamba_app": {"SELECT"},
-            "kamba_batch": {"SELECT", "INSERT"},
+            # KAM-233 (`0086`, decisao do fundador de 2026-11-21, Q3 = B): o
+            # `DELETE` da purga do off-boarding.
+            "kamba_batch": {"SELECT", "INSERT", "DELETE"},
             "kamba_resolver": set(),
             "kamba_identity": set(),
             "kamba_audit": set(),
@@ -1504,7 +1512,9 @@ ESPERADO_POR_TABELA.update(
     {
         "catalog_ingestions": {
             "kamba_app": {"SELECT"},
-            "kamba_batch": set(),
+            # KAM-233 (`0086`, decisao do fundador de 2026-11-21, Q3 = B): o
+            # `DELETE` da purga do off-boarding.
+            "kamba_batch": {"DELETE"},
             "kamba_resolver": set(),
             "kamba_identity": set(),
             "kamba_audit": set(),
@@ -1528,7 +1538,9 @@ ESPERADO_POR_TABELA.update(
             "kamba_app": {"SELECT"},
             # KAM-124: a consolidacao do custo de imagem le a tabela (revisao
             # do custo dos modulos). Leitura e mais nada.
-            "kamba_batch": {"SELECT"},
+            # KAM-233 (`0086`, decisao do fundador de 2026-11-21, Q3 = B): o
+            # `DELETE` da purga do off-boarding.
+            "kamba_batch": {"SELECT", "DELETE"},
             "kamba_resolver": set(),
             "kamba_identity": set(),
             "kamba_audit": set(),
@@ -1567,7 +1579,9 @@ ESPERADO_POR_TABELA.update(
     {
         "brand_profile": {
             "kamba_app": {"SELECT"},
-            "kamba_batch": set(),
+            # KAM-233 (`0086`, decisao do fundador de 2026-11-21, Q3 = B): o
+            # `DELETE` da purga do off-boarding.
+            "kamba_batch": {"DELETE"},
             "kamba_resolver": set(),
             "kamba_identity": set(),
             "kamba_audit": set(),
@@ -1578,7 +1592,9 @@ ESPERADO_POR_TABELA.update(
         },
         "content_calendar": {
             "kamba_app": {"SELECT"},
-            "kamba_batch": set(),
+            # KAM-233 (`0086`, decisao do fundador de 2026-11-21, Q3 = B): o
+            # `DELETE` da purga do off-boarding.
+            "kamba_batch": {"DELETE"},
             "kamba_resolver": set(),
             "kamba_identity": set(),
             "kamba_audit": set(),
@@ -1589,7 +1605,9 @@ ESPERADO_POR_TABELA.update(
         },
         "content_items": {
             "kamba_app": {"SELECT"},
-            "kamba_batch": set(),
+            # KAM-233 (`0086`, decisao do fundador de 2026-11-21, Q3 = B): o
+            # `DELETE` da purga do off-boarding.
+            "kamba_batch": {"DELETE"},
             "kamba_resolver": set(),
             "kamba_identity": set(),
             "kamba_audit": set(),
@@ -1622,9 +1640,56 @@ ESPERADO_POR_TABELA.update(
         },
         "owner_phone_changes": {
             "kamba_app": set(),
-            "kamba_batch": set(),
+            # KAM-233 (`0086`, decisao do fundador de 2026-11-21, Q3 = B): o
+            # `DELETE` da purga do off-boarding.
+            "kamba_batch": {"DELETE"},
             "kamba_resolver": set(),
             "kamba_identity": {"SELECT"},
+            "kamba_audit": set(),
+            "kamba_agr": set(),
+            "kamba_pay_hooks": set(),
+            "kamba_migrator": set(PRIVILEGIOS_DE_TABELA),
+            "public": set(),
+        },
+    }
+)
+
+#: A inscricao na base (KAM-236). As tres sao **da aplicacao**: o
+#: `onboarding-web` le e escreve como `kamba_app`, com o `INSERT` e o `UPDATE`
+#: por coluna no desafio e nas revogacoes (ver `COLUNAS_POR_PAPEL`), e
+#: **ninguem da aplicacao apaga** (dicionario §2): o desafio marca-se usado, e
+#: as revogacoes nao saem. Os contadores sao a excepcao do lote: o `INSERT` e de
+#: tabela (a chave e o `ON CONFLICT`), e quem apaga as chaves paradas e o
+#: executor da retencao, como `kamba_batch` (`CAMINHO_CONTADORES_DO_REGISTO`).
+ESPERADO_POR_TABELA.update(
+    {
+        "onboarding_otp": {
+            "kamba_app": {"SELECT"},
+            "kamba_batch": set(),
+            "kamba_resolver": set(),
+            "kamba_identity": set(),
+            "kamba_audit": set(),
+            "kamba_agr": set(),
+            "kamba_pay_hooks": set(),
+            "kamba_migrator": set(PRIVILEGIOS_DE_TABELA),
+            "public": set(),
+        },
+        "onboarding_contador": {
+            "kamba_app": {"SELECT", "INSERT"},
+            "kamba_batch": {"SELECT", "DELETE"},
+            "kamba_resolver": set(),
+            "kamba_identity": set(),
+            "kamba_audit": set(),
+            "kamba_agr": set(),
+            "kamba_pay_hooks": set(),
+            "kamba_migrator": set(PRIVILEGIOS_DE_TABELA),
+            "public": set(),
+        },
+        "painel_revogacao": {
+            "kamba_app": {"SELECT"},
+            "kamba_batch": set(),
+            "kamba_resolver": set(),
+            "kamba_identity": set(),
             "kamba_audit": set(),
             "kamba_agr": set(),
             "kamba_pay_hooks": set(),
@@ -1642,7 +1707,9 @@ ESPERADO_POR_TABELA.update(
     {
         "quote_requests": {
             "kamba_app": {"SELECT"},
-            "kamba_batch": set(),
+            # KAM-233 (`0086`, decisao do fundador de 2026-11-21, Q3 = B): o
+            # `DELETE` da purga do off-boarding.
+            "kamba_batch": {"DELETE"},
             "kamba_resolver": set(),
             "kamba_identity": set(),
             "kamba_audit": set(),
@@ -1795,7 +1862,9 @@ ESPERADO_POR_TABELA.update(
     {
         "waitlist_entry": {
             "kamba_app": set(),
-            "kamba_batch": {"SELECT", "INSERT"},
+            # KAM-233 (`0086`, decisao do fundador de 2026-11-21, Q3 = B): o
+            # `DELETE` da purga do off-boarding.
+            "kamba_batch": {"SELECT", "INSERT", "DELETE"},
             "kamba_resolver": set(),
             "kamba_identity": set(),
             "kamba_audit": {"SELECT"},
@@ -1873,7 +1942,9 @@ ESPERADO_POR_TABELA.update(
     {
         "onboarding_smoke": {
             "kamba_app": {"SELECT"},
-            "kamba_batch": {"SELECT"},
+            # KAM-233 (`0086`, decisao do fundador de 2026-11-21, Q3 = B): o
+            # `DELETE` da purga do off-boarding.
+            "kamba_batch": {"SELECT", "DELETE"},
             "kamba_resolver": set(),
             "kamba_identity": set(),
             "kamba_audit": {"SELECT"},
@@ -1918,7 +1989,9 @@ ESPERADO_POR_TABELA.update(
     {
         "owner_actions": {
             "kamba_app": {"SELECT", "INSERT"},
-            "kamba_batch": set(),
+            # KAM-233 (`0086`, decisao do fundador de 2026-11-21, Q3 = B): o
+            # `DELETE` da purga do off-boarding.
+            "kamba_batch": {"DELETE"},
             "kamba_resolver": set(),
             "kamba_identity": set(),
             "kamba_audit": set(),
@@ -2402,6 +2475,15 @@ COLUNAS_POR_PAPEL = {
     # KAM-097: a varredura da foto repetida le tres colunas da ingestao, e so
     # elas — o `extraido` e os media ficam fora do lote.
     ("kamba_batch", "catalog_ingestions", "SELECT"): {"id", "tenant_id", "phash"},
+    # KAM-233 (`0086`): a purga do off-boarding le das operacionais so o
+    # `tenant_id` do `DELETE ... WHERE tenant_id = %s`. O `BYPASSRLS` do lote
+    # nao lhe da a marca, o pedido, o conteudo nem as accoes do dono.
+    ("kamba_batch", "owner_actions", "SELECT"): {"tenant_id"},
+    ("kamba_batch", "owner_phone_changes", "SELECT"): {"tenant_id"},
+    ("kamba_batch", "quote_requests", "SELECT"): {"tenant_id"},
+    ("kamba_batch", "brand_profile", "SELECT"): {"tenant_id"},
+    ("kamba_batch", "content_calendar", "SELECT"): {"tenant_id"},
+    ("kamba_batch", "content_items", "SELECT"): {"tenant_id"},
     # KAM-097: o consumidor de T&S le dos sinais e das sancoes so o que a escada
     # e a idempotencia precisam. **Nao le** o `detalhe`, o `motivo_interno`, a
     # `regra`, os `sinais`, o `autor`, o `case_id` nem a `justificacao_salto`: a
@@ -2627,6 +2709,20 @@ COLUNAS_POR_PAPEL = {
     # A troca insere a identidade do pedido e o canal do numero pedido, que
     # nao mudam depois; o `UPDATE` e o estado, o prazo, o contacto, o HMAC do
     # antigo e o desafio.
+    # KAM-236 (revisao da inscricao na base). O desafio insere-se com o caso e
+    # o tenant, e muda so o HMAC, o prazo, as tentativas e o `usado_at` (o
+    # `apagar` da porta); os contadores mudam os instantes e o
+    # `actualizado_at`, nunca a chave; uma revogacao insere-se com a sessao ou o
+    # corte, e so o corte sobe.
+    ("kamba_app", "onboarding_otp", "INSERT"): {
+        "onboarding_id", "tenant_id", "codigo_hmac", "expira_at", "tentativas",
+    },
+    ("kamba_app", "onboarding_otp", "UPDATE"): {
+        "codigo_hmac", "expira_at", "tentativas", "usado_at",
+    },
+    ("kamba_app", "onboarding_contador", "UPDATE"): {"instantes", "actualizado_at"},
+    ("kamba_app", "painel_revogacao", "INSERT"): {"tenant_id", "sid", "ate", "expira_at"},
+    ("kamba_app", "painel_revogacao", "UPDATE"): {"ate", "expira_at"},
     ("kamba_identity", "owner_phone_changes", "INSERT"): {
         "tenant_id", "pedido", "telefone_hmac", "owner_channel_wa", "prazo",
     },
@@ -2646,6 +2742,8 @@ COLUNAS_POR_PAPEL = {
     ("kamba_app", "brand_profile", "UPDATE"): {
         "nome", "categoria", "tom", "cores", "publico", "slots_preferidos", "factos",
         "logo_asset_id", "versao", "atualizado_at",
+        # KAM-122: a hora dos termos da primeira entrega.
+        "termos_entrega_at",
     },
     ("kamba_app", "content_calendar", "INSERT"): {
         "calendar_id", "tenant_id", "semana_iso", "geracao", "decisao", "versao_politica",
@@ -2658,6 +2756,11 @@ COLUNAS_POR_PAPEL = {
     ("kamba_app", "content_items", "UPDATE"): {
         "legenda", "art_asset_id", "estado", "revisao_reforcada", "versao_politica", "versao",
         "atualizado_at",
+        # KAM-122 (revisao da arte e da aprovacao do social): as colunas da arte
+        # e da aprovacao, que o AGR escreve num item que ja existe. Nenhum
+        # `INSERT` novo, e continua sem `UPDATE` no `is_ai_generated`.
+        "arte_ref", "arte_sha256", "arte_fundo", "arte_texto", "arte_formato", "arte_tentativas",
+        "arte_custo_usd", "aprovacao_hash", "aprovado_at", "entregue_at",
     },
     ("kamba_app", "quote_requests", "INSERT"): {
         "tenant_id", "contact_id", "conversation_id", "sku", "quantidade",

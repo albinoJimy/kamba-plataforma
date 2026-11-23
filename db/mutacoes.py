@@ -333,6 +333,10 @@ REV_FINALIDADE_DO_SCREENING = _revisao_por_glob("*_finalidade_do_screening.py")
 #: `db/tests/test_finalidade_das_condicoes_schema.py`.
 REV_FINALIDADE_DAS_CONDICOES = _revisao_por_glob("*_finalidade_das_condicoes.py")
 REV_SOCIAL_DO_DONO = _revisao_por_glob("*_social_do_dono.py")
+#: KAM-122: a revisao da arte e da aprovacao do social, pela mesma razao — o
+#: numero (`0085`) e o da fila de integracao. O ensaio que a prova e o
+#: `db/tests/test_arte_e_aprovacao_do_social_schema.py`.
+REV_ARTE_E_APROVACAO_DO_SOCIAL = _revisao_por_glob("*_arte_e_aprovacao_do_social.py")
 #: KAM-095: a revisao da lista de espera, pela razao da do Catalogo AI — o
 #: numero (`0059`) e provisorio. O ensaio que a prova e o
 #: `db/tests/test_lista_espera_schema.py`.
@@ -552,6 +556,9 @@ CX_CONTRATO = "packages/core-ts/src/coexistencia/contrato.ts"
 CX_MODULO = "packages/core-ts/src/coexistencia/coexistencia.ts"
 CX_METRICAS = "packages/core-ts/src/coexistencia/metricas.ts"
 CX_EXPLOSAO = "packages/core-ts/src/entrada/explosao.ts"
+#: KAM-235. O estagio dos `statuses`: o que o `worker-canal` passa ao
+#: `Saida.ingerir`. Corre na `tests_outbound`, que leva o ensaio de unidade dele.
+SAIDA_ESTAGIO = "packages/core-ts/src/outbound/estagio.ts"
 REV18 = "db/migrations/versions/0018_coexistencia.py"
 
 # -------------------------------------------------------------- KAM-115
@@ -1377,9 +1384,11 @@ MUTACOES = [
      '            cifrar(dek, bsuid, contextoDaCifra(tenant, dekId, "bsuid_enc")),',
      '            Buffer.from(bsuid, "utf8"),', IDENTIDADE),
     ("identidade: trocar de numero deixa a cifra do antigo", ID_SERVICO,
+     # KAM-208: o bloco ganhou o apagamento do pseudonimo sem tenant antes da
+     # `}`; a mutacao tira so o dos telefones, que e o que ela mede.
      "        if (telefoneDoContacto !== null && !eOMesmoNumero) {\n"
-     "          await executar(cliente, SQL.APAGAR_TELEFONES, [tenant, contacto]);\n        }\n",
-     "", IDENTIDADE),
+     "          await executar(cliente, SQL.APAGAR_TELEFONES, [tenant, contacto]);\n",
+     "        if (telefoneDoContacto !== null && !eOMesmoNumero) {\n", IDENTIDADE),
     # ----------------------------------- KAM-008, revisao adversarial (ANALISE-08)
     # As que **sobreviveram** a primeira versao dos testes, mais as dos defeitos
     # que as duas revisoes encontraram.
@@ -7810,6 +7819,67 @@ MUTACOES = [
     # O criterio 8: um item nascia sem `is_ai_generated`, e nenhum codigo o
     # escreve. O `test_o_catalogo_e_exactamente_o_inventario` tem de a matar.
 
+    # ------------------- KAM-122 (revisao da arte e da aprovacao do social)
+    #
+    # Oito: a finalidade, a descida, quatro ao gatilho (a aresta para
+    # `entregue`, os finais, a legenda e o texto da arte de um aprovado) e duas
+    # as restricoes da arte. O alvo
+    # e a revisao descoberta pelo *glob* (`REV_ARTE_E_APROVACAO_DO_SOCIAL`), e o
+    # ensaio que as mata e o `test_arte_e_aprovacao_do_social_schema.py`.
+    ('arte e aprovacao: o dominio nao ganha a finalidade', REV_ARTE_E_APROVACAO_DO_SOCIAL,
+     "    \"'geracao_de_imagem'\",\n",
+     "",
+     "tests"),
+    # A revisao corria e o `CHECK` ficava com as dezassete: o *gate* negava
+    # sempre o fundo gerado. O
+    # `test_a_geracao_de_imagem_e_a_decima_oitava_e_e_aceite` tem de a matar.
+    ('arte e aprovacao: a descida apaga o destino', REV_ARTE_E_APROVACAO_DO_SOCIAL,
+     "    if linhas:\n        raise RuntimeError(",
+     "    if False:\n        raise RuntimeError(",
+     "tests"),
+    # A descida deixava de recusar com um destino `geracao_de_imagem`, e o
+    # `ADD CONSTRAINT` das dezassete rebentava a meio. O
+    # `test_com_um_destino_recusa_e_sem_ele_desce_e_volta` tem de a matar.
+    ('arte e aprovacao: entregue sem passar por aprovado', REV_ARTE_E_APROVACAO_DO_SOCIAL,
+     "(OLD.estado = 'pendente_aprovacao' AND NEW.estado IN ('aprovado', 'rejeitado', 'expirado'))",
+     "(OLD.estado = 'pendente_aprovacao' AND NEW.estado IN ('aprovado', 'entregue', 'rejeitado', 'expirado'))",
+     "tests"),
+    # O criterio 6: um item `pendente_aprovacao` com a hora da aprovacao escrita
+    # passava a `entregue` sem o dono o ter aprovado. O
+    # `test_entregue_so_de_aprovado` tem de a matar.
+    ('arte e aprovacao: um final muda', REV_ARTE_E_APROVACAO_DO_SOCIAL,
+     "IF OLD.estado IN ({FINAIS_SQL}) AND NEW IS DISTINCT FROM OLD THEN",
+     "IF false AND OLD.estado IN ({FINAIS_SQL}) AND NEW IS DISTINCT FROM OLD THEN",
+     "tests"),
+    # Um item `rejeitado` ou `expirado` mudava de colunas sem mudar de estado.
+    # O `test_os_finais_nao_mudam` tem de a matar.
+    ('arte e aprovacao: a legenda de um aprovado muda', REV_ARTE_E_APROVACAO_DO_SOCIAL,
+     "               NEW.legenda IS DISTINCT FROM OLD.legenda\n               OR NEW.arte_ref",
+     "               NEW.arte_ref",
+     "tests"),
+    # O criterio 5: a legenda mudava num item `aprovado` e a aprovacao deixava
+    # de ser a do que o dono viu. O
+    # `test_um_aprovado_nao_muda_a_legenda_a_arte_nem_o_hash` tem de a matar.
+    ('arte e aprovacao: o texto da arte de um aprovado muda', REV_ARTE_E_APROVACAO_DO_SOCIAL,
+     "               OR NEW.arte_texto IS DISTINCT FROM OLD.arte_texto\n",
+     "",
+     "tests"),
+    # O texto que esta na imagem (o preco em Kz, o nome) mudava num item
+    # `aprovado` sem nova aprovacao. O mesmo ensaio tem de a matar.
+    ('arte e aprovacao: a arte de outro tenant', REV_ARTE_E_APROVACAO_DO_SOCIAL,
+     "\n                   AND left(arte_ref, 38) = 't/' || tenant_id::text)),",
+     ")),",
+     "tests"),
+    # A chave do STO deixava de estar presa ao tenant da linha: um item apontava
+    # a arte de outra loja. O
+    # `test_a_arte_e_uma_chave_do_sto_do_tenant_da_linha` tem de a matar.
+    ('arte e aprovacao: quatro tentativas', REV_ARTE_E_APROVACAO_DO_SOCIAL,
+     "CHECK (arte_tentativas BETWEEN 0 AND 3)",
+     "CHECK (arte_tentativas BETWEEN 0 AND 4)",
+     "tests"),
+    # O criterio 9: «max. 3 tentativas de arte por item». O
+    # `test_ate_tres_tentativas_e_custo_nao_negativo` tem de a matar.
+
     # ------------------------------------------------------------- KAM-061
     # O indice de pesquisa: o DDL e a funcao (`db/indice.py`), a camada de
     # resposta e o consumidor (`kamba_core.idx`). **Metade ataca a ligacao e nao
@@ -8268,12 +8338,9 @@ MUTACOES = [
      '"GRANT SELECT, INSERT, UPDATE (estado, na_fila_desde, ',
      '"GRANT SELECT, INSERT, UPDATE (estado, aprovado_em, na_fila_desde, ',
      "tests"),
-    # O lote apaga uma entrada, e com ela a vaga dada na janela de 7 dias: o
-    # mesmo ensaio, no `DELETE`.
-    ("lista de espera: o lote apaga entradas", REV_LISTA_DE_ESPERA,
-     '"GRANT SELECT, INSERT, UPDATE (',
-     '"GRANT SELECT, INSERT, DELETE, UPDATE (',
-     "tests"),
+    # A mutacao «o lote apaga entradas» saiu com o KAM-233: a `0086` (Q3 = B)
+    # da ao lote o `DELETE` da `waitlist_entry` para a purga do encerramento, e
+    # um `DELETE` a mais nesta revisao deixou de mudar o que a base aceita.
     # A aplicacao le a fila, que atravessa tenants pela posicao:
     # `test_a_aplicacao_nao_le_nem_a_fila_nem_o_limite`.
     ("lista de espera: a aplicacao le a fila", REV_LISTA_DE_ESPERA,
@@ -8654,6 +8721,53 @@ MUTACOES = [
      "JOIN caso ON v.tenant_id = caso.tenant_id",
      "CROSS JOIN caso",
      "tests"),
+    # ------------------------------------------------------------- KAM-235
+    #
+    # Os factos do teste em producao. As duas primeiras na ligacao dos
+    # `statuses` (o estado que a explosao da e o filtro dos quatro da Meta), as
+    # outras na apresentacao do vendedor (o nome lido antes do turno, o do
+    # tenant certo, a porta que o le e a ligacao dela no arranque).
+    #
+    # O estado sai da explosao sem o `wamid` e o `status`: `um statuses do simulador traz wamid, status e pricing…`.
+    ('estagio: a explosao deixa de dar o estado da mensagem', CX_EXPLOSAO,
+     "      ...(wamid !== null && situacao !== null\n        ? { estado:",
+     "      ...(false\n        ? { estado:",
+     SAIDA),
+    # Um `status` que nao e da Meta chega ao `ingerir`: `os tres desfechos que nao escrevem nao chamam o ingerir`.
+    ('estagio: um status fora dos quatro da Meta chega ao ingerir', SAIDA_ESTAGIO,
+     '    if (!ESTADOS_DA_META.includes(estado.estado as Estado)) return "estado_desconhecido";',
+     "",
+     SAIDA),
+    # O `Saida` do estagio deixa de avisar um `statuses` sem mensagem: `o Saida do estagio avisa um statuses cuja mensagem ainda nao esta gravada`.
+    ('estagio: o Saida do estagio deixa de avisar', SAIDA_ESTAGIO,
+     "saidaQueSoIngere(bd, deps.log)",
+     "saidaQueSoIngere(bd)",
+     SAIDA),
+    # O nome de outro tenant serve: `test_o_nome_de_outro_tenant_nao_serve`.
+    ('apresentacao: o nome da loja de outro tenant serve', AG_GRAFOS,
+     '    if lida is not None and lida[0] == estado.get("tenant_id"):',
+     "    if lida is not None:",
+     AGR_UNIT),
+    # O nome deixa de se ler antes do turno: `test_a_primeira_resposta_comeca_pela_frase_da_fixture`.
+    ('apresentacao: o nome da loja deixa de se ler antes do turno', AG_GRAFOS,
+     "            loja = (invocacao.tenant_id, await self._loja(invocacao.tenant_id))",
+     "            loja = None",
+     AGR_UNIT),
+    # O no ignora a porta `loja`: `test_a_loja_do_turno_vence_a_da_persona_e_sem_nenhuma_nao_ha_nome`.
+    ('apresentacao: a porta loja deixa de ser lida', AG_VEN_NOS,
+     "    lido = deps.loja(estado) if estado is not None else None",
+     "    lido = None",
+     AGR_UNIT),
+    # O arranque liga a porta na omissao: `test_a_loja_le_se_pela_ligacao_de_leitura_e_chega_ao_dependencias`.
+    ('apresentacao: o arranque liga a porta loja na omissao', AG_MAIN,
+     '        "loja": loja_do_turno,',
+     '        "loja": __import__("kamba_agr.verticais.vendedor.nos").verticais.vendedor.nos._sem_loja,',
+     AGR_UNIT),
+    # O nome le-se pela ligacao da tranca: o mesmo ensaio.
+    ('apresentacao: o nome da loja le-se pela ligacao da tranca', AG_MAIN,
+     "        nome_da_loja=leitor_da_loja(ligar_para_leitura),",
+     "        nome_da_loja=leitor_da_loja(ligar_para_tranca),",
+     AGR_UNIT),
     # ------------------------------------- KAM-098 (revisao do off-boarding)
     #
     # Seis, e cada uma tira uma barreira que so a base tem. O alvo e a revisao

@@ -35,6 +35,7 @@ import {
   OperacaoForaDoOffboardingError,
   PortaSemAdaptadorError,
   REVOGACAO_SEM_ADAPTADOR,
+  TELEFONES_SEM_ADAPTADOR,
   SQL_CONTAGEM_DAS_FASES,
   SQL_FASES_POR_CORRER,
   DIAS_DE_CANCELAMENTO,
@@ -133,7 +134,7 @@ describe("o ciclo do off-boarding", () => {
     const m = new MetricasDoOffboarding();
     await new CicloDoOffboarding({
       lote: f.conjunto,
-      portas: { canal: CANAL_SEM_ADAPTADOR, revogacao: REVOGACAO_SEM_ADAPTADOR },
+      portas: { canal: CANAL_SEM_ADAPTADOR, revogacao: REVOGACAO_SEM_ADAPTADOR, telefones: TELEFONES_SEM_ADAPTADOR },
       metricas: m,
       relogio: () => AGORA,
     }).correr();
@@ -177,7 +178,7 @@ describe("o ciclo do off-boarding", () => {
     const m = new MetricasDoOffboarding();
     const r = await new CicloDoOffboarding({
       lote: f.conjunto,
-      portas: { canal: CANAL_SEM_ADAPTADOR, revogacao: REVOGACAO_SEM_ADAPTADOR },
+      portas: { canal: CANAL_SEM_ADAPTADOR, revogacao: REVOGACAO_SEM_ADAPTADOR, telefones: TELEFONES_SEM_ADAPTADOR },
       metricas: m,
       relogio: () => AGORA,
     }).correr();
@@ -200,7 +201,7 @@ describe("o ciclo do off-boarding", () => {
     const m = new MetricasDoOffboarding();
     const r = await new CicloDoOffboarding({
       lote: f.conjunto,
-      portas: { canal: CANAL_SEM_ADAPTADOR, revogacao: REVOGACAO_SEM_ADAPTADOR },
+      portas: { canal: CANAL_SEM_ADAPTADOR, revogacao: REVOGACAO_SEM_ADAPTADOR, telefones: TELEFONES_SEM_ADAPTADOR },
       metricas: m,
     }).correr();
     assert.deepEqual(r.falhas, ["listagem"]);
@@ -211,7 +212,7 @@ describe("o ciclo do off-boarding", () => {
     const f = conjuntoFalso({});
     const c = new CicloDoOffboarding({
       lote: f.conjunto,
-      portas: { canal: CANAL_SEM_ADAPTADOR, revogacao: REVOGACAO_SEM_ADAPTADOR },
+      portas: { canal: CANAL_SEM_ADAPTADOR, revogacao: REVOGACAO_SEM_ADAPTADOR, telefones: TELEFONES_SEM_ADAPTADOR },
       metricas: new MetricasDoOffboarding(),
     });
     await Promise.all([c.correr(), c.correr()]);
@@ -221,7 +222,7 @@ describe("o ciclo do off-boarding", () => {
   it("um intervalo abaixo de um segundo é recusado", () => {
     const c = new CicloDoOffboarding({
       lote: conjuntoFalso({}).conjunto,
-      portas: { canal: CANAL_SEM_ADAPTADOR, revogacao: REVOGACAO_SEM_ADAPTADOR },
+      portas: { canal: CANAL_SEM_ADAPTADOR, revogacao: REVOGACAO_SEM_ADAPTADOR, telefones: TELEFONES_SEM_ADAPTADOR },
       metricas: new MetricasDoOffboarding(),
     });
     assert.throws(() => c.agendar(999, () => {}), RangeError);
@@ -229,9 +230,13 @@ describe("o ciclo do off-boarding", () => {
 
   it("as portas sem adaptador levantam pelo nome da porta, e nunca dão sucesso", async () => {
     await assert.rejects(CANAL_SEM_ADAPTADOR.cancelarSubscricao("w"), PortaSemAdaptadorError);
-    await assert.rejects(REVOGACAO_SEM_ADAPTADOR.chaveDeLlm.revogar("k"), /litellm/);
     await assert.rejects(REVOGACAO_SEM_ADAPTADOR.canalDeComercio.arquivar("c"), /medusa/);
     await assert.rejects(REVOGACAO_SEM_ADAPTADOR.inbox.desligar("i"), /chatwoot/);
+    // As três do KAM-233, que se chamam sem a saga: nenhuma dá sucesso.
+    await assert.rejects(REVOGACAO_SEM_ADAPTADOR.chaveDeLlm.revogarDoTenant(T), /litellm/);
+    await assert.rejects(REVOGACAO_SEM_ADAPTADOR.contaDeAtendimento.archiveAccount(T), /chatwoot/);
+    await assert.rejects(REVOGACAO_SEM_ADAPTADOR.sessoesDoPainel.revogarDoTenant(T, 1), /painel/);
+    await assert.rejects(TELEFONES_SEM_ADAPTADOR.entregar({ tenantId: T, expiraAt: AGORA, agora: AGORA }), /telefones/);
   });
 });
 

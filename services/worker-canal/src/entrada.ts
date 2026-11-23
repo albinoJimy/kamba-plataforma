@@ -14,21 +14,23 @@
  *    encaixa. A decisão toda está em `@kamba/core-ts/entrada`; aqui monta-se.
  * 3. Serve `/healthz` e `/metrics`, como os outros dois.
  *
- * ## Um dos quatro destinos já encaminha; os outros três continuam costura
+ * ## Dois dos quatro destinos já encaminham; os outros dois continuam costura
  *
  * O braço `chr` é o **CHR** (KAM-014): resolve o canal, aplica a guarda do
  * ADR-011 e a matriz de estados, resolve o contacto, abre a conversa e entrega
- * ao AGR ou ao dono. Os outros três continuam a existir como costura — o
- * *stage* de *outbound* é KAM-015, a ingestão de coexistência é KAM-017 e a
- * gestão de canal está repartida entre KAM-016 e KAM-021 —, e o que o KAM-013
+ * ao AGR ou ao dono. O braço `outbound` é o **estágio dos `statuses`**
+ * (KAM-235): o `Saida.ingerir` do KAM-015 escreve o estado da mensagem e o
+ * `delivered_at`. Os outros dois continuam a existir como costura — a ingestão
+ * de coexistência é KAM-017 e a gestão de canal está repartida entre KAM-016 e
+ * KAM-021 —, e o que o KAM-013
  * entregou e continua a valer é a decisão de **para onde** cada `kind` vai,
  * incluindo as duas propriedades negativas que importam: um `statuses` nunca
  * vai ao AGR, e um `history` nunca dispara resposta.
  *
  * O `EncaminhadorQueSoRegista` fica, e é com ele que o teste do critério 8 do
  * KAM-013 continua a correr. Em produção o que se monta é o
- * `EncaminhadorDoCanal`, que delega `chr` no CHR e mantém os outros três a
- * contar.
+ * `EncaminhadorDoCanal`, que delega `chr` no CHR e `outbound` no estágio dos
+ * `statuses`, e mantém os outros dois a contar.
  *
  * ## Quatro ligações, três papéis, e nenhuma faz o trabalho de outra
  *
@@ -60,6 +62,7 @@ import {
   Chr,
   type EntregaDoChr,
   METRICAS_DO_CHR,
+  type RecepcaoDeMidia,
   ResolvedorDeCanal,
   efeitoDaActivacao,
   emitirContactMerged,
@@ -85,7 +88,24 @@ import { METRICAS, filasDe } from "@kamba/core-ts/eventos";
 import { criarTrabalhadores } from "@kamba/core-ts/eventos/trabalhador_bullmq";
 import { EnvKeyProvider, Identidade } from "@kamba/core-ts/identity";
 import { type Logger, instalar } from "@kamba/core-ts/logger";
-import { type Ambiente, isAmbiente } from "@kamba/core-ts/secrets";
+import {
+  type Buscar,
+  ClienteDeMidiaDaGraph,
+  type ClienteSql as ClienteSqlDoMed,
+  type CofreDaMidia,
+  Med,
+  MetricasDoMed,
+  tokenDaConversa,
+} from "@kamba/core-ts/med";
+import { type ClienteSql as ClienteSqlDaSaida, estagioDosStatuses } from "@kamba/core-ts/outbound";
+import {
+  type Ambiente,
+  ArranqueAbortadoError,
+  EnvSecretProvider,
+  Secrets,
+  isAmbiente,
+} from "@kamba/core-ts/secrets";
+import { type StorageConfig, type StorageProvider, criarStorageS3, lerConfig } from "@kamba/core-ts/storage";
 import { METRICAS_DA_GUARDA, comTenant } from "@kamba/core-ts/tenant_guard";
 import { Hono } from "hono";
 import { Client } from "pg";
@@ -167,25 +187,71 @@ export class EncaminhadorQueSoRegista implements Encaminhador {
 }
 
 /**
- * O encaminhador de producao: o braco `chr` e o CHR, os outros tres contam.
+ * O encaminhador de producao: o braco `chr` e o CHR, o `outbound` e o estagio
+ * dos `statuses` (KAM-235), os outros dois contam.
  *
- * Herda do esqueleto de proposito, e nao o substitui: os tres destinos que ainda
+ * Herda do esqueleto de proposito, e nao o substitui: os destinos que ainda
  * nao tem tratador continuam a contar exactamente como contavam, e o teste do
  * criterio 8 do KAM-013 — «`statuses` vai a `outbound` e nao ao CHR», «`history`
  * nao dispara resposta» — continua a valer sobre esta classe.
  */
 export class EncaminhadorDoCanal extends EncaminhadorQueSoRegista {
   readonly #chr: Chr;
+  readonly #statuses: ((evento: EventoDeEntrada) => Promise<unknown>) | null;
 
-  constructor(chr: Chr) {
+  /**
+   * `statuses` é o braço `outbound` (KAM-235): o `estagioDosStatuses`, que
+   * escreve o estado da mensagem e o `delivered_at` pelo `Saida.ingerir`. Sem
+   * ele, o braço conta e mais nada, como antes.
+   */
+  constructor(chr: Chr, statuses?: (evento: EventoDeEntrada) => Promise<unknown>) {
     super();
     this.#chr = chr;
+    this.#statuses = statuses ?? null;
   }
 
   override async chr(evento: EventoDeEntrada): Promise<void> {
     this.entregues.push(evento);
     await this.#chr.tratar(evento);
   }
+
+  override async outbound(evento: EventoDeEntrada): Promise<void> {
+    this.entregues.push(evento);
+    await this.#statuses?.(evento);
+  }
+}
+
+/** O que o `encaminhadorDaEntrada` precisa do processo. */
+export interface MontagemDaEntrada {
+  readonly chr: Chr;
+  readonly resolvedor: Pick<ResolvedorDeCanal, "resolver">;
+  /** A ligação `kamba_app` do processo: a do CHR, e a do estágio. */
+  readonly bd: ClienteSqlDoTenant & ClienteSqlDaSaida;
+  readonly log: Logger;
+}
+
+type ClienteSqlDoTenant = Parameters<typeof comTenant>[0];
+
+/**
+ * O encaminhador que o processo monta (KAM-235): o CHR no braço `chr`, e o
+ * estágio dos `statuses` no `outbound`.
+ *
+ * **Os `statuses` escrevem o estado da mensagem**: o tenant pelo resolvedor de
+ * canal, e o `Saida.ingerir` na ligação `kamba_app` com o contexto dele. O
+ * desfecho vai ao registo como `outcome`; o `wamid` não. O `log` chega também
+ * ao `Saida`, que avisa um `statuses` sem mensagem (`status_sem_mensagem`).
+ * Exportada para se ensaiar a ligação sem levantar o processo.
+ */
+export function encaminhadorDaEntrada(m: MontagemDaEntrada): EncaminhadorDoCanal {
+  const estagio = estagioDosStatuses({
+    tenantDe: async (phoneNumberId) =>
+      (await m.resolvedor.resolver(phoneNumberId)).resolvido?.contexto.tenant_id ?? null,
+    comTenant: (tenant, trabalho) => comTenant(m.bd, tenant, () => trabalho(m.bd)),
+    log: m.log,
+  });
+  return new EncaminhadorDoCanal(m.chr, async (evento) => {
+    m.log.info({ outcome: `estado_${await estagio(evento)}` });
+  });
 }
 
 /**
@@ -254,7 +320,8 @@ export function criarApp(registo?: Logger): Hono {
   // KAM-080.
   app.get("/metrics", (c) =>
     // KAM-219: e a recusa da base sobre o tecto, que o `comTenant` deste processo ve.
-    c.text(`${METRICAS_DO_WORKER.exposicao()}${METRICAS_DO_CHR.exposicao()}${METRICAS_DA_GUARDA.exposicao()}`, 200, {
+    // KAM-231: e as do MED, que corre neste processo desde que recebe a foto do dono.
+    c.text(`${METRICAS_DO_WORKER.exposicao()}${METRICAS_DO_CHR.exposicao()}${METRICAS_DA_GUARDA.exposicao()}${METRICAS_DA_MIDIA.exposicao()}`, 200, {
       "content-type": "text/plain; version=0.0.4; charset=utf-8",
     }),
   );
@@ -295,6 +362,197 @@ export async function identidadeDaEntrada(env: NodeJS.ProcessEnv): Promise<Ident
   });
 }
 
+// ------------------------------------------------------------------ o MED
+//
+// KAM-231. A foto do dono passa pelo MED do KAM-020 **neste** processo: o CHR
+// chama-o no braco do dono (`chr.ts`, passo 6b) e a invocacao leva o
+// `asset_id`. Decisao do fundador de 2026-11-21 (P4, opcao A): o
+// `worker-canal-entrada` recebe os segredos de que precisa, e em `staging` e
+// `prod` recusa arrancar sem eles, como o consumidor do KAM-227. Recusadas: uma
+// fila `med-inbound` propria, e a foto so pelo painel.
+
+/** O nome com que este processo se apresenta ao cofre. */
+export const SERVICO_DO_COFRE = "worker-canal-entrada";
+
+/**
+ * As metricas do MED deste processo. **Uma instancia**, e nao uma por `Med`: o
+ * `recepcaoDeMidia` monta um `Med` por pedido, e cada um contava para o seu.
+ */
+export const METRICAS_DA_MIDIA = new MetricasDoMed();
+
+/** A ligacao `kamba_app` do processo, como o `pg` a da. */
+export interface LigacaoDaEntrada {
+  query(texto: string, valores?: unknown[]): Promise<{ rows: unknown[] }>;
+}
+
+/**
+ * O ambiente do MED, lido do `KAMBA_ENV`.
+ *
+ * Vazio e `dev`, como para as chaves de identidade (`ambienteDasChaves`). Um
+ * valor desconhecido **recusa**, como o `ambienteDoOutbound` do consumidor: um
+ * `producao` ou um `PROD` lido como `dev` desligava as recusas de arranque em
+ * silencio.
+ */
+export function ambienteDaMidia(env: Readonly<Record<string, string | undefined>>): Ambiente {
+  const declarado = (env["KAMBA_ENV"] ?? "").trim();
+  if (declarado === "") return "dev";
+  if (!isAmbiente(declarado)) {
+    throw new Error(`KAMBA_ENV tem de ser dev, staging ou prod para a midia do ${SERVICO_DO_COFRE}`);
+  }
+  return declarado;
+}
+
+/**
+ * A base do MED, com o contexto do tenant em **cada** instrucao.
+ *
+ * O MED nao poe o `app.tenant_id` (ver o `medDe` de `tests_bd/media.bd.test.ts`),
+ * e a `media_assets` tem RLS com `FORCE`. **Uma transaccao por instrucao, e nao
+ * uma a volta do `receber`**, por tres razoes:
+ *
+ * 1. a reserva em `pendente` tem de ficar confirmada **antes** da descarga — e
+ *    ela que outro *worker* le para devolver `pendente` sem descarregar
+ *    (`pipeline.ts`, passo 2); dentro de uma transaccao so, ele ficava a
+ *    espera do *lock* da linha durante a descarga inteira;
+ * 2. se o `put` correr e a marcacao falhar, a linha fica em `pendente` e e
+ *    recuperavel, que e a ordem que o `pipeline.ts` escreve (passo 6 antes do
+ *    7); um `ROLLBACK` da transaccao inteira apagava a reserva e deixava o
+ *    objecto orfao;
+ * 3. nenhuma transaccao fica aberta durante as idas a Meta.
+ *
+ * Corre na ligacao do processo, que o *worker* usa um *job* de cada vez
+ * (`CONCORRENCIA = 1`), e **fora** de qualquer `comTenant` do CHR: o passo 6b
+ * do `chr.ts` chama a midia depois de a transaccao da conversa fechar. Um
+ * `comTenant` dentro de outro na mesma ligacao recusava (`LigacaoEmUsoError`).
+ */
+export function sqlDoTenant(ligacao: LigacaoDaEntrada, tenantId: string): ClienteSqlDoMed {
+  return {
+    query: async <T,>(texto: string, valores?: readonly unknown[]) => {
+      const resultado = await comTenant(ligacao, tenantId, () =>
+        ligacao.query(texto, valores === undefined ? [] : [...valores]),
+      );
+      return { rows: resultado.rows as readonly T[] };
+    },
+  };
+}
+
+export interface PortasDaMidia {
+  readonly ligacao: LigacaoDaEntrada;
+  readonly cofre: CofreDaMidia;
+  readonly armazenamento: StorageProvider;
+  /** O `fetch` da Graph. Porta para os ensaios. */
+  readonly buscar?: Buscar;
+  readonly log?: Logger;
+  readonly metricas?: MetricasDoMed;
+}
+
+/**
+ * A recepcao de midia que o CHR chama: um `Med` por pedido.
+ *
+ * Por pedido porque o *token* e o do **canal da conversa** do pedido
+ * (`tokenDaConversa`), e a base e a do **tenant** do pedido (`sqlDoTenant`):
+ * as duas portas fecham sobre o pedido, e o `Med` nao guarda estado entre
+ * chamadas — as metricas, que guardavam, sao partilhadas.
+ *
+ * **O `avisarAgr` nao faz nada, e e de proposito.** O sinal do criterio 6 do
+ * KAM-020 existe para o caminho em que a descarga corre **fora** do turno, e o
+ * AGR nao sabe que a midia falhou. Aqui ela corre **dentro** do turno: o CHR
+ * espera pelo resultado, e um `falhou` vai ao AGR na propria invocacao, sem
+ * `asset_id` (`chr.ts`, passo 6b). Avisar tambem era um segundo *job* ao AGR
+ * pela mesma mensagem — o dono recebia duas respostas. O MED regista o
+ * `media_descarga_falhou` na mesma.
+ */
+export function recepcaoDeMidia(o: PortasDaMidia): RecepcaoDeMidia {
+  const metricas = o.metricas ?? METRICAS_DA_MIDIA;
+  return async (pedido) => {
+    const bd = sqlDoTenant(o.ligacao, pedido.tenantId);
+    const med = new Med({
+      bd,
+      armazenamento: o.armazenamento,
+      midia: new ClienteDeMidiaDaGraph({
+        token: tokenDaConversa({ cofre: o.cofre, bd, conversationId: pedido.conversationId }),
+        ...(o.buscar === undefined ? {} : { buscar: o.buscar }),
+      }),
+      avisarAgr: async () => {},
+      metricas,
+      ...(o.log === undefined ? {} : { log: o.log }),
+    });
+    return await med.receber(pedido);
+  };
+}
+
+export interface ArranqueDaMidia {
+  readonly env: Readonly<Record<string, string | undefined>>;
+  readonly ligacao: LigacaoDaEntrada;
+  readonly log?: Logger;
+  readonly buscar?: Buscar;
+}
+
+/**
+ * A recepcao de midia deste processo, `undefined` em `dev` sem ela, ou a
+ * recusa do arranque.
+ *
+ * - **`staging` e `prod`**: os tres segredos sao obrigatorios no
+ *   `Secrets.arrancar` (`ArranqueAbortadoError` sem eles), e o armazenamento
+ *   sem configuracao tambem aborta. Nunca se cai para «sem midia» em silencio.
+ * - **`dev`**: sem a configuracao do armazenamento ou sem um dos tres
+ *   segredos, o processo arranca **sem** midia — a foto vai ao AGR sem
+ *   `asset_id`, como antes do KAM-231 — e regista **um** aviso.
+ *
+ * Exportada para se medir o arranque sem levantar o processo.
+ *
+ * @throws {ArranqueAbortadoError} em `staging`/`prod`, sem um dos segredos ou
+ *   sem a configuracao do armazenamento.
+ */
+export async function midiaDaEntrada(a: ArranqueDaMidia): Promise<RecepcaoDeMidia | undefined> {
+  const ambiente = ambienteDaMidia(a.env);
+  const cofre = await Secrets.arrancar({
+    servico: SERVICO_DO_COFRE,
+    provider: new EnvSecretProvider({ ambiente, env: a.env }),
+    // A KEK abre o criptograma do `token_ref` do canal; as duas do
+    // armazenamento assinam o `put` no STO. Obrigatorias onde o inventario as
+    // declara obrigatorias; em `dev` o processo arranca sem elas.
+    obrigatorios: ambiente === "dev" ? [] : ["kek_token_cliente", "storage_access_key_id", "storage_secret_access_key"],
+  });
+
+  let config: StorageConfig;
+  try {
+    config = lerConfig({ ambiente, env: a.env });
+  } catch (erro) {
+    if (ambiente !== "dev") {
+      // A mensagem do `lerConfig` nomeia as variaveis e nunca os valores.
+      const motivo = erro instanceof Error ? erro.message : "configuracao ilegivel";
+      throw new ArranqueAbortadoError(SERVICO_DO_COFRE, `armazenamento da midia: ${motivo}`);
+    }
+    a.log?.warn({ outcome: "midia_desligada_em_dev" });
+    return undefined;
+  }
+
+  if (ambiente === "dev") {
+    // Em `dev` nada e obrigatorio no arranque, e por isso pergunta-se aqui: um
+    // processo que ligasse o MED sem a KEK falhava a primeira foto do dono em
+    // vez de arrancar sem ela.
+    const presentes = await Promise.all(
+      [
+        cofre.getRing("kek_token_cliente"),
+        cofre.getRing("storage_access_key_id"),
+        cofre.getRing("storage_secret_access_key"),
+      ].map((leitura) => leitura.then(() => true, () => false)),
+    );
+    if (presentes.includes(false)) {
+      a.log?.warn({ outcome: "midia_desligada_em_dev" });
+      return undefined;
+    }
+  }
+
+  return recepcaoDeMidia({
+    ligacao: a.ligacao,
+    cofre,
+    armazenamento: criarStorageS3({ config, secrets: cofre }),
+    ...(a.buscar === undefined ? {} : { buscar: a.buscar }),
+    ...(a.log === undefined ? {} : { log: a.log }),
+  });
+}
+
 async function principal(): Promise<void> {
   const urlDaBase = exigir(VARIAVEL_DA_BASE);
   const urlDaFila = exigir(VARIAVEL_DA_FILA);
@@ -324,6 +582,12 @@ async function principal(): Promise<void> {
   identidade.onContactMerge(async ({ cliente, tenantId, de, para }) => {
     await repontarConversas(cliente, tenantId, de, para);
   });
+
+  // KAM-231: o MED, **antes** de o processo aceitar trabalho. Em `staging` e
+  // `prod` recusa aqui sem os segredos ou sem o armazenamento; em `dev` sem
+  // eles devolve `undefined`, e o CHR corre sem midia, como antes.
+  const midia = await midiaDaEntrada({ env: process.env, ligacao: bd, log });
+  if (midia !== undefined) log.info({ outcome: "midia_ligada" });
 
   const resolvedor = new ResolvedorDeCanal(resolvedorBd);
   // **O consumidor `chr` do `tenant.activated`** (KAM-201): corre aqui, e não
@@ -393,9 +657,10 @@ async function principal(): Promise<void> {
     // forma que resolve a variancia dos dois `ClienteSql`, e deixa o CHR sem
     // nenhuma ligacao a mao fora de uma transacao com contexto.
     comTenant: (tenant, trabalho) => comTenant(bd, tenant, () => trabalho(bd)),
+    ...(midia === undefined ? {} : { midia }),
   });
 
-  const encaminhador = new EncaminhadorDoCanal(chr);
+  const encaminhador = encaminhadorDaEntrada({ chr, resolvedor, bd, log });
   // O `log` da biblioteca tem *allowlist* de campos (`docs/tecnica/08` §7.3), e
   // é o `tratarCorpo` que escolhe o que lá cabe: o `outcome`, o `msg_id` já
   // opaco e o `wa_type` da lista fechada. **Nada do corpo passa por aqui**.

@@ -88,11 +88,14 @@ class TestRepositorio(unittest.TestCase):
         ]
         # **Desde o KAM-120 sao tres a consultar**, e os dois novos nao sao dos
         # sete pontos do criterio 4: sao a Foto AI e o *bake-off* dela, com a
-        # finalidade `imagem`. Entre os sete, o cliente de LLM continua unico.
+        # finalidade `imagem`. **Quatro desde o KAM-122**: o fundo gerado das
+        # artes, com a `geracao_de_imagem`. Entre os sete, o cliente de LLM
+        # continua unico.
+        das_imagens = {"imagem", "geracao_de_imagem"}
         dos_sete = [
             caminho
             for caminho in consultam
-            if "imagem" not in destinos.CLIENTES_DE_SAIDA[caminho].finalidades
+            if not das_imagens & set(destinos.CLIENTES_DE_SAIDA[caminho].finalidades)
         ]
         self.assertEqual(dos_sete, ["services/agr/src/kamba_agr/llm/cliente.py"])
         self.assertEqual(
@@ -101,6 +104,7 @@ class TestRepositorio(unittest.TestCase):
                 "libs/py-core/src/kamba_core/foto/bakeoff.py",
                 "libs/py-core/src/kamba_core/foto/servico.py",
                 "services/agr/src/kamba_agr/llm/cliente.py",
+                "services/agr/src/kamba_agr/social/fundos.py",
             ],
         )
 

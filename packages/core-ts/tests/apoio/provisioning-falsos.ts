@@ -466,6 +466,9 @@ export class HandoffFalso implements HandoffProvider {
   async setBotMuted(): Promise<void> {}
   onHumanEvent(): void {}
   async close(): Promise<void> {}
+  async archiveAccount(): Promise<"sem_conta"> {
+    return "sem_conta";
+  }
 }
 
 /** O teste ponta a ponta do passo 8. `null` é espera, `false` é falha. */

@@ -1011,8 +1011,9 @@ class TestFicheirosReais(unittest.TestCase):
         # `registry/dono.yaml` lista. Entram no dicionario pela emenda do mesmo
         # ticket. Dezassete desde o KAM-220: o `request_quote` no Vendedor e o
         # `submit_quote` no dono (§3.79). Vinte e uma desde o KAM-121: as quatro
-        # do modulo `social` no dono (§3.82).
-        self.assertEqual(len(do_registo), 21, sorted(do_registo))
+        # do modulo `social` no dono (§3.82). Vinte e seis desde o KAM-122: as
+        # cinco da arte, da aprovacao e da entrega (§3.82, emenda 1.137).
+        self.assertEqual(len(do_registo), 26, sorted(do_registo))
         for tool in sorted(do_registo):
             self.assertTrue(
                 saber.conhecido(tool, "tool"),

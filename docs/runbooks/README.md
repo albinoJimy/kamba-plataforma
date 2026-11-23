@@ -3,7 +3,7 @@
 | Campo | Valor |
 |---|---|
 | Ticket | **KAM-083** — Runbooks operacionais (`specs/EPIC-08_Topologia_Operacao.md`) |
-| Versão | 1.7 |
+| Versão | 1.8 |
 | Fontes | [`../tecnica/09_Topologia_Operacao_Escala.md`](../tecnica/09_Topologia_Operacao_Escala.md) §9.2 (alertas), §12 (degradação N0–N6), §13 (os dez runbooks), §16 (*on-call*) |
 | Ensaios | [`folha-de-ensaio.md`](folha-de-ensaio.md) — o roteiro de cada ensaio, a folha de tempos e o calendário do *game day* |
 | Evidência | [`../evidencia/KAM-083.md`](../evidencia/KAM-083.md) |
@@ -147,13 +147,14 @@ O comando e a saída estão em [`../evidencia/KAM-083.md`](../evidencia/KAM-083.
 KAM-200 acrescentou o `kamba-trust.yml`, com as duas regras de Trust & Safety, a
 2026-11-17, o KAM-210 o `kamba-offboarding.yml`, com a da fase parada do
 off-boarding, o KAM-203 a do recálculo da confiança no `kamba-trust.yml`, e o
-KAM-219 a da recusa da base sobre o tecto, no mesmo ficheiro; o `obs_lint`
-verifica o `runbook_url` das quinze.
+KAM-219 a da recusa da base sobre o tecto, no mesmo ficheiro, e o KAM-225 a
+da mesma recusa lida do registo do PostgreSQL e a do registo parado, ainda no
+mesmo; o `obs_lint` verifica o `runbook_url` das dezassete.
 
 **Nenhum alerta foi removido nem alterado aqui.** Mudar o que dispara, ou para
 onde aponta, é do fundador; o que se entrega é a medição.
 
-### 5.1 As quinze regras que existem, e para onde apontam
+### 5.1 As dezassete regras que existem, e para onde apontam
 
 | Regra | Sev. | Aponta para | O runbook fala dela? | Nota |
 |---|---|---|---|---|
@@ -172,10 +173,12 @@ onde aponta, é do fundador; o que se entrega é a medição.
 | `offboarding_fase_parada` | P2 | `offboarding.md` | sim | KAM-210. Não é do §9.2; a folga e o `for` são *proposta* |
 | `confianca_recalculo_com_falhas` | P2 | `trust-e-safety.md` | sim | KAM-203. Não é do §9.2; a janela é *proposta* |
 | `confianca_tecto_escrita_recusada` | P2 | `trust-e-safety.md` | sim | KAM-219. Não é do §9.2; a severidade e a janela são *proposta*, e só vê o que passa pelo `tenant_guard` |
+| `confianca_tecto_recusado_no_registo` | P2 | `trust-e-safety.md` | sim | KAM-225. Não é do §9.2; a severidade e a janela são *proposta*, e lê o registo do PostgreSQL pelo `registo-pg` |
+| `registo_pg_registo_parado` | P2 | `trust-e-safety.md` | sim | KAM-225. Não é do §9.2; as duas horas são *proposta*. O recolector deixou de ver o registo |
 
 ### 5.2 Lista A — alertas sem runbook
 
-**Entre as regras escritas: nenhuma.** As quinze têm `runbook_url`, e o
+**Entre as regras escritas: nenhuma.** As dezassete têm `runbook_url`, e o
 `tools/obs_lint` exige que o ficheiro exista.
 
 **Entre os alertas que o §9.2 pede e não estão escritos: um.** A linha
@@ -271,3 +274,4 @@ procedimento.
 | 1.5 | Novembro 2026 | **KAM-210**: o esboço [`offboarding.md`](offboarding.md) entra na lista dos que estão fora do §13 (passam a oito), e a regra do `kamba-offboarding.yml` na tabela do §5.1 (passam a treze). | Equipa KAMBÁ |
 | 1.6 | Novembro 2026 | **KAM-203**: a regra `confianca_recalculo_com_falhas` entra no `kamba-trust.yml` e na tabela do §5.1 (passam a catorze, depois da do KAM-210), com o §4 do [`trust-e-safety.md`](trust-e-safety.md). Nenhum runbook novo. | Equipa KAMBÁ |
 | 1.7 | Novembro 2026 | **KAM-219**: a regra `confianca_tecto_escrita_recusada` entra no `kamba-trust.yml` e na tabela do §5.1 (passam a quinze), com o §5 do [`trust-e-safety.md`](trust-e-safety.md). Nenhum runbook novo. | Equipa KAMBÁ |
+| 1.8 | Novembro 2026 | **KAM-225**: as regras `confianca_tecto_recusado_no_registo` e `registo_pg_registo_parado` entram no `kamba-trust.yml` e na tabela do §5.1 (passam a dezassete), com o §6 e o §7 do [`trust-e-safety.md`](trust-e-safety.md). Nenhum runbook novo. | Equipa KAMBÁ |

@@ -3,7 +3,7 @@
 | Campo | Valor |
 |---|---|
 | ID | **RB-K08** |
-| Versão | 1.0 |
+| Versão | 1.1 |
 | Cenário | WAL parado, *host* perdido, erro de integridade, corrupção lógica (migração, *bug*), ou restauro mensal falhado |
 | Severidade | **P1** (WAL parado, *host* perdido, corrupção); **P2** (restauro mensal falhado) |
 | Alertas que o activam | **Nenhum, hoje.** As duas regras (WAL > 5 min, P1; restauro mensal falhado, P2) estão fixadas em dado em [`../../infra/backup/cobertura.yaml`](../../infra/backup/cobertura.yaml) e por escrever: `backup_wal_idade_segundos` e `backup_restauro_desfecho_total` existem (`libs/py-core/src/kamba_core/backup/metricas.py`) e **nenhum processo as serve**, porque o pgBackRest não corre em compose nenhum. Credores: KAM-079, KAM-071/KAM-078 (agendador), **D1/KAM-105** (`repo1`) |
@@ -57,10 +57,17 @@ docker ps -a --filter label=com.docker.compose.project=kamba-prod --filter label
 docker exec kamba-prod-postgres-1 \
   sh -c 'pg_isready -U "$POSTGRES_USER" -d "$POSTGRES_DB"'
 docker logs --since 30m kamba-prod-postgres-1
+# Desde o KAM-225 o servidor regista em `jsonlog`, no volume `postgres-log`: o
+# `docker logs` só tem o arranque, até «redirecting log output to logging
+# collector process». O resto lê-se assim — as linhas da última hora, sem o
+# texto das consultas (`log_min_error_statement=panic`):
+docker exec kamba-prod-postgres-1 \
+  sh -c 'tail -n 50 "$(ls -t /var/log/postgresql/*.json | head -1)"'
 ```
 `verificado` o `pg_isready` na imagem `pgvector/pgvector:0.8.7-pg18` do compose,
 num contentor isolado, a 2026-11-09 («accepting connections»). `não verificado`
-contra produção.
+contra produção. O `docker logs` com o colector ligado mediu-se no KAM-225
+(`../evidencia/KAM-225.md` §2); o `tail` do `jsonlog` é `não verificado`.
 
 ```bash
 # Está em recuperação (réplica, ou restauro a meio)? «f» é primário normal.
@@ -242,3 +249,4 @@ estado em que ficou:
 | Versão | Data | Alteração | Autor |
 |---|---|---|---|
 | 1.0 | Novembro 2026 | O *stub* do KAM-080 passa a runbook no modelo comum (**KAM-083**): cinco ramos (A–E), diagnóstico com comandos marcados, mitigação por ramo que remete para as linhas medidas pelo KAM-085, critério de recuperação e escalamento. A tabela do KAM-085 passa do §4 para o **anexo A**, sem alteração de conteúdo | KAM-083 |
+| 1.1 | Novembro 2026 | **KAM-225**: o §2.1 diz que o `docker logs` do `postgres` só tem o arranque, porque o servidor passou a registar em `jsonlog` no volume `postgres-log`, e dá o comando que o lê. | Equipa KAMBÁ |

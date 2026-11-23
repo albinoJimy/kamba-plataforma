@@ -239,3 +239,136 @@ funcoes:
       `owner_contact_id`. A reentrega idempotente nao toca em nada.
       `db/tests/test_canal_do_dono_schema.py` mede as recusas, o isolamento e o
       `42501` dos outros papeis.
+  - funcao: platform.registo_caso_por_chave(p_chave text)
+    adr: ADR-015
+    razao: >-
+      Uma das cinco buscas do registo do `onboarding-web` (KAM-236; decisao do
+      fundador de 2026-11-21, D1-A), que procuram um caso **antes** de se saber
+      o tenant dele: o `tenant_id` e pre-alocado e unico por caso, e o
+      `kamba_app` e `NOBYPASSRLS`. Devolve **so** o `id` e o `tenant_id` (ou
+      uma contagem) — nem a fase, nem o NIF, nem o telefone —, e o adaptador le
+      o resto como `kamba_app`, com o `app.tenant_id` desse caso, pela RLS. Com
+      `SECURITY INVOKER` a alternativa era dar ao processo virado para a
+      Internet uma ligacao `kamba_batch` (`BYPASSRLS` em tudo), que o fundador
+      recusou (D1-B). O `DEFINER` sozinho nao atravessa a RLS (o dono e
+      `NOBYPASSRLS` e o `FORCE` vincula-o): a politica `registo_busca`, so de
+      leitura, so para o `kamba_migrator` e so com a variavel `app.registo_busca`
+      que a funcao liga antes da consulta e desliga depois, e que o deixa ver o
+      caso de outro tenant **dentro** da funcao; fora dela o dono continua sem
+      ver nada sem contexto (X-04), e nenhuma outra funcao `SECURITY DEFINER` le
+      o caso (ensaio). `EXECUTE` so para o `kamba_app`.
+      `db/tests/test_inscricao_na_base_schema.py` mede as colunas devolvidas, o
+      caso morto e o `42501` dos outros papeis.
+  - funcao: platform.registo_caso_vivo_por_nif(p_nif_hmac text)
+    adr: ADR-015
+    razao: >-
+      Uma das cinco buscas do registo do `onboarding-web` (KAM-236; decisao do
+      fundador de 2026-11-21, D1-A), que procuram um caso **antes** de se saber
+      o tenant dele: o `tenant_id` e pre-alocado e unico por caso, e o
+      `kamba_app` e `NOBYPASSRLS`. Devolve **so** o `id` e o `tenant_id` (ou
+      uma contagem) — nem a fase, nem o NIF, nem o telefone —, e o adaptador le
+      o resto como `kamba_app`, com o `app.tenant_id` desse caso, pela RLS. Com
+      `SECURITY INVOKER` a alternativa era dar ao processo virado para a
+      Internet uma ligacao `kamba_batch` (`BYPASSRLS` em tudo), que o fundador
+      recusou (D1-B). O `DEFINER` sozinho nao atravessa a RLS (o dono e
+      `NOBYPASSRLS` e o `FORCE` vincula-o): a politica `registo_busca`, so de
+      leitura, so para o `kamba_migrator` e so com a variavel `app.registo_busca`
+      que a funcao liga antes da consulta e desliga depois, e que o deixa ver o
+      caso de outro tenant **dentro** da funcao; fora dela o dono continua sem
+      ver nada sem contexto (X-04), e nenhuma outra funcao `SECURITY DEFINER` le
+      o caso (ensaio). `EXECUTE` so para o `kamba_app`.
+      `db/tests/test_inscricao_na_base_schema.py` mede as colunas devolvidas, o
+      caso morto e o `42501` dos outros papeis.
+  - funcao: platform.registo_casos_vivos_por_telefone(p_phone_hmac text)
+    adr: ADR-015
+    razao: >-
+      Uma das cinco buscas do registo do `onboarding-web` (KAM-236; decisao do
+      fundador de 2026-11-21, D1-A), que procuram um caso **antes** de se saber
+      o tenant dele: o `tenant_id` e pre-alocado e unico por caso, e o
+      `kamba_app` e `NOBYPASSRLS`. Devolve **so** o `id` e o `tenant_id` (ou
+      uma contagem) — nem a fase, nem o NIF, nem o telefone —, e o adaptador le
+      o resto como `kamba_app`, com o `app.tenant_id` desse caso, pela RLS. Com
+      `SECURITY INVOKER` a alternativa era dar ao processo virado para a
+      Internet uma ligacao `kamba_batch` (`BYPASSRLS` em tudo), que o fundador
+      recusou (D1-B). O `DEFINER` sozinho nao atravessa a RLS (o dono e
+      `NOBYPASSRLS` e o `FORCE` vincula-o): a politica `registo_busca`, so de
+      leitura, so para o `kamba_migrator` e so com a variavel `app.registo_busca`
+      que a funcao liga antes da consulta e desliga depois, e que o deixa ver o
+      caso de outro tenant **dentro** da funcao; fora dela o dono continua sem
+      ver nada sem contexto (X-04), e nenhuma outra funcao `SECURITY DEFINER` le
+      o caso (ensaio). `EXECUTE` so para o `kamba_app`.
+      `db/tests/test_inscricao_na_base_schema.py` mede as colunas devolvidas, o
+      caso morto e o `42501` dos outros papeis.
+  - funcao: platform.registo_contar_por_dispositivo(p_device_hash text, p_desde timestamp with time zone)
+    adr: ADR-015
+    razao: >-
+      Uma das cinco buscas do registo do `onboarding-web` (KAM-236; decisao do
+      fundador de 2026-11-21, D1-A), que procuram um caso **antes** de se saber
+      o tenant dele: o `tenant_id` e pre-alocado e unico por caso, e o
+      `kamba_app` e `NOBYPASSRLS`. Devolve **so** o `id` e o `tenant_id` (ou
+      uma contagem) — nem a fase, nem o NIF, nem o telefone —, e o adaptador le
+      o resto como `kamba_app`, com o `app.tenant_id` desse caso, pela RLS. Com
+      `SECURITY INVOKER` a alternativa era dar ao processo virado para a
+      Internet uma ligacao `kamba_batch` (`BYPASSRLS` em tudo), que o fundador
+      recusou (D1-B). O `DEFINER` sozinho nao atravessa a RLS (o dono e
+      `NOBYPASSRLS` e o `FORCE` vincula-o): a politica `registo_busca`, so de
+      leitura, so para o `kamba_migrator` e so com a variavel `app.registo_busca`
+      que a funcao liga antes da consulta e desliga depois, e que o deixa ver o
+      caso de outro tenant **dentro** da funcao; fora dela o dono continua sem
+      ver nada sem contexto (X-04), e nenhuma outra funcao `SECURITY DEFINER` le
+      o caso (ensaio). `EXECUTE` so para o `kamba_app`.
+      `db/tests/test_inscricao_na_base_schema.py` mede as colunas devolvidas, o
+      caso morto e o `42501` dos outros papeis.
+  - funcao: platform.registo_tenant_do_caso(p_id uuid)
+    adr: ADR-015
+    razao: >-
+      Uma das cinco buscas do registo do `onboarding-web` (KAM-236; decisao do
+      fundador de 2026-11-21, D1-A), que procuram um caso **antes** de se saber
+      o tenant dele: o `tenant_id` e pre-alocado e unico por caso, e o
+      `kamba_app` e `NOBYPASSRLS`. Devolve **so** o `id` e o `tenant_id` (ou
+      uma contagem) — nem a fase, nem o NIF, nem o telefone —, e o adaptador le
+      o resto como `kamba_app`, com o `app.tenant_id` desse caso, pela RLS. Com
+      `SECURITY INVOKER` a alternativa era dar ao processo virado para a
+      Internet uma ligacao `kamba_batch` (`BYPASSRLS` em tudo), que o fundador
+      recusou (D1-B). O `DEFINER` sozinho nao atravessa a RLS (o dono e
+      `NOBYPASSRLS` e o `FORCE` vincula-o): a politica `registo_busca`, so de
+      leitura, so para o `kamba_migrator` e so com a variavel `app.registo_busca`
+      que a funcao liga antes da consulta e desliga depois, e que o deixa ver o
+      caso de outro tenant **dentro** da funcao; fora dela o dono continua sem
+      ver nada sem contexto (X-04), e nenhuma outra funcao `SECURITY DEFINER` le
+      o caso (ensaio). `EXECUTE` so para o `kamba_app`.
+      `db/tests/test_inscricao_na_base_schema.py` mede as colunas devolvidas, o
+      caso morto e o `42501` dos outros papeis.
+  - funcao: platform.ts_compradores_noutra_loja_do_dono(p_tenants uuid[])
+    adr: ADR-010
+    razao: >-
+      A comparacao da correlacao entre tenants por comprador (KAM-208, revisao
+      `0087`; decisao do fundador de 2026-11-21, D2). O pseudonimo do telefone
+      sem tenant (`contact_xtenant_pseudonym`) e do `kamba_identity` e de mais
+      ninguem; como `SECURITY INVOKER` o `kamba_batch` precisava de `SELECT` na
+      tabela, e com ele lia os pseudonimos de todos os tenants — que e
+      exactamente o que a decisao recusa. Como dono, a funcao le-os e devolve
+      **so** `(tenant_id, contagem)`: nunca o pseudonimo nem o outro tenant.
+      A excepcao e **estreita**: o `DEFINER` nao contorna o `FORCE`
+      (`db/rls.py`), e por isso a funcao poe o `app.tenant_id` em cada tenant da
+      lista, le so desse tenant, e no fim repoe o que estava; uma lista com
+      tenants inventados so da linhas que nao existem. As janelas (30 dias de
+      compras, 90 de pseudonimo visto) sao da funcao e nao argumento: com elas
+      do chamador, o lote bissectava o `paga_at` de uma encomenda e ligava um
+      comprador de A a B. **O limite que fica:** com um subconjunto de tenants
+      na lista, o `kamba_batch` sabe se dois tenants tem o mesmo dono; o SQL do
+      modulo passa sempre a lista inteira, e cada corrida fica no `audit_log`.
+      O `EXECUTE` e so do
+      `kamba_batch`, e o `PUBLIC` perde-o. Em `prod` nao corre: o interruptor do
+      `packages/core-ts/src/identity/correlacao.ts` esta trancado no codigo ate
+      o parecer chegar (D1). `db/tests/test_correlacao_entre_tenants.py` mede o
+      anel, as fronteiras, o contexto reposto e o `42501` do `kamba_app`.
+  - funcao: platform.contact_xtenant_purgar(p_tenants uuid[], p_antes timestamp with time zone)
+    adr: ADR-010
+    razao: >-
+      A retencao do pseudonimo sem tenant (KAM-208, D4: 90 dias desde a ultima
+      resolucao, *proposta*). Pela razao da funcao de cima, o `kamba_batch` nao
+      tem `DELETE` na tabela; a funcao apaga, tenant a tenant com o contexto
+      posto e reposto, so os pseudonimos vistos antes do instante — menos o do
+      dono de cada tenant, que nao vence enquanto for dono (decisao do fundador
+      de 2026-11-22, opcao B) —, e devolve quantos. So apaga: nao le nada para fora. `EXECUTE` so do `kamba_batch`.

@@ -455,7 +455,68 @@ REGRAS_OBRIGATORIAS = ("estado_contra_caixa",)
 #: #245 do KAM-206 ja fundido, com **171 medidos** na `main`): o bloco do
 #: KAM-232 ganha a verificacao. **172 medidos**, e `172 // 2` sao 86. Sobe para
 #: 86, que serve ate aos 173.
-MINIMO_DE_BLOCOS_MEDIDOS = 86
+#:
+#: **O 173.o e o do KAM-235**, medido na arvore integrada com a `publico/main`
+#: em `b37d1ffe` (o #246 do KAM-232 ja fundido, com **172 medidos** na `main`):
+#: o bloco do KAM-235 ganha a verificacao. **173 medidos**, e `173 // 2` sao 86.
+#: Fica em 86, e o 174.o sobe-o para 87.
+#:
+#: **O 174.o e o do KAM-125**, medido na arvore integrada com a `publico/main`
+#: em `96411555` (o #248 do KAM-235 ja fundido, com **173 medidos** na `main`):
+#: o bloco do KAM-125 ganha a verificacao, e o do KAM-237 nasce sem ela.
+#: **174 medidos**, e `174 // 2` sao 87. Sobe para 87, que serve ate aos 175.
+#:
+#: **O 175.o e o do KAM-236**, medido na arvore integrada com a `publico/main`
+#: em `600952bd` (o #247 do KAM-125 ja fundido, com **174 medidos** na `main`):
+#: o bloco do KAM-236 ganha a verificacao, e os do KAM-238 ao KAM-240 nascem
+#: sem ela. **175 medidos**, e `175 // 2` sao 87. Fica em 87, que serve ate aos 175.
+#:
+#: **O 176.o e o do KAM-237**, medido na arvore com a `publico/main` em
+#: `95826f19` (o #249 do KAM-236 ja fundido, com **175 medidos** na `main`): o
+#: bloco do KAM-237 ganha a verificacao. **176 medidos**, e `176 // 2` sao 88.
+#: Sobe para 88, que serve ate aos 177.
+#:
+#: **O 177.o e o do KAM-238**, medido na arvore da integracao com a
+#: `publico/main` em `18cfdf69` (o #252 do KAM-237 ja fundido, com **176
+#: medidos** na `main`): o bloco do KAM-238 ganha a verificacao, e os do
+#: KAM-241 e do KAM-242 nascem sem ela. **177 medidos**, e `177 // 2` sao 88.
+#: O piso fica em 88, que serve ate aos 177: o bloco seguinte a ganhar a
+#: verificacao sobe-o para 89.
+#:
+#: **O 178.o e o do KAM-231**, medido na arvore da integracao com a
+#: `publico/main` em `44b8c4b0` (o #253 do KAM-238 ja fundido, com **177
+#: medidos** na `main`): o bloco do KAM-231 ganha a verificacao, e o do KAM-243
+#: nasce sem ela. **178 medidos**, e `178 // 2` sao 89. Sobe para 89, que serve
+#: ate aos 179.
+#:
+#: **O 179.o e o do KAM-122**, medido na arvore da integracao com a
+#: `publico/main` em `f5da45da` (o #250 do KAM-231 ja fundido, com **178
+#: medidos** na `main`): o bloco do KAM-122 ganha a verificacao, e o do KAM-246
+#: nasce sem ela. **179 medidos**, e `179 // 2` sao 89. O piso fica em 89, que
+#: serve ate aos 179: o bloco seguinte a ganhar a verificacao sobe-o para 90.
+#:
+#: **O 180.o e o do KAM-225**, medido na arvore da integracao com a
+#: `publico/main` em `25babeca` (o #255 do KAM-122 ja fundido, com **179
+#: medidos** na `main`): o bloco do KAM-225 ganha a verificacao. **180
+#: medidos**, e `180 // 2` sao 90. Sobe para 90, que serve ate aos 181.
+#:
+#: **O 181.o e o do KAM-233**, medido na arvore da integracao com a
+#: `publico/main` em `fec6fdce` (o #251 do KAM-225 ja fundido, com **180
+#: medidos** na `main`): o bloco do KAM-233 ganha a verificacao, e os do KAM-247
+#: e do KAM-248 nascem sem ela. **181 medidos**, e `181 // 2` sao 90. O piso
+#: fica em 90, que serve ate aos 181: o bloco seguinte sobe-o para 91.
+#:
+#: **O 182.o e o do KAM-208**, medido na arvore da integracao com a
+#: `publico/main` em `4e9909b9` (o #256 do KAM-233 ja fundido, com **181
+#: medidos** na `main`): o bloco do KAM-208 ganha a verificacao. **182
+#: medidos**, e `182 // 2` sao 91. Sobe para 91, que serve ate aos 183.
+#:
+#: **O 183.o e o do KAM-209**, medido na arvore da integracao com a
+#: `publico/main` em `3054739c` (o #257 do KAM-208 ja fundido, com **182
+#: medidos** na `main`): o bloco do KAM-209 ganha a verificacao. **183
+#: medidos**, e `183 // 2` sao 91. O piso fica em 91, que serve ate aos 183: o
+#: bloco seguinte a ganhar a verificacao sobe-o para 92.
+MINIMO_DE_BLOCOS_MEDIDOS = 91
 
 #: Quantos blocos existem, no minimo. O mesmo argumento, para a camada de baixo:
 #: se o `ler_blocos` deixar de ver a populacao, o piso de cima podia continuar a

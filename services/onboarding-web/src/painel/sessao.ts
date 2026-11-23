@@ -95,16 +95,18 @@ export interface SessaoDoPainel {
 }
 
 /**
- * As sessões revogadas. A porta, e a implementação em memória.
+ * As sessões revogadas. A porta, a implementação em memória e a da base.
  *
- * **Em memória, como o resto do `onboarding-web`**: o `server.ts` já recusa
- * arrancar em `prod` porque o repositório de casos é em memória, e uma lista de
- * revogadas que se perde no reinício seria o mesmo defeito. Credor do adaptador
- * persistente: o mesmo do repositório de casos (KAM-086/087).
+ * **Na base em `prod`** (KAM-236, decisão do fundador de 2026-11-21, D3-A): uma
+ * lista de revogadas que se perde no reinício reabria as sessões que o dono
+ * fechou. A `RevogacoesNaBase` grava na `platform.painel_revogacao` (revisão
+ * `0084`), como `kamba_app` e sob a RLS do tenant **da sessão** — é por isso que
+ * o `revogar` recebe a sessão inteira, e não só o `sid`. A em memória fica para
+ * os ensaios e para `dev` sem base.
  */
 export interface Revogacoes {
   /** Revoga uma sessão. */
-  revogar(sid: string): Promise<void>;
+  revogar(s: SessaoDoPainel): Promise<void>;
   /** Revoga todas as sessões de um tenant emitidas até `ate` (inclusive). */
   revogarDoTenant(tenantId: string, ate: number): Promise<void>;
   /** A sessão está revogada? */
@@ -115,8 +117,8 @@ export class RevogacoesEmMemoria implements Revogacoes {
   readonly #sids = new Set<string>();
   readonly #porTenant = new Map<string, number>();
 
-  async revogar(sid: string): Promise<void> {
-    this.#sids.add(sid);
+  async revogar(s: SessaoDoPainel): Promise<void> {
+    this.#sids.add(s.sid);
   }
 
   async revogarDoTenant(tenantId: string, ate: number): Promise<void> {

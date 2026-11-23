@@ -652,14 +652,33 @@ def botao_do_tom(tom: str) -> str:
 
 
 def botao_da_legenda(referencia: str) -> str:
-    if prefixo_da_referencia(referencia) is None:
-        raise ValueError("referencia fora da forma")
-    return f"{PREFIXO_DA_LEGENDA}{referencia}"
+    return botao_do_item(PREFIXO_DA_LEGENDA, referencia)
+
+
+#: Os botoes de um item depois da legenda (KAM-122). O Aprovar **nao** esta aqui:
+#: e o `confirm:{action_id}` da `owner_actions` (decisao D4 do fundador).
+PREFIXO_DA_ARTE: Final = "arte:"
+PREFIXO_DE_EDITAR: Final = "editar:"
+PREFIXO_DE_REJEITAR: Final = "rejeitar:"
+PREFIXO_DE_ENVIAR: Final = "enviar:"
+_ACCOES_DO_ITEM: Final = {
+    PREFIXO_DA_LEGENDA: "legenda",
+    PREFIXO_DA_ARTE: "arte",
+    PREFIXO_DE_EDITAR: "editar",
+    PREFIXO_DE_REJEITAR: "rejeitar",
+    PREFIXO_DE_ENVIAR: "enviar",
+}
+
+
+def botao_do_item(prefixo: str, referencia: str) -> str:
+    if prefixo not in _ACCOES_DO_ITEM or prefixo_da_referencia(referencia) is None:
+        raise ValueError("botao fora da forma")
+    return f"{prefixo}{referencia}"
 
 
 @dataclass(frozen=True)
 class BotaoSocial:
-    accao: str  # "tom", "legenda", "nova", "ideias"
+    accao: str  # "tom", "legenda", "arte", "editar", "rejeitar", "enviar", "nova", "ideias"
     valor: str = ""
 
 
@@ -673,8 +692,9 @@ def ler_botao(botao: object) -> BotaoSocial | None:
         return BotaoSocial("ideias")
     if botao.startswith(PREFIXO_DO_TOM) and botao[len(PREFIXO_DO_TOM) :] in TONS:
         return BotaoSocial("tom", botao[len(PREFIXO_DO_TOM) :])
-    if botao.startswith(PREFIXO_DA_LEGENDA):
-        referencia = botao[len(PREFIXO_DA_LEGENDA) :]
-        if prefixo_da_referencia(referencia) is not None:
-            return BotaoSocial("legenda", referencia.upper())
+    for prefixo, accao in _ACCOES_DO_ITEM.items():
+        if botao.startswith(prefixo):
+            referencia = botao[len(prefixo) :]
+            if prefixo_da_referencia(referencia) is not None:
+                return BotaoSocial(accao, referencia.upper())
     return None

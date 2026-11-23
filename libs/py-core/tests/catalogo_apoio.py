@@ -220,12 +220,17 @@ class ScreeningFake:
 class RegistoFake:
     rascunhos: list[tuple[str, str, dict[str, Campo]]] = field(default_factory=list)
     publicados: list[tuple[str, str, ConfirmacaoDoDono]] = field(default_factory=list)
+    #: KAM-231: a quantidade de cada publicacao, por `sku`.
+    stocks: dict[str, int | None] = field(default_factory=dict)
 
     def rascunho(self, tenant_id: str, sku: str, campos: Mapping[str, Campo]) -> None:
         self.rascunhos.append((tenant_id, sku, dict(campos)))
 
-    def publicar(self, tenant_id: str, sku: str, confirmacao: ConfirmacaoDoDono) -> None:
+    def publicar(
+        self, tenant_id: str, sku: str, confirmacao: ConfirmacaoDoDono, *, stock: int | None = None
+    ) -> None:
         self.publicados.append((tenant_id, sku, confirmacao))
+        self.stocks[sku] = stock
 
 
 LEXICO = (

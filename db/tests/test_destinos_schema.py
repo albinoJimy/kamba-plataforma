@@ -81,18 +81,21 @@ VISTA = "platform.v_transfer_audit"
 #: Os **quatro** estados do dominio da `0036`.
 ESTADOS = ("pendente", "autorizado", "revogado", "negado")
 
-#: As **dezassete** finalidades do dominio na cabeca: as treze da `0036`, a
+#: As **dezoito** finalidades do dominio na cabeca: as treze da `0036`, a
 #: `imagem`, que a revisao da Foto de produtos (KAM-120) acrescenta — o
 #: melhoramento de imagem nao cabe em nenhuma das treze, e a `visao` e a
 #: extraccao de campos do Catalogo AI —, a `classificacao_de_catalogo`, que a
 #: revisao `finalidade_do_screening` (KAM-195) acrescenta, e a
 #: `classificacao_de_condicoes`, que a `finalidade_das_condicoes` (KAM-230)
-#: acrescenta, e a `classificacao_de_conteudo`, que a `social_do_dono` (KAM-121)
-#: acrescenta. Os dominios de treze, catorze, quinze e dezasseis, depois das descidas dessas
-#: revisoes, medem-nos o `db/tests/test_foto_schema.py`, o
-#: `db/tests/test_finalidade_do_screening_schema.py` e o
-#: `db/tests/test_finalidade_das_condicoes_schema.py` e o
-#: `db/tests_agr/test_social_do_dono.py`.
+#: acrescenta, a `classificacao_de_conteudo`, que a `social_do_dono` (KAM-121)
+#: acrescenta, e a `geracao_de_imagem`, que a `arte_e_aprovacao_do_social`
+#: (KAM-122) acrescenta. Os dominios de treze, catorze, quinze, dezasseis e
+#: dezassete, depois das descidas dessas revisoes, medem-nos o
+#: `db/tests/test_foto_schema.py`, o
+#: `db/tests/test_finalidade_do_screening_schema.py`, o
+#: `db/tests/test_finalidade_das_condicoes_schema.py`, o
+#: `db/tests/test_social_do_dono_schema.py` e o
+#: `db/tests/test_arte_e_aprovacao_do_social_schema.py`.
 FINALIDADES = (
     "alojamento",
     "canal",
@@ -104,6 +107,7 @@ FINALIDADES = (
     "embeddings",
     "entrega_de_conteudo",
     "facturacao",
+    "geracao_de_imagem",
     "imagem",
     "observabilidade",
     "otp_e_avisos_de_servico",

@@ -18,8 +18,9 @@ resumo. O `preco` e o valor em centimos que o eco gravou (`catalogo/regras.py`);
 vai ao COM como cadeia de digitos, a forma canonica do `emMinor` da API
 interna, e so quando o `preco_tipo` leva numero — o `sob_consulta` vai com
 `null`, que e o que o `offer_terms_preco_ck` exige. A **quantidade** em stock
-nao tem campo no rascunho da porta (`ProductDraft`): fica na ingestao e no
-resumo, e o limite esta escrito no bloco.
+nao tem campo no rascunho da porta (`ProductDraft`), e por isso vai com a
+**publicacao** (KAM-231): o `stock` do `publish-product`, que o COM passa ao
+`ajustarStock` do Registo na mesma transaccao.
 
 ## A categoria e a da lista fechada (KAM-209)
 
@@ -123,13 +124,19 @@ class RegistoPeloCom:
     def rascunho(self, tenant_id: str, sku: str, campos: Mapping[str, Campo]) -> None:
         self.cliente.chamar(ROTA_DO_RASCUNHO, self._ctx(tenant_id), corpo_do_rascunho(sku, campos), self.timeout_ms)
 
-    def publicar(self, tenant_id: str, sku: str, confirmacao: ConfirmacaoDoDono) -> None:
+    def publicar(
+        self, tenant_id: str, sku: str, confirmacao: ConfirmacaoDoDono, *, stock: int | None = None
+    ) -> None:
         if confirmacao.em.tzinfo is None:
             raise ErroDeBackend(VALIDATION_ERROR, "confirmacao_sem_fuso")
-        corpo = {
+        if stock is not None and (isinstance(stock, bool) or stock < 0):
+            raise ErroDeBackend(VALIDATION_ERROR, "stock_invalido")
+        corpo: dict[str, object] = {
             "sku": sku,
             "confirmacao": {"actor_id": confirmacao.actor, "em": confirmacao.em.isoformat()},
         }
+        if stock is not None:
+            corpo["stock"] = stock
         self.cliente.chamar(ROTA_DA_PUBLICACAO, self._ctx(tenant_id), corpo, self.timeout_ms)
 
 
@@ -139,7 +146,9 @@ class RegistoPorLigar:
     def rascunho(self, tenant_id: str, sku: str, campos: Mapping[str, Campo]) -> None:
         raise ErroDeBackend("UPSTREAM_DOWN", "registo_por_ligar")
 
-    def publicar(self, tenant_id: str, sku: str, confirmacao: ConfirmacaoDoDono) -> None:
+    def publicar(
+        self, tenant_id: str, sku: str, confirmacao: ConfirmacaoDoDono, *, stock: int | None = None
+    ) -> None:
         raise ErroDeBackend("UPSTREAM_DOWN", "registo_por_ligar")
 
 
