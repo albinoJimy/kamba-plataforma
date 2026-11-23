@@ -398,14 +398,19 @@ class TestH12Pagantes(_ComTransaccao):
 
     def test_so_um_plano_de_um_so_modulo_conta(self) -> None:
         self.precos()
-        isolado = self.tenant()
-        completo = self.tenant()
+        # A vista le a coorte de `now()`: o T0 de 2033 ainda nao chegou.
+        passado = dt.datetime(2026, 1, 5, 12, 0, tzinfo=UTC)
+        isolado = self.tenant(provisionado=passado)
+        completo = self.tenant(provisionado=passado)
+        fora = self.tenant(provisionado=T0)
         self.pago(isolado, "entrada_foto")
+        self.pago(fora, "entrada_foto")
         self.pago(completo, "entrada_completo")
         self.cursor.execute("SELECT tenant_id, plano, modulo, ciclos_pagos FROM platform.v_h12_pagantes")
         linhas = {str(l[0]): tuple(l[1:]) for l in self.cursor.fetchall()}
         self.assertEqual(linhas.get(isolado), ("entrada_foto", "foto", 1))
         self.assertNotIn(completo, linhas)
+        self.assertNotIn(fora, linhas, "um tenant que ainda nao entrou na coorte nao conta")
 
 
 class TestAsTabelas(_ComTransaccao):

@@ -5138,8 +5138,8 @@ MUTACOES = [
     # O `main()` volta ao `OutboundPorLigar`, e nenhuma proposta sai:
     # `test_a_porta_dos_orcamentos_sai_pela_resposta`.
     ('orc: o __main__ deixa a proposta por ligar', AG_MAIN,
-     '            ligar_para_accoes, saida=NotificacaoPelaResposta(ligar_para_saida)\n',
-     '            ligar_para_accoes\n',
+     '            saida=NotificacaoPelaResposta(ligar_para_saida),\n',
+     '            saida=None,\n',
      AGR_UNIT),
     # Com a janela fechada, a porta grava texto livre que o `Saida` recusa:
     # `test_a_janela_fechada_ou_nunca_aberta_grava_o_template_com_os_valores`.

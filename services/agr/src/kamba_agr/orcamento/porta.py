@@ -131,7 +131,9 @@ class PortaDeOrcamento:
         `aguarda_janela` saem agora. Uma mensagem do dono (outra persona) nao
         abre a janela de cliente nenhum, e nao se vai a base por ela.
         """
-        if self._desligado or getattr(invocacao, "persona", None) != PERSONA_CLIENTE:
+        if self._desligado:
+            return []
+        if getattr(invocacao, "persona", None) != PERSONA_CLIENTE:
             return []
         return await asyncio.to_thread(
             self._com_ligacao,
