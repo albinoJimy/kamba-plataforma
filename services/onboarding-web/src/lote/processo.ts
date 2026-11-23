@@ -150,6 +150,7 @@ import { varrerProvisionamentos } from "@kamba/core-ts/provisioning";
 import { CONSUMIDOR_DO_PAINEL, efeitoDoPainel } from "@kamba/core-ts/resposta";
 import { EscritorSql, LeitorSql, type EscritorDeDecisoes } from "@kamba/core-ts/screening";
 import { isAmbiente } from "@kamba/core-ts/secrets";
+import { estadoDaCorrelacao, type EstadoDaCorrelacao } from "@kamba/core-ts/identity";
 import { METRICAS_DA_GUARDA, comTenant } from "@kamba/core-ts/tenant_guard";
 import {
   CANAL_SEM_ADAPTADOR,
@@ -221,6 +222,11 @@ export const VARIAVEIS_DO_LOTE = {
   intervaloDoOffboarding: "LOTE_OFFBOARDING_INTERVALO_MS",
   /** O dia em que a amostragem das aprovações automáticas começou (`AAAA-MM-DD`). */
   amostragem: "ONBOARDING_LOTE_AMOSTRAGEM_DESDE",
+  /**
+   * O interruptor da correlação entre tenants (KAM-208, D1): `ligada` liga a
+   * varredura `compradores_do_dono`; em `prod` está trancado no código.
+   */
+  correlacao: "KAMBA_CORRELACAO_ENTRE_TENANTS",
 } as const;
 
 /**
@@ -257,6 +263,8 @@ export interface ConfiguracaoDoLote {
   readonly urlDaFila: string;
   readonly intervaloDoTrustMs: number;
   readonly intervaloDoOffboardingMs: number;
+  /** O interruptor do KAM-208, já com a tranca de `prod` aplicada. */
+  readonly correlacao: EstadoDaCorrelacao;
 }
 
 /**
@@ -345,6 +353,7 @@ export function lerConfiguracao(env: Ambiente): ConfiguracaoDoLote {
     urlDaFila,
     intervaloDoTrustMs,
     intervaloDoOffboardingMs,
+    correlacao: estadoDaCorrelacao(ambiente, env[VARIAVEIS_DO_LOTE.correlacao]),
   };
 }
 
@@ -705,6 +714,8 @@ export interface OpcoesDoProcesso {
   readonly metricasDoOffboarding?: MetricasDoOffboarding;
   /** As portas do off-boarding. Por omissão, as sem adaptador (ver a nota do módulo). */
   readonly portasDoOffboarding?: PortasDoCiclo;
+  /** O interruptor do KAM-208. Por omissão, `desligada`. */
+  readonly correlacao?: EstadoDaCorrelacao;
 }
 
 /** O processo montado: o ciclo, o serviço da fila e o gancho do KAM-092. */
@@ -816,6 +827,7 @@ export function montarProcesso(o: OpcoesDoProcesso): ProcessoDeLote {
     lote: o.lote,
     servico: trust,
     metricas: metricasDoTrust,
+    ...(o.correlacao === undefined ? {} : { correlacao: o.correlacao }),
     ...(o.relogio === undefined ? {} : { relogio: o.relogio }),
   });
   const ciclo = new CicloDaFila({
@@ -1079,6 +1091,8 @@ export async function arrancar(o: {
   readonly inicioDaAmostragem: Date | null;
   /** As portas do off-boarding (KAM-218). Por omissão, as sem adaptador. */
   readonly portasDoOffboarding?: PortasDoCiclo;
+  /** O interruptor do KAM-208. Por omissão, `desligada`. */
+  readonly correlacao?: EstadoDaCorrelacao;
 }): Promise<Arranque> {
   await verificarPapeis(o.lote, o.app);
   const processo = montarProcesso({
@@ -1088,6 +1102,7 @@ export async function arrancar(o: {
     log: o.log,
     inicioDaAmostragem: o.inicioDaAmostragem,
     ...(o.portasDoOffboarding === undefined ? {} : { portasDoOffboarding: o.portasDoOffboarding }),
+    ...(o.correlacao === undefined ? {} : { correlacao: o.correlacao }),
   });
   return {
     processo,
