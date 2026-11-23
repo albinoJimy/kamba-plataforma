@@ -363,7 +363,7 @@ Os ensaios:
 | Achado | Onde | Credor |
 |---|---|---|
 | A quantidade em stock que o dono deu fica na ingestão e no resumo, e não chega ao Registo: o `ProductDraft` da porta não tem campo para ela | [`tls/registo_com.py`](../services/agr/src/kamba_agr/tls/registo_com.py) | **KAM-231**. *Revisto pelo KAM-231:* a quantidade vai com a publicação, e o COM ajusta o stock na mesma transacção, com o `stock.adjusted`; a coluna `offer_terms.stock_quantidade` continua por escrever, como no KAM-043 e no KAM-049 |
-| Um `screen` do conteúdo exacto de um produto já publicado, com a decisão `bloqueada`, faz a re-análise saltá-lo, e o `screening.violation_detected` não sai: a re-análise é quem o emite | nota de [`screening/index.ts`](../services/com/src/screening/index.ts) do COM | **KAM-231**, que liga a foto e o screening por produto em produção. *Revisto pelo KAM-231:* **não coube nele**, que liga a foto e não o screening por produto em produção. Credor **KAM-245**, por decisão da coordenação de 2026-11-22 |
+| Um `screen` do conteúdo exacto de um produto já publicado, com a decisão `bloqueada`, faz a re-análise saltá-lo, e o `screening.violation_detected` não sai: a re-análise é quem o emite | nota de [`screening/index.ts`](../services/com/src/screening/index.ts) do COM | **KAM-231**, que liga a foto e o screening por produto em produção. *Revisto pelo KAM-231:* **não coube nele**, que liga a foto e não o screening por produto em produção. Credor **KAM-245**, por decisão da coordenação de 2026-11-22. *Revisto pelo KAM-245:* fechado. A violação sai do `/internal/screen`, na transacção da decisão, e o produto passa a `rascunho` com o `catalog.product_changed` (decisão A do fundador, 2026-11-23); a re-análise de política continua a não despublicar, com credor **KAM-249** |
 
 ---
 
@@ -3817,7 +3817,7 @@ Testes: concorrência e adversarial.
 | Prioridade | P2 |
 | Estimativa | S |
 | Dependências | KAM-119 |
-| Bloqueia | — |
+| Bloqueia | KAM-249 |
 | Responsável sugerido | Engenheiro de Comércio (COM) |
 | Documentos de referência | `EPIC-11_Modulos_Entrada.md` (bloco KAM-119, «Achado fora de âmbito»), `EPIC-09_Onboarding_Governanca.md` (KAM-088 e KAM-191) |
 
@@ -3838,6 +3838,15 @@ Um produto publicado cujo conteúdo um `screen` posterior marca como `bloqueado`
 ### Detalhes Técnicos
 
 - **Sem esquema novo** previsto: a `screening_decision` e o evento são do KAM-088 e do KAM-191.
+- **Onde se emite:** no `/internal/screen` do COM (`gravarComViolacao`, `../services/com/src/screening/index.ts`), na transacção em que o `screen` grava a decisão — e não na re-análise, que salta o produto por ele já ter decisão para a versão e o conteúdo. É a regra dos achados F11 e F12 do KAM-088: uma violação que falhasse depois de a decisão confirmar perdia-se para sempre.
+
+### Decisão do fundador
+
+**Data: 2026-11-23. Autor: o fundador** (decisão transmitida pela coordenação do lote 20). A pergunta foi a da segunda metade do critério 1: como é que o produto «deixa de ser visível ao cliente». Hoje nenhum caminho despublica numa `bloqueada`. A re-análise de uma mudança de política emite e não despublica (KAM-191, critério 4), pelo que a analogia do objectivo («como numa mudança de política») não tem esse efeito.
+
+- **Escolhida — A:** no `/internal/screen`, na mesma transacção, ficam a decisão, a violação, a oferta de `publicado` para `rascunho` e o `catalog.product_changed`, que o IDX lê para esconder o documento. É o que o *trigger* `offer_terms_publicacao_segura` da revisão `0080` já faz a um publicado cujo nome novo não tem decisão. Fica em `rascunho` e não em `arquivado` porque o arquivo é terminal; assim o recurso humano da T&S (uma `permitida` de `humano`) deixa o dono republicar. A re-análise de política não muda. A assimetria fica escrita como achado, com credor novo: o **KAM-249**.
+- **Recusada — B:** a re-análise também despublica. Emendava o critério 4 do KAM-191.
+- **Recusada — C:** só emitir, e deixar a visibilidade à sanção do KAM-097.
 
 ### Testes Requeridos
 
