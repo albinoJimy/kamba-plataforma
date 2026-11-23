@@ -7,7 +7,16 @@
  * fotos           varrerFotos          o mesmo phash noutro tenant (informativo)
  * encerramentos   fecharEncerramentos  o encerrado de quem não recorreu no prazo
  * mudancas_de_conta                    o caso `trust` de cada mudança de conta ou NIF
+ * compradores_do_dono  varrerCompradoresDoDono  o comprador noutro tenant do mesmo dono (KAM-208)
+ * pseudonimos     purgarPseudonimos    a retenção do pseudónimo sem tenant (KAM-208)
  * ```
+ *
+ * ## O interruptor do KAM-208
+ *
+ * A `compradores_do_dono` só corre com `correlacao: "ligada"` — o
+ * `estadoDaCorrelacao` de `../identity/correlacao.ts`, que em `prod` nunca a dá
+ * (decisão do fundador de 2026-11-21, D1). Desligada, **não corre nem audita**:
+ * não houve corrida. A `pseudonimos` corre sempre, porque apaga.
  *
  * ## Uma corrida, uma linha no `audit_log`
  *
@@ -30,7 +39,8 @@
 
 import { comBatch } from "../tenant_guard/index.ts";
 import type { ConjuntoSql } from "../revisao/sql.ts";
-import { varrerFotos, varrerNaoEntregas } from "./efeito.ts";
+import type { EstadoDaCorrelacao } from "../identity/correlacao.ts";
+import { purgarPseudonimos, varrerCompradoresDoDono, varrerFotos, varrerNaoEntregas } from "./efeito.ts";
 import type { ContadoresDoTrust, MetricasDoTrust, Varredura } from "./metricas.ts";
 import type { Origem } from "./contrato.ts";
 import type { Passo, TipoDeSinal } from "./regras.ts";
@@ -72,6 +82,12 @@ export interface OpcoesDoCicloDoTrust {
   readonly metricas: MetricasDoTrust;
   readonly politica?: PoliticaDeRisco;
   readonly relogio?: () => Date;
+  /**
+   * O interruptor da correlação entre tenants (KAM-208, D1). **Por omissão,
+   * `desligada`**: quem monta o ciclo lê-o do ambiente com o
+   * `estadoDaCorrelacao`, que em `prod` nunca dá `ligada`.
+   */
+  readonly correlacao?: EstadoDaCorrelacao;
 }
 
 /** Contadores que guardam e só contam quando a transacção confirma. */
@@ -132,6 +148,16 @@ export class CicloDoTrust {
       ["fotos", () => this.#numaTransaccao("fotos", (bd, c) => varrerFotos(bd, opcoes(c)))],
       ["encerramentos", () => this.#encerramentos()],
       ["mudancas_de_conta", () => this.#mudancasDeConta()],
+      // KAM-208: a purga corre sempre; a comparação, só com o interruptor ligado.
+      ["pseudonimos", () => this.#numaTransaccao("pseudonimos", (bd) => purgarPseudonimos(bd, opcoes(new ContadoresAdiados())))],
+      ...(this.#o.correlacao === "ligada"
+        ? [
+            [
+              "compradores_do_dono",
+              () => this.#numaTransaccao("compradores_do_dono", (bd, c) => varrerCompradoresDoDono(bd, opcoes(c))),
+            ] as const,
+          ]
+        : []),
     ];
     for (const [nome, passo] of passos) {
       try {

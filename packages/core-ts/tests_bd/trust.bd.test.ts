@@ -220,9 +220,12 @@ describe("Trust & Safety em produção contra a base", () => {
     const antes = await contar("SELECT count(*) AS n FROM platform.audit_log WHERE action = 'batch.run' AND entity = 'ts_varredura'", []);
     const r = await p.cicloDoTrust.correr();
     assert.deepEqual(r.falhas, []);
+    // Cinco desde o KAM-208: a purga do pseudónimo sem tenant (`pseudonimos`)
+    // corre sempre; a comparação (`compradores_do_dono`) só com o interruptor
+    // ligado, que aqui não está.
     assert.equal(
       await contar("SELECT count(*) AS n FROM platform.audit_log WHERE action = 'batch.run' AND entity = 'ts_varredura'", []),
-      antes + 4,
+      antes + 5,
     );
     const casos = (t: string) =>
       contar("SELECT count(*) AS n FROM platform.review_case WHERE tenant_id = $1 AND tipo = 'trust' AND motivo_codigo LIKE 'sancao_suspensao:conta.%'", [t]);

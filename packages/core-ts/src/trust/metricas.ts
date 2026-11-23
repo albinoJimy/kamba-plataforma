@@ -41,7 +41,14 @@ export const METRICA_SANCOES = "ts_sancoes_total";
 export const METRICA_VARREDURAS = "ts_varreduras_total";
 
 /** As varreduras do lote. Domínio da etiqueta `varredura`. */
-export const VARREDURAS = ["nao_entrega", "fotos", "encerramentos", "mudancas_de_conta"] as const;
+export const VARREDURAS = [
+  "nao_entrega",
+  "fotos",
+  "encerramentos",
+  "mudancas_de_conta",
+  "pseudonimos",
+  "compradores_do_dono",
+] as const;
 export type Varredura = (typeof VARREDURAS)[number];
 
 /** O desfecho de uma corrida. Uma falha não pára as outras varreduras. */

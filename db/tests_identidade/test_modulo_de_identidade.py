@@ -37,12 +37,15 @@ sys.path.insert(0, str(node.RAIZ / "tools"))
 
 from kamba_yaml import load_file  # noqa: E402
 
-#: Os ficheiros de teste, pela ordem em que correm. Os tres primeiros nao
-#: precisam de base (correm tambem no gate 4); o ultimo so corre aqui.
+#: Os ficheiros de teste, pela ordem em que correm. Os quatro primeiros nao
+#: precisam de base (correm tambem no gate 4); o ultimo so corre aqui. O da
+#: correlacao entre tenants (KAM-208) entra porque o `correlacao.ts` e do
+#: modulo, e a cobertura dele mede-se aqui como a dos outros.
 FICHEIROS = (
     "tests/identity.cripto.test.ts",
     "tests/identity.chaves.test.ts",
     "tests/identity.servico.test.ts",
+    "tests/identity.correlacao.test.ts",
     "tests_bd/identity.bd.test.ts",
 )
 
@@ -73,8 +76,11 @@ TESTES_OBRIGATORIOS = (
     "com o papel da aplicação, o módulo não resolve nem lê",
 )
 
-#: Os cinco ficheiros do modulo. A cobertura mede-se em **cada um**.
-FICHEIROS_DO_MODULO = ("chaves.ts", "consultas.ts", "contactos.ts", "cripto.ts", "index.ts")
+#: Os seis ficheiros do modulo (o `correlacao.ts` desde o KAM-208). A cobertura
+#: mede-se em **cada um**.
+FICHEIROS_DO_MODULO = (
+    "chaves.ts", "consultas.ts", "contactos.ts", "correlacao.ts", "cripto.ts", "index.ts",
+)
 
 
 def _cobertura(lcov: str) -> dict[str, tuple[int, int]]:

@@ -256,6 +256,14 @@ export const INVENTARIO: readonly Entrada[] = [
       "zero a cabeca, que sao os casos de fronteira do KAM-006",
   },
   {
+    ficheiro: "packages/core-ts/tests/identity.correlacao.test.ts",
+    ocorrencias: 4,
+    razao:
+      "o pseudonimo do telefone sem tenant (KAM-208): o numero de ensaio, um " +
+      "segundo que tem de dar outro pseudonimo, e duas das formas nao " +
+      "normalizadas que a funcao recusa. Ficticios, do intervalo +244 999",
+  },
+  {
     ficheiro: "services/gwy/tests/webhook.test.ts",
     ocorrencias: 1,
     razao:
