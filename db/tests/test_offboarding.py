@@ -383,8 +383,14 @@ class TestEsquema(ComOffboarding):
         fks = dict(self.cur.fetchall())
         # O conjunto **exacto**: uma FK nova ao caso muda o fundamento do certificado, e
         # tem de o avermelhar. Foi assim que a `0084` (KAM-236) trouxe a quarta, o OTP.
-        self.assertEqual(set(fks), {"platform.kyc_check", "platform.screening_decision",
-                                    "platform.review_case", "platform.onboarding_otp"})
+        # As tres de cima a purga apaga antes do caso (`0086`); as quatro de baixo ficam.
+        apagadas = {"platform.onboarding_gate", "platform.onboarding_smoke", "platform.waitlist_entry"}
+        ficam = {"platform.kyc_check", "platform.screening_decision",
+                 "platform.review_case", "platform.onboarding_otp"}
+        self.assertEqual(set(fks), apagadas | ficam)
+        caminhos = {t for c in CAMINHOS_DO_ENCERRAMENTO for t in c.tabelas}
+        self.assertTrue(apagadas <= caminhos, "uma das tres deixou de sair antes do caso")
+        self.assertFalse(ficam & caminhos)
         for prova, tipo in fks.items():
             with self.subTest(prova=prova):
                 self.assertEqual(tipo, "a", f"{prova} deixou de apontar ao caso sem cascata")

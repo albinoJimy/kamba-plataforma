@@ -8336,12 +8336,9 @@ MUTACOES = [
      '"GRANT SELECT, INSERT, UPDATE (estado, na_fila_desde, ',
      '"GRANT SELECT, INSERT, UPDATE (estado, aprovado_em, na_fila_desde, ',
      "tests"),
-    # O lote apaga uma entrada, e com ela a vaga dada na janela de 7 dias: o
-    # mesmo ensaio, no `DELETE`.
-    ("lista de espera: o lote apaga entradas", REV_LISTA_DE_ESPERA,
-     '"GRANT SELECT, INSERT, UPDATE (',
-     '"GRANT SELECT, INSERT, DELETE, UPDATE (',
-     "tests"),
+    # A mutacao «o lote apaga entradas» saiu com o KAM-233: a `0086` (Q3 = B)
+    # da ao lote o `DELETE` da `waitlist_entry` para a purga do encerramento, e
+    # um `DELETE` a mais nesta revisao deixou de mudar o que a base aceita.
     # A aplicacao le a fila, que atravessa tenants pela posicao:
     # `test_a_aplicacao_nao_le_nem_a_fila_nem_o_limite`.
     ("lista de espera: a aplicacao le a fila", REV_LISTA_DE_ESPERA,
