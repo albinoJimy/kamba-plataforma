@@ -33,7 +33,7 @@ SEGREDOS_STO = {f"KAMBA_SECRET_{s.upper()}": "valor-de-ensaio" for s in SEGREDOS
 class _Visao:
     fornecedores = ("anthropic",)
 
-    def extrair(self, tenant_id: str, imagem: bytes) -> RespostaDaVisao:
+    def extrair(self, tenant_id: str, imagem: bytes, *, tecto_s: float | None = None) -> RespostaDaVisao:
         return RespostaDaVisao(texto="{}", custo_usd=Decimal("0.001"))
 
 
