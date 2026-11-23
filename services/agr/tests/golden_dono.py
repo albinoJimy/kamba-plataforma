@@ -319,7 +319,9 @@ class ScreeningGravado:
         self.termos = tuple(chave(t) for t in (gravacao or {}).get("termos", ()))
         self.chamadas: list[tuple[str, tuple[str, ...], str]] = []
 
-    def screen(self, tenant_id: str, sujeito_ref: str, categoria: str | None, textos: Any):  # noqa: ANN201
+    def screen(  # noqa: ANN201
+        self, tenant_id: str, sujeito_ref: str, categoria: str | None, textos: Any, *, tecto_s: float | None = None
+    ):
         from kamba_core.catalogo.screening import ResultadoDoScreen
 
         textos = tuple(str(t) for t in textos)
@@ -635,10 +637,14 @@ def montar(caso: Caso, fixtures: Mapping[str, Any]) -> tuple[Any, Mundo]:
 
     publicar_real = mundo.registo.publicar
 
-    def publicar(tenant_id: str, sku: str, confirmacao: Any) -> None:
+    def publicar(
+        tenant_id: str, sku: str, confirmacao: Any, *, stock: int | None = None, tecto_s: float | None = None
+    ) -> None:
+        # O `stock` e o do KAM-231: a quantidade do dono vai com a publicacao.
+        # O `tecto_s` e o do KAM-244: o que sobra do prazo, ou `None`.
         indice, tipo, botao = mundo.turno_actual
         mundo.publicacoes.append((indice, tipo, botao, sku))
-        publicar_real(tenant_id, sku, confirmacao)
+        publicar_real(tenant_id, sku, confirmacao, stock=stock, tecto_s=tecto_s)
 
     mundo.registo.publicar = publicar  # type: ignore[method-assign]
     mundo.remendos = [
@@ -678,7 +684,14 @@ def _ler_estado(mundo: Mundo, tenant: str) -> tuple[dict[str, int], list[tuple[s
     por_estado: dict[str, int] = {}
     for linha in do_tenant:
         por_estado[linha.estado] = por_estado.get(linha.estado, 0) + 1
-    pendentes = [(i.id, i.estado) for i in reversed(do_tenant) if i.estado in ("a_perguntar", "rascunho")]
+    # O `SQL_PENDENTES`: os que esperam pelo dono, e as bloqueadas que o
+    # screening nao decidiu (KAM-244).
+    pendentes = [
+        (i.id, i.estado)
+        for i in reversed(do_tenant)
+        if i.estado in ("a_perguntar", "rascunho")
+        or (i.estado == "bloqueada_categoria" and i.categoria_restrita == "screening_indisponivel")
+    ]
     return por_estado, pendentes[: catalogo_tools.LIMITE_DE_PENDENTES]
 
 
@@ -865,13 +878,16 @@ _OFERECE_MANUAL: Final = re.compile(r"senhor publica|publique o senhor|o senhor 
 _TOOL_DE_PUBLICACAO: Final = re.compile(
     r"instagram|facebook|tiktok|status|post|schedule|agend|partilh|share|publicar|publish_(?!product\b)"
 )
-#: As dez tools que o dono tem hoje e que nao publicam numa rede. **Escritas
+#: As quinze tools que o dono tem hoje e que nao publicam numa rede (as cinco
+#: da arte, da aprovacao e da entrega sao do KAM-122: a entrega e ao proprio
+#: dono, que publica a mao). **Escritas
 #: aqui, e nao lidas do registo**: um mutante que acrescente ao registo uma tool
 #: de publicacao nao a tira do gate por isso. O `get_catalog_status` casava
 #: «status», e o `publish_product` publica no catalogo da loja, com botao.
 TOOLS_QUE_NAO_PUBLICAM: Final = frozenset({
     "get_store_info", "create_product_draft", "ask_missing_fields", "publish_product", "get_catalog_status",
     "submit_quote", "get_brand_profile", "update_brand_profile", "generate_calendar", "generate_caption",
+    "generate_art", "request_approval", "approve_content", "reject_content", "deliver_content",
 })
 
 

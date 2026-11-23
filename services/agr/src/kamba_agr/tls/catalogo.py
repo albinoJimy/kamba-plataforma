@@ -31,6 +31,11 @@ que entra aqui e o **nome**».
 | `update_brand_profile` | Dono | **`write`** | ligada com executor (KAM-121) | — |
 | `generate_calendar` | Dono | **`write`** | ligada com executor (KAM-121) | — |
 | `generate_caption` | Dono | **`write`** | ligada com executor (KAM-121) | — |
+| `generate_art` | Dono | **`write`** | ligada com executor (KAM-122) | — |
+| `request_approval` | Dono | **`write`** | ligada com executor (KAM-122) | — |
+| `approve_content` | Dono | **`write`** | ligada com executor (KAM-122), botao `confirm:{action_id}` | — |
+| `reject_content` | Dono | **`write`** | ligada com executor (KAM-122) | — |
+| `deliver_content` | Dono | **`write`** | ligada com executor (KAM-122) | — |
 
 ## As quatro do dono entram declaradas, e e o que o KAM-118 pode fazer
 
@@ -202,16 +207,19 @@ _AS_DUAS_DO_ORCAMENTO: Final = (
 
 #: O credor das quatro tools do modulo `social` (KAM-121): o ticket que as liga.
 CREDOR_DO_SOCIAL: Final = "KAM-121"
+#: O das cinco da arte, da aprovacao e da entrega (KAM-122).
+CREDOR_DA_ARTE: Final = "KAM-122"
 
 #: O modulo que as fecha no passo 2: um tenant sem `social` nao tem perfil de
 #: marca, calendario nem legendas.
 MODULO_DO_SOCIAL: Final = "social"
 
-#: As quatro do Social AI, pela ordem do §21.3, com a `update_brand_profile`
-#: (decisao 2 do fundador de 2026-11-20, bloco do KAM-121) a seguir a leitura do perfil. As duas que
-#: faltam ao §21.3 (`generate_art`, `request_approval`) sao do KAM-122, que as
-#: declara e liga. **Nenhuma publica nem envia** (D13): o dono publica a mao.
-_AS_QUATRO_DO_SOCIAL: Final = (
+#: As nove do Social AI, pela ordem do §21.3, com a `update_brand_profile`
+#: (decisao 2 do fundador de 2026-11-20, bloco do KAM-121) a seguir a leitura do
+#: perfil, e as cinco do KAM-122 no fim: a arte, o pedido de aprovacao, a
+#: aprovacao (a unica com botao, `confirm:{action_id}`), a rejeicao e a entrega
+#: ao dono. **Nenhuma publica nem envia a terceiros** (D13): o dono publica a mao.
+_AS_DO_SOCIAL: Final = (
     EspecificacaoDeTool(
         nome="get_brand_profile", klass="read", backend="plataforma", credor=CREDOR_DO_SOCIAL, modulo=MODULO_DO_SOCIAL
     ),
@@ -227,6 +235,10 @@ _AS_QUATRO_DO_SOCIAL: Final = (
     ),
     EspecificacaoDeTool(
         nome="generate_caption", klass="write", backend="plataforma", credor=CREDOR_DO_SOCIAL, modulo=MODULO_DO_SOCIAL
+    ),
+    *(
+        EspecificacaoDeTool(nome=nome, klass="write", backend="plataforma", credor=CREDOR_DA_ARTE, modulo=MODULO_DO_SOCIAL)
+        for nome in ("generate_art", "request_approval", "approve_content", "reject_content", "deliver_content")
     ),
 )
 
@@ -244,26 +256,47 @@ RAZAO_DA_DISPENSA_DA_LEGENDA: Final = (
     "so grava a legenda do item em rascunho, depois das barreiras e do screening; nada "
     "se publica nem se envia, e a aprovacao e a entrega sao do KAM-122"
 )
+#: As do KAM-122, pelos mesmos precedentes. A `approve_content` **nao** esta
+#: aqui: e a que corre com o botao `confirm:{action_id}`.
+RAZAO_DA_DISPENSA_DA_ARTE: Final = (
+    "so grava a arte do item em rascunho no STO do proprio tenant e no item; nada se "
+    "publica nem se envia, e o texto da arte sai dos factos do dono"
+)
+RAZAO_DA_DISPENSA_DO_PEDIDO: Final = (
+    "so grava o pedido de aprovacao (o hash) no item e propoe o botao confirm:{action_id}; "
+    "a aprovacao corre com esse botao, e nada sai para o cliente nem para uma rede social"
+)
+RAZAO_DA_DISPENSA_DA_REJEICAO: Final = (
+    "so marca o item do proprio tenant como rejeitado, por pedido do dono; nada se envia"
+)
+RAZAO_DA_DISPENSA_DA_ENTREGA: Final = (
+    "so marca entregue um item ja aprovado pelo botao, e devolve as partes da mensagem "
+    "que o no send manda ao proprio dono; nada se publica nem se envia a terceiros"
+)
 
 #: As quatro do social, pelo nome.
-_NOMES_DO_SOCIAL: Final = tuple(e.nome for e in _AS_QUATRO_DO_SOCIAL)
+_NOMES_DO_SOCIAL: Final = tuple(e.nome for e in _AS_DO_SOCIAL)
 
 
 def _do_social(ligaveis: Mapping[str, Executor]) -> tuple[EspecificacaoDeTool, ...]:
-    """As quatro do social: **ligadas** com os executores, declaradas sem eles (KAM-121).
+    """As nove do social: **ligadas** com os executores, declaradas sem eles (KAM-121, KAM-122).
 
-    Ligam-se as quatro juntas, ou nenhuma: um perfil que se escreve e um
+    Ligam-se as nove juntas, ou nenhuma: um perfil que se escreve e um
     calendario que nada le era um modulo meio ligado.
     """
     presentes = [nome for nome in _NOMES_DO_SOCIAL if nome in ligaveis]
     if not presentes:
-        return _AS_QUATRO_DO_SOCIAL
+        return _AS_DO_SOCIAL
     if len(presentes) != len(_NOMES_DO_SOCIAL):
-        raise ValueError("as quatro tools do social ligam-se juntas, ou nenhuma")
+        raise ValueError("as tools do social ligam-se juntas, ou nenhuma")
     dispensas = {
         "update_brand_profile": RAZAO_DA_DISPENSA_DO_PERFIL,
         "generate_calendar": RAZAO_DA_DISPENSA_DO_CALENDARIO,
         "generate_caption": RAZAO_DA_DISPENSA_DA_LEGENDA,
+        "generate_art": RAZAO_DA_DISPENSA_DA_ARTE,
+        "request_approval": RAZAO_DA_DISPENSA_DO_PEDIDO,
+        "reject_content": RAZAO_DA_DISPENSA_DA_REJEICAO,
+        "deliver_content": RAZAO_DA_DISPENSA_DA_ENTREGA,
     }
     return tuple(
         EspecificacaoDeTool(
@@ -274,8 +307,9 @@ def _do_social(ligaveis: Mapping[str, Executor]) -> tuple[EspecificacaoDeTool, .
             executor=ligaveis[declarada.nome],
             modulo=MODULO_DO_SOCIAL,
             confirmacao_dispensada=dispensas.get(declarada.nome),
+            campo_de_confirmacao="action_id" if declarada.nome == "approve_content" else None,
         )
-        for declarada in _AS_QUATRO_DO_SOCIAL
+        for declarada in _AS_DO_SOCIAL
     )
 
 
@@ -301,7 +335,7 @@ ESPECIFICACOES_DO_PILOTO: Final = (
     *_AS_SEIS_QUE_NAO_SAO_DO_VENDEDOR,
     *_AS_QUATRO_DO_DONO,
     *_AS_DUAS_DO_ORCAMENTO,
-    *_AS_QUATRO_DO_SOCIAL,
+    *_AS_DO_SOCIAL,
 )
 
 #: A razao da dispensa do passo 4 do `submit_quote` (decisao do fundador de

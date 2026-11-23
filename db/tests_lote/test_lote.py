@@ -82,6 +82,8 @@ GRUPOS = (
     "adversarial (f) do KAM-096, os dois lados: a recusa da base e o alerta (KAM-219)",
     "a activação no lote contra a base",
     "a inscrição na base (KAM-236)",
+    # KAM-209: a varredura do preço anómalo, no ficheiro do T&S.
+    "o preço anómalo contra a base (KAM-209)",
     "a idempotência do painel na base (KAM-240)",
 )
 
@@ -134,7 +136,7 @@ TESTES_OBRIGATORIOS = (
     "um pedido de T&S toma o pedido vivo do titular, que deixa de se poder cancelar",
     "o canal: cancela a subscrição, desliga o canal, e nenhuma chamada toca no WABA nem no número; o CHR deixa de encaminhar",
     "cancelado em D3: o canal volta ao que era, e nenhuma fase seguinte corre",
-    "os pendentes: sem encomendas, reservas nem reembolsos abertos, a fase conclui",
+    "os pendentes: sem encomendas, reservas nem reembolsos abertos, a fase conclui com os telefones no STO",
     "a revogação no D7: as portas da saga, os entitlements, os canais e um tenant.closed; um crash a meio retoma",
     # KAM-200: o consumidor (1), a escada pela porta com o evento (8 e 9), e as
     # varreduras auditadas com a mudanca de conta (2 e 5).
@@ -176,6 +178,16 @@ TESTES_OBRIGATORIOS = (
     "KAM-236: dois registos concorrentes do mesmo NIF dão um caso, e a mesma chave concorrente também",
     "KAM-236: vinte anotações de dois processos somam vinte, e o trocarUltimo concorrente devolve null uma vez",
     "KAM-236: uma sessão revogada continua revogada depois do reinício, e o corte de um tenant não toca o outro",
+    # KAM-209: o preço anómalo contra a base — as 19 e 20 referências e as
+    # fronteiras (Testes Requeridos), a `outra` e as sem categoria, e o
+    # isolamento: a mediana atravessa tenants só pelo `kamba_batch`.
+    "19 referências de outras lojas não avaliam; a 20.ª avalia, e o sinal diz só a contagem",
+    "1% e 100× da mediana ficam dentro; um cêntimo para fora sinaliza",
+    "as ofertas sem categoria e as da `outra` não se avaliam, e a volta conta as sem categoria",
+    "doze SKUs anómalos são um sinal, e não dão aviso nem limitação só por preço",
+    "uma loja com 20 ofertas a 1 Kz não fixa a mediana, e a volta conta a oferta que não avaliou",
+    "a mediana atravessa tenants só pelo kamba_batch: o kamba_app vê as ofertas do seu tenant e mais nenhuma",
+    "só as publicadas, não apagadas e de preço fixo são referência; o `a_partir_de` avalia-se",
     # KAM-240: dois processos com a mesma chave gravam uma vez (e o controlo em
     # memoria duas), a repeticao depois do reinicio, a mesma chave com outro
     # conteudo e noutro tenant, o que nao se guarda, a chave vencida, e a ligacao

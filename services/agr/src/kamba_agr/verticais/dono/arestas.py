@@ -49,7 +49,12 @@ from ..vendedor.arestas import Aresta
 #: A versao do grafo do dono, SemVer. Vai na coluna `graph_version` da
 #: `tool_audit` pelos nos proprios. Nasce em 1.0.0, pela regra do de Servicos:
 #: duas linhas de versao, e nenhum no do dono e historia do Vendedor.
-VERSAO_DO_GRAFO: Final = "1.0.0"
+#:
+#: **1.0.1:** o KAM-237 corrige o `classify` (um pedido de publicacao vai ao
+#: social antes das palavras do catalogo) e os verbos e as redes do social. E
+#: *patch*: nenhum no, aresta ou campo do estado muda, e a baseline do golden do
+#: dono regista-se nesta versao, verde.
+VERSAO_DO_GRAFO: Final = "1.0.1"
 
 #: As transicoes do esqueleto do §7.3, reutilizadas sem mudar a forma.
 FONTE_DO_ESQUELETO: Final = "02 §7.3 (esqueleto reutilizado)"

@@ -76,6 +76,13 @@ tools:
   - update_brand_profile
   - generate_calendar
   - generate_caption
+  # KAM-122: a arte, a aprovacao (o botao `confirm:{action_id}`), a rejeicao e a
+  # entrega **ao proprio dono**. Continua sem tool de publicacao (D13).
+  - generate_art
+  - request_approval
+  - approve_content
+  - reject_content
+  - deliver_content
 entitlements:
   limites:
     - msgs_ai_mes

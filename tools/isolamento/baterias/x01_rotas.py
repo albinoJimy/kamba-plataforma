@@ -509,6 +509,34 @@ registar_caso(
     origens=("corpo", "cabecalhos"),
 )
 
+# ------------------------- o recolector do registo do PostgreSQL (KAM-225)
+#
+# Duas rotas do `python -m kamba_core.registo_pg`, num `BaseHTTPRequestHandler`
+# como o do IDX. O ataque esta em `_registo_pg.py`.
+
+#: A sonda e as metricas do recolector. Sem identificadores a entrada.
+SONDAS_DO_REGISTO_PG = (
+    "rota:py-core:kamba_core/registo_pg/processo:tratador:GET:/healthz",
+    "rota:py-core:kamba_core/registo_pg/processo:tratador:GET:/metrics",
+)
+
+
+def _conduzir_sondas_do_registo_pg(ctx) -> list[str]:  # noqa: ANN001
+    from ._registo_pg import atacar_sonda_e_metricas  # noqa: PLC0415
+
+    return atacar_sonda_e_metricas(ctx)
+
+
+registar_caso(
+    id="X-01/registo-pg/sondas",
+    bateria="X-01",
+    camada="rotas",
+    enumeravel=SONDAS_DO_REGISTO_PG,
+    fn=_conduzir_sondas_do_registo_pg,
+    precisa="postgres",
+    origens=("corpo", "cabecalhos"),
+)
+
 registar_caso(
     id="X-01/ts/sondas",
     bateria="X-01",

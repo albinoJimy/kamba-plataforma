@@ -108,12 +108,22 @@ NOME_DE_TOOL: Final = re.compile(r"^[a-z][a-z0-9_]{1,62}$")
 #:   calendario em `rascunho`, no proprio tenant; nada se publica nem se envia
 #:   (nao ha tool de publicacao, D13), e a aprovacao e a entrega sao do KAM-122,
 #:   com o botao `confirm:{action_id}` da accao `aprovar_conteudo`.
+#: * `generate_art`, `request_approval`, `reject_content` e `deliver_content`
+#:   (KAM-122, pelos mesmos precedentes) — gravam a arte no STO do proprio
+#:   tenant, o pedido de aprovacao, a rejeicao do dono e a marca de entregue de
+#:   um item **ja aprovado pelo botao**; nada se publica nem se envia a terceiros
+#:   (a entrega e a mensagem ao proprio dono, pelo `send`). A aprovacao e o
+#:   `approve_content`, que corre com o botao `confirm:{action_id}`.
 DISPENSAS_DO_PASSO_4: Final = (
     "submit_quote",
     "create_product_draft",
     "update_brand_profile",
     "generate_calendar",
     "generate_caption",
+    "generate_art",
+    "request_approval",
+    "reject_content",
+    "deliver_content",
 )
 
 #: A forma de um credor: um ticket do backlog mestre. O *gate* 3 (referencias

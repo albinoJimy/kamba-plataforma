@@ -107,7 +107,16 @@ PROCESSOS: dict[str, tuple[str, str, int, tuple[str, ...], int | None]] = {
         "entrada", "ENTRADA_PORT", 3013,
         ("KAMBA_QUEUE_URL", "KAMBA_ENTRADA_DB_URL", "KAMBA_CHR_RESOLVER_DB_URL",
          "KAMBA_CHR_IDENTITY_DB_URL", "KAMBA_FASE", "KAMBA_ENV",
-         "KAMBA_SECRET_PEPPER_CONTACT_HMAC", "KAMBA_SECRET_KEK_CONTACT_DEK"),
+         "KAMBA_SECRET_PEPPER_CONTACT_HMAC", "KAMBA_SECRET_KEK_CONTACT_DEK",
+         # KAM-231 (decisao do fundador de 2026-11-21, P4 A): o MED da foto do
+         # dono corre neste processo, e o `midiaDaEntrada` recusa o arranque em
+         # `staging` e `prod` sem os tres segredos e sem o armazenamento. A
+         # `KAMBA_STORAGE_DESTINO_APD_REF` nao esta aqui: so e exigida fora de
+         # `AO`, e e o `lerConfig` que o decide.
+         "KAMBA_SECRET_KEK_TOKEN_CLIENTE", "KAMBA_SECRET_STORAGE_ACCESS_KEY_ID",
+         "KAMBA_SECRET_STORAGE_SECRET_ACCESS_KEY", "KAMBA_STORAGE_ENDPOINT",
+         "KAMBA_STORAGE_BUCKET", "KAMBA_STORAGE_REGION",
+         "KAMBA_STORAGE_DESTINO_COUNTRY", "KAMBA_STORAGE_DESTINO_PROVIDER"),
         None,
     ),
     "services/worker-canal/src/agr_shim.ts": (
@@ -837,6 +846,9 @@ def r_saida_pelo_proxy(dados: Dados) -> list[Achado]:
 def r_endurecimento(dados: Dados) -> list[Achado]:
     """Criterio 4: utilizador nao-root, `mem_limit` e `cpus` em todos.
 
+    E, desde o KAM-242, cada `mem_limit` com um `memswap_limit` igual
+    (`memoria-com-swap`, em `_swap`): sem isso o limite nao e um tecto.
+
     `read_only: true` **nao** esta aqui: ja e `fs-so-de-leitura` do
     `supply_chain runtime`, em todos os compose do repositorio.
     """
@@ -866,6 +878,8 @@ def r_endurecimento(dados: Dados) -> list[Achado]:
                     "a crescer derruba os outros (`docs/tecnica/09` §3.2 regra 3).",
                 )
             )
+        else:
+            achados += _swap(dados, nome, no, chaves)
         if "cpus" not in chaves:
             achados.append(
                 Achado(
@@ -947,6 +961,40 @@ def r_endurecimento(dados: Dados) -> list[Achado]:
                     )
                 )
     return achados
+
+
+def _swap(dados: Dados, nome: str, no, chaves: dict) -> list[Achado]:
+    """KAM-242: o `memswap_limit` igual ao `mem_limit`, ou seja zero de *swap*.
+
+    O `memswap_limit` e a memoria **mais** o *swap*. Sem ele, o Docker deixa o
+    contentor usar outro tanto em *swap* se o *host* o tiver, e o `mem_limit`
+    deixa de ser um tecto: o KAM-238 viu um contentor «sobreviver» sob 54m com
+    19 MiB em *swap* (`docs/evidencia/KAM-238.md` §3). Compara-se o valor lido,
+    e nao o texto, para que `1g` e `1024m` sejam iguais; um `-1` (*swap* sem
+    tecto) ou um `0` (o mesmo que nao fixado) nao sao — os dois medidos em
+    `docs/evidencia/KAM-242.md` §2.
+    """
+    bruto = _valor(dados.prod, chaves, "mem_limit") or ""
+    bruto_swap = _valor(dados.prod, chaves, "memswap_limit")
+    memoria = _memoria_mb(bruto)
+    swap = _memoria_mb(bruto_swap) if bruto_swap is not None else None
+    if memoria is not None and swap == memoria:
+        return []
+    if bruto_swap is None:
+        detalhe = "nao tem `memswap_limit`"
+        linha = _linha(chaves, "mem_limit", no.linha)
+    else:
+        detalhe = f"tem `memswap_limit: {bruto_swap}` e `mem_limit: {bruto}`"
+        linha = _linha(chaves, "memswap_limit", no.linha)
+    return [
+        Achado(
+            "memoria-com-swap", dados.prod.ficheiro, linha,
+            f"o servico `{nome}` {detalhe}. O `memswap_limit` e a memoria mais o "
+            "*swap*, e tem de ser **igual** ao `mem_limit` (zero de *swap*): sem "
+            "isso o contentor pode usar outro tanto em *swap*, e a soma do "
+            "criterio 4 mede metade do que os processos ocupam (KAM-242).",
+        )
+    ]
 
 
 def r_memoria(dados: Dados) -> list[Achado]:

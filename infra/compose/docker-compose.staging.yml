@@ -205,8 +205,11 @@ services:
         KAMBA_COMMIT_SHA: ${KAMBA_COMMIT_SHA:?o deploy passa o SHA da release}
     command: ["node", "services/worker-canal/src/entrada.ts"]
     environment:
-      <<: *node-env
+      # KAM-231: o MED da foto do dono, pela Graph e so pelo `proxy-saida`; o
+      # arranque recusa em `staging` sem os tres segredos e o armazenamento.
+      <<: [*node-env, *saida]
       ENTRADA_PORT: "3013"
+      NODE_USE_ENV_PROXY: "1"
       KAMBA_ENV: staging
       KAMBA_FASE: piloto
       KAMBA_QUEUE_URL: redis://queue:6379
@@ -217,6 +220,16 @@ services:
       KAMBA_SECRET_PEPPER_CONTACT_HMAC_ANTERIOR: ${KAMBA_SECRET_PEPPER_CONTACT_HMAC_ANTERIOR:-}
       KAMBA_SECRET_KEK_CONTACT_DEK: ${KAMBA_SECRET_KEK_CONTACT_DEK:?o cofre entrega a KEK das DEK de contacto}
       KAMBA_SECRET_KEK_CONTACT_DEK_ANTERIOR: ${KAMBA_SECRET_KEK_CONTACT_DEK_ANTERIOR:-}
+      KAMBA_SECRET_KEK_TOKEN_CLIENTE: ${KAMBA_SECRET_KEK_TOKEN_CLIENTE:?o cofre entrega a KEK dos tokens de cliente}
+      KAMBA_SECRET_KEK_TOKEN_CLIENTE_ANTERIOR: ${KAMBA_SECRET_KEK_TOKEN_CLIENTE_ANTERIOR:-}
+      KAMBA_STORAGE_ENDPOINT: ${KAMBA_STORAGE_ENDPOINT:?o deploy diz onde e o armazenamento (D6 aberta)}
+      KAMBA_STORAGE_BUCKET: ${KAMBA_STORAGE_BUCKET:?o deploy nomeia o bucket}
+      KAMBA_STORAGE_REGION: ${KAMBA_STORAGE_REGION:?o deploy nomeia a regiao}
+      KAMBA_STORAGE_DESTINO_COUNTRY: ${KAMBA_STORAGE_DESTINO_COUNTRY:?o deploy diz o pais do armazenamento (ADR-008)}
+      KAMBA_STORAGE_DESTINO_PROVIDER: ${KAMBA_STORAGE_DESTINO_PROVIDER:?o deploy diz o fornecedor do armazenamento}
+      KAMBA_STORAGE_DESTINO_APD_REF: ${KAMBA_STORAGE_DESTINO_APD_REF:-}
+      KAMBA_SECRET_STORAGE_ACCESS_KEY_ID: ${KAMBA_SECRET_STORAGE_ACCESS_KEY_ID:?o cofre entrega a chave de acesso do armazenamento}
+      KAMBA_SECRET_STORAGE_SECRET_ACCESS_KEY: ${KAMBA_SECRET_STORAGE_SECRET_ACCESS_KEY:?o cofre entrega o segredo do armazenamento}
     deploy:
       replicas: 2
     networks:
@@ -485,6 +498,21 @@ services:
       # verifica-a: tem de ser o mesmo valor, e e obrigatoria ao arranque dos dois.
       KAMBA_SECRET_COM_INTERNAL_TOKEN: ${KAMBA_SECRET_COM_INTERNAL_TOKEN:?o cofre entrega a credencial da API interna do COM}
       KAMBA_COM_URL: ${KAMBA_COM_URL:-http://com:3002}
+      # KAM-231 (decisao do fundador de 2026-11-21, P4 opcao A). O ambiente
+      # e o deste compose: sem ele o AGR lia `dev`, e nem a recusa de arranque
+      # sem o STO nem o «so imagens sinteticas fora de prod» do pipeline do
+      # catalogo mordiam. O STO serve a `FonteDoMed` (a foto que o MED guardou)
+      # e a foto limpa da ingestao; sem a configuracao e os dois segredos, o
+      # AGR nao arranca em `staging` nem em `prod`.
+      KAMBA_ENV: staging
+      KAMBA_STORAGE_ENDPOINT: ${KAMBA_STORAGE_ENDPOINT:?o deploy diz onde e o armazenamento (D6 aberta)}
+      KAMBA_STORAGE_BUCKET: ${KAMBA_STORAGE_BUCKET:?o deploy nomeia o bucket}
+      KAMBA_STORAGE_REGION: ${KAMBA_STORAGE_REGION:?o deploy nomeia a regiao}
+      KAMBA_STORAGE_DESTINO_COUNTRY: ${KAMBA_STORAGE_DESTINO_COUNTRY:?o deploy diz o pais do armazenamento (ADR-008)}
+      KAMBA_STORAGE_DESTINO_PROVIDER: ${KAMBA_STORAGE_DESTINO_PROVIDER:?o deploy diz o fornecedor do armazenamento}
+      KAMBA_STORAGE_DESTINO_APD_REF: ${KAMBA_STORAGE_DESTINO_APD_REF:-}
+      KAMBA_SECRET_STORAGE_ACCESS_KEY_ID: ${KAMBA_SECRET_STORAGE_ACCESS_KEY_ID:?o cofre entrega a chave de acesso do armazenamento}
+      KAMBA_SECRET_STORAGE_SECRET_ACCESS_KEY: ${KAMBA_SECRET_STORAGE_SECRET_ACCESS_KEY:?o cofre entrega o segredo do armazenamento}
       # KAM-223. O AGR verifica a credencial do painel do dono no `/internal/turn`,
       # so num turno do dono com `message_id`; lida a cada pedido, e em falta a
       # rota recusa. O `onboarding-web` apresenta-a.
@@ -819,6 +847,34 @@ services:
       # lancador do cofre (ADR-L002). Sem a KEK a fase falha pelo nome.
       KAMBA_SECRET_KEK_TOKEN_CLIENTE: ${KAMBA_SECRET_KEK_TOKEN_CLIENTE:?o cofre entrega a KEK dos tokens de cliente}
       KAMBA_SECRET_KEK_TOKEN_CLIENTE_ANTERIOR: ${KAMBA_SECRET_KEK_TOKEN_CLIENTE_ANTERIOR:-}
+      # KAM-233 (decisao do fundador de 2026-11-21, Q1 = A): a fase `revogacao`
+      # apaga a chave do tenant no LiteLLM pelo alias e suspende a conta dele no
+      # Chatwoot, os dois na rede `app` e fora do `proxy-saida` (o `NO_PROXY`
+      # do `*saida` ja os nomeia). As duas credenciais leem-se a cada chamada.
+      # Desde o KAM-247 o LiteLLM tem base (a `kamba_litellm`), e o `/key/list`
+      # que confirma a revogacao responde: medido em `docs/evidencia/KAM-247.md`.
+      KAMBA_LLM_PROXY_URL: http://litellm:4000
+      KAMBA_CHATWOOT_URL: http://chatwoot:3000
+      KAMBA_SECRET_LITELLM_MASTER_KEY: ${KAMBA_SECRET_LITELLM_MASTER_KEY:?do cofre (KAM-010), projecto staging}
+      KAMBA_SECRET_CHATWOOT_PLATFORM_TOKEN: ${KAMBA_SECRET_CHATWOOT_PLATFORM_TOKEN:?do cofre (KAM-010), projecto staging}
+      # KAM-233 (decisoes do fundador de 2026-11-21, Q2 = B, e 2026-11-22, Q2b = A):
+      # no fecho da fase `pendentes`, os telefones dos clientes decifrados como
+      # `kamba_identity` (so o `lerEndpoints`, auditado na transaccao da decifra)
+      # e gravados no STO do tenant, na classe `dsar`, com o destino ADR-008 do
+      # pacote, para a exportacao do `offboarding-dados` os ler. O `KAMBA_ENV` e o
+      # que o `Identidade.arrancar` confere contra o ambiente das chaves.
+      KAMBA_ENV: staging
+      KAMBA_LOTE_IDENTITY_DB_URL: ${KAMBA_LOTE_IDENTITY_DB_URL:?o deploy passa a cadeia de ligacao do kamba_identity}
+      KAMBA_SECRET_KEK_CONTACT_DEK: ${KAMBA_SECRET_KEK_CONTACT_DEK:?do cofre (KAM-010), projecto staging}
+      KAMBA_SECRET_KEK_CONTACT_DEK_ANTERIOR: ${KAMBA_SECRET_KEK_CONTACT_DEK_ANTERIOR:-}
+      KAMBA_STORAGE_ENDPOINT: ${KAMBA_STORAGE_ENDPOINT:?o deploy diz onde e o armazenamento (D6 aberta)}
+      KAMBA_STORAGE_BUCKET: ${KAMBA_STORAGE_BUCKET:?o deploy nomeia o bucket}
+      KAMBA_STORAGE_REGION: ${KAMBA_STORAGE_REGION:?o deploy nomeia a regiao}
+      KAMBA_STORAGE_DESTINO_COUNTRY: ${KAMBA_STORAGE_DESTINO_COUNTRY:?o deploy diz o pais do armazenamento (ADR-008)}
+      KAMBA_STORAGE_DESTINO_PROVIDER: ${KAMBA_STORAGE_DESTINO_PROVIDER:?o deploy diz o fornecedor do armazenamento}
+      KAMBA_STORAGE_DESTINO_APD_REF: ${KAMBA_STORAGE_DESTINO_APD_REF:-}
+      KAMBA_SECRET_STORAGE_ACCESS_KEY_ID: ${KAMBA_SECRET_STORAGE_ACCESS_KEY_ID:?o cofre entrega a chave de acesso do armazenamento}
+      KAMBA_SECRET_STORAGE_SECRET_ACCESS_KEY: ${KAMBA_SECRET_STORAGE_SECRET_ACCESS_KEY:?o cofre entrega o segredo do armazenamento}
     networks:
       - app
       - data
@@ -846,19 +902,23 @@ services:
     # `onboarding-web`. `kamba_app` para o `consumir` e o telefone do caso,
     # `kamba_identity` para o contacto e a `platform.definir_dono`. A
     # `kek_telefone_do_caso` e so deste processo e do escritor do caso (decisao
-    # do fundador de 2026-11-20). **Fora do compose de `prod`** pelo orcamento
-    # de memoria do conjunto reduzido, e nao pelo arranque (bloco do KAM-215,
-    # decisoes do executor).
+    # do fundador de 2026-11-20).
+    #
+    # KAM-241: **o mesmo servico que o compose de `prod`** — o compilado, a sonda
+    # em `bash`, o `NODE_OPTIONS` e os 54 MiB sem *swap*. E o que o
+    # `db/ensaio_dono.py` mede por omissao: mudar um destes aqui e la e voltar a
+    # medir (`docs/evidencia/KAM-238.md` §6).
     <<: *node
     build:
       context: ../..
       dockerfile: services/onboarding-web/Dockerfile
       args:
         KAMBA_COMMIT_SHA: ${KAMBA_COMMIT_SHA:?o deploy passa o SHA da release}
-    command: ["node", "services/onboarding-web/src/provisionamento.ts"]
+    command: ["node", "services/onboarding-web/dist/provisionamento.js"]
     environment:
       <<: *node-env
       KAMBA_ENV: staging
+      NODE_OPTIONS: --max-semi-space-size=1 --max-old-space-size=24
       PROVISIONAMENTO_PORT: "3015"
       KAMBA_QUEUE_URL: redis://queue:6379
       KAMBA_PROVISIONAMENTO_APP_DB_URL: ${KAMBA_PROVISIONAMENTO_APP_DB_URL:?o deploy passa a cadeia de ligacao do kamba_app}
@@ -872,19 +932,20 @@ services:
     networks:
       - app
       - data
-    # shortcut: 128m sem medicao, igual ao `onboarding-lote` (dezasseis *workers*
-    # BullMQ); reve-se com a primeira medicao de repouso do processo em `staging`.
-    mem_limit: 128m
+    # 54m sem *swap*, medidos pelo KAM-241 sob este limite (o KAM-238 tinha
+    # medido 76,6 MiB de `memory.peak` com o `.ts` e a sonda `node`).
+    mem_limit: 54m
+    memswap_limit: 54m
     cpus: 0.25
     healthcheck:
       test:
         - CMD
-        - node
-        - -e
+        - bash
+        - -c
         - >-
-          fetch('http://127.0.0.1:3015/healthz')
-          .then(r => process.exit(r.ok ? 0 : 1))
-          .catch(() => process.exit(1))
+          { printf 'GET /healthz HTTP/1.0\r\n\r\n' >&3 &&
+          head -c 12 <&3; } 3<>/dev/tcp/127.0.0.1/3015 |
+          grep -q '^HTTP/1\.[01] 200'
       interval: 10s
       timeout: 5s
       retries: 6
@@ -1006,8 +1067,17 @@ services:
       KAMBA_SECRET_LLM_PROVIDER_KEY__openai: ${KAMBA_SECRET_LLM_PROVIDER_KEY__openai:?do cofre (KAM-010), projecto staging}
       KAMBA_SECRET_LLM_PROVIDER_KEY__google: ${KAMBA_SECRET_LLM_PROVIDER_KEY__google:?do cofre (KAM-010), projecto staging}
       LITELLM_LOCAL_MODEL_COST_MAP: "True"
+      # A base das chaves virtuais (KAM-247, decisao do fundador de 2026-11-23,
+      # opcao A1), como em `prod`: a `kamba_litellm` no cluster `postgres`, com o
+      # papel `kamba_litellm`, que nao liga a base da plataforma. Ver a nota do
+      # mesmo servico no `docker-compose.prod.yml`.
+      DATABASE_HOST: postgres
+      DATABASE_NAME: kamba_litellm
+      DATABASE_USERNAME: kamba_litellm
+      DATABASE_PASSWORD: ${KAMBA_SECRET_DB_LITELLM_PASSWORD:?do cofre (KAM-010), projecto staging}
     networks:
       - app
+      - data
     mem_limit: 2048m
     cpus: 1.5
     healthcheck:
@@ -1018,7 +1088,13 @@ services:
       interval: 15s
       timeout: 10s
       retries: 8
-      start_period: 60s
+      # 600 s, como em `prod` (KAM-247): com base, o proxy corre as migracoes
+      # dele em cada arranque, e mediram-se 167 s, 294 s e 458 s
+      # (`docs/evidencia/KAM-247.md`).
+      start_period: 600s
+    depends_on:
+      postgres:
+        condition: service_healthy
 
   # ================================================================== dados
   postgres:
@@ -1034,9 +1110,33 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:-kamba_platform}
       POSTGRES_HOST_AUTH_METHOD: scram-sha-256
       POSTGRES_INITDB_ARGS: "--auth-host=scram-sha-256"
+    # KAM-225: o registo do servidor em `jsonlog`, num volume proprio que o
+    # `registo-pg` le so de leitura. A mesma configuracao de producao, com a
+    # razao de cada valor no `docker-compose.prod.yml`.
+    command:
+      - postgres
+      - -c
+      - logging_collector=on
+      - -c
+      - log_destination=jsonlog
+      - -c
+      - log_directory=/var/log/postgresql
+      - -c
+      - log_filename=postgresql-%H.log
+      - -c
+      - log_rotation_age=60
+      - -c
+      - log_rotation_size=0
+      - -c
+      - log_truncate_on_rotation=on
+      - -c
+      - log_file_mode=0640
+      - -c
+      - log_min_error_statement=panic
     volumes:
       - postgres-data:/var/lib/postgresql
       - ./postgres/initdb:/docker-entrypoint-initdb.d:ro
+      - postgres-log:/var/log/postgresql
     networks:
       - data
     mem_limit: 5120m
@@ -1105,6 +1205,72 @@ services:
       start_period: 20s
 
   # =============================================================== operacao
+  # KAM-225. O recolector do registo do PostgreSQL — `python -m
+  # kamba_core.registo_pg` — com a imagem do AGR, como o `idx`. Le os `*.json`
+  # do volume `postgres-log`, **so de leitura**, conta a recusa `42501` sobre
+  # `platform.trust_level` a um papel que nao e o `kamba_batch`, e serve
+  # `registo_pg_tecto_recusado_total` ao Prometheus. Le tres campos de cada
+  # linha (`user`, `state_code`, `message`); o texto das consultas nao sai
+  # daqui. Decisao do fundador de 2026-11-21 (opcao A): codigo nosso, sem peca
+  # de terceiros nem migracao.
+  #
+  # So em `ops`: nao fala com a base nem sai para fora
+  # (`infra/egress/registo-pg.yaml`, `destinos: []`), e o volume nao e rede.
+  registo-pg:
+    <<: *endurecido
+    user: "nobody"
+    # O grupo `postgres` da imagem do servidor (gid 999): os ficheiros sao 0640.
+    group_add:
+      - "999"
+    build:
+      context: ../..
+      dockerfile: services/agr/Dockerfile
+      args:
+        KAMBA_COMMIT_SHA: ${KAMBA_COMMIT_SHA:?o deploy passa o SHA da release}
+    command: ["python", "-m", "kamba_core.registo_pg"]
+    environment:
+      HOST: 0.0.0.0
+      REGISTO_PG_PORT: "8225"
+      KAMBA_REGISTO_PG_DIR: /var/log/postgresql
+      KAMBA_COMMIT_SHA: ${KAMBA_COMMIT_SHA:?o deploy passa o SHA da release}
+      KAMBA_ENV: staging
+    volumes:
+      - postgres-log:/var/log/postgresql:ro
+    networks:
+      - ops
+    # **Medido** (`docs/evidencia/KAM-225.md`): 28 MiB de RSS em repouso, e
+    # 32 MiB de pico do cgroup com 2 000 recusas de rajada, uma linha de 5 MB e
+    # 20 sondas do `/healthz` ao mesmo tempo, sob este limite e sem OOM.
+    mem_limit: 48m
+    # 0.25, como o `idx`. Com 0.1 o arranque do Python (que compila o que
+    # importa, sem `.pyc` na imagem) passou dos 80 s da sonda numa maquina
+    # carregada, e o contentor ficou *unhealthy* sem chegar a registar nada
+    # (medido no ensaio do KAM-225). Em repouso gasta 0,05%.
+    cpus: 0.25
+    # **A sonda e `bash`, e nao Python como a do `idx`, e foi medido.** A imagem
+    # oficial do Python nao traz `.pyc`, e cada sonda em Python compila o que
+    # importa: 1,3 s de CPU com o `urllib.request` e 0,9 s so com o `socket`,
+    # o que sob `cpus: 0.1` dava 9 a 16 s e passava o `timeout`. O `/dev/tcp`
+    # do `bash` gasta 0,16 s, e falha na porta e na rota erradas. O
+    # redireccionamento vai no fim do bloco, e nao num `exec`: o `supply_chain`
+    # le a primeira palavra depois do `exec` como o ficheiro que se executa.
+    healthcheck:
+      test:
+        - CMD
+        - bash
+        - -c
+        - >-
+          { printf 'GET /healthz HTTP/1.0\r\n\r\n' >&3 &&
+          head -c 12 <&3; } 3<>/dev/tcp/127.0.0.1/8225 |
+          grep -q '^HTTP/1.0 200'
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 60s
+    depends_on:
+      postgres:
+        condition: service_healthy
+
   prometheus:
     image: prom/prometheus:v3.7.3@sha256:49214755b6153f90a597adcbff0252cc61069f8ab69ce8411285cd4a560e8038
     <<: *endurecido
@@ -1229,6 +1395,8 @@ networks:
 
 volumes:
   postgres-data:
+  # KAM-225: o registo do servidor, em `jsonlog`.
+  postgres-log:
   queue-data:
   seaweedfs-data:
   prometheus-data:

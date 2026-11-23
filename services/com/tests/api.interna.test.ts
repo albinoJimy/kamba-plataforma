@@ -1053,6 +1053,26 @@ test("KAM-119: o upsert-product-draft passa o tenant do cabecalho e os termos no
   assert.deepEqual(rascunhosDeProduto[0]?.d.atributos, { preco_tipo: "sob_consulta", preco_minor: null });
 });
 
+test("KAM-209: a categoria do corpo vai no ProductDraft, e uma que nao e texto da 400", async () => {
+  rascunhosDeProduto.length = 0;
+  const { aplicacao, chamadas } = app();
+  const r = await aplicacao.fetch(
+    pedido("/internal/upsert-product-draft", { ...CTX_DO_CORPO, ...RASCUNHO_BOM, categoria: "moda" }, BONS),
+  );
+  assert.equal(r.status, 200);
+  assert.equal(rascunhosDeProduto[0]?.d.categoria, "moda");
+  // Sem categoria no corpo, o `ProductDraft` não leva a chave.
+  rascunhosDeProduto.length = 0;
+  await aplicacao.fetch(pedido("/internal/upsert-product-draft", { ...CTX_DO_CORPO, ...RASCUNHO_BOM }, BONS));
+  assert.equal("categoria" in (rascunhosDeProduto[0]?.d ?? {}), false);
+  const antes = chamadas.contagem.get("upsertProductDraft") ?? 0;
+  const mau = await aplicacao.fetch(
+    pedido("/internal/upsert-product-draft", { ...CTX_DO_CORPO, ...RASCUNHO_BOM, categoria: 3 }, BONS),
+  );
+  assert.equal(mau.status, 400);
+  assert.equal(chamadas.contagem.get("upsertProductDraft") ?? 0, antes);
+});
+
 test("KAM-119: um corpo de upsert-product-draft que nao valida da 400, e a porta nao e chamada", async () => {
   const { aplicacao, chamadas } = app();
   const maus: Record<string, unknown>[] = [
@@ -1112,6 +1132,23 @@ test("KAM-119: o publish-product passa o tenant do cabecalho e a confirmacao com
       pedido: { sku: "vestido-01", confirmacao: { actor: { kind: "dono", id: "msg-1" }, em: "2026-11-19T10:00:00Z" } },
     },
   ]);
+});
+
+test("KAM-231: o publish-product passa a quantidade do dono, e so um inteiro nao negativo", async () => {
+  publicacoes.length = 0;
+  const { aplicacao, chamadas } = app();
+  const r = await aplicacao.fetch(
+    pedido("/internal/publish-product", { ...CTX_DO_CORPO, ...PUBLICACAO_BOA, stock: 12 }, BONS),
+  );
+  assert.equal(r.status, 200);
+  assert.equal((publicacoes[0] as { pedido: { stock?: number } }).pedido.stock, 12);
+  for (const stock of [-1, 1.5, "12", null, true]) {
+    const mau = await aplicacao.fetch(
+      pedido("/internal/publish-product", { ...CTX_DO_CORPO, ...PUBLICACAO_BOA, stock }, BONS),
+    );
+    assert.equal(mau.status, 400, JSON.stringify(stock));
+  }
+  assert.equal(chamadas.contagem.get("publicarProduto"), 1);
 });
 
 test("KAM-119: um corpo de publish-product que nao valida da 400, e a operacao nao corre", async () => {

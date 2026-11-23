@@ -101,9 +101,10 @@ def decidir(cursor, tenant: str, sujeito_tipo: str, ref: str, decisao: str, *,
 
 
 def oferta(cursor, tenant: str, sku: str, nome: str, estado: str = "rascunho") -> None:
+    # Com categoria (KAM-209): sem ela a base nao publica, e aqui mede-se o screening.
     cursor.execute(
-        f"INSERT INTO {OFERTA} (tenant_id, sku, nome, preco_tipo, preco_minor, estado) "
-        "VALUES (%s, %s, %s, 'fixo', 100000, %s)",
+        f"INSERT INTO {OFERTA} (tenant_id, sku, nome, preco_tipo, preco_minor, estado, categoria) "
+        "VALUES (%s, %s, %s, 'fixo', 100000, %s, 'moda')",
         (tenant, sku, nome, estado),
     )
 
@@ -271,7 +272,7 @@ class TestCaminhosDoCom(_Oferta):
         app = self.como("kamba_app")
         self.assertEqual(com(app, "SQL_PUBLICAR", self.tenant, sku), 1)
         self.assertEqual(com(app, "SQL_ACTUALIZAR_TERMOS", self.tenant, sku, "Camisola de malha", "fixo",
-                             150000, None, "indicativo", AGORA), 1)
+                             150000, None, "indicativo", AGORA, "moda"), 1)
         self.assertEqual(com(app, "SQL_AJUSTAR_STOCK", self.tenant, sku, "garantido"), 1)
         self.assertEqual(estado_de(app, self.tenant, sku), ("publicado", "Camisola de malha"))
 
@@ -281,7 +282,7 @@ class TestCaminhosDoCom(_Oferta):
         com(app, "SQL_PUBLICAR", self.tenant, sku)
         q = ConsultaDoTypeScript("SQL_ACTUALIZAR_TERMOS", COM)
         app.execute(q.sql, q.args(self.tenant, sku, "Whisky velho 12 anos", "fixo", 100000, None,
-                                  "indicativo", AGORA))
+                                  "indicativo", AGORA, "moda"))
         colunas = [d[0] for d in app.description]
         linha = dict(zip(colunas, app.fetchone()))
         self.assertEqual(linha["estado"], "rascunho", "o COM le o estado de depois no RETURNING")
@@ -294,7 +295,7 @@ class TestCaminhosDoCom(_Oferta):
         app = self.como("kamba_app")
         com(app, "SQL_PUBLICAR", self.tenant, sku)
         com(app, "SQL_ACTUALIZAR_TERMOS", self.tenant, sku, "Camisola de malha azul", "fixo",
-            100000, None, "indicativo", AGORA)
+            100000, None, "indicativo", AGORA, "moda")
         self.assertEqual(estado_de(app, self.tenant, sku), ("publicado", "Camisola de malha azul"))
 
     def test_o_rascunho_do_com_nasce_rascunho_sem_decisao(self) -> None:

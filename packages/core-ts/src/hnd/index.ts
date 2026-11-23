@@ -19,7 +19,9 @@ export {
   SemPrivilegioError,
   type Acontecimento,
   type AberturaNoProvedor,
+  type ArquivoDoProvedor,
   type ClienteDoProvedor,
+  type DesfechoDoArquivo,
   type ContaCriada,
   type ProvisionadorDoProvedor,
   type ClienteSql,
@@ -111,6 +113,7 @@ export {
 } from "./retoma.ts";
 
 export { Handoff, type Dependencias, type FilaDoEspelho } from "./provedor.ts";
+export { arquivarContaDoTenant } from "./arquivo.ts";
 
 export {
   TEMPLATE_PROPOSTO,
@@ -122,8 +125,10 @@ export {
 } from "./resposta.ts";
 
 export {
+  ArquivoDoChatwoot,
   BASE_POR_OMISSAO,
   ClienteDoChatwoot,
+  ESTADO_DA_CONTA_ARQUIVADA,
   ProvisionadorDoChatwoot,
   PAPEL_DO_UTILIZADOR,
   ESPERA_MAXIMA_MS,
@@ -131,6 +136,7 @@ export {
   TIPO_DE_BOT,
   TIPO_DE_INBOX,
   type Configuracao,
+  type ConfiguracaoDoArquivo,
   type ConfiguracaoDoProvisionamento,
   type Transporte,
 } from "./chatwoot.ts";

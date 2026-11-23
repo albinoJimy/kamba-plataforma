@@ -224,6 +224,29 @@ export interface HandoffProvider {
   setBotMuted(conversationId: string, muted: boolean): Promise<void>;
   onHumanEvent(handler: (e: HumanEvent) => Promise<void>): void;
   close(handoffId: string, outcome: Outcome): Promise<void>;
+  /**
+   * Arquiva a conta de atendimento do *tenant* no encerramento (KAM-233): a
+   * conta suspensa no provedor, e com ela a *inbox*. Não apaga nada. Ver
+   * `ArquivoDoProvedor`. `sem_conta` quando o *tenant* nunca a teve.
+   */
+  archiveAccount(tenantId: string): Promise<DesfechoDoArquivo | "sem_conta">;
+}
+
+/** O desfecho de arquivar uma conta: arquivada agora (ou outra vez), ou já não existe no provedor. */
+export type DesfechoDoArquivo = "arquivada" | "inexistente";
+
+/**
+ * O arquivo da conta no provedor (KAM-233), separado do provisionamento e da
+ * execução pela mesma razão que eles se separam um do outro: usa o *token* da
+ * Platform API, e o processo do encerramento não cria contas.
+ *
+ * No Chatwoot, «arquivar» é **suspender** (`status: suspended`): o
+ * `docs/evidencia/KAM-233.md` §5 mediu que não há outro estado, que repetir é
+ * 200, que uma conta que não existe é 404, e que a suspensa recusa com 401 todo
+ * o pedido à API da conta, a *inbox* incluída.
+ */
+export interface ArquivoDoProvedor {
+  arquivarConta(accountId: number): Promise<DesfechoDoArquivo>;
 }
 
 /** A linha de `handoffs`, como as consultas a devolvem. */

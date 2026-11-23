@@ -92,21 +92,52 @@ por tenant ao contentor — como chegam lá é o mecanismo do lançador do cofre
 fase `canal` falha com `sem_segredo` e pára com alerta. O STO na exportação e na purga (KAM-210). As
 ofertas e a prova de aceite do KAM-090 no pacote, e os contactos pelo cofre na purga (KAM-218).
 
-**O passo manual do D7: a chave do LiteLLM.** As chaves dos tenants nascem à mão
-(`python infra/llm/chaves.py provisionar <tenant> <plano>`, KAM-030) e não ficam no
-`provisioning_step`, pelo que a revogação automática as dá por `sem_recurso` — e elas continuavam
-vivas. Com a fase `revogacao` concluída, corre-se `python infra/llm/chaves.py revogar <tenant>`: apaga
-a chave `tenant-<uuid>` e confirma-o pela listagem (`revogada`, ou `inexistente` numa repetição).
-**NÃO VERIFICADO** contra a imagem fixada: a forma do corpo do `/key/delete`.
+**A revogação, sem passo à mão (KAM-233).** Pela decisão do fundador de 2026-11-21 (Q1 = A), a fase
+`revogacao` corre oito passos, e cada um grava o desfecho (`concluido`, `inexistente` ou
+`sem_recurso`) no resultado:
 
-**O que falta** (credor **KAM-233**, com a razão de cada um no bloco do KAM-218): o OTP e a ligação ao e-mail do
-dono, e a entrega do certificado — não há agregador de SMS nem fornecedor de e-mail escolhidos
-(fundador, KAM-116 e KAM-115); a revogação automática — o LiteLLM pela saga, a Medusa e o Chatwoot (a saga também
-não tem adaptadores, pelo que o passo é `sem_recurso`) — e as sessões do painel; o catálogo da Medusa no
-pacote (a D3 por ratificar) e os telefones dos clientes decifrados com auditoria; o caminho de
-eliminação das tabelas `sem_caminho`, que é esquema; o Chatwoot, os *traces*, as *caches* e o pedido
-aos fornecedores na purga; e o simulacro em *staging*. A assinatura do certificado é HMAC, e não
-assimétrica.
+| Passo | O que faz | Por onde |
+|---|---|---|
+| `chave_llm` | apaga a chave do tenant no LiteLLM, sempre pelo alias `tenant-<uuid>`, e confirma-o pela listagem inteira | `ChaveDoLlmPeloProxy`, a `litellm_master_key` e o `KAMBA_LLM_PROXY_URL` |
+| `canal_comercio` | arquiva o canal da Medusa, só se a saga o criou | sem adaptador (D3) |
+| `inbox` | desliga a *inbox* do Chatwoot, só se a saga a criou | sem adaptador |
+| `conta_atendimento` | suspende a conta Chatwoot do tenant, lida da `handoff_accounts` | o `archiveAccount` do HND, o `chatwoot_platform_token` e o `KAMBA_CHATWOOT_URL` |
+| `entitlements`, `canais` | os módulos a `ativo = false`, os canais `encerrado` | a base |
+| `sessoes_do_painel` | revoga as sessões do painel do dono emitidas até ao passo | a `platform.painel_revogacao` do KAM-236 |
+| `encerramento` | o tenant a `encerrado`, com o `tenant.closed` | a base |
+
+Os dois pedidos de fora estão medidos nas imagens fixadas ([`evidencia/KAM-233.md`](evidencia/KAM-233.md)):
+o `/key/delete` dá 200 com o `deleted_keys` e 404 numa repetição (§3), e arquivar uma conta do Chatwoot
+é suspendê-la, `PATCH /platform/api/v1/accounts/:id` com `status: suspended` (§5). **E a mesma medição
+achou o limite maior:** o LiteLLM de `prod` arrancava sem base de dados, e sem ela a imagem não tem
+chaves virtuais (o `/key/generate` e o `/key/list` davam 500). **Fechou-o o KAM-247**, pela decisão do fundador de
+2026-11-23 (opção A1): o proxy tem a base `kamba_litellm` no cluster da plataforma, com um papel que não entra na
+base da plataforma, e a revogação pelo alias e a listagem que a confirma respondem
+([`evidencia/KAM-247.md`](evidencia/KAM-247.md)). Medido na pilha local; a fase `revogacao` de um tenant de ensaio
+em *staging* fica por medir. A fase continua a **falhar alto** se o proxy não responder: pára no passo `chave_llm`,
+com o alerta da fase parada. O `python infra/llm/chaves.py revogar <tenant>` continua, para correr à mão.
+
+**Os telefones na exportação (KAM-233).** Pelas decisões do fundador de 2026-11-21 (Q2 = B) e de 2026-11-22
+(Q2b = A), o fecho da fase `pendentes` decifra os telefones dos clientes vivos do tenant no `onboarding-lote`, como
+`kamba_identity` (uma linha `privacy.telefones_exportados` por contacto, na transacção da decifra), e grava-os no STO
+do tenant, na classe `dsar` e com o destino ADR-008 do pacote, a expirar no prazo da purga. A exportação lê-os pela
+chave que a fase guarda, e recusa sem ela. **O custo aceite** é uma segunda cópia em claro no STO até à purga, igual à
+do ZIP. Sem a `KAMBA_LOTE_IDENTITY_DB_URL`, ou com a identidade ou o STO a falhar no arranque, o processo arranca na
+mesma (`telefones_sem_adaptador` no registo) e a fase `pendentes` pára, com alerta.
+
+**A purga das operacionais (KAM-233).** Pela decisão do fundador de 2026-11-21 (Q3 = B), a purga apaga também os
+gates, o teste e a lista de espera do caso, as acções e as mudanças de telefone do dono, os pedidos de orçamento, a
+marca e o conteúdo, as ingestões do catálogo e os trabalhos de foto (revisão `0086`). O `kyc_check` e o
+`fraud_signals` ficam `retida`, com o motivo `branqueamento_sem_parecer`: a lei de prevenção do branqueamento pode
+pedir a retenção, e falta o parecer. O caso de onboarding fica `sem_caminho`, com o fundamento das três FK que lhe
+apontam (Q3b = A, 2026-11-22), e de uma quarta desde a `0084` do KAM-236: o `onboarding_otp`, que não tem caminho de
+eliminação para ninguém (o que isso faz ao prazo do caso é do fundador, KAM-248).
+
+**O que falta** (credor **KAM-233**, com a razão de cada um no bloco dele): o OTP e a ligação ao e-mail do dono, e a
+entrega do certificado — não há agregador de SMS nem fornecedor de e-mail escolhidos (fundador, KAM-116 e KAM-115);
+a Medusa na revogação e o catálogo dela no pacote (a D3 por ratificar); a fase `revogacao` medida em *staging* com o LiteLLM com base (o KAM-247 deu-lhe a base e mediu-a na pilha local); o Chatwoot,
+os *traces*, as *caches* e o pedido aos fornecedores na purga; o *token* de cada WABA até ao contentor (o lançador
+do cofre, ADR-L002); e o simulacro em *staging*. A assinatura do certificado é HMAC, e não assimétrica.
 
 ## 7. O processo dos dados em produção (*runbook*)
 
@@ -158,3 +189,4 @@ não duplica nada (KAM-098, critério 9).
 | 1.0 | Novembro 2026 | KAM-098: emissão inicial — as sete fases, o cancelamento e a reabertura, o que fica (incluindo o que vive fora da base), as cópias de segurança e o que fazer quando uma fase pára. Um tenant `restrito` não se encerra: o grafo da `0058` não tem a aresta. | Equipa KAMBÁ |
 | 1.1 | Novembro 2026 | KAM-210: o §6 passa a dizer o processo que corre as fases, as métricas e o alerta da fase parada (com o *runbook* próprio), e o STO na exportação e na purga; o que falta tem credor, o KAM-218. | Equipa KAMBÁ |
 | 1.2 | Novembro 2026 | KAM-218: o §6 passa a dizer os dois processos e o que está ligado (a Meta pelo cofre, os contactos pelo cofre, as ofertas e a prova de aceite no pacote); o §3 tira os contactos do que não tem caminho; o §7 novo é o *runbook* do processo dos dados (`offboarding-dados`). O que falta continua com credor no KAM-218. | Equipa KAMBÁ |
+| 1.3 | Novembro 2026 | KAM-247: o §6 deixa de dizer que nenhum tenant de `prod` se encerra por falta de base no LiteLLM. O proxy tem a base `kamba_litellm` (decisão do fundador de 2026-11-23, opção A1), e o que fica por medir é a fase em *staging*; a lista do que falta diz o mesmo. | Equipa KAMBÁ |

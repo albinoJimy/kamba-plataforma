@@ -55,9 +55,13 @@ import uvicorn
 from kamba_core import host, port
 from kamba_core.logger import Logger, instalar
 from kamba_core.secrets import AMBIENTES, EnvSecretProvider, Secrets
+from kamba_core.storage import criar_storage_s3
+from kamba_core.storage import ler_config as ler_config_do_sto
 
 from . import egresso, eventos as evt, registo
 from .admissao import Admissao, Tectos
+from .catalogo.entrada import SEGREDOS_DO_STO, EntradaDaFoto
+from .catalogo.visao import VisaoPeloGateway
 from .api_interna import SEGREDO_DA_API, SEGREDO_DO_PAINEL, rotas
 from .app import create_app
 from .checkpointer import CheckpointerDoAgr
@@ -194,16 +198,36 @@ def _executores_do_comercio(cliente: ClienteDoCom | None) -> dict[str, Any]:
     return executores_do_com(cliente) if cliente is not None else {}
 
 
-def _executores_do_catalogo(credencial: CredencialDoCom) -> dict[str, Any]:
+def _portas_da_foto(entrada: Any, ambiente: str) -> dict[str, Any]:
+    """As portas da foto do `PortasDoCatalogo` (KAM-231): as mesmas com e sem COM."""
+    from .catalogo.descodificador import DescodificadorPillow
+    from .catalogo.montagem import EnhancePorEntitlement
+
+    return {
+        "ambiente": ambiente,
+        # A oferta de «melhorar foto» com o `foto` activo (KAM-231, criterio 4).
+        "enhance": EnhancePorEntitlement(evt.LeitorDeEntitlements(ligar_para_eventos).ler),
+        "descodificador": DescodificadorPillow(),
+        "fonte_sobre": entrada.fonte_sobre,
+        "storage": entrada.storage,
+        "visao": entrada.visao,
+        "destinos": entrada.destinos,
+    }
+
+
+def _executores_do_catalogo(credencial: CredencialDoCom, entrada: Any, ambiente: str) -> dict[str, Any]:
     """As quatro tools do catalogo do dono (KAM-119). **Ligam-se sempre.**
 
     Escrevem na nossa base (`catalog_ingestions`), como as do orcamento. O
     screening do KAM-088 e o Registo sao do COM: com `KAMBA_COM_URL`, pela
     ponte (`ScreeningPeloCom` com o sujeito `produto`, `RegistoPeloCom`); sem
     ele, pelas portas por ligar, que levantam — uma ingestao fica
-    `bloqueada_categoria` com `screening_indisponivel` e nada se publica. A
-    entrada da foto (fonte, descodificador, visao) fica por ligar nas duas, com
-    o credor escrito em `catalogo/montagem.py`.
+    `bloqueada_categoria` com `screening_indisponivel` e nada se publica. O
+    descodificador e o do Pillow (KAM-231, `catalogo/descodificador.py`) nas
+    duas. A fonte (`FonteDoMed`), o STO, a visao e a porta de destinos vem da
+    `EntradaDaFoto`, que o arranque liga depois do cofre e do gateway
+    (`catalogo/entrada.py`); e o `ambiente` e o do processo, que decide se so
+    entram imagens sinteticas (fora de `prod`, KAM-049).
     """
     from kamba_core.catalogo.screening import ScreeningPorLigar
 
@@ -213,12 +237,15 @@ def _executores_do_catalogo(credencial: CredencialDoCom) -> dict[str, Any]:
 
     base = os.environ.get(VARIAVEL_DO_COM, "").strip()
     if not base:
-        portas = PortasDoCatalogo(screening=ScreeningPorLigar(), registo=RegistoPorLigar())
+        portas = PortasDoCatalogo(
+            screening=ScreeningPorLigar(), registo=RegistoPorLigar(), **_portas_da_foto(entrada, ambiente)
+        )
     else:
         cliente = ClienteDoCom(base=base, credencial=credencial)
         portas = PortasDoCatalogo(
             screening=ScreeningPeloCom(cliente=cliente, sujeito_tipo=SUJEITO_DO_PRODUTO, vertical="dono"),
             registo=RegistoPeloCom(cliente=cliente),
+            **_portas_da_foto(entrada, ambiente),
         )
     return catalogo_tools.executores(portas)
 
@@ -457,6 +484,9 @@ def main() -> int:
     # A credencial do COM e lida do cofre mais abaixo e liga-se a este objecto
     # quando o for: ver a `CredencialDoCom`.
     credencial_do_com = CredencialDoCom()
+    # KAM-231. O STO, a visao e a porta de destinos da foto ligam-se depois do
+    # cofre e do gateway: ver a `EntradaDaFoto`.
+    entrada_da_foto = EntradaDaFoto()
     # O `search_catalog` liga-se **sempre** (KAM-061): o indice vive na base da
     # plataforma, a que o AGR ja tem tomada, e nao depende de variavel nenhuma.
     # O vector da pergunta (KAM-063) liga-se mais abaixo, com o cliente do
@@ -472,7 +502,7 @@ def main() -> int:
             # KAM-228: a porta do `screen` das condicoes, pelo mesmo cliente.
             **orcamento_tools.executores(cliente_do_com=cliente_do_com),
             # KAM-119. As quatro do catalogo do dono: ver o `_executores_do_catalogo`.
-            **_executores_do_catalogo(credencial_do_com),
+            **_executores_do_catalogo(credencial_do_com, entrada_da_foto, ambiente),
             # KAM-121. As quatro do social: ver o `_executores_do_social`.
             **_executores_do_social(credencial_do_com),
         }
@@ -538,7 +568,10 @@ def main() -> int:
         segredos = Secrets.arrancar(
             servico=SERVICE,
             provider=EnvSecretProvider(ambiente),
-            obrigatorios=[SEGREDO_DA_API, SEGREDO_DO_COM],
+            # KAM-231 (P4, opcao A): os do STO, onde o inventario os declara
+            # obrigatorios (`staging` e `prod`).
+            obrigatorios=[SEGREDO_DA_API, SEGREDO_DO_COM]
+            + ([] if ambiente == "dev" else list(SEGREDOS_DO_STO)),
         )
     except Exception as exc:  # noqa: BLE001 — qualquer falha de cofre aborta
         log.excepcao(exc, "cofre_indisponivel")
@@ -734,6 +767,28 @@ def main() -> int:
     # — e diz-se no arranque, que o silencio lia-se como modo hibrido.
     vectorial = consulta_vectorial(cliente_de_llm, destinos)
     ligacao_vectorial.ligar(vectorial)
+
+    # **A entrada da foto (KAM-231)**: o STO para a `FonteDoMed` e para a foto
+    # limpa, a visao pelo `ClienteDeLlm.ver` e a mesma porta de destinos do
+    # gateway. Decisao do fundador de 2026-11-21 (P4, opcao A): em `staging` e
+    # `prod` sem o STO o AGR nao arranca; em `dev` a foto fica por ligar, e o
+    # dono e avisado.
+    try:
+        armazenamento = criar_storage_s3(config=ler_config_do_sto(ambiente=ambiente), secrets=segredos)
+    except Exception as exc:  # noqa: BLE001 — a falha de configuracao e o desfecho
+        if ambiente != "dev":
+            log.excepcao(exc, "sto_indisponivel")
+            return 2
+        armazenamento = None
+    entrada_da_foto.ligar(
+        storage=armazenamento,
+        visao=VisaoPeloGateway(cliente_de_llm) if armazenamento is not None else None,
+        destinos=destinos,
+    )
+    log.info(
+        outcome="catalogo_foto",
+        error_code="foto_ligada" if armazenamento is not None else "foto_por_ligar_sem_sto",
+    )
     log.info(
         outcome="idx_embeddings",
         error_code="hibrido_ligado" if vectorial is not None else "so_lexical_sem_modelo",

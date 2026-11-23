@@ -68,11 +68,13 @@ PREFIXO_DO_STOCK: Final = "stock:"
 PREFIXO_DE_CORRIGIR_STOCK: Final = "stock_corrigir:"
 PREFIXO_DO_MESMO_PRODUTO: Final = "mesmo_produto:"
 PREFIXO_DE_OUTRO_PRODUTO: Final = "outro_produto:"
+#: KAM-244: «tentar outra vez» uma ingestao que o screening nao decidiu.
+PREFIXO_DE_RETOMAR: Final = "retomar:"
 
 _BOTAO_DO_PRECO: Final = re.compile(rf"preco:({_UUID.pattern}):([1-9][0-9]{{0,14}})")
 _BOTAO_DO_STOCK: Final = re.compile(rf"stock:({_UUID.pattern}):(0|[1-9][0-9]{{0,6}})")
 _BOTAO_DE_INGESTAO: Final = re.compile(
-    rf"(preco_corrigir|stock_corrigir|mesmo_produto|outro_produto):({_UUID.pattern})"
+    rf"(preco_corrigir|stock_corrigir|mesmo_produto|outro_produto|retomar):({_UUID.pattern})"
 )
 
 #: O stock que o dono escreve: um inteiro so, com a unidade facultativa. **Sem
@@ -99,9 +101,6 @@ _COMECOS_SOCIAIS: Final = ("bom dia", "boa tarde", "boa noite", "ola", "oi ")
 
 class StockRecusado(ValueError):
     """O texto nao e um stock sem duvidas: volta a perguntar."""
-
-#: O «k» de milhar: «45k», «45 k», «1,5k». Nao casa dentro de palavras («kz»).
-_MILHAR_EM_K: Final = re.compile(r"(\d)\s*[kK](?![A-Za-z])")
 
 #: A numeracao que o dono pode por a frente de cada linha: «1) azul», «2. M e L».
 _NUMERACAO: Final = re.compile(r"^\(?\d{1,2}[).]\s+")
@@ -200,9 +199,9 @@ def repartir_respostas(texto: str, perguntas: Sequence[PerguntaEmAberto]) -> dic
 def ler_preco_do_dono(texto: str) -> int:
     """O preco que o dono escreveu, em centimos. Levanta `ValorRecusadoError` se nao for um.
 
-    O *parser* do KAM-123, com o «k» de milhar trocado por «mil». Ver o cabecalho.
+    O *parser* do KAM-123, que le o «k» de milhar desde o KAM-237. Ver o cabecalho.
     """
-    return ler_valor_do_dono(_MILHAR_EM_K.sub(r"\1 mil", texto))
+    return ler_valor_do_dono(texto)
 
 
 def texto_canonico(centimos: int) -> str:
@@ -302,6 +301,10 @@ def botao_de_outro_produto(ingestao_id: str) -> str:
     return f"{PREFIXO_DE_OUTRO_PRODUTO}{ingestao_id}"
 
 
+def botao_de_retomar(ingestao_id: str) -> str:
+    return f"{PREFIXO_DE_RETOMAR}{ingestao_id}"
+
+
 @dataclass(frozen=True)
 class BotaoDoCatalogo:
     """Um toque num botao do catalogo: o que pede, a ingestao, e o valor (centimos ou unidades)."""
@@ -339,6 +342,7 @@ __all__ = [
     "parece_resposta",
     "botao_de_corrigir_preco",
     "botao_de_outro_produto",
+    "botao_de_retomar",
     "botao_do_mesmo_produto",
     "botao_do_preco",
     "eco_do_preco",

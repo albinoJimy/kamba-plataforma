@@ -6,6 +6,15 @@
 
 export * from "./contrato.ts";
 export * from "./regras.ts";
+export * from "./categorias.ts";
+export {
+  DIAS_DA_JANELA_DO_PRECO,
+  FONTE_DAS_REFERENCIAS,
+  LOJAS_MINIMAS_DAS_REFERENCIAS,
+  refDoPreco,
+  varrerPrecos,
+  type ResultadoDosPrecos,
+} from "./precos.ts";
 export {
   AvisoDeSancaoPorSms,
   AvisoDeSancaoSemDestinoError,
@@ -15,11 +24,14 @@ export {
 } from "./avisos.ts";
 export {
   CONSUMIDOR_DE_TRUST,
+  DIAS_DO_COMPRADOR_NOUTRA_LOJA,
   MOTIVO_DE_RECLAMACAO,
   TIPOS_CONSUMIDOS,
   efeitoDeTrust,
   refDaJanela,
+  purgarPseudonimos,
   sinaisDoEvento,
+  varrerCompradoresDoDono,
   varrerFotos,
   varrerNaoEntregas,
   type OpcoesDoTrust,
@@ -28,11 +40,14 @@ export {
   DESFECHOS_DA_VARREDURA,
   METRICA_SANCOES,
   METRICA_SINAIS,
+  METRICA_NAO_AVALIADAS,
   METRICA_VARREDURAS,
+  MOTIVOS_DE_NAO_AVALIADA,
   MetricasDoTrust,
   VARREDURAS,
   type ContadoresDoTrust,
   type DesfechoDaVarredura,
+  type MotivoDeNaoAvaliada,
   type Varredura,
 } from "./metricas.ts";
 export {
@@ -62,12 +77,17 @@ export {
   SQL_CONTACTOS_DO_DONO,
   SQL_ENCERRAMENTOS_POR_FECHAR,
   SQL_ESTADO_DO_TENANT,
+  SQL_COMPRADORES_NOUTRA_LOJA_DO_DONO,
   SQL_FOTOS_REPETIDAS,
+  SQL_PURGAR_PSEUDONIMOS,
   SQL_GRAVAR_SANCAO,
   SQL_GRAVAR_SINAL,
   SQL_INDEPENDENCIA,
   SQL_MUDANCAS_DE_CONTA_SEM_CASO,
   SQL_NAO_ENTREGUES,
+  SQL_OFERTAS_COM_PRECO,
+  SQL_OFERTAS_SEM_CATEGORIA,
+  SQL_PRECOS_JA_SINALIZADOS,
   SQL_PEDIDO_E_COMPRADOR,
   SQL_PEDIDOS_MANUAIS,
   SQL_QUEIXAS,

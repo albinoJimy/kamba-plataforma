@@ -707,9 +707,10 @@ class TestLimitacaoDoCatalogo(Base):
         return self.cursor.fetchone()[0]
 
     def oferta(self, sku: str, estado: str = "rascunho") -> None:
+        # Com categoria (KAM-209): sem ela a base nao publica, e aqui mede-se a limitacao.
         self.cursor.execute(
-            "INSERT INTO platform.offer_terms (tenant_id, sku, nome, preco_tipo, preco_minor, estado) "
-            "VALUES (%s, %s, %s, 'fixo', 100, %s)", (self.tenant, sku, f"produto {sku}", estado))
+            "INSERT INTO platform.offer_terms (tenant_id, sku, nome, preco_tipo, preco_minor, estado, categoria) "
+            "VALUES (%s, %s, %s, 'fixo', 100, %s, 'moda')", (self.tenant, sku, f"produto {sku}", estado))
 
     def ingestao(self) -> None:
         self.cursor.execute(

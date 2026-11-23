@@ -51,6 +51,7 @@ function oferta(parcial: Partial<TermosDaOferta> = {}): TermosDaOferta {
     stockVerificadoAt: "2026-11-02T11:00:00.000Z",
     estado: "publicado",
     categoriaRestrita: null,
+    categoria: "mercearia",
     atualizadoAt: "2026-11-02T11:00:00.000Z",
     ...parcial,
   };

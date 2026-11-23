@@ -27,6 +27,7 @@ from .exportacao import (
 )
 from .purga import (
     CAMINHOS_DO_ENCERRAMENTO,
+    RETIDAS_POR_PARECER,
     TABELAS_DOS_CONTACTOS,
     purgar,
     reaplicar_apos_restauro,
@@ -37,6 +38,7 @@ from .processo import PortaSemAdaptador, PortasDosDados, correr_fase, correr_vol
 
 __all__ = [
     "CAMINHOS_DO_ENCERRAMENTO",
+    "RETIDAS_POR_PARECER",
     "FaseForaDeOrdem",
     "LigacaoRecusada",
     "PortaSemAdaptador",

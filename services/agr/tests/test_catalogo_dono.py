@@ -178,7 +178,14 @@ class Mundo:
         por_estado: dict[str, int] = {}
         for linha in do_tenant:
             por_estado[linha.estado] = por_estado.get(linha.estado, 0) + 1
-        pendentes = [(i.id, i.estado) for i in reversed(do_tenant) if i.estado in ("a_perguntar", "rascunho")]
+        # O `SQL_PENDENTES`: os que esperam pelo dono, e as bloqueadas que o
+        # screening nao decidiu (KAM-244).
+        pendentes = [
+            (i.id, i.estado)
+            for i in reversed(do_tenant)
+            if i.estado in ("a_perguntar", "rascunho")
+            or (i.estado == "bloqueada_categoria" and i.categoria_restrita == "screening_indisponivel")
+        ]
         return por_estado, pendentes[: catalogo_tools.LIMITE_DE_PENDENTES]
 
     # ---------------------------------------------------------- pela ToolLayer

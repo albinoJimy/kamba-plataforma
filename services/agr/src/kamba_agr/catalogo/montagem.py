@@ -11,10 +11,10 @@ as que tem com quem falar:
 | `PortaDeScreening` | `ScreeningPeloCom` com o sujeito `produto` (`tls/screening.py`) |
 | `PortaDoRegisto` | `RegistoPeloCom` (`tls/registo_com.py`) |
 | `FonteDeMedia` | **por ligar** — o MED do KAM-020 nao esta montado em servico nenhum, e o `agent_invocation` nao leva a media |
-| `Descodificador` | **por ligar** — nao ha biblioteca de imagem na arvore (repo publico: so imagens sinteticas) |
+| `Descodificador` | o `DescodificadorPillow` (KAM-231, `catalogo/descodificador.py`), que o processo passa; a omissao daqui continua a por ligar |
 | `ExtractorDeVisao` | **por ligar** — o adaptador do alias `kamba-vision` pelo *gateway* |
 
-As tres por ligar **levantam**, e o pipeline trata isso como falha fechada: uma
+As por ligar **levantam**, e o pipeline trata isso como falha fechada: uma
 foto que chegue nao vira rascunho, e o dono e avisado. O credor e o ticket da
 entrada real da foto, nomeado no bloco do KAM-119.
 
@@ -78,7 +78,7 @@ class VisaoPorLigar:
 
     fornecedores: tuple[str, ...] = ()
 
-    def extrair(self, tenant_id: str, imagem: bytes) -> RespostaDaVisao:
+    def extrair(self, tenant_id: str, imagem: bytes, *, tecto_s: float | None = None) -> RespostaDaVisao:
         raise ErroDaVisao(f"sem adaptador de visao (credor {CREDOR_DA_FOTO})")
 
 
@@ -116,6 +116,30 @@ class EnhanceNulo:
         return False
 
 
+#: O modulo que abre a oferta de «melhorar foto» (`kamba_core.modulos.uso`).
+MODULO_DA_FOTO: Final = "foto"
+
+
+@dataclass(frozen=True)
+class EnhancePorEntitlement:
+    """A oferta de «melhorar foto» com o entitlement `foto` activo (KAM-231, criterio 4).
+
+    `ler` e o `LeitorDeEntitlements.ler` do processo: `(tenant, modulo) ->
+    Entitlement`, sob o `app.tenant_id` do tenant. **Falha fechada e calada**:
+    uma leitura que levante e «sem oferta», e o resumo segue sem erro — a oferta
+    e um extra, e nao vale um turno falhado. O trabalho de melhorar e o
+    `enhance_image` do KAM-120, pedido pelo dono depois da oferta.
+    """
+
+    ler: Callable[[str, str], Any]
+
+    def disponivel(self, tenant_id: str) -> bool:
+        try:
+            return bool(self.ler(tenant_id, MODULO_DA_FOTO).ativo)
+        except Exception:  # noqa: BLE001 — na duvida, sem oferta
+            return False
+
+
 class _NaoFecha:
     """A ligacao da ToolLayer emprestada ao `RepositorioDbapi`, que fecha a sua.
 
@@ -141,6 +165,59 @@ class _NaoFecha:
         return getattr(self._ligacao, nome)
 
 
+class TomadaDaInvocacao:
+    """A ligacao **corrente** de uma invocacao, que o pipeline larga e retoma (KAM-244).
+
+    O pipeline do KAM-049 corre a visao e o screening fora da ligacao
+    (`ServicoDeIngestao.fora_da_ligacao`), e a ToolLayer pode devolver-lhe
+    **outra** quando a retoma (`Pedido.sem_tomada`, KAM-230): a largada ja pode
+    estar noutra invocacao. Este objecto e a ligacao que o repositorio, a fonte
+    e o executor usam: cada operacao le o `ligacao` de agora, e nunca a do
+    inicio. O `close` e nada, pela razao do `_NaoFecha`.
+
+    Sem `largar` (um `Pedido` feito a mao, ou fora de um `invoke`), o trabalho
+    corre com a ligacao, e ela nao muda.
+    """
+
+    __slots__ = ("ligacao", "_largar", "__weakref__")
+
+    def __init__(
+        self, ligacao: Any, largar: Callable[[Callable[[], Any]], tuple[Any, Any]] | None = None
+    ) -> None:
+        self.ligacao = ligacao
+        self._largar = largar
+
+    def fora_da_ligacao(self, trabalho: Callable[[], Any]) -> Any:
+        """Corre `trabalho` sem a ligacao e fica com a retomada, **tambem quando ele levanta**.
+
+        A ToolLayer retoma uma vaga no `finally` e volta a levantar, e o pipeline
+        do KAM-049 apanha a falha da visao e do screening de proposito (falha
+        fechada) e escreve a seguir. Se a excepcao passasse por cima desta
+        atribuicao, a escrita ia pela ligacao **largada**, ja na fila e talvez
+        noutra invocacao (achado 1 da revisao adversarial do KAM-244). Por isso
+        a excepcao viaja como valor ate a ligacao estar guardada.
+        """
+        if self._largar is None:
+            return trabalho()
+
+        def protegido() -> tuple[bool, Any]:
+            try:
+                return True, trabalho()
+            except Exception as erro:  # noqa: BLE001 — volta a subir abaixo
+                return False, erro
+
+        (correu, valor), self.ligacao = self._largar(protegido)
+        if not correu:
+            raise valor
+        return valor
+
+    def close(self) -> None:
+        return None
+
+    def __getattr__(self, nome: str) -> Any:
+        return getattr(self.ligacao, nome)
+
+
 def repositorio_sobre(ligacao: Any) -> Repositorio:
     """O `RepositorioDbapi` sobre a ligacao de uma invocacao, sem a fechar."""
     emprestada = _NaoFecha(ligacao)
@@ -160,6 +237,10 @@ class PortasDoCatalogo:
     registo: PortaDoRegisto
     ambiente: str = AMBIENTE_PROD
     fonte: FonteDeMedia = field(default_factory=FontePorLigar)
+    #: KAM-231. A fonte **por invocacao**, sobre a ligacao dela: a `FonteDoMed`
+    #: le a `media_assets` no tenant da invocacao (`catalogo/fonte.py`). Com
+    #: ela, o `fonte` acima nao se usa.
+    fonte_sobre: Callable[[Any], FonteDeMedia] | None = None
     storage: StorageProvider = field(default_factory=StoragePorLigar)  # type: ignore[assignment]
     descodificador: Descodificador = field(default_factory=DescodificadorPorLigar)
     destinos: PortaDeDestinos = field(default_factory=DestinosPorLigar)
@@ -170,11 +251,21 @@ class PortasDoCatalogo:
     repositorio: Callable[[Any], Repositorio] = repositorio_sobre
     agora: Callable[[], datetime] = field(default=lambda: datetime.now(UTC))
 
-    def servico(self, ligacao: Any) -> ServicoDeIngestao:
-        """O pipeline para uma invocacao: o repositorio sobre a ligacao dela."""
+    def servico(self, ligacao: Any, *, prazo: float | None = None) -> ServicoDeIngestao:
+        """O pipeline para uma invocacao: o repositorio sobre a ligacao dela.
+
+        Com uma `TomadaDaInvocacao` (KAM-244), a visao e o screening correm fora
+        da ligacao, e o repositorio e a fonte leem a de agora. O `prazo` e o
+        `Pedido.prazo`: cada etapa lenta recebe o que sobra dele.
+        """
+        extra: dict[str, Any] = {}
+        if isinstance(ligacao, TomadaDaInvocacao):
+            extra["fora_da_ligacao"] = ligacao.fora_da_ligacao
         return ServicoDeIngestao(
+            prazo=prazo,
+            **extra,
             repositorio=self.repositorio(ligacao),
-            fonte=self.fonte,
+            fonte=self.fonte if self.fonte_sobre is None else self.fonte_sobre(ligacao),
             storage=self.storage,
             descodificador=self.descodificador,
             destinos=self.destinos,
@@ -192,11 +283,14 @@ __all__ = [
     "DescodificadorPorLigar",
     "DestinosPorLigar",
     "EnhanceNulo",
+    "EnhancePorEntitlement",
+    "MODULO_DA_FOTO",
     "FontePorLigar",
     "FotoPorLigarError",
     "ImageEnhancePort",
     "PortasDoCatalogo",
     "StoragePorLigar",
+    "TomadaDaInvocacao",
     "VisaoPorLigar",
     "repositorio_sobre",
 ]

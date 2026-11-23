@@ -556,10 +556,18 @@ class TestPipelineReal(_ComTls):
         KAM-119, e treze antes do KAM-123, que declara o `request_quote` e o
         `submit_quote` com credor KAM-220. **Dezanove desde o KAM-121**, que
         acrescenta ao catalogo as quatro do modulo `social` (vinte e uma ao
-        todo), e o catalogo de ensaio nao as liga.
+        todo), e o catalogo de ensaio nao as liga. **Vinte e quatro desde o
+        KAM-122**, que declara as cinco da arte, da aprovacao e da entrega
+        (`generate_art`, `request_approval`, `approve_content`,
+        `reject_content` e `deliver_content`, com credor KAM-122): vinte e seis
+        no catalogo, vinte e cinco declaradas no real
+        (`test_uma_esta_ligada_e_catorze_estao_declaradas_com_credor`) e vinte e
+        quatro aqui. A contagem so prende o catalogo; o que o ensaio prova e o
+        ciclo abaixo, que invoca **cada** declarada e exige a recusa
+        `TOOL_NOT_ALLOWED` sem dados nem factos.
         """
         declaradas = sorted(self.catalogo().declaradas())
-        self.assertEqual(len(declaradas), 19)
+        self.assertEqual(len(declaradas), 24)
         for nome in declaradas:
             with self.subTest(tool=nome):
                 resultado = self.invocar(nome, {})

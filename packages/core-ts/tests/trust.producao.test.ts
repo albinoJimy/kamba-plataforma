@@ -24,16 +24,23 @@ import {
   PASSOS,
   RepositorioDeTrustEmMemoria,
   SQL_AUDITAR_VARREDURA,
+  SQL_COMPRADORES_NOUTRA_LOJA_DO_DONO,
   SQL_ENCERRAMENTOS_POR_FECHAR,
   SQL_ESTADO_DO_TENANT,
   SQL_FOTOS_REPETIDAS,
+  SQL_GRAVAR_SANCAO,
+  SQL_GRAVAR_SINAL,
+  SQL_SINAL_POR_CHAVE,
   SQL_MUDANCAS_DE_CONTA_SEM_CASO,
   SQL_NAO_ENTREGUES,
+  SQL_PURGAR_PSEUDONIMOS,
   SQL_TRUST_DE_ONDE_VEIO,
   SQL_TRUST_EMITIR,
   SQL_TRUST_SUSPENSAO_E_DO_TRUST,
   SQL_TRUST_TRANSITAR,
   ServicoDeTrust,
+  POLITICA_DE_RISCO,
+  SEVERIDADE_DO_TIPO,
   TIPOS_DE_SINAL,
   TransicaoDeOutroEstadoError,
   VARREDURAS,
@@ -197,10 +204,25 @@ describe("a transição do tenant pela porta do KAM-092 (critério 8)", () => {
 
 const SINAL = "33333333-3333-4333-8333-333333333333";
 
-function ciclo(o: { falhaNas?: string; mudanca?: boolean } = {}) {
+function ciclo(
+  o: { falhaNas?: string; mudanca?: boolean; correlacao?: "ligada" | "desligada" | "trancada"; anel?: number } = {},
+) {
   const agora = new Date("2026-11-17T10:00:00Z");
-  const lote = new ConjuntoFalso((texto) => {
+  /** As chaves `(tenant, tipo, ref)` já gravadas: a segunda escrita não devolve linha. */
+  const gravados = new Set<string>();
+  const lote = new ConjuntoFalso((texto, valores) => {
     if (o.falhaNas !== undefined && texto === o.falhaNas) throw new Error("base em baixo");
+    if (texto === SQL_GRAVAR_SINAL) {
+      const chave = `${valores[0]}|${valores[1]}|${valores[3]}`;
+      if (gravados.has(chave)) return { rows: [] };
+      gravados.add(chave);
+      return { rows: [{ id: SINAL }] };
+    }
+    if (texto === SQL_SINAL_POR_CHAVE) return { rows: [{ id: SINAL, ocorrido_em: agora }] };
+    if (texto === SQL_COMPRADORES_NOUTRA_LOJA_DO_DONO && o.anel !== undefined) {
+      return { rows: [{ tenant_id: T, contagem: o.anel }] };
+    }
+    if (texto === SQL_PURGAR_PSEUDONIMOS) return { rows: [{ apagados: 0 }] };
     if (texto === SQL_MUDANCAS_DE_CONTA_SEM_CASO && o.mudanca === true) {
       return { rows: [{ id: SINAL, tenant_id: T, ref_evento: SINAL, ocorrido_em: agora }] };
     }
@@ -217,26 +239,39 @@ function ciclo(o: { falhaNas?: string; mudanca?: boolean } = {}) {
     },
   };
   const metricas = new MetricasDoTrust();
+  const repositorio = new RepositorioDeTrustEmMemoria(() => agora);
   const servico = new ServicoDeTrust({
-    repositorio: new RepositorioDeTrustEmMemoria(() => agora),
+    repositorio,
     tenants: new EstadoDosTenantsEmMemoria(),
     fila,
     relogio: () => agora,
     contadores: metricas,
   });
-  return { lote, propostas, metricas, c: new CicloDoTrust({ lote, servico, metricas, relogio: () => agora }) };
+  const correlacao = o.correlacao === undefined ? {} : { correlacao: o.correlacao };
+  return {
+    lote,
+    propostas,
+    metricas,
+    repositorio,
+    agora,
+    c: new CicloDoTrust({ lote, servico, metricas, relogio: () => agora, ...correlacao }),
+  };
 }
 
+/** As varreduras que correm com o interruptor do KAM-208 desligado: todas menos a da correlação. */
+const SEM_CORRELACAO = VARREDURAS.filter((v) => v !== "compradores_do_dono");
+
 describe("o ciclo das varreduras no lote (critério 2)", () => {
-  it("corre as quatro, e cada corrida deixa uma linha batch.run com o nome dela", async () => {
-    const { lote, c, metricas } = ciclo();
+  it("corre todas (ligada), e cada corrida deixa uma linha batch.run com o nome dela", async () => {
+    const { lote, c, metricas } = ciclo({ correlacao: "ligada" });
     const r = await c.correr();
     assert.deepEqual(r.falhas, []);
     assert.deepEqual(Object.keys(r.feitas).sort(), [...VARREDURAS].sort());
     const auditorias = lote.com(SQL_AUDITAR_VARREDURA);
     assert.deepEqual(
       auditorias.map((a) => a.valores),
-      VARREDURAS.map((v) => [ACTOR_DAS_VARREDURAS, v, `${v}:0`]),
+      // A dos preços (KAM-209) leva também as ofertas publicadas sem categoria.
+      VARREDURAS.map((v) => [ACTOR_DAS_VARREDURAS, v, v === "precos" ? "precos:0:sem_categoria:0:poucas_lojas:0" : `${v}:0`]),
     );
     for (const v of VARREDURAS) assert.match(metricas.exposicao(), new RegExp(`varredura="${v}",desfecho="concluida"\\} 1$`, "m"));
   });
@@ -276,5 +311,63 @@ describe("o ciclo das varreduras no lote (critério 2)", () => {
     const { lote, c } = ciclo();
     await Promise.all([c.correr(), c.correr()]);
     assert.equal(lote.com(SQL_NAO_ENTREGUES).length, 1);
+  });
+});
+
+// ------------------------------------- a correlação entre tenants (KAM-208)
+
+describe("a correlação entre tenants no ciclo (KAM-208)", () => {
+  for (const estado of [undefined, "desligada", "trancada"] as const) {
+    it(`com o interruptor ${estado ?? "por omissão"}, a comparação não corre nem se audita, e a purga corre`, async () => {
+      const { lote, c } = ciclo(estado === undefined ? {} : { correlacao: estado });
+      const r = await c.correr();
+      assert.deepEqual(Object.keys(r.feitas).sort(), [...SEM_CORRELACAO].sort());
+      assert.equal(lote.com(SQL_COMPRADORES_NOUTRA_LOJA_DO_DONO).length, 0, "a comparação correu desligada");
+      assert.ok(!lote.com(SQL_AUDITAR_VARREDURA).some((a) => a.valores[1] === "compradores_do_dono"));
+      assert.equal(lote.com(SQL_PURGAR_PSEUDONIMOS).length, 1, "a purga não corre só ligada: apaga");
+    });
+  }
+
+  it("ligada, a comparação e a sua auditoria correm na mesma transacção, depois da purga", async () => {
+    const { lote, c } = ciclo({ correlacao: "ligada" });
+    await c.correr();
+    const varrer = lote.com(SQL_COMPRADORES_NOUTRA_LOJA_DO_DONO)[0];
+    assert.ok(varrer !== undefined && varrer.ligacao !== "conjunto");
+    const naLigacao = lote.consultas.filter((x) => x.ligacao === varrer.ligacao).map((x) => x.texto);
+    assert.deepEqual(naLigacao, ["BEGIN", SQL_COMPRADORES_NOUTRA_LOJA_DO_DONO, SQL_AUDITAR_VARREDURA, "COMMIT"]);
+    const textos = lote.consultas.map((x) => x.texto);
+    assert.ok(textos.indexOf(SQL_PURGAR_PSEUDONIMOS) < textos.indexOf(SQL_COMPRADORES_NOUTRA_LOJA_DO_DONO));
+  });
+
+  it("a comparação não leva instantes (as janelas são da base) e a purga corta aos 90 dias do relógio", async () => {
+    const { lote, c, agora } = ciclo({ correlacao: "ligada" });
+    await c.correr();
+    const [comparacao] = lote.com(SQL_COMPRADORES_NOUTRA_LOJA_DO_DONO);
+    const [purga] = lote.com(SQL_PURGAR_PSEUDONIMOS);
+    assert.deepEqual(comparacao?.valores, [], "com instantes, o lote bissectava uma encomenda");
+    const dias = (d: unknown) => (agora.getTime() - (d as Date).getTime()) / 86_400_000;
+    assert.deepEqual(purga?.valores.map(dias), [90]);
+  });
+
+  it("um tenant do anel dá um sinal informativo com a contagem, uma vez por janela, e a escada não se move", async () => {
+    const { c, lote, agora } = ciclo({ correlacao: "ligada", anel: 2 });
+    const r = await c.correr();
+    assert.deepEqual(r.falhas, []);
+    assert.equal(r.feitas.compradores_do_dono, 1);
+    const [gravado, ...mais] = lote.com(SQL_GRAVAR_SINAL);
+    assert.equal(mais.length, 0);
+    const [tenant, tipo, severidade, ref, detalhe, ocorrido] = gravado?.valores ?? [];
+    assert.deepEqual([tenant, tipo, severidade, detalhe, ocorrido], [T, "comprador_noutra_loja_do_dono", "baixa", '{"contagem":2}', agora]);
+    assert.match(String(ref), /^[0-9a-f]{8}-[0-9a-f]{4}-8[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+    assert.equal(lote.com(SQL_GRAVAR_SANCAO).length, 0, "peso 0: nenhum passo da escada");
+    const outra = await c.correr();
+    assert.equal(outra.feitas.compradores_do_dono, 0, "a mesma janela não dá um segundo sinal");
+    assert.equal(lote.com(SQL_GRAVAR_SINAL)[1]?.valores[3], ref, "a mesma chave na segunda volta");
+  });
+
+  it("o tipo novo é baixo e pesa zero na política de risco (D6)", () => {
+    assert.ok((TIPOS_DE_SINAL as readonly string[]).includes("comprador_noutra_loja_do_dono"));
+    assert.equal(SEVERIDADE_DO_TIPO.comprador_noutra_loja_do_dono, "baixa");
+    assert.equal(POLITICA_DE_RISCO.pesos.comprador_noutra_loja_do_dono, 0);
   });
 });

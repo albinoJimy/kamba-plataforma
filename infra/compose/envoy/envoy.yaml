@@ -11,6 +11,8 @@
 # o gerador. O `lint` recusa um destino na allowlist que nenhum servico declare.
 
 
+# NAO VERIFICADO: `lookaside.fbsbx.com` (ver a `razao` em `infra/egress/proxy-saida.yaml`).
+
 admin:
   address:
     socket_address:
@@ -58,6 +60,8 @@ static_resources:
                         - "generativelanguage.googleapis.com:443"
                         - "graph.facebook.com"
                         - "graph.facebook.com:443"
+                        - "lookaside.fbsbx.com"
+                        - "lookaside.fbsbx.com:443"
                       routes:
                         - match:
                             connect_matcher: {}
@@ -100,6 +104,8 @@ static_resources:
                             port_value: 443
                           - address: graph.facebook.com
                             port_value: 443
+                          - address: lookaside.fbsbx.com
+                            port_value: 443
                   - name: envoy.filters.http.router
                     typed_config:
                       "@type": type.googleapis.com/envoy.extensions.filters.http.router.v3.Router
@@ -123,4 +129,6 @@ static_resources:
               - address: generativelanguage.googleapis.com
                 port_value: 443
               - address: graph.facebook.com
+                port_value: 443
+              - address: lookaside.fbsbx.com
                 port_value: 443

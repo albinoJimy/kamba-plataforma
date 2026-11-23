@@ -18,8 +18,16 @@ resumo. O `preco` e o valor em centimos que o eco gravou (`catalogo/regras.py`);
 vai ao COM como cadeia de digitos, a forma canonica do `emMinor` da API
 interna, e so quando o `preco_tipo` leva numero — o `sob_consulta` vai com
 `null`, que e o que o `offer_terms_preco_ck` exige. A **quantidade** em stock
-nao tem campo no rascunho da porta (`ProductDraft`): fica na ingestao e no
-resumo, e o limite esta escrito no bloco.
+nao tem campo no rascunho da porta (`ProductDraft`), e por isso vai com a
+**publicacao** (KAM-231): o `stock` do `publish-product`, que o COM passa ao
+`ajustarStock` do Registo na mesma transaccao.
+
+## A categoria e a da lista fechada (KAM-209)
+
+O texto livre da `categoria` vai ao COM como o `id` da lista de
+`policy/categorias_de_produto.yaml` que o `categoria_de_produto` lhe da, o mesmo
+que o resumo mostra ao dono entre parenteses. O COM guarda-o em
+`offer_terms.categoria`, e a base nao publica uma oferta sem ele.
 
 ## *Fail-closed*
 
@@ -35,12 +43,13 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Final
 
+from kamba_core.catalogo.categorias import categoria_de_produto
 from kamba_core.catalogo.completude import PRECO_TIPOS, PRECO_TIPOS_COM_NUMERO, STOCK_MODOS
 from kamba_core.catalogo.extraccao import Campo
 from kamba_core.catalogo.pipeline import ConfirmacaoDoDono
 
 from .com import ClienteDoCom
-from .erros import VALIDATION_ERROR
+from .erros import UPSTREAM_TIMEOUT, VALIDATION_ERROR
 from .especificacoes import ErroDeBackend
 
 #: As duas rotas. Iguais as da constante `ROTAS` de `services/com/src/api/interna.ts`.
@@ -90,6 +99,13 @@ def corpo_do_rascunho(sku: str, campos: Mapping[str, Campo]) -> dict[str, object
     stock_modo = _texto(campos, "stock_modo")
     if stock_modo in STOCK_MODOS:
         corpo["stock_modo"] = stock_modo
+    # KAM-209: a categoria da oferta e o `id` da lista fechada que o resumo
+    # mostrou ao dono (`pipeline.resumo`), e nao o texto livre da ingestao. Sem
+    # categoria, nao vai: a completude pede-a antes do rascunho, e o COM recusa
+    # publicar uma oferta sem ela.
+    categoria = categoria_de_produto(_texto(campos, "categoria"))
+    if categoria is not None:
+        corpo["categoria"] = categoria
     return corpo
 
 
@@ -105,26 +121,63 @@ class RegistoPeloCom:
     def _ctx(self, tenant_id: str) -> _Ctx:
         return _Ctx(tenant_id=tenant_id, vertical=self.vertical, turn_id=uuid.uuid4().hex)
 
-    def rascunho(self, tenant_id: str, sku: str, campos: Mapping[str, Campo]) -> None:
-        self.cliente.chamar(ROTA_DO_RASCUNHO, self._ctx(tenant_id), corpo_do_rascunho(sku, campos), self.timeout_ms)
+    def _tecto_ms(self, tecto_s: float | None) -> int:
+        """O menor dos dois tectos (KAM-244); sem tempo, recusa sem chamar o COM.
 
-    def publicar(self, tenant_id: str, sku: str, confirmacao: ConfirmacaoDoDono) -> None:
+        A recusa e a de um COM que nao respondeu, e o executor ja a trata: a
+        ingestao gravada diz a verdade, e a publicacao volta a sincronizar o
+        Registo (`_sincronizar_registo` do KAM-049).
+        """
+        tecto = self.timeout_ms if tecto_s is None else int(min(self.timeout_ms, tecto_s * 1000))
+        if tecto <= 0:
+            raise ErroDeBackend(UPSTREAM_TIMEOUT, "registo_sem_tempo")
+        return tecto
+
+    def rascunho(
+        self, tenant_id: str, sku: str, campos: Mapping[str, Campo], *, tecto_s: float | None = None
+    ) -> None:
+        corpo = corpo_do_rascunho(sku, campos)
+        self.cliente.chamar(ROTA_DO_RASCUNHO, self._ctx(tenant_id), corpo, self._tecto_ms(tecto_s))
+
+    def publicar(
+        self,
+        tenant_id: str,
+        sku: str,
+        confirmacao: ConfirmacaoDoDono,
+        *,
+        stock: int | None = None,
+        tecto_s: float | None = None,
+    ) -> None:
         if confirmacao.em.tzinfo is None:
             raise ErroDeBackend(VALIDATION_ERROR, "confirmacao_sem_fuso")
-        corpo = {
+        if stock is not None and (isinstance(stock, bool) or stock < 0):
+            raise ErroDeBackend(VALIDATION_ERROR, "stock_invalido")
+        corpo: dict[str, object] = {
             "sku": sku,
             "confirmacao": {"actor_id": confirmacao.actor, "em": confirmacao.em.isoformat()},
         }
-        self.cliente.chamar(ROTA_DA_PUBLICACAO, self._ctx(tenant_id), corpo, self.timeout_ms)
+        if stock is not None:
+            corpo["stock"] = stock
+        self.cliente.chamar(ROTA_DA_PUBLICACAO, self._ctx(tenant_id), corpo, self._tecto_ms(tecto_s))
 
 
 class RegistoPorLigar:
     """A porta sem COM configurado (`KAMBA_COM_URL` vazio). **Levanta sempre**."""
 
-    def rascunho(self, tenant_id: str, sku: str, campos: Mapping[str, Campo]) -> None:
+    def rascunho(
+        self, tenant_id: str, sku: str, campos: Mapping[str, Campo], *, tecto_s: float | None = None
+    ) -> None:
         raise ErroDeBackend("UPSTREAM_DOWN", "registo_por_ligar")
 
-    def publicar(self, tenant_id: str, sku: str, confirmacao: ConfirmacaoDoDono) -> None:
+    def publicar(
+        self,
+        tenant_id: str,
+        sku: str,
+        confirmacao: ConfirmacaoDoDono,
+        *,
+        stock: int | None = None,
+        tecto_s: float | None = None,
+    ) -> None:
         raise ErroDeBackend("UPSTREAM_DOWN", "registo_por_ligar")
 
 

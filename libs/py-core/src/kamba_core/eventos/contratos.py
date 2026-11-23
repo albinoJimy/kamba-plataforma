@@ -180,6 +180,18 @@ class PayloadContactMergedV2(TypedDict):
     merged_into: str
 
 
+class PayloadContentApproved(TypedDict):
+    """Payload de `content.approved` v1."""
+    content_item_id: str
+    versao: int
+
+
+class PayloadContentApprovedV2(TypedDict):
+    """Payload de `content.approved` v2."""
+    content_item_id: str
+    versao: int
+
+
 class PayloadConversationModeChanged(TypedDict):
     """Payload de `conversation.mode_changed` v1."""
     thread_id: str
@@ -725,6 +737,11 @@ CATALOGO: dict[str, dict[str, object]] = {
         "versoes": [1, 2],
         "obrigatorios": ['contact_id', 'merged_into'],
         "permitidos": ['contact_id', 'merged_into'],
+    },
+    "content.approved": {
+        "versoes": [1, 2],
+        "obrigatorios": ['content_item_id', 'versao'],
+        "permitidos": ['content_item_id', 'versao'],
     },
     "conversation.mode_changed": {
         "versoes": [1, 2],

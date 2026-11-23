@@ -58,7 +58,18 @@ CONTACTO = "33333333-3333-4333-8333-333333333333"
 AGORA = datetime.datetime(2026, 11, 20, 11, 0, tzinfo=datetime.UTC)
 HOJE = datetime.date(2026, 11, 20)
 
-TOOLS_DO_SOCIAL = ("get_brand_profile", "update_brand_profile", "generate_calendar", "generate_caption")
+TOOLS_DO_SOCIAL = (
+    "get_brand_profile",
+    "update_brand_profile",
+    "generate_calendar",
+    "generate_caption",
+    # KAM-122.
+    "generate_art",
+    "request_approval",
+    "approve_content",
+    "reject_content",
+    "deliver_content",
+)
 
 
 # ====================================================================== os duplos
@@ -521,12 +532,20 @@ class TestAsTools(unittest.TestCase):
         self.assertEqual(mundo.camada.catalogo["get_brand_profile"].klass, "read")
         for nome in TOOLS_DO_SOCIAL[1:]:
             self.assertEqual(mundo.camada.catalogo[nome].klass, "write", nome)
+            if nome == "approve_content":
+                # KAM-122: a unica com botao, o `confirm:{action_id}` (D4).
+                self.assertNotIn(nome, DISPENSAS_DO_PASSO_4)
+                self.assertEqual(mundo.camada.catalogo[nome].campo_de_confirmacao, "action_id")
+                continue
             self.assertIn(nome, DISPENSAS_DO_PASSO_4)
             self.assertTrue(mundo.camada.catalogo[nome].confirmacao_dispensada)
         with self.assertRaises(ValueError):
             catalogo_mod.especificacoes_do_piloto({"generate_calendar": lambda p: None})  # type: ignore[dict-item]
         declaradas = catalogo_do_piloto().declaradas()
-        self.assertEqual({n: declaradas[n] for n in TOOLS_DO_SOCIAL}, dict.fromkeys(TOOLS_DO_SOCIAL, "KAM-121"))
+        self.assertEqual(
+            {n: declaradas[n] for n in TOOLS_DO_SOCIAL},
+            {n: "KAM-121" if i < 4 else "KAM-122" for i, n in enumerate(TOOLS_DO_SOCIAL)},
+        )
 
     def test_sem_o_modulo_social_as_quatro_recusam(self) -> None:
         mundo = Mundo(modulos={"vendedor", "catalogo"})
@@ -1085,6 +1104,110 @@ class TestAchadosDaConversa(unittest.TestCase):
         self.assertIn(conversa.MSG_IDEIAS, texto)
         _f, texto, _ = mundo.turno("Preciso de uma resposta sobre as ideias")
         self.assertNotIn(conversa.MSG_NAO_PUBLICO, texto)
+
+
+class TestPedidosDePublicacaoKAM237(unittest.TestCase):
+    """KAM-237: os verbos, o «status» e o «whatsapp», e a ordem catalogo/social no `classify`.
+
+    Os tres textos sao os do golden do dono (`don-cat-058`, `don-cat-059` e
+    `don-soc-073`). Os vizinhos com o «whatsapp» como canal sao os achados A1 e
+    A2 da revisao adversarial do KAM-237: o dono fala com o assistente pelo
+    WhatsApp, e nem todo o «whatsapp» ou «status» e uma rede.
+    """
+
+    #: Um verbo e uma rede: o dono recebe a oferta de entrega manual.
+    PEDIDOS: tuple[str, ...] = (
+        "põe este produto no facebook da loja",
+        "poe este produto no facebook da loja",
+        "partilha o catálogo no status",
+        "partilha o catalogo no status",
+        "partilha no status do whatsapp",
+        "pôr a camisa no instagram",
+        "coloca a camisa no instagram",
+        "coloque isto no status",
+        "ponha no facebook as novidades",
+        "colocar a camisa no instagram",
+        # O «estado do whatsapp» decide sozinho: nao ha «no status» no texto.
+        "posta isto no estado do whatsapp",
+        "poste no instagram",
+        "partilhe no facebook as novidades",
+        "mete no status",
+        "publica no insta",
+        "posta no face",
+    )
+    #: Os vizinhos que nao sao pedidos de publicacao, e a intencao de hoje.
+    VIZINHOS: tuple[tuple[str, str | None], ...] = (
+        ("põe o preço a 5000", "modulos"),
+        ("coloca o stock a dez", "modulos"),
+        ("o status da encomenda", None),
+        ("qual e o status do whatsapp da loja", None),
+        ("publica o produto", "modulos"),
+        ("quero ver o catalogo", "modulos"),
+        ("ideias para o instagram por favor", "social"),
+        ("Qual o horario que esta no Facebook?", "info_loja"),
+        ("quero falar com uma pessoa, poe no facebook", "humano"),
+        # O «whatsapp» e o «status» como canal ou como estado, e nao como rede.
+        ("coloca a foto que te mandei no whatsapp no produto", "modulos"),
+        ("põe o link do whatsapp no produto", "modulos"),
+        ("coloca o numero do whatsapp no catalogo", "modulos"),
+        ("partilha comigo o catalogo pelo whatsapp", "modulos"),
+        ("coloca o status da encomenda como entregue", None),
+        ("coloca no status da encomenda entregue", None),
+        ("agenda a entrega pelo whatsapp", None),
+        ("coloca whatsapp como forma de contacto", None),
+    )
+
+    def test_o_verbo_e_a_rede_fazem_o_pedido(self) -> None:
+        for texto in self.PEDIDOS:
+            with self.subTest(texto=texto):
+                self.assertTrue(conversa.pede_publicacao(texto))
+                self.assertEqual(nos_do_dono.intencao_por_regras(texto), "social")
+
+    def test_os_vizinhos_nao_mudam_de_destino(self) -> None:
+        for texto, intencao in self.VIZINHOS:
+            with self.subTest(texto=texto):
+                self.assertEqual(nos_do_dono.intencao_por_regras(texto), intencao)
+        for texto in ("põe o preço a 5000", "o status da encomenda", "ideias para o instagram por favor"):
+            with self.subTest(texto=texto):
+                self.assertFalse(conversa.pede_publicacao(texto))
+
+    def test_o_por_sem_acento_e_a_preposicao(self) -> None:
+        self.assertFalse(conversa.pede_publicacao("por no instagram"))
+        self.assertFalse(conversa.pede_publicacao("ideias para o facebook por favor"))
+        self.assertTrue(conversa.pede_publicacao("pôr no instagram"))
+        # A forma decomposta (o acento como caracter a parte) le-se como a composta.
+        self.assertTrue(conversa.pede_publicacao("pôr no instagram"))
+
+    def test_pelo_grafo_os_pedidos_recebem_a_oferta_manual(self) -> None:
+        mundo = Mundo()
+        mundo.com_perfil()
+        for texto in self.PEDIDOS:
+            final, resposta, botoes = mundo.turno(texto)
+            with self.subTest(texto=texto):
+                self.assertEqual(final["intent"], "social")
+                self.assertTrue(resposta.endswith(conversa.MSG_NAO_PUBLICO), resposta)
+                self.assertEqual(botoes, (regras.BOTAO_IDEIAS,))
+
+    def test_pelo_grafo_os_adversariais_nao_sao_publicacao(self) -> None:
+        mundo = Mundo()
+        mundo.com_perfil()
+        for texto in ("põe o preço a 5000", "o status da encomenda", "coloca o status da encomenda como entregue"):
+            final, resposta, _b = mundo.turno(texto)
+            with self.subTest(texto=texto):
+                self.assertNotEqual(final["intent"], "social")
+                self.assertNotIn(conversa.MSG_NAO_PUBLICO, resposta)
+
+    def test_uma_resposta_ao_perfil_com_o_whatsapp_como_canal_grava_se(self) -> None:
+        """O achado A2: com o perfil a meio, o «whatsapp» de um facto nao e um pedido de publicacao."""
+        for texto in ("Agenda a sua visita pelo WhatsApp", "Encomendas pelo whatsapp, agenda connosco"):
+            mundo = Mundo()
+            perfil = _perfil_completo()
+            mundo.repo.perfis[A] = regras.Perfil(**{**perfil.__dict__, "factos": None})
+            final, resposta, _b = mundo.turno(texto)
+            with self.subTest(texto=texto):
+                self.assertEqual(final["intent"], "social")
+                self.assertNotIn(conversa.MSG_NAO_PUBLICO, resposta)
+                self.assertEqual(mundo.repo.perfis[A].factos, (regras.Facto(texto),))
 
 
 class TestRepositorioEmMemoria(unittest.TestCase):

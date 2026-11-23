@@ -39,10 +39,14 @@
  * 2026-11-20 (ADR-L002, critério 9 do KAM-008 emendado, bloco do KAM-227) as
  * chaves do contacto vêm do ambiente que o lançador do cofre enche, e o
  * `Identidade.arrancar` recusa em `prod` sem o *pepper* ou sem a KEK das DEK.
- * Não está no *compose* de `prod` pelo orçamento de memória do conjunto
- * reduzido (bloco do KAM-215, decisões do executor). O fundador decidiu a
- * 2026-11-21 que fica de fora até se medir o pico de memória dele: o credor é
- * o KAM-238, que propõe o limite que caiba sem mexer no tecto.
+ * Está no *compose* de `prod` desde o KAM-241, com 54 MiB sem *swap*, a folga
+ * que o conjunto reduzido deixava: corre compilado (`dist/provisionamento.js`,
+ * do `tsconfig.provisionamento.json`), com a sonda em `bash` e o
+ * `NODE_OPTIONS=--max-semi-space-size=1 --max-old-space-size=24`, medidos sob o
+ * próprio limite (`docs/evidencia/KAM-238.md` §6). Por isso a casca, este módulo
+ * e o `meta.ts` correm do `dist/`: um `import()` dinâmico ou um caminho relativo
+ * que o `tsc` não reescreva parte o processo em `prod` e não nos testes, que
+ * correm sobre a fonte.
  */
 
 import { healthz } from "@kamba/core-ts";
