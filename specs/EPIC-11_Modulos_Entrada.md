@@ -77,6 +77,7 @@ Estado da evidência (E5): **CONFIRMADO** — preços e termos publicados dos fo
 | KAM-244 | Catálogo do dono: a foto sem prender a tomada da TLS — a visão e o *screening* fora da ligação, e os tectos de dentro abaixo dos 25 s | fix | M | P1 | KAM-231 |
 | KAM-245 | Catálogo do dono: a violação de um produto publicado que um `screen` posterior marca como `bloqueada`, e a re-análise que a emite | fix | S | P2 | KAM-119 |
 | KAM-246 | Social AI: a arte como imagem no WhatsApp e a página do painel com a ligação de descarga | feature | M | P1 | KAM-122, KAM-015 |
+| KAM-249 | Canal do dono: o `/metrics` do consumidor `dono` raspado pelo Prometheus em `prod` | fix | S | P2 | KAM-241 |
 
 ---
 
@@ -3650,7 +3651,7 @@ Regras: não mexer no tecto nem no limite de outro processo; se não couber, dev
 | Prioridade | P1 |
 | Estimativa | S |
 | Dependências | KAM-238 |
-| Bloqueia | — |
+| Bloqueia | KAM-249 |
 | Responsável sugerido | Engenheiro de Plataforma (SRE) |
 | Documentos de referência | `EPIC-11_Modulos_Entrada.md` (bloco KAM-238, decisão do fundador de 2026-11-22), `../docs/evidencia/KAM-238.md`, `../db/ensaio_dono.py`, `../services/onboarding-web/src/provisionamento.ts`, `../infra/compose/conjunto-reduzido.yaml` |
 
@@ -3707,7 +3708,7 @@ Os três critérios marcados. **Cabe, com ~8,5 MiB de margem**: sob 54m o `memor
 | 1 | marcado | Os três critérios marcados; o anexo `../docs/evidencia/KAM-238.md` §6 com os números novos, e a nota do KAM-215 e as linhas 2 e 3 do KAM-238 revistas com eles |
 | 2 | por marcar | **Nenhum segredo no *compose*:** as três chaves e as duas cadeias de ligação são `${…:?}` do cofre e do *deploy*, como no de `staging`. **O `make up && make smoke` não correu:** nesta máquina não há `make`, e o *smoke* sonda os cinco serviços do `HEALTHZ_TARGETS`, que não incluem este. A prova de arranque mais próxima é o ensaio, que levanta o serviço com a imagem desta árvore e o espera `healthy` — NÃO VERIFICADO como `make smoke` |
 
-**Um achado fora do âmbito** (da revisão adversarial, confirmado por leitura): nenhum *job* do `../infra/compose/prometheus/prometheus.yml` raspa o `/metrics` do `onboarding-provisionamento` (só o do `onboarding_lote`), e o `../infra/egress/onboarding-provisionamento.yaml` diz que é raspado. Vem do KAM-215 e passa a importar com o processo em `prod`; fica para a coordenação.
+**Um achado fora do âmbito** (da revisão adversarial, confirmado por leitura): nenhum *job* do `../infra/compose/prometheus/prometheus.yml` raspa o `/metrics` do `onboarding-provisionamento` (só o do `onboarding_lote`), e o `../infra/egress/onboarding-provisionamento.yaml` diz que é raspado. Vem do KAM-215 e passa a importar com o processo em `prod`. Credor, por decisão da coordenação do lote 20: o **KAM-249**.
 
 ### Handoff para Claude Code
 
@@ -3716,6 +3717,60 @@ Os três critérios marcados. **Cabe, com ~8,5 MiB de margem**: sob 54m o `memor
 Lê specs/EPIC-11_Modulos_Entrada.md (blocos KAM-215, KAM-238 e KAM-241) e docs/evidencia/KAM-238.md.
 Objectivo: um pico medido do onboarding-provisionamento que caiba na folga do conjunto reduzido.
 Regras: mede sob o limite e sem swap; não mexer no tecto nem no limite de outro processo; se não couber, devolve ao fundador.
+```
+
+---
+
+## KAM-249 — Canal do dono: o `/metrics` do consumidor `dono` raspado pelo Prometheus em `prod`
+
+| Campo | Valor |
+|---|---|
+| Epic | EPIC-11 — Módulos de Entrada |
+| Fase | 1 |
+| Tipo | fix |
+| Prioridade | P2 |
+| Estimativa | S |
+| Dependências | KAM-241 |
+| Bloqueia | — |
+| Responsável sugerido | Engenheiro de Plataforma (SRE) |
+| Documentos de referência | `EPIC-11_Modulos_Entrada.md` (blocos KAM-215 e KAM-241), `../infra/compose/prometheus/prometheus.yml`, `../infra/egress/onboarding-provisionamento.yaml`, `../services/onboarding-web/src/provisionamento/processo.ts`, `../ops/metricas/catalogo.yaml` |
+
+### Contexto
+
+Credor de um achado da revisão adversarial do KAM-241, aberto no PR dele por decisão da coordenação do lote 20 (2026-11-23). O KAM-241 pôs o `onboarding-provisionamento` (o consumidor `dono`) no *compose* de `prod`. O processo serve `GET /metrics` na porta 3015, com as métricas do consumo (KAM-006) e as da guarda de tenant (`criarApp`, `../services/onboarding-web/src/provisionamento/processo.ts`). **Nenhum *job* do `../infra/compose/prometheus/prometheus.yml` o raspa:** há o `onboarding_lote` (3014) e o `onboarding_web`, e nada para a 3015 (CONFIRMADO por leitura, na `main` em `b5529017`). E o `../infra/egress/onboarding-provisionamento.yaml` afirma que o processo «é raspado», o que é falso desde o KAM-215. Sem isto, um evento que falhe seis vezes e vá para a DLQ, ou uma recusa da guarda de tenant, não se vêem em `prod`.
+
+### Objectivo
+
+Que as métricas do consumidor `dono` cheguem ao Prometheus em `prod` e em `staging`, e que nenhum documento afirme o contrário.
+
+### Critérios de Aceitação
+
+- [ ] Um *job* do `../infra/compose/prometheus/prometheus.yml` raspa o `onboarding-provisionamento` na porta 3015, como o `onboarding_lote` raspa a 3014, e o `obs_lint` continua verde (as séries servidas estão no `../ops/metricas/catalogo.yaml`, ou a lacuna fica escrita).
+- [ ] Com a pilha de `staging` levantada, o alvo aparece `up` no Prometheus. A medição vem escrita com o comando.
+- [ ] O `../infra/egress/onboarding-provisionamento.yaml` e o bloco do KAM-215 dizem o que é verdade sobre a raspagem.
+
+### Detalhes Técnicos
+
+- O processo corre com 54 MiB, medidos sob o limite (KAM-241). Uma raspagem a cada 15 s é um pedido HTTP pequeno, mas o `/metrics` corre dentro do mesmo *cgroup*. Se o *job* mudar o pico, mede-se com o `../db/ensaio_dono.py`.
+- A rede: o Prometheus já raspa o `onboarding-lote`, que está nas mesmas redes que este processo.
+
+### Testes Requeridos
+
+- Configuração: o `obs_lint` e a suite do `tools/compose_prod`.
+- Integração: o alvo `up` no Prometheus de `staging`.
+
+### Definition of Done
+
+- [ ] Critérios de Aceitação satisfeitos.
+- [ ] Nenhum segredo novo; o pico do processo continua dentro dos 54 MiB.
+
+### Handoff para Claude Code
+
+```text
+És o executor do ticket KAM-249 da KAMBÁ (raspar o /metrics do consumidor dono).
+Lê specs/EPIC-11_Modulos_Entrada.md (blocos KAM-215, KAM-241 e KAM-249) e infra/compose/prometheus/prometheus.yml.
+Objectivo: um job do Prometheus para o onboarding-provisionamento na porta 3015, e a prosa do egress corrigida.
+Regras: o pico do processo não sai dos 54 MiB; se a raspagem o mudar, mede com db/ensaio_dono.py.
 ```
 
 ---
@@ -4007,4 +4062,4 @@ Testes: unit, idempotência e adversarial.
 | 1.34 | Novembro 2026 | Escrita como 1.32 e renumerada na integração, depois do PR do KAM-231. **KAM-244** e **KAM-245** acrescentados, depois do PR do **KAM-231**, por decisão da coordenação de 2026-11-22: o KAM-244 é o credor dos achados 4 e 5 da revisão adversarial do KAM-231 (a tomada da TLS e os tectos de dentro); o KAM-245 é o do achado fora de âmbito do KAM-119 (a violação de um publicado depois de um `screen`), que o KAM-231 não absorveu. A medição com o modelo real (critérios 3 e 5 do KAM-231, caixas 2, 4 e 10 do KAM-119) passa a apontar ao **KAM-109**, aberto, e não ao KAM-040, que está fechado. Corrige também a linha 1.33, que dizia que o credor do painel passava «de KAM-243 a KAM-243»: era de KAM-241. | Equipa KAMBÁ |
 | 1.35 | Novembro 2026 | **KAM-122 entregue em parte: a arte, a aprovação e a entrega do módulo `social`, e o KAM-246 acrescentado como credor.** Revisão `0085` (sobre a `0084` do KAM-236): o *trigger* da máquina de estados do item, as colunas da arte e da aprovação, os termos da primeira entrega e a finalidade `geracao_de_imagem`. Emenda 1.137 do dicionário (§3.82, §3.5, §3.49, §3.78, §3.79, §3.26). Bloco do KAM-122: as cinco decisões do fundador de 2026-11-21 (D1 a D5), as decisões do executor e a verificação dos critérios (cinco marcados, quatro parciais), da DoD e da revisão adversarial (onze achados: dez corrigidos, com três residuais escritos, e um que não é defeito). **KAM-246** (a arte como imagem no WhatsApp e a página do painel com a ligação de 24 h), aberto por este PR pela decisão D5 e não implementado; depende do KAM-122 e do KAM-015, cujos `Bloqueia` o ganham. Medido contra a `main` em `f3d3a0eb`: escritos como 1.29, emenda 1.134 e KAM-237, renumerados na integração depois do KAM-235, do KAM-125, do KAM-236, do KAM-237, do KAM-238, do KAM-231 e do #254 (que tomou o 244 e o 245); a `0085` fica sobre a `0084`, que fundiu. | Equipa KAMBÁ |
 | 1.36 | Novembro 2026 | **KAM-244 entregue: a foto do dono sem prender a tomada da TLS.** Sem migração e sem emenda ao dicionário. A visão e o *screening* do pipeline do KAM-049 correm sem a tomada da ToolLayer, e o `Pedido.prazo` desce ao pipeline, repartido pelas etapas lentas; um *screening* sem tempo deixa a ingestão retomável, com o botão «Tentar outra vez». Emenda ao §6.5 do `docs/tecnica/02` (versão 1.15). Bloco do KAM-244: as decisões do executor e a verificação dos critérios (três marcados, com os limites escritos), da DoD e da revisão adversarial. No bloco do KAM-231, os achados 4 e 5 fechados com a evidência. | Equipa KAMBÁ |
-| 1.37 | Novembro 2026 | Escrita como 1.36 e renumerada na integração, depois do KAM-244. **KAM-241 entregue: o consumidor `dono` no *compose* de `prod`, com 54 MiB medidos sob o próprio limite.** Sem migração, sem contrato e sem emenda do dicionário. Quatro alavancas medidas com o `db/ensaio_dono.py` e a rajada do KAM-238, sem *swap*: o ponto de entrada compilado (`services/onboarding-web/tsconfig.provisionamento.json`, um passo no `Dockerfile`, `dist/provisionamento.js`; apagar os tipos carregava o amaro, +8,5 MiB), a sonda em `bash` e o `NODE_OPTIONS=--max-semi-space-size=1 --max-old-space-size=24`. Sob 54m, `memory.peak` de 44–46 MiB e todos os veredictos verdes em três corridas (sem o `--max-old-space-size`, uma corrida em duas deu OOM); anexo `docs/evidencia/KAM-238.md` §6. O processo entra no *compose* de `prod` e no manifesto (`presente`, 54 MiB; soma 26 214 de 26 214,4), e o de `staging` passa a ter o mesmo serviço. O guião ganha `--node-options`, `--entrada` e a `--sonda compose`, mede por omissão o serviço como o *compose* o declara, confere o `NODE_OPTIONS` do contentor contra o pedido ou o do *compose*, e exige-o `healthy` depois da rajada. A suite do `tools/compose_prod` com as contagens novas e os dois marcadores do `egress-dez`. As linhas 2 e 3 do KAM-238 e a nota do KAM-215 revistas. O piso do `lint_bloco` sobe para 92 (184 medidos, com o KAM-208 e o KAM-244). | Equipa KAMBÁ |
+| 1.37 | Novembro 2026 | Escrita como 1.36 e renumerada na integração, depois do KAM-244. **KAM-241 entregue: o consumidor `dono` no *compose* de `prod`, com 54 MiB medidos sob o próprio limite.** Sem migração, sem contrato e sem emenda do dicionário. Quatro alavancas medidas com o `db/ensaio_dono.py` e a rajada do KAM-238, sem *swap*: o ponto de entrada compilado (`services/onboarding-web/tsconfig.provisionamento.json`, um passo no `Dockerfile`, `dist/provisionamento.js`; apagar os tipos carregava o amaro, +8,5 MiB), a sonda em `bash` e o `NODE_OPTIONS=--max-semi-space-size=1 --max-old-space-size=24`. Sob 54m, `memory.peak` de 44–46 MiB e todos os veredictos verdes em três corridas (sem o `--max-old-space-size`, uma corrida em duas deu OOM); anexo `docs/evidencia/KAM-238.md` §6. O processo entra no *compose* de `prod` e no manifesto (`presente`, 54 MiB; soma 26 214 de 26 214,4), e o de `staging` passa a ter o mesmo serviço. O guião ganha `--node-options`, `--entrada` e a `--sonda compose`, mede por omissão o serviço como o *compose* o declara, confere o `NODE_OPTIONS` do contentor contra o pedido ou o do *compose*, e exige-o `healthy` depois da rajada. A suite do `tools/compose_prod` com as contagens novas e os dois marcadores do `egress-dez`. As linhas 2 e 3 do KAM-238 e a nota do KAM-215 revistas. O piso do `lint_bloco` sobe para 92 (184 medidos, com o KAM-208 e o KAM-244). **KAM-249** acrescentado, credor do `/metrics` do consumidor que nenhum *job* do Prometheus raspa (achado da revisão adversarial do KAM-241, por decisão da coordenação do lote 20); o KAM-241 passa a bloqueá-lo. Contagem: **34** tickets no epic. Número provisório, o maior da `main` mais um: renumera-se na integração. | Equipa KAMBÁ |
