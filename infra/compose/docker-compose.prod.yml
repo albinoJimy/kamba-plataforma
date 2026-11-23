@@ -1027,6 +1027,70 @@ services:
       postgres:
         condition: service_healthy
 
+  onboarding-provisionamento:
+    # KAM-215: o consumidor `dono`, terceiro processo da imagem do
+    # `onboarding-web`: as dezasseis filas `evt.dono.p<n>`, e o contacto `dono`
+    # nasce do `tenant.provisioned` que o `onboarding-lote` emite. `kamba_app`
+    # para o `consumir` e o telefone do caso, `kamba_identity` para o contacto e
+    # a `platform.definir_dono`. A `kek_telefone_do_caso` e so deste processo e
+    # do escritor do caso (decisao do fundador de 2026-11-20). Sem destino de
+    # saida (`infra/egress/onboarding-provisionamento.yaml`).
+    #
+    # KAM-241: entra com 54 MiB, a folga que o conjunto reduzido deixa ao lado do
+    # recolector do KAM-225, e cabe por quatro alavancas medidas sob o proprio
+    # limite e sem *swap* (`docs/evidencia/KAM-238.md` §6): corre **compilado**
+    # (o `dist/` do `tsconfig.provisionamento.json`; apagar os tipos no arranque
+    # carrega o amaro do Node, +8,5 MiB), com a sonda em `bash` (a `node -e fetch`
+    # e um segundo processo Node no mesmo cgroup, ~13 MiB), com o
+    # `--max-semi-space-size=1` (a geracao nova do V8 nao cresce na rajada) e com
+    # o `--max-old-space-size=24` (sem ele, as tres primeiras deram OOM numa de
+    # duas corridas sob 54m). Tirar uma e voltar a medir com o `db/ensaio_dono.py`.
+    <<: *node
+    build:
+      context: ../..
+      dockerfile: services/onboarding-web/Dockerfile
+      args:
+        KAMBA_COMMIT_SHA: ${KAMBA_COMMIT_SHA:?o deploy passa o SHA da release}
+    command: ["node", "services/onboarding-web/dist/provisionamento.js"]
+    environment:
+      <<: *node-env
+      KAMBA_ENV: prod
+      NODE_OPTIONS: --max-semi-space-size=1 --max-old-space-size=24
+      PROVISIONAMENTO_PORT: "3015"
+      KAMBA_QUEUE_URL: redis://queue:6379
+      KAMBA_PROVISIONAMENTO_APP_DB_URL: ${KAMBA_PROVISIONAMENTO_APP_DB_URL:?o deploy passa a cadeia de ligacao do kamba_app}
+      KAMBA_PROVISIONAMENTO_IDENTITY_DB_URL: ${KAMBA_PROVISIONAMENTO_IDENTITY_DB_URL:?o deploy passa a cadeia de ligacao do kamba_identity}
+      KAMBA_SECRET_KEK_TELEFONE_DO_CASO: ${KAMBA_SECRET_KEK_TELEFONE_DO_CASO:?o cofre entrega a KEK do telefone do caso}
+      KAMBA_SECRET_KEK_TELEFONE_DO_CASO_ANTERIOR: ${KAMBA_SECRET_KEK_TELEFONE_DO_CASO_ANTERIOR:-}
+      KAMBA_SECRET_PEPPER_CONTACT_HMAC: ${KAMBA_SECRET_PEPPER_CONTACT_HMAC:?o cofre entrega o pepper do HMAC de contacto}
+      KAMBA_SECRET_PEPPER_CONTACT_HMAC_ANTERIOR: ${KAMBA_SECRET_PEPPER_CONTACT_HMAC_ANTERIOR:-}
+      KAMBA_SECRET_KEK_CONTACT_DEK: ${KAMBA_SECRET_KEK_CONTACT_DEK:?o cofre entrega a KEK das DEK de contacto}
+      KAMBA_SECRET_KEK_CONTACT_DEK_ANTERIOR: ${KAMBA_SECRET_KEK_CONTACT_DEK_ANTERIOR:-}
+    networks:
+      - app
+      - data
+    # Sem *swap*: a medicao do KAM-241 foi com `memswap_limit` igual ao
+    # `mem_limit`, e um limite sem ele deixava usar outro tanto (KAM-242).
+    mem_limit: 54m
+    memswap_limit: 54m
+    cpus: 0.25
+    healthcheck:
+      test:
+        - CMD
+        - bash
+        - -c
+        - >-
+          { printf 'GET /healthz HTTP/1.0\r\n\r\n' >&3 &&
+          head -c 12 <&3; } 3<>/dev/tcp/127.0.0.1/3015 |
+          grep -q '^HTTP/1\.[01] 200'
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 20s
+    depends_on:
+      postgres:
+        condition: service_healthy
+
   chatwoot:
     # Chatwoot 4.18.0, MIT fora de `enterprise/` (E4 §2.2). Digest ja fixado no
     # inventario pelo KAM-019.

@@ -1,6 +1,8 @@
 """O ensaio do KAM-238: o pico de memoria do consumidor `dono` sob uma rajada.
 
-    python db/ensaio_dono.py [--casos N] [--limite 128m] [--manter] [--relatorio caminho.json]
+    python db/ensaio_dono.py [--casos N] [--limite 54m] [--sonda compose|node|bash]
+                             [--node-options=...] [--entrada caminho] [--manter]
+                             [--relatorio caminho.json]
 
 Levanta, do **compose de staging** e com o nome de projecto `kam238-ensaio`, o
 PostgreSQL e a fila, cria os papeis e aplica as migracoes, e levanta o
@@ -19,7 +21,16 @@ PostgreSQL e a fila, cria os papeis e aplica as migracoes, e levanta o
 
 `--limite` fixa o `mem_limit` do processo (e so o dele) por uma sobreposicao, e
 o `memswap_limit` **igual**: sem *swap*. E assim que se prova que o limite
-proposto aguenta a rajada. A omissao e 128m, o limite do compose de staging.
+proposto aguenta a rajada. A omissao e 54m, o limite do compose de producao
+(KAM-241); o KAM-238 mediu sob 128m, 96m e 54m.
+
+O KAM-241 acrescentou tres sobreposicoes, todas so do processo e todas no
+relatorio: `--sonda` (`compose`, a omissao, corre a do ficheiro; `node` e a
+`node -e fetch` que o KAM-238 mediu; `bash` e a de `/dev/tcp`), `--node-options`
+(o `NODE_OPTIONS`; o relatorio le-o do contentor, e um veredicto exige-o igual ao
+pedido) e `--entrada` (o ficheiro que o `node` corre, para comparar o `.ts` com o
+compilado). Sem elas, o guiao mede o servico como o compose de *staging* o declara,
+que e o de producao.
 
 **O `memswap_limit` nao e enfeite, e custou uma medicao.** O Docker Desktop tem
 *swap*, e um `mem_limit` sozinho deixa o contentor usar outro tanto: a primeira
@@ -31,15 +42,18 @@ como no KAM-225.
 
 O guiao sai com 1 se um veredicto falhar: o limite pedido aplicado, os N donos
 criados, nenhum evento na DLQ, nenhum `oom_kill`, o contentor sem reinicio,
-nenhum *swap*. Os segredos
+nenhum *swap*, o contentor `healthy` depois da rajada, e o `NODE_OPTIONS` no
+contentor igual ao pedido (ou ao do compose, sem `--node-options`). Os segredos
 sao gerados nesta execucao e nao se imprimem; os telefones sao ficticios, com 999.
 
 ## Porque *staging* e nao producao
 
-O processo nao esta no compose de producao (e isso que o KAM-238 decide), e o
-de *staging* tem a mesma imagem, o mesmo `command:` e a mesma composicao de
-ligacoes. A base chama-se `kamba_gate8` porque o `apoio.ts`, que o *runner* da
-rajada usa, so aceita escrever na base descartavel.
+O compose de *staging* levanta a pilha descartavel que o ensaio precisa (a base,
+a fila e os papeis), e o servico dele e o de producao: a mesma imagem, o mesmo
+`command:`, a mesma sonda, o mesmo `NODE_OPTIONS` e o mesmo limite (o KAM-241
+pos-os iguais, e o processo entrou no compose de producao com eles). A base
+chama-se `kamba_gate8` porque o `apoio.ts`, que o *runner* da rajada usa, so
+aceita escrever na base descartavel.
 """
 
 from __future__ import annotations
@@ -120,16 +134,23 @@ def _ambiente() -> tuple[dict[str, str], dict[str, str]]:
 
 
 #: A sonda em `bash` (a forma do `registo-pg` do KAM-225): `/dev/tcp`, sem `node`.
-#: A do compose e `node -e fetch(...)`, um segundo processo Node que o `docker
-#: exec` poe no mesmo cgroup, e que o `memory.peak` cobra (~17 MiB medidos pela
-#: revisao adversarial). Com `--sonda bash` o pico separa-se do processo.
+#: E a do compose desde o KAM-241. A do KAM-238 era `node -e fetch(...)`, um
+#: segundo processo Node que o `docker exec` poe no mesmo cgroup e que o
+#: `memory.peak` cobra (17,2 MiB sozinho num cgroup novo, medidos pela revisao
+#: adversarial do KAM-238; 13 MiB de diferenca no pico do §2 do anexo).
+#: `--sonda node` repoe-na, para comparar.
 SONDA_BASH = (
     r"""["CMD", "bash", "-c", "{ printf 'GET /healthz HTTP/1.0\\r\\n\\r\\n' >&3 && head -c 12 <&3; }"""
     r""" 3<>/dev/tcp/127.0.0.1/3015 | grep -q '^HTTP/1\\.[01] 200'"]"""
 )
+#: A do KAM-238: um segundo processo Node no cgroup, ~13 MiB no `memory.peak`.
+SONDA_NODE = json.dumps([
+    "CMD", "node", "-e",
+    "fetch('http://127.0.0.1:3015/healthz').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))",
+])
 
 
-def _sobreposicao(limite: str, sonda: str) -> str:
+def _sobreposicao(limite: str, sonda: str, node_options: str | None = None, entrada: str | None = None) -> str:
     texto = """\
 services:
   postgres:
@@ -140,18 +161,32 @@ services:
       - "127.0.0.1::5432"
 """
     texto += f"  {SERVICO}:\n    mem_limit: {limite}\n    memswap_limit: {limite}\n"
+    # A paciencia da sonda no arranque (KAM-241), e so ela: com outras pilhas na
+    # mesma maquina, o `docker exec` da sonda passou os 5 s e o arranque a 0,25 de
+    # CPU passou os ~80 s do compose, com o `.ts` e com o compilado. O que a sonda
+    # corre, e de quanto em quanto tempo depois de `healthy`, nao muda.
+    texto += "    healthcheck:\n      start_period: 600s\n      timeout: 30s\n"
     if sonda == "bash":
-        texto += f"    healthcheck:\n      test: {SONDA_BASH}\n"
+        texto += f"      test: {SONDA_BASH}\n"
+    elif sonda == "node":
+        texto += f"      test: {SONDA_NODE}\n"
+    if entrada is not None:
+        texto += f"    command: {json.dumps(['node', entrada])}\n"
+    if node_options is not None:
+        texto += f"    environment:\n      NODE_OPTIONS: {json.dumps(node_options)}\n"
     return texto + "networks:\n  ensaio:\n    driver: bridge\n"
 
 
 class Pilha:
-    def __init__(self, pasta: Path, env: dict[str, str], limite: str, sonda: str) -> None:
+    def __init__(
+        self, pasta: Path, env: dict[str, str], limite: str, sonda: str,
+        node_options: str | None = None, entrada: str | None = None,
+    ) -> None:
         self.pasta = pasta
         self.env_ficheiro = pasta / "ensaio.env"
         self.env_ficheiro.write_text("".join(f"{k}={v}\n" for k, v in env.items()), encoding="utf-8")
         self.sobreposicao = pasta / "sobreposicao.yml"
-        self.sobreposicao.write_text(_sobreposicao(limite, sonda), encoding="utf-8")
+        self.sobreposicao.write_text(_sobreposicao(limite, sonda, node_options, entrada), encoding="utf-8")
 
     def compose(self, *args: str, verificar: bool = True, tempo: float = 900) -> str:
         comando = [
@@ -207,6 +242,7 @@ def _cgroup(pilha: Pilha, c: str) -> dict[str, float]:
         "working_set_mib": round((corrente - inactivo) / MIB, 1),
         "current_mib": round(corrente / MIB, 1),
         "anon_mib": round(anon / MIB, 1),
+        "file_mib": round(int(re.search(r"^file (\d+)$", stat, re.M).group(1)) / MIB, 1),
     }
 
 
@@ -225,10 +261,16 @@ def _picos(pilha: Pilha, c: str) -> dict:
         "memory_max_mib": round(int(pilha.ler(c, "/sys/fs/cgroup/memory.max")) / MIB, 1),
         "swap_peak_mib": round(int(pilha.ler(c, "/sys/fs/cgroup/memory.swap.peak")) / MIB, 1),
         "swap_max": pilha.ler(c, "/sys/fs/cgroup/memory.swap.max").strip(),
+        # O CPU cobrado ao cgroup desde o arranque (KAM-241: o efeito das opcoes do V8).
+        "cpu_s": round(int(re.search(r"^usage_usec (\d+)$", pilha.ler(c, "/sys/fs/cgroup/cpu.stat"), re.M).group(1)) / 1e6, 2),
         "oom_kill": int(re.search(r"^oom_kill (\d+)$", eventos, re.M).group(1)),
         "oom_killed": inspeccao["State"]["OOMKilled"],
         "restart_count": inspeccao["RestartCount"],
         "saude": inspeccao["State"].get("Health", {}).get("Status"),
+        # O `NODE_OPTIONS` que o contentor tem, e nao o que se pediu: uma
+        # sobreposicao que nao pegasse media o processo sem as opcoes (KAM-241).
+        "node_options": next((e.split("=", 1)[1] for e in inspeccao["Config"]["Env"] or []
+                              if e.startswith("NODE_OPTIONS=")), None),
         **_processo(pilha, c),
     }
 
@@ -316,10 +358,24 @@ def _mib(limite: str) -> float:
     return float(limite[:-1]) * (1024 if limite.endswith("g") else 1)
 
 
+def node_options_do_compose() -> str | None:
+    """O `NODE_OPTIONS` que o compose de *staging* declara para o processo.
+
+    Lido do bloco do servico por expressao regular, como o
+    `db/tests_dimensionamento` le os limites: o `tools/kamba_yaml.py` recusa as
+    ancoras que o compose usa.
+    """
+    bloco = re.search(rf"(?m)^  {re.escape(SERVICO)}:\n(.*?)(?=^  \S|\Z)", COMPOSE.read_text(encoding="utf-8"), re.S)
+    if bloco is None:
+        return None
+    valor = re.search(r"(?m)^      NODE_OPTIONS:\s*(.+?)\s*$", bloco.group(1))
+    return valor.group(1).strip("\"'") if valor else None
+
+
 def veredictos(r: dict) -> dict[str, bool]:
     j = r["rajada"]
     return {
-        # A sobreposicao pegou: sem isto, uma que falhasse media sob os 128m do staging.
+        # A sobreposicao pegou: sem isto, uma que falhasse media sob o limite do staging.
         "limite_aplicado": j["depois"]["memory_max_mib"] == _mib(r["limite"])
         and j["depois"]["swap_max"] == "0",
         "n_no_outbox": j["tenant_provisioned_no_outbox"] == j["casos"],
@@ -328,26 +384,37 @@ def veredictos(r: dict) -> dict[str, bool]:
         "sem_oom": j["depois"]["oom_kill"] == 0 and not j["depois"]["oom_killed"],
         "sem_reinicio": j["depois"]["restart_count"] == 0,
         "sem_swap": j["depois"]["swap_peak_mib"] == 0,
+        # O do contentor contra o pedido, ou contra o do compose quando nao se
+        # pediu nenhum: a corrida por omissao tambem prova o que mediu (KAM-241).
+        "node_options_aplicado": j["depois"]["node_options"]
+        == (r["node_options"] if r["node_options"] is not None else node_options_do_compose()),
+        # Vivo e a responder a sonda depois da rajada, e nao so sem reinicio.
+        "saudavel": j["depois"]["saude"] == "healthy",
     }
 
 
 def principal() -> int:
     argumentos = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     argumentos.add_argument("--casos", type=int, default=300)
-    argumentos.add_argument("--limite", default="128m",
-                            help="mem_limit e memswap_limit do processo (omissao: 128m, o do staging)")
-    argumentos.add_argument("--sonda", choices=("node", "bash"), default="node",
-                            help="node: a sonda do compose; bash: /dev/tcp, para separar o pico do processo")
+    argumentos.add_argument("--limite", default="54m",
+                            help="mem_limit e memswap_limit do processo (omissao: 54m, o de producao)")
+    argumentos.add_argument("--sonda", choices=("compose", "node", "bash"), default="compose",
+                            help="compose: a do ficheiro; node: a `node -e fetch` do KAM-238; bash: /dev/tcp")
+    argumentos.add_argument("--node-options", default=None,
+                            help="NODE_OPTIONS do processo, por sobreposicao (omissao: o do compose)")
+    argumentos.add_argument("--entrada", default=None,
+                            help="o ficheiro que o `node` corre, por sobreposicao (omissao: o `command:` do compose)")
     argumentos.add_argument("--espera", type=float, default=600, help="segundos para drenar a rajada")
     argumentos.add_argument("--manter", action="store_true", help="nao derruba a pilha no fim")
     argumentos.add_argument("--relatorio", type=Path)
     opcoes = argumentos.parse_args()
 
     inicio = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
-    relatorio: dict = {"inicio_utc": inicio, "limite": opcoes.limite, "sonda": opcoes.sonda}
+    relatorio: dict = {"inicio_utc": inicio, "limite": opcoes.limite, "sonda": opcoes.sonda,
+                      "node_options": opcoes.node_options, "entrada": opcoes.entrada}
     with tempfile.TemporaryDirectory(prefix="kam238-") as pasta:
         env, runner = _ambiente()
-        pilha = Pilha(Path(pasta), env, opcoes.limite, opcoes.sonda)
+        pilha = Pilha(Path(pasta), env, opcoes.limite, opcoes.sonda, opcoes.node_options, opcoes.entrada)
         relatorio["commit"] = env["KAMBA_COMMIT_SHA"]
         try:
             pilha.compose("up", "-d", "--wait", "postgres", "queue")
@@ -359,12 +426,14 @@ def principal() -> int:
                 [sys.executable, "bootstrap.py"],
                 [sys.executable, "-m", "alembic", "-c", "migrations/alembic.ini", "upgrade", "head"],
             ):
-                for tentativa in range(5):
+                for tentativa in range(12):
                     r = subprocess.run(comando, cwd=RAIZ / "db", env=amb, capture_output=True, text=True)
                     if r.returncode == 0:
                         break
                     # O servidor temporario do `initdb` reinicia uma vez (o achado do KAM-225).
-                    time.sleep(3)
+                    # Doze vezes 5 s (KAM-241): com outras pilhas a correr na mesma
+                    # maquina, cinco vezes 3 s deram «network error» duas corridas seguidas.
+                    time.sleep(5)
                 else:
                     raise RuntimeError(f"{comando[1]}: {r.stderr[-2000:]}")
             pilha.compose("up", "-d", "--build", "--wait", SERVICO, tempo=1800)

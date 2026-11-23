@@ -903,19 +903,23 @@ services:
     # `onboarding-web`. `kamba_app` para o `consumir` e o telefone do caso,
     # `kamba_identity` para o contacto e a `platform.definir_dono`. A
     # `kek_telefone_do_caso` e so deste processo e do escritor do caso (decisao
-    # do fundador de 2026-11-20). **Fora do compose de `prod`** pelo orcamento
-    # de memoria do conjunto reduzido, e nao pelo arranque (bloco do KAM-215,
-    # decisoes do executor).
+    # do fundador de 2026-11-20).
+    #
+    # KAM-241: **o mesmo servico que o compose de `prod`** — o compilado, a sonda
+    # em `bash`, o `NODE_OPTIONS` e os 54 MiB sem *swap*. E o que o
+    # `db/ensaio_dono.py` mede por omissao: mudar um destes aqui e la e voltar a
+    # medir (`docs/evidencia/KAM-238.md` §6).
     <<: *node
     build:
       context: ../..
       dockerfile: services/onboarding-web/Dockerfile
       args:
         KAMBA_COMMIT_SHA: ${KAMBA_COMMIT_SHA:?o deploy passa o SHA da release}
-    command: ["node", "services/onboarding-web/src/provisionamento.ts"]
+    command: ["node", "services/onboarding-web/dist/provisionamento.js"]
     environment:
       <<: *node-env
       KAMBA_ENV: staging
+      NODE_OPTIONS: --max-semi-space-size=1 --max-old-space-size=24
       PROVISIONAMENTO_PORT: "3015"
       KAMBA_QUEUE_URL: redis://queue:6379
       KAMBA_PROVISIONAMENTO_APP_DB_URL: ${KAMBA_PROVISIONAMENTO_APP_DB_URL:?o deploy passa a cadeia de ligacao do kamba_app}
@@ -929,21 +933,20 @@ services:
     networks:
       - app
       - data
-    # 128m e acima do pico medido pelo KAM-238: 76,6 MiB de `memory.peak` sob uma
-    # rajada de 300 `tenant.provisioned`, com esta sonda e com `memswap_limit`
-    # igual ao limite (`docs/evidencia/KAM-238.md`). Este compose nao fixa o
-    # `memswap_limit`, pelo que o contentor pode usar *swap* (credor: KAM-242).
-    mem_limit: 128m
+    # 54m sem *swap*, medidos pelo KAM-241 sob este limite (o KAM-238 tinha
+    # medido 76,6 MiB de `memory.peak` com o `.ts` e a sonda `node`).
+    mem_limit: 54m
+    memswap_limit: 54m
     cpus: 0.25
     healthcheck:
       test:
         - CMD
-        - node
-        - -e
+        - bash
+        - -c
         - >-
-          fetch('http://127.0.0.1:3015/healthz')
-          .then(r => process.exit(r.ok ? 0 : 1))
-          .catch(() => process.exit(1))
+          { printf 'GET /healthz HTTP/1.0\r\n\r\n' >&3 &&
+          head -c 12 <&3; } 3<>/dev/tcp/127.0.0.1/3015 |
+          grep -q '^HTTP/1\.[01] 200'
       interval: 10s
       timeout: 5s
       retries: 6

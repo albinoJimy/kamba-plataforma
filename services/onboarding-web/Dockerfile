@@ -19,13 +19,14 @@
 #    defeito, de proposito, porque uma linha apagada num `.dockerignore` nao da
 #    erro em nenhum sitio.
 #
-# 2. **Compila-se `packages/`, nao os servicos.** O Node 24 corre TypeScript
+# 2. **Compila-se `packages/`, e dos servicos so o consumidor `dono`.** O Node 24 corre TypeScript
 #    directamente, mas **recusa apagar tipos em ficheiros sob `node_modules`**
 #    ("Node.js refuses to handle TypeScript files inside folders under a
 #    node_modules path", nodejs.org/api/typescript.html). Os pacotes do workspace
 #    chegam ao servico por `node_modules/@kamba/*`, pelo que teriam de ser
 #    JavaScript — e e por isso que `packages/*` emitem para `dist/`. O codigo do
-#    proprio servico fica em `.ts` e corre sem compilacao.
+#    proprio servico fica em `.ts` e corre sem compilacao, **menos o consumidor
+#    `dono`** (KAM-241), que corre do `dist/` pelo orcamento de memoria.
 #
 # 3. **Nao se poda o `node_modules`.** `pnpm prune --prod` ou `pnpm deploy`
 #    reduziriam a imagem, mas dependem de detalhes de layout que este ticket nao
@@ -53,6 +54,11 @@ COPY packages/contracts packages/contracts
 COPY packages/core-ts packages/core-ts
 COPY services/onboarding-web services/onboarding-web
 RUN pnpm run build
+# KAM-241: o consumidor `dono` (`onboarding-provisionamento`) corre compilado, e
+# so ele. Apagar os tipos no arranque carrega o amaro (WASM) do Node, +8,5 MiB de
+# anon medidos, e o processo tem de caber nos 54 MiB que sobram no conjunto
+# reduzido (`services/onboarding-web/tsconfig.provisionamento.json`).
+RUN pnpm --filter @kamba/onboarding-web exec tsc -p tsconfig.provisionamento.json
 
 FROM ${NODE_IMAGE} AS runtime
 WORKDIR /app
