@@ -91,6 +91,13 @@ CAMPOS_OPCIONAIS: Final = ("persona", "botao", "message_id", "asset_id")
 #: `list_reply`). So ele leva `botao`.
 TIPO_INTERACTIVO: Final = "interactive"
 
+#: O prefixo do `wamid` de um turno do painel: `painel.{message_id}` (KAM-223)
+#: ou `painel.{asset_id}` (KAM-243). Com ponto e nao dois pontos, porque o
+#: esquema do `agent_invocation` nao aceita `:` no `wamid`. A admissao
+#: (`api_interna.py`) exige a forma exacta com a credencial do painel, e o
+#: executor (`turno.py`) responde pelo canal `painel` ao turno da foto.
+PREFIXO_DO_WAMID_DO_PAINEL: Final = "painel."
+
 #: O `wa_type` de uma foto. So ele leva `asset_id` (KAM-231).
 TIPO_IMAGEM: Final = "image"
 

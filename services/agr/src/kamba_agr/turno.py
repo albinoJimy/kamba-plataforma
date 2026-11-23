@@ -86,8 +86,13 @@ from dataclasses import dataclass
 from typing import Any, Protocol
 
 from .admissao import Admissao, Pendente
-from .saida import CANAL_DO_TURNO, INICIO_DO_TURNO
-from .contexto import MODO_DO_BOT, InvocacaoDoAgente
+from .saida import CANAL_DO_TURNO, CANAL_PAINEL, INICIO_DO_TURNO
+from .contexto import (
+    MODO_DO_BOT,
+    PERSONA_DONO,
+    PREFIXO_DO_WAMID_DO_PAINEL,
+    InvocacaoDoAgente,
+)
 from .estado import estado_inicial
 from .guardas.entrada import mensagem_do_cliente
 from .mensagens import (
@@ -120,6 +125,22 @@ class Palavra:
         e o lado seguro de errar.
         """
         return self.modo != MODO_DO_BOT or self.handoff_a_espera
+
+
+def turno_da_foto_do_painel(invocacao: InvocacaoDoAgente) -> bool:
+    """O turno de uma foto do dono enviada pelo painel (KAM-243)?
+
+    A forma que a admissao exige a credencial do painel: a persona `dono`, o
+    `asset_id`, sem `message_id`, e o `wamid` `painel.{asset_id}`. Uma foto do
+    WhatsApp tem o `wamid` da Meta, e responde pelo WhatsApp como ate aqui.
+    """
+    asset_id = getattr(invocacao, "asset_id", None)
+    return (
+        asset_id is not None
+        and invocacao.message_id is None
+        and getattr(invocacao, "persona", None) == PERSONA_DONO
+        and invocacao.wamid == f"{PREFIXO_DO_WAMID_DO_PAINEL}{asset_id}"
+    )
 
 
 class Grafo(Protocol):
@@ -288,6 +309,13 @@ class ExecutorDeTurnos:
         coalesceram ao lado, e o *shim* descartava-as com o 400. Uma invocacao
         sem `message_id` (do WhatsApp, uma que nao e `text`; desde o KAM-232 o
         CHR grava as `text`) entra como ate aqui, sem texto.
+
+        **A foto do dono pelo painel responde pelo painel** (KAM-243). Nao traz
+        `message_id` — a foto nao e texto, e a linha dela e a da `media_assets` —,
+        pelo que nao ha mensagem lida que de o canal; e o `wamid` dela que o diz
+        (`turno_da_foto_do_painel`). Sem isto, o «estou a preparar» e o resumo
+        saiam pelo WhatsApp, a um dono que estava no painel e talvez fora da
+        janela de 24 h.
         """
         aceites: list[Pendente] = []
         janela: list[dict[str, str]] = []
@@ -296,6 +324,8 @@ class ExecutorDeTurnos:
             invocacao = pendente.invocacao
             if invocacao.message_id is None:
                 aceites.append(pendente)
+                if turno_da_foto_do_painel(invocacao):
+                    canal = CANAL_PAINEL
                 continue
             if self._ler_mensagem is None:
                 raise LeituraDeMensagensPorLigarError("mensagens_por_ligar")

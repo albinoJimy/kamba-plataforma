@@ -902,6 +902,18 @@ services:
       KAMBA_SECRET_KEK_TELEFONE_DO_CASO_ANTERIOR: ${KAMBA_SECRET_KEK_TELEFONE_DO_CASO_ANTERIOR:-}
       KAMBA_SECRET_KEK_DADOS_DO_CASO: ${KAMBA_SECRET_KEK_DADOS_DO_CASO:?o cofre entrega a KEK do NIF e do e-mail do caso}
       KAMBA_SECRET_KEK_DADOS_DO_CASO_ANTERIOR: ${KAMBA_SECRET_KEK_DADOS_DO_CASO_ANTERIOR:-}
+      # KAM-243 (pela forma da decisao do fundador de 2026-11-21, P4 opcao A): o
+      # STO da foto do dono pelo painel. O `server.ts` guarda-a pelo MED na
+      # classe `media_imagem` do tenant da sessao, e fora de `dev` nao arranca
+      # sem a configuracao e as duas chaves.
+      KAMBA_STORAGE_ENDPOINT: ${KAMBA_STORAGE_ENDPOINT:?o deploy diz onde e o armazenamento (D6 aberta)}
+      KAMBA_STORAGE_BUCKET: ${KAMBA_STORAGE_BUCKET:?o deploy nomeia o bucket}
+      KAMBA_STORAGE_REGION: ${KAMBA_STORAGE_REGION:?o deploy nomeia a regiao}
+      KAMBA_STORAGE_DESTINO_COUNTRY: ${KAMBA_STORAGE_DESTINO_COUNTRY:?o deploy diz o pais do armazenamento (ADR-008)}
+      KAMBA_STORAGE_DESTINO_PROVIDER: ${KAMBA_STORAGE_DESTINO_PROVIDER:?o deploy diz o fornecedor do armazenamento}
+      KAMBA_STORAGE_DESTINO_APD_REF: ${KAMBA_STORAGE_DESTINO_APD_REF:-}
+      KAMBA_SECRET_STORAGE_ACCESS_KEY_ID: ${KAMBA_SECRET_STORAGE_ACCESS_KEY_ID:?o cofre entrega a chave de acesso do armazenamento}
+      KAMBA_SECRET_STORAGE_SECRET_ACCESS_KEY: ${KAMBA_SECRET_STORAGE_SECRET_ACCESS_KEY:?o cofre entrega o segredo do armazenamento}
     # `data` para a base (KAM-236), `app` para o `proxy-tls` e o COM.
     networks:
       - app

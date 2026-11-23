@@ -43,7 +43,7 @@ resposta decide se o *job* se repete:
 | descartado por ritmo (criterio 5) | **200** | completa o *job* |
 | corpo invalido | 400 | descarta o *job* — nao melhora com repeticao |
 | o `message_id` nao se le com o tenant, o contacto e a conversa — ou, com a persona `dono`, o contacto nao e o dono (KAM-223) | 400 `invocacao_invalida` | descarta o *job* — o turno nao entrou no grafo |
-| credencial do painel (`agr_painel_token`) fora do turno de texto do dono: sem `persona` `dono`, sem `message_id`, com `botao`, com `type` que nao e `text`, ou com `wamid` que nao e `painel.{message_id}` | 401 | nao repete — e a mesma resposta de uma credencial errada |
+| credencial do painel (`agr_painel_token`) fora dos dois turnos do dono: o de texto (`persona` `dono`, `message_id`, `type` `text`, `wamid` `painel.{message_id}`) e o da foto (KAM-243: `persona` `dono`, `asset_id`, sem `message_id`, `type` `image`, `wamid` `painel.{asset_id}`), e nunca com `botao` | 401 | nao repete — e a mesma resposta de uma credencial errada |
 | tecto do *tenant* cheio | 503 + `Retry-After` | devolve o *job* a fila com atraso |
 | a vertical recusada pelo registo — sem entitlement, ou desconhecida (KAM-186) | **200** `servico_indisponivel` | completa o *job* — e configuracao, e nenhuma tentativa a muda |
 | nao ha grafo registado para a vertical | 503 + `Retry-After` | devolve o *job* a fila com atraso |
@@ -85,7 +85,12 @@ from starlette.responses import JSONResponse
 from starlette.routing import Route
 
 from .admissao import Admissao, TectoDoTenantCheioError
-from .contexto import PERSONA_DONO, InvocacaoInvalidaError, ler_invocacao
+from .contexto import (
+    PERSONA_DONO,
+    PREFIXO_DO_WAMID_DO_PAINEL,
+    InvocacaoInvalidaError,
+    ler_invocacao,
+)
 from .eventos import EntregaInvalidaError, EntregaPorRepetir, ler_entrega
 from .handoff.autenticacao import CABECALHO_DO_BOT
 from .handoff.maquina import DESFECHOS, DesfechoInvalidoError
@@ -110,19 +115,24 @@ SEGREDO_DA_API: Final = "agr_internal_token"
 #: (KAM-223): o turno de uma mensagem que o dono escreveu no painel. **Nao e a
 #: `agr_internal_token`**, pela regra do `agr_screening_token`: quem tem a do
 #: *shim* corre o turno de qualquer contacto de qualquer tenant, e o painel so
-#: precisa de correr o do dono, com uma mensagem que ele proprio gravou. Por
-#: isso, com esta credencial, a invocacao **tem** de ter `persona` `dono` e
-#: `message_id` — senao e a mesma 401 de uma credencial errada. Lida a cada
+#: precisa de correr o do dono, com uma mensagem que ele proprio gravou ou uma
+#: foto que ele proprio enviou (KAM-243). Por isso, com esta credencial, a
+#: invocacao **tem** de ser um desses dois turnos (`invocacao_do_painel_admitida`)
+#: — senao e a mesma 401 de uma credencial errada. Lida a cada
 #: pedido; uma referencia em falta no cofre fecha (401), nunca abre.
 SEGREDO_DO_PAINEL: Final = "agr_painel_token"
 
-#: O `type` de um turno do painel: o dono escreve texto, e so texto.
+#: O `type` de um turno de texto do painel.
 TIPO_DO_PAINEL: Final = "text"
 
-#: O prefixo do `wamid` de um turno do painel: `painel.{message_id}`. Com ponto
-#: e nao dois pontos, porque o esquema do `agent_invocation` nao aceita `:` no
-#: `wamid`.
-PREFIXO_DO_WAMID_DO_PAINEL: Final = "painel."
+#: O `type` de um turno de foto do painel (KAM-243): a foto que o painel guardou
+#: pelo MED, com o `asset_id` da linha da `media_assets`.
+TIPO_DA_FOTO_DO_PAINEL: Final = "image"
+
+#: O prefixo do `wamid` de um turno do painel (`painel.{message_id}` ou, desde o
+#: KAM-243, `painel.{asset_id}`) vive em `contexto.py`, porque o executor tambem
+#: o le: e por ele que o turno de uma foto do painel responde pelo canal
+#: `painel` (`turno.py`).
 
 #: Quanto tempo o *shim* deve esperar antes de voltar a tentar, em segundos.
 #: *Proposta*: um turno dura 3–7 s (§15.1), e menos do que isso punha o *job* de
@@ -228,29 +238,44 @@ def _autenticado_ou_fechado(pedido: Request, credencial: Callable[[], str] | Non
 
 
 def invocacao_do_painel_admitida(invocacao: Any) -> bool:
-    """O que a credencial do painel pode correr: o turno de texto do dono.
+    """O que a credencial do painel pode correr: os dois turnos do dono.
 
-    Todas as condicoes, e basta faltar uma para recusar:
+    Em **todos**, e basta faltar uma para recusar:
 
     - a `persona` e `dono` (as tools do dono, e so as dele);
-    - ha `message_id` (o texto vem da fonte persistida, e nao ha turno do
-      painel sem ele);
-    - o `type` e `text` e **nao ha `botao`**: um `botao` com `type`
-      `interactive` e o `confirm:{action_id}` que confirma uma accao sensivel
-      do dono (KAM-211), e a confirmacao so chega pelo WhatsApp do dono, pelo
-      CHR — nunca pela credencial do painel;
-    - o `wamid` e exactamente `painel.{message_id}`: o `turn_id` e a chave de
-      idempotencia da resposta (`turn_id:seq`), e um `wamid` escolhido por quem
-      chama podia colidir com o de um turno do WhatsApp.
+    - **nao ha `botao`**: um `botao` com `type` `interactive` e o
+      `confirm:{action_id}` que confirma uma accao sensivel do dono (KAM-211), e
+      a confirmacao so chega pelo WhatsApp do dono, pelo CHR — nunca pela
+      credencial do painel.
+
+    E depois **um de dois**, sem mistura:
+
+    - o turno de texto (KAM-223): ha `message_id` (o texto vem da fonte
+      persistida), o `type` e `text`, nao ha `asset_id`, e o `wamid` e
+      exactamente `painel.{message_id}`;
+    - o turno da foto (KAM-243): ha `asset_id` (a linha da `media_assets` que o
+      painel guardou pelo MED), **nao** ha `message_id`, o `type` e `image`, e o
+      `wamid` e exactamente `painel.{asset_id}`.
+
+    O `wamid` e o `turn_id` e a chave de idempotencia da resposta
+    (`turn_id:seq`): um `wamid` escolhido por quem chama podia colidir com o de
+    um turno do WhatsApp, e por isso nasce do identificador que o turno traz.
     """
+    if invocacao.persona != PERSONA_DONO or invocacao.botao is not None:
+        return False
     message_id = invocacao.message_id
-    return (
-        invocacao.persona == PERSONA_DONO
-        and message_id is not None
-        and invocacao.botao is None
-        and invocacao.type == TIPO_DO_PAINEL
-        and invocacao.wamid == f"{PREFIXO_DO_WAMID_DO_PAINEL}{message_id}"
-    )
+    asset_id = getattr(invocacao, "asset_id", None)
+    if message_id is not None and asset_id is None:
+        return (
+            invocacao.type == TIPO_DO_PAINEL
+            and invocacao.wamid == f"{PREFIXO_DO_WAMID_DO_PAINEL}{message_id}"
+        )
+    if asset_id is not None and message_id is None:
+        return (
+            invocacao.type == TIPO_DA_FOTO_DO_PAINEL
+            and invocacao.wamid == f"{PREFIXO_DO_WAMID_DO_PAINEL}{asset_id}"
+        )
+    return False
 
 
 async def _corpo(pedido: Request) -> Any:

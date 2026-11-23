@@ -38,6 +38,9 @@
  *     GET   /painel/conversa        a conversa do dono com o Assistente (KAM-223),
  *                                   depois de uma entrada (`?depois={id}`)
  *     POST  /painel/conversa        uma mensagem do dono ao Assistente
+ *     POST  /painel/foto            uma foto do dono para o catálogo (KAM-243): o
+ *                                   corpo são os bytes (`image/jpeg` ou
+ *                                   `image/png`), com o tecto do MED
  *
  * ## A troca de telefone (KAM-211, com a regra C do KAM-223)
  *
@@ -62,6 +65,18 @@
  * nenhuma rota recebe o identificador dela: é a do tenant da sessão. O cursor
  * da leitura é o `id` de uma entrada, e um `id` que não é desta conversa dá
  * **404**.
+ *
+ * ## A foto do dono (KAM-243)
+ *
+ * O mesmo caminho da foto do WhatsApp: o MED do KAM-020 guarda-a no STO e numa
+ * linha `armazenado` da `platform.media_assets`, no tenant da sessão, e o AGR
+ * recebe o turno `image` com o `asset_id` (`FotoDoDono`, no `@kamba/core-ts/dono`).
+ * A resposta volta pela conversa, pelo canal `painel`. O corpo são os bytes, com
+ * o `Content-Type` `image/jpeg` ou `image/png` — que um `<form>` de outra origem
+ * não manda sem *preflight*, pela razão do JSON das outras rotas — e o tipo que
+ * vale é o da assinatura dos bytes, e não o cabeçalho. O tecto é o do MED, e
+ * lê-se o corpo aos pedaços: acima dele, a leitura pára e a resposta é **413**,
+ * sem o corpo inteiro em memória.
  *
  * ## A reentrada não depende da sessão de 24 h do registo (KAM-190)
  *
@@ -141,7 +156,15 @@ import {
   type Contadores,
   type Otp,
 } from "@kamba/core-ts/inscricao";
-import { canalNoPainel, type ConversaDoDono, type NumeroDaTroca, type TrocaDeTelefone } from "@kamba/core-ts/dono";
+import {
+  BYTES_MAXIMOS_DA_FOTO,
+  canalNoPainel,
+  TIPOS_DA_FOTO_DO_PAINEL,
+  type ConversaDoDono,
+  type FotoDoDono,
+  type NumeroDaTroca,
+  type TrocaDeTelefone,
+} from "@kamba/core-ts/dono";
 import { FASE_DA_RELIGACAO, GuiaRecusadoError } from "@kamba/core-ts/guia";
 import type { Logger } from "@kamba/core-ts/logger";
 
@@ -293,6 +316,56 @@ export interface OpcoesDaConversa {
 }
 
 /**
+ * O que a foto do dono precisa (KAM-243): a `FotoDoDono`, com a ligação
+ * `kamba_app`, o STO e a credencial do AGR. Sem ela, a rota responde 503.
+ */
+export interface OpcoesDaFoto {
+  readonly foto: Pick<FotoDoDono, "enviar">;
+}
+
+/** O tecto do corpo de uma foto, em octetos: o do MED (`BYTES_MAXIMOS_DA_FOTO`). */
+export const CORPO_MAXIMO_DA_FOTO = BYTES_MAXIMOS_DA_FOTO;
+
+/**
+ * Os bytes de uma foto, ou porque não servem. Função do módulo, pela razão do
+ * `redeDoPedido`. **O `Content-Type` só filtra a forma do pedido**: o tipo que
+ * vale é o da assinatura, e quem o confere é a `FotoDoDono` e o MED. O
+ * `Content-Length` recusa cedo; sem ele (ou a mentir), a leitura aos pedaços
+ * pára no tecto.
+ */
+async function corpoDaFoto(
+  c: { req: { header(n: string): string | undefined; raw: Request } },
+  maximo: number = CORPO_MAXIMO_DA_FOTO,
+): Promise<Uint8Array | "tipo" | "tamanho"> {
+  const tipo = (c.req.header("content-type") ?? "").split(";")[0]!.trim().toLowerCase();
+  if (!(TIPOS_DA_FOTO_DO_PAINEL as readonly string[]).includes(tipo)) return "tipo";
+  const declarado = Number(c.req.header("content-length") ?? Number.NaN);
+  if (Number.isFinite(declarado) && declarado > maximo) return "tamanho";
+  const corpo = c.req.raw.body;
+  if (corpo === null) return new Uint8Array();
+  const leitor = corpo.getReader();
+  const partes: Uint8Array[] = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await leitor.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > maximo) {
+      await leitor.cancel().catch(() => undefined);
+      return "tamanho";
+    }
+    partes.push(value);
+  }
+  const bytes = new Uint8Array(total);
+  let posicao = 0;
+  for (const parte of partes) {
+    bytes.set(parte, posicao);
+    posicao += parte.byteLength;
+  }
+  return bytes;
+}
+
+/**
  * O tecto do corpo de uma mensagem do dono, em octetos: 4096 caracteres de
  * texto, a quatro octetos no pior caso do UTF-8, e o JSON à volta.
  */
@@ -339,6 +412,8 @@ export interface OpcoesDoPainel {
   readonly reentrada?: OpcoesDaReentrada | undefined;
   readonly troca?: OpcoesDaTroca | undefined;
   readonly conversa?: OpcoesDaConversa | undefined;
+  /** A foto do dono (KAM-243). Sem ela, o `POST /painel/foto` responde 503. */
+  readonly foto?: OpcoesDaFoto | undefined;
   /**
    * O início do teste ponta a ponta (KAM-202, critério 2): abre a tentativa pela
    * ligação da aplicação. **Opcional**: sem ele, o `POST /painel/teste` responde
@@ -1228,6 +1303,68 @@ export function rotasDoPainel(opcoes: OpcoesDoPainel): Hono {
     }
     log?.info({ outcome: "painel_conversa_enviada" });
     return json({ ok: true, mensagem: enviado.messageId }, 200, sessao.renovar);
+  });
+
+  /**
+   * Uma foto do dono para o catálogo (KAM-243). O tenant é o da sessão, e só
+   * ele: um `tenant_id` na consulta ou num cabeçalho não é lido, e o corpo são
+   * só os bytes. A foto grava-se pelo MED antes de o AGR ser chamado; se o AGR
+   * falhar, fica guardada e o dono pode repetir — a mesma foto é a mesma linha e
+   * o mesmo turno.
+   */
+  app.post("/painel/foto", async (c) => {
+    metricas.pedido("foto");
+    const v = opcoes.foto;
+    if (v === undefined) {
+      falhou("foto", "indisponivel");
+      return json({ erro: "indisponivel" }, 503);
+    }
+    const sessao = await sessaoDe(c.req.header("cookie"));
+    if (sessao === null) {
+      falhou("foto", "sem_sessao");
+      return json({ erro: "sessao" }, 401);
+    }
+    const corpo = await corpoDaFoto(c);
+    if (corpo === "tipo") {
+      falhou("foto", "invalido");
+      return json({ erro: "tipo" }, 415, sessao.renovar);
+    }
+    if (corpo === "tamanho") {
+      falhou("foto", "invalido");
+      return json({ erro: "tamanho" }, 413, sessao.renovar);
+    }
+    let enviada: Awaited<ReturnType<FotoDoDono["enviar"]>>;
+    try {
+      enviada = await v.foto.enviar(sessao.s.tenantId, corpo);
+    } catch {
+      // Sem a excepção no corpo nem no registo, pela razão do `/painel/teste`: a
+      // base ou o STO em baixo não é do dono, e a mensagem podia levar a chave.
+      falhou("foto", "indisponivel");
+      return json({ erro: "indisponivel" }, 503, sessao.renovar);
+    }
+    if (!enviada.enviada) {
+      switch (enviada.motivo) {
+        case "tipo":
+          falhou("foto", "invalido");
+          return json({ erro: "tipo" }, 415, sessao.renovar);
+        case "tamanho":
+          falhou("foto", "invalido");
+          return json({ erro: "tamanho" }, 413, sessao.renovar);
+        case "agr":
+          // A foto ficou guardada e o turno não correu: o dono pode repetir.
+          falhou("foto", "indisponivel");
+          return json({ erro: "agr", asset: enviada.assetId ?? null }, 502, sessao.renovar);
+        case "falhou":
+          falhou("foto", "indisponivel");
+          return json({ erro: "indisponivel" }, 503, sessao.renovar);
+        default:
+          // `sem_dono`, `sem_canal`, ou a mesma foto ainda a ser guardada.
+          falhou("foto", "conflito");
+          return json({ erro: enviada.motivo }, 409, sessao.renovar);
+      }
+    }
+    log?.info({ outcome: "painel_foto_enviada" });
+    return json({ ok: true, asset: enviada.assetId, repetida: enviada.repetida }, 200, sessao.renovar);
   });
 
   /**
