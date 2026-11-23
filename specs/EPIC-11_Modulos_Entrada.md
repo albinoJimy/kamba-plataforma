@@ -78,6 +78,7 @@ Estado da evidência (E5): **CONFIRMADO** — preços e termos publicados dos fo
 | KAM-245 | Catálogo do dono: a violação de um produto publicado que um `screen` posterior marca como `bloqueada`, e a re-análise que a emite | fix | S | P2 | KAM-119 |
 | KAM-246 | Social AI: a arte como imagem no WhatsApp e a página do painel com a ligação de descarga | feature | M | P1 | KAM-122, KAM-015 |
 | KAM-249 | STO: o endpoint https público para os URLs assinados que o navegador abre, ou a imagem pela origem do painel | feature | M | P1 | KAM-246, KAM-011 |
+| KAM-250 | Social AI: a entrega concorrente que já foi feita devolve a legenda ao dono, em vez de um `KeyError` no turno | fix | S | P1 | KAM-122 |
 
 ---
 
@@ -674,7 +675,7 @@ Uma revisão independente, que recebeu o diff, os critérios e o rascunho da rev
 | Prioridade | P1 |
 | Estimativa | M |
 | Dependências | KAM-121, KAM-120, KAM-015 |
-| Bloqueia | KAM-127, KAM-246 |
+| Bloqueia | KAM-127, KAM-246, KAM-250 |
 | Responsável sugerido | Engenheiro de Runtime/IA (MED) com Engenheiro de Canais |
 | Documentos de referência | `../docs/tecnica/02_Agent_Runtime_Verticais.md` (§21.3), `../docs/tecnica/evidencia/E5_Modulos_Entrada.md` (§2, §3, §7, B1, B5, B9), `../docs/tecnica/00_Arquitectura_Solucao.md` (D13), `../docs/tecnica/08_Seguranca_Conformidade.md` (§18), ADR-007, ADR-020 |
 
@@ -4030,6 +4031,64 @@ Testes: integração a partir de fora da rede data e adversarial.
 
 ---
 
+## KAM-250 — Social AI: a entrega concorrente que já foi feita devolve a legenda ao dono, em vez de um `KeyError` no turno
+
+| Campo | Valor |
+|---|---|
+| Epic | EPIC-11 — Módulos de Entrada |
+| Fase | 1 |
+| Tipo | fix |
+| Prioridade | P1 |
+| Estimativa | S |
+| Dependências | KAM-122 |
+| Bloqueia | — |
+| Responsável sugerido | Engenheiro de Runtime/IA (MED) |
+| Documentos de referência | bloco KAM-122 (critério 8 e achado 6 da revisão), bloco KAM-246 (decisões do executor), `../services/agr/src/kamba_agr/tls/social_tools.py` (`deliver_content`), `../services/agr/src/kamba_agr/verticais/dono/social.py` (`_entregar`) |
+
+### Contexto
+
+Credor do KAM-122, aberto no PR do KAM-246 a pedido da coordenação do lote 20, que o achou ao ler a entrega e não o corrige por estar fora do âmbito. O `deliver_content` tem dois caminhos para um item já `entregue`. O primeiro, quando o item já vem `entregue` na leitura, devolve a vista com `ja_entregue=True` **e** com a `entrega` (a legenda, a nota e os termos, pelo achado 6 da revisão do KAM-122). O segundo é a corrida: o item vem `aprovado`, outra entrega grava primeiro, o `entregar` levanta `ItemMudouError`, e a releitura encontra-o `entregue`. Esse devolve a vista com `ja_entregue=True` **sem** a `entrega`. O `_entregar` do vertical do dono lê `dados["entrega"]` sem condição, e o turno parte com um `KeyError` em vez de responder ao dono.
+
+### Objectivo
+
+Duas entregas concorrentes do mesmo item dão as duas uma resposta ao dono, com a legenda, e uma só entrega gravada.
+
+### Critérios de Aceitação
+
+- [ ] Um ensaio reproduz a corrida antes da correcção: o item lido `aprovado`, o `entregar` a levantar `ItemMudouError`, a releitura `entregue`. Contra o código de hoje, o ensaio falha com o `KeyError` no `_entregar`; é a prova de que mede o defeito.
+- [ ] Depois da correcção, o caminho da corrida devolve a mesma vista que o caminho do item já `entregue`: `ja_entregue=True` e a `entrega` sem os termos da primeira entrega, porque esses foram com a entrega que ganhou.
+- [ ] O `_entregar` não parte com uma vista sem `entrega`: responde com a frase de erro, e o turno não levanta.
+- [ ] A entrega continua a ser uma: o item grava-se uma vez `entregue`, e a imagem do KAM-246 não se reenvia pela entrega que perdeu.
+
+### Detalhes Técnicos
+
+- O caminho da corrida está no `except ItemMudouError` do `deliver_content`, que hoje chama a `vista_da_arte(relido, referencia, ja_entregue=True)` sem a `entrega=_partes(relido, False)`.
+- O ensaio da corrida usa o repositório falso do `test_social_aprovacao.py` com um `entregar` que levanta `ItemMudouError` e uma releitura que devolve o item `entregue`. Não é preciso a base: a corrida é a ordem das duas chamadas.
+
+### Testes Requeridos
+
+- Unitário: a corrida, com o vertical do dono a responder a legenda e sem `KeyError`.
+- Unitário: uma vista sem `entrega` no `_entregar` dá a frase de erro.
+- Regressão: os ensaios da entrega do KAM-122 e do KAM-246 (uma imagem por entrega).
+
+### Definition of Done
+
+- [ ] Critérios de Aceitação satisfeitos, com o ensaio da corrida visto a falhar contra o código de hoje.
+
+### Handoff para Claude Code
+
+```text
+És o executor do ticket KAM-250 da KAMBÁ (a entrega concorrente do social sem KeyError).
+Lê specs/EPIC-11_Modulos_Entrada.md (blocos KAM-122 e KAM-246), services/agr/src/kamba_agr/tls/social_tools.py
+(deliver_content) e services/agr/src/kamba_agr/verticais/dono/social.py (_entregar).
+Objectivo: a corrida de duas entregas responde ao dono com a legenda, e grava uma entrega.
+Regras: o ensaio da corrida falha primeiro contra o código de hoje; nenhuma segunda imagem.
+Testes: unitários da corrida e da vista sem entrega; regressão da entrega.
+```
+
+
+---
+
 ## Riscos do Epic e itens NÃO VERIFICADOS
 
 | Risco / item | Estado | Impacto | Mitigação / critério de saída | Decisão |
@@ -4105,4 +4164,4 @@ Testes: integração a partir de fora da rede data e adversarial.
 | 1.34 | Novembro 2026 | Escrita como 1.32 e renumerada na integração, depois do PR do KAM-231. **KAM-244** e **KAM-245** acrescentados, depois do PR do **KAM-231**, por decisão da coordenação de 2026-11-22: o KAM-244 é o credor dos achados 4 e 5 da revisão adversarial do KAM-231 (a tomada da TLS e os tectos de dentro); o KAM-245 é o do achado fora de âmbito do KAM-119 (a violação de um publicado depois de um `screen`), que o KAM-231 não absorveu. A medição com o modelo real (critérios 3 e 5 do KAM-231, caixas 2, 4 e 10 do KAM-119) passa a apontar ao **KAM-109**, aberto, e não ao KAM-040, que está fechado. Corrige também a linha 1.33, que dizia que o credor do painel passava «de KAM-243 a KAM-243»: era de KAM-241. | Equipa KAMBÁ |
 | 1.35 | Novembro 2026 | **KAM-122 entregue em parte: a arte, a aprovação e a entrega do módulo `social`, e o KAM-246 acrescentado como credor.** Revisão `0085` (sobre a `0084` do KAM-236): o *trigger* da máquina de estados do item, as colunas da arte e da aprovação, os termos da primeira entrega e a finalidade `geracao_de_imagem`. Emenda 1.137 do dicionário (§3.82, §3.5, §3.49, §3.78, §3.79, §3.26). Bloco do KAM-122: as cinco decisões do fundador de 2026-11-21 (D1 a D5), as decisões do executor e a verificação dos critérios (cinco marcados, quatro parciais), da DoD e da revisão adversarial (onze achados: dez corrigidos, com três residuais escritos, e um que não é defeito). **KAM-246** (a arte como imagem no WhatsApp e a página do painel com a ligação de 24 h), aberto por este PR pela decisão D5 e não implementado; depende do KAM-122 e do KAM-015, cujos `Bloqueia` o ganham. Medido contra a `main` em `f3d3a0eb`: escritos como 1.29, emenda 1.134 e KAM-237, renumerados na integração depois do KAM-235, do KAM-125, do KAM-236, do KAM-237, do KAM-238, do KAM-231 e do #254 (que tomou o 244 e o 245); a `0085` fica sobre a `0084`, que fundiu. | Equipa KAMBÁ |
 | 1.36 | Novembro 2026 | **KAM-244 entregue: a foto do dono sem prender a tomada da TLS.** Sem migração e sem emenda ao dicionário. A visão e o *screening* do pipeline do KAM-049 correm sem a tomada da ToolLayer, e o `Pedido.prazo` desce ao pipeline, repartido pelas etapas lentas; um *screening* sem tempo deixa a ingestão retomável, com o botão «Tentar outra vez». Emenda ao §6.5 do `docs/tecnica/02` (versão 1.15). Bloco do KAM-244: as decisões do executor e a verificação dos critérios (três marcados, com os limites escritos), da DoD e da revisão adversarial. No bloco do KAM-231, os achados 4 e 5 fechados com a evidência. | Equipa KAMBÁ |
-| 1.37 | Novembro 2026 | **KAM-246 entregue: a arte do módulo `social` como imagem no WhatsApp e a página Social do painel.** Revisão `0092` (sobre a `0091` do KAM-127): a `agent_replies.media_ref`, a chave do STO da arte, do tenant da linha e da classe `arte`, nunca com *template*. Emenda 1.140 do dicionário (escrita como 1.139 e renumerada na integração, depois do KAM-208; §3.80, §3.82). O corpo de imagem do Outbound, o carregamento na Meta e o consumidor `outbound` que lê o STO; a imagem na pré-visualização e na primeira entrega; as duas rotas internas do AGR e a página `GET /painel/social` com a ligação de 24 h. Bloco do KAM-246: as decisões do fundador de 2026-11-23 (Q2 = A e Q3 = A), as decisões do executor e a verificação dos critérios. A caixa do critério 8 do KAM-122 revista com a evidência. A decisão do fundador de 2026-11-23 sobre o endpoint público do STO (Q4 = A), a revisão adversarial, e o **KAM-249** acrescentado como credor dela. Escrita contra a `main` em `4e9909b9` | Equipa KAMBÁ |
+| 1.37 | Novembro 2026 | **KAM-246 entregue: a arte do módulo `social` como imagem no WhatsApp e a página Social do painel.** Revisão `0092` (sobre a `0091` do KAM-127): a `agent_replies.media_ref`, a chave do STO da arte, do tenant da linha e da classe `arte`, nunca com *template*. Emenda 1.140 do dicionário (escrita como 1.139 e renumerada na integração, depois do KAM-208; §3.80, §3.82). O corpo de imagem do Outbound, o carregamento na Meta e o consumidor `outbound` que lê o STO; a imagem na pré-visualização e na primeira entrega; as duas rotas internas do AGR e a página `GET /painel/social` com a ligação de 24 h. Bloco do KAM-246: as decisões do fundador de 2026-11-23 (Q2 = A e Q3 = A), as decisões do executor e a verificação dos critérios. A caixa do critério 8 do KAM-122 revista com a evidência. A decisão do fundador de 2026-11-23 sobre o endpoint público do STO (Q4 = A), a revisão adversarial, e o **KAM-249** acrescentado como credor dela. O **KAM-250** acrescentado como credor do KAM-122, a pedido da coordenação: a entrega concorrente do social devolve a vista sem a `entrega`, e o turno do dono parte com um `KeyError`. Escrita contra a `main` em `4e9909b9` | Equipa KAMBÁ |
