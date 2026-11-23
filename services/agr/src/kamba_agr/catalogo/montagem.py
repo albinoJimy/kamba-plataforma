@@ -188,10 +188,28 @@ class TomadaDaInvocacao:
         self._largar = largar
 
     def fora_da_ligacao(self, trabalho: Callable[[], Any]) -> Any:
+        """Corre `trabalho` sem a ligacao e fica com a retomada, **tambem quando ele levanta**.
+
+        A ToolLayer retoma uma vaga no `finally` e volta a levantar, e o pipeline
+        do KAM-049 apanha a falha da visao e do screening de proposito (falha
+        fechada) e escreve a seguir. Se a excepcao passasse por cima desta
+        atribuicao, a escrita ia pela ligacao **largada**, ja na fila e talvez
+        noutra invocacao (achado 1 da revisao adversarial do KAM-244). Por isso
+        a excepcao viaja como valor ate a ligacao estar guardada.
+        """
         if self._largar is None:
             return trabalho()
-        resultado, self.ligacao = self._largar(trabalho)
-        return resultado
+
+        def protegido() -> tuple[bool, Any]:
+            try:
+                return True, trabalho()
+            except Exception as erro:  # noqa: BLE001 — volta a subir abaixo
+                return False, erro
+
+        (correu, valor), self.ligacao = self._largar(protegido)
+        if not correu:
+            raise valor
+        return valor
 
     def close(self) -> None:
         return None

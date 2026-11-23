@@ -183,7 +183,8 @@ class Mundo:
         pendentes = [
             (i.id, i.estado)
             for i in reversed(do_tenant)
-            if i.estado in ("a_perguntar", "rascunho") or catalogo_tools._retomavel(i)
+            if i.estado in ("a_perguntar", "rascunho")
+            or (i.estado == "bloqueada_categoria" and i.categoria_restrita == "screening_indisponivel")
         ]
         return por_estado, pendentes[: catalogo_tools.LIMITE_DE_PENDENTES]
 

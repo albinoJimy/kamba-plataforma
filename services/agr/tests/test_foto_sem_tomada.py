@@ -20,6 +20,7 @@ descem a escala no ensaio adversarial; a soma no pior caso, a 25 s, mede-se no
 from __future__ import annotations
 
 import asyncio
+import dataclasses
 import threading
 import time
 import unittest
@@ -69,9 +70,9 @@ def _lenta(funcao: Any, demora_s: float, erro: type[Exception], dentro: list[int
     return porta
 
 
-def _camada(m: Mundo, **kw: Any) -> ToolLayer:
+def _camada(m: Mundo, portas: Any = None, **kw: Any) -> ToolLayer:
     """A ToolLayer do `Mundo` com **quatro** tomadas distintas, uma por vaga."""
-    executores = catalogo_tools.executores(m.portas, lambda: AGORA)
+    executores = catalogo_tools.executores(portas or m.portas, lambda: AGORA)
     do_catalogo = catalogo_do_piloto(executores)
     especificacoes = tuple(do_catalogo[n] for n in ("create_product_draft", "get_catalog_status"))
     return ToolLayer(
@@ -90,48 +91,65 @@ async def _invocar(camada: ToolLayer, m: Mundo, tenant: str, nome: str, args: di
 
 
 class TestQuatroFotosNaoParamAReplica(unittest.TestCase):
+    """Quatro fotos **presas** na visao, e uma leitura de outro tenant.
+
+    Sem tempos de parede (achado 5 da revisao adversarial: o canario por tempo
+    falhava uma vez em quatro com a maquina carregada). A visao das quatro fica
+    presa num `Event` ate o ensaio a soltar. Com a tomada largada, a leitura
+    acaba **antes** de as soltar; no canario, nao acaba enquanto estao presas.
+    """
+
     def setUp(self) -> None:
         self.m = Mundo({f"m{n}": jpeg(f"P{n}".encode()) for n in range(4)})
         self.addCleanup(self.m.fechar)
         self.dentro = [0]
-        self.m.visao.extrair = _lenta(  # type: ignore[method-assign]
-            self.m.visao.extrair, VISAO_LENTA_S, ErroDaVisao, self.dentro
-        )
+        self.soltar = threading.Event()
+        self.addCleanup(self.soltar.set)
+        extrair = self.m.visao.extrair
 
-    def _leitura_durante_quatro_fotos(self) -> tuple[float, list[ToolResult]]:
-        async def correr() -> tuple[float, list[ToolResult]]:
+        def presa(*args: Any, **kwargs: Any) -> Any:
+            with _TRINCO:
+                self.dentro[0] += 1
+            self.soltar.wait(60)
+            return extrair(*args, **kwargs)
+
+        self.m.visao.extrair = presa  # type: ignore[method-assign]
+
+    def _leitura_durante_quatro_fotos(self, espera_s: float) -> tuple[bool, list[ToolResult]]:
+        """Se a leitura acabou em `espera_s` com as quatro presas na visao."""
+
+        async def correr() -> tuple[bool, list[ToolResult]]:
             camada = _camada(self.m)
             fotos = [
                 asyncio.create_task(_invocar(camada, self.m, A, "create_product_draft", {"media_id": f"m{n}"}))
                 for n in range(4)
             ]
-            # **As quatro dentro da visao**, sem tomada (ou com ela, no canario).
-            # Esperar um tempo fixo media outra coisa: a analise da imagem, antes
-            # da visao, e CPU com o GIL, e atrasava a leitura por ela.
             limite = time.monotonic() + 60
             while self.dentro[0] < 4:
                 self.assertLess(time.monotonic(), limite, "as fotos nao chegaram a visao")
                 await asyncio.sleep(0.01)
-            inicio = time.monotonic()
-            leitura = await _invocar(camada, self.m, B, "get_catalog_status", {})
-            demorou = time.monotonic() - inicio
-            self.assertTrue(leitura.ok, leitura.error)
-            return demorou, list(await asyncio.gather(*fotos))
+            leitura = asyncio.create_task(_invocar(camada, self.m, B, "get_catalog_status", {}))
+            feitas, _ = await asyncio.wait({leitura}, timeout=espera_s)
+            acabou = leitura in feitas
+            self.assertFalse(any(f.done() for f in fotos), "uma foto saiu da visao antes de a soltar")
+            self.soltar.set()
+            self.assertTrue((await leitura).ok)
+            return acabou, list(await asyncio.gather(*fotos))
 
         return asyncio.run(correr())
 
     def test_a_leitura_de_outro_tenant_nao_espera_pela_visao(self) -> None:
-        demorou, fotos = self._leitura_durante_quatro_fotos()
-        self.assertLess(demorou, 0.5)
+        acabou, fotos = self._leitura_durante_quatro_fotos(espera_s=10.0)
+        self.assertTrue(acabou, "a leitura esperou pelas fotos presas na visao")
         self.assertTrue(all(f.ok for f in fotos), [f.error for f in fotos])
         self.assertEqual({f.data["estado"] for f in fotos}, {estados.A_PERGUNTAR})
         self.assertEqual(len(self.m.repo.todas()), 4)
 
     def test_canario_sem_largar_a_tomada_a_leitura_espera(self) -> None:
-        """Com o pipeline a correr a visao **com** a tomada, a leitura espera por ela."""
+        """Com o pipeline a correr a visao **com** a tomada, a leitura nao acaba."""
         with mock.patch.object(TomadaDaInvocacao, "fora_da_ligacao", lambda self, trabalho: trabalho()):
-            demorou, fotos = self._leitura_durante_quatro_fotos()
-        self.assertGreater(demorou, VISAO_LENTA_S / 2)
+            acabou, fotos = self._leitura_durante_quatro_fotos(espera_s=1.0)
+        self.assertFalse(acabou)
         self.assertTrue(all(f.ok for f in fotos))
 
 
@@ -163,6 +181,56 @@ class TestALigacaoCorrente(unittest.TestCase):
         tomada = TomadaDaInvocacao(ligacao)
         self.assertEqual(tomada.fora_da_ligacao(lambda: "ok"), "ok")
         self.assertIs(tomada.ligacao, ligacao)
+
+    def _escritas_na_fila_livre(self) -> tuple[list[str], ToolResult]:
+        """As operacoes do repositorio feitas numa ligacao que estava na fila livre.
+
+        Pela ToolLayer real, com o screening a levantar: o pipeline apanha a
+        falha (falha fechada) e grava a `bloqueada_categoria` a seguir. Uma
+        operacao numa ligacao que esta na fila e uma ligacao que outra invocacao
+        pode estar a usar ao mesmo tempo.
+        """
+        m = Mundo()
+        self.addCleanup(m.fechar)
+        m.screening.falhar = True
+        camada_ref: list[ToolLayer] = []
+        suspeitas: list[str] = []
+
+        class _Espia:
+            def __init__(self, ligacao: Any) -> None:
+                self._ligacao = ligacao
+
+            def __getattr__(self, nome: str) -> Any:
+                operacao = getattr(m.repo, nome)
+
+                def registada(*args: Any, **kwargs: Any) -> Any:
+                    corrente = getattr(self._ligacao, "ligacao", self._ligacao)
+                    if any(corrente is vaga for vaga in camada_ref[0]._tomadas._queue):  # type: ignore[attr-defined]
+                        suspeitas.append(nome)
+                    return operacao(*args, **kwargs)
+
+                return registada
+
+        portas = dataclasses.replace(m.portas, repositorio=_Espia)
+        camada_ref.append(_camada(m, portas=portas))
+        resultado = asyncio.run(_invocar(camada_ref[0], m, A, "create_product_draft", {"media_id": "m1"}))
+        return suspeitas, resultado
+
+    def test_com_o_screening_a_levantar_nenhuma_escrita_vai_pela_ligacao_largada(self) -> None:
+        """Achado 1 da revisao adversarial: a excepcao passava por cima da troca."""
+        suspeitas, resultado = self._escritas_na_fila_livre()
+        self.assertTrue(resultado.ok, resultado.error)
+        self.assertTrue(resultado.data["retomavel"])
+        self.assertEqual(suspeitas, [])
+
+    def test_canario_sem_guardar_a_retomada_na_excepcao_a_escrita_vai_pela_largada(self) -> None:
+        def antiga(self: TomadaDaInvocacao, trabalho: Any) -> Any:
+            resultado, self.ligacao = self._largar(trabalho)  # type: ignore[attr-defined, misc]
+            return resultado
+
+        with mock.patch.object(TomadaDaInvocacao, "fora_da_ligacao", antiga):
+            suspeitas, _resultado = self._escritas_na_fila_livre()
+        self.assertIn("gravar", suspeitas)
 
     def test_o_botao_de_publicar_e_proposto_na_ligacao_retomada(self) -> None:
         """Uma correccao que volta ao screening: o `propor` vai pela retomada."""

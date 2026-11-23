@@ -90,7 +90,6 @@ from .normalizacao import ler_preco, normalizar
 from .repositorio import Ingestao, LojaLimitada, Repositorio, novo_id
 from .screening import (
     DECISOES,
-    REGRAS_DO_CLASSIFICADOR,
     SCREENING_INDISPONIVEL,
     PortaDeScreening,
     ResultadoDoScreen,
@@ -145,10 +144,16 @@ RESERVA_DEPOIS_DO_SCREENING_MS: Final = RESERVA_DO_REGISTO_MS + RESERVA_DAS_ESCR
 
 #: As regras de uma `bloqueada_categoria` que **nao** sao uma decisao sobre o
 #: produto, e sim o screening que nao chegou a decidir: a porta em baixo ou sem
-#: tempo, e o classificador do COM sem resposta (KAM-244). Uma ingestao assim
-#: retoma-se (`retomar`), que pergunta outra vez ao screening e so sai se ele
-#: agora permitir. As outras sao decisoes, e so o T&S as levanta.
-REGRAS_RETOMAVEIS: Final = (SCREENING_INDISPONIVEL, REGRAS_DO_CLASSIFICADOR[0])
+#: tempo (KAM-244). Uma ingestao assim retoma-se (`retomar`), que pergunta outra
+#: vez ao screening e so sai se ele agora permitir. As outras sao decisoes, e so
+#: o T&S as levanta.
+#:
+#: **O `classificador_indisponivel` nao entra**, embora tambem nao seja uma
+#: decisao sobre o produto: o COM grava-o como `condicional` a espera de humano,
+#: e o `screen` seguinte do mesmo conteudo nao e publicavel ate o T&S decidir
+#: (`revisao_pendente`). Oferecer «tentar outra vez» dava ao dono um botao que
+#: nunca resulta (achado 3 da revisao adversarial do KAM-244).
+REGRAS_RETOMAVEIS: Final = (SCREENING_INDISPONIVEL,)
 
 #: A chave da sugestao de preco dentro do `extraido`. Nao e um campo do
 #: produto: nunca entra no Registo, no resumo, na completude nem na

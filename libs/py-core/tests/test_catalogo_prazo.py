@@ -28,6 +28,7 @@ from kamba_core.catalogo.pipeline import (
     REGRAS_RETOMAVEIS,
 )
 from kamba_core.catalogo.repositorio import RepositorioEmMemoria
+from kamba_core.catalogo.screening import ResultadoDoScreen
 
 #: O tecto do `create_product_draft` de uma foto (`TECTOS_POR_TOOL`, P3-A).
 TECTO_S = 25.0
@@ -151,6 +152,17 @@ class TestAdversarial(unittest.TestCase):
         self.assertEqual(bloqueada.estado, estados.BLOQUEADA_CATEGORIA)
         self.assertNotIn(bloqueada.ingestao.categoria_restrita, REGRAS_RETOMAVEIS)
         self.assertEqual(m.servico.retomar(A, r.ingestao.id).estado, estados.BLOQUEADA_CATEGORIA)
+
+    def test_o_classificador_sem_resposta_nao_e_retomavel(self) -> None:
+        """O COM grava-o como `condicional` a espera de humano: tentar outra vez nunca resulta."""
+        m = montar()
+        m.screening.decisao_forcada = ResultadoDoScreen(
+            "condicional", ("moda", "classificador_indisponivel"), "1.0.0+m.2", 0.0
+        )
+        r = m.servico.receber(A, "m1")
+        self.assertEqual(r.estado, estados.BLOQUEADA_CATEGORIA)
+        self.assertEqual(r.ingestao.categoria_restrita, "classificador_indisponivel")
+        self.assertNotIn(r.ingestao.categoria_restrita, REGRAS_RETOMAVEIS)
 
 
 class _Repositorio(RepositorioEmMemoria):

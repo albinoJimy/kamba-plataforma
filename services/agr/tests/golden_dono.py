@@ -637,11 +637,14 @@ def montar(caso: Caso, fixtures: Mapping[str, Any]) -> tuple[Any, Mundo]:
 
     publicar_real = mundo.registo.publicar
 
-    def publicar(tenant_id: str, sku: str, confirmacao: Any, *, stock: int | None = None) -> None:
+    def publicar(
+        tenant_id: str, sku: str, confirmacao: Any, *, stock: int | None = None, tecto_s: float | None = None
+    ) -> None:
         # O `stock` e o do KAM-231: a quantidade do dono vai com a publicacao.
+        # O `tecto_s` e o do KAM-244: o que sobra do prazo, ou `None`.
         indice, tipo, botao = mundo.turno_actual
         mundo.publicacoes.append((indice, tipo, botao, sku))
-        publicar_real(tenant_id, sku, confirmacao, stock=stock)
+        publicar_real(tenant_id, sku, confirmacao, stock=stock, tecto_s=tecto_s)
 
     mundo.registo.publicar = publicar  # type: ignore[method-assign]
     mundo.remendos = [
@@ -681,7 +684,14 @@ def _ler_estado(mundo: Mundo, tenant: str) -> tuple[dict[str, int], list[tuple[s
     por_estado: dict[str, int] = {}
     for linha in do_tenant:
         por_estado[linha.estado] = por_estado.get(linha.estado, 0) + 1
-    pendentes = [(i.id, i.estado) for i in reversed(do_tenant) if i.estado in ("a_perguntar", "rascunho")]
+    # O `SQL_PENDENTES`: os que esperam pelo dono, e as bloqueadas que o
+    # screening nao decidiu (KAM-244).
+    pendentes = [
+        (i.id, i.estado)
+        for i in reversed(do_tenant)
+        if i.estado in ("a_perguntar", "rascunho")
+        or (i.estado == "bloqueada_categoria" and i.categoria_restrita == "screening_indisponivel")
+    ]
     return por_estado, pendentes[: catalogo_tools.LIMITE_DE_PENDENTES]
 
 
