@@ -5216,10 +5216,11 @@ MUTACOES = [
      SAIDA),
     # KAM-227: o reenvio repete a chave do turno, e o `Saida` nunca o envia:
     # «uma chave repetida cuja linha ficou queued, failed ou sem linha reenvia
-    # uma vez, pela chave derivada (KAM-227)».
+    # uma vez, pela chave derivada (KAM-227)». O KAM-246 passou o reenvio a
+    # `reenviar`, partilhada com o da imagem: a linha mutada e a chamada.
     ('resposta: o reenvio usa a chave do turno', RESPOSTA_EFEITO,
-     '      const reenvio = { ...pedido, idempotencyKey: chaveDoReenvio(pedido.idempotencyKey) };',
-     '      const reenvio = pedido;',
+     '      return reenviar(bd, enviar, { ...pedido, idempotencyKey: chaveDoReenvio(pedido.idempotencyKey) });',
+     '      return reenviar(bd, enviar, pedido);',
      SAIDA),
     # KAM-227: o token e o do primeiro canal do tenant, e nao o do pedido:
     # «um canal que não é o do pedido não serve: sem_canal».
@@ -5649,9 +5650,9 @@ MUTACOES = [
     # `test_uma_base_lenta_nao_para_os_outros_turnos`.
     ('saida: o enfileirar volta a correr na event loop', AG_SAIDA,
      '        reply_id = await asyncio.to_thread(\n'
-     '            self._gravar, estado, texto, chave, tuple(botoes), canal, inicio\n'
+     '            self._gravar, estado, texto, chave, tuple(botoes), canal, inicio, media\n'
      '        )',
-     '        reply_id = self._gravar(estado, texto, chave, tuple(botoes), canal, inicio)',
+     '        reply_id = self._gravar(estado, texto, chave, tuple(botoes), canal, inicio, media)',
      AGR_UNIT),
     ('grafos: o resolve volta a correr na event loop', AG_GRAFOS,
      '        resolucao = await asyncio.to_thread(self._registo.resolve, invocacao)',

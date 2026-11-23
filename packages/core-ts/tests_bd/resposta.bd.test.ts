@@ -724,7 +724,12 @@ describe("a resposta do AGR contra a base", () => {
 
     it("fora da janela do dono: 0 carregamentos e 0 envios, e a resposta não se marca", async () => {
       const c = await conversaNova("resposta-imagem-janela");
-      await admin.query("UPDATE platform.conversations SET window_expires_at = now() - interval '1 hour' WHERE id = $1", [c.conversa]);
+      // Os dois tempos andam juntos (`conversations_janela_ck`): a janela abriu há 25 h e fechou há 1 h.
+      await admin.query(
+        "UPDATE platform.conversations SET last_inbound_at = now() - interval '25 hours', " +
+          "window_expires_at = now() - interval '1 hour' WHERE id = $1",
+        [c.conversa],
+      );
       await comAGraphAEscuta(async (efeito, sto) => {
         const arte = await guardarArte(sto, c.tenant);
         const reply = await turnoComImagem(c, "wamid.fora:0", arte);

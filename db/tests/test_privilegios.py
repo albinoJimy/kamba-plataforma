@@ -2693,9 +2693,12 @@ COLUNAS_POR_PAPEL = {
     # `entregue_at`: uma resposta emitida nao muda de texto nem de canal.
     # KAM-221 (0076): o *template* e os valores dos parametros entram no
     # `INSERT`, ao lado do texto; o `UPDATE` continua so o `entregue_at`.
+    # KAM-246 (0092): a chave da arte (`media_ref`) entra no `INSERT`, e o
+    # `UPDATE` continua so o `entregue_at`.
     ("kamba_app", "agent_replies", "INSERT"): {
         "tenant_id", "chave", "contact_id", "conversation_id", "canal", "texto",
         "botoes", "turno_iniciado_em", "template_nome", "template_parametros",
+        "media_ref",
     },
     ("kamba_app", "agent_replies", "UPDATE"): {"entregue_at"},
     # KAM-223 (revisao do canal do dono pelo painel): a mensagem insere-se
