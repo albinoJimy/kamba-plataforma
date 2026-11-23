@@ -287,6 +287,11 @@ MARCADORES = {
     "KAMBA_STORAGE_REGION": "marcador",
     "KAMBA_STORAGE_DESTINO_COUNTRY": "AO",
     "KAMBA_STORAGE_DESTINO_PROVIDER": "marcador",
+    # KAM-233: o `onboarding-lote` revoga no Chatwoot com o token da plataforma, e
+    # decifra os telefones da exportacao pela ligacao do `kamba_identity`. Mesma
+    # razao e mesmo sintoma.
+    "KAMBA_SECRET_CHATWOOT_PLATFORM_TOKEN": "marcador",
+    "KAMBA_LOTE_IDENTITY_DB_URL": "postgresql://marcador@marcador.invalid:5432/marcador",
 }
 
 
