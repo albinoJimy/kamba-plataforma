@@ -106,6 +106,7 @@ import { CanalPeloCom } from "./painel/canal.ts";
 import { ComercioPorHttp } from "./painel/comercio.ts";
 import type { OpcoesDaConversa, OpcoesDaTroca, OpcoesDoPainel, TesteDoPainel } from "./painel/rotas.ts";
 import { RevogacoesNaBase } from "./painel/revogacoes_sql.ts";
+import { socialPeloAgr } from "./painel/social.ts";
 import { RevogacoesEmMemoria, type Revogacoes } from "./painel/sessao.ts";
 import { testeDaActivacao } from "./painel/teste.ts";
 import { precoMaximoKz } from "./painel/validacao.ts";
@@ -603,6 +604,16 @@ async function montarPainel(guia: PassoGuiado | undefined): Promise<OpcoesDoPain
     },
     troca: await montarTroca(guia !== undefined),
     conversa: await montarConversa(),
+    // KAM-246: a página Social pede a lista e a ligação ao AGR, com a credencial
+    // do painel, nas mesmas condições da conversa (Q2 = A: este serviço não lê o STO).
+    social: CONVERSA_MONTA
+      ? socialPeloAgr({
+          agr: URL_DO_AGR,
+          credencial: () => secrets.get("agr_painel_token"),
+          // Só `https` fora de `dev` (decisão do fundador de 2026-11-23, A).
+          aceitarHttp: env === "dev",
+        })
+      : undefined,
     teste: montarTeste(),
   };
 }

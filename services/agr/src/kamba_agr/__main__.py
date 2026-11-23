@@ -61,6 +61,7 @@ from kamba_core.storage import ler_config as ler_config_do_sto
 from . import egresso, eventos as evt, registo
 from .admissao import Admissao, Tectos
 from .catalogo.entrada import SEGREDOS_DO_STO, EntradaDaFoto
+from .social import painel as painel_social
 from .catalogo.visao import VisaoPeloGateway
 from .api_interna import SEGREDO_DA_API, SEGREDO_DO_PAINEL, rotas
 from .app import create_app
@@ -571,7 +572,10 @@ def main() -> int:
             # KAM-231 (P4, opcao A): os do STO, onde o inventario os declara
             # obrigatorios (`staging` e `prod`).
             obrigatorios=[SEGREDO_DA_API, SEGREDO_DO_COM]
-            + ([] if ambiente == "dev" else list(SEGREDOS_DO_STO)),
+            + ([] if ambiente == "dev" else list(SEGREDOS_DO_STO))
+            # KAM-246 (Q3 = A): a chave da ligacao de descarga do painel, onde o
+            # inventario a declara obrigatoria (`staging` e `prod`).
+            + ([] if ambiente == "dev" else [painel_social.SEGREDO_DA_LIGACAO]),
         )
     except Exception as exc:  # noqa: BLE001 — qualquer falha de cofre aborta
         log.excepcao(exc, "cofre_indisponivel")
@@ -773,8 +777,10 @@ def main() -> int:
     # gateway. Decisao do fundador de 2026-11-21 (P4, opcao A): em `staging` e
     # `prod` sem o STO o AGR nao arranca; em `dev` a foto fica por ligar, e o
     # dono e avisado.
+    config_do_sto = None
     try:
-        armazenamento = criar_storage_s3(config=ler_config_do_sto(ambiente=ambiente), secrets=segredos)
+        config_do_sto = ler_config_do_sto(ambiente=ambiente)
+        armazenamento = criar_storage_s3(config=config_do_sto, secrets=segredos)
     except Exception as exc:  # noqa: BLE001 — a falha de configuracao e o desfecho
         if ambiente != "dev":
             log.excepcao(exc, "sto_indisponivel")
@@ -788,6 +794,37 @@ def main() -> int:
     log.info(
         outcome="catalogo_foto",
         error_code="foto_ligada" if armazenamento is not None else "foto_por_ligar_sem_sto",
+    )
+    # **A pagina Social do painel (KAM-246)**: o AGR le os itens e o STO, e
+    # assina e abre a ligacao de 24 h, pelo `onboarding-web` (Q2 = A). Sem o
+    # STO, as duas rotas respondem 503 `painel_por_ligar` (so em `dev`: nos
+    # outros ambientes o arranque ja recusou acima).
+    # Os URLs que o navegador abre assinam-se com o endpoint publico do STO, e
+    # **nunca** com o interno (decisao do fundador de 2026-11-23, A): sem ele, fora
+    # de `dev`, as duas rotas respondem 503, e o arranque di-lo.
+    assinador_do_painel = (
+        painel_social.assinador_publico(
+            armazenamento=armazenamento, config=config_do_sto, segredos=segredos, ambiente=ambiente
+        )
+        if armazenamento is not None and config_do_sto is not None
+        else None
+    )
+    log.info(
+        outcome="social_painel",
+        error_code="assinador_publico_ligado"
+        if assinador_do_painel is not None
+        else "painel_por_ligar_sem_endpoint_publico",
+    )
+    painel_do_social = (
+        painel_social.PainelDoSocial(
+            itens=painel_social.itens_pela_base(ligar_para_mensagens),
+            assinador=assinador_do_painel,
+            chaves=painel_social.anel_da_ligacao(
+                lambda: segredos.get_ring(painel_social.SEGREDO_DA_LIGACAO)  # kamba:secrets-inventory dinamico a constante SEGREDO_DA_LIGACAO do social/painel.py e o dono do nome em codigo
+            ),
+        )
+        if armazenamento is not None
+        else None
     )
     log.info(
         outcome="idx_embeddings",
@@ -1015,6 +1052,12 @@ def main() -> int:
                 # Nao e obrigatoria no arranque: lida a cada pedido, e sem ela no
                 # cofre o painel leva 401 — fecha, nunca abre.
                 credencial_do_painel=lambda: segredos.get(SEGREDO_DO_PAINEL),  # kamba:secrets-inventory dinamico a constante SEGREDO_DO_PAINEL do api_interna.py e o dono do nome em codigo
+            ),
+            # As duas da pagina Social do painel (KAM-246), com a credencial do
+            # painel, como o turno do dono: sem ela no cofre, 401.
+            *painel_social.rotas(
+                credencial=lambda: segredos.get(SEGREDO_DO_PAINEL),  # kamba:secrets-inventory dinamico a constante SEGREDO_DO_PAINEL do api_interna.py e o dono do nome em codigo
+                painel=painel_do_social,
             ),
             # A quinta rota (KAM-195), com credencial propria: ver a nota do
             # `llm/screening.py`. Sem a credencial no cofre, responde 401.

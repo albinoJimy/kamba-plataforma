@@ -23,6 +23,7 @@ import {
   ESPERA_MAXIMA_DE_DEBITO_MS,
   Balde,
   CODIGOS_QUE_SE_REPETEM,
+  CODIGO_DO_CARREGAMENTO,
   CODIGO_SEM_CODIGO,
   ClienteDaGraph,
   Limites,
@@ -33,6 +34,7 @@ import {
   TENTATIVAS,
   VERSAO_DA_GRAPH,
   atrasoMs,
+  corpoDaImagem,
   corpoDaMeta,
   vaiRepetir,
   type Corpo,
@@ -470,5 +472,87 @@ describe("o cliente da Meta", () => {
     });
     await cliente.enviar("pnid", PARA_BSUID, TEXTO);
     assert.equal(cabecalhos.authorization, "Bearer ensaio");
+  });
+});
+
+describe("a imagem pelo cliente da Meta (KAM-246)", () => {
+  const JPEG = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 4, 5, 6]);
+  const IMAGEM: Corpo = { tipo: "imagem", jpeg: JPEG };
+  const PARA = { bsuid: "AO.ABC123", telefone: null };
+
+  /** A Graph falsa: guarda os pedidos e responde pela rota. */
+  function graph(respostas: { media?: () => Response; messages?: () => Response } = {}) {
+    const pedidos: { url: string; init: RequestInit }[] = [];
+    const buscar = async (url: string | URL | Request, init?: RequestInit) => {
+      pedidos.push({ url: String(url), init: init ?? {} });
+      if (String(url).endsWith("/media")) {
+        return respostas.media?.() ?? new Response(JSON.stringify({ id: "media.42" }), { status: 200 });
+      }
+      return respostas.messages?.() ?? new Response(JSON.stringify({ messages: [{ id: "wamid.IMG" }] }), { status: 200 });
+    };
+    return { pedidos, cliente: new ClienteDaGraph({ token: "ensaio", base: "http://exemplo.localhost", buscar }) };
+  }
+
+  it("carrega o JPEG na Meta e envia pelo id devolvido, nunca por um URL", async () => {
+    const { pedidos, cliente } = graph();
+    const resposta = await cliente.enviar("pnid-1", PARA, IMAGEM);
+    assert.deepEqual(resposta, { ok: true, wamid: "wamid.IMG" });
+    assert.deepEqual(
+      pedidos.map((p) => p.url),
+      [`http://exemplo.localhost/${VERSAO_DA_GRAPH}/pnid-1/media`, `http://exemplo.localhost/${VERSAO_DA_GRAPH}/pnid-1/messages`],
+    );
+    const formulario = pedidos[0]!.init.body as FormData;
+    assert.equal(formulario.get("messaging_product"), "whatsapp");
+    assert.equal(formulario.get("type"), "image/jpeg");
+    const ficheiro = formulario.get("file") as Blob;
+    assert.deepEqual([...new Uint8Array(await ficheiro.arrayBuffer())], [...JPEG], "os bytes vão tal e qual");
+    const mensagem = JSON.parse(String(pedidos[1]!.init.body)) as Record<string, unknown>;
+    assert.deepEqual(mensagem, { messaging_product: "whatsapp", recipient: PARA.bsuid, type: "image", image: { id: "media.42" } });
+    assert.doesNotMatch(String(pedidos[1]!.init.body), /link|https?:/);
+    for (const p of pedidos) {
+      assert.equal((p.init.headers as Record<string, string>).authorization, "Bearer ensaio");
+    }
+  });
+
+  it("um carregamento recusado não envia nada, e o código diz que a mensagem não saiu", async () => {
+    for (const media of [
+      () => new Response(JSON.stringify({ error: { code: 131053 } }), { status: 400 }),
+      () => new Response(JSON.stringify({ error: { code: 2 } }), { status: 500 }),
+      () => new Response(JSON.stringify({}), { status: 200 }),
+      () => new Response("nao e json", { status: 502 }),
+      () => {
+        throw new Error("ECONNRESET http://graph.facebook.com/v23.0/pnid-secreto/media");
+      },
+    ]) {
+      const { pedidos, cliente } = graph({ media });
+      const resposta = await cliente.enviar("pnid-1", PARA, IMAGEM);
+      assert.equal(pedidos.length, 1, "só o carregamento");
+      assert.equal(resposta.ok, false);
+      if (!resposta.ok) assert.equal(resposta.codigo, CODIGO_DO_CARREGAMENTO);
+    }
+    assert.notEqual(CODIGO_DO_CARREGAMENTO, CODIGO_SEM_CODIGO, "não é o código ambíguo de um envio");
+  });
+
+  it("o débito excedido no carregamento passa tal e qual, para o Saida o repetir", async () => {
+    const { cliente } = graph({
+      media: () => new Response(JSON.stringify({ error: { code: 130429 } }), { status: 400, headers: { "retry-after": "2" } }),
+    });
+    const resposta = await cliente.enviar("pnid-1", PARA, IMAGEM);
+    assert.equal(resposta.ok, false);
+    if (!resposta.ok) {
+      assert.equal(resposta.codigo, 130429);
+      assert.equal(resposta.esperar, 2);
+      assert.ok(vaiRepetir(resposta.codigo, 1));
+    }
+  });
+
+  it("o corpo da imagem é só pelo id, com o destinatário por BSUID ou telefone", () => {
+    assert.deepEqual(corpoDaImagem(PARA, "m1"), {
+      messaging_product: "whatsapp",
+      recipient: PARA.bsuid,
+      type: "image",
+      image: { id: "m1" },
+    });
+    assert.deepEqual(corpoDaImagem({ bsuid: null, telefone: "999100000001" }, "m1").to, "999100000001");
   });
 });

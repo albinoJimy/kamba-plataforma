@@ -523,6 +523,9 @@ def vista_da_arte(item: Any, referencia: str, composicao: Any | None = None, **e
     dados["tentativas_restantes"] = max(MAXIMO_DE_TENTATIVAS - item.arte_tentativas, 0)
     dados["formato"] = item.arte_formato
     dados["texto_da_arte"] = item.arte_texto.split("\n") if item.arte_texto else []
+    # A chave do STO da arte (KAM-246): o turno pede-a como imagem da resposta.
+    # E a chave e nunca um URL; o consumidor confere-a antes de a ler.
+    dados["arte_ref"] = item.arte_ref
     if composicao is not None:
         dados["template_id"] = composicao.template.template_id
     dados.update(extra)
@@ -593,7 +596,7 @@ def _partes(item: Any, primeira: bool) -> dict[str, Any]:
             primeira_entrega=primeira,
         )
     )
-    return {"legenda": entrega.legenda, "nota": entrega.nota, "termos": entrega.termos}
+    return {"legenda": entrega.legenda, "nota": entrega.nota, "termos": entrega.termos, "arte_ref": entrega.arte_ref}
 
 
 def _propor_botao(portas: PortasDoSocial, pedido: Pedido, item: Any, instante: datetime.datetime, *, reforcada: bool) -> str:

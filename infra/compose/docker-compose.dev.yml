@@ -343,6 +343,16 @@ services:
       KAMBA_CONSUMIDOR_IDENTITY_DB_URL: postgresql://kamba_identity:${KAMBA_SECRET_DB_IDENTITY_PASSWORD:-}@postgres:5432/${KAMBA_DB_NAME:-kamba_platform}
       KAMBA_SECRET_KEK_TOKEN_CLIENTE: ${KAMBA_SECRET_KEK_TOKEN_CLIENTE:-}
       KAMBA_SECRET_KEK_CONTACT_DEK: ${KAMBA_SECRET_KEK_CONTACT_DEK:-}
+      # KAM-246: o consumidor le a arte do STO (`head` e `get`, classe `arte`)
+      # para a carregar na Meta antes do texto. Em staging e prod nao arranca
+      # sem o armazenamento (`portasDoOutbound`).
+      KAMBA_STORAGE_ENDPOINT: ${KAMBA_STORAGE_ENDPOINT:-http://seaweedfs:8333}
+      KAMBA_STORAGE_BUCKET: ${KAMBA_STORAGE_BUCKET:-kamba-dev}
+      KAMBA_STORAGE_REGION: ${KAMBA_STORAGE_REGION:-ao-luanda-1}
+      KAMBA_STORAGE_DESTINO_COUNTRY: ${KAMBA_STORAGE_DESTINO_COUNTRY:-AO}
+      KAMBA_STORAGE_DESTINO_PROVIDER: ${KAMBA_STORAGE_DESTINO_PROVIDER:-seaweedfs}
+      KAMBA_SECRET_STORAGE_ACCESS_KEY_ID: ${KAMBA_SECRET_STORAGE_ACCESS_KEY_ID:-}
+      KAMBA_SECRET_STORAGE_SECRET_ACCESS_KEY: ${KAMBA_SECRET_STORAGE_SECRET_ACCESS_KEY:-}
     healthcheck:
       test:
         - CMD
@@ -481,6 +491,16 @@ services:
       # pedido; em falta, a rota recusa (401) e nunca abre. O `onboarding-web`
       # apresenta-a, e tem de ser o mesmo valor.
       KAMBA_SECRET_AGR_PAINEL_TOKEN: ${KAMBA_SECRET_AGR_PAINEL_TOKEN:-}
+      # KAM-246 (decisao do fundador de 2026-11-23, A). O endpoint do STO com
+      # que se assinam os URLs que o navegador abre, e so para isso. Fora de
+      # `dev` tem de ser https; sem ele a pagina Social responde 503 e nunca
+      # cai para o endpoint interno. Ter o STO com endpoint publico e da D6.
+      KAMBA_STORAGE_ENDPOINT_PUBLICO: ${KAMBA_STORAGE_ENDPOINT_PUBLICO:-}
+      # KAM-246 (Q3 = A). O AGR assina e abre a ligacao de descarga de 24 h da
+      # pagina Social do painel. Anel: a anterior abre as ligacoes vivas numa
+      # rotacao.
+      KAMBA_SECRET_CHAVE_DA_LIGACAO_DE_DESCARGA: ${KAMBA_SECRET_CHAVE_DA_LIGACAO_DE_DESCARGA:-}
+      KAMBA_SECRET_CHAVE_DA_LIGACAO_DE_DESCARGA_ANTERIOR: ${KAMBA_SECRET_CHAVE_DA_LIGACAO_DE_DESCARGA_ANTERIOR:-}
       # Sem este endereco os executores das tools de comercio **nao ligam** e as
       # cinco entradas do Vendedor ficam `declaradas` — visivel na linha
       # `toollayer_pronta` do arranque (`ligadas_N_de_11`) e nao em silencio.

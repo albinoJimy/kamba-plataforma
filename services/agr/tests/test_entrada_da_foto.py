@@ -28,6 +28,9 @@ STO = {
     "KAMBA_STORAGE_DESTINO_PROVIDER": "seaweedfs",
 }
 SEGREDOS_STO = {f"KAMBA_SECRET_{s.upper()}": "valor-de-ensaio" for s in SEGREDOS_DO_STO}
+#: KAM-246 (Q3 = A): a chave da ligacao de descarga do painel e obrigatoria em
+#: `staging` e `prod`, como os do STO; sem ela o AGR nao arranca.
+SEGREDO_DA_LIGACAO = {"KAMBA_SECRET_CHAVE_DA_LIGACAO_DE_DESCARGA": "l" * 32}
 
 
 class _Visao:
@@ -133,16 +136,24 @@ class TestOArranque(unittest.TestCase):
         self.assertTrue(self._erro().startswith("cofre_indisponivel"), self._erro())
 
     def test_em_staging_sem_a_configuracao_do_sto_nao_arranca(self) -> None:
-        codigo, correr = self._correr({**AMBIENTE_BASE, **SEGREDOS_STO, "KAMBA_ENV": "staging"})
+        codigo, correr = self._correr({**AMBIENTE_BASE, **SEGREDOS_STO, **SEGREDO_DA_LIGACAO, "KAMBA_ENV": "staging"})
         self.assertEqual(codigo, 2)
         correr.assert_not_called()
         self.assertTrue(self._erro().startswith("sto_indisponivel"), self._erro())
 
     def test_em_staging_com_o_sto_arranca_com_a_foto_ligada(self) -> None:
-        codigo, correr = self._correr({**AMBIENTE_BASE, **STO, **SEGREDOS_STO, "KAMBA_ENV": "staging"})
+        codigo, correr = self._correr(
+            {**AMBIENTE_BASE, **STO, **SEGREDOS_STO, **SEGREDO_DA_LIGACAO, "KAMBA_ENV": "staging"}
+        )
         self.assertEqual(codigo, 0, self.saida.getvalue()[-2000:])
         correr.assert_called_once()
         self.assertEqual((self._linha("catalogo_foto") or {}).get("error_code"), "foto_ligada")
+
+    def test_kam_246_em_staging_sem_a_chave_da_ligacao_nao_arranca(self) -> None:
+        codigo, correr = self._correr({**AMBIENTE_BASE, **STO, **SEGREDOS_STO, "KAMBA_ENV": "staging"})
+        self.assertEqual(codigo, 2)
+        correr.assert_not_called()
+        self.assertTrue(self._erro().startswith("cofre_indisponivel"), self._erro())
 
     def test_em_dev_sem_sto_arranca_e_diz_que_a_foto_esta_por_ligar(self) -> None:
         codigo, correr = self._correr(dict(AMBIENTE_BASE))

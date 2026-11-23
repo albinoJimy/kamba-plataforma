@@ -344,7 +344,14 @@ class PortaDeSaida(Protocol):
         *,
         chave: str,
         botoes: Sequence[str] = (),
-    ) -> None: ...
+        media: str | None = None,
+    ) -> None:
+        """`media`, quando vem, e a chave do STO da arte do social (KAM-246).
+
+        So a passa quem a tem: o `send` nao a poe quando o rascunho nao a
+        traz, e uma porta mais antiga continua a servir os outros turnos.
+        """
+        ...
 
 
 # A `HandoffIndisponivel` **mudou de casa e nao de nome** (KAM-034): esta
@@ -2465,11 +2472,15 @@ def send(deps: Dependencias):
             # decisao que nao envia. Se um dia encaminhar, **nao sai mensagem**.
             return {}
 
+        # A imagem do rascunho (KAM-246): a chave do STO da arte do social. So
+        # vai quando existe, pelo que as portas e os duplos sem `media` nao mudam.
+        media = rascunho.get("media")
         await deps.saida.enfileirar(
             estado,
             com_apresentacao(deps, estado, texto),
             chave=_chave_de_envio(estado, concierge),
             botoes=tuple(rascunho.get("botoes") or ()),
+            **({"media": str(media)} if media else {}),
         )
         # A resposta entra na janela: e o que faz o `_primeiro_turno` do turno
         # seguinte saber que ja falamos, e o que o §12 manda guardar.
