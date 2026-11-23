@@ -199,7 +199,7 @@ def upgrade() -> None:
         AS $$
         #variable_conflict use_column
         DECLARE
-          v_antes    text := current_setting('app.tenant_id', true);
+          v_antes    text := coalesce(current_setting('app.tenant_id', true), '');
           -- As janelas (D6 e D4, *propostas*): da funcao, e nao de quem chama.
           v_compra_desde timestamptz := now() - interval '30 days';
           v_visto_desde  timestamptz := now() - interval '90 days';
@@ -269,7 +269,7 @@ def upgrade() -> None:
             END LOOP;
           END LOOP;
 
-          PERFORM set_config('app.tenant_id', coalesce(v_antes, ''), true);
+          PERFORM set_config('app.tenant_id', v_antes, true);
 
           RETURN QUERY
             WITH donos AS (
@@ -304,7 +304,7 @@ def upgrade() -> None:
           SET search_path = pg_catalog, platform
         AS $$
         DECLARE
-          v_antes    text := current_setting('app.tenant_id', true);
+          v_antes    text := coalesce(current_setting('app.tenant_id', true), '');
           v_tenant   uuid;
           v_n        integer;
           v_total    integer := 0;
@@ -334,7 +334,7 @@ def upgrade() -> None:
             GET DIAGNOSTICS v_n = ROW_COUNT;
             v_total := v_total + v_n;
           END LOOP;
-          PERFORM set_config('app.tenant_id', coalesce(v_antes, ''), true);
+          PERFORM set_config('app.tenant_id', v_antes, true);
           RETURN v_total;
         END
         $$

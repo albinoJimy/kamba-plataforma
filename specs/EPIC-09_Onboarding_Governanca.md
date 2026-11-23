@@ -3755,7 +3755,7 @@ O anel de tenants do mesmo dono a comprar entre si dá sinal, sem que nenhum ten
 
 O segredo entra no `../ops/secrets-inventory.yaml`, só para quem o usa. Ficam vazios o critério 1, a caixa «parecer anexado» e a metade DPIA do critério 4: este ticket não escreve conteúdo jurídico.
 
-**Data: 2026-11-22. Autor: o fundador (decisão transmitida pela coordenação do lote 18). A retenção do pseudónimo do dono (opção B).**
+**Data: 2026-11-22. Autor: o fundador (decisão transmitida pela coordenação do lote 18). D4b — a retenção do pseudónimo do dono (opção B).**
 
 - **O pseudónimo do contacto que é dono (`owner_contact_id`) não vence pelo `visto_at` enquanto ele for dono.** Apaga-se com o contacto e na troca de dono; os outros pseudónimos ficam com os 90 dias da D4. Fica *(a confirmar por parecer)*, como o resto.
 - **Recusadas:** A (a D4 à letra: o dono que nunca escreve à loja deixava de juntar as lojas ao dia 91) e C (renovações extra no provisionamento, na troca de dono e na consola de T&S).
