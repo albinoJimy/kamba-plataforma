@@ -384,6 +384,7 @@ metricas:
           - nao_entrega
           - mudanca_de_conta
           - violacao_de_categoria
+          - comprador_noutra_loja_do_dono
 
   # ------------------------------------------------- off-boarding (KAM-210)
   #
