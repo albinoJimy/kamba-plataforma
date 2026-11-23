@@ -1,6 +1,6 @@
 # GERADO por `python -m llm_config --root . escrever`. NAO EDITAR A MAO.
 #
-# Fonte: llm/aliases.yaml versao 1.2.1. Quem muda o comportamento e a
+# Fonte: llm/aliases.yaml versao 1.2.2. Quem muda o comportamento e a
 # fonte; este ficheiro e a traducao dela para o esquema do proxy LiteLLM.
 # O passo `aliases` do `lint_arch` falha se este ficheiro nao estiver em dia.
 
@@ -74,6 +74,7 @@ router_settings:
 
 general_settings:
   master_key: os.environ/KAMBA_SECRET_LITELLM_MASTER_KEY
+  disable_spend_logs: true
 
 litellm_settings:
   turn_off_message_logging: true

@@ -56,6 +56,28 @@ O que cada papel pode, e a razao:
                     `EXECUTE`. Nao contorna a RLS.
 
 Nenhum e superutilizador, nenhum cria bases nem papeis.
+
+E um decimo, **fora da plataforma** (KAM-247, decisao do fundador de
+2026-11-23, opcao A1):
+
+    kamba_litellm   o papel do proxy de LLM. Dono da base `kamba_litellm`, onde
+                    o LiteLLM guarda as chaves virtuais e o gasto acumulado de
+                    cada uma, e **sem CONNECT na base da plataforma**: nao esta
+                    em `ligacao.PAPEIS`, nao recebe o `GRANT CONNECT` do ciclo
+                    de baixo, e a base da plataforma ja revoga o CONNECT ao
+                    PUBLIC. Na `kamba_litellm` o PUBLIC tambem o perde, e o
+                    `kamba_litellm` e o unico que la entra. Dono porque as
+                    migracoes do proprio LiteLLM correm no arranque dele e criam
+                    as tabelas no `public` dessa base (medido no KAM-247).
+
+So nasce quando o ambiente traz a `KAMBA_SECRET_DB_LITELLM_PASSWORD`: o proxy
+corre em `staging` e `prod`, e o `dev` e os ensaios que nao o levantam nao
+ganham uma base que ninguem usa. **A falta dela aqui nao e um erro, e por isso
+diz-se na saida**: o compose recusa-se a arrancar o proxy sem a variavel
+(`:?`), mas isso e o ambiente do contentor e nao o deste passo. Um `bootstrap`
+corrido sem ela em `prod` sai com 0, e o proxy fica a falhar a autenticacao em
+ciclo de reinicio. Em `staging` e `prod` corre-se com ela, antes do `litellm`
+(`db/migrations/README.md`).
 """
 
 from __future__ import annotations
@@ -107,6 +129,17 @@ ATRIBUTOS = {
 }
 
 
+#: O papel e a base do proxy de LLM (KAM-247). O mesmo nome nos dois, como a
+#: `kamba_chatwoot` e a `kamba_medusa` do `initdb`: a base e dele e de mais
+#: ninguem.
+PAPEL_DO_LITELLM = "kamba_litellm"
+BASE_DO_LITELLM = "kamba_litellm"
+#: `KAMBA_SECRET_` + o id do inventario (`db_litellm_password`), pela regra do
+#: `ligacao.py`.
+VARIAVEL_DO_PAPEL_DO_LITELLM = "KAMBA_SECRET_DB_LITELLM_PASSWORD"
+ATRIBUTOS_DO_LITELLM = "LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS"
+
+
 def _executar_formatado(cursor, modelo: str, *argumentos: str) -> None:
     """Executa SQL de utilidade com identificadores e literais citados pelo servidor.
 
@@ -154,7 +187,7 @@ def verificador_scram(senha: str, sal: bytes | None = None) -> str:
 
 def _revogar_pertencas(cursor, feito: list[str]) -> None:
     """Nenhum dos papeis pertence a outro papel, nem tem membros."""
-    papeis = list(ATRIBUTOS)
+    papeis = [*ATRIBUTOS, PAPEL_DO_LITELLM]
     cursor.execute(
         "SELECT g.rolname, m.rolname FROM pg_auth_members a "
         "JOIN pg_roles g ON g.oid = a.roleid JOIN pg_roles m ON m.oid = a.member "
@@ -166,6 +199,64 @@ def _revogar_pertencas(cursor, feito: list[str]) -> None:
         feito.append(f"pertenca revogada: {membro} deixou de pertencer a {grupo}")
 
 
+def _papel_e_base_do_litellm(cursor, senha: str, feito: list[str]) -> None:
+    """O papel `kamba_litellm` e a base dele (KAM-247). Idempotente, como o resto.
+
+    `CREATE DATABASE` nao corre numa transaccao: a ligacao do `aplicar` esta em
+    `autocommit`. O dono e **reposto** a cada execucao, pela razao dos
+    atributos: uma base passada a outro dono a mao deixava o proxy sem `CREATE`
+    no `public` dela, e as migracoes dele falhavam no arranque seguinte.
+    """
+    papel, base = PAPEL_DO_LITELLM, BASE_DO_LITELLM
+    cursor.execute("SELECT 1 FROM pg_roles WHERE rolname = %s", (papel,))
+    if cursor.fetchone() is None:
+        cursor.execute(f"CREATE ROLE {papel} {ATRIBUTOS_DO_LITELLM}")
+        feito.append(f"papel {papel} criado")
+    else:
+        cursor.execute(f"ALTER ROLE {papel} {ATRIBUTOS_DO_LITELLM}")
+        feito.append(f"papel {papel} ja existia; atributos repostos")
+    _executar_formatado(cursor, "ALTER ROLE %I RESET ALL", papel)
+    _executar_formatado(
+        cursor, "ALTER ROLE %I PASSWORD %L", papel, verificador_scram(senha)
+    )
+    feito.append(f"papel {papel}: palavra-passe redefinida para a do ambiente")
+
+    cursor.execute("SELECT 1 FROM pg_database WHERE datname = %s", (base,))
+    if cursor.fetchone() is None:
+        _executar_formatado(cursor, "CREATE DATABASE %I OWNER %I", base, papel)
+        feito.append(f"base {base} criada, com dono {papel}")
+    else:
+        _executar_formatado(cursor, "ALTER DATABASE %I OWNER TO %I", base, papel)
+        feito.append(f"base {base} ja existia; dono reposto")
+    # O PUBLIC tem CONNECT e TEMPORARY em cada base nova. Sem este REVOKE, os
+    # papeis da plataforma entravam na base do proxy, e o dele nao precisa de
+    # companhia. O dono conserva os seus privilegios: o REVOKE ao PUBLIC nao
+    # lhos tira.
+    #
+    # **Escrito com outra ordem das palavras de proposito**: o `db/mutacoes.py`
+    # muta o REVOKE da base da plataforma pelo texto, e exige que ele apareca
+    # uma vez so neste ficheiro.
+    _executar_formatado(
+        cursor, "REVOKE CONNECT, TEMPORARY ON DATABASE %I FROM PUBLIC", base
+    )
+    _executar_formatado(cursor, "GRANT CONNECT ON DATABASE %I TO %I", base, papel)
+    feito.append(f"privilegios da base {base}: CONNECT so ao {papel}")
+
+
+def _litellm_fora_da_plataforma(cursor, base: str, feito: list[str]) -> None:
+    """Tira ao `kamba_litellm` o que alguem lhe tenha dado na base da plataforma.
+
+    O bootstrap nunca lho da, e a base da plataforma ja revoga o CONNECT ao
+    PUBLIC; mas um `GRANT CONNECT ... TO kamba_litellm` feito a mao punha o
+    proxy dentro da plataforma, e nenhuma execucao o desfazia. Repoe-se, como os
+    atributos e as pertencas (achado da revisao adversarial do KAM-247).
+    """
+    _executar_formatado(
+        cursor, "REVOKE ALL ON DATABASE %I FROM %I", base, PAPEL_DO_LITELLM
+    )
+    feito.append(f"papel {PAPEL_DO_LITELLM}: nada na base {base}")
+
+
 def aplicar(ambiente=None) -> list[str]:
     """Cria ou repoe os papeis. Devolve o que fez, sem segredos."""
     feito: list[str] = []
@@ -174,6 +265,14 @@ def aplicar(ambiente=None) -> list[str]:
         papel: ligacao.credenciais(identidade, ambiente)[1]
         for identidade, papel in ligacao.PAPEIS.items()
     }
+    fonte = os.environ if ambiente is None else ambiente
+    senha_do_litellm = fonte.get(VARIAVEL_DO_PAPEL_DO_LITELLM, "")
+    if base == BASE_DO_LITELLM:
+        # A base da plataforma com o nome da do proxy dava ao papel do proxy o
+        # dono da base da plataforma. Recusa-se antes de tocar em nada.
+        raise ligacao.ConfiguracaoEmFalta(
+            f"KAMBA_DB_NAME nao pode ser {BASE_DO_LITELLM}: e a base do proxy de LLM"
+        )
 
     conexao = ligacao.ligar("admin", ambiente)
     conexao.autocommit = True
@@ -196,6 +295,21 @@ def aplicar(ambiente=None) -> list[str]:
             )
             feito.append(f"papel {papel}: palavra-passe redefinida para a do ambiente")
             _executar_formatado(cursor, "GRANT CONNECT ON DATABASE %I TO %I", base, papel)
+
+        if senha_do_litellm:
+            _papel_e_base_do_litellm(cursor, senha_do_litellm, feito)
+        else:
+            # Sem a variavel nao se cria nada, e nao se apaga nada: um papel e
+            # uma base que ja existam ficam como estao, e a frase di-lo.
+            feito.append(
+                f"papel {PAPEL_DO_LITELLM}: {VARIAVEL_DO_PAPEL_DO_LITELLM} nao "
+                "definida; o papel e a base do proxy de LLM nao foram criados nem "
+                "repostos. Em staging e prod o proxy precisa dos dois: corra-se "
+                "com ela antes de o arrancar"
+            )
+        cursor.execute("SELECT 1 FROM pg_roles WHERE rolname = %s", (PAPEL_DO_LITELLM,))
+        if cursor.fetchone() is not None:
+            _litellm_fora_da_plataforma(cursor, base, feito)
 
         _revogar_pertencas(cursor, feito)
 

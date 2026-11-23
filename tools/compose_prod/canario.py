@@ -420,10 +420,14 @@ CASOS: tuple[Caso, ...] = (
         "servico-em-edge",
         frozenset({"servico-em-edge"}),
         "o LiteLLM ganha `edge` e com ela um caminho de saida sem proxy",
+        # Desde o KAM-247 o `litellm` esta em `app` e `data`; ancora-se na sonda
+        # dele, porque o `chatwoot-worker` tem as mesmas redes e a mesma memoria.
         lambda c: c.trocar(
             lint.PROD,
-            r"^    networks:\n      - app\n    mem_limit: 2048m\n    cpus: 1\.5$",
-            "    networks:\n      - app\n      - edge\n    mem_limit: 2048m\n    cpus: 1.5",
+            r"^    networks:\n      - app\n      - data\n    mem_limit: 2048m\n"
+            r"    cpus: 1\.5\n    healthcheck:\n      # O `/health/liveliness` nao exige",
+            "    networks:\n      - app\n      - data\n      - edge\n    mem_limit: 2048m\n"
+            "    cpus: 1.5\n    healthcheck:\n      # O `/health/liveliness` nao exige",
         ),
     ),
     Caso(
@@ -647,10 +651,16 @@ CASOS: tuple[Caso, ...] = (
         "porta-publicada",
         frozenset({"porta-publicada"}),
         "um servico que nao e o proxy TLS publica uma porta",
+        # O `litellm`, pela sonda dele: desde o KAM-247 esta em `app` e em
+        # `data`, e o par `networks` + `mem_limit: 2048m` deixou de ser so dele
+        # (o `chatwoot-worker` tem o mesmo).
         lambda c: c.trocar(
             lint.PROD,
-            r"^    networks:\n      - app\n    mem_limit: 2048m$",
-            '    ports:\n      - "4000:4000"\n    networks:\n      - app\n    mem_limit: 2048m',
+            r"^    networks:\n      - app\n      - data\n    mem_limit: 2048m\n"
+            r"    cpus: 1.5\n    healthcheck:\n      # O `/health/liveliness` nao exige",
+            '    ports:\n      - "4000:4000"\n    networks:\n      - app\n      - data\n'
+            '    mem_limit: 2048m\n    cpus: 1.5\n    healthcheck:\n'
+            '      # O `/health/liveliness` nao exige',
         ),
     ),
     Caso(

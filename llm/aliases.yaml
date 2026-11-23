@@ -34,7 +34,7 @@
 # (KAM-010) e nunca neste ficheiro nem na imagem.
 
 version: 1
-versao: "1.2.1"
+versao: "1.2.2"
 
 # `router_settings` do `docs/tecnica/02` §13.1. Os tres nomes foram confirmados
 # contra a versao fixada (ver `docs/evidencia/KAM-030-litellm.md`): o ticket

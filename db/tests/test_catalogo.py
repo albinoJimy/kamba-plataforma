@@ -2293,7 +2293,7 @@ class TestPapeis(ComBase):
         )
         return {linha[0]: linha[1:] for linha in linhas}
 
-    def test_existem_os_nove_e_so_os_nove(self) -> None:
+    def test_existem_os_dez_e_so_os_dez(self) -> None:
         """Os tres do KAM-003, o `kamba_resolver` do KAM-004, o `kamba_identity`
         do KAM-008, o `kamba_audit` do KAM-012, o `kamba_agr` do KAM-026 e o
         `kamba_pay_hooks` do KAM-053.
@@ -2322,12 +2322,20 @@ class TestPapeis(ComBase):
         que abre a `refund_cases`. Existe para que a tabela tenha um so dono
         **imposto pela base** — o COM corre como `kamba_app`, e uma porta
         concedida ao `kamba_app` deixava o COM abrir casos.
+
+        **O decimo e o `kamba_litellm` do KAM-247**, por decisao do fundador de
+        2026-11-23 (opcao A1), e e o unico **fora da plataforma**: o papel do
+        proxy de LLM, dono da base `kamba_litellm` e sem `CONNECT` na base da
+        plataforma. Nao esta no `ligacao.PAPEIS` e por isso nao entra na matriz
+        do `test_privilegios`; entra aqui porque esta consulta le o cluster, e
+        um papel `kamba_*` que ninguem declarou e o que ela existe para apanhar.
+        O que ele alcanca mede-se em `test_papel_do_litellm.py`.
         """
         self.assertEqual(
             set(self.atributos()),
             {"kamba_migrator", "kamba_app", "kamba_batch", "kamba_resolver",
              "kamba_identity", "kamba_audit", "kamba_agr", "kamba_pay_hooks",
-             "kamba_pay"},
+             "kamba_pay", "kamba_litellm"},
         )
 
     def test_nenhum_e_superutilizador_nem_cria_bases_ou_papeis(self) -> None:
@@ -2374,6 +2382,9 @@ class TestPapeis(ComBase):
                 # `app.tenant_id` do envelope, e a porta le a encomenda sob
                 # RLS. Com `BYPASSRLS` abria casos em qualquer tenant.
                 "kamba_pay": False,
+                # KAM-247: o proxy de LLM nao tem RLS a contornar na base dele,
+                # e na da plataforma nem entra.
+                "kamba_litellm": False,
             },
         )
 

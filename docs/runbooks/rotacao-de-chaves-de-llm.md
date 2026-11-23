@@ -144,7 +144,7 @@ NÃO VERIFICADO. A fonte é o `E4` §2.7, que herda o seu estado: a licença é
 | Capacidade | Edição | Estado | O que se faz no Piloto |
 |---|---|---|---|
 | Criar, actualizar e listar chaves virtuais (`/key/generate`, `/key/update`, `/key/list`) | MIT | CONFIRMADO em resumo (`E4` §2.7: «virtual keys/users/teams»); os três foram **medidos** contra a imagem fixada (`../evidencia/KAM-030-litellm.md`, citado no `infra/llm/chaves.py`) | §3 desta página |
-| Apagar uma chave virtual (`/key/delete`) | MIT, por inferência | **NÃO VERIFICADO**: o `chaves.py` não o usa e ninguém o mediu | §3, «rodar o valor» |
+| Apagar uma chave virtual (`/key/delete`) | MIT, por inferência | **CONFIRMADO** contra a imagem fixada, com base: 200, e a chave deixa de autenticar; 404 numa repetição (`../evidencia/KAM-233.md` §3). O `chaves.py revogar` usa-o, e o KAM-247 mediu-o contra o proxy com a `kamba_litellm` (`../evidencia/KAM-247.md` §3) | §3, «rodar o valor» |
 | Orçamentos e *rate limits* por chave | MIT | CONFIRMADO em resumo | §3 (corte por `max_budget: 0`) |
 | **Rotação automática de chaves** (*key rotation*) | Enterprise | CONFIRMADO em resumo | **manual**: §1, §2 e §3 |
 | ***Secret managers*** (ler as chaves de fornecedor de um cofre) | Enterprise | CONFIRMADO em resumo | **manual**: o valor entra por variável de ambiente no arranque (`ADR-L002`) e muda recriando o contentor |
