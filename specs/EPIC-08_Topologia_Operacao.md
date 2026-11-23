@@ -4,7 +4,7 @@
 |---|---|
 | Produto | KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para Angola |
 | Documento | Epic — Topologia e Operação |
-| Versão | 1.33 |
+| Versão | 1.34 |
 | Data | Novembro de 2026 |
 | Classificação | Documento de Referência — Interno |
 | Documento-fonte | `../docs/tecnica/09_Topologia_Operacao_Escala.md` |
@@ -54,6 +54,7 @@ O epic concretiza **ADR-008** (alojamento, *backups*, CDN e observabilidade são
 | KAM-187 | O compose de produção corre os consumidores do `worker-canal` | feature | L | P0 | KAM-076, KAM-080, KAM-013, KAM-025 |
 | KAM-188 | O teste de carga repete-se no *host* P0 | chore | M | P1 | KAM-084, KAM-077, KAM-186, KAM-187 |
 | KAM-242 | O compose de produção sem *swap*: o `memswap_limit` igual ao `mem_limit` em todos os serviços, exigido pelo `compose_prod`, e o *swap* do *host* registado | chore | S | P1 | KAM-076, KAM-238 |
+| KAM-249 | A fila sem credencial na rede `data`: o Valkey com autenticação, e o S3 do `seaweedfs` medido | fix | M | P1 | KAM-076, KAM-247 |
 
 ---
 
@@ -175,7 +176,7 @@ do fundador. Os comandos e os números estão em
 | Prioridade | P0 |
 | Estimativa | L |
 | Dependências | KAM-075 |
-| Bloqueia | KAM-078, KAM-079, KAM-080, KAM-084, KAM-187, KAM-242 |
+| Bloqueia | KAM-078, KAM-079, KAM-080, KAM-084, KAM-187, KAM-242, KAM-249 |
 | Responsável sugerido | Plataforma/SRE |
 | Documentos de referência | `../docs/tecnica/09_Topologia_Operacao_Escala.md` (§3, §4, §20), `../docs/tecnica/08_Seguranca_Conformidade.md` (§4.4, §4.8), ADR-002, ADR-005, ADR-006, ADR-009, ADR-014, ADR-018, ADR-019 |
 
@@ -1970,6 +1971,83 @@ pelo `make smoke`, que não correu). Medido no ramo `feature/KAM-242-sem-swap` s
 
 ---
 
+## KAM-249 — A fila sem credencial na rede `data`: o Valkey com autenticação, e o S3 do `seaweedfs` medido
+
+| Campo | Valor |
+|---|---|
+| Epic | EPIC-08 — Topologia e Operação |
+| Fase | 1 |
+| Tipo | fix |
+| Prioridade | P1 |
+| Estimativa | M |
+| Dependências | KAM-076, KAM-247 |
+| Bloqueia | — |
+| Responsável sugerido | Plataforma/SRE |
+| Documentos de referência | `EPIC-03_Agent_Runtime_Verticais.md` (bloco KAM-247, decisões do fundador de 2026-11-23), `../docs/evidencia/KAM-247.md` §5, `../infra/compose/docker-compose.prod.yml` (`queue`, `seaweedfs`), `../docs/dividas-documentais.md` (linha 95) |
+
+### Contexto
+
+Credor do KAM-247, aberto no PR dele por decisão do fundador de 2026-11-23. A A1 do KAM-247 pôs o
+`litellm` na rede `data`, e a leitura do compose de `prod` mostrou o que isso alcança
+(`../docs/evidencia/KAM-247.md` §5): a **`queue` não pede credencial nenhuma** — o comando não tem
+`requirepass` nem ACL, e o `KAMBA_QUEUE_URL` dos serviços não leva credencial —, pelo que qualquer
+membro de `data` lê e injecta trabalhos BullMQ, a entrada e a saída de WhatsApp incluídas. O risco já
+existia para os quinze serviços de aplicação que estão em `data`; o proxy de LLM, que o E4 chama o
+componente de maior superfície de ataque, herda-o. E o S3 do `seaweedfs` (perfil `sto-proprio`) arranca
+sem `-s3.config`: que aceite pedidos anónimos é **PLAUSÍVEL** e não está medido.
+
+Fora deste ticket, por decisão do fundador: o `CONNECT` do PUBLIC às bases `postgres`,
+`kamba_chatwoot` e `kamba_medusa`, que fica na dívida 95.
+
+### Objectivo
+
+Que a fila da rede `data` só aceite quem apresenta credencial, e que se saiba, medido, se o S3 do
+`seaweedfs` aceita pedidos anónimos.
+
+### Critérios de Aceitação
+
+- [ ] A `queue` de `prod` e de `staging` exige credencial: um cliente sem ela recebe `NOAUTH` (ou o
+  equivalente da imagem fixada), medido.
+- [ ] Os serviços que usam a fila apresentam-na, vinda do cofre (`ADR-L002`), e o segredo está no
+  `../ops/secrets-inventory.yaml` com os consumidores certos; o compose recusa-se a arrancar sem ela.
+- [ ] O S3 do `seaweedfs`, levantado com o perfil `sto-proprio`, medido com um pedido anónimo: se
+  aceitar, fecha-se com uma configuração de identidades e mede-se a recusa; se recusar, o resultado
+  fica no anexo.
+- [ ] Um ensaio, ou uma regra do `compose_prod`, que falhe se a `queue` voltar a arrancar sem
+  credencial.
+
+### Detalhes Técnicos
+
+- **Componentes:** a fila (ADR-009), os serviços que a usam (o `worker-canal`, o AGR, o IDX, o lote do
+  onboarding e os outros membros de `data`), o STO.
+- **Esquema:** nenhum.
+- **A fila é reconstruível a partir do *outbox*** (ADR-009): mudar a credencial não perde mensagens,
+  mas reinicia os consumidores.
+
+### Testes Requeridos
+
+- Medição contra a imagem fixada da fila: com e sem credencial.
+- Medição do S3 anónimo com o perfil `sto-proprio`.
+- O canário da regra nova, se for uma regra.
+
+### Definition of Done
+
+- [ ] Critérios satisfeitos, com o comando de cada medição registado.
+- [ ] Sem segredos em ficheiro: a credencial pelo cofre.
+
+### Handoff para Claude Code
+
+```text
+És o executor do ticket KAM-249 da KAMBÁ (a fila sem credencial na rede data).
+Lê specs/EPIC-08_Topologia_Operacao.md (blocos KAM-076 e KAM-249), specs/EPIC-03_Agent_Runtime_Verticais.md
+(bloco KAM-247), docs/evidencia/KAM-247.md e infra/compose/docker-compose.prod.yml.
+Objectivo: a queue com credencial, apresentada por todos os serviços que a usam, e o S3 do seaweedfs medido.
+Regras: a credencial pelo cofre; o compose recusa-se a arrancar sem ela; nada de dados reais.
+Testes: a medição com e sem credencial na imagem fixada, o S3 anónimo, e o canário se houver regra nova.
+```
+
+---
+
 ## Riscos do Epic e itens NÃO VERIFICADOS
 
 | Risco / item | Estado | Decisão | Tratamento no epic |
@@ -2041,4 +2119,5 @@ pelo `make smoke`, que não correu). Medido no ramo `feature/KAM-242-sem-swap` s
 | 1.30 | Novembro 2026 | **KAM-242** acrescentado, no PR do **KAM-238** (EPIC-11), por decisão do fundador de 2026-11-22: o *compose* de `prod` passa a fixar o `memswap_limit` igual ao `mem_limit`, com o `compose_prod` a exigi-lo, e o *swap* do *host* fica registado (hoje NÃO VERIFICADO). Um bloco e uma linha na «Tabela Resumo», e a fase no §1. Arestas recíprocas: o `Bloqueia` do KAM-076 ganha o KAM-242 (e o do KAM-238, no EPIC-11). Número **provisório**, o maior da `main` (KAM-240) mais dois: renumera-se na integração se outro fundir antes. Nenhuma caixa deste epic muda. | Equipa KAMBÁ |
 | 1.31 | Novembro 2026 | **KAM-225**, emenda de **propagação** como a 1.25: o inventário fechado de módulos de métricas do `tools/obs_lint` ganha o `libs/py-core/src/kamba_core/registo_pg/metricas.py`, e a nota do bloco do KAM-080 passa a **34 módulos, 163 nomes**, 165 declaradas. Nenhuma caixa muda. | Equipa KAMBÁ |
 | 1.32 | Novembro 2026 | **Aresta recíproca, sem alteração de conteúdo:** o `Bloqueia` do KAM-078 ganha o **KAM-248** (EPIC-09), aberto no PR do KAM-233: o *token* de cada WABA chega ao `onboarding-lote` pelo lançador do cofre (ADR-L002) | Equipa KAMBÁ |
-| 1.33 | Novembro 2026 | **KAM-242 entregue.** O `memswap_limit` igual ao `mem_limit` nos 24 serviços do *compose* de `prod`, a regra `memoria-com-swap` do `compose_prod` com três casos de canário, e o *swap* do *host* registado como NÃO VERIFICADO, com o que o mede (uma linha nova nos «Riscos do Epic e itens NÃO VERIFICADOS»). Quatro caixas de cinco marcadas; a linha 2 do DoD fica parcial (o `make smoke` não correu). Anexo `../docs/evidencia/KAM-242.md`. Número **provisório**: renumera-se na integração. | Equipa KAMBÁ |
+| 1.33 | Novembro 2026 | **KAM-249** acrescentado, no PR do **KAM-247** (EPIC-03), que o abre e não o implementa, por decisão do fundador de 2026-11-23: a A1 do KAM-247 mantém-se, com um credor para a fila sem credencial na rede `data` e o S3 do `seaweedfs` por medir. Aresta recíproca: o `Bloqueia` do KAM-076 ganha o KAM-249. | Equipa KAMBÁ |
+| 1.34 | Novembro 2026 | **KAM-242 entregue.** O `memswap_limit` igual ao `mem_limit` nos 24 serviços do *compose* de `prod`, a regra `memoria-com-swap` do `compose_prod` com três casos de canário, e o *swap* do *host* registado como NÃO VERIFICADO, com o que o mede (uma linha nova nos «Riscos do Epic e itens NÃO VERIFICADOS»). Quatro caixas de cinco marcadas; a linha 2 do DoD fica parcial (o `make smoke` não correu). Anexo `../docs/evidencia/KAM-242.md`. Número **provisório**: renumera-se na integração. | Equipa KAMBÁ |
