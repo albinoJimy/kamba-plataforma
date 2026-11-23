@@ -18,19 +18,31 @@ campo era uma afirmacao sem medicao.
 
 O p95 foto -> rascunho do criterio 9 **nao** se le daqui: mede-se no *staging*
 com o fornecedor real, e o fornecedor real e o credor do bloco.
+
+## Por tenant, contra a base (KAM-231)
+
+O criterio 5 do KAM-231 pede os numeros **por tenant**, e mais um: o tempo da
+1.a foto ao 1.o produto publicado. `ler_do_tenant` le-os numa transaccao, como
+`kamba_app` e com o `app.tenant_id` do tenant (RLS `FORCE`): as `publicada`
+pela consulta de sempre (`SQL_PUBLICADAS_DO_TENANT`) e os dois instantes por
+agregado (`SQL_INSTANTES_DO_TENANT`) — o `criado_at` nao e campo da `Ingestao`,
+e acrescenta-lo mudava a leitura de todas as consultas do repositorio por uma
+metrica. O tempo e `None` sem publicacao, pela regra das razoes acima.
 """
 
 from __future__ import annotations
 
 from collections.abc import Iterable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
+from datetime import timedelta
 from decimal import Decimal
-from typing import Final
+from typing import Any, Final
 
+from .. import tenant_guard
 from . import estados
 from .extraccao import IA_VISAO
 from .pipeline import SUGESTAO
-from .repositorio import Ingestao
+from .repositorio import _COLUNAS, Ingestao, _de_linha
 
 #: O tecto do criterio 9, em USD por produto, repeticoes incluidas. *Proposta*.
 TECTO_DE_CUSTO_USD: Final = Decimal("0.02")
@@ -44,6 +56,21 @@ class Indicadores:
     custo_medio_usd: Decimal | None
     perguntas_medias: Decimal | None
     acima_do_tecto: int
+    #: KAM-231. Da 1.a foto recebida a 1.a publicacao confirmada; `None` sem
+    #: publicacao. So o `ler_do_tenant` o preenche.
+    primeira_foto_ate_primeiro_publicado: timedelta | None = None
+
+#: As `publicada` de um tenant, com as colunas de sempre.
+SQL_PUBLICADAS_DO_TENANT: Final = (
+    f"SELECT {_COLUNAS} FROM platform.catalog_ingestions "
+    "WHERE tenant_id = %s::uuid AND estado = 'publicada'"
+)
+
+#: A 1.a foto e a 1.a publicacao confirmada de um tenant.
+SQL_INSTANTES_DO_TENANT: Final = (
+    "SELECT min(criado_at), min(confirmado_at) FILTER (WHERE estado = 'publicada') "
+    "FROM platform.catalog_ingestions WHERE tenant_id = %s::uuid"
+)
 
 
 def _razao(numerador: int | Decimal, denominador: int) -> Decimal | None:
@@ -75,3 +102,18 @@ def calcular(ingestoes: Iterable[Ingestao]) -> Indicadores:
         perguntas_medias=_razao(sum(i.perguntas_feitas for i in publicadas), total),
         acima_do_tecto=sum(1 for i in publicadas if i.custo_llm_usd > TECTO_DE_CUSTO_USD),
     )
+
+
+def ler_do_tenant(ligacao: Any, tenant_id: str) -> Indicadores:
+    """Os indicadores de um tenant, numa transaccao com o `app.tenant_id` dele."""
+    with tenant_guard.tx(ligacao, tenant_id) as cursor:
+        cursor.execute(SQL_PUBLICADAS_DO_TENANT, (tenant_id,))
+        publicadas = [_de_linha(linha) for linha in cursor.fetchall()]
+        cursor.execute(SQL_INSTANTES_DO_TENANT, (tenant_id,))
+        primeira_foto, primeira_publicacao = cursor.fetchone() or (None, None)
+    tempo = (
+        primeira_publicacao - primeira_foto
+        if primeira_foto is not None and primeira_publicacao is not None
+        else None
+    )
+    return replace(calcular(publicadas), primeira_foto_ate_primeiro_publicado=tempo)

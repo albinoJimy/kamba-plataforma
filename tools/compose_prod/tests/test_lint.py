@@ -106,11 +106,17 @@ class TestArvoreReal(unittest.TestCase):
         # replica — tambem sem linha no bloco, pela mesma razao.
         do_kam_218 = dados.manifesto["offboarding-dados"].memoria_mib
         self.assertEqual(do_kam_218, 256)
+        # KAM-225: o recolector do registo do PostgreSQL, 48 MiB **medidos**
+        # (`docs/evidencia/KAM-225.md` §3), uma replica — tambem sem linha no
+        # bloco, pela mesma razao. Da folga de 102 MiB ate aos 80% consome 48.
+        do_kam_225 = dados.manifesto["registo-pg"].memoria_mib
+        self.assertEqual(do_kam_225, 48)
         self.assertEqual(
             soma,
-            do_bloco - do_worker_antes + do_worker_agora + do_kam_194 + do_kam_198 + do_kam_218,
+            do_bloco - do_worker_antes + do_worker_agora + do_kam_194 + do_kam_198 + do_kam_218
+            + do_kam_225,
         )
-        self.assertEqual(soma, 26112)
+        self.assertEqual(soma, 26160)
 
     def test_a_soma_cabe_nos_80_por_cento_da_ram_do_host(self) -> None:
         """Criterio 4: «a soma dos `mem_limit` <= 80% da RAM (<= 25,6 GB)»."""
@@ -185,10 +191,14 @@ class TestArvoreReal(unittest.TestCase):
         #
         # **KAM-218: de 22 para 23 presentes, e de 22 784 para 23 040 MiB.** O
         # processo das fases de dados do off-boarding (256 MiB, uma replica).
-        # Ficam 102 MiB de folga ate aos 80% no total do manifesto.
-        self.assertEqual(do_compose, 23040, "a reserva real dos 23 presentes, em MiB")
-        self.assertEqual(sum(s.memoria_mib for s in presentes.values()), 23040)
-        self.assertEqual(len(presentes), 23)
+        # Ficavam 102 MiB de folga ate aos 80% no total do manifesto.
+        #
+        # **KAM-225: de 23 para 24 presentes, e de 23 040 para 23 088 MiB.** O
+        # recolector do registo do PostgreSQL (48 MiB medidos, uma replica).
+        # Ficam 54 MiB de folga ate aos 80% no total do manifesto.
+        self.assertEqual(do_compose, 23088, "a reserva real dos 24 presentes, em MiB")
+        self.assertEqual(sum(s.memoria_mib for s in presentes.values()), 23088)
+        self.assertEqual(len(presentes), 24)
         self.assertLessEqual(do_compose, 26214.4)
 
     def test_cada_variavel_obrigatoria_tem_marcador(self) -> None:
@@ -326,6 +336,29 @@ class TestConfiguracaoInvalida(unittest.TestCase):
 class TestCli(unittest.TestCase):
     def test_lint_sobre_a_arvore_real_sai_zero(self) -> None:
         self.assertEqual(cli.main(["--root", str(RAIZ), "lint"]), 0)
+
+    def test_o_agr_sabe_o_ambiente_e_tem_o_sto_nos_dois_compose(self) -> None:
+        """KAM-231 (P4 A): sem `KAMBA_ENV` o AGR lia `dev` e a recusa sem o STO nao mordia."""
+        for nome, ambiente in (("prod", "prod"), ("staging", "staging")):
+            texto = (RAIZ / "infra" / "compose" / f"docker-compose.{nome}.yml").read_text(encoding="utf-8")
+            inicio = texto.index("\n  agr:\n")
+            fim = texto.index("\n  # KAM-194. O processo do IDX", inicio)
+            servico = texto[inicio:fim]
+            with self.subTest(compose=nome):
+                self.assertIn(f"      KAMBA_ENV: {ambiente}\n", servico)
+                for variavel in (
+                    "KAMBA_STORAGE_ENDPOINT", "KAMBA_STORAGE_BUCKET", "KAMBA_STORAGE_REGION",
+                    "KAMBA_STORAGE_DESTINO_COUNTRY", "KAMBA_STORAGE_DESTINO_PROVIDER",
+                    "KAMBA_SECRET_STORAGE_ACCESS_KEY_ID", "KAMBA_SECRET_STORAGE_SECRET_ACCESS_KEY",
+                ):
+                    self.assertIn(f"      {variavel}: ${{{variavel}:?", servico)
+
+    def test_um_destino_nao_verificado_leva_a_marca_no_gerado(self) -> None:
+        """KAM-231: a marca da `razao` passa ao Envoy, e so a dos destinos que a tem."""
+        texto = envoy.compor(RAIZ)
+        self.assertIn("# NAO VERIFICADO: `lookaside.fbsbx.com`", texto)
+        self.assertNotIn("# NAO VERIFICADO: `graph.facebook.com`", texto)
+        self.assertEqual(envoy._nao_verificados(RAIZ), ["lookaside.fbsbx.com"])
 
     def test_gerar_verificar_sobre_a_arvore_real_sai_zero(self) -> None:
         self.assertEqual(cli.main(["--root", str(RAIZ), "gerar", "--verificar"]), 0)

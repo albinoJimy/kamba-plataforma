@@ -290,6 +290,24 @@ servicos:
       sao o KAM-080**. Mede-se que `ops` existe e esta isolada; nao se afirma
       que ha observabilidade.
 
+  # KAM-225, decisao do fundador de 2026-11-21 (opcao A). **Tambem nao sai de
+  # nenhuma linha** do doc 09 §4.2, como os processos do KAM-187 e do KAM-194:
+  # a soma do manifesto, contando os pendentes, passa de 26 112 para 26 160 MiB
+  # (+48), 79,8% da RAM do *host*, dentro dos 80% do criterio 4 do KAM-076.
+  # Da folga de 102 MiB ate ao tecto de 26 214 consome 48; sobram 54, medidos
+  # sobre a `publico/main` em `b37d1ffe` e remedidos em `25babeca`, ja com o
+  # KAM-231, o KAM-238 e o KAM-122 — quem fundir depois remede.
+  - nome: registo-pg
+    estado: presente
+    rede: ops
+    memoria_mib: 48
+    razao: >-
+      O recolector do registo do PostgreSQL (KAM-225), `python -m
+      kamba_core.registo_pg` com a imagem do AGR: le o `jsonlog` do servidor
+      num volume so de leitura e conta a recusa `42501` sobre o tecto de
+      confianca. 48 MiB **medidos**: 28 MiB de RSS, e 32 MiB de pico do
+      cgroup sob rajada, com a sonda a correr (`docs/evidencia/KAM-225.md`).
+
   # ------------------------------------------------------------- pendentes
   - nome: medusa
     estado: pendente

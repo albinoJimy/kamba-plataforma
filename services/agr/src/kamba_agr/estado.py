@@ -128,6 +128,10 @@ def estado_inicial(invocacao: InvocacaoDoAgente) -> dict[str, Any]:
         # toque. Nao entra na janela `messages`: e um identificador que nos
         # emitimos, e nao texto do cliente (a nota do `guard_in`).
         "botao": invocacao.botao,
+        # KAM-231. O `asset_id` da foto do dono, **do turno**, pela razao do
+        # `botao`: uma foto de um turno anterior nao volta a criar rascunho no
+        # seguinte. E um identificador da `media_assets`, e nao entra na janela.
+        "asset_id": invocacao.asset_id,
         "messages": [],
         "summary": None,
         "stt": None,
@@ -360,6 +364,9 @@ class ConversaState(TypedDict, total=False):
     #: KAM-211. O `reply.id` da resposta interactiva deste turno, ou `None`.
     #: Ver o `estado_inicial`.
     botao: str | None
+    #: KAM-231. O `asset_id` da foto do dono deste turno, ou `None`. Ver o
+    #: `estado_inicial`.
+    asset_id: str | None
     messages: Annotated[list[Any], add_messages]
     summary: str | None
     stt: dict[str, Any] | None

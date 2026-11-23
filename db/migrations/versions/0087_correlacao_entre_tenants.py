@@ -92,7 +92,7 @@ from alembic import op
 import rls
 
 revision = "0087"
-down_revision = "0083"
+down_revision = "0086"
 branch_labels = None
 depends_on = None
 

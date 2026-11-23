@@ -302,6 +302,9 @@ class TestCatalogoReal(ComBase):
                 ("platform", "onboarding_case", "tenant_id"),
                 # KAM-092: os gates de activacao («onboarding_c» < «_g»).
                 ("platform", "onboarding_gate", "tenant_id"),
+                # KAM-236: o desafio do OTP («_g» < «_o» < «_s»). **Sem receita
+                # de sementes**, pela razao das tentativas.
+                ("platform", "onboarding_otp", "tenant_id"),
                 # KAM-094: as tentativas do teste ponta a ponta («_g» < «_s»).
                 # **Sem receita de sementes**, pela razao dos gates (ver
                 # `sementes.SEM_RECEITA_COM_RAZAO`).
@@ -334,6 +337,8 @@ class TestCatalogoReal(ComBase):
                 ("platform", "owner_notices", "tenant_id"),
                 # KAM-223: a troca de telefone do dono («owner_n» < «owner_p»).
                 ("platform", "owner_phone_changes", "tenant_id"),
+                # KAM-236: as revogacoes do painel («ow» < «pai» < «pay»).
+                ("platform", "painel_revogacao", "tenant_id"),
                 # KAM-052: a conta de pagamento, **depois** das do aviso ao
                 # dono e antes de `tenant_channels` ('o' < 'p' < 't'). E a
                 # unica desta lista com `tenant_id` **anulavel**, e entra
@@ -644,9 +649,17 @@ class TestCatalogoReal(ComBase):
                 ("offer_terms", "tenant_iso", "ALL", "{public}"),
                 # KAM-087: o caso de onboarding, com a `tenant_iso` sobre o
                 # `tenant_id` pre-alocado.
+                # KAM-236: a das buscas do registo, so de leitura, so para o
+                # dono das tabelas e so com a variavel que as cinco funcoes
+                # `SECURITY DEFINER` da `0084` ligam: e o que as deixa ver o caso
+                # de outro tenant, e so a elas (o X-04 mede o dono sem contexto).
+                # O `kamba_app` continua so com a `tenant_iso` («r» < «t»).
+                ("onboarding_case", "registo_busca", "SELECT", "{kamba_migrator}"),
                 ("onboarding_case", "tenant_iso", "ALL", "{public}"),
                 # KAM-092: os gates de activacao.
                 ("onboarding_gate", "tenant_iso", "ALL", "{public}"),
+                # KAM-236: o desafio do OTP, uma politica so.
+                ("onboarding_otp", "tenant_iso", "ALL", "{public}"),
                 # KAM-094: as tentativas do teste ponta a ponta.
                 ("onboarding_smoke", "tenant_iso", "ALL", "{public}"),
                 # KAM-044: as **quatro** das encomendas, e no `ORDER BY 1` o
@@ -668,6 +681,8 @@ class TestCatalogoReal(ComBase):
                 ("owner_notices", "tenant_iso", "ALL", "{public}"),
                 # KAM-223: a troca de telefone do dono, uma politica so.
                 ("owner_phone_changes", "tenant_iso", "ALL", "{public}"),
+                # KAM-236: as revogacoes do painel, uma politica so.
+                ("painel_revogacao", "tenant_iso", "ALL", "{public}"),
                 # KAM-052: **uma** politica e nao duas. O `docs/tecnica/04`
                 # secao 6.2 diz que a conta da KAMBA e «acessivel so ao papel
                 # de billing» e a tentacao era acrescentar uma segunda
@@ -946,6 +961,8 @@ class TestCatalogoReal(ComBase):
              "onboarding_case",
              # KAM-092: os gates de activacao.
              "onboarding_gate",
+             # KAM-236: o desafio do OTP.
+             "onboarding_otp",
              # KAM-094: as tentativas do teste ponta a ponta.
              "onboarding_smoke",
              # KAM-044: as quatro das encomendas, e a nota de cima vale outra
@@ -969,6 +986,8 @@ class TestCatalogoReal(ComBase):
              "owner_contacts", "owner_notices",
              # KAM-223: a troca de telefone do dono («owner_n» < «owner_p»).
              "owner_phone_changes",
+             # KAM-236: as revogacoes do painel («ow» < «pai» < «pay»).
+             "painel_revogacao",
              # KAM-052: a coluna de isolamento e `tenant_id` como nas outras
              # (nao e um caso de `ISOLADAS_POR_OUTRA_COLUNA`), e o predicado
              # leva o `NULLIF` da `db/rls.py` como todos.
@@ -1512,6 +1531,23 @@ class TestFicheirosDePolitica(unittest.TestCase):
         "platform.definir_dono(p_contact_id uuid, p_origem text, p_owner_channel_wa boolean)"
     )
 
+    #: As cinco buscas do registo do `onboarding-web` (KAM-236; decisao do
+    #: fundador de 2026-11-21, D1-A). Devolvem so o caso e o tenant (ou uma
+    #: contagem), e o `EXECUTE` e so do `kamba_app`. O `DEFINER` nao atravessa a
+    #: RLS sozinho: e a politica `registo_busca`, so para o dono, que o deixa ver
+    #: o caso de outro tenant. `../tests/test_inscricao_na_base_schema.py` mede as
+    #: colunas devolvidas e o `42501` dos outros papeis.
+    REGISTO_NA_ALLOWLIST = frozenset(
+        {
+            "platform.registo_caso_por_chave(p_chave text)",
+            "platform.registo_caso_vivo_por_nif(p_nif_hmac text)",
+            "platform.registo_casos_vivos_por_telefone(p_phone_hmac text)",
+            "platform.registo_contar_por_dispositivo("
+            "p_device_hash text, p_desde timestamp with time zone)",
+            "platform.registo_tenant_do_caso(p_id uuid)",
+        }
+    )
+
     #: KAM-208 (decisao do fundador de 2026-11-21, D2): a comparacao da
     #: correlacao entre tenants e a purga do pseudonimo sem tenant. O `EXECUTE`
     #: e so do `kamba_batch`, que nao tem privilegio nenhum na tabela; a funcao
@@ -1567,6 +1603,7 @@ class TestFicheirosDePolitica(unittest.TestCase):
                 self.DONO_NA_ALLOWLIST,
             }
             | set(self.MANUAIS_NA_ALLOWLIST)
+            | set(self.REGISTO_NA_ALLOWLIST)
             | set(self.CORRELACAO_NA_ALLOWLIST),
         )
 

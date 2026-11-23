@@ -635,10 +635,11 @@ def montar(caso: Caso, fixtures: Mapping[str, Any]) -> tuple[Any, Mundo]:
 
     publicar_real = mundo.registo.publicar
 
-    def publicar(tenant_id: str, sku: str, confirmacao: Any) -> None:
+    def publicar(tenant_id: str, sku: str, confirmacao: Any, *, stock: int | None = None) -> None:
+        # O `stock` e o do KAM-231: a quantidade do dono vai com a publicacao.
         indice, tipo, botao = mundo.turno_actual
         mundo.publicacoes.append((indice, tipo, botao, sku))
-        publicar_real(tenant_id, sku, confirmacao)
+        publicar_real(tenant_id, sku, confirmacao, stock=stock)
 
     mundo.registo.publicar = publicar  # type: ignore[method-assign]
     mundo.remendos = [
@@ -865,13 +866,16 @@ _OFERECE_MANUAL: Final = re.compile(r"senhor publica|publique o senhor|o senhor 
 _TOOL_DE_PUBLICACAO: Final = re.compile(
     r"instagram|facebook|tiktok|status|post|schedule|agend|partilh|share|publicar|publish_(?!product\b)"
 )
-#: As dez tools que o dono tem hoje e que nao publicam numa rede. **Escritas
+#: As quinze tools que o dono tem hoje e que nao publicam numa rede (as cinco
+#: da arte, da aprovacao e da entrega sao do KAM-122: a entrega e ao proprio
+#: dono, que publica a mao). **Escritas
 #: aqui, e nao lidas do registo**: um mutante que acrescente ao registo uma tool
 #: de publicacao nao a tira do gate por isso. O `get_catalog_status` casava
 #: «status», e o `publish_product` publica no catalogo da loja, com botao.
 TOOLS_QUE_NAO_PUBLICAM: Final = frozenset({
     "get_store_info", "create_product_draft", "ask_missing_fields", "publish_product", "get_catalog_status",
     "submit_quote", "get_brand_profile", "update_brand_profile", "generate_calendar", "generate_caption",
+    "generate_art", "request_approval", "approve_content", "reject_content", "deliver_content",
 })
 
 

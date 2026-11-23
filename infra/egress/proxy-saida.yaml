@@ -53,6 +53,17 @@ destinos:
       entrada), e o doc 09 §3.2 regra 2 nomeia este FQDN na allowlist.
     ticket: KAM-076
 
+  - fqdn: lookaside.fbsbx.com
+    porta: 443
+    protocolo: https
+    razao: >-
+      NAO VERIFICADO. Declarado pelo `worker-canal-entrada` (KAM-231): o
+      anfitriao do URL temporario da media do WhatsApp que a Graph devolve, de
+      onde o MED descarrega a foto do dono. Nao ha evidencia da API de media da
+      Meta; o codigo confere o anfitriao contra uma lista fechada. Decisao do
+      fundador de 2026-11-22 (opcao A).
+    ticket: KAM-231
+
   - fqdn: api.anthropic.com
     porta: 443
     protocolo: https

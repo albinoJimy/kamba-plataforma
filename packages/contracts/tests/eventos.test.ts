@@ -23,12 +23,12 @@ import { CATALOGO, type TipoDeEvento } from "../src/eventos.gerado.ts";
 const CONTRATOS = new URL("../../../contratos/eventos/", import.meta.url);
 
 /**
- * Os quarenta e cinco do dicionário §3.5: os trinta e oito da emenda 1.11, os
+ * Os quarenta e seis do dicionário §3.5: os trinta e oito da emenda 1.11, os
  * dois do KAM-050 (1.83), o `screening.violation_detected` da 1.84 (KAM-191), o
- * `billing.cycle_paid` do KAM-059, os dois `quote.*` do KAM-123 e o
- * `agent.replied` do KAM-224.
+ * `billing.cycle_paid` do KAM-059, os dois `quote.*` do KAM-123, o
+ * `agent.replied` do KAM-224 e o `content.approved` do KAM-122.
  */
-const ESPERADOS = 45;
+const ESPERADOS = 46;
 
 /**
  * As versões de um tipo, lidas da pasta.

@@ -655,7 +655,24 @@ dominios_historicos:
       1.129). O upgrade escreve as dezassete e o downgrade repoe as dezasseis
       da finalidade_das_condicoes; esta entrada cobre a segunda. O passo de
       descida recusa-se se houver destinos com essa finalidade. Renumerar a
-      revisao e mudar tambem o caminho desta entrada.
+      revisao e mudar tambem o caminho desta entrada. Desde o KAM-122 o upgrade
+      tambem e historico: escreve dezassete, e o dicionario declara dezoito.
+  - revisao: "db/migrations/versions/0085_arte_e_aprovacao_do_social.py"
+    tabela: "tenant_destinations"
+    coluna: "purpose"
+    ticket: "KAM-122"
+    data: "2026-11-21"
+    razao: >-
+      A revisao arte_e_aprovacao_do_social (KAM-122, decisao do fundador a
+      2026-11-21, D3 opcao A) acrescenta a geracao_de_imagem, a finalidade do
+      fornecedor que gera o fundo das artes do modulo social, pelos precedentes
+      do KAM-228 e do KAM-121 (um tratamento, uma finalidade), por DROP
+      CONSTRAINT mais ADD CONSTRAINT com o mesmo nome, e o dicionario §3.49
+      passa a declarar dezoito (emenda 1.137). O upgrade
+      escreve as dezoito e o downgrade repoe as dezassete da social_do_dono;
+      esta entrada cobre a segunda. O passo de descida recusa-se se houver
+      destinos com essa finalidade. Renumerar a revisao e mudar tambem o
+      caminho desta entrada.
   - revisao: "db/migrations/versions/0044_screening_de_categorias.py"
     tabela: "screening_decision"
     coluna: "sujeito_tipo"
@@ -709,6 +726,43 @@ dominios_historicos:
       order.contact_view escritas, porque o audit_log e append-only e nenhum
       papel tem DELETE. Renumerar a revisao e mudar tambem o caminho desta
       entrada.
+  - revisao: "db/migrations/versions/0042_retencao_e_purga.py"
+    tabela: "purge_log"
+    coluna: "motivo"
+    ticket: "KAM-233"
+    data: "2026-11-23"
+    razao: >-
+      A 0042 (KAM-071) criou o dominio com os sete motivos. A 0086 (KAM-233,
+      decisao do fundador de 2026-11-21, Q3 = B) acrescenta o oitavo,
+      branqueamento_sem_parecer, o motivo do kyc_check e do fraud_signals
+      retidos ate um parecer, por DROP CONSTRAINT mais ADD CONSTRAINT com o
+      mesmo nome, e o dicionario §3.55 passa a declarar oito (emenda 1.138). A
+      declaracao da 0042 fica historica.
+  - revisao: "db/migrations/versions/0086_purga_das_operacionais.py"
+    tabela: "purge_log"
+    coluna: "motivo"
+    ticket: "KAM-233"
+    data: "2026-11-23"
+    razao: >-
+      A revisao declara o dominio duas vezes: o upgrade escreve os oito, que e o
+      que o dicionario declara, e o downgrade repoe os sete da 0042. A segunda e
+      a que esta entrada cobre. O ADD CONSTRAINT da descida e sem NOT VALID: uma
+      linha com o motivo novo fa-lo falhar, e a descida para. Renumerar a
+      revisao e mudar tambem o caminho desta entrada.
+  - revisao: "db/migrations/versions/0086_purga_das_operacionais.py"
+    tabela: "audit_log"
+    coluna: "action"
+    ticket: "KAM-233"
+    data: "2026-11-23"
+    razao: >-
+      A 0086 (KAM-233, decisao do fundador de 2026-11-22, Q2b = A) acrescenta ao
+      dominio privacy.telefones_exportados, a decifra de um telefone para a
+      exportacao do off-boarding, e o dicionario §3.2 passa a declarar vinte e
+      uma (emenda 1.138). O upgrade escreve as vinte e uma; o downgrade repoe as
+      vinte da 0082, e e essa declaracao que esta entrada cobre. O passo de
+      descida recusa-se se houver linhas privacy.telefones_exportados escritas,
+      porque o audit_log e append-only e nenhum papel tem DELETE. Renumerar a
+      revisao e mudar tambem o caminho desta entrada.
   - revisao: "db/migrations/versions/0056_trust_e_sancoes.py"
     tabela: "ts_signal"
     coluna: "tipo"
@@ -718,7 +772,7 @@ dominios_historicos:
       A 0056 (KAM-097) declara os nove tipos de sinal. A 0087 (KAM-208,
       decisao do fundador de 2026-11-21, D6) acrescenta o
       comprador_noutra_loja_do_dono, e o dicionario §3.68 passa a declarar dez
-      (emenda 1.135). A 0056 continua a escrever os nove, que e um facto
+      (emenda 1.139). A 0056 continua a escrever os nove, que e um facto
       historico: depois de upgrade head a base tem os dez.
   - revisao: "db/migrations/versions/0087_correlacao_entre_tenants.py"
     tabela: "ts_signal"

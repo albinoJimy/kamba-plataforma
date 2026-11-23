@@ -79,11 +79,13 @@
  * **A Meta está ligada desde o KAM-218** (`portasDoOffboarding`): o
  * `CanalDaMetaPelaGraph` com o *token* de cada WABA lido do cofre
  * (`tokenDoWabaPeloCofre`, a `kek_token_cliente` e o ambiente que o lançador
- * do cofre enche, ADR-L002), pelo `proxy-saida`. **A revogação continua sem
- * adaptador** (`REVOGACAO_SEM_ADAPTADOR`): o LiteLLM, a Medusa e o Chatwoot não
- * têm cliente que a saga use, pelo que nenhum tenant tem o recurso e o passo é
- * `sem_recurso`. Uma fase que precise de uma porta sem adaptador falha pelo
- * nome e fica parada, com alerta — nunca «feita» sem o lado de fora saber.
+ * do cofre enche, ADR-L002), pelo `proxy-saida`. **A revogação está ligada
+ * desde o KAM-233** ao LiteLLM (a chave pelo alias) e ao Chatwoot (a conta
+ * suspensa), na rede interna; a Medusa continua sem adaptador (D3), e a saga
+ * não lhe deixa recurso. Uma fase que precise de uma porta sem adaptador falha
+ * pelo nome e fica parada, com alerta — nunca «feita» sem o lado de fora saber.
+ * **Um LiteLLM sem base também**: o proxy de `prod` arranca sem `DATABASE_URL`,
+ * responde 500 ao `/key/list` (medido), e a fase `revogacao` pára na chave.
  *
  * ## O aviso ao dono não sai deste processo, e é de propósito
  *
@@ -153,15 +155,29 @@ import { METRICAS_DA_GUARDA, comTenant } from "@kamba/core-ts/tenant_guard";
 import {
   CANAL_SEM_ADAPTADOR,
   CanalDaMetaPelaGraph,
+  ChaveDoLlmPeloProxy,
   CicloDoOffboarding,
   INTERVALO_DO_OFFBOARDING_POR_OMISSAO_MS,
   MetricasDoOffboarding,
   REVOGACAO_SEM_ADAPTADOR,
+  TELEFONES_SEM_ADAPTADOR,
+  telefonesPeloCofre,
   tokenDoWabaPeloCofre,
+  type PoolDaIdentidade,
+  type PortaDosTelefones,
   type CofreDoToken,
   type PortasDoCiclo,
   type ResultadoDoCicloDoOffboarding,
 } from "@kamba/core-ts/offboarding";
+import { ArquivoDoChatwoot, arquivarContaDoTenant } from "@kamba/core-ts/hnd";
+import type { PoolDaInscricao } from "@kamba/core-ts/inscricao";
+import { EnvKeyProvider, Identidade } from "@kamba/core-ts/identity";
+import {
+  criarStorageS3,
+  lerConfig as lerConfigDoStorage,
+  type CofreLeitor,
+  type StorageProvider,
+} from "@kamba/core-ts/storage";
 import { GraphHttp, versaoDaGraph } from "@kamba/core-ts/onboarding";
 import { ANFITRIAO_DA_GRAPH } from "@kamba/core-ts/outbound";
 import { EnvSecretProvider } from "@kamba/core-ts/secrets";
@@ -183,6 +199,7 @@ import { Hono } from "hono";
 import pg from "pg";
 
 import { SERVICE, VERSION } from "../meta.ts";
+import { RevogacoesNaBase } from "../painel/revogacoes_sql.ts";
 
 /** As variáveis que o processo lê. Nenhuma outra. */
 export const VARIAVEIS_DO_LOTE = {
@@ -340,9 +357,29 @@ export function lerConfiguracao(env: Ambiente): ConfiguracaoDoLote {
   };
 }
 
+/** As variáveis da revogação (KAM-233). A base de cada um, na rede interna. */
+export const VARIAVEIS_DA_REVOGACAO = {
+  litellm: "KAMBA_LLM_PROXY_URL",
+  chatwoot: "KAMBA_CHATWOOT_URL",
+} as const;
+
 /**
- * As portas do off-boarding deste processo (KAM-218, critério 3): a Meta ligada,
- * a revogação ainda sem adaptador.
+ * As portas do off-boarding deste processo (KAM-218, critério 3; KAM-233,
+ * critério 2): a Meta, o LiteLLM e o Chatwoot ligados.
+ *
+ * **A revogação** (decisão do fundador de 2026-11-21, Q1 = A): a chave do
+ * tenant apaga-se no proxy pelo alias, com a `litellm_master_key`, e a conta do
+ * Chatwoot do tenant suspende-se pela Platform API, com o
+ * `chatwoot_platform_token` — as duas pelo cofre, lidas **a cada chamada**, como
+ * o *token* do WABA, para que uma rotação não peça reinício. A conta lê-se da
+ * `handoff_accounts` pela ligação do lote (`arquivarContaDoTenant`, a mesma
+ * função do `archiveAccount` do `HandoffProvider`). Sem a base de um deles no
+ * ambiente, essa porta fica sem adaptador e a fase pára nela, com alerta. O
+ * canal da Medusa e a *inbox* continuam sem adaptador (D3, e a saga não os
+ * cria), e só se chamam quando a saga os registou. **As sessões do painel**
+ * cortam-se na `platform.painel_revogacao` da `0084` (KAM-236), pela ligação do
+ * `kamba_app` e sob a RLS do tenant que sai (`RevogacoesNaBase`, a mesma do
+ * painel): o `kamba_batch` não tem `INSERT` nela.
  *
  * O *token* de cada WABA lê-se do cofre a cada fase (`tokenDoWabaPeloCofre`),
  * pela ligação do lote — a leitura da `tenant_channels` não tem tenant do
@@ -359,6 +396,10 @@ export function portasDoOffboarding(o: {
   readonly cofre?: CofreDoToken;
   /** O `fetch` da Graph. Porta para os ensaios. */
   readonly buscar?: typeof fetch;
+  /** Os telefones para a exportação (KAM-233). Sem ela, o fecho dos `pendentes` pára. */
+  readonly telefones?: PortaDosTelefones;
+  /** As ligações do `kamba_app`, para o corte das sessões do painel. Sem elas, o passo pára. */
+  readonly app?: PoolDaInscricao;
 }): PortasDoCiclo {
   const graph: Pick<GraphHttp, "subscrever" | "anularSubscricao"> = new GraphHttp({
     base: ANFITRIAO_DA_GRAPH,
@@ -368,10 +409,84 @@ export function portasDoOffboarding(o: {
     ...(o.buscar === undefined ? {} : { buscar: o.buscar }),
   });
   const cofre = o.cofre ?? new EnvSecretProvider({ ambiente: o.ambiente, env: o.env as NodeJS.ProcessEnv });
+  const buscar = o.buscar === undefined ? {} : { buscar: o.buscar };
+  const baseDoLlm = (o.env[VARIAVEIS_DA_REVOGACAO.litellm] ?? "").trim();
+  const baseDoChatwoot = (o.env[VARIAVEIS_DA_REVOGACAO.chatwoot] ?? "").trim();
+  const proxy = async () =>
+    new ChaveDoLlmPeloProxy({ base: baseDoLlm, chaveMestra: await cofre.get("litellm_master_key"), ...buscar });
   return {
     canal: new CanalDaMetaPelaGraph(graph, tokenDoWabaPeloCofre({ bd: o.lote, cofre })),
-    revogacao: REVOGACAO_SEM_ADAPTADOR,
+    telefones: o.telefones ?? TELEFONES_SEM_ADAPTADOR,
+    revogacao: {
+      ...REVOGACAO_SEM_ADAPTADOR,
+      chaveDeLlm:
+        baseDoLlm === ""
+          ? REVOGACAO_SEM_ADAPTADOR.chaveDeLlm
+          : {
+              revogarDoTenant: async (tenantId) => (await proxy()).revogarDoTenant(tenantId),
+            },
+      contaDeAtendimento:
+        baseDoChatwoot === ""
+          ? REVOGACAO_SEM_ADAPTADOR.contaDeAtendimento
+          : {
+              archiveAccount: async (tenantId) =>
+                arquivarContaDoTenant({
+                  bd: o.lote,
+                  arquivo: new ArquivoDoChatwoot({
+                    base: baseDoChatwoot,
+                    tokenDaPlataforma: await cofre.get("chatwoot_platform_token"),
+                    ...buscar,
+                  }),
+                  tenantId,
+                  provedor: "chatwoot",
+                }),
+            },
+      sessoesDoPainel: o.app === undefined ? REVOGACAO_SEM_ADAPTADOR.sessoesDoPainel : new RevogacoesNaBase(o.app),
+    },
   };
+}
+
+/** A cadeia de ligação do `kamba_identity`, para os telefones da exportação (KAM-233). */
+export const VARIAVEL_DA_IDENTIDADE_DO_LOTE = "KAMBA_LOTE_IDENTITY_DB_URL";
+
+/**
+ * Os telefones para a exportação do off-boarding (KAM-233; decisões do fundador
+ * de 2026-11-21, Q2 = B, e de 2026-11-22, Q2b = A): o cofre de contactos como
+ * `kamba_identity`, com a `kek_contact_dek` e **só** o `lerEndpoints` (o
+ * arranque confere só a KEK, como o COM do KAM-206), e o STO do tenant com o
+ * par de credenciais e o destino ADR-008 do ambiente — os mesmos do
+ * `offboarding-dados`, que lê o objecto.
+ *
+ * **O papel confere-se antes**: uma `KAMBA_LOTE_IDENTITY_DB_URL` com outro papel
+ * decifrava sob uma RLS que não é a do cofre. Uma falha aqui **não** derruba o
+ * processo de lote — a casca regista-a e monta os telefones sem adaptador, e o
+ * fecho dos `pendentes` pára nele, com alerta.
+ */
+export async function telefonesDoLote(o: {
+  readonly identidades: PoolDaIdentidade & { query<T>(sql: string): Promise<{ readonly rows: readonly T[] }> };
+  readonly ambiente: "dev" | "staging" | "prod";
+  readonly env: Ambiente;
+  /** O cofre. Por omissão, o do ambiente do processo (ADR-L002). */
+  readonly cofre?: CofreLeitor;
+  /** Portas para os ensaios. */
+  readonly identidade?: Pick<Identidade, "lerEndpoints">;
+  readonly armazenamento?: StorageProvider;
+}): Promise<PortaDosTelefones> {
+  const papel = await o.identidades.query<{ papel: string }>("SELECT current_user::text AS papel");
+  if (papel.rows[0]?.papel !== "kamba_identity") {
+    throw new PapelErradoError(VARIAVEL_DA_IDENTIDADE_DO_LOTE, "kamba_identity");
+  }
+  const env = o.env as NodeJS.ProcessEnv;
+  const identidade =
+    o.identidade ??
+    (await Identidade.arrancar({ chaves: new EnvKeyProvider({ ambiente: o.ambiente, env }), env, soLeEndpoints: true }));
+  const armazenamento =
+    o.armazenamento ??
+    criarStorageS3({
+      config: lerConfigDoStorage({ ambiente: o.ambiente, env }),
+      secrets: o.cofre ?? new EnvSecretProvider({ ambiente: o.ambiente, env }),
+    });
+  return telefonesPeloCofre({ pool: o.identidades, identidade, armazenamento });
 }
 
 /** Uma ligação que não é do papel que a variável promete. */
@@ -739,7 +854,11 @@ export function montarProcesso(o: OpcoesDoProcesso): ProcessoDeLote {
   const metricasDoOffboarding = o.metricasDoOffboarding ?? new MetricasDoOffboarding();
   const cicloDoOffboarding = new CicloDoOffboarding({
     lote: o.lote,
-    portas: o.portasDoOffboarding ?? { canal: CANAL_SEM_ADAPTADOR, revogacao: REVOGACAO_SEM_ADAPTADOR },
+    portas: o.portasDoOffboarding ?? {
+      canal: CANAL_SEM_ADAPTADOR,
+      revogacao: REVOGACAO_SEM_ADAPTADOR,
+      telefones: TELEFONES_SEM_ADAPTADOR,
+    },
     metricas: metricasDoOffboarding,
     ...(o.relogio === undefined ? {} : { relogio: o.relogio }),
   });

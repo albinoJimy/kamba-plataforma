@@ -531,7 +531,7 @@ export function rotasDoPainel(opcoes: OpcoesDoPainel): Hono {
     metricas.pedido("sair");
     const n = nonce();
     const sessao = await sessaoDe(c.req.header("cookie"));
-    if (sessao !== null) await opcoes.revogacoes.revogar(sessao.s.sid);
+    if (sessao !== null) await opcoes.revogacoes.revogar(sessao.s);
     log?.info({ outcome: "painel_sessao_revogada" });
     // **Apaga as duas sessões, e não só a do painel.** A do registo (24 h) ficava
     // no navegador, e um `GET /painel/entrar` a seguir cunhava logo outra de 30

@@ -40,7 +40,10 @@
  * chaves do contacto vêm do ambiente que o lançador do cofre enche, e o
  * `Identidade.arrancar` recusa em `prod` sem o *pepper* ou sem a KEK das DEK.
  * Não está no *compose* de `prod` pelo orçamento de memória do conjunto
- * reduzido, que é do fundador (bloco do KAM-215, decisões do executor).
+ * reduzido (bloco do KAM-215, decisões do executor). O fundador decidiu a
+ * 2026-11-21 que fica de fora até se medir o pico de memória dele. O KAM-238
+ * mediu-o (`docs/evidencia/KAM-238.md`) e não cabe na folga que sobra; o credor
+ * que o baixa é o KAM-241 (decisão do fundador de 2026-11-22).
  */
 
 import { healthz } from "@kamba/core-ts";

@@ -95,6 +95,21 @@ TIMEOUT_READ_POR_OMISSAO_MS: Final = 2_000
 VARIAVEL_DE_TIMEOUT_ESCRITA: Final = "KAMBA_TLS_TIMEOUT_ESCRITA_MS"
 TIMEOUT_ESCRITA_POR_OMISSAO_MS: Final = 8_000
 
+#: Os tectos **por tool**, em milissegundos: uma lista fechada, que substitui o
+#: tecto da classe so para as tools nela (emenda ao §6.5, KAM-231).
+#:
+#: Decisao do fundador de 2026-11-21 (P3, opcao A): o `create_product_draft` de
+#: uma foto corre a fonte, a limpeza, a qualidade, o *gate* e a visao, e cabe
+#: em 25 s e nao em 8. Recusadas: duas fases (B) e subir o tecto de todas as
+#: escritas (C). **Uma entrada nova aqui e uma emenda ao §6.5**, e so uma tool
+#: `write` a pode ter (o arranque recusa outra classe). O tecto vale para a
+#: tool, e uma chamada sem foto (a resposta a uma pergunta) acaba muito antes
+#: dele: e um maximo, nao um alvo. O turno avisa o dono antes de a chamar
+#: («estou a preparar», `verticais/dono/catalogo.py`).
+TECTOS_POR_TOOL: Final = {
+    "create_product_draft": 25_000,
+}
+
 #: Quantas tomadas a camada abre. Dicionario §3.27.
 #:
 #: **Nao e uma.** A primeira versao tinha uma ligacao e um `asyncio.Lock`, como
@@ -482,6 +497,14 @@ class ToolLayer:
         dormir: Callable[[float], None] = time.sleep,
     ) -> None:
         self.catalogo = catalogo
+        # Um tecto proprio so para uma tool `write` (KAM-231): uma `read` com
+        # 25 s era uma leitura que prende uma tomada o tempo de uma escrita.
+        for nome in TECTOS_POR_TOOL:
+            especificacao = catalogo.get(nome)
+            if especificacao is not None and especificacao.klass != "write":
+                raise ConfiguracaoDaCamadaError(
+                    f"`{nome}` tem tecto proprio e e `{especificacao.klass}`: so uma `write` o pode ter"
+                )
         self._abrir_ligacao = abrir_ligacao
         # O tecto do §6.3 (`poll <= 3 s`) e o `dormir` que o espera. Sao
         # parametros e nao variaveis de ambiente, ao contrario dos tectos das
@@ -639,8 +662,9 @@ class ToolLayer:
         era deixar oito segundos a um nome inventado.
         """
         especificacao = self.catalogo.get(nome)
-        klass = especificacao.klass if especificacao is not None else "read"
-        return self.timeout_de(klass) + MARGEM_DO_TECTO_MS
+        if especificacao is None:
+            return self.timeout_de("read") + MARGEM_DO_TECTO_MS
+        return self.tecto_de(especificacao) + MARGEM_DO_TECTO_MS
 
     def _devolver(self, tarefa: "asyncio.Task[Any]") -> None:
         """Devolve a vaga de uma *thread* que acabou depois de a espera estourar.
@@ -913,7 +937,7 @@ class ToolLayer:
         pedido = Pedido(
             ctx=inv.ctx,
             args=inv.args,
-            timeout_ms=self.timeout_de(especificacao.klass),
+            timeout_ms=self.tecto_de(especificacao),
             # O `idx` tambem (KAM-061): no Piloto o indice vive na base da
             # plataforma (ADR-006), e o `search_catalog` le-o como o
             # `get_store_info` le a `platform.tenants` — sob `tenant_guard.tx`.
@@ -923,7 +947,7 @@ class ToolLayer:
             prazo=(
                 None
                 if inv.inicio_da_espera is None
-                else inv.inicio_da_espera + self.timeout_de(especificacao.klass) / 1000
+                else inv.inicio_da_espera + self.tecto_de(especificacao) / 1000
             ),
             largar_tomada=(
                 (lambda trabalho: self._largar_tomada(inv, trabalho))
@@ -1005,6 +1029,10 @@ class ToolLayer:
     def timeout_de(self, klass: str) -> int:
         """2 s para `read`, 8 s para `write` e `money` (§6.5)."""
         return self._timeout_read if klass == "read" else self._timeout_escrita
+
+    def tecto_de(self, especificacao: EspecificacaoDeTool) -> int:
+        """O tecto da tool: o da lista fechada (`TECTOS_POR_TOOL`), ou o da classe."""
+        return TECTOS_POR_TOOL.get(especificacao.nome, self.timeout_de(especificacao.klass))
 
     # ------------------------------------------------------------- auditoria
     def registar_se_falta(

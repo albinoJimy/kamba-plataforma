@@ -1114,6 +1114,23 @@ test("KAM-119: o publish-product passa o tenant do cabecalho e a confirmacao com
   ]);
 });
 
+test("KAM-231: o publish-product passa a quantidade do dono, e so um inteiro nao negativo", async () => {
+  publicacoes.length = 0;
+  const { aplicacao, chamadas } = app();
+  const r = await aplicacao.fetch(
+    pedido("/internal/publish-product", { ...CTX_DO_CORPO, ...PUBLICACAO_BOA, stock: 12 }, BONS),
+  );
+  assert.equal(r.status, 200);
+  assert.equal((publicacoes[0] as { pedido: { stock?: number } }).pedido.stock, 12);
+  for (const stock of [-1, 1.5, "12", null, true]) {
+    const mau = await aplicacao.fetch(
+      pedido("/internal/publish-product", { ...CTX_DO_CORPO, ...PUBLICACAO_BOA, stock }, BONS),
+    );
+    assert.equal(mau.status, 400, JSON.stringify(stock));
+  }
+  assert.equal(chamadas.contagem.get("publicarProduto"), 1);
+});
+
 test("KAM-119: um corpo de publish-product que nao valida da 400, e a operacao nao corre", async () => {
   const { aplicacao, chamadas } = app();
   const maus: Record<string, unknown>[] = [

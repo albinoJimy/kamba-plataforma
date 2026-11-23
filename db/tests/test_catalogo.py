@@ -798,11 +798,20 @@ class TestConvencoes(ComBase):
                 # («onboarding_cap» < «onboarding_cas»).
                 ("onboarding_capacity", "unica", "boolean", "true"),
                 ("onboarding_case", "id", "uuid", "gen_random_uuid()"),
+                # KAM-236 (revisao da inscricao na base): os contadores do
+                # registo tem chave **natural**, a propria chave da janela
+                # (`rede:<hmac>`, `orcamento`...), sem tenant: o `INSERT ... ON
+                # CONFLICT (chave)` e a atomicidade da porta («_cas» < «_con»).
+                ("onboarding_contador", "chave", "text", None),
                 # KAM-092: o gate de activacao tem chave **natural e composta**,
                 # `(onboarding_id, gate)` — um valor por gate de cada caso, que e
                 # o «ultimo valor» do bloco. Depois do caso («_c» < «_g»).
                 ("onboarding_gate", "gate", "text", None),
                 ("onboarding_gate", "onboarding_id", "uuid", None),
+                # KAM-236: o desafio do OTP, um por caso: a chave e o caso, e o
+                # `guardar` substitui pelo `ON CONFLICT (onboarding_id)`
+                # («_g» < «_o»).
+                ("onboarding_otp", "onboarding_id", "uuid", None),
                 # KAM-094 (revisao do catalogo minimo): a tentativa do teste,
                 # `uuid` gerada — um caso tem muitas. Depois do gate («_g» < «_s»).
                 ("onboarding_smoke", "id", "uuid", "gen_random_uuid()"),
@@ -848,6 +857,11 @@ class TestConvencoes(ComBase):
                 ("owner_notices", "id", "uuid", "gen_random_uuid()"),
                 # KAM-223: a troca de telefone do dono («owner_n» < «owner_p»).
                 ("owner_phone_changes", "change_id", "uuid", "gen_random_uuid()"),
+                # KAM-236: as revogacoes do painel, `uuid` gerada; a chave de
+                # negocio esta nos dois indices unicos parciais
+                # (`painel_revogacao_sid_uq`, `painel_revogacao_corte_uq`)
+                # («ow» < «pai» < «pay»).
+                ("painel_revogacao", "revogacao_id", "uuid", "gen_random_uuid()"),
                 # KAM-052: a chave e um `uuid` gerado, e a chave de negocio
                 # esta ao lado, no indice unico parcial
                 # `payment_accounts_um_ativo` sobre `(tenant_id, provider)`.
@@ -1542,6 +1556,12 @@ class TestConvencoes(ComBase):
              "brand_profile",
              "content_calendar",
              "content_items",
+             # KAM-236 (revisao da inscricao na base). O desafio do OTP pelo
+             # `onboarding_otp_tenant_idx (tenant_id)`, com a FK composta ao
+             # caso; as revogacoes pelo `painel_revogacao_sid_uq (tenant_id,
+             # sid)` e o `painel_revogacao_corte_uq (tenant_id)`, sem FK.
+             "onboarding_otp",
+             "painel_revogacao",
              # KAM-208 (revisao da correlacao entre tenants). Pela chave
              # primaria `(tenant_id, contact_id)`. **Com** FK para `tenants` e
              # a composta para o contacto.
@@ -2251,9 +2271,13 @@ class TestConvencoes(ComBase):
         # cada uma das tres, e a composta `content_items_calendario_fk`: um
         # item de um tenant nao aponta para o calendario de outro.
         #
-        # **124** desde a revisao da correlacao entre tenants (KAM-208): a do
+        # **123** desde a revisao da inscricao na base (KAM-236): a composta
+        # `onboarding_otp_caso_fk (onboarding_id, tenant_id)`, que prende o
+        # desafio ao caso e ao tenant dele. A `painel_revogacao` nao tem FK: o
+        # tenant de uma sessao do painel pode ainda nao ter linha em `tenants`.
+        # **125** desde a revisao da correlacao entre tenants (KAM-208): a do
         # tenant e a composta do contacto da `contact_xtenant_pseudonym`.
-        self.assertEqual(len(linhas), 124)
+        self.assertEqual(len(linhas), 125)
         for nome, alvo in linhas:
             with self.subTest(fk=nome):
                 self.assertTrue(alvo.startswith("platform."), alvo)

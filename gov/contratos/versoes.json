@@ -39,6 +39,12 @@
       "sha256": "58f52cb33a658810d9680ee58354bae87f34df2d1ca1baa52831a699f48ec6c9"
     },
     {
+      "tipo": "subprocessadores",
+      "versao": "0.5.0",
+      "ficheiro": "docs/publico/subprocessadores.md",
+      "sha256": "31946fda9623ff7e7e93a03dd4b45b955f703235a8215fce4d1393ec5038aed4"
+    },
+    {
       "tipo": "tos",
       "versao": "0.1.0",
       "ficheiro": "gov/contratos/tos.md",

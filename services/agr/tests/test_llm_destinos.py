@@ -124,7 +124,7 @@ class TestFinalidades(unittest.TestCase):
 
         Deste lado interessam seis (a `classificacao_de_catalogo` do screening
         desde o KAM-195, a `classificacao_de_condicoes` do mesmo papel desde o
-        KAM-230 e a `classificacao_de_conteudo` desde o KAM-121); a coluna tem dezassete, porque o *gate* corre em sete pontos e
+        KAM-230 e a `classificacao_de_conteudo` desde o KAM-121); a coluna tem dezoito, porque o *gate* corre em sete pontos e
         so um e o *gateway* de modelos. **Subconjunto proprio**, e afirma-se nos
         dois sentidos: um valor daqui que a coluna nao conheca nunca teria linha
         a consultar, e a coluna ter mais do que estes seis e o desenho.

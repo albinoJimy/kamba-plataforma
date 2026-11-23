@@ -22,6 +22,7 @@ from pathlib import Path
 
 from kamba_core.offboarding import (
     CAMINHOS_DO_ENCERRAMENTO,
+    RETIDAS_POR_PARECER,
     emitir_certificado,
     TABELAS_DOS_CONTACTOS,
     FaseForaDeOrdem,
@@ -35,7 +36,13 @@ from kamba_core.offboarding import (
     subestado,
     verificar_certificado,
 )
-from kamba_core.offboarding.certificado import FUNDAMENTO_FISCAL, assinar, montar
+from kamba_core.offboarding.certificado import (
+    FUNDAMENTO_BRANQUEAMENTO,
+    FUNDAMENTO_CASO_DE_ONBOARDING,
+    FUNDAMENTO_FISCAL,
+    assinar,
+    montar,
+)
 from kamba_core.offboarding.contrato import LinhaDaFase
 from kamba_core.offboarding.exportacao import COLECCOES, RAZAO_SEM_CATALOGO
 from kamba_core.offboarding.purga import sem_caminho
@@ -197,6 +204,29 @@ def fases(**estados: str) -> dict[str, LinhaDaFase]:
     return saida
 
 
+#: Os telefones de ensaio, ficticios, com o 999 que a UIT nao atribui.
+TELEFONES_DE_ENSAIO = [{"contact_id": "c1", "finalidade": "entrega", "telefone": "+244999000111"}]
+
+
+def com_telefones(sto, tenant: str, linhas_fases: dict[str, LinhaDaFase], linhas=None,
+                  documento: dict | None = None) -> dict[str, LinhaDaFase]:
+    """O que o fecho dos `pendentes` deixa (KAM-233): o objecto no STO e a chave na fase."""
+    from kamba_core.storage.chave import nova_chave
+    from kamba_core.storage.port import Ctx, ObjectMeta
+
+    ctx = Ctx(tenant)
+    chave = nova_chave(ctx, "dsar", D0)
+    corpo = documento if documento is not None else {
+        "coleccao": "telefones", "tenant_id": tenant,
+        "linhas": TELEFONES_DE_ENSAIO if linhas is None else linhas}
+    sto.put(ctx, chave, json.dumps(corpo).encode("utf-8"),
+            ObjectMeta("application/json", "dsar", D0 + timedelta(days=30)))
+    p = linhas_fases["pendentes"]
+    linhas_fases["pendentes"] = LinhaDaFase(
+        "pendentes", p.estado, p.prazo_at, {**p.resultado, "telefones": {"chave": chave, "contactos": 1, "telefones": 1}})
+    return linhas_fases
+
+
 def ate_a_purga() -> dict[str, LinhaDaFase]:
     return fases(pendentes="concluida", canal="concluida", exportacao="concluida", revogacao="concluida")
 
@@ -226,7 +256,7 @@ class TestPacote(unittest.TestCase):
         for f in manifesto["ficheiros"]:
             self.assertEqual(hashlib.sha256(ficheiros[f["nome"]]).hexdigest(), f["sha256"])
             self.assertEqual(len(ficheiros[f["nome"]]), f["bytes"])
-        self.assertEqual(manifesto["versao"], "1.2.0")
+        self.assertEqual(manifesto["versao"], "1.3.0")
         self.assertEqual(manifesto["coleccoes"], {"clientes": 1, "encomendas": 1, "ficheiros": 2})
         self.assertEqual(manifesto["indisponiveis"], [{"coleccao": "catalogo", "razao": RAZAO_SEM_CATALOGO}])
 
@@ -281,8 +311,37 @@ class TestLigacao(unittest.TestCase):
 class TestClassesARetirEReter(unittest.TestCase):
     def test_os_caminhos_e_o_resto_sao_a_classe_relacao_inteira(self) -> None:
         relacao = [t.nome for t in politica.classe("relacao").tabelas]
-        com = [c.tabela for c in CAMINHOS_DO_ENCERRAMENTO]
-        self.assertEqual(sorted(com + list(TABELAS_DOS_CONTACTOS) + list(sem_caminho())), sorted(relacao))
+        # As `antes` de cada caminho contam quando sao da classe (o conteudo do
+        # calendario, KAM-233); as que nao sao (as mensagens de uma conversa)
+        # ficam fora da conta.
+        com = [t for c in CAMINHOS_DO_ENCERRAMENTO for t in c.tabelas if t in relacao]
+        self.assertEqual(
+            sorted(com + list(TABELAS_DOS_CONTACTOS) + list(RETIDAS_POR_PARECER) + list(sem_caminho())),
+            sorted(relacao),
+        )
+        # Nenhuma tabela em dois sitios: apagada e retida, ou retida e sem caminho.
+        self.assertEqual(len(com + list(RETIDAS_POR_PARECER) + list(sem_caminho())),
+                         len(set(com) | set(RETIDAS_POR_PARECER) | set(sem_caminho())))
+
+    def test_as_operacionais_saem_e_o_kyc_e_a_fraude_ficam_por_parecer(self) -> None:
+        """KAM-233, decisao do fundador de 2026-11-21 (Q3 = B), a lista dela."""
+        tabelas = {t for c in CAMINHOS_DO_ENCERRAMENTO for t in c.tabelas}
+        for operacional in (
+            "platform.onboarding_gate", "platform.onboarding_smoke", "platform.waitlist_entry",
+            "platform.catalog_ingestions", "platform.image_jobs", "platform.owner_actions",
+            "platform.owner_phone_changes", "platform.quote_requests", "platform.brand_profile",
+            "platform.content_calendar", "platform.content_items",
+        ):
+            with self.subTest(tabela=operacional):
+                self.assertIn(operacional, tabelas)
+        self.assertEqual(RETIDAS_POR_PARECER, ("platform.kyc_check", "platform.fraud_signals"))
+        # O caso fica: tres provas lhe apontam por FK (ver a nota da `purga`).
+        self.assertIn("platform.onboarding_case", sem_caminho())
+        # A ordem das FK: o pedido de orcamento antes da conversa, o conteudo
+        # antes do calendario.
+        ordem = [t for c in CAMINHOS_DO_ENCERRAMENTO for t in c.tabelas]
+        self.assertLess(ordem.index("platform.quote_requests"), ordem.index("platform.conversations"))
+        self.assertLess(ordem.index("platform.content_items"), ordem.index("platform.content_calendar"))
 
     def test_nenhuma_tabela_fiscal_tem_caminho(self) -> None:
         fiscais = {t.nome for c in politica.POLITICA if c.fiscal for t in c.tabelas}
@@ -316,9 +375,15 @@ class TestPurga(unittest.TestCase):
         tabelas = {t for c in CAMINHOS_DO_ENCERRAMENTO for t in c.tabelas}
         self.assertEqual(set(base.apagadas), tabelas)
         self.assertEqual(r["apagadas"]["platform.contacts"], 5)
-        self.assertEqual(set(r["retidas"]), set(sem_caminho()))
+        self.assertEqual(set(r["retidas"]), set(sem_caminho()) | set(RETIDAS_POR_PARECER))
         self.assertEqual(base.fases[A]["purga"].estado, "concluida")
         resultados = {(p[2], p[5]) for p in base.purge_log}
+        motivos = {p[2]: p[6] for p in base.purge_log}
+        for retida in RETIDAS_POR_PARECER:
+            with self.subTest(retida=retida):
+                self.assertIn((retida, "retida"), resultados)
+                self.assertEqual(motivos[retida], "branqueamento_sem_parecer")
+                self.assertNotIn(retida, base.apagadas)
         self.assertIn(("platform.conversations", "ok"), resultados)
         self.assertIn(("platform.tenants", "recusada"), resultados)
         # Repetir devolve o mesmo e nao apaga outra vez.
@@ -429,8 +494,8 @@ class TestPurga(unittest.TestCase):
 
 class TestExportacao(unittest.TestCase):
     def test_gera_o_pacote_e_conclui_e_audita(self) -> None:
-        base = BaseFalsa({A: fases(pendentes="concluida")})
         sto = ArmazenamentoPorTenant(MotorEmMemoria())
+        base = BaseFalsa({A: com_telefones(sto, A, fases(pendentes="concluida"))})
         r = exportar(lambda: Ligacao(base), lambda: Ligacao(base), A, sto, D0 + timedelta(days=2))
         self.assertEqual(r["geracao"], 1)
         self.assertEqual(base.fases[A]["exportacao"].estado, "concluida")
@@ -484,6 +549,23 @@ class TestCertificado(unittest.TestCase):
         self.assertTrue(all(x["fundamento"] for x in d["retidas"]))
         self.assertIn(FUNDAMENTO_FISCAL, {x["fundamento"] for x in d["retidas"]})
         self.assertEqual(d["prazo_fiscal"]["estado"], "NAO VERIFICADO")
+
+    def test_o_kyc_retido_por_parecer_leva_o_fundamento_do_branqueamento(self) -> None:
+        """KAM-233 (Q3 = B): o fundamento sai do motivo, e nao do nome da tabela."""
+        registos = [("platform.kyc_check", "retida", "branqueamento_sem_parecer", 0),
+                    ("platform.fraud_signals", "retida", "branqueamento_sem_parecer", 0),
+                    ("platform.onboarding_case", "recusada", "sem_caminho", 0)]
+        d = montar(A, D0, registos, copias_expiram_em_dias=35, anos_fiscais=None)
+        por_tabela = {x["tabela"]: x["fundamento"] for x in d["retidas"] if "tabela" in x}
+        self.assertEqual(por_tabela["platform.kyc_check"], FUNDAMENTO_BRANQUEAMENTO)
+        self.assertEqual(por_tabela["platform.fraud_signals"], FUNDAMENTO_BRANQUEAMENTO)
+        self.assertNotEqual(por_tabela["platform.onboarding_case"], FUNDAMENTO_BRANQUEAMENTO)
+        # Q3b = A (2026-11-22): o caso fica `sem_caminho`, e o fundamento nomeia as tres FK.
+        self.assertEqual(por_tabela["platform.onboarding_case"], FUNDAMENTO_CASO_DE_ONBOARDING)
+        for fk in ("kyc_check", "screening_decision", "review_case", "onboarding_otp"):
+            self.assertIn(fk, FUNDAMENTO_CASO_DE_ONBOARDING)
+        self.assertIn("branqueamento", FUNDAMENTO_BRANQUEAMENTO)
+        self.assertIn("parecer", FUNDAMENTO_BRANQUEAMENTO)
 
     def test_nao_afirma_o_apagamento_das_copias(self) -> None:
         d = self.doc()
@@ -576,14 +658,77 @@ def _sto_com_objectos(*conteudos: tuple[str, bytes]):
     return sto, refs
 
 
+class TestTelefonesNaExportacao(unittest.TestCase):
+    """KAM-233 (Q2 = B, Q2b = A): a colecao `telefones`, pela chave da fase `pendentes`."""
+
+    def test_os_telefones_saem_numa_coleccao_e_o_objecto_nao_entra_nos_objectos(self) -> None:
+        from kamba_core.storage.port import Ctx
+
+        sto = ArmazenamentoPorTenant(MotorEmMemoria())
+        base = BaseFalsa({A: com_telefones(sto, A, fases(pendentes="concluida"))})
+        r = exportar(lambda: Ligacao(base), lambda: Ligacao(base), A, sto, D0 + timedelta(days=2))
+        self.assertEqual(r["manifesto"]["coleccoes"]["telefones"], 1)
+        pacote = b"".join(sto.get(Ctx(A), r["ref"]))
+        with zipfile.ZipFile(io.BytesIO(pacote)) as z:
+            nomes = z.namelist()
+            self.assertEqual(json.loads(z.read("telefones.json"))["linhas"], TELEFONES_DE_ENSAIO)
+            self.assertIn("+244999000111", z.read("telefones.csv").decode("utf-8"))
+        # O objecto do lote e da classe `dsar`, como o pacote: nao vai para `objectos/`.
+        self.assertFalse(any(n.startswith("objectos/") and "/dsar/" in n for n in nomes))
+
+    def test_sem_a_chave_dos_telefones_a_exportacao_recusa(self) -> None:
+        base = BaseFalsa({A: fases(pendentes="concluida")})
+        sto = ArmazenamentoPorTenant(MotorEmMemoria())
+        with self.assertRaisesRegex(FaseForaDeOrdem, "telefones"):
+            exportar(lambda: Ligacao(base), lambda: Ligacao(base), A, sto, D0 + timedelta(days=2))
+        self.assertEqual(base.fases[A]["exportacao"].estado, "pendente")
+
+    def test_recusa_o_documento_de_outro_tenant_e_a_linha_com_campo_a_mais(self) -> None:
+        for nome, documento in (
+            ("outro tenant", {"coleccao": "telefones", "tenant_id": B, "linhas": TELEFONES_DE_ENSAIO}),
+            ("campo a mais", {"coleccao": "telefones", "tenant_id": A,
+                              "linhas": [{**TELEFONES_DE_ENSAIO[0], "bsuid": "x"}]}),
+            ("outra coleccao", {"coleccao": "clientes", "tenant_id": A, "linhas": []}),
+        ):
+            with self.subTest(nome=nome):
+                sto = ArmazenamentoPorTenant(MotorEmMemoria())
+                base = BaseFalsa({A: com_telefones(sto, A, fases(pendentes="concluida"), documento=documento)})
+                with self.assertRaises(FaseForaDeOrdem):
+                    exportar(lambda: Ligacao(base), lambda: Ligacao(base), A, sto, D0 + timedelta(days=2))
+
+    def test_a_chave_de_outro_tenant_e_recusada_pela_guarda(self) -> None:
+        sto = ArmazenamentoPorTenant(MotorEmMemoria())
+        de_b = com_telefones(sto, B, fases(pendentes="concluida"))
+        de_a = fases(pendentes="concluida")
+        de_a["pendentes"] = LinhaDaFase("pendentes", "concluida", de_a["pendentes"].prazo_at,
+                                        de_b["pendentes"].resultado)
+        base = BaseFalsa({A: de_a})
+        with self.assertRaises(Exception):
+            exportar(lambda: Ligacao(base), lambda: Ligacao(base), A, sto, D0 + timedelta(days=2))
+        self.assertEqual(base.fases[A]["exportacao"].estado, "pendente")
+
+    def test_o_objecto_dos_telefones_e_purgado_com_o_pacote(self) -> None:
+        from kamba_core.storage.port import Ctx
+
+        sto = ArmazenamentoPorTenant(MotorEmMemoria())
+        f = com_telefones(sto, A, fases(pendentes="concluida"))
+        base = BaseFalsa({A: f})
+        exportar(lambda: Ligacao(base), lambda: Ligacao(base), A, sto, D0 + timedelta(days=2))
+        self.assertEqual(len(sto.list(Ctx(A), f"t/{A}/dsar/")), 2, "o objecto dos telefones e o pacote")
+        for fase in ("canal", "revogacao"):
+            base.fases[A][fase] = LinhaDaFase(fase, "concluida", base.fases[A][fase].prazo_at, {})
+        purgar(lambda: Ligacao(base), A, D0 + timedelta(days=31), apagar_contactos=lambda t: 0, armazenamento=sto)
+        self.assertEqual(sto.list(Ctx(A), f"t/{A}/"), [], "nada do tenant fica no STO")
+
+
 class TestExportacaoComBytes(unittest.TestCase):
     """Criterio 4 do KAM-210: os bytes dos ficheiros do STO, e nao so a lista."""
 
     def test_o_pacote_leva_os_bytes_de_cada_objecto_com_o_sha256_no_manifesto(self) -> None:
         sto, refs = _sto_com_objectos((A, b"foto-de-a"), (B, b"foto-de-b"))
-        base = BaseFalsa({A: fases(pendentes="concluida")})
+        base = BaseFalsa({A: com_telefones(sto, A, fases(pendentes="concluida"))})
         r = exportar(lambda: Ligacao(base), lambda: Ligacao(base), A, sto, D0 + timedelta(days=2))
-        self.assertEqual(r["manifesto"]["versao"], "1.2.0")
+        self.assertEqual(r["manifesto"]["versao"], "1.3.0")
         from kamba_core.storage.port import Ctx
 
         pacote = b"".join(sto.get(Ctx(A), r["ref"]))
@@ -598,7 +743,7 @@ class TestExportacaoComBytes(unittest.TestCase):
         from kamba_core.offboarding import exportacao as modulo
 
         sto, _ = _sto_com_objectos((A, b"x" * 64))
-        base = BaseFalsa({A: fases(pendentes="concluida")})
+        base = BaseFalsa({A: com_telefones(sto, A, fases(pendentes="concluida"))})
         antes = modulo.TECTO_DOS_BYTES
         modulo.TECTO_DOS_BYTES = 10
         try:
@@ -719,9 +864,10 @@ class TestCicloDosDados(unittest.TestCase):
     def test_corre_o_que_a_listagem_traz_e_uma_fase_que_falha_nao_para_as_outras(self) -> None:
         from kamba_core.offboarding import correr_volta
 
-        base = BaseFalsa({A: fases(pendentes="concluida"), B: fases()})
+        sto = ArmazenamentoPorTenant(MotorEmMemoria())
+        base = BaseFalsa({A: com_telefones(sto, A, fases(pendentes="concluida")), B: fases()})
         base.por_correr = [(B, "purga"), (A, "exportacao"), (A, "verificacao")]
-        r = correr_volta(lambda: Ligacao(base), lambda: Ligacao(base), self.portas(), D0 + timedelta(days=2))
+        r = correr_volta(lambda: Ligacao(base), lambda: Ligacao(base), self.portas(sto), D0 + timedelta(days=2))
         self.assertEqual(r.feitas, {"exportacao": 1})
         self.assertEqual(r.falhas, ["purga"], "a purga de B, sem revogacao, falha pelo nome")
         self.assertEqual(base.fases[A]["exportacao"].estado, "concluida")

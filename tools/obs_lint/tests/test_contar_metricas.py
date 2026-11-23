@@ -203,6 +203,11 @@ class TestRepositorio(unittest.TestCase):
         # servidos**, pela razao do `backup`: os valores saem do *job*
         # `churn-daily`, que corre em lote e nao tem `/metrics`.
         "libs/py-core/src/kamba_core/kpis/metricas.py",
+        # Nasceu com o KAM-225 (a recusa sobre o tecto de confianca, lida do
+        # registo do PostgreSQL). Um contador sem etiquetas, servido pelo
+        # recolector `registo-pg` (`python -m kamba_core.registo_pg`) e citado
+        # pela regra `confianca_tecto_recusado_no_registo`.
+        "libs/py-core/src/kamba_core/registo_pg/metricas.py",
         "libs/py-core/src/kamba_core/ten/metricas.py",
         "packages/core-ts/src/agr/metricas.ts",
         "packages/core-ts/src/avisos/metricas.ts",

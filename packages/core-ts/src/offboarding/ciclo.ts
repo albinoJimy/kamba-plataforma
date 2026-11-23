@@ -48,6 +48,7 @@
 import { comBatch } from "../tenant_guard/index.ts";
 import type { ConjuntoSql } from "../revisao/sql.ts";
 import { DIAS_DE_CANCELAMENTO, ESTADOS_DA_FASE, FASES, type CanalDaMeta, type EstadoDaFase, type Fase, type PortasDaRevogacao } from "./contrato.ts";
+import type { PortaDosTelefones } from "./telefones.ts";
 import { desligarCanal, revogar, verificarPendentes, type ClienteSql } from "./encerramento.ts";
 import { FASES_DO_CICLO, type FaseDoCiclo, type MetricasDoOffboarding } from "./metricas.ts";
 
@@ -161,21 +162,36 @@ export const CANAL_SEM_ADAPTADOR: CanalDaMeta = {
 };
 
 /**
- * As portas da revogação sem adaptador. **Só se chamam quando a saga deixou o
- * recurso** (`external_id` no `provisioning_step`); sem ele, o passo é
- * `sem_recurso` e não chega à porta. Enquanto a saga também não tiver
- * adaptadores, nenhum tenant tem o recurso, e a revogação conclui sem as chamar.
+ * As portas da revogação sem adaptador. As da saga (o `revogar` da chave, o
+ * canal da Medusa e a *inbox*) **só se chamam quando a saga deixou o recurso**
+ * (`external_id` no `provisioning_step`); sem ele, o passo é `sem_recurso`. As
+ * três do KAM-233 chamam-se **sempre**: a chave pelo alias, a conta de
+ * atendimento e as sessões do painel não dependem da saga. Um processo montado
+ * com estas portas pára a fase `revogacao` no primeiro desses passos, com alerta,
+ * em vez de encerrar o tenant com a chave viva.
  */
 export const REVOGACAO_SEM_ADAPTADOR: PortasDaRevogacao = {
-  chaveDeLlm: { revogar: semAdaptador("litellm") },
+  chaveDeLlm: { revogarDoTenant: semAdaptador("litellm") },
   canalDeComercio: { arquivar: semAdaptador("medusa") },
   inbox: { desligar: semAdaptador("chatwoot") },
+  contaDeAtendimento: { archiveAccount: semAdaptador("chatwoot") },
+  sessoesDoPainel: { revogarDoTenant: semAdaptador("painel") },
+};
+
+/**
+ * Os telefones sem adaptador: o fecho dos `pendentes` pára nele, com alerta, em
+ * vez de deixar a exportação correr sem a colecção que ela exige (KAM-233).
+ */
+export const TELEFONES_SEM_ADAPTADOR: PortaDosTelefones = {
+  entregar: semAdaptador("telefones"),
 };
 
 /** As portas que as fases deste lado usam. As da revogação são as da saga. */
 export interface PortasDoCiclo {
   readonly canal: CanalDaMeta;
   readonly revogacao: PortasDaRevogacao;
+  /** Os telefones dos clientes para a exportação, no fecho dos `pendentes` (KAM-233). */
+  readonly telefones: PortaDosTelefones;
 }
 
 export interface OpcoesDoCicloDoOffboarding {
@@ -266,7 +282,7 @@ export class CicloDoOffboarding {
       return "concluida";
     }
     if (fase === "pendentes") {
-      const r = await verificarPendentes(bd, { tenantId, agora });
+      const r = await verificarPendentes(bd, { tenantId, agora, telefones: portas.telefones });
       return r.concluida ? "concluida" : "em_curso";
     }
     await revogar(bd, { tenantId, portas: portas.revogacao, agora });

@@ -17,8 +17,8 @@ duas leituras da mesma tabela que discordam no dia em que uma delas mudar.
 Para um pedido `(tenant, fornecedor, finalidade)`:
 
 1. **Se a finalidade nao esta no dominio, nega.** Nao e zelo: a coluna `purpose`
-   da `0036` tem `CHECK` fechado com dezassete valores desde a revisao
-   `social_do_dono` (KAM-121), pelo que uma finalidade fora
+   da `0036` tem `CHECK` fechado com dezoito valores desde a revisao
+   `arte_e_aprovacao_do_social` (KAM-122), pelo que uma finalidade fora
    deles **nao tem linha onde caiba** — a consulta devolveria sempre vazio, e um
    erro do chamador lia-se como «destino nao registado».
 2. **Se o tenant tem linha propria para esse par, so as dele contam.** As
@@ -83,7 +83,7 @@ from typing import Final, Protocol
 
 from ..tenant_guard import normalizar_tenant
 
-#: As **dezassete** finalidades de transferencia, por ordem alfabetica: as treze
+#: As **dezoito** finalidades de transferencia, por ordem alfabetica: as treze
 #: da `0036`, a `imagem`, que a revisao `foto_de_produtos` (KAM-120) acrescenta,
 #: a `classificacao_de_catalogo`, que a revisao `finalidade_do_screening`
 #: (KAM-195) acrescenta para o classificador de screening do GOV, e a
@@ -92,7 +92,11 @@ from ..tenant_guard import normalizar_tenant
 #: dono escreve num orcamento (decisao do fundador de 2026-11-20, opcao B), e a
 #: `classificacao_de_conteudo`, que a revisao `social_do_dono` (KAM-121)
 #: acrescenta para o mesmo classificador quando le os temas e as legendas do
-#: modulo `social` (o precedente da opcao B: um tratamento, uma finalidade).
+#: modulo `social` (o precedente da opcao B: um tratamento, uma finalidade), e a
+#: `geracao_de_imagem`, que a revisao `arte_e_aprovacao_do_social` (KAM-122)
+#: acrescenta para o fundo gerado das artes do mesmo modulo (decisao do fundador
+#: de 2026-11-21, opcao A da D3: um destino autorizado para a `imagem`, a
+#: melhoria da foto do produto, nao cobre a geracao de uma cena de raiz).
 #:
 #: **E o dominio de `platform.tenant_destinations.purpose`**, e a lista vive
 #: aqui e no `CHECK` da revisao `0036`; o `test_dominio_de_purpose_bate_com_o_codigo`
@@ -114,6 +118,7 @@ FINALIDADE_COPIAS: Final = "copias_de_seguranca"
 FINALIDADE_EMBEDDINGS: Final = "embeddings"
 FINALIDADE_ENTREGA: Final = "entrega_de_conteudo"
 FINALIDADE_FACTURACAO: Final = "facturacao"
+FINALIDADE_GERACAO_DE_IMAGEM: Final = "geracao_de_imagem"
 FINALIDADE_IMAGEM: Final = "imagem"
 FINALIDADE_OBSERVABILIDADE: Final = "observabilidade"
 FINALIDADE_OTP: Final = "otp_e_avisos_de_servico"
@@ -133,6 +138,7 @@ FINALIDADES: Final = (
     FINALIDADE_EMBEDDINGS,
     FINALIDADE_ENTREGA,
     FINALIDADE_FACTURACAO,
+    FINALIDADE_GERACAO_DE_IMAGEM,
     FINALIDADE_IMAGEM,
     FINALIDADE_OBSERVABILIDADE,
     FINALIDADE_OTP,
@@ -510,7 +516,8 @@ class PortaSobreDestinos:
             raise FinalidadeDesconhecida(
                 f"finalidade `{finalidade}` fora do dominio de "
                 f"`tenant_destinations.purpose` (revisoes `0036`, `foto_de_produtos`, "
-                "`finalidade_do_screening` e `finalidade_das_condicoes`, dezasseis valores): "
+                "`finalidade_do_screening`, `finalidade_das_condicoes`, `social_do_dono` e "
+                "`arte_e_aprovacao_do_social`, dezoito valores): "
                 "nao ha linha onde ela caiba, e um erro de quem chama nao se "
                 "pode ler como «destino nao registado» (KAM-069)"
             )

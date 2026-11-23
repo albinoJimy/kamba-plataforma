@@ -124,6 +124,8 @@ export function montarInvocacao(pedido: {
   readonly botao?: string | null;
   /** O identificador da mensagem na `platform.agent_messages` (KAM-223), já gravada. */
   readonly messageId?: string | null;
+  /** O `asset_id` da foto do dono na `platform.media_assets` (KAM-231), já armazenada. */
+  readonly assetId?: string | null;
 }): AgentInvocation {
   if (pedido.contactId === "") throw new InvocacaoIncompletaError("`contact_id`");
   if (pedido.conversationId === "") {
@@ -150,5 +152,12 @@ export function montarInvocacao(pedido: {
       : {}),
     // KAM-223. O identificador e não o texto: o corpo fica na fonte persistida.
     ...(typeof pedido.messageId === "string" ? { message_id: pedido.messageId } : {}),
+    // KAM-231. A referência e não os bytes, e **só** numa `image` do dono: o
+    // esquema recusa-a noutro tipo ou noutra persona (`dependentSchemas`), e o
+    // AGR também (`campo_invalido_asset_id`). Segunda barreira, como a do
+    // `botao`, para quem monte a invocação por outro caminho.
+    ...(typeof pedido.assetId === "string" && pedido.type === "image" && pedido.persona === "dono"
+      ? { asset_id: pedido.assetId }
+      : {}),
   };
 }

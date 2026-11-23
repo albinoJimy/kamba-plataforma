@@ -323,6 +323,17 @@ export class Otp {
     }
     const tentativas = await this.#repositorio.somarTentativa(onboardingId);
     if (tentativas === null) return "sem_desafio";
+    // **Acima do tecto não se compara** (KAM-236, achado da revisão
+    // adversarial). Com o desafio na base, o `actual`, o `somarTentativa` e o
+    // `apagar` são três idas à base, e mil verificações concorrentes chegavam
+    // todas à comparação antes de a primeira apagar o desafio: o tecto de cinco
+    // passava a ser o de quantas chegassem ao mesmo tempo. O `somarTentativa` dá
+    // a cada pedido um número só seu (o `UPDATE` tranca a linha), pelo que só os
+    // cinco primeiros comparam.
+    if (tentativas > this.tentativasMaximas) {
+      await this.#repositorio.apagar(onboardingId);
+      return "tentativas";
+    }
 
     const texto = typeof codigo === "string" ? codigo : "";
     // A forma do HMAC **guardado** verifica-se antes de o comparar: o
