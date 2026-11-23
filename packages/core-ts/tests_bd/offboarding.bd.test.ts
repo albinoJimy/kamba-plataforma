@@ -54,6 +54,7 @@ import {
   type CanalDaMeta,
   type PortasDaRevogacao,
   type ProvasDoTitular,
+  ACTOR_DO_ENCERRAMENTO,
   telefonesPeloCofre,
   type PoolDaIdentidade,
   type PortaDosTelefones,
@@ -356,10 +357,17 @@ describe("o off-boarding contra a base", () => {
         "SELECT actor_type, actor_id, action, entity, entity_id, payload_hash FROM platform.audit_log WHERE tenant_id = $1",
         [tenant],
       );
-      assert.deepEqual(
-        auditoria.rows.map((l) => [l.actor_type, l.actor_id, l.action, l.entity, l.entity_id]),
-        [["system", "offboarding", "privacy.telefones_exportados", "contact", contactId]],
-      );
+      // As linhas **deste tenant**, e só duas: o `batch.run` da fase `verificacao`, que o
+      // `pedidoVerificado` acima escreve (KAM-098), e a decifra do único contacto. O fecho dos
+      // `pendentes` não escreve `batch.run`, e cada contacto decifrado dá uma linha e uma só.
+      // Comparadas como conjunto: a ordem do `audit_log` é a da cadeia, que não é deste ensaio.
+      const linhasDaAuditoria = auditoria.rows
+        .map((l) => [l.actor_type, l.actor_id, l.action, l.entity, l.entity_id].join(" / "))
+        .sort();
+      assert.deepEqual(linhasDaAuditoria, [
+        ["system", ACTOR_DO_ENCERRAMENTO, "batch.run", "offboarding_verificacao", tenant].join(" / "),
+        ["system", "offboarding", "privacy.telefones_exportados", "contact", contactId].join(" / "),
+      ].sort());
       assert.ok(!JSON.stringify(auditoria.rows).includes(telefone.slice(-9)));
     } finally {
       await admin.query("ALTER TABLE platform.audit_log DISABLE TRIGGER audit_log_sem_update_nem_delete");

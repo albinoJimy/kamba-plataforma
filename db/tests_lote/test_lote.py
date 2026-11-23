@@ -130,7 +130,7 @@ TESTES_OBRIGATORIOS = (
     "um pedido de T&S toma o pedido vivo do titular, que deixa de se poder cancelar",
     "o canal: cancela a subscrição, desliga o canal, e nenhuma chamada toca no WABA nem no número; o CHR deixa de encaminhar",
     "cancelado em D3: o canal volta ao que era, e nenhuma fase seguinte corre",
-    "os pendentes: sem encomendas, reservas nem reembolsos abertos, a fase conclui",
+    "os pendentes: sem encomendas, reservas nem reembolsos abertos, a fase conclui com os telefones no STO",
     "a revogação no D7: as portas da saga, os entitlements, os canais e um tenant.closed; um crash a meio retoma",
     # KAM-200: o consumidor (1), a escada pela porta com o evento (8 e 9), e as
     # varreduras auditadas com a mudanca de conta (2 e 5).
