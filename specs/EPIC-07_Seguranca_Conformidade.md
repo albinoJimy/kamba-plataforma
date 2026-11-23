@@ -2066,7 +2066,7 @@ O `../docs/seguranca/validar.py` é a **única verificação por máquina** dos 
 assert len(KAM) == 138 and len(ADR) == 20 and len(DEC) == 13, (len(KAM), len(ADR), len(DEC))
 ```
 
-O *backlog* tem 249 tickets, pelo que, da raiz do repositório, o `assert` aborta. A saída abaixo foi capturada quando ele ainda batia com a contagem da época — o primeiro elemento do tuplo **é** a contagem viva, pelo que cresce a cada entrada nova, e é por isso que o defeito é estrutural e não uma gralha:
+O *backlog* tem 251 tickets, pelo que, da raiz do repositório, o `assert` aborta. A saída abaixo foi capturada quando ele ainda batia com a contagem da época — o primeiro elemento do tuplo **é** a contagem viva, pelo que cresce a cada entrada nova, e é por isso que o defeito é estrutural e não uma gralha:
 
 ```text
 AssertionError: (143, 20, 13)
@@ -2530,4 +2530,4 @@ Testes: unitários, integração contra a base, privacidade.
 | 1.63 | Novembro 2026 | KAM-238 (EPIC-11), KAM-239 e KAM-240 (EPIC-09), abertos no PR do KAM-236: a contagem viva do backlog na nota do `assert` passa a **240**. Nenhuma caixa deste epic muda. Escritos como 1.62 e 1.63 (com os números 237 a 239) e renumerados na integração, depois do KAM-125, que tomou o 237. | Equipa KAMBÁ |
 | 1.64 | Novembro 2026 | KAM-241 (EPIC-11) e KAM-242 (EPIC-08), abertos no PR do KAM-238: a contagem viva do backlog na nota do `assert` passa a **242**. Nenhuma caixa deste epic muda. Números provisórios: renumeram-se na integração. | Equipa KAMBÁ |
 | 1.65 | Novembro 2026 | KAM-246 (EPIC-11), aberto no PR do KAM-122: a contagem viva do backlog na nota do `assert` passa a **246**. Nenhuma caixa deste epic muda. Escrito como 1.62 (com o número 237) e renumerado na integração, depois do KAM-125, do KAM-236, do KAM-238, do KAM-231 e do #254. | Equipa KAMBÁ |
-| 1.66 | Novembro 2026 | KAM-249 (EPIC-11), aberto no PR do KAM-241: a contagem viva do backlog na nota do `assert` passa a **249**. Nenhuma caixa deste epic muda. Número provisório: renumera-se na integração. | Equipa KAMBÁ |
+| 1.66 | Novembro 2026 | KAM-251 (EPIC-11), aberto no PR do KAM-241: a contagem viva do backlog na nota do `assert` passa a **251** (escrito como KAM-249 e renumerado na integração, depois do KAM-247, que trouxe o 249 e o 250). Nenhuma caixa deste epic muda. Número provisório: renumera-se na integração. | Equipa KAMBÁ |

@@ -84,8 +84,9 @@
  * suspensa), na rede interna; a Medusa continua sem adaptador (D3), e a saga
  * não lhe deixa recurso. Uma fase que precise de uma porta sem adaptador falha
  * pelo nome e fica parada, com alerta — nunca «feita» sem o lado de fora saber.
- * **Um LiteLLM sem base também**: o proxy de `prod` arranca sem `DATABASE_URL`,
- * responde 500 ao `/key/list` (medido), e a fase `revogacao` pára na chave.
+ * **Um LiteLLM sem base também**: um proxy que arranque sem a `kamba_litellm`
+ * (a base dele desde o KAM-247) responde 500 ao `/key/list` (medido), e a fase
+ * `revogacao` pára na chave.
  *
  * ## O aviso ao dono não sai deste processo, e é de propósito
  *

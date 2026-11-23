@@ -32,13 +32,20 @@
 # 5. **Config so de leitura, gerada.** O `llm/litellm.config.yaml` e **gerado**
 #    de `llm/aliases.yaml` por `python -m llm_config` e versionado, como o
 #    `canon/dicionario.yaml` o e de `specs/02`. Monta-se `:ro`.
-# 6. **Sem base de dados.** O LiteLLM com `DATABASE_URL` cria o seu proprio
-#    esquema e guarda *spend logs* e chaves virtuais nele. Nao se faz aqui: a
-#    auditoria de chamadas e **nossa** (`dat.llm_call_log`, ADR-018, E4 §2.7),
-#    e uma segunda imagem do mesmo projecto com acesso de escrita a base era
-#    superficie de ataque pelo componente que o E4 chama «o de maior superficie
-#    de ataque do stack». As chaves virtuais da Fase 0 criam-se por *script*
-#    (`infra/llm/chaves.py`) e vivem na memoria do proxy.
+# 6. **Sem base de dados, neste ficheiro.** Este proxy e o de ensaio, e as
+#    suites que corre nao criam chaves virtuais. **Mas a regra deixou de valer
+#    para `staging` e `prod`** (KAM-247, decisao do fundador de 2026-11-23,
+#    opcao A1). Dizia-se aqui que as chaves «vivem na memoria do proxy» e nao
+#    viviam em sitio nenhum: sem base, a imagem fixada responde 500 «DB not
+#    connected» ao `/key/generate` (`docs/evidencia/KAM-233.md` §2). La, o
+#    proxy tem a base `kamba_litellm`, com um papel que nao liga a base da
+#    plataforma (`db/bootstrap.py`). O que esta regra protegia continua de pe:
+#    a auditoria de chamadas e **nossa** (`dat.llm_call_log`, ADR-018, E4
+#    §2.7), e o proxy nao guarda uma linha por chamada (`disable_spend_logs`
+#    no `llm/litellm.config.yaml` gerado). O preco aceite e o que o E4 temia: o
+#    componente de maior superficie de ataque fica na rede `data`, e alcanca o
+#    PostgreSQL (separado da plataforma pelo papel), a fila e o armazenamento
+#    de objectos (`docs/evidencia/KAM-247.md` §5).
 
 name: kamba-llm-proxy
 

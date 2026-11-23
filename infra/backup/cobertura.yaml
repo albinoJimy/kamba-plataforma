@@ -152,7 +152,7 @@ cobertura:
     razao: >-
       A base existe no compose de producao (`postgres`, `initdb/01`) e a stanza
       cobre o cluster inteiro — o pgBackRest faz backup por **cluster** e nao
-      por base, pelo que uma stanza cobre as tres. Nunca correu: o
+      por base, pelo que uma stanza cobre as quatro (a `litellm` desde o KAM-247). Nunca correu: o
       `archive_command` precisa de um `repo1` alcancavel.
 
   - item: base medusa
@@ -171,6 +171,18 @@ cobertura:
     razao: >-
       Idem. O Chatwoot corre num compose proprio
       (`docker-compose.chatwoot.yml`) e aponta para este cluster.
+
+  - item: base litellm
+    estado: configurado
+    mecanismo: "pgBackRest, stanza `kamba` (mesmo cluster)"
+    credor: "KAM-105 (D1): o `repo1` nao tem destino"
+    razao: >-
+      As chaves virtuais dos tenants e o gasto acumulado de cada uma (KAM-247,
+      decisao do fundador de 2026-11-23, opcao A1). Criada pelo
+      `db/bootstrap.py`, com dono `kamba_litellm`, no mesmo cluster que a
+      `platform`; a stanza cobre o cluster inteiro, pelo que a cobre sem
+      configuracao nova. Perde-la nao perde o valor das chaves, que vive no
+      cofre: perde a ligacao valor -> orcamento, e o proxy deixa de as aceitar.
 
   - item: objectos do STO
     estado: por_cobrir

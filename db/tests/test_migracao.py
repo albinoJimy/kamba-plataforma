@@ -242,8 +242,12 @@ class TestCiclo(unittest.TestCase):
         segunda = bootstrap.aplicar()
         terceira = bootstrap.aplicar()
         self.assertEqual(segunda, terceira, "duas execucoes seguidas diferem")
+        # O papel e a base do proxy (KAM-247) contam-se a parte: sao duas linhas
+        # «ja existia» e nao uma, e o ensaio deles e o `test_papel_do_litellm`.
         self.assertEqual(
-            sum("ja existia" in linha for linha in terceira), len(ligacao.PAPEIS)
+            sum("ja existia" in linha for linha in terceira
+                if bootstrap.PAPEL_DO_LITELLM not in linha),
+            len(ligacao.PAPEIS),
         )
         self.assertEqual(sum("criado" in linha for linha in terceira), 0)
         self.assertEqual(sum("pertenca revogada" in linha for linha in terceira), 0)
@@ -252,7 +256,8 @@ class TestCiclo(unittest.TestCase):
         """Reescreve-as sempre; faze-lo calado era o defeito."""
         feito = bootstrap.aplicar()
         self.assertEqual(
-            sum("palavra-passe redefinida" in linha for linha in feito),
+            sum("palavra-passe redefinida" in linha for linha in feito
+                if bootstrap.PAPEL_DO_LITELLM not in linha),
             len(ligacao.PAPEIS),
         )
 

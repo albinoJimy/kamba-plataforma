@@ -252,6 +252,54 @@ class TestArvoreReal(unittest.TestCase):
         self.assertNotIn("%REQ(COOKIE)%", texto, "o registo nunca leva conteudo")
 
 
+class TestSemSwap(unittest.TestCase):
+    """KAM-242: cada `mem_limit` com um `memswap_limit` igual (zero de *swap*).
+
+    O canario prova que a regra `memoria-com-swap` morde (`swap-em-falta`,
+    `swap-maior-que-o-limite`, `swap-ilimitado`). Aqui prende-se a arvore real,
+    lida servico a servico e sem passar pela regra, e o que ela **nao** pode
+    recusar: o mesmo valor escrito noutra unidade.
+    """
+
+    def test_todos_os_servicos_de_prod_tem_memswap_igual_ao_limite(self) -> None:
+        """Lido do texto, linha a linha, sem o parser nem o `_memoria_mb` do lint.
+
+        Um oraculo importado do alvo nao e oraculo: se o `_memoria_mb` passasse
+        a devolver sempre `None`, comparar os dois valores lidos por ele dava
+        igual. Aqui cada `mem_limit` tem de ter, na linha seguinte, um
+        `memswap_limit` com o **mesmo texto** — a forma que o compose usa.
+        """
+        linhas = (RAIZ / lint.PROD).read_text(encoding="utf-8").splitlines()
+        limites = [i for i, l in enumerate(linhas) if l.startswith("    mem_limit: ")]
+        self.assertEqual(len(limites), len(lint.ler(RAIZ).prod.servicos))
+        for i in limites:
+            valor = linhas[i].split(": ", 1)[1]
+            with self.subTest(linha=i + 1):
+                self.assertEqual(linhas[i + 1], f"    memswap_limit: {valor}")
+
+    def test_o_mesmo_valor_noutra_unidade_nao_e_achado(self) -> None:
+        pasta, destino = _copia()
+        with pasta:
+            canario.Copia(destino).trocar(
+                lint.PROD, r"^    memswap_limit: 1024m$", "    memswap_limit: 1g"
+            )
+            achados, _ = lint.varrer(destino)
+            self.assertEqual([str(a) for a in achados], [])
+
+    def test_zero_nao_e_igual_ao_limite(self) -> None:
+        """`memswap_limit: 0` e o mesmo que nao o fixar: deixa usar swap.
+
+        Medido: `memory.swap.max` igual ao limite (`docs/evidencia/KAM-242.md` §2).
+        """
+        pasta, destino = _copia()
+        with pasta:
+            canario.Copia(destino).trocar(
+                lint.PROD, r"^    memswap_limit: 1024m$", "    memswap_limit: 0"
+            )
+            achados, _ = lint.varrer(destino)
+            self.assertEqual(sorted({a.regra for a in achados}), ["memoria-com-swap"])
+
+
 class TestGuiaoDosDezDestinos(unittest.TestCase):
     def test_sao_dez(self) -> None:
         self.assertEqual(len(DESTINOS), 10, "o criterio 3 pede dez destinos")
