@@ -453,6 +453,26 @@ class TestEntrega(ComArte):
         self.assertEqual(self.semente.fetchone()[0], AGORA)
 
 
+
+class TestOPainel(ComArte):
+    """Os itens da pagina Social do painel (KAM-246): so aprovados e entregues, e so do tenant."""
+
+    def test_o_painel_le_os_aprovados_e_entregues_do_tenant_e_o_outro_nao_os_ve(self) -> None:
+        self.repo.gravar_perfil(regras.Perfil(tenant_id=self.tenant), None)
+        aprovado, _ = self.repo.aprovar(self._pendente(_hash("o aprovado")), _hash("o aprovado"), AGORA)
+        entregue, _ = self.repo.entregar(aprovado, AGORA)
+        calendario = self.repo.calendario(self.tenant, SEMANA)
+        assert calendario is not None
+        # O segundo item fica pendente, e nao aparece.
+        segundo = self.repo.gravar_legenda(calendario.itens[1], "Outra legenda.", False, "v1")
+        self.repo.pedir_aprovacao(self.repo.gravar_arte(segundo, self._arte()), "Outra legenda.", _hash("pendente"))
+        vistos = self.repo.itens_do_painel(self.tenant)
+        self.assertEqual([(i.content_item_id, i.estado) for i in vistos], [(entregue.content_item_id, "entregue")])
+        self.assertTrue(all(i.arte_ref and i.arte_ref.startswith(f"t/{self.tenant}/") for i in vistos))
+        # Sob a RLS do outro tenant, nada.
+        self.assertEqual(self.repo.itens_do_painel(self.outro), ())
+
+
 class TestArteEImagens(ComArte):
     def test_a_quarta_arte_e_recusada(self) -> None:
         item = self._rascunho_com_arte()

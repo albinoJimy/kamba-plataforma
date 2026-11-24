@@ -155,10 +155,21 @@ describe("o efeito do consumidor, pelo nome (KAM-224)", () => {
 describe("as portas de produção do outbound, e o arranque em prod (KAM-227, critério 3)", () => {
   /** Uma chave versionada de ensaio, na forma do cofre: `<kid>:<base64 de 32 octetos>`. */
   const chave = (kid: string): string => `${kid}:${randomBytes(32).toString("base64")}`;
+  /** O armazenamento da arte (KAM-246): configuração e as duas credenciais. */
+  const armazenamento: Record<string, string> = {
+    KAMBA_STORAGE_ENDPOINT: "http://sto.ensaio:8333",
+    KAMBA_STORAGE_BUCKET: "kamba-ensaio",
+    KAMBA_STORAGE_REGION: "ao-luanda-1",
+    KAMBA_STORAGE_DESTINO_COUNTRY: "AO",
+    KAMBA_STORAGE_DESTINO_PROVIDER: "seaweedfs",
+    KAMBA_SECRET_STORAGE_ACCESS_KEY_ID: "id-de-ensaio",
+    KAMBA_SECRET_STORAGE_SECRET_ACCESS_KEY: "segredo-de-ensaio",
+  };
   const completo = (ambiente: string): Record<string, string> => ({
     KAMBA_ENV: ambiente,
     KAMBA_SECRET_KEK_TOKEN_CLIENTE: chave("t1"),
     KAMBA_SECRET_KEK_CONTACT_DEK: chave("k1"),
+    ...armazenamento,
   });
   const ligacoes = {
     tomarIdentidade: async () => {
@@ -216,6 +227,44 @@ describe("as portas de produção do outbound, e o arranque em prod (KAM-227, cr
     delete env["KAMBA_SECRET_KEK_TOKEN_CLIENTE"];
     const portas = await portasDoOutbound({ env, ...ligacoes });
     assert.equal(typeof portas.meta, "function");
+  });
+
+  it("KAM-246: com o armazenamento, monta o leitor da arte", async () => {
+    const portas = await portasDoOutbound({ env: completo("prod"), ...ligacoes });
+    assert.equal(typeof portas.arte, "function");
+  });
+
+  it("KAM-246: em staging e prod, sem uma credencial do armazenamento, o arranque aborta e nomeia-a", async () => {
+    for (const ambiente of ["staging", "prod"]) {
+      for (const ref of ["STORAGE_ACCESS_KEY_ID", "STORAGE_SECRET_ACCESS_KEY"]) {
+        const env = completo(ambiente);
+        delete env[`KAMBA_SECRET_${ref}`];
+        await assert.rejects(portasDoOutbound({ env, ...ligacoes }), (erro: unknown) => {
+          assert.ok(erro instanceof ArranqueAbortadoError);
+          assert.match(erro.message, new RegExp(ref.toLowerCase()));
+          return true;
+        });
+      }
+    }
+  });
+
+  it("KAM-246: em staging e prod, sem a configuração do armazenamento, o arranque aborta", async () => {
+    for (const ambiente of ["staging", "prod"]) {
+      const env = completo(ambiente);
+      delete env["KAMBA_STORAGE_ENDPOINT"];
+      await assert.rejects(portasDoOutbound({ env, ...ligacoes }), (erro: unknown) => {
+        assert.ok(erro instanceof ArranqueAbortadoError);
+        assert.match(erro.message, /armazenamento da arte.*KAMBA_STORAGE_ENDPOINT/);
+        return true;
+      });
+    }
+  });
+
+  it("KAM-246: em dev arranca sem o armazenamento, e sem leitor da arte", async () => {
+    const env = completo("dev");
+    for (const nome of Object.keys(armazenamento)) delete env[nome];
+    const portas = await portasDoOutbound({ env, ...ligacoes });
+    assert.equal(portas.arte, null);
   });
 
   it("o ambiente não tem omissão: ausente ou desconhecido recusa", () => {

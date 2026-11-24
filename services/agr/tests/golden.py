@@ -175,9 +175,12 @@ class Saida:
 
     def __init__(self) -> None:
         self.enviadas: list[tuple[str, str, tuple[str, ...]]] = []
+        #: A imagem de cada envio, pela ordem (KAM-246): a chave do STO, ou `None`.
+        self.medias: list[str | None] = []
 
-    async def enfileirar(self, estado, texto, *, chave, botoes=()) -> None:  # noqa: ANN001
+    async def enfileirar(self, estado, texto, *, chave, botoes=(), media=None) -> None:  # noqa: ANN001
         self.enviadas.append((texto, chave, tuple(botoes)))
+        self.medias.append(media)
 
 
 class Handoff:

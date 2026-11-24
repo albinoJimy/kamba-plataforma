@@ -72,6 +72,8 @@ from collections.abc import Callable, Mapping, Sequence
 from typing import Any, Final
 
 from kamba_core import tenant_guard
+from kamba_core.storage import ChaveForaDoTenantError, ChaveInvalidaError, Ctx
+from kamba_core.storage.chave import chave_do_ctx
 
 #: O tipo do evento. Dicionario §3.5 e §3.80 (emenda 1.118).
 TIPO: Final = "agent.replied"
@@ -215,6 +217,42 @@ SQL_INSERIR_COM_TEMPLATE: Final = (
     "RETURNING reply_id"
 )
 
+#: A mesma linha **com** a imagem (KAM-246): a chave do STO da arte, que o
+#: consumidor do WhatsApp envia **antes** do texto. Instrucao a parte, pela razao
+#: do *template*: a resposta de texto livre escreve exactamente o que escrevia.
+#: Sem *template*: a base recusa os dois juntos (o `CHECK` da revisao do KAM-246).
+SQL_INSERIR_COM_MEDIA: Final = (
+    "INSERT INTO platform.agent_replies "
+    "(tenant_id, chave, contact_id, conversation_id, canal, texto, botoes, turno_iniciado_em, media_ref) "
+    "VALUES (%s, %s, %s, %s, %s, %s, %s::jsonb, %s, %s) "
+    "ON CONFLICT (tenant_id, chave) DO NOTHING "
+    "RETURNING reply_id"
+)
+
+#: A classe do STO de uma imagem de resposta: so a arte do modulo social
+#: (KAM-122, dicionario §3.82). A foto do dono, um documento de KYC ou o pacote
+#: de um off-boarding nao saem por aqui.
+CLASSE_DA_MEDIA: Final = "arte"
+
+
+def media_da_resposta(media: str | None, tenant_id: Any) -> str | None:
+    """A chave da imagem, conferida: do tenant da resposta e da classe `arte`.
+
+    Levanta `RespostaInvalidaError` antes da base, que repete a regra no `CHECK`
+    da coluna. **E uma chave, nunca um URL**: um URL nao tem a forma.
+    """
+    if media is None:
+        return None
+    try:
+        # O tenant do estado pode vir em maiusculas ou como `UUID`; a chave e em minusculas.
+        partes = chave_do_ctx(Ctx(tenant_guard.normalizar_tenant(tenant_id)), media, "media")
+    except (ChaveInvalidaError, ChaveForaDoTenantError, ValueError):
+        raise RespostaInvalidaError("a imagem nao e uma chave do STO deste tenant") from None
+    if partes.classe != CLASSE_DA_MEDIA:
+        raise RespostaInvalidaError("a imagem de uma resposta e so da classe arte")
+    return media
+
+
 #: A forma de um nome de *template* da Meta: minusculas, algarismos e `_`. A
 #: mesma do `agent_replies_template_nome_ck` da `0076`.
 FORMA_DO_TEMPLATE: Final = re.compile(r"[a-z0-9_]{1,512}")
@@ -346,6 +384,7 @@ def emitir_resposta(
     turno_iniciado_em: datetime.datetime | None = None,
     template: str | None = None,
     parametros: Sequence[str] = (),
+    media: str | None = None,
 ) -> str | None:
     """Grava a resposta e emite o `agent.replied`. Devolve o `reply_id`, ou `None`.
 
@@ -358,6 +397,9 @@ def emitir_resposta(
     corpo sem os ler. O `texto` continua obrigatorio: e o que a notificacao
     diria com a janela aberta, e o consumidor do WhatsApp nao o envia com o
     *template*. Um *template* nao leva botoes.
+
+    Com `media` (KAM-246), a chave do STO da arte: o consumidor do WhatsApp
+    envia-a como imagem antes do texto. Nunca com *template*.
     """
     # A forma valida-se antes de abrir a transaccao, e outra vez no
     # `gravar_resposta`: o custo e nada, e a base nao ve uma resposta sem forma.
@@ -366,6 +408,7 @@ def emitir_resposta(
     # revisao do KAM-226).
     botoes, parametros = tuple(botoes), tuple(parametros)
     _forma(texto, chave=chave, botoes=botoes, canal=canal, template=template, parametros=parametros)
+    _media_sem_template(media, template, estado["tenant_id"])
     with tenant_guard.tx(ligacao, estado["tenant_id"]) as cursor:
         return gravar_resposta(
             cursor,
@@ -377,7 +420,14 @@ def emitir_resposta(
             turno_iniciado_em=turno_iniciado_em,
             template=template,
             parametros=parametros,
+            media=media,
         )
+
+
+def _media_sem_template(media: str | None, template: str | None, tenant_id: Any) -> str | None:
+    if media is not None and template is not None:
+        raise RespostaInvalidaError("uma imagem nao sai com template")
+    return media_da_resposta(media, tenant_id)
 
 
 def gravar_resposta(
@@ -391,6 +441,7 @@ def gravar_resposta(
     turno_iniciado_em: datetime.datetime | None = None,
     template: str | None = None,
     parametros: Sequence[str] = (),
+    media: str | None = None,
 ) -> str | None:
     """O `emitir_resposta` sobre um cursor **ja** dentro do `tenant_guard.tx`.
 
@@ -403,6 +454,7 @@ def gravar_resposta(
         texto, chave=chave, botoes=botoes, canal=canal, template=template, parametros=parametros
     )
     tenant_id = estado["tenant_id"]
+    media = _media_sem_template(media, template, tenant_id)
     contact_id = estado["contact_id"]
     conversation_id = estado["conversation_id"]
     thread_id = estado["thread_id"]
@@ -416,7 +468,9 @@ def gravar_resposta(
         json.dumps(pares, ensure_ascii=False),
         turno_iniciado_em,
     )
-    if template is None:
+    if media is not None:
+        cursor.execute(SQL_INSERIR_COM_MEDIA, (*linha_nova, media))
+    elif template is None:
         cursor.execute(SQL_INSERIR, linha_nova)
     else:
         cursor.execute(SQL_INSERIR_COM_TEMPLATE, (*linha_nova, template, parametros))
@@ -468,6 +522,7 @@ class SaidaPorEvento:
         *,
         chave: str,
         botoes: Sequence[str] = (),
+        media: str | None = None,
     ) -> None:
         # O inicio e o canal leem-se aqui, na tarefa do no: o `to_thread` copia
         # o contexto, mas o `INICIO_DO_TURNO` fica lido onde o turno o pos, e a
@@ -475,7 +530,7 @@ class SaidaPorEvento:
         inicio = INICIO_DO_TURNO.get() or self._relogio()
         canal = self._canal_de(estado)
         reply_id = await asyncio.to_thread(
-            self._gravar, estado, texto, chave, tuple(botoes), canal, inicio
+            self._gravar, estado, texto, chave, tuple(botoes), canal, inicio, media
         )
         if reply_id is None and self._aviso is not None:
             # Uma repeticao nao e erro: e o turno a voltar sobre a mesma chave.
@@ -491,6 +546,7 @@ class SaidaPorEvento:
         botoes: Sequence[str],
         canal: str,
         inicio: datetime.datetime,
+        media: str | None = None,
     ) -> str | None:
         """O corpo sincrono do envio, na *thread*: abre, grava e emite, fecha."""
         ligacao = self._abrir()
@@ -503,6 +559,7 @@ class SaidaPorEvento:
                 botoes=botoes,
                 canal=canal,
                 turno_iniciado_em=inicio,
+                media=media,
             )
         finally:
             try:
@@ -517,6 +574,7 @@ __all__ = [
     "CANAL_PAINEL",
     "CANAL_DO_TURNO",
     "CANAL_WHATSAPP",
+    "CLASSE_DA_MEDIA",
     "FINALIDADE",
     "FORMA_DO_TEMPLATE",
     "INICIO_DO_TURNO",
@@ -532,5 +590,6 @@ __all__ = [
     "canal_por_omissao",
     "emitir_resposta",
     "gravar_resposta",
+    "media_da_resposta",
     "titulo_do_botao",
 ]

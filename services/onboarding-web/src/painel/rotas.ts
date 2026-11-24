@@ -35,6 +35,11 @@
  *                                   passadas as 72 h, a troca faz-se sem o antigo
  *     POST  /painel/telefone/cancelar
  *                                   a troca viva do tenant cancela-se
+ *     GET   /painel/social          a página Social (KAM-246): as artes aprovadas
+ *                                   e entregues, a legenda para copiar e a ligação
+ *                                   de descarga de 24 h, pedidas ao AGR
+ *     GET   /painel/social/descarga a ligação aberta: 302 para um URL do STO de
+ *                                   cinco minutos, ou 404 — ver `./social.ts`
  *     GET   /painel/conversa        a conversa do dono com o Assistente (KAM-223),
  *                                   depois de uma entrada (`?depois={id}`)
  *     POST  /painel/conversa        uma mensagem do dono ao Assistente
@@ -168,6 +173,7 @@ import {
 import { FASE_DA_RELIGACAO, GuiaRecusadoError } from "@kamba/core-ts/guia";
 import type { Logger } from "@kamba/core-ts/logger";
 
+import { csp } from "../pagina.ts";
 import { enderecoDoPedido } from "../rotas.ts";
 import type { LeitorDoCanal } from "./canal.ts";
 import { ESTADOS_DA_ENCOMENDA, type Comercio, type EstadoDaEncomenda } from "./comercio.ts";
@@ -182,6 +188,7 @@ import {
   paginaDaLigacaoFechada,
   paginaDoCanal,
   paginaDoCodigoDaLigacao,
+  paginaDoSocial,
   paginaNaoEncontrada,
   paginaSemSessao,
 } from "./pagina.ts";
@@ -198,6 +205,7 @@ import {
   type Revogacoes,
   type SessaoDoPainel,
 } from "./sessao.ts";
+import { corpoDoSocial, cspComImagens, ligacaoComForma, origensDasImagens, type SocialDoPainel } from "./social.ts";
 import { lerPedido, pedeConfirmacao, PRECO_MAXIMO_KZ_POR_OMISSAO, variacaoPct } from "./validacao.ts";
 
 /**
@@ -421,6 +429,12 @@ export interface OpcoesDoPainel {
    * 503 e o resto do painel serve igual.
    */
   readonly teste?: TesteDoPainel | undefined;
+  /**
+   * A página Social (KAM-246): a lista e a ligação, pedidas ao AGR
+   * (`socialPeloAgr`). **Opcional**: sem ela, as duas rotas respondem 503 e o
+   * resto do painel serve igual.
+   */
+  readonly social?: SocialDoPainel | undefined;
   /** O preço máximo em Kz (critério 5). */
   readonly precoMaximoKz?: bigint | undefined;
   readonly relogio?: (() => Date) | undefined;
@@ -859,6 +873,69 @@ export function rotasDoPainel(opcoes: OpcoesDoPainel): Hono {
     // O canal do dono (KAM-216): o que a troca guardou, que o COM lê na mesma
     // linha do canal e com o mesmo tenant da sessão.
     return html(paginaDoCanal(n, vista, canalNoPainel(vista.ownerChannelWa, vista.estado)), 200, n, sessao.renovar);
+  });
+
+  // ------------------------------------------------- a página Social (KAM-246)
+
+  app.get("/painel/social", async (c) => {
+    metricas.pedido("social");
+    const n = nonce();
+    const sessao = await sessaoDe(c.req.header("cookie"));
+    if (sessao === null) {
+      falhou("social", "sem_sessao");
+      return html(paginaSemSessao(n), 401, n);
+    }
+    if (opcoes.social === undefined) {
+      falhou("social", "indisponivel");
+      return html(paginaNaoEncontrada(n), 503, n, sessao.renovar);
+    }
+    // O tenant é o da sessão, e não há outro sítio de onde venha.
+    const r = await opcoes.social.itens(sessao.s.tenantId);
+    if (r.tipo !== "ok") {
+      falhou("social", "indisponivel");
+      return html(paginaNaoEncontrada(n), 503, n, sessao.renovar);
+    }
+    // A CSP desta página, e só desta, deixa as imagens vir das origens dos URLs do STO.
+    const politica = cspComImagens(csp(n), origensDasImagens(r.valor));
+    return html(paginaDoSocial(n, corpoDoSocial(r.valor)), 200, n, {
+      ...sessao.renovar,
+      "Content-Security-Policy": politica,
+    });
+  });
+
+  app.get("/painel/social/descarga", async (c) => {
+    metricas.pedido("social_descarga");
+    const n = nonce();
+    const sessao = await sessaoDe(c.req.header("cookie"));
+    if (sessao === null) {
+      falhou("social_descarga", "sem_sessao");
+      return html(paginaSemSessao(n), 401, n);
+    }
+    const ligacao = c.req.query("l");
+    if (!ligacaoComForma(ligacao)) {
+      // A mesma página de uma ligação recusada: a forma também não se diz.
+      falhou("social_descarga", "nao_encontrado");
+      return html(paginaNaoEncontrada(n), 404, n, sessao.renovar);
+    }
+    if (opcoes.social === undefined) {
+      falhou("social_descarga", "indisponivel");
+      return html(paginaNaoEncontrada(n), 503, n, sessao.renovar);
+    }
+    const r = await opcoes.social.abrir(sessao.s.tenantId, ligacao);
+    if (r.tipo === "recusada") {
+      // Expirada, adulterada ou de outro tenant: a mesma resposta, sem dizer se o item existe.
+      falhou("social_descarga", "nao_encontrado");
+      return html(paginaNaoEncontrada(n), 404, n, sessao.renovar);
+    }
+    if (r.tipo !== "ok") {
+      falhou("social_descarga", "indisponivel");
+      return html(paginaNaoEncontrada(n), 503, n, sessao.renovar);
+    }
+    // O URL do STO vale cinco minutos; a ligação de 24 h fica com o dono.
+    return new Response(null, {
+      status: 302,
+      headers: { location: r.valor, "cache-control": "no-store", "referrer-policy": "no-referrer", ...sessao.renovar },
+    });
   });
 
   // ------------------------------------------- a reconexão e a reentrada (KAM-190)

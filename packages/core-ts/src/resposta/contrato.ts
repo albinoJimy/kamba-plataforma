@@ -68,6 +68,11 @@ export interface RespostaParaEnviar {
   readonly botoes: readonly BotaoDaResposta[];
   /** `null` numa resposta de texto livre. Quem escolhe é o AGR, nunca o consumidor. */
   readonly template: TemplateDaResposta | null;
+  /**
+   * A chave do STO da imagem que sai antes do texto (KAM-246), ou `null`. É a
+   * chave e nunca um URL; o consumidor confere-a antes de a ler (`arte.ts`).
+   */
+  readonly mediaRef: string | null;
   readonly turnoIniciadoEm: Date | null;
   readonly entregueEm: Date | null;
 }

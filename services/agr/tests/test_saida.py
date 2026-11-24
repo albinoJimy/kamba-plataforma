@@ -72,7 +72,7 @@ class Cursor:
         if sql.startswith("SELECT set_config"):
             self.tenant = p[0]
             self.linhas = [(p[0],)]
-        elif sql is saida.SQL_INSERIR or sql is saida.SQL_INSERIR_COM_TEMPLATE:
+        elif sql is saida.SQL_INSERIR or sql is saida.SQL_INSERIR_COM_TEMPLATE or sql is saida.SQL_INSERIR_COM_MEDIA:
             # A do *template* (KAM-221) leva o nome e os valores no fim; o
             # resto da semantica e a mesma.
             tenant, chave, contacto, conversa, canal, texto, botoes, inicio = p[:8]
@@ -89,6 +89,8 @@ class Cursor:
                     "reply_id": str(reply_id), "tenant": tenant, "chave": chave,
                     "contacto": contacto, "conversa": conversa, "canal": canal,
                     "texto": texto, "botoes": botoes, "inicio": inicio,
+                    # KAM-246: a imagem so com a coluna no texto da instrucao.
+                    "media": p[8] if "media_ref" in sql else None,
                 }
             )
             self.linhas = [(reply_id,)]
@@ -511,3 +513,55 @@ class TestOTurnoPoeOInicio(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestAImagemDaResposta(unittest.TestCase):
+    """A chave da arte na `agent_replies` (KAM-246): do tenant, da classe `arte`, sem *template*."""
+
+    ARTE = f"t/{TENANT}/arte/2026/11/0b1c2d3e-4f50-4617-8a9b-0c1d2e3f4a5b"
+
+    def setUp(self) -> None:
+        self.base = Base()
+
+    def emitir(self, **argumentos: Any) -> str | None:
+        return emitir_resposta(Ligacao(self.base), estado(), "Pre-visualizacao.", chave="k:0", **argumentos)
+
+    def test_a_imagem_grava_se_com_a_instrucao_dela_e_o_evento_nao_muda(self) -> None:
+        reply_id = self.emitir(media=self.ARTE, botoes=("falar_com_humano",))
+        ordem = [s for s in self.base.instrucoes if not s.startswith("SELECT set_config")]
+        self.assertEqual(ordem, [saida.SQL_INSERIR_COM_MEDIA, saida.SQL_EMITIR])
+        self.assertEqual(self.base.respostas[0]["media"], self.ARTE)
+        payload = json.loads(self.base.eventos[0][3])
+        self.assertEqual(set(payload), {"reply_id", "thread_id", "conversation_id", "contact_id", "canal"})
+        self.assertEqual(payload["reply_id"], reply_id)
+        self.assertNotIn(self.ARTE, self.base.eventos[0][3])
+
+    def test_sem_imagem_a_instrucao_e_a_de_sempre(self) -> None:
+        self.emitir()
+        self.assertIn(saida.SQL_INSERIR, self.base.instrucoes)
+        self.assertNotIn(saida.SQL_INSERIR_COM_MEDIA, self.base.instrucoes)
+        self.assertIsNone(self.base.respostas[0]["media"])
+
+    def test_recusa_antes_da_base_uma_chave_alheia_de_outra_classe_um_url_ou_um_template(self) -> None:
+        for media in (
+            f"t/{OUTRO}/arte/2026/11/0b1c2d3e-4f50-4617-8a9b-0c1d2e3f4a5b",
+            f"t/{TENANT}/foto/2026/11/0b1c2d3e-4f50-4617-8a9b-0c1d2e3f4a5b",
+            "https://exemplo.invalid/arte.jpg",
+            f"{self.ARTE}/../x",
+            "",
+        ):
+            with self.assertRaises(RespostaInvalidaError, msg=media):
+                self.emitir(media=media)
+        with self.assertRaises(RespostaInvalidaError):
+            self.emitir(media=self.ARTE, template="orcamento_pronto", parametros=("ORC-ABCDEFGH",))
+        self.assertEqual(self.base.instrucoes, [], "nada chegou a base")
+
+    def test_a_porta_passa_a_imagem_a_linha(self) -> None:
+        porta = SaidaPorEvento(lambda: Ligacao(self.base))
+        asyncio.run(porta.enfileirar(estado(), "ola", chave="k:9", media=self.ARTE))
+        self.assertEqual(self.base.respostas[0]["media"], self.ARTE)
+
+    def test_a_classe_e_a_da_arte(self) -> None:
+        self.assertEqual(saida.CLASSE_DA_MEDIA, "arte")
+        self.assertEqual(saida.media_da_resposta(self.ARTE, TENANT.upper()), self.ARTE)
+        self.assertIsNone(saida.media_da_resposta(None, TENANT))

@@ -10,7 +10,8 @@
  * A resposta de canal `whatsapp`, com o canal e o `phone_number_id` da conversa.
  *
  * Com o *template* que o AGR escolheu, quando o escolheu (`template_nome` e
- * `template_parametros`, revisão `0076` do KAM-221).
+ * `template_parametros`, revisão `0076` do KAM-221), e com a chave do STO da
+ * imagem que sai antes do texto (`media_ref`, KAM-246).
  *
  * O `tenant_id` e o `conversation_id` repetem-se no `WHERE` de propósito: o
  * `reply_id` do evento tem de ser **desta** conversa, e não só deste tenant. A
@@ -19,7 +20,7 @@
  */
 export const SQL_RESPOSTA_DO_WHATSAPP = `
   SELECT r.reply_id, r.chave, r.contact_id, r.conversation_id, r.texto, r.botoes,
-         r.template_nome, r.template_parametros,
+         r.template_nome, r.template_parametros, r.media_ref,
          r.turno_iniciado_em, r.entregue_at, c.channel_id, tc.phone_number_id
     FROM platform.agent_replies r
     JOIN platform.conversations c

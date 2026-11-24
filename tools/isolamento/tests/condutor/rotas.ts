@@ -2793,6 +2793,9 @@ const ITENS_DO_PAINEL = [
   "rota:onboarding-web:painel/rotas:actor:POST:/painel/encomendas/:id/contacto",
   // KAM-243: a foto do dono para o catalogo.
   "rota:onboarding-web:painel/rotas:actor:POST:/painel/foto",
+  // KAM-246: a pagina Social e a ligacao de descarga, pedidas ao AGR.
+  "rota:onboarding-web:painel/rotas:actor:GET:/painel/social",
+  "rota:onboarding-web:painel/rotas:actor:GET:/painel/social/descarga",
 ] as const;
 
 /** Os telefones da reentrada (KAM-190). Ficticios, com 999. */
@@ -3078,6 +3081,41 @@ async function grupoDoPainel(relatorio: Relatorio): Promise<void> {
       },
     };
 
+    // KAM-246: a pagina Social, com o AGR de duplo. O item de A leva o marcador
+    // e o de B o canario; a ligacao de B so abre com o tenant de B. O duplo
+    // regista o tenant de cada pedido, e e isso que a marca `tenant=a` le.
+    const LIGACAO_DE_A = "bGlnYWNhby1kZS1h.YXNzaW5hdHVyYS1kZS1h";
+    const LIGACAO_DE_B = "bGlnYWNhby1kZS1i.YXNzaW5hdHVyYS1kZS1i";
+    const tenantsDoSocial: string[] = [];
+    const itemDoSocial = (tenant: string, legenda: string, ligacao: string) => ({
+      referencia: tenant === TENANT_DE_A_NO_PAINEL ? "SOC-ABCDEFGH" : "SOC-HGFEDCBA",
+      estado: "aprovado",
+      tema: legenda,
+      legenda,
+      nota: null,
+      imagem: `https://sto.ensaio.invalid/${tenant}/arte.jpg`,
+      ligacao,
+    });
+    const social = {
+      async itens(tenant: string) {
+        tenantsDoSocial.push(tenant);
+        const valor =
+          tenant === TENANT_DE_A_NO_PAINEL
+            ? [itemDoSocial(tenant, MARCADOR_DE_A, LIGACAO_DE_A)]
+            : tenant === TENANT_DE_B_NO_PAINEL
+              ? [itemDoSocial(tenant, canario, LIGACAO_DE_B)]
+              : [];
+        return { tipo: "ok", valor };
+      },
+      async abrir(tenant: string, ligacao: string) {
+        tenantsDoSocial.push(tenant);
+        const de = ligacao === LIGACAO_DE_A ? TENANT_DE_A_NO_PAINEL : ligacao === LIGACAO_DE_B ? TENANT_DE_B_NO_PAINEL : null;
+        return de !== null && de === tenant
+          ? { tipo: "ok", valor: `https://sto.ensaio.invalid/${tenant}/arte.jpg?${encodeURIComponent(MARCADOR_DE_A)}` }
+          : { tipo: "recusada" };
+      },
+    };
+
     // KAM-243: a foto do dono, com a `FotoDoDono` **real** sobre portas de duplo.
     // O MED de duplo guarda por tenant, e o `asset_id` de B leva o canario: uma
     // rota que tirasse o tenant de outro sitio que nao a sessao devolvia-o.
@@ -3118,6 +3156,7 @@ async function grupoDoPainel(relatorio: Relatorio): Promise<void> {
       conversa,
       foto,
       teste,
+      social,
     });
     const cookieDeA = `kamba_painel=${cunharSessao(sessaoDeA, chave)}`;
 
@@ -3191,6 +3230,51 @@ async function grupoDoPainel(relatorio: Relatorio): Promise<void> {
             : sonda;
         await empurrar(item, "GET", c, { headers }, marcas);
       }
+    }
+
+    // ---- KAM-246: a pagina Social, a sessao de A com o tenant de B no pedido
+    // (na consulta, no cabecalho, e nos dois). A marca `tenant=sessao` diz que o
+    // AGR so ouviu o tenant da sessao do pedido.
+    for (let vez = 0; vez < 3; vez += 1) {
+      const [c, headers] = comTenantDeB("/painel/social", vez);
+      tenantsDoSocial.length = 0;
+      await empurrar(ITENS_DO_PAINEL[21], "GET", c, { headers }, (corpo) => {
+        const so = tenantsDoSocial.length > 0 && tenantsDoSocial.every((x) => x === TENANT_DE_A_NO_PAINEL);
+        return `${sonda(corpo)} tenant=${so ? "sessao" : "alheio"}`;
+      });
+    }
+
+    // ---- KAM-246: a ligacao de descarga. Tres ataques: a ligacao de B com a
+    // sessao de A; a mesma, com o tenant de B no pedido (consulta e cabecalho);
+    // e a ligacao de A com a **sessao de B** (a sessao de outro tenant). A sonda
+    // positiva (a ligacao de A abre na sessao de A) vai fora das entradas,
+    // porque o 302 dela quebrava a uniformidade dos tres 404.
+    const cookieDeB = `kamba_painel=${cunharSessao(sessaoDeB, chave)}`;
+    const ataquesDaDescarga: [string, Record<string, string>, string][] = [
+      [`/painel/social/descarga?l=${encodeURIComponent(LIGACAO_DE_B)}`, { cookie: cookieDeA }, TENANT_DE_A_NO_PAINEL],
+      [
+        `/painel/social/descarga?l=${encodeURIComponent(LIGACAO_DE_B)}&tenant_id=${TENANT_DE_B_NO_PAINEL}`,
+        { cookie: cookieDeA, "x-kamba-tenant": TENANT_DE_B_NO_PAINEL },
+        TENANT_DE_A_NO_PAINEL,
+      ],
+      [`/painel/social/descarga?l=${encodeURIComponent(LIGACAO_DE_A)}`, { cookie: cookieDeB }, TENANT_DE_B_NO_PAINEL],
+    ];
+    for (const [c, headers, daSessao] of ataquesDaDescarga) {
+      tenantsDoSocial.length = 0;
+      await empurrar(ITENS_DO_PAINEL[22], "GET", c, { headers }, () => {
+        const so = tenantsDoSocial.length > 0 && tenantsDoSocial.every((x) => x === daSessao);
+        return `tenant=${so ? "sessao" : "alheio"}`;
+      });
+    }
+    const propriaDescarga = await app.request(`/painel/social/descarga?l=${encodeURIComponent(LIGACAO_DE_A)}`, {
+      headers: { cookie: cookieDeA },
+    });
+    const sondaDaDescarga =
+      propriaDescarga.status === 302 && (propriaDescarga.headers.get("location") ?? "").includes(encodeURIComponent(MARCADOR_DE_A))
+        ? "sonda=viva"
+        : "sonda=morta";
+    for (const entrada of relatorio.rotas) {
+      if (entrada.item === ITENS_DO_PAINEL[22]) entrada.nota += ` ${sondaDaDescarga}`;
     }
 
     // ---- PATCH /painel/produtos/:id: o `sku` de B, com a sessao de A.
