@@ -4841,8 +4841,7 @@ MUTACOES = [
      "    if True:",
      AGR_UNIT),
     ('llm: uma ausencia nao pede descarga nova', AG_LLM_COFRE,
-     "            self._provedor.descartar_descarga()
-",
+     "            self._provedor.descartar_descarga()\n",
      "",
      AGR_UNIT),
     ('llm: a chave do tenant liga-se ao ambiente', AG_MAIN,

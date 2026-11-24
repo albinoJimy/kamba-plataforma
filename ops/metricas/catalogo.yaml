@@ -504,6 +504,12 @@ metricas:
   # So ve o que passa por esses *helpers* num processo TypeScript: uma ligacao
   # directa, um processo Python ou uma transaccao aberta a mao (o `consumir` dos
   # eventos, entre outras) nao chegam aqui (o bloco do KAM-219 diz o credor).
+  # KAM-251: o consumidor `dono` (`onboarding-provisionamento`, `job`
+  # `onboarding_provisionamento`) serve-a tambem. As quatro series de eventos
+  # que ele serve ao lado (`evt_consumed_total`, `evt_retry_total`,
+  # `evt_publish_total`, `evt_publish_errors_total`, medidas no KAM-251) nao
+  # estao neste catalogo, como as dos processos do `worker-canal`: nenhuma regra
+  # nem painel as cita, e o catalogo nao e o inventario (cabecalho).
   - nome: tenant_guard_tecto_recusado_total
     tipo: counter
     fonte: packages/core-ts/src/tenant_guard/metricas.ts
@@ -511,6 +517,7 @@ metricas:
       - onboarding-lote
       - com
       - worker-canal-entrada
+      - onboarding-provisionamento
     ajuda: Recusas da base (42501) sobre platform.trust_level vistas numa transaccao do tenant_guard.
     etiquetas: []
 
