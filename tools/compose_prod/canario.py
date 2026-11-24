@@ -150,6 +150,37 @@ def _casos_da_fila() -> tuple[Caso, ...]:
                 r'^        requirepass "\$\$\{KAMBA_SECRET_QUEUE_PASSWORD\}"\n', "",
             ),
         ),
+        # As tres que a revisao adversarial mediu a abrir a fila com o texto
+        # `requirepass` ainda la, e a sonda verde.
+        Caso(
+            "fila-sem-stdin",
+            frozenset({"fila-sem-credencial"}),
+            "o `-` sai do `docker-entrypoint.sh`: o servidor nao le o stdin e arranca aberto",
+            lambda c: c.trocar(
+                lint.PROD, r"exec /usr/local/bin/docker-entrypoint\.sh - --appendonly",
+                "exec /usr/local/bin/docker-entrypoint.sh --appendonly",
+            ),
+        ),
+        Caso(
+            "fila-requirepass-comentado",
+            frozenset({"fila-sem-credencial"}),
+            "em *staging*, a linha `requirepass` do *here-doc* fica comentada",
+            lambda c: c.trocar(
+                lint.STAGING,
+                r'^        requirepass "\$\$\{KAMBA_SECRET_QUEUE_PASSWORD\}"$',
+                '        # requirepass "$${KAMBA_SECRET_QUEUE_PASSWORD}"',
+            ),
+        ),
+        Caso(
+            "fila-requirepass-vazio-depois",
+            frozenset({"fila-sem-credencial"}),
+            'um `requirepass ""` a seguir ao certo apaga a senha',
+            lambda c: c.trocar(
+                lint.PROD,
+                r'^(        requirepass "\$\$\{KAMBA_SECRET_QUEUE_PASSWORD\}")$',
+                '        requirepass "$${KAMBA_SECRET_QUEUE_PASSWORD}"\n        requirepass ""',
+            ),
+        ),
         Caso(
             "fila-credencial-opcional",
             frozenset({"fila-sem-credencial"}),
@@ -194,6 +225,34 @@ def _casos_da_fila() -> tuple[Caso, ...]:
             lambda c: c.trocar(
                 lint.PROD, r"^      KAMBA_QUEUE_URL: " + re.escape(_URL_DA_FILA) + "$",
                 "      KAMBA_QUEUE_URL: redis://queue:6379",
+            ),
+        ),
+        Caso(
+            "fila-sonda-com-a-colado",
+            frozenset({"fila-senha-em-argumento"}),
+            "a sonda da fila de producao passa a senha com `-a` colado ao valor",
+            lambda c: c.trocar(
+                lint.PROD,
+                r'"\$\{KAMBA_QUEUE_CLI:-valkey-cli\} ping \| grep -q PONG"',
+                '"${KAMBA_QUEUE_CLI:-valkey-cli} -a$$REDISCLI_AUTH ping | grep -q PONG"',
+            ),
+        ),
+        Caso(
+            "cliente-da-fila-em-maiusculas",
+            frozenset({"cliente-da-fila-sem-credencial"}),
+            "o `KAMBA_REDIS_URL` do *shim* de producao passa a `redis://QUEUE:6379`, que o DNS resolve",
+            lambda c: c.trocar(
+                lint.PROD, r"^      KAMBA_REDIS_URL: " + re.escape(_URL_DA_FILA) + "$",
+                "      KAMBA_REDIS_URL: redis://QUEUE:6379",
+            ),
+        ),
+        Caso(
+            "cliente-da-fila-por-valkey",
+            frozenset({"cliente-da-fila-sem-credencial"}),
+            "em *staging*, um `KAMBA_QUEUE_URL` com o esquema `valkey://` e o nome do contentor",
+            lambda c: c.trocar(
+                lint.STAGING, r"^      KAMBA_QUEUE_URL: " + re.escape(_URL_DA_FILA) + "$",
+                "      KAMBA_QUEUE_URL: valkey://kamba-staging-queue-1:6379",
             ),
         ),
         Caso(

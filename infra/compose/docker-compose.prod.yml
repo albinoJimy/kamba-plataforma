@@ -1469,7 +1469,8 @@ services:
     # *shell* fica entre o `tini` e o servidor, o `SIGTERM` nao chega a ele e o
     # `docker stop` mata-o sem fechar o AOF (medido: saida 143 contra 0).
     #
-    # O `docker-entrypoint.sh` e o das duas imagens oficiais, e e por ele que o
+    # O `docker-entrypoint.sh` e o das duas imagens oficiais, no mesmo caminho
+    # (`command -v` da `/usr/local/bin/` nas duas), e e por ele que o
     # servidor se chama: `valkey-server` numa, `redis-server` na outra. Trocar a
     # imagem (D12) continua a ser mudar as duas variaveis de ambiente.
     #
@@ -1484,7 +1485,7 @@ services:
       - sh
       - -c
       - |
-        exec docker-entrypoint.sh - --appendonly yes --appendfsync everysec --dir /data --save "" --maxmemory 600mb --maxmemory-policy noeviction <<FIM
+        exec /usr/local/bin/docker-entrypoint.sh - --appendonly yes --appendfsync everysec --dir /data --save "" --maxmemory 600mb --maxmemory-policy noeviction <<FIM
         requirepass "$${KAMBA_SECRET_QUEUE_PASSWORD}"
         FIM
     environment:

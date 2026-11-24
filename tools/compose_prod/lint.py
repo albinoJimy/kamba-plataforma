@@ -1530,14 +1530,68 @@ def r_consumidores(dados: Dados) -> list[Achado]:
 FILA = "queue"
 VARIAVEL_DA_FILA = "KAMBA_SECRET_QUEUE_PASSWORD"
 EXIGIR_A_CREDENCIAL = re.compile(r"\$\{KAMBA_SECRET_QUEUE_PASSWORD:\?[^}]+\}")
-#: Um URL que aponta para a fila. `rediss` tambem: TLS nao e credencial.
+#: Um URL que aponta para a fila. `rediss` tambem (TLS nao e credencial), e
+#: `valkey(s)`, que o `opcoesDaUrl` aceita porque o `new URL` nao olha ao esquema.
+#: O anfitriao sem distinguir maiusculas (o DNS do Docker resolve `QUEUE`), com o
+#: ponto final de um FQDN, ou pelo nome do contentor (`<projecto>-queue-1`).
+#: Achado da revisao adversarial: as quatro formas passavam sem achado.
 URL_DA_FILA = re.compile(
-    r"rediss?://(?P<credencial>[^@\s/]*@)?" + FILA + r"(?=[:/\s]|$)"
+    r"(?:rediss?|valkeys?)://(?P<credencial>[^@\s/]*@)?"
+    r"(?:" + FILA + r"\.?|[\w.-]*-" + FILA + r"-\d+)(?=[:/\s]|$)",
+    re.IGNORECASE,
 )
 #: A unica credencial aceite num URL da fila: utilizador vazio e a senha pela
 #: variavel exigida. Um `redis://:literal@queue` passava a credencial **escrita
 #: no ficheiro**, que e o que o ADR-L002 proibe.
 CREDENCIAL_DO_URL = re.compile(r":" + EXIGIR_A_CREDENCIAL.pattern + r"@")
+#: A unica linha `requirepass` que o *here-doc* pode ter.
+LINHA_DO_REQUIREPASS = f'requirepass "$${{{VARIAVEL_DA_FILA}}}"'
+_EXEC_DA_FILA = re.compile(
+    r"^\s*exec\s+(?:/usr/local/bin/)?docker-entrypoint\.sh\s+(?P<primeiro>\S+)[^#]*?"
+    r"<<-?\s*['\"]?(?P<fim>\w+)['\"]?\s*$"
+)
+
+
+def _comando_da_fila(comando: str) -> list[str]:
+    """O que impede o servidor da fila de ler a credencial, lido da **forma** do comando.
+
+    Procurar o texto `requirepass` nao chegava (achado da revisao adversarial,
+    medido): sem o `-` o servidor nao le o stdin e arranca aberto, e uma linha
+    comentada, ou um `requirepass ""` a seguir, deixam o texto la e a fila sem
+    senha — com a sonda verde, porque o `valkey-cli` so avisa.
+    """
+    linhas = comando.splitlines()
+    for indice, linha in enumerate(linhas):
+        casou = _EXEC_DA_FILA.match(linha)
+        if casou:
+            break
+    else:
+        return [
+            "o `command` nao entrega a configuracao ao servidor pelo stdin "
+            "(`exec docker-entrypoint.sh - ... <<FIM`)"
+        ]
+    problemas: list[str] = []
+    if casou.group("primeiro") != "-":
+        problemas.append(
+            f"o primeiro argumento do `docker-entrypoint.sh` e "
+            f"`{casou.group('primeiro')}` e nao `-`: o servidor nao le o stdin e "
+            "arranca sem `requirepass`"
+        )
+    corpo: list[str] = []
+    for linha in linhas[indice + 1:]:
+        if linha.strip() == casou.group("fim"):
+            break
+        corpo.append(linha.strip())
+    else:
+        problemas.append("o *here-doc* do `command` nao fecha")
+    efectivas = [l for l in corpo if l and not l.startswith("#")]
+    da_senha = [l for l in efectivas if l.split()[0].lower() == "requirepass"]
+    if da_senha != [LINHA_DO_REQUIREPASS]:
+        problemas.append(
+            f"o *here-doc* tem de ter uma so linha `requirepass`, sem comentario e "
+            f"igual a `{LINHA_DO_REQUIREPASS}`; tem {da_senha or 'nenhuma'}"
+        )
+    return problemas
 
 
 def r_fila_com_credencial(dados: Dados) -> list[Achado]:
@@ -1573,13 +1627,7 @@ def r_fila_com_credencial(dados: Dados) -> list[Achado]:
                 problemas.append(
                     f"o `environment` nao exige `{VARIAVEL_DA_FILA}` com `${{...:?...}}`"
                 )
-            if "requirepass" not in comando or (
-                f"$${{{VARIAVEL_DA_FILA}}}" not in comando
-                and f"$${VARIAVEL_DA_FILA}" not in comando
-            ):
-                problemas.append(
-                    f"o `command` nao da ao servidor `requirepass` com `{VARIAVEL_DA_FILA}`"
-                )
+            problemas += _comando_da_fila(comando)
             if not EXIGIR_A_CREDENCIAL.fullmatch(env.get("REDISCLI_AUTH", "").strip()):
                 problemas.append(
                     "a sonda nao recebe a credencial em `REDISCLI_AUTH`, e o contentor "
@@ -1595,7 +1643,8 @@ def r_fila_com_credencial(dados: Dados) -> list[Achado]:
                     )
                 )
             em_argumento = re.search(r"--requirepass\b", comando) or re.search(
-                r"(?:^|\s)(?:-a|--pass|--askpass)\s|(?:^|\s)-u\s+rediss?://", sonda
+                # `-a` tambem colado ao valor (`-a$$X`): achado da revisao.
+                r"(?:^|\s)(?:-a|--pass\b|--askpass\b)|(?:^|\s)-u\s+\S*://", sonda
             )
             if em_argumento:
                 achados.append(

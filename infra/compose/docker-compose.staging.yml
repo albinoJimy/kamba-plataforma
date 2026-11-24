@@ -1170,7 +1170,7 @@ services:
       - sh
       - -c
       - |
-        exec docker-entrypoint.sh - --appendonly yes --appendfsync everysec --dir /data --save "" --maxmemory 600mb --maxmemory-policy noeviction <<FIM
+        exec /usr/local/bin/docker-entrypoint.sh - --appendonly yes --appendfsync everysec --dir /data --save "" --maxmemory 600mb --maxmemory-policy noeviction <<FIM
         requirepass "$${KAMBA_SECRET_QUEUE_PASSWORD}"
         FIM
     environment:
