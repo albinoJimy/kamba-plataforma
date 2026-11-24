@@ -110,6 +110,8 @@ class TestAsListasCoincidemComAEnumeracao(unittest.TestCase):
             + x01_rotas.SONDA_DO_AGR
             + x01_rotas.METRICAS_DO_AGR
             + x01_rotas.ROTA_DO_SCREENING_DO_AGR
+            # KAM-246: as duas da pagina Social do painel.
+            + x01_rotas.ROTAS_DO_PAINEL_SOCIAL_DO_AGR
         ):
             with self.subTest(item=item):
                 self.assertIn(item, self.itens)
@@ -139,6 +141,8 @@ class TestAsListasCoincidemComAEnumeracao(unittest.TestCase):
             - set(x01_rotas.METRICAS_DO_AGR)
             # KAM-195: a rota do screening e a quarta lista do AGR.
             - set(x01_rotas.ROTA_DO_SCREENING_DO_AGR)
+            # KAM-246: as duas da pagina Social do painel, idem.
+            - set(x01_rotas.ROTAS_DO_PAINEL_SOCIAL_DO_AGR)
             # KAM-194: as tres do processo do IDX tambem sao Python, e tem o
             # ensaio delas abaixo; sem a subtraccao apareciam aqui como rotas
             # de TypeScript que ninguem declarou.

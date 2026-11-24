@@ -167,7 +167,34 @@ export interface CorpoDeTemplate {
   readonly parametros: readonly string[];
 }
 
-export type Corpo = CorpoLivre | CorpoDeBotoes | CorpoDeLista | CorpoDeTemplate;
+/**
+ * Uma imagem (KAM-246): o JPEG, já lido e conferido por quem chama.
+ *
+ * **Os bytes, e não o identificador da média.** O cliente da Graph carrega-os
+ * na Meta (`POST /{phone_number_id}/media`) e envia pelo `id` devolvido,
+ * **dentro** do passo de rede do `Saida`: a linha da `outbound_messages` grava-se
+ * antes, e uma chave repetida não carrega nem envia outra vez. O corpo nunca se
+ * grava nem se regista.
+ *
+ * Como qualquer corpo que não é *template*, só sai com a janela aberta
+ * (`decidir`), e é `service`.
+ */
+export interface CorpoDeImagem {
+  readonly tipo: "imagem";
+  readonly jpeg: Uint8Array;
+}
+
+export type Corpo = CorpoLivre | CorpoDeBotoes | CorpoDeLista | CorpoDeTemplate | CorpoDeImagem;
+
+/** O tipo de média que o Outbound carrega. Só JPEG: a arte do KAM-122 é JPEG. */
+export const TIPO_DA_IMAGEM = "image/jpeg";
+
+/**
+ * O tecto de uma imagem, em bytes. **Proposta, NÃO VERIFICADO**: o `E1` não tem
+ * o limite da Meta para média de imagem (o bloco do KAM-246 manda confirmá-lo
+ * lá). A arte do KAM-122 fica muito abaixo disto.
+ */
+export const MAXIMO_DA_IMAGEM = 5 * 1024 * 1024;
 
 /** O que um chamador pede ao adapter. */
 export interface Pedido {

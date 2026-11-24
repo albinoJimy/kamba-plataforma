@@ -68,6 +68,29 @@
  * a resposta fica sem `entregue_at`. Nenhuma tentativa faz aparecer um segredo
  * que o cofre não tem.
  *
+ * ## A imagem sai antes do texto, e cada uma com a sua chave (KAM-246)
+ *
+ * Uma resposta com `media_ref` são **duas** mensagens: a imagem, com a chave
+ * `chaveDaImagem(chave)`, e depois o texto e os botões, com a chave do turno. A
+ * legenda e a nota de IA vão no texto, que se copia. Antes de ler o STO, a chave
+ * tem de ser do tenant do envelope e da classe `arte` (`arte.ts`): senão a
+ * resposta inteira é `arte_recusada`, com **0** bytes à Meta, e não se repete.
+ *
+ * Cada mensagem passa pelo mesmo caminho (`enviarUma`): o reenvio único pela
+ * chave derivada, e o `ReenvioAdiadoError` quando se sabe que não saiu. **Uma
+ * imagem que se sabe não ter saído adia a resposta inteira**, e o texto não sai
+ * antes dela; na volta seguinte, a imagem que já saiu não se lê nem se envia
+ * outra vez (a linha da chave dela diz que saiu). Uma imagem que não sai por
+ * outra razão (ambígua, recusada) fica registada na `outbound_messages` e no
+ * desfecho `imagem_nao_enviada`, e o texto segue: a arte fica na página do
+ * painel. O `entregue_at` marca-se pelo texto, como antes.
+ *
+ * **Um objecto que já não existe no STO** (a retenção da classe `arte` apagou-o)
+ * também não prende o texto: nenhuma tentativa o traz de volta, e a legenda é
+ * o que o dono copia. Sai o texto, sem a imagem, com o desfecho
+ * `imagem_nao_enviada:arte_inexistente`. Qualquer outra falha do STO (em baixo,
+ * uma resposta sem forma) recua pela escada, como uma falha da base.
+ *
  * ## O `Saida` corre noutra ligação, e porquê
  *
  * O `Saida` do KAM-015 grava a linha **antes** da rede, em *autocommit*, e é isso
@@ -83,6 +106,8 @@ import type { Envelope } from "../eventos/envelope.ts";
 import type { ClienteSql } from "../eventos/publicador.ts";
 import { CODIGO_SEM_CODIGO } from "../outbound/cliente.ts";
 import { IDIOMA_BASE, type Corpo, type Pedido, type Resultado } from "../outbound/contrato.ts";
+import { ObjectoInexistenteError } from "../storage/port.ts";
+import { ArteRecusadaError, chaveDaArte, type LerArte } from "./arte.ts";
 import { CanalSemCredencialError } from "./credencial.ts";
 import {
   CONSUMIDOR_DO_OUTBOUND,
@@ -118,6 +143,10 @@ export const DESFECHOS_DA_RESPOSTA = [
   "entregue_ao_painel",
   "ja_entregue",
   "de_outro_canal",
+  // KAM-246: a imagem de uma resposta com média, que se conta à parte do texto.
+  "imagem_enviada",
+  "imagem_nao_enviada",
+  "arte_recusada",
 ] as const;
 export type DesfechoDaResposta = (typeof DESFECHOS_DA_RESPOSTA)[number];
 
@@ -149,6 +178,27 @@ export function chaveDoReenvio(chave: string): string {
   return `${chave}${SUFIXO_DO_REENVIO}`;
 }
 
+/** O sufixo da chave da imagem de uma resposta com média (KAM-246). */
+export const SUFIXO_DA_IMAGEM = ":imagem";
+
+/** A chave da imagem de uma resposta. O reenvio dela é o `chaveDoReenvio` desta. */
+export function chaveDaImagem(chave: string): string {
+  return `${chave}${SUFIXO_DA_IMAGEM}`;
+}
+
+/**
+ * O processo não tem leitor do STO, e a resposta tem imagem. É configuração e
+ * não desfecho: recua pela escada e vai à DLQ, e o texto não sai sem a imagem.
+ * Em produção o `efeitoDoConsumidor` não monta o `outbound` sem o leitor.
+ */
+export class ArteSemLeitorError extends Error {
+  override readonly name = "ArteSemLeitorError";
+
+  constructor() {
+    super("a resposta tem imagem e o consumidor nao tem leitor do STO");
+  }
+}
+
 /**
  * A primeira tentativa não saiu, e sabe-se que não saiu: a resposta reenvia-se
  * uma vez, `ESPERA_DO_REENVIO_S` depois. É um `Adiar` do KAM-006, e não um erro:
@@ -166,8 +216,14 @@ export class ReenvioAdiadoError extends Adiar {
 }
 
 export interface OpcoesDoEfeito {
-  /** Chamado uma vez por evento aplicado, com o desfecho. Sem tenant nem texto. */
+  /**
+   * Chamado uma vez por mensagem tratada, com o desfecho: uma vez por evento
+   * aplicado, e duas numa resposta com imagem (a imagem e o texto). Sem tenant
+   * nem texto.
+   */
   readonly aoTratar?: (desfecho: DesfechoDaResposta, motivo?: string) => void;
+  /** O JPEG da arte (`arteDoSto`, em produção). Só o `outbound` o usa. */
+  readonly lerArte?: LerArte;
 }
 
 function data(v: unknown): Date | null {
@@ -180,6 +236,12 @@ function payloadDe(envelope: Envelope): PayloadDaResposta {
     throw new RespostaInvalidaError(`tipo ${envelope.tipo} nao e ${TIPO_DA_RESPOSTA}`);
   }
   return lerResposta(envelope.tenant_id, envelope.payload);
+}
+
+function mediaDaLinha(v: unknown): string | null {
+  if (v === null || v === undefined) return null;
+  if (typeof v !== "string" || v === "") throw new RespostaInvalidaError("media_ref sem forma");
+  return v;
 }
 
 /** A linha do WhatsApp, lida e trancada na transacção do consumo. */
@@ -208,6 +270,7 @@ export async function respostaParaEnviar(
     texto: String(l["texto"]),
     botoes: botoesDaLinha(l["botoes"]),
     template: templateDaLinha(l["template_nome"], l["template_parametros"]),
+    mediaRef: mediaDaLinha(l["media_ref"]),
     turnoIniciadoEm: data(l["turno_iniciado_em"]),
     entregueEm: data(l["entregue_at"]),
   };
@@ -306,6 +369,101 @@ function naoSaiu(resultado: { readonly motivo: string; readonly codigo: number |
   return eFalha(resultado.motivo) && !eAmbiguo(resultado.codigo);
 }
 
+/** O desfecho de uma mensagem: saiu (e como), ou não saiu (e porquê). */
+type DesfechoDeUma =
+  | { readonly saiu: true; readonly desfecho: "enviada" | "reenviada" | "repetida" }
+  | {
+      readonly saiu: false;
+      readonly desfecho: "recusada" | "falhou" | "sem_credencial" | "repetida_sem_envio";
+      readonly motivo: string;
+    };
+
+/**
+ * Uma mensagem pelo `Saida`, com o reenvio único do KAM-227. Levanta
+ * `ReenvioAdiadoError` quando a primeira tentativa se sabe não ter saído.
+ */
+async function enviarUma(bd: ClienteSql, enviar: EnviarResposta, pedido: Pedido): Promise<DesfechoDeUma> {
+  const resultado = await tentar(enviar, pedido);
+  if (resultado instanceof CanalSemCredencialError) {
+    return { saiu: false, desfecho: "sem_credencial", motivo: resultado.motivo };
+  }
+  if (!resultado.ok) {
+    if (naoSaiu(resultado)) throw new ReenvioAdiadoError(resultado.motivo);
+    return { saiu: false, desfecho: eFalha(resultado.motivo) ? "falhou" : "recusada", motivo: resultado.motivo };
+  }
+  if (resultado.repetido) {
+    const envio = await estadoDoEnvio(bd, pedido.tenantId, pedido.idempotencyKey);
+    if (envio.podeReenviar) {
+      // A chave já tinha linha, e sabe-se que não saiu: o único reenvio.
+      return reenviar(bd, enviar, { ...pedido, idempotencyKey: chaveDoReenvio(pedido.idempotencyKey) });
+    }
+    if (!envio.saiu) return { saiu: false, desfecho: "repetida_sem_envio", motivo: envio.estado };
+  }
+  return { saiu: true, desfecho: resultado.repetido ? "repetida" : "enviada" };
+}
+
+/** O envio pela chave derivada. É o último: nada aqui volta a adiar. */
+async function reenviar(bd: ClienteSql, enviar: EnviarResposta, pedido: Pedido): Promise<DesfechoDeUma> {
+  const resultado = await tentar(enviar, pedido);
+  if (resultado instanceof CanalSemCredencialError) {
+    return { saiu: false, desfecho: "sem_credencial", motivo: resultado.motivo };
+  }
+  if (!resultado.ok) {
+    return { saiu: false, desfecho: eFalha(resultado.motivo) ? "falhou" : "recusada", motivo: resultado.motivo };
+  }
+  if (resultado.repetido) {
+    const envio = await estadoDoEnvio(bd, pedido.tenantId, pedido.idempotencyKey);
+    if (!envio.saiu) return { saiu: false, desfecho: "repetida_sem_envio", motivo: envio.estado };
+  }
+  return { saiu: true, desfecho: resultado.repetido ? "repetida" : "reenviada" };
+}
+
+/** O `Pedido` da imagem de uma resposta: o do texto, com o JPEG e a chave da imagem. */
+export function pedidoDaImagem(pedido: Pedido, jpeg: Uint8Array): Pedido {
+  return { ...pedido, idempotencyKey: chaveDaImagem(pedido.idempotencyKey), corpo: { tipo: "imagem", jpeg } };
+}
+
+/**
+ * A imagem de uma resposta com média, antes do texto. Devolve `false` quando a
+ * resposta inteira se recusa (a arte não serve), e o texto não sai.
+ */
+async function enviarImagem(
+  bd: ClienteSql,
+  enviar: EnviarResposta,
+  pedido: Pedido,
+  mediaRef: string,
+  opcoes: OpcoesDoEfeito,
+): Promise<boolean> {
+  let jpeg: Uint8Array;
+  try {
+    // A chave confere-se antes de tudo, e sem o leitor: 0 bytes à Meta.
+    chaveDaArte(pedido.tenantId, mediaRef);
+    // Uma imagem que já saiu numa volta anterior não se lê nem se envia.
+    const { rows } = await bd.query(SQL_ESTADO_DO_ENVIO, [pedido.tenantId, chaveDaImagem(pedido.idempotencyKey)]);
+    if (rows[0] !== undefined && decidirEnvio(rows[0]).saiu) {
+      opcoes.aoTratar?.("imagem_enviada", "repetida");
+      return true;
+    }
+    if (opcoes.lerArte === undefined) throw new ArteSemLeitorError();
+    jpeg = await opcoes.lerArte(pedido.tenantId, mediaRef);
+  } catch (erro) {
+    if (erro instanceof ArteRecusadaError) {
+      opcoes.aoTratar?.("arte_recusada", erro.motivo);
+      return false;
+    }
+    // Ver a nota do módulo: o objecto já não existe, e o texto sai sem ele.
+    if (erro instanceof ObjectoInexistenteError) {
+      opcoes.aoTratar?.("imagem_nao_enviada", "arte_inexistente");
+      return true;
+    }
+    throw erro;
+  }
+  const imagem = await enviarUma(bd, enviar, pedidoDaImagem(pedido, jpeg));
+  if (imagem.saiu) opcoes.aoTratar?.("imagem_enviada", imagem.desfecho);
+  else opcoes.aoTratar?.("imagem_nao_enviada", `${imagem.desfecho}:${imagem.motivo}`);
+  return true;
+}
+
 /**
  * O efeito do consumidor `outbound`: a resposta de canal `whatsapp` sai pelo
  * `Saida` do KAM-015.
@@ -318,6 +476,9 @@ function naoSaiu(resultado: { readonly motivo: string; readonly codigo: number |
  * derivada; **uma falha ambígua** é `falhou` e não se reenvia — ver a nota do
  * módulo. **Uma excepção do `enviar`** — a base em baixo — recua pela escada, e
  * a repetição trata a linha que tiver ficado.
+ *
+ * Com `media_ref`, a imagem sai primeiro (KAM-246): ver «A imagem sai antes do
+ * texto» na nota do módulo.
  */
 export function efeitoDoOutbound(enviar: EnviarResposta, opcoes: OpcoesDoEfeito = {}): Efeito {
   return async (bd: ClienteSql, envelope: Envelope) => {
@@ -333,60 +494,19 @@ export function efeitoDoOutbound(enviar: EnviarResposta, opcoes: OpcoesDoEfeito 
       return;
     }
     const pedido = pedidoDaResposta(tenantId, resposta);
-    const resultado = await tentar(enviar, pedido);
-    if (resultado instanceof CanalSemCredencialError) {
-      opcoes.aoTratar?.("sem_credencial", resultado.motivo);
-      return;
+    if (resposta.mediaRef !== null) {
+      // A base recusa a linha (o `CHECK` da revisão do KAM-246); esta é a outra metade.
+      if (resposta.template !== null) throw new RespostaInvalidaError("media com template");
+      if (!(await enviarImagem(bd, enviar, pedido, resposta.mediaRef, opcoes))) return;
     }
-    if (!resultado.ok) {
-      if (naoSaiu(resultado)) throw new ReenvioAdiadoError(resultado.motivo);
-      opcoes.aoTratar?.(eFalha(resultado.motivo) ? "falhou" : "recusada", resultado.motivo);
+    const texto = await enviarUma(bd, enviar, pedido);
+    if (!texto.saiu) {
+      opcoes.aoTratar?.(texto.desfecho, texto.motivo);
       return;
-    }
-    if (resultado.repetido) {
-      const envio = await estadoDoEnvio(bd, tenantId, pedido.idempotencyKey);
-      if (envio.podeReenviar) {
-        // A chave do turno já tinha linha, e sabe-se que não saiu: o único reenvio.
-        const reenvio = { ...pedido, idempotencyKey: chaveDoReenvio(pedido.idempotencyKey) };
-        await reenviar(bd, enviar, reenvio, resposta.replyId, opcoes);
-        return;
-      }
-      if (!envio.saiu) {
-        opcoes.aoTratar?.("repetida_sem_envio", envio.estado);
-        return;
-      }
     }
     await bd.query(SQL_MARCAR_ENTREGUE, [tenantId, resposta.replyId]);
-    opcoes.aoTratar?.(resultado.repetido ? "repetida" : "enviada");
+    opcoes.aoTratar?.(texto.desfecho);
   };
-}
-
-/** O envio pela chave derivada. É o último: nada aqui volta a adiar. */
-async function reenviar(
-  bd: ClienteSql,
-  enviar: EnviarResposta,
-  pedido: Pedido,
-  replyId: string,
-  opcoes: OpcoesDoEfeito,
-): Promise<void> {
-  const resultado = await tentar(enviar, pedido);
-  if (resultado instanceof CanalSemCredencialError) {
-    opcoes.aoTratar?.("sem_credencial", resultado.motivo);
-    return;
-  }
-  if (!resultado.ok) {
-    opcoes.aoTratar?.(eFalha(resultado.motivo) ? "falhou" : "recusada", resultado.motivo);
-    return;
-  }
-  if (resultado.repetido) {
-    const envio = await estadoDoEnvio(bd, pedido.tenantId, pedido.idempotencyKey);
-    if (!envio.saiu) {
-      opcoes.aoTratar?.("repetida_sem_envio", envio.estado);
-      return;
-    }
-  }
-  await bd.query(SQL_MARCAR_ENTREGUE, [pedido.tenantId, replyId]);
-  opcoes.aoTratar?.(resultado.repetido ? "repetida" : "reenviada");
 }
 
 /**

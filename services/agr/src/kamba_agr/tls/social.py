@@ -153,6 +153,20 @@ SQL_ITEM: Final = (
 )
 SQL_ITEM_PARA_MUDAR: Final = SQL_ITEM + " FOR UPDATE"
 
+#: Quantos itens a pagina Social do painel mostra (KAM-246). *Proposta*: um
+#: calendario tem ate sete itens por semana, e cinquenta sao mais de sete semanas.
+MAXIMO_DO_PAINEL: Final = 50
+
+#: Os itens da pagina Social do painel (KAM-246): os `aprovado` e os `entregue`
+#: **com arte**, do tenant, os mais recentes primeiro. So leitura.
+SQL_ITENS_DO_PAINEL: Final = (
+    "SELECT content_item_id::text, calendar_id::text, semana_iso, tipo, tema, agendado_at, legenda, estado, "
+    "is_ai_generated, revisao_reforcada, versao_politica, versao, arte_ref, arte_sha256, arte_fundo, "
+    "arte_tentativas, arte_custo_usd, aprovacao_hash, aprovado_at, entregue_at, arte_texto, arte_formato "
+    "FROM platform.content_items WHERE tenant_id = %s::uuid AND estado IN ('aprovado', 'entregue') "
+    "AND arte_ref IS NOT NULL ORDER BY agendado_at DESC, content_item_id LIMIT %s"
+)
+
 #: A arte: em `rascunho` ou `pendente_aprovacao`, com a versao lida e menos de
 #: tres tentativas. **Apaga o `hash`**: o botao da arte antiga deixa de aprovar.
 SQL_GRAVAR_ARTE: Final = (
@@ -422,6 +436,12 @@ class RepositorioSql:
         return _com(item, estado=REJEITADO, versao_politica=versao_politica, versao=int(linha[0]))
 
     # ---------------------------------------------------------- a arte e a aprovacao (KAM-122)
+
+    def itens_do_painel(self, tenant_id: str) -> tuple[Item, ...]:
+        """Os itens da pagina Social do painel (KAM-246), so leitura."""
+        with tenant_guard.tx(self._ligacao, tenant_id) as cursor:
+            cursor.execute(SQL_ITENS_DO_PAINEL, (tenant_id, MAXIMO_DO_PAINEL))
+            return tuple(_item(tenant_id, linha) for linha in cursor.fetchall())
 
     def item(self, tenant_id: str, content_item_id: str) -> Item | None:
         with tenant_guard.tx(self._ligacao, tenant_id) as cursor:

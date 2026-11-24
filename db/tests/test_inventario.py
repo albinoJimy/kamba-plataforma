@@ -2967,6 +2967,10 @@ INVENTARIO["agent_replies"] = {
         "ARRAY", NAO, "'{}'::text[]",
         "valores para o cliente, resolvidos pelo AGR; nunca do cliente",
     ),
+    # KAM-246 (0092): a chave do STO da arte do modulo social, do tenant da
+    # linha e da classe `arte`. Nunca um URL nem os bytes: a imagem le-se do
+    # STO pelo consumidor, que confere a chave outra vez.
+    "media_ref": ("text", SIM, None, "nao — a chave do STO da arte (KAM-246), nunca um URL"),
 }
 
 #: A mensagem que entra no AGR (KAM-223, revisao do canal do dono pelo
@@ -5084,6 +5088,10 @@ class TestInventario(ComBase):
                     "agent_replies_canal_ck",
                     "agent_replies_chave_ck",
                     "agent_replies_chave_uq",
+                    # KAM-246 (0092): a forma da chave da arte, do tenant da
+                    # linha e da classe `arte`, e nenhuma imagem com *template*.
+                    "agent_replies_media_ref_ck",
+                    "agent_replies_media_sem_template_ck",
                     "agent_replies_pkey",
                     # KAM-221 (0076): a paridade nome/parametros, a forma do
                     # nome da Meta e nenhum parametro nulo.

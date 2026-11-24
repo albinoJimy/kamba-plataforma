@@ -4,7 +4,7 @@
 |---|---|
 | Produto | KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para Angola |
 | Documento | Epic — Módulos de Entrada |
-| Versão | 1.43 |
+| Versão | 1.44 |
 | Data | Novembro de 2026 |
 | Classificação | Documento de Referência — Interno |
 | Documento-fonte | `../docs/tecnica/00_Arquitectura_Solucao.md` (ADR-020, §13.3 D13), `../docs/tecnica/02_Agent_Runtime_Verticais.md` (§21), `../docs/exploracao/14-tese-minima-e-plano-de-validacao.md` (H10–H12) |
@@ -79,6 +79,8 @@ Estado da evidência (E5): **CONFIRMADO** — preços e termos publicados dos fo
 | KAM-246 | Social AI: a arte como imagem no WhatsApp e a página do painel com a ligação de descarga | feature | M | P1 | KAM-122, KAM-015 |
 | KAM-251 | Canal do dono: o `/metrics` do consumidor `dono` raspado pelo Prometheus em `prod` | fix | S | P2 | KAM-241 |
 | KAM-252 | STO no `onboarding-web`: a credencial do painel só de escrita na classe `media_imagem`, ou fora do painel | fix | M | P1 | KAM-243 |
+| KAM-255 | STO: o endpoint https público para os URLs assinados que o navegador abre, ou a imagem pela origem do painel | feature | M | P1 | KAM-246, KAM-011 |
+| KAM-256 | Social AI: a entrega concorrente que já foi feita devolve a legenda ao dono, em vez de um `KeyError` no turno | fix | S | P1 | KAM-122 |
 
 ---
 
@@ -675,7 +677,7 @@ Uma revisão independente, que recebeu o diff, os critérios e o rascunho da rev
 | Prioridade | P1 |
 | Estimativa | M |
 | Dependências | KAM-121, KAM-120, KAM-015 |
-| Bloqueia | KAM-127, KAM-246 |
+| Bloqueia | KAM-127, KAM-246, KAM-256 |
 | Responsável sugerido | Engenheiro de Runtime/IA (MED) com Engenheiro de Canais |
 | Documentos de referência | `../docs/tecnica/02_Agent_Runtime_Verticais.md` (§21.3), `../docs/tecnica/evidencia/E5_Modulos_Entrada.md` (§2, §3, §7, B1, B5, B9), `../docs/tecnica/00_Arquitectura_Solucao.md` (D13), `../docs/tecnica/08_Seguranca_Conformidade.md` (§18), ADR-007, ADR-020 |
 
@@ -780,10 +782,10 @@ Os ensaios:
 | 2 | marcado | O preço da arte é o valor de um facto válido do perfil, lido pelo `para_centimos` do validador do KAM-032, e uma promoção sem facto válido não compõe (`test_uma_promocao_sem_facto_valido_nao_compoe`). **Cem tentativas adversariais, zero valores sem facto**: o valor numa promoção vencida, na categoria, num facto sem preço e um telefone só na categoria (`test_cem_tentativas_zero_valores_sem_facto`). Uma composição forjada com outro preço, uma percentagem ou outro telefone é recusada pela guarda de números (`test_uma_composicao_forjada_e_recusada_pela_guarda`), e pela ToolLayer a arte leva só o texto dos factos (`test_a_arte_vai_ao_sto_do_tenant_com_o_texto_dos_factos`). Um valor em dinheiro no nome da marca não é fonte (`test_r7_dinheiro_no_nome_da_marca_nao_vai_a_arte`), e um preço que deixou de ter facto entre a arte e a aprovação trava o pedido e o botão (`test_r1_a_pre_visualizacao_e_o_texto_guardado_e_nao_os_factos_de_agora`, `test_r1_um_facto_que_muda_depois_do_pedido_trava_o_botao`) |
 | 3 | **parcial — caixa vazia** | O fundo gerado só entra com um destino `geracao_de_imagem` autorizado: sem ele, **nenhum** pedido sai e a arte usa o fundo do *template* (`test_sem_destino_autorizado_nenhum_pedido_sai`, `test_a_geracao_de_imagem_e_a_decima_oitava_e_e_aceite`). Com texto, regera-se até duas vezes e depois cai no *template* (`test_regera_ate_duas_vezes_e_depois_cai_no_template`); um OCR em baixo conta como texto (`test_o_ocr_em_baixo_e_texto`, `test_o_tesseract_em_falta_levanta`). **Cem fundos, zero artes finais com texto gerado** (`test_cem_fundos_adversariais_zero_artes_com_texto_gerado`), com um OCR duplo que lê a marca do gerador duplo. O tesseract real lê texto e não lê uma cena lisa (`test_o_tesseract_le_texto_e_nao_le_uma_cena_lisa`), **só onde o binário existe** (a imagem do AGR; salta fora dela). O pedido não leva dados do tenant (`test_o_pedido_ao_fornecedor_nao_leva_dados_do_tenant`). O texto desenha-se sobre o fundo do *template* antes de se pedir o fundo, e um texto que não cabe recusa sem pedido nenhum (`test_r4_o_texto_que_nao_cabe_recusa_antes_de_pedir_o_fundo`); com o `imagens_mes` esgotado, o motivo é `sem_imagens` (`test_r9_o_imagens_mes_esgotado_diz_porque`). **Falta**: o gerador real, que fica por ligar e falha fechado (`test_sem_gerador_ligado_nada_sai_e_a_arte_usa_o_template`), e com ele o OCR sobre cenas reais — NÃO VERIFICADO; e a «foto do dono + *template*» sem destino, que é o fundo do *template* (decisões do executor) |
 | 4 | marcado | JPEG nos dois formatos e sem EXIF (`test_os_dois_formatos_em_jpeg_sem_exif`), e o mesmo item renderizado duas vezes dá os mesmos bytes (`test_renderizar_duas_vezes_da_os_mesmos_bytes`). As marcas de IA de uma cena gerada ficam, e o EXIF dela sai (`test_as_marcas_de_ia_da_cena_ficam_e_o_exif_sai`); uma cena sem XMP leva o `DigitalSourceType` do IPTC (`test_uma_cena_sem_xmp_leva_o_tipo_de_fonte_digital_do_iptc`), e o fundo do *template* não leva marca de IA que não tem (`test_o_fundo_do_template_nao_leva_marca_de_ia`). O `is_ai_generated` do item é `true` com a arte gravada (`test_a_arte_vai_ao_sto_do_tenant_com_o_texto_dos_factos`). O manifesto C2PA preserva-se e não se reassina (decisões do executor) |
-| 5 | **parcial — caixa vazia** | O `request_approval` grava o `hash(legenda, arte, versao)`, que muda com cada parte (`test_o_hash_muda_com_cada_parte`), e propõe a acção `aprovar_conteudo` com a `ref` `{content_item_id}/{hash}`, que não se confunde com a do catálogo (`test_a_ref_vai_e_volta_e_nao_se_confunde_com_a_do_catalogo`). O botão é o `confirm:{action_id}` (decisão D4), com Editar e Rejeitar (`test_da_arte_a_entrega`); sem o botão a aprovação não corre (`test_sem_o_botao_a_aprovacao_nao_corre`). **Pedir duas vezes dá a mesma acção, e aprovar duas vezes dá um `aprovado` e um `content.approved`** (`test_pedir_duas_vezes_da_a_mesma_accao_e_aprovar_duas_vezes_um_evento`), também contra a base e com dois toques concorrentes (`test_aprovar_duas_vezes_da_um_aprovado_e_um_evento`, `test_dois_toques_concorrentes_dao_um_evento`). Uma edição depois da aprovação devolve o item a `pendente_aprovacao` e invalida o botão antigo (`test_uma_edicao_depois_da_aprovacao_invalida_o_botao_antigo`, `test_uma_edicao_depois_da_aprovacao_invalida_o_hash_antigo`), e outra arte num item pendente também (`test_outra_arte_num_item_pendente_invalida_o_botao`, `test_uma_arte_nova_num_pendente_invalida_a_aprovacao_pedida`); a base recusa mudar a legenda, a arte, o texto da arte ou o resumo de um aprovado (`test_um_aprovado_nao_muda_a_legenda_a_arte_nem_o_hash`, `test_a_passagem_a_aprovado_nao_muda_a_legenda_nem_o_hash_na_mesma_instrucao`). A pré-visualização é o texto guardado com a arte, e um facto mudado trava o botão com `arte_desactualizada` (`test_r1_a_pre_visualizacao_e_o_texto_guardado_e_nao_os_factos_de_agora`, `test_r1_um_facto_que_muda_depois_do_pedido_trava_o_botao`). **A revisão reforçada do KAM-121 pede a confirmação a mais**: o primeiro Aprovar propõe um segundo botão, `{content_item_id}/{hash}/reforcada`, e só esse aprova (`test_a_revisao_reforcada_pede_uma_confirmacao_a_mais`); uma edição `condicional` marca o item (`test_r2_uma_edicao_condicional_pede_a_confirmacao_a_mais`), e um segundo botão perdido não o deixa preso (`test_r3_um_item_reforcado_nao_fica_preso_num_botao_ja_usado`). **Falta** a pré-visualização com a arte: o dono recebe o texto da arte e a legenda, e a imagem fica guardada com o item, porque o Outbound não envia média. Credor **KAM-246** |
+| 5 | **parcial — caixa vazia** | O `request_approval` grava o `hash(legenda, arte, versao)`, que muda com cada parte (`test_o_hash_muda_com_cada_parte`), e propõe a acção `aprovar_conteudo` com a `ref` `{content_item_id}/{hash}`, que não se confunde com a do catálogo (`test_a_ref_vai_e_volta_e_nao_se_confunde_com_a_do_catalogo`). O botão é o `confirm:{action_id}` (decisão D4), com Editar e Rejeitar (`test_da_arte_a_entrega`); sem o botão a aprovação não corre (`test_sem_o_botao_a_aprovacao_nao_corre`). **Pedir duas vezes dá a mesma acção, e aprovar duas vezes dá um `aprovado` e um `content.approved`** (`test_pedir_duas_vezes_da_a_mesma_accao_e_aprovar_duas_vezes_um_evento`), também contra a base e com dois toques concorrentes (`test_aprovar_duas_vezes_da_um_aprovado_e_um_evento`, `test_dois_toques_concorrentes_dao_um_evento`). Uma edição depois da aprovação devolve o item a `pendente_aprovacao` e invalida o botão antigo (`test_uma_edicao_depois_da_aprovacao_invalida_o_botao_antigo`, `test_uma_edicao_depois_da_aprovacao_invalida_o_hash_antigo`), e outra arte num item pendente também (`test_outra_arte_num_item_pendente_invalida_o_botao`, `test_uma_arte_nova_num_pendente_invalida_a_aprovacao_pedida`); a base recusa mudar a legenda, a arte, o texto da arte ou o resumo de um aprovado (`test_um_aprovado_nao_muda_a_legenda_a_arte_nem_o_hash`, `test_a_passagem_a_aprovado_nao_muda_a_legenda_nem_o_hash_na_mesma_instrucao`). A pré-visualização é o texto guardado com a arte, e um facto mudado trava o botão com `arte_desactualizada` (`test_r1_a_pre_visualizacao_e_o_texto_guardado_e_nao_os_factos_de_agora`, `test_r1_um_facto_que_muda_depois_do_pedido_trava_o_botao`). **A revisão reforçada do KAM-121 pede a confirmação a mais**: o primeiro Aprovar propõe um segundo botão, `{content_item_id}/{hash}/reforcada`, e só esse aprova (`test_a_revisao_reforcada_pede_uma_confirmacao_a_mais`); uma edição `condicional` marca o item (`test_r2_uma_edicao_condicional_pede_a_confirmacao_a_mais`), e um segundo botão perdido não o deixa preso (`test_r3_um_item_reforcado_nao_fica_preso_num_botao_ja_usado`). **Falta** a pré-visualização com a arte: o dono recebe o texto da arte e a legenda, e a imagem fica guardada com o item, porque o Outbound não envia média. Credor **KAM-246**, que a entrega (critério 2 dele): a pré-visualização leva a imagem antes do texto. A caixa fica com o resto deste critério |
 | 6 | marcado | A legenda editada volta a passar pela guarda de números contra os factos e pelo `screen()`: um preço fora dos factos recusa com `faltam_factos`, o do facto passa, e uma categoria bloqueada recusa (`test_a_legenda_do_dono_passa_pelos_numeros_e_pelo_screening`). Os números do dono entram pelos factos do perfil, com o eco do perfil gravado (decisões do executor). **Zero itens `entregue` sem `aprovado`, pela base**: o *trigger* recusa a aresta e as linhas finais não mudam (`test_entregue_so_de_aprovado`, `test_as_arestas_fora_do_grafo_sao_recusadas`, `test_os_finais_nao_mudam`), e as restrições de estado exigem a aprovação e a entrega (`test_o_estado_exige_as_colunas_da_aprovacao_e_da_entrega`); pela tool, entregar um item por aprovar recusa com `por_aprovar` (`test_entregar_duas_vezes_da_uma_entrega_e_os_termos_so_na_primeira`) |
 | 7 | marcado | A `SocialPublisher` tem `deliver()` e `publish()`; só a `ManualDelivery` a implementa, e o `publish()` lança `NotEnabled` (`test_publish_lanca_not_enabled`, `test_so_a_manual_delivery_implementa_o_publisher`). **A varredura do repositório dá zero** caminhos de publicação da Graph API, permissões de publicação e segredos de redes, em todo o ficheiro seguido pelo `git` excepto os `.md` (`test_o_repositorio_nao_tem_publicacao_em_redes`, `test_a_varredura_le_o_git_e_nao_o_disco`, `test_este_modulo_e_o_ensaio_sao_varridos_e_estao_limpos`); cada padrão morde, o legítimo não, o código e a configuração mordem e os documentos não, e uma falha do `git` levanta em vez de dar conforme (`test_cada_padrao_morde`, `test_o_legitimo_nao_morde`, `test_codigo_e_configuracao_mordem_e_os_documentos_nao`, `test_uma_falha_do_git_levanta_e_nao_da_conforme`). Depois da revisão adversarial (achado 5), os segredos lêem-se por segmentos do identificador e sem caixa, e os caminhos, os anfitriões e as permissões cobrem os vídeos, os directos, as *stories*, o carregamento do Facebook, o Threads e a `publish_actions`, cada um com o seu canário; **uma cadeia partida no código não se apanha** por um *lint* de texto, e a *docstring* di-lo. «Publica por mim no Instagram» responde que não publica (`test_editar_pelo_texto_e_o_pedido_de_publicacao`) |
-| 8 | **parcial — caixa vazia** | A entrega só corre quando o dono pede («ENVIAR» ou o botão `enviar:SOC-…`), e dentro da janela dele, porque é a resposta à mensagem que ele acabou de escrever: leva a legenda como texto copiável e a nota «activa o rótulo de IA ao publicar», e entregar duas vezes dá uma entrega (`test_da_arte_a_entrega`, `test_entregar_duas_vezes_da_uma_entrega_e_os_termos_so_na_primeira`, `test_a_entrega_leva_a_nota_de_ia_e_os_termos_so_na_primeira`, `test_entregar_duas_vezes_falha_a_segunda_e_os_termos_gravam_se_uma_vez`); a segunda entrega reenvia a legenda, sem os termos e sem mudar o item (`test_r6_entregar_outra_vez_reenvia_a_legenda_sem_os_termos`). Fora da janela não há entrega, e o item fica `aprovado`. A chave da arte não abre uma ligação assinada de outro tenant, com a recusa `LigacaoRecusada` (`test_a_ligacao_de_vinte_e_quatro_horas_da_arte_nao_abre_noutro_tenant`). **Falta**: a arte como imagem pelo WhatsApp e a página do painel com a ligação de descarga de 24 h, decisão D5. Credor **KAM-246**. O *template* com *opt-in* fora da janela fica sem ticket (decisões do executor) |
+| 8 | **parcial — caixa vazia** | A entrega só corre quando o dono pede («ENVIAR» ou o botão `enviar:SOC-…`), e dentro da janela dele, porque é a resposta à mensagem que ele acabou de escrever: leva a legenda como texto copiável e a nota «activa o rótulo de IA ao publicar», e entregar duas vezes dá uma entrega (`test_da_arte_a_entrega`, `test_entregar_duas_vezes_da_uma_entrega_e_os_termos_so_na_primeira`, `test_a_entrega_leva_a_nota_de_ia_e_os_termos_so_na_primeira`, `test_entregar_duas_vezes_falha_a_segunda_e_os_termos_gravam_se_uma_vez`); a segunda entrega reenvia a legenda, sem os termos e sem mudar o item (`test_r6_entregar_outra_vez_reenvia_a_legenda_sem_os_termos`). Fora da janela não há entrega, e o item fica `aprovado`. A chave da arte não abre uma ligação assinada de outro tenant, com a recusa `LigacaoRecusada` (`test_a_ligacao_de_vinte_e_quatro_horas_da_arte_nao_abre_noutro_tenant`). **Falta**: a arte como imagem pelo WhatsApp e a página do painel com a ligação de descarga de 24 h, decisão D5. Credor **KAM-246**, que as entrega (bloco do KAM-246, critérios 1, 2 e 6): a caixa fica vazia porque o *template* com *opt-in* fora da janela continua sem ticket (decisões do executor) |
 | 9 | **parcial — caixa vazia** | Até três tentativas por item, com o aviso de custo a partir da segunda, e a quarta recusa (`test_tres_tentativas_com_alerta_de_custo_e_a_quarta_recusa`, `test_a_quarta_arte_e_recusada`, `test_ate_tres_tentativas_e_custo_nao_negativo`); renderizar o mesmo item duas vezes conta uma (`test_renderizar_duas_vezes_e_uma_tentativa`). O `imagens_mes` consome-se uma vez por fundo gerado, e sem ele a arte sai com o fundo do *template* (`test_o_fundo_gerado_consome_imagens_mes_e_soma_o_custo`, `test_sem_imagens_mes_a_arte_sai_com_o_fundo_do_template`, `test_o_imagens_mes_consome_se_uma_vez_por_chave`); o `posts_mes` é o do KAM-121, um por item na primeira legenda. Os termos sem garantia de exclusividade mostram-se e gravam-se na primeira entrega, e só nela (`test_entregar_duas_vezes_da_uma_entrega_e_os_termos_so_na_primeira`, `brand_profile.termos_entrega_at`). **Falta** o custo por item aprovado **medido**: a `arte_custo_usd` soma as chamadas ao fornecedor, e sem fornecedor ligado é zero; e não está consolidado no `module_cost_ledger` do KAM-124 (decisões do executor) |
 
 ### Verificação da Definition of Done
@@ -826,7 +828,7 @@ Uma revisão independente, que recebeu o diff, os critérios e o bloco, e não o
 | Prioridade | P1 |
 | Estimativa | M |
 | Dependências | KAM-122, KAM-015 |
-| Bloqueia | — |
+| Bloqueia | KAM-255 |
 | Responsável sugerido | Engenheiro de Canais com Engenheiro de Runtime/IA |
 | Documentos de referência | `../docs/tecnica/02_Agent_Runtime_Verticais.md` (§21.3), `../docs/tecnica/01_Canais_WhatsApp_Fluxo_Dual.md`, `../docs/tecnica/evidencia/E1_Meta_WhatsApp.md`, `specs/02_Dicionario_de_Dados_Canonico.md` (§3.77, §3.80, §3.82), bloco KAM-122 (decisão D5), ADR-008, ADR-015, ADR-020 |
 
@@ -840,14 +842,14 @@ Fazer chegar a arte aprovada ao dono como **imagem**: na pré-visualização e n
 
 ### Critérios de Aceitação
 
-- [ ] O `Corpo` do Outbound ganha uma variante de imagem: o `worker-canal` carrega o JPEG na Meta com a credencial do canal e envia-o pelo identificador de média devolvido; a `agent_replies` ganha uma coluna de média com a **chave do STO** (nunca um URL), por uma revisão reversível; o `agent.replied` não muda (o consumidor lê a média pela linha).
-- [ ] A pré-visualização do `request_approval` e a entrega do «ENVIAR» enviam a arte como imagem, com a legenda como texto copiável e a nota «activa o rótulo de IA ao publicar»; o aviso de que a imagem não segue desaparece. Entregar duas vezes envia **uma** imagem (idempotência pela chave da `agent_replies`).
-- [ ] Só dentro da janela de 24 h aberta pelo dono; fora dela **0** envios, o item continua `aprovado` e a página do painel mostra-o. Nenhum *template*.
-- [ ] Antes de carregar, uma chave do STO de outro tenant ou de outra classe que não `arte` é recusada, com **0** bytes à Meta; o JPEG enviado continua sem EXIF e com as marcas de IA do KAM-122.
-- [ ] O estado `entregue` e o envio ficam coerentes: uma falha no carregamento ou no envio não deixa um item `entregue` sem a imagem ter saído, ou fica registada e repete-se sem duplicar (a escolha é do executor, escrita no bloco).
-- [ ] O painel do dono (`onboarding-web`) tem uma página com os itens `aprovado` e `entregue` do tenant da sessão: a imagem, a legenda copiável e a nota do rótulo de IA, e uma ligação de descarga assinada (`ligacao_assinada`), com validade ≤ 24 h (*proposta*); cada abertura assina um URL do STO de cinco minutos.
-- [ ] Uma ligação expirada, adulterada ou de outro tenant é recusada sem dizer se o item existe; o dono de A não vê nem descarrega a arte de B (sonda positiva e negativa).
-- [ ] Nenhum botão de publicação nem ligação a redes na página; o ensaio `redes_sociais` do `lint_arch` continua verde.
+- [x] O `Corpo` do Outbound ganha uma variante de imagem: o `worker-canal` carrega o JPEG na Meta com a credencial do canal e envia-o pelo identificador de média devolvido; a `agent_replies` ganha uma coluna de média com a **chave do STO** (nunca um URL), por uma revisão reversível; o `agent.replied` não muda (o consumidor lê a média pela linha).
+- [x] A pré-visualização do `request_approval` e a entrega do «ENVIAR» enviam a arte como imagem, com a legenda como texto copiável e a nota «activa o rótulo de IA ao publicar»; o aviso de que a imagem não segue desaparece. Entregar duas vezes envia **uma** imagem (idempotência pela chave da `agent_replies`).
+- [x] Só dentro da janela de 24 h aberta pelo dono; fora dela **0** envios, o item continua `aprovado` e a página do painel mostra-o. Nenhum *template*.
+- [x] Antes de carregar, uma chave do STO de outro tenant ou de outra classe que não `arte` é recusada, com **0** bytes à Meta; o JPEG enviado continua sem EXIF e com as marcas de IA do KAM-122.
+- [x] O estado `entregue` e o envio ficam coerentes: uma falha no carregamento ou no envio não deixa um item `entregue` sem a imagem ter saído, ou fica registada e repete-se sem duplicar (a escolha é do executor, escrita no bloco).
+- [x] O painel do dono (`onboarding-web`) tem uma página com os itens `aprovado` e `entregue` do tenant da sessão: a imagem, a legenda copiável e a nota do rótulo de IA, e uma ligação de descarga assinada (`ligacao_assinada`), com validade ≤ 24 h (*proposta*); cada abertura assina um URL do STO de cinco minutos.
+- [x] Uma ligação expirada, adulterada ou de outro tenant é recusada sem dizer se o item existe; o dono de A não vê nem descarrega a arte de B (sonda positiva e negativa).
+- [x] Nenhum botão de publicação nem ligação a redes na página; o ensaio `redes_sociais` do `lint_arch` continua verde.
 
 ### Detalhes Técnicos
 
@@ -867,10 +869,10 @@ Fazer chegar a arte aprovada ao dono como **imagem**: na pré-visualização e n
 
 ### Definition of Done
 
-- [ ] Critérios de Aceitação satisfeitos; a caixa do critério 8 do KAM-122 revista com a evidência.
-- [ ] Imagem só ao próprio dono e dentro da janela; sem caminho de publicação em redes (D13, ADR-020).
-- [ ] Isolamento de tenant e da ligação assinada (ADR-015); idempotência da entrega.
-- [ ] Migração reversível; sem segredos; contratos e dicionário emendados.
+- [x] Critérios de Aceitação satisfeitos; a caixa do critério 8 do KAM-122 revista com a evidência.
+- [x] Imagem só ao próprio dono e dentro da janela; sem caminho de publicação em redes (D13, ADR-020).
+- [x] Isolamento de tenant e da ligação assinada (ADR-015); idempotência da entrega.
+- [x] Migração reversível; sem segredos; contratos e dicionário emendados.
 
 ### Handoff para Claude Code
 
@@ -885,6 +887,72 @@ Regras: a imagem é do próprio tenant e da classe arte; só ao dono e dentro da
 (o lint_arch redes_sociais continua verde); ligação HMAC com validade <= 24 h. Limiares são propostas.
 Testes: unit, integração, idempotência, isolamento, adversarial. Migração reversível. PR com o template da §7.
 ```
+
+### Decisões do fundador
+
+Data: 2026-11-23. Autor: o fundador.
+
+As perguntas foram ao fundador pela coordenação do lote 20 a 2026-11-23, com as opções e a recomendada (Q2, Q3 e Q4).
+
+| Data | Autor | Pergunta | Decisão |
+|---|---|---|---|
+| 2026-11-23 | Fundador (Armando Albino), pela coordenação do lote 20 | **Q3. A chave HMAC da ligação de descarga de 24 h.** A primitiva do KAM-098 (`ligacao_assinada`) não tem chave de produção: só os ensaios a chamam. A: um segredo próprio no inventário; B: uma subchave derivada de um segredo existente, com separador de domínio; C: sem *token* de 24 h, uma rota do painel presa à sessão (diverge da letra do critério 6) | **Opção A.** O segredo `chave_da_ligacao_de_descarga`, com 32 octetos ou mais e anel actual/anterior, no `../ops/secrets-inventory.yaml`, obrigatório em `staging` e `prod`. O consumidor é o AGR, pela Q2 |
+| 2026-11-23 | Fundador (Armando Albino), pela coordenação do lote 20 | **Q2. Quem lê a arte no STO.** A: o `worker-canal-consumidor` lê o STO para carregar o JPEG, e o painel pede a imagem e a ligação ao AGR por rotas internas; B: o `onboarding-web` lê o STO e tem uma segunda implementação do HMAC; C: nenhum leitor novo, e o consumidor pede os bytes ao AGR | **Opção A.** O `worker-canal-consumidor` ganha as duas credenciais do STO e recusa arrancar sem elas em `staging` e `prod`; o `onboarding-web` **não** as tem, e pede a lista e a abertura ao AGR (`POST /internal/social/itens` e `POST /internal/social/descarga`), que é o consumidor da `chave_da_ligacao_de_descarga`. **Custo aceite: o painel depende de o AGR estar de pé** (sem ele, a página responde 503). B e C recusadas. **A premissa corrigida** (coordenação do lote 20, 2026-11-23): a decisão citava o `agr_internal_token`, que o `onboarding-web` não tem, e não pode ter — quem tem o `agr_internal_token` corre o `/internal/turn` de qualquer contacto de qualquer tenant. As rotas aceitam só a credencial que ele já tem, o `agr_painel_token` (KAM-223), como o `/internal/turn` do painel, e o tenant vem da sessão do painel, e nunca do pedido do dono. Nenhum segredo muda de dono, e nenhum privilégio alarga. As duas rotas têm o caso `X-01/agr/painel-social` no *gate* 6 |
+| 2026-11-23 | Fundador (Armando Albino), pela coordenação do lote 20 | **Q4. Como o navegador chega ao STO.** A revisão adversarial deste ticket achou que a imagem e a descarga são URLs assinados sobre o `KAMBA_STORAGE_ENDPOINT`, o endpoint com que o AGR fala com o STO; com o perfil `sto-proprio`, o `seaweedfs` só vive na rede `data`, que não sai, e o navegador não o alcança. A: fica o URL de cinco minutos, com um endpoint público só para assinar, `https` fora de `dev`, e um credor ligado à D6; B: o painel serve os bytes pela origem dele; C: só se escreve, sem credor | **Opção A.** Fica o URL assinado de cinco minutos, à letra do critério 6. O AGR assina com o `KAMBA_STORAGE_ENDPOINT_PUBLICO`, usado **só** para assinar; sem ele, ou sem `https`, fora de `dev` as duas rotas respondem 503 `painel_por_ligar` e **nunca** caem para o endpoint interno (`assinador_publico`). O `onboarding-web` só aceita `https` no `urlSegura` e no `img-src` fora de `dev`. Que o STO tenha um endpoint `https` público é da **D6**, e o credor é o **KAM-255**. B e C recusadas |
+
+### Decisões do executor
+
+- **A imagem e o texto são duas mensagens**, e a imagem sai primeiro, com a chave da resposta e o sufixo «:imagem». A legenda e a nota do rótulo de IA vão no texto, que se copia: o *caption* de uma imagem e o corpo de uma mensagem interactiva têm tecto, que o `E1` não confirma (NÃO VERIFICADO), e a legenda de uma rede pode passar dele.
+- **O corpo de imagem leva os bytes**, e o cliente da Graph carrega-os e envia pelo `id` devolvido **dentro** do passo de rede do `Saida`: a linha da `outbound_messages` grava-se antes, e uma chave repetida não carrega nem envia outra vez. Uma falha do carregamento devolve um código próprio (`CODIGO_DO_CARREGAMENTO`), que não é ambíguo: a mensagem não saiu, e o reenvio único do KAM-227 vale para ela.
+- **O critério 5, pela segunda opção**: o item fica `entregue` na transacção do turno, como no KAM-122, e uma falha no carregamento ou no envio fica registada (na `outbound_messages` e no desfecho `imagem_nao_enviada`) e repete-se sem duplicar. Uma imagem que se sabe não ter saído adia a resposta inteira, e o texto não sai antes dela; na volta seguinte, a imagem que já saiu não se lê nem se envia outra vez. A arte fica sempre na página do painel.
+- **Entregar duas vezes envia uma imagem**: só a primeira entrega leva a chave da arte; a repetida reenvia a legenda, como no KAM-122.
+- **Três barreiras para a chave da arte**: o `CHECK` da coluna (forma, classe `arte` e o tenant da linha), a guarda do `saida.py` antes da base, e a do consumidor antes de tocar no STO (`chaveDaArte`), que recusa com **0** bytes à Meta. O leitor confere ainda o tipo, o tamanho e a assinatura do JPEG. O tecto de 5 MiB é *proposta*, NÃO VERIFICADO no `E1`.
+- **O consumidor `outbound` lê o STO** (`head` e `get` da classe `arte`) e não arranca sem ele em `staging` e `prod` (Q2 = A).
+- **A página do painel**: `GET /painel/social` (os itens `aprovado` e `entregue` com arte, a legenda numa caixa de texto só de leitura, a nota do rótulo de IA e a ligação) e `GET /painel/social/descarga?l=` (302 para um URL do STO de cinco minutos, ou 404). A CSP da página acrescenta `img-src` só com as origens dos URLs do STO que ela mostra. A ligação de outro tenant, adulterada, expirada ou fora da forma dá a mesma página 404. A validade de 24 h é a da primitiva do KAM-098 (*proposta* no critério 6).
+- **Até cinquenta itens** na página, os mais recentes primeiro (*proposta*, `MAXIMO_DO_PAINEL`).
+- **O endpoint público (Q4 = A)**: tem a forma do `KAMBA_STORAGE_ENDPOINT`, conferida pelo mesmo `ler_config`, e entra no compose do AGR nos três ambientes sem ser obrigatório no arranque: sem ele o AGR arranca e di-lo no registo (`painel_por_ligar_sem_endpoint_publico`), e a página responde 503. Recusar o arranque parava o AGR inteiro por uma página. Em `dev`, sem ele, assina-se com o endpoint do AGR.
+
+### Revisão adversarial
+
+Uma revisão, por um agente que não viu o raciocínio do executor, sobre o diff inteiro: o isolamento, as três barreiras da chave, a imagem antes do texto, as credenciais, a página e a `0092`. Nenhum achado grave.
+
+| # | Achado | Veredicto | Desfecho |
+|---|---|---|---|
+| 1 | A imagem e a descarga são URLs assinados sobre o endpoint interno do STO, que o navegador não alcança com o perfil `sto-proprio` | plausível, confirmado pela leitura do `s3.py` e do compose | **Decisão do fundador (Q4 = A)**: o `KAMBA_STORAGE_ENDPOINT_PUBLICO`, só para assinar, `https` fora de `dev` e 503 sem ele (`test_o_url_assinado_usa_o_endpoint_publico_e_nunca_o_interno`, `test_sem_endpoint_publico_fora_de_dev_e_503_e_nao_cai_para_o_interno`, `test_um_endpoint_http_e_recusado_fora_de_dev_e_passa_em_dev`, `KAM-246: um URL do STO em http é recusado fora de dev, e passa em dev`). O endpoint em si é do **KAM-255** |
+| 2 | Uma falha de leitura do STO que não é `ArteRecusadaError` prende também o texto: um objecto que a retenção da classe `arte` já apagou mandava a resposta para a DLQ, sem a legenda | plausível | **Corrigido**: o objecto inexistente sai como `imagem_nao_enviada:arte_inexistente`, e o texto segue (`um objecto que a retenção já apagou não prende o texto: sai a legenda, sem a imagem`); o STO em baixo continua a recuar pela escada (`o STO em baixo recua pela escada, e nada sai`) |
+| 3 | Sem a chave da ligação, a descarga respondia 404 em vez de 503; e um cofre a falhar dava 500 nas duas | confirmado | **Corrigido**: as duas respondem 503 `painel_por_ligar` (`test_sem_chave_ou_com_o_cofre_a_falhar_a_descarga_e_503_e_nao_404`) |
+| 4 | A `0092` não tem ensaio de descida próprio, com linhas | lacuna de ensaio | **Não corrigido**: a descida corre no `downgrade base` do gate 8; um ensaio preso à cabeça parte com a revisão seguinte. Fica escrito |
+
+### Verificação dos Critérios de Aceitação
+
+Oito critérios, **oito marcados**. O que fica fora tem credor ou fica escrito: o endpoint `https` público do STO, de que a página depende em `staging` e `prod`, é da D6 e do **KAM-255** (Q4 = A); o tecto de 5 MiB da imagem e os limites da Meta para média ficam NÃO VERIFICADOS no `E1` (decisões do executor), e a retenção da média carregada na Meta também.
+
+Os ensaios:
+- [`packages/core-ts/tests/outbound.limites.test.ts`](../packages/core-ts/tests/outbound.limites.test.ts), com o cliente da Graph a carregar e a enviar a imagem, e [`packages/core-ts/tests/resposta.test.ts`](../packages/core-ts/tests/resposta.test.ts), com o efeito da resposta, o `arteDoSto` e a `chaveDaArte` (gate 4, core-ts);
+- [`packages/core-ts/tests_bd/resposta.bd.test.ts`](../packages/core-ts/tests_bd/resposta.bd.test.ts), da aprovação à imagem contra o simulador da Meta e a base (gate 8, `tests_outbound` e `tests_eventos_consumo`);
+- [`services/worker-canal/tests/consumidor.test.ts`](../services/worker-canal/tests/consumidor.test.ts), com o arranque do consumidor e o armazenamento, e [`tools/meta-sim/tests/graph.test.ts`](../tools/meta-sim/tests/graph.test.ts), com o carregamento no simulador (gate 4);
+- [`services/agr/tests/test_saida.py`](../services/agr/tests/test_saida.py), [`services/agr/tests/test_social_aprovacao.py`](../services/agr/tests/test_social_aprovacao.py) e [`services/agr/tests/test_social_painel.py`](../services/agr/tests/test_social_painel.py) (gate 4, AGR);
+- [`db/tests_agr/test_imagem_da_resposta.py`](../db/tests_agr/test_imagem_da_resposta.py), com a revisão `0092` contra a base, e a classe `TestOPainel` do [`db/tests_agr/test_social_do_dono.py`](../db/tests_agr/test_social_do_dono.py), com a leitura dos itens pela RLS (gate 8);
+- [`services/onboarding-web/tests/painel_social.test.ts`](../services/onboarding-web/tests/painel_social.test.ts), com a página do painel (gate 4);
+- os casos `X-01/agr/painel-social` e `X-01/ts/painel` do [`tools/isolamento`](../tools/isolamento/baterias/x01_rotas.py) (gate 6), e o [`tools/lint_arch/tests/test_redes_sociais.py`](../tools/lint_arch/tests/test_redes_sociais.py) (gate 4, suites de `tools/`).
+
+| Critério | Estado | Evidência nomeada |
+|---|---|---|
+| 1 | marcado | O `Corpo` ganha o `CorpoDeImagem`, com os bytes do JPEG. O cliente da Graph carrega-o na Meta (`POST /{pnid}/media`, *multipart*) com a credencial do canal e envia pelo `id` devolvido, nunca por um URL (`carrega o JPEG na Meta e envia pelo id devolvido, nunca por um URL`, `o corpo da imagem é só pelo id, com o destinatário por BSUID ou telefone`); o simulador conta o carregamento (`um multipart guarda os bytes sob o id devolvido, e conta o carregamento`). A `agent_replies` ganha a `media_ref`, com a **chave do STO** e nunca um URL, pela revisão reversível `0092` (`test_a_base_recusa_a_chave_alheia_de_outra_classe_um_url_e_a_imagem_com_template`, e a descida e a subida do gate 8). O `agent.replied` não muda (`test_a_imagem_grava_se_com_a_instrucao_dela_e_o_evento_nao_muda`; o `contract_diff` do gate 7 dá 0 contratos novos e 0 quebrantes), e o consumidor lê a média pela linha (`SQL_RESPOSTA_DO_WHATSAPP`) |
+| 2 | marcado | A pré-visualização e a entrega levam a chave da arte, sem o aviso de que a imagem não segue, com a nota do rótulo de IA e a legenda no texto (`test_kam_246_a_arte_vai_como_imagem_na_pre_visualizacao_e_so_na_primeira_entrega`, `test_kam_246_uma_edicao_pede_outra_vez_a_aprovacao_com_a_mesma_imagem`). A imagem sai primeiro e o texto depois (`a imagem sai primeiro, com a chave da imagem e os bytes do STO; o texto depois, com a do turno`). **Entregar duas vezes envia uma imagem**: só a primeira entrega leva a chave, e a que já saiu não se lê nem se envia outra vez (`entregar duas vezes envia uma imagem: a que já saiu não se lê nem se envia outra vez`); contra a base e o simulador, a reentrega 3× dá **1** carregamento (`aprovação → pré-visualização com imagem: 1 carregamento, a imagem e o texto, e a reentrega 3× continua a dar 1`) |
+| 3 | marcado | Fora da janela, **0** carregamentos e **0** envios, e a resposta não se marca (`fora da janela do dono: 0 carregamentos e 0 envios, e a resposta não se marca`, `uma imagem que não sai por decisão (a janela) fica registada, e o texto segue para o Saida decidir`). A entrega do «ENVIAR» é a resposta à mensagem que o dono acabou de escrever, e fora dela o item fica `aprovado` (KAM-122, critério 8); a página mostra os `aprovado` e os `entregue` (`test_o_painel_le_os_aprovados_e_entregues_do_tenant_e_o_outro_nao_os_ve`). **Nenhum *template***: uma imagem com *template* recusa no `saida.py`, no `CHECK` `agent_replies_media_sem_template_ck` e no consumidor (`test_recusa_antes_da_base_uma_chave_alheia_de_outra_classe_um_url_ou_um_template`, `uma imagem com template é uma linha sem forma, e nada sai`) |
+| 4 | marcado | Três barreiras, e as três recusam antes de qualquer pedido à Meta: o `CHECK` da `0092` (forma, classe `arte` e o tenant da linha), a guarda do `saida.py` e a `chaveDaArte` do consumidor (`uma chave de outro tenant, de outra classe ou forjada: 0 leituras, 0 envios, e a resposta não se marca`, `uma chave de outro tenant na linha: a base recusa-a, e nada chega à Meta`, `uma chave de outro tenant não chega ao STO`, `a chave é do tenant e da classe arte, ou recusa com o motivo`). O leitor confere o tipo, o tamanho e a assinatura do JPEG (`recusa outro tipo de conteúdo, um objecto acima do tecto e bytes que não são JPEG`). Os bytes seguem **tal e qual** (`lê o JPEG do STO do tenant, tal e qual (sem o recodificar)`), pelo que o JPEG enviado é o do KAM-122, sem EXIF e com as marcas de IA (`test_os_dois_formatos_em_jpeg_sem_exif`, `test_as_marcas_de_ia_da_cena_ficam_e_o_exif_sai`) |
+| 5 | marcado | A segunda opção, escrita nas decisões do executor: o item fica `entregue` na transacção do turno, e a falha fica registada e repete-se sem duplicar. Um carregamento recusado não envia nada e devolve um código não ambíguo (`um carregamento recusado não envia nada, e o código diz que a mensagem não saiu`); o débito excedido passa para o `Saida` repetir (`o débito excedido no carregamento passa tal e qual, para o Saida o repetir`). A imagem que se sabe não ter saído adia a resposta inteira, e o texto não sai antes dela (`a imagem que se sabe não ter saído adia a resposta inteira: o texto não sai antes dela`); na volta seguinte reenvia-se pela chave derivada (`na volta seguinte, a imagem que não saiu reenvia-se pela chave derivada, e o texto sai`). A arte fica sempre na página do painel |
+| 6 | marcado | `GET /painel/social` mostra os itens `aprovado` e `entregue` do tenant da sessão, com a imagem, a legenda numa caixa só de leitura, a nota do rótulo de IA e a ligação (`KAM-246: a página Social mostra a imagem, a legenda para copiar, a nota e a ligação de A, e só de A`, `test_a_lista_traz_a_imagem_a_legenda_a_nota_e_a_ligacao`). A ligação é a `ligacao_assinada` do KAM-098, com a validade dela de 24 h (*proposta*), e a chave é a `chave_da_ligacao_de_descarga` (Q3 = A), com anel (`test_a_rotacao_nao_mata_as_ligacoes_vivas`). **Cada abertura assina um URL do STO de cinco minutos** (`test_cada_abertura_assina_um_url_de_cinco_minutos`, `KAM-246: a ligação de A abre com 302 para o URL de cinco minutos, sem cache e sem Referer`). O painel não lê o STO: pede ao AGR, com o `agr_painel_token` (Q2 = A, `KAM-246: o cliente do AGR leva a credencial do painel, o tenant e só isso`). Os URLs assinam-se com o endpoint público do STO e nunca com o interno, só `https` fora de `dev`, e sem ele a página responde 503 (Q4 = A, `test_o_url_assinado_usa_o_endpoint_publico_e_nunca_o_interno`, `test_sem_endpoint_publico_fora_de_dev_e_503_e_nao_cai_para_o_interno`, `test_um_endpoint_http_e_recusado_fora_de_dev_e_passa_em_dev`, `KAM-246: um URL do STO em http é recusado fora de dev, e passa em dev`). **Que o STO tenha esse endpoint é da D6**, e o credor é o **KAM-255**: até ele, em `staging` e `prod` com o perfil `sto-proprio`, a página fecha com 503 |
+| 7 | marcado | Uma ligação expirada, adulterada, de outra chave ou de outro tenant dá **o mesmo** 404, sem dizer se o item existe (`test_expirada_adulterada_ou_de_outro_tenant_da_o_mesmo_404`, `KAM-246: a ligação de B na sessão de A, uma adulterada ou fora da forma dão o mesmo 404`). O dono de A não vê nem descarrega a arte de B, com a sonda positiva e a negativa: `test_o_tenant_de_b_nao_ve_a_arte_de_a`, `test_o_painel_le_os_aprovados_e_entregues_do_tenant_e_o_outro_nao_os_ve` contra a base, e no gate 6 os casos `X-01/agr/painel-social` (sem credencial e com o `agr_internal_token`, 401; a ligação de A com o tenant de B no corpo, 404; a lista de A sem nada de B, com a sonda positiva) e `X-01/ts/painel` (a sessão de A com o tenant de B na consulta e no cabeçalho, a ligação de A com a sessão de B, e o AGR só ouve o tenant da sessão). Sem sessão, 401 e o AGR não é chamado (`KAM-246: sem sessão, 401 nas duas, e o AGR não é chamado`) |
+| 8 | marcado | A página não tem botão de publicação nem ligação a uma rede (`KAM-246: nenhum botão de publicação nem ligação a uma rede na página`), e a resposta do AGR só traz os sete campos do item (`test_nenhum_texto_de_rede_nem_botao_de_publicar_na_resposta`). O `test_redes_sociais` do `lint_arch` continua verde, e a imagem vai só ao número do dono, na conversa dele |
+
+| *Definition of Done* | Estado | Evidência |
+|---|---|---|
+| Critérios satisfeitos; a caixa do critério 8 do KAM-122 revista | marcado | Os oito acima. As notas dos critérios 5 e 8 do KAM-122 apontam para esta evidência; a caixa do 8 continua vazia, porque o *template* com *opt-in* fora da janela não tem ticket (decisões do executor do KAM-122) |
+| Imagem só ao dono e dentro da janela; sem publicação em redes | marcado | Critérios 3 e 8 |
+| Isolamento de tenant e da ligação; idempotência da entrega | marcado | Critérios 2, 4 e 7, e o gate 6 |
+| Migração reversível; sem segredos; contratos e dicionário emendados | marcado | A `0092` desce e sobe no gate 8. O segredo novo está no inventário, sem valor (Q3 = A), e o arranque do AGR e do consumidor recusam sem os segredos em `staging` e `prod` (`KAM-246: em staging e prod, sem uma credencial do armazenamento, o arranque aborta e nomeia-a`). Nenhum contrato de evento muda (gate 7); o dicionário §3.80 e §3.82 emendado (gate 3b) |
 
 ---
 
@@ -4243,6 +4311,121 @@ Testes: integração e adversarial.
 
 ---
 
+## KAM-255 — STO: o endpoint https público para os URLs assinados que o navegador abre, ou a imagem pela origem do painel
+
+| Campo | Valor |
+|---|---|
+| Epic | EPIC-11 — Módulos de Entrada |
+| Fase | 1 |
+| Tipo | feature |
+| Prioridade | P1 |
+| Estimativa | M |
+| Dependências | KAM-246, KAM-011 |
+| Bloqueia | — |
+| Responsável sugerido | Engenheiro de Plataforma com Engenheiro de Segurança |
+| Documentos de referência | bloco KAM-246 (decisão do fundador de 2026-11-23, Q4 = A, e a revisão adversarial), `../docs/armazenamento.md` (§5 e §8), `../docs/evidencia/KAM-011-seaweedfs.md`, `../docs/tecnica/08_Seguranca_Conformidade.md` (§3.8), D6 |
+
+### Contexto
+
+Credor do KAM-246, aberto no PR dele pela decisão do fundador de 2026-11-23 (Q4 = A). A página Social do painel mostra a arte e abre a descarga por URLs do STO de cinco minutos, que o **navegador** abre. O AGR assina-os com o `KAMBA_STORAGE_ENDPOINT_PUBLICO`, só para assinar, e sem ele, fora de `dev`, a página responde 503. Falta o endpoint: com o perfil `sto-proprio`, o `seaweedfs` só vive na rede `data`, que não sai, e nenhuma rota do `proxy-tls` o expõe. Com um S3 gerido, o endpoint público é o do fornecedor. Qual dos dois é a **D6**, que está aberta, e este ticket não a toma.
+
+### Objectivo
+
+Em `staging` e `prod`, a página Social do painel mostra a imagem e abre a descarga, por `https`, sem expor ao navegador mais do que a leitura de um objecto por um URL assinado.
+
+### Critérios de Aceitação
+
+- [ ] Um endpoint `https` público do STO, conforme a D6: uma rota do `proxy-tls` para o `seaweedfs` só com leitura por URL assinado (nenhuma escrita, nenhuma listagem, nenhuma consola), ou o endpoint do fornecedor gerido. A assinatura confere com o cabeçalho `Host` que o servidor vê.
+- [ ] Em alternativa, se a D6 não o permitir: a imagem pela origem do painel, com o AGR a ler os bytes e o `onboarding-web` sem as credenciais do STO (Q2 = A), escrita como decisão do fundador.
+- [ ] O `KAMBA_STORAGE_ENDPOINT_PUBLICO` preenchido no deploy de `staging` e `prod`, e um ensaio de ponta a ponta: a imagem carrega e a descarga abre a partir de um navegador fora da rede `data`.
+- [ ] Nenhum URL assinado em `http` fora de `dev`, e nenhum objecto de outro tenant alcançável pelo endpoint público.
+
+### Detalhes Técnicos
+
+- **Não muda o lado do AGR nem o do painel**: o `assinador_publico` e o `urlSegura` já fecham sem o endpoint e sem `https` (bloco do KAM-246). É deploy, rede e a D6.
+- O endereço público para URLs assinados já estava escrito como lacuna no `../docs/armazenamento.md` §8 (ponto 6).
+
+### Testes Requeridos
+
+- Integração: a página Social em `staging`, com a imagem e a descarga, a partir de fora da rede `data`.
+- **Adversarial:** um URL assinado de A com a chave de um objecto de B; uma escrita e uma listagem pelo endpoint público, recusadas.
+
+### Definition of Done
+
+- [ ] Critérios de Aceitação satisfeitos; o achado 1 da revisão adversarial do KAM-246 revisto com a evidência.
+
+### Handoff para Claude Code
+
+```text
+És o executor do ticket KAM-255 da KAMBÁ (o endpoint https público do STO para os URLs assinados).
+Lê specs/EPIC-11_Modulos_Entrada.md (bloco KAM-246, decisão Q4 e revisão adversarial), docs/armazenamento.md §5 e §8,
+services/agr/src/kamba_agr/social/painel.py (assinador_publico) e infra/compose/docker-compose.prod.yml (seaweedfs, proxy-tls).
+Objectivo: a página Social do painel com a imagem e a descarga por https em staging e prod.
+Regras: a D6 é do fundador; nenhuma escrita nem listagem pelo endpoint público; nenhuma chave real.
+Testes: integração a partir de fora da rede data e adversarial.
+```
+
+
+---
+
+## KAM-256 — Social AI: a entrega concorrente que já foi feita devolve a legenda ao dono, em vez de um `KeyError` no turno
+
+| Campo | Valor |
+|---|---|
+| Epic | EPIC-11 — Módulos de Entrada |
+| Fase | 1 |
+| Tipo | fix |
+| Prioridade | P1 |
+| Estimativa | S |
+| Dependências | KAM-122 |
+| Bloqueia | — |
+| Responsável sugerido | Engenheiro de Runtime/IA (MED) |
+| Documentos de referência | bloco KAM-122 (critério 8 e achado 6 da revisão), bloco KAM-246 (decisões do executor), `../services/agr/src/kamba_agr/tls/social_tools.py` (`deliver_content`), `../services/agr/src/kamba_agr/verticais/dono/social.py` (`_entregar`) |
+
+### Contexto
+
+Credor do KAM-122, aberto no PR do KAM-246 a pedido da coordenação do lote 20, que o achou ao ler a entrega e não o corrige por estar fora do âmbito. O `deliver_content` tem dois caminhos para um item já `entregue`. O primeiro, quando o item já vem `entregue` na leitura, devolve a vista com `ja_entregue=True` **e** com a `entrega` (a legenda, a nota e os termos, pelo achado 6 da revisão do KAM-122). O segundo é a corrida: o item vem `aprovado`, outra entrega grava primeiro, o `entregar` levanta `ItemMudouError`, e a releitura encontra-o `entregue`. Esse devolve a vista com `ja_entregue=True` **sem** a `entrega`. O `_entregar` do vertical do dono lê `dados["entrega"]` sem condição, e o turno parte com um `KeyError` em vez de responder ao dono.
+
+### Objectivo
+
+Duas entregas concorrentes do mesmo item dão as duas uma resposta ao dono, com a legenda, e uma só entrega gravada.
+
+### Critérios de Aceitação
+
+- [ ] Um ensaio reproduz a corrida antes da correcção: o item lido `aprovado`, o `entregar` a levantar `ItemMudouError`, a releitura `entregue`. Contra o código de hoje, o ensaio falha com o `KeyError` no `_entregar`; é a prova de que mede o defeito.
+- [ ] Depois da correcção, o caminho da corrida devolve a mesma vista que o caminho do item já `entregue`: `ja_entregue=True` e a `entrega` sem os termos da primeira entrega, porque esses foram com a entrega que ganhou.
+- [ ] O `_entregar` não parte com uma vista sem `entrega`: responde com a frase de erro, e o turno não levanta.
+- [ ] A entrega continua a ser uma: o item grava-se uma vez `entregue`, e a imagem do KAM-246 não se reenvia pela entrega que perdeu.
+
+### Detalhes Técnicos
+
+- O caminho da corrida está no `except ItemMudouError` do `deliver_content`, que hoje chama a `vista_da_arte(relido, referencia, ja_entregue=True)` sem a `entrega=_partes(relido, False)`.
+- O ensaio da corrida usa o repositório falso do `test_social_aprovacao.py` com um `entregar` que levanta `ItemMudouError` e uma releitura que devolve o item `entregue`. Não é preciso a base: a corrida é a ordem das duas chamadas.
+
+### Testes Requeridos
+
+- Unitário: a corrida, com o vertical do dono a responder a legenda e sem `KeyError`.
+- Unitário: uma vista sem `entrega` no `_entregar` dá a frase de erro.
+- Regressão: os ensaios da entrega do KAM-122 e do KAM-246 (uma imagem por entrega).
+
+### Definition of Done
+
+- [ ] Critérios de Aceitação satisfeitos, com o ensaio da corrida visto a falhar contra o código de hoje.
+
+### Handoff para Claude Code
+
+```text
+És o executor do ticket KAM-256 da KAMBÁ (a entrega concorrente do social sem KeyError).
+Lê specs/EPIC-11_Modulos_Entrada.md (blocos KAM-122 e KAM-246), services/agr/src/kamba_agr/tls/social_tools.py
+(deliver_content) e services/agr/src/kamba_agr/verticais/dono/social.py (_entregar).
+Objectivo: a corrida de duas entregas responde ao dono com a legenda, e grava uma entrega.
+Regras: o ensaio da corrida falha primeiro contra o código de hoje; nenhuma segunda imagem.
+Testes: unitários da corrida e da vista sem entrega; regressão da entrega.
+```
+
+
+---
+
 ## Riscos do Epic e itens NÃO VERIFICADOS
 
 | Risco / item | Estado | Impacto | Mitigação / critério de saída | Decisão |
@@ -4324,4 +4507,5 @@ Testes: integração e adversarial.
 | 1.40 | Novembro 2026 | **KAM-245 entregue: a violação de um publicado que o `screen` bloqueia, e a saída de publicado na mesma transacção.** Escrita como 1.36 e renumerada na integração, depois do KAM-244, do KAM-242, do KAM-241 e do KAM-243. Sem migração e sem contrato novo. Emenda 1.143 do dicionário (§3.5 e §3.58). A **decisão do fundador de 2026-11-23** (opção A; recusadas B e C) fica no bloco, com as **duas decisões do fundador sobre a revisão adversarial**, do mesmo dia: a D1 (opção B) faz da chave do sinal `violacao_de_categoria` o conteúdo e não o id do evento, contra a corrida com a re-análise, no consumidor de T&S (`packages/core-ts/src/trust/efeito.ts`) e no §3.68 do dicionário; a D2 (opção A) deixa o `rascunho` e escreve como achado o que o *trigger* da `0067` faz a ele sob `limitacao`. Também ficam as decisões do executor e as duas secções de verificação: três critérios de três e a caixa da DoD marcados. No bloco do KAM-119, a linha do achado fora de âmbito fica revista e fechada. A assimetria com a re-análise, que continua a não despublicar, vai para o **KAM-253**, aberto no EPIC-09 por este PR; o `Bloqueia` do KAM-245 ganha-o. O piso do `lint_bloco` sobe para 92 (184 medidos, na integração com o KAM-244). Medido contra a `main` em `b5529017`: a emenda escrita como 1.139 e renumerada na integração, depois do KAM-208. | Equipa KAMBÁ |
 | 1.41 | Novembro 2026 | Escrita como 1.36 e renumerada na integração, depois do KAM-244, do KAM-242, do KAM-241, do KAM-243 e do KAM-245. **KAM-127 entregue em parte: o experimento dos módulos de entrada — a instrumentação, as definições, a regra de escopo, os critérios de abate e o protocolo.** Revisão `0091` (sobre a `0090` do KAM-239): a `module_decisions` (só de acrescentar; o `catalogo` não se abate), a `module_experiment_exclusions`, as funções e as vistas `v_h10`, `v_h11` e `v_h12_pagantes`. Emenda 1.146 do dicionário (§3.86). O pré-registo H10–H12 em `docs/tecnica/evidencia/validacao/H10_H12_Modulos_Entrada.md` e a operação em `docs/experimento-modulos.md`; o `registry/modulos_entrada.yaml` (a quinta forma do registo) com a regra de escopo no gate 3b e o interruptor por módulo no AGR. Sete critérios marcados, dois parciais e um vazio: **nenhuma PME foi medida**, e as leituras, o inquérito e o ensaio em *staging* são do Piloto (credor KAM-109). As cinco decisões do fundador de 2026-11-24 registadas no bloco: os limiares, a margem relativa, o `events_log` e o ciclo da assinatura (os critérios 3 e 4 emendados e marcados), e a regra de escopo no 3b | Equipa KAMBÁ |
 | 1.42 | Novembro 2026 | **KAM-251 entregue: o `/metrics` do consumidor `dono` raspado pelo Prometheus.** Sem migração, sem contrato e sem emenda do dicionário. O *job* `onboarding_provisionamento` na 3015, o processo na `tenant_guard_tecto_recusado_total` do catálogo (as quatro `evt_*` que ele serve ficam fora, com a lacuna escrita), a prosa do egress e a nota do KAM-215 corrigidas, a regra `r_alvos_do_onboarding` no `tools/compose_prod` com seis casos de canário, o runbook de T&S e o `docs/observabilidade.md` com o quarto processo da `tenant_guard_tecto_recusado_total`, a linha 217 das dívidas documentais, e o `--prometheus` no `db/ensaio_dono.py`: o alvo `up` e o pico com a raspagem a correr (46,5, 48,9 e 47,3 MiB sob 54m, sem *swap*, em três corridas). O piso do `lint_bloco` fica em 96 (193 medidos). Número provisório: renumera-se na integração. | Equipa KAMBÁ |
-| 1.43 | Novembro 2026 | **KAM-253 (EPIC-09) revê a assimetria do KAM-245.** Número provisório: renumera-se na integração. Pela decisão A do fundador de 2026-11-24, a re-análise de uma mudança de política também tira do catálogo visível o publicado que bloqueia. No bloco do KAM-245 ficam anotados «Revisto pelo KAM-253» a decisão A, a decisão do executor sobre a corrida com a re-análise, a linha 3 da verificação e o ponto da re-análise, com os nomes novos dos ensaios. A tranca e a saída de publicado do KAM-245 mudaram para o `packages/core-ts/src/screening/retirada.ts`. | Equipa KAMBÁ |
+| 1.43 | Novembro 2026 | Escrita como 1.37 e renumerada na integração, depois do KAM-242, do KAM-241, do KAM-243, do KAM-245, do KAM-127 e do KAM-251. **KAM-246 entregue: a arte do módulo `social` como imagem no WhatsApp e a página Social do painel.** Revisão `0092` (sobre a `0091` do KAM-127): a `agent_replies.media_ref`, a chave do STO da arte, do tenant da linha e da classe `arte`, nunca com *template*. Emenda 1.147 do dicionário (escrita como 1.139 e renumerada na integração, depois do KAM-208, do KAM-247, do KAM-209, do KAM-243, do KAM-245, do KAM-240, do KAM-239 e do KAM-127; §3.80, §3.82). O corpo de imagem do Outbound, o carregamento na Meta e o consumidor `outbound` que lê o STO; a imagem na pré-visualização e na primeira entrega; as duas rotas internas do AGR e a página `GET /painel/social` com a ligação de 24 h. Bloco do KAM-246: as decisões do fundador de 2026-11-23 (Q2 = A e Q3 = A), as decisões do executor e a verificação dos critérios. A caixa do critério 8 do KAM-122 revista com a evidência. A decisão do fundador de 2026-11-23 sobre o endpoint público do STO (Q4 = A), a revisão adversarial, e o **KAM-255** acrescentado como credor dela. O **KAM-256** acrescentado como credor do KAM-122, a pedido da coordenação: a entrega concorrente do social devolve a vista sem a `entrega`, e o turno do dono parte com um `KeyError`. Escrita contra a `main` em `4e9909b9` e integrada com a `main` em `cf5a563f` e em `fd5e5d1a`; os credores abriram como KAM-249 e KAM-250, e o 249 a 254 fundiram com outros tickets | Equipa KAMBÁ |
+| 1.44 | Novembro 2026 | **KAM-253 (EPIC-09) revê a assimetria do KAM-245.** Escrita como 1.43 e renumerada na integração, depois do KAM-246. Pela decisão A do fundador de 2026-11-24, a re-análise de uma mudança de política também tira do catálogo visível o publicado que bloqueia. No bloco do KAM-245 ficam anotados «Revisto pelo KAM-253» a decisão A, a decisão do executor sobre a corrida com a re-análise, a linha 3 da verificação e o ponto da re-análise, com os nomes novos dos ensaios. A tranca e a saída de publicado do KAM-245 mudaram para o `packages/core-ts/src/screening/retirada.ts`. | Equipa KAMBÁ |

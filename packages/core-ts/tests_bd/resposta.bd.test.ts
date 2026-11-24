@@ -45,12 +45,13 @@ import type { Envelope } from "../src/eventos/index.ts";
 import { processar } from "../src/eventos/trabalho.ts";
 import type { Identidade } from "../src/identity/index.ts";
 import { cifrarToken } from "../src/onboarding/cifra.ts";
-import type { ClienteDaMeta, Destinatario } from "../src/outbound/index.ts";
+import { ClienteDaGraph, type ClienteDaMeta, type Destinatario } from "../src/outbound/index.ts";
 import {
   CONSUMIDOR_DO_OUTBOUND,
   CONSUMIDOR_DO_PAINEL,
   CanalSemCredencialError,
   ESPERA_DO_REENVIO_S,
+  arteDoSto,
   clienteDaGraphPorCanal,
   destinatarioPelaIdentidade,
   efeitoDoOutbound,
@@ -59,6 +60,7 @@ import {
   type DesfechoDaResposta,
 } from "../src/resposta/index.ts";
 import { EnvSecretProvider, nomeDaVariavel } from "../src/secrets/index.ts";
+import { criarStorageFake, novaChave, type StorageProvider } from "../src/storage/index.ts";
 import {
   BASE_DESCARTAVEL,
   ChavesDeTeste,
@@ -85,6 +87,8 @@ function sqlDoAgr(nome: string): string {
 
 const SQL_INSERIR = sqlDoAgr("SQL_INSERIR");
 const SQL_EMITIR = sqlDoAgr("SQL_EMITIR");
+/** KAM-246: a linha com a chave da arte. */
+const SQL_INSERIR_COM_MEDIA = sqlDoAgr("SQL_INSERIR_COM_MEDIA");
 
 describe("a resposta do AGR contra a base", () => {
   let admin: pg.Client;
@@ -607,6 +611,135 @@ describe("a resposta do AGR contra a base", () => {
       const [envelope] = await envelopes(c.tenant);
       assert.equal((await consumir(CONSUMIDOR_DO_PAINEL, envelope!)).desfecho, "aplicado");
       assert.equal(await entregue(reply!), false);
+    });
+  });
+
+  describe("a arte como imagem, antes do texto (KAM-246)", () => {
+    const JPEG = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 0x10, 0x4a, 0x46, 0x49, 0x46, 0, 1, 2, 3]);
+
+    /** O que o `enfileirar` do AGR faz com imagem: a linha com a chave da arte, e o evento. */
+    async function turnoComImagem(c: Conversa, chave: string, media: string): Promise<string | null> {
+      await produtor.query("BEGIN");
+      try {
+        await produtor.query("SELECT set_config('app.tenant_id', $1, true)", [c.tenant]);
+        const { rows } = await produtor.query<{ reply_id: string }>(SQL_INSERIR_COM_MEDIA, [
+          c.tenant,
+          chave,
+          c.contacto,
+          c.conversa,
+          "whatsapp",
+          "Pre-visualizacao. Legenda: Vestidos novos.",
+          "[]",
+          new Date(Date.now() - 2_000),
+          media,
+        ]);
+        const reply = rows[0]?.reply_id ?? null;
+        if (reply !== null) {
+          const payload = {
+            reply_id: String(reply),
+            thread_id: `${c.tenant}:${c.contacto}`,
+            conversation_id: c.conversa,
+            contact_id: c.contacto,
+            canal: "whatsapp",
+          };
+          await produtor.query(SQL_EMITIR, ["agent.replied", c.tenant, c.conversa, JSON.stringify(payload)]);
+        }
+        await produtor.query("COMMIT");
+        return reply === null ? null : String(reply);
+      } catch (erro) {
+        await produtor.query("ROLLBACK");
+        throw erro;
+      }
+    }
+
+    /** A Meta pelo HTTP do servidor falso: o cliente da Graph de verdade, com o carregamento. */
+    async function comAGraphAEscuta<T>(trabalho: (efeito: ReturnType<typeof efeitoDoOutbound>, sto: StorageProvider) => Promise<T>): Promise<T> {
+      const { base, fechar } = await graph.ouvir();
+      const { storage: sto } = criarStorageFake();
+      try {
+        const efeito = efeitoDoOutbound(
+          envioPeloSaida({
+            tomar: async () => envios.connect(),
+            devolver: (l, erro) => (l as pg.PoolClient).release(erro instanceof Error ? erro : undefined),
+            meta: async () => new ClienteDaGraph({ token: "ensaio", base }),
+            destinatario: async (): Promise<Destinatario> => ({ bsuid: "AO.ENSAIOENSAIOENSAIO0246", telefone: null }),
+          }),
+          { aoTratar: (d) => desfechos.push(d), lerArte: arteDoSto(sto) },
+        );
+        return await trabalho(efeito, sto);
+      } finally {
+        await fechar();
+      }
+    }
+
+    async function guardarArte(sto: StorageProvider, tenant: string): Promise<string> {
+      const chave = novaChave({ tenantId: tenant }, "arte");
+      await sto.put({ tenantId: tenant }, chave, JPEG, {
+        contentType: "image/jpeg",
+        classe: "arte",
+        retainUntil: new Date(Date.now() + 86_400_000),
+      });
+      return chave;
+    }
+
+    it("aprovação → pré-visualização com imagem: 1 carregamento, a imagem e o texto, e a reentrega 3× continua a dar 1", async () => {
+      const c = await conversaNova("resposta-imagem");
+      await comAGraphAEscuta(async (efeito, sto) => {
+        const arte = await guardarArte(sto, c.tenant);
+        const reply = await turnoComImagem(c, "wamid.img:0", arte);
+        const [envelope] = await envelopes(c.tenant);
+        assert.equal(envelope!.payload["reply_id"], reply);
+        assert.equal(JSON.stringify(envelope!.payload).includes(arte), false, "a chave da arte nao vai no evento");
+        const antes = { envios: graph.envios, carregamentos: graph.carregamentos };
+        const correr = () => processar({ bd: consumo, consumer: CONSUMIDOR_DO_OUTBOUND, envelope: envelope!, exigeOrdem: false, tentativa: 1 }, efeito);
+        assert.equal((await correr()).desfecho, "aplicado");
+        for (let i = 0; i < 3; i += 1) assert.equal((await correr()).desfecho, "duplicado");
+        assert.equal(graph.carregamentos - antes.carregamentos, 1, "um carregamento na Meta");
+        assert.equal(graph.envios - antes.envios, 2, "a imagem e o texto, uma vez cada");
+        assert.deepEqual(await enviadas(c.tenant), ["wamid.img:0", "wamid.img:0:imagem"]);
+        assert.equal(await entregue(reply!), true);
+        // O JPEG chegou à Meta tal e qual (sem o recodificar: o KAM-122 já o deu sem EXIF).
+        const carregado = graph.registo.filter((r) => r.pedido.caminho.endsWith("/media")).at(-1)!;
+        const id = (carregado.resposta.corpo as { id: string }).id;
+        assert.ok(Buffer.from(graph.midia(id)!.bytes).includes(Buffer.from(JPEG)));
+        // E a imagem foi pelo `id`, antes do texto.
+        const mensagens = graph.registo.filter((r) => r.pedido.caminho.endsWith("/messages")).slice(-2);
+        assert.deepEqual(mensagens[0]!.pedido.corpo?.["image"], { id });
+        assert.equal(mensagens[1]!.pedido.corpo?.["type"], "text");
+      });
+    });
+
+    it("uma chave de outro tenant na linha: a base recusa-a, e nada chega à Meta", async () => {
+      const a = await conversaNova("resposta-imagem-a");
+      const b = await conversaNova("resposta-imagem-b");
+      await comAGraphAEscuta(async (_efeito, sto) => {
+        const deB = await guardarArte(sto, b.tenant);
+        const antes = { envios: graph.envios, carregamentos: graph.carregamentos };
+        await assert.rejects(turnoComImagem(a, "wamid.alheia:0", deB), (erro: { code?: string }) => erro.code === "23514");
+        assert.deepEqual(await envelopes(a.tenant), []);
+        assert.equal(graph.carregamentos - antes.carregamentos, 0);
+        assert.equal(graph.envios - antes.envios, 0);
+      });
+    });
+
+    it("fora da janela do dono: 0 carregamentos e 0 envios, e a resposta não se marca", async () => {
+      const c = await conversaNova("resposta-imagem-janela");
+      // Os dois tempos andam juntos (`conversations_janela_ck`): a janela abriu há 25 h e fechou há 1 h.
+      await admin.query(
+        "UPDATE platform.conversations SET last_inbound_at = now() - interval '25 hours', " +
+          "window_expires_at = now() - interval '1 hour' WHERE id = $1",
+        [c.conversa],
+      );
+      await comAGraphAEscuta(async (efeito, sto) => {
+        const arte = await guardarArte(sto, c.tenant);
+        const reply = await turnoComImagem(c, "wamid.fora:0", arte);
+        const [envelope] = await envelopes(c.tenant);
+        const antes = { envios: graph.envios, carregamentos: graph.carregamentos };
+        await processar({ bd: consumo, consumer: CONSUMIDOR_DO_OUTBOUND, envelope: envelope!, exigeOrdem: false, tentativa: 1 }, efeito);
+        assert.equal(graph.carregamentos - antes.carregamentos, 0);
+        assert.equal(graph.envios - antes.envios, 0);
+        assert.equal(await entregue(reply!), false);
+      });
     });
   });
 });
