@@ -630,8 +630,8 @@ describe("suite adversarial (KAM-097)", () => {
       const m = montar();
       const conteudo = { sku: "SKU-1", versao_politica: "1.0.0+m.2", sha256: "a2".repeat(26) };
       const envelopes = {
-        screen: envelope("screening.violation_detected", { ...conteudo, regras: ["alcool"] }, m.tenantId),
-        reanalise: envelope("screening.violation_detected", { ...conteudo, regras: ["alcool", "nao_listada"] }, m.tenantId),
+        screen: envelope("screening.violation_detected", { ...conteudo, regras: ["alcool"] }, m.tenantId as ReturnType<typeof randomUUID>),
+        reanalise: envelope("screening.violation_detected", { ...conteudo, regras: ["alcool", "nao_listada"] }, m.tenantId as ReturnType<typeof randomUUID>),
       };
       const resultados = [];
       for (const origem of ordem) {
