@@ -4,7 +4,7 @@
 |---|---|
 | Produto | KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para Angola |
 | Documento | Foundation — Dicionário de Dados Canónico |
-| Versão | 1.143 — **PROPOSTA** (a do §6; o cabeçalho ficou em 1.0 durante treze emendas, e é a linha 7 do KAM-141) |
+| Versão | 1.144 — **PROPOSTA** (a do §6; o cabeçalho ficou em 1.0 durante treze emendas, e é a linha 7 do KAM-141) |
 | Data | Novembro de 2026 |
 | Classificação | Documento de Referência — Interno |
 | Documento-fonte | `../docs/tecnica/` (docs 00–10), `specs/EPIC-*.md` |
@@ -5271,6 +5271,28 @@ do guia correm como `kamba_batch` e passam ao processo de lote no **KAM-239**, q
 `prod`. A purga das revogações expiradas fica sem caminho até lá (depois do `expira_at` a linha já não
 revoga nada que se possa apresentar).
 
+### 3.84 A idempotência do painel na base: a chave do `PATCH` dos produtos (KAM-240)
+
+*Emenda 1.144, **proposta**.* O nome que a revisão
+[`0089`](../db/migrations/versions/0089_idempotencia_do_painel.py) cria para que a `Idempotency-Key` do
+`PATCH /painel/produtos/:id` (KAM-099, critério 5) sobreviva a um reinício e valha entre réplicas, com o
+adaptador em [`idempotencia_sql.ts`](../services/onboarding-web/src/painel/idempotencia_sql.ts). A
+retenção é **decisão da coordenação do lote 19 de 2026-11-22**, que o fundador pode reabrir: a chave vale
+24 h, e a linha sai pelo executor da retenção 25 h depois da reserva.
+
+**A regra que nenhuma coluna exprime: a tranca é a linha, e não um prazo.** A reserva é um `INSERT … ON
+CONFLICT` numa transacção que fica aberta durante o PATCH ao COM, e a resposta grava-se antes do mesmo
+`COMMIT`. Um segundo pedido com a mesma chave espera no índice da chave primária: lê a resposta
+confirmada, ou reserva ele se a primeira desfez. Não há estado «em curso» com prazo que um PATCH lento
+ultrapasse. **O limite:** se a ligação de quem reservou cai com o processo vivo, a base solta a tranca e o PATCH
+dele não é cancelado; o segundo corre o seu, e quem impede a segunda gravação é a versão do pedido no COM
+(`409`). O COM nunca grava duas vezes.
+
+| Conceito | Nome canónico | Substitui | Notas |
+|---|---|---|---|
+| Chave de idempotência do painel | `platform.painel_idempotencia(tenant_id, chave, impressao, estado, corpo, criado_at, expira_at)` | — | *proposta* (emenda 1.144, KAM-240). Substitui o mapa em memória do `PATCH` dos produtos em `prod`. **Sete** colunas, chave primária `(tenant_id, chave)`. RLS `FORCE` pelo tenant **da sessão assinada**, sem FK (a razão da `painel_revogacao`). A `impressao` é o SHA-256 do pedido, e não o corpo; o `estado` e o `corpo` são a resposta HTTP, inteira ou nenhuma (`painel_idempotencia_resposta_ck`), e um 5xx ou uma sessão revogada não ficam. O `kamba_app` lê, insere e muda por coluna, e **não apaga** (§2): uma chave vencida reaproveita-se. Apaga-a a retenção, como `kamba_batch` (classe `idempotencia_do_painel`, 25 h sobre o `criado_at`, `CAMINHO_IDEMPOTENCIA_DO_PAINEL`) |
+| O adaptador e a porta | `IdempotenciaNaBase`, `Deduplicacao`, `LIGACOES_DA_IDEMPOTENCIA` | — | *proposta* (emenda 1.144, KAM-240). A `Deduplicacao` é a porta das rotas do painel, que a `Idempotencia` em memória (ensaios e `dev` sem base) e a `IdempotenciaNaBase` cumprem. O `server.ts` dá a da base sempre que há base, num *pool* próprio: a transacção fica aberta durante o PATCH, e o PATCH lê as revogações pelo *pool* da inscrição |
+
 ## 4. Itens que continuam por decidir
 
 | Item | Estado | Ticket |
@@ -5435,3 +5457,4 @@ Qualquer alteração a um nome canónico é uma emenda a este documento (linha e
 | 1.141 | Novembro 2026 | **Emenda (*proposta*), KAM-209: o preço anómalo por categoria.** Sobre a 1.140 do KAM-247. Escrita como 1.134 e renumerada na integração, depois do KAM-235, do KAM-236, do KAM-231, do KAM-122, do KAM-233, do KAM-208 e do KAM-247. §3.68: a `offer_terms.categoria` com a lista fechada de `policy/categorias_de_produto.yaml` (oito valores, `outra` não se avalia), a guarda na publicação (`offer_terms_categoria_na_publicacao`), a fonte `plataforma/1` na chave `fonte` do `ts_signal.detalhe`, e a varredura `precos`, todas da revisão `0088`. As escolhas são decisões do fundador: as quatro de 2026-11-21 e as duas de 2026-11-22 (um sinal por loja e por janela de 30 dias; referências de pelo menos três lojas); os limiares e o peso ficam os do KAM-097. Provisória: renumera-se se outra emenda fundir antes. | Equipa KAMBÁ |
 | 1.142 | Novembro 2026 | **Emenda (*proposta*), KAM-243: a foto do dono pelo painel.** Sobre a 1.141 do KAM-209. Escrita como 1.139 e renumerada na integração, depois do KAM-208, do KAM-247 e do KAM-209. Sem revisão de base de dados. §3.81: duas linhas novas — a foto do dono pelo painel (o `POST /painel/foto`, a `FotoDoDono` sobre o MED, o `media_id` determinístico `painel.{uuid}` e as respostas) e o STO no `onboarding-web` (decisão do fundador de 2026-11-23, opção A, com o credor KAM-252) — e quatro revistas: o turno do painel ganha o da foto (`painel.{asset_id}.{envio}`, `type` `image`, sem `message_id`), com a prova antes do grafo de que a foto é desta conversa do dono, a admissão e a credencial do painel passam a aceitar os dois turnos do dono, e o canal da resposta da foto do painel é o `painel` (`turno_da_foto_do_painel`). §3.56: a `rota` das métricas do painel ganha `foto` (**vinte e dois**). Número **provisório**: renumera-se na integração | Equipa KAMBÁ |
 | 1.143 | Novembro 2026 | **Emenda (*proposta*), KAM-245: a violação de um publicado que o screen bloqueia.** Sobre a 1.142 do KAM-243. Escrita como 1.139 e renumerada na integração, depois do KAM-208, do KAM-247, do KAM-209 e do KAM-243. No §3.5, a violação de categoria passa a sair também da rota do screen do COM, e não só da re-análise. No §3.58, a linha «Rota do `screen` no COM» ganha o que a rota faz a uma decisão bloqueada do sujeito produto sobre o conteúdo exacto de um publicado: na transacção da decisão, tranca a oferta, emite a violação uma vez por conteúdo e versão, passa a oferta a rascunho e emite o evento de produto alterado. Decisão A do fundador de 2026-11-23. No §3.68, a chave do sinal da violação de categoria passa a ser o conteúdo (o sku, a versão da política e o sha256), e não o id do evento: decisão D1 do fundador do mesmo dia, contra a corrida entre a rota do screen e a re-análise. Sem esquema, sem contrato novo e sem nome canónico novo. Número provisório: quem fundir depois renumera. | Equipa KAMBÁ |
+| 1.144 | Novembro 2026 | **Emenda (*proposta*), KAM-240: a idempotência do painel na base.** Sobre a 1.143 do KAM-245. Escrita como 1.136 e renumerada na integração, depois do KAM-231, do KAM-122, do KAM-233, do KAM-208, do KAM-247, do KAM-209, do KAM-243 e do KAM-245. §3.84 novo, com duas linhas — a chave de idempotência do `PATCH /painel/produtos/:id` (`painel_idempotencia`), com a retenção de 24 h e a purga a 25 h por **decisão da coordenação do lote 19 de 2026-11-22** (recusadas 1 h e a tabela fora da retenção), e o adaptador com a porta. Revisão `0089`, depois da `0088`. Número **provisório**: renumera-se na integração | Equipa KAMBÁ |

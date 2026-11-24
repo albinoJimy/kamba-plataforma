@@ -4,7 +4,7 @@
 |---|---|
 | Produto | KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para Angola |
 | Documento | Epic — Onboarding e Governação |
-| Versão | 1.46 |
+| Versão | 1.47 |
 | Data | Outubro de 2026 |
 | Classificação | Documento de Referência — Interno |
 | Documento-fonte | `../docs/tecnica/10_Onboarding_Governanca.md`, `../docs/tecnica/00_Arquitectura_Solucao.md` (ADR-019) |
@@ -4804,7 +4804,7 @@ O fundador pode reabri-la.
 
 | Critério | Estado | Evidência |
 |---|---|---|
-| 1 — o caso, o registo e o guia em SQL com os papéis certos, e o `server.ts` arranca em `prod` sem repositório em memória | **parcial — caixa vazia** | **Feito:** o caso, o OTP, os contadores e as revogações sobre a base, como `kamba_app`, e o `server.ts` recusa `prod` sem a ligação (`BaseEmFaltaEmProducaoError`). Contra a base (`tests_lote`, `packages/core-ts/tests_bd/inscricao.bd.test.ts`, seis ensaios obrigatórios): o registo cria o caso num processo e outro processo acerta o código, conclui o OTP e reconhece a chave; as funções só devolvem o caso e o tenant e o `kamba_app` não lê o caso de outro tenant pela tabela; trinta verificações concorrentes comparam no máximo cinco; dois registos concorrentes do mesmo NIF, e a mesma chave, dão um caso; os contadores somam entre processos; as revogações sobrevivem. **Falta, três coisas:** (a) o guia não se monta em `prod` (D2-A), credor **KAM-239**; (b) o arranque em `prod` **continua a recusar**, agora pelo SMS (`SmsFalsoEmProducaoError`): o OTP é o `FakeSmsProvider` em todos os ambientes, porque não há adaptador de agregador real (achado 1 da revisão adversarial). **Bloqueado pelo agregador, o KAM-116** (decisão C1 da coordenação, 2026-11-22); (c) a idempotência do `PATCH /painel/produtos/:id` continua num `Map` do processo (achado 4), credor **KAM-240** (decisão C2). **O defeito:** um reinício ou uma segunda réplica perdem a deduplicação. A repetição da mesma chave já não recebe a resposta guardada e chega ao COM; como o pedido leva a versão, a segunda gravação recusa-se, e o dono recebe um `409` sobre um preço que ficou gravado, em vez do `200` da primeira |
+| 1 — o caso, o registo e o guia em SQL com os papéis certos, e o `server.ts` arranca em `prod` sem repositório em memória | **parcial — caixa vazia** | **Feito:** o caso, o OTP, os contadores e as revogações sobre a base, como `kamba_app`, e o `server.ts` recusa `prod` sem a ligação (`BaseEmFaltaEmProducaoError`). Contra a base (`tests_lote`, `packages/core-ts/tests_bd/inscricao.bd.test.ts`, seis ensaios obrigatórios): o registo cria o caso num processo e outro processo acerta o código, conclui o OTP e reconhece a chave; as funções só devolvem o caso e o tenant e o `kamba_app` não lê o caso de outro tenant pela tabela; trinta verificações concorrentes comparam no máximo cinco; dois registos concorrentes do mesmo NIF, e a mesma chave, dão um caso; os contadores somam entre processos; as revogações sobrevivem. **Falta, três coisas:** (a) o guia não se monta em `prod` (D2-A), credor **KAM-239**; (b) o arranque em `prod` **continua a recusar**, agora pelo SMS (`SmsFalsoEmProducaoError`): o OTP é o `FakeSmsProvider` em todos os ambientes, porque não há adaptador de agregador real (achado 1 da revisão adversarial). **Bloqueado pelo agregador, o KAM-116** (decisão C1 da coordenação, 2026-11-22); (c) a idempotência do `PATCH /painel/produtos/:id` continua num `Map` do processo (achado 4), credor **KAM-240** (decisão C2) — **revista pelo KAM-240: feita**, a chave na `platform.painel_idempotencia` (revisão `0089`) e o `server.ts` a usá-la sempre que há base; a evidência está na secção de verificação do KAM-240. **O defeito, como estava:** um reinício ou uma segunda réplica perdem a deduplicação. A repetição da mesma chave já não recebe a resposta guardada e chega ao COM; como o pedido leva a versão, a segunda gravação recusa-se, e o dono recebe um `409` sobre um preço que ficou gravado, em vez do `200` da primeira |
 | 2 — o `POST /painel/teste` corre em `prod`, e um reinício não perde a tentativa aberta | **parcial — caixa vazia** | A tentativa vive na `onboarding_smoke` desde o KAM-202, e o caso que a sessão do painel lê vive agora na base: o reinício (`…outro processo acerta o código…`) lê o mesmo caso e o mesmo tenant. **Falta:** `prod` não arranca enquanto o SMS for o falso (critério 1, b; bloqueado pelo KAM-116) |
 | 3 — o compose de produção monta o `onboarding-web` na rede `data` só com as ligações de que ele precisa | **satisfeito** | `infra/compose/docker-compose.prod.yml`: redes `app` e `data`, uma ligação só (`ONBOARDING_APP_DB_URL`, `kamba_app`), sem `kamba_batch` nem `kamba_identity`; o COM interno pela rede `app`; os segredos pelo cofre (`${…:?}`); `mem_limit` sem mudança. `compose_prod lint`: 0 achados; `env_lint lint`: 0 achados; as suites das duas ferramentas verdes |
 
@@ -4955,11 +4955,11 @@ Que a deduplicação do `PATCH /painel/produtos/:id` sobreviva a um reinício e 
 
 ### Critérios de Aceitação
 
-- [ ] A chave, a impressão e a resposta guardam-se na base, por tenant e sob RLS, pela ligação `kamba_app`;
+- [x] A chave, a impressão e a resposta guardam-se na base, por tenant e sob RLS, pela ligação `kamba_app`;
   o `kamba_app` não apaga linhas, e as chaves vencidas saem pela retenção.
-- [ ] Dois pedidos concorrentes com a mesma chave, em dois processos, gravam uma vez; a repetição depois de
+- [x] Dois pedidos concorrentes com a mesma chave, em dois processos, gravam uma vez; a repetição depois de
   um reinício devolve a resposta guardada, e a mesma chave com outro conteúdo continua a dar `422`.
-- [ ] O `server.ts` usa a idempotência na base quando há base, e a versão em memória fica só para os ensaios
+- [x] O `server.ts` usa a idempotência na base quando há base, e a versão em memória fica só para os ensaios
   e para `dev` sem base.
 
 ### Detalhes Técnicos
@@ -4967,6 +4967,42 @@ Que a deduplicação do `PATCH /painel/produtos/:id` sobreviva a um reinício e 
 - Pede esquema (uma tabela da chave): o número da revisão é da fila.
 - A promessa da resposta em curso, que hoje faz o segundo pedido esperar pelo primeiro, passa a uma linha
   reservada antes da gravação; a forma (estado «em curso» com prazo, ou *advisory lock*) é deste ticket.
+
+**A forma escolhida: a tranca é a linha, sem prazo.** A reserva é um `INSERT … ON CONFLICT (tenant_id, chave)`
+numa transacção que fica aberta durante o PATCH ao COM, e a resposta grava-se na mesma linha antes do mesmo
+`COMMIT` (`services/onboarding-web/src/painel/idempotencia_sql.ts`). Um segundo pedido com a mesma chave, noutro
+processo, espera no índice da chave primária: lê a resposta confirmada, ou reserva ele se a primeira desfez (um
+5xx, a sessão revogada, uma excepção). Um estado «em curso» com prazo era uma janela — um PATCH mais lento do
+que o prazo deixava o segundo correr ao mesmo tempo —, e um *advisory lock* pedia um *hash* da chave com
+colisões.
+
+**Três limites, escritos porque mudam o que a tranca promete:**
+
+1. **A ligação que cai com o processo vivo** (a rede corta, a base termina o *backend*). A base desfaz e solta a
+   tranca, e o PATCH de quem reservou **não é cancelado**: o segundo corre o seu, e os dois chegam ao COM. Quem
+   impede a segunda gravação é a versão do pedido (obrigatória): o COM aceita a primeira e recusa a outra com
+   `409`, e a chave pode ficar com esse `409`. É o mesmo desfecho de o processo morrer depois de o COM gravar e
+   antes do `COMMIT`. **O COM nunca grava duas vezes**; o PATCH corre duas vezes só nestes casos, e o ensaio da
+   ligação que cai mede-o.
+2. **Um recurso partilhado entre tenants.** Cada PATCH em curso, e cada repetição à espera da tranca, prende uma
+   ligação de um *pool* próprio (`LIGACOES_DA_IDEMPOTENCIA`, quatro, *proposta*) durante as chamadas ao COM; com
+   as quatro presas, o pedido seguinte de qualquer tenant espera pelo `connectionTimeoutMillis` e falha. É
+   próprio porque o PATCH lê as revogações pelo *pool* da inscrição, e no mesmo esgotava-o. Atalho declarado no
+   código (`shortcut:`), revisto com a carga real (KAM-084).
+3. **Uma repetição concorrente de um 5xx corre o seu PATCH.** Em memória, a repetição que chegava durante um
+   pedido que acabava em 5xx (ou na sessão revogada) recebia essa resposta como repetida; na base, o 5xx desfaz
+   a reserva, e a repetição que esperava reserva e corre. É o que a repetição de um 5xx já fazia depois.
+
+**A revisão** é a `0089`, sobre a `0088` (vaga dada pela coordenação do lote 19 a 2026-11-22).
+
+### Decisão da coordenação
+
+**Data: 2026-11-22. Autor: a coordenação do lote 19.** A linha não guarda pessoa e o prazo já estava proposto
+(`VALIDADE_DA_CHAVE_MS`, KAM-099); **o fundador pode reabri-la**.
+
+| # | Pergunta | Escolha | Recusadas |
+|---|---|---|---|
+| C1 | A retenção: quanto tempo vive a chave, e quem a apaga | **A**: a chave vale 24 h; a linha sai pelo executor da retenção, como `kamba_batch`, na classe `idempotencia_do_painel` (APAGAR, 25 h sobre o `criado_at`), na forma dos contadores da `0084` | B, 1 h (o dono que repete depois de uma hora sem rede recebia um `409`); C, fora da retenção (contradiz o critério 1) |
 
 ### Testes Requeridos
 
@@ -4976,8 +5012,46 @@ Que a deduplicação do `PATCH /painel/produtos/:id` sobreviva a um reinício e 
 
 ### Definition of Done
 
-- [ ] Critérios de Aceitação satisfeitos; a alínea (c) do critério 1 do KAM-236 revista com a evidência.
-- [ ] As listas fechadas dos *gates* 6 e 8 e a política de retenção com a tabela nova.
+- [x] Critérios de Aceitação satisfeitos; a alínea (c) do critério 1 do KAM-236 revista com a evidência.
+- [x] As listas fechadas dos *gates* 6 e 8 e a política de retenção com a tabela nova.
+
+### Verificação dos Critérios de Aceitação
+
+| Critério | Estado | Evidência |
+|---|---|---|
+| 1 — a chave, a impressão e a resposta na base, por tenant e sob RLS, pelo `kamba_app`, sem `DELETE`, e as vencidas pela retenção | **satisfeito** | A `platform.painel_idempotencia` da revisão `0089`: chave primária `(tenant_id, chave)`, RLS `FORCE` (`tenant_iso`), `kamba_app` com `SELECT` e `INSERT`/`UPDATE` por coluna, `kamba_batch` com `SELECT` e `DELETE`. O `kamba_app` a apagar leva `42501` (`idempotencia.bd.test.ts`, «um 5xx e uma sessão revogada…»; `db/tests/test_idempotencia_do_painel_schema.py`, `test_o_kamba_app_nao_apaga_e_o_lote_apaga_as_vencidas`, que corre o `CAMINHO_IDEMPOTENCIA_DO_PAINEL` como `kamba_batch`). A classe `idempotencia_do_painel` (APAGAR, 25 h), por decisão C1 da coordenação; `test_a_validade_da_chave_acaba_antes_da_purga` cruza as 24 h do `VALIDADE_DA_CHAVE_MS` com o prazo da classe. As restrições mordem (`test_as_restricoes_mordem`) |
+| 2 — dois processos com a mesma chave gravam uma vez; a repetição depois de um reinício devolve a resposta guardada; outro conteúdo dá `422` | **satisfeito** | `packages/core-ts/tests_bd/idempotencia.bd.test.ts`, seis ensaios contra a base, 6/6: dez pedidos com a mesma chave em dois *pools* correm o PATCH **uma** vez, e o controlo com dois mapas em memória corre-o **duas** (`[KAM-240] dois processos: na base 1 gravacao(oes), em memoria 2`); um *pool* novo devolve a resposta guardada sem correr nada, com as chaves do corpo na mesma ordem; a mesma chave com outra impressão dá `reutilizada` (o `422` da rota), e noutro tenant é outra chave, sem que o `kamba_app` de B veja a linha de A; o 5xx e a sessão revogada não ficam, e o pedido que esperava pela tranca corre depois; a chave vencida reaproveita-se; a ligação de quem tem a tranca cai e o outro corre. **O limite**, medido no último: o PATCH do primeiro não é cancelado, e quem trava a segunda gravação é a versão no COM (ver «Três limites») |
+| 3 — o `server.ts` usa a idempotência na base quando há base; a de memória só para os ensaios e `dev` sem base | **satisfeito** | `server.ts`: `idempotencia: NA_BASE ? new IdempotenciaNaBase(poolDe(URL_DA_APP, "idempotencia", LIGACOES_DA_IDEMPOTENCIA)) : undefined`, e `prod` sem base recusa (`BaseEmFaltaEmProducaoError`). `services/onboarding-web/tests/idempotencia.test.ts` fixa as duas linhas pelo texto (o `server.ts` arranca o processo quando se importa); o `onboarding-web` 278/0 |
+
+### Verificação da Definition of Done
+
+| DoD | Estado | Evidência |
+|---|---|---|
+| Critérios satisfeitos; a alínea (c) do critério 1 do KAM-236 revista | **satisfeito** | Os três acima. A alínea (c) do KAM-236 diz agora que está feita, com a revisão e esta secção; a caixa dele continua vazia pelas alíneas (a) e (b) |
+| As listas fechadas dos *gates* 6 e 8 e a política de retenção com a tabela nova | **satisfeito** | *Gate* 8: `base.py` (`TABELAS_IDEMPOTENCIA_DO_PAINEL`, e o `TABELAS_ANTES_DA_CORRELACAO` a derivar dele), `test_catalogo`, `test_inventario`, `test_privilegios`; o `tests_lote` com o ficheiro, o grupo e os seis nomes. *Gate* 6: a receita de sementes (pelas colunas do `INSERT` da aplicação), a `ORDEM` e as três listas do X-05; o X-03/X-04 e o X-05 65/65. Retenção: a classe e o caminho, e os 73 ensaios do `test_retencao` |
+
+**Medido nesta máquina**, na árvore da integração com a `publico/main` em `dbab7bca` (a `0089` sobre a `0088`):
+as 21 suites do `ci-8`, uma a uma, todas verdes salvo um caso do `tests` (1423 ensaios, 1 vermelho: o
+`test_contacto_da_encomenda`, intermitente conhecido e não deste ramo — um `uuid4` aleatório a casar `LIKE '%999%'`);
+o `tests_lote` 12/12, com o ensaio de base 6/6 e a medição «na base 1 gravacao(oes), em memoria 2»; o
+`tests_isolamento` (*gate* 6) 83/83; a conferência das mutações (1314, 0 inaplicáveis); os tipos do `contracts`, do
+`core-ts` e do `onboarding-web` sem erros; o `onboarding-web` 294/0; os linters rápidos, incluindo os três comandos
+do *gate* 3b; e as suites de `tools/` na árvore da integração anterior (`b3697872`), sem o `supply_chain`, que este
+ramo não toca. O `tests_agr` pede o `PYTHONPATH` do `Makefile` (sem ele, dois módulos não importam).
+
+**A revisão adversarial** correu numa passagem, sobre o diff antes do primeiro *commit*: nove achados, cinco
+CONFIRMADOS, três PLAUSÍVEIS e uma nota de integração. Não encontrou janela em que o COM grave duas vezes.
+**Corrigidos neste ramo:** a frase «não há janela» (falsa quando a ligação cai com o processo vivo: o limite 1,
+agora escrito aqui, no dicionário, na revisão e no adaptador, e medido pelo ensaio renomeado); a ligação sã
+destruída a cada resposta que não se guarda (o `NaoGuardar` é apanhado dentro do `numaLigacaoDaInscricao`); o
+corpo repetido com as chaves noutra ordem (`json` em vez de `jsonb`, com ensaio); as secções de verificação em
+falta; o critério 3 sem medição (ensaio pelo texto do `server.ts`); as superfícies sem cruzamento (a forma da
+chave e a validade contra a purga) e os CHECK sem caso negativo (o ensaio de esquema da `0089`, com a descida); o
+ensaio do 5xx sem ponto de sincronização (agora espera que o primeiro tenha a tranca e prova que o segundo
+esperou); e o comentário órfão do `base.py`. **Escritos, sem correcção:** o recurso partilhado entre tenants
+(limite 2, um `shortcut:` com o gatilho de revisão) e a repetição concorrente de um 5xx (limite 3). **Antes
+dela**, a corrida do *gate* 8 apanhou um `:id` no `COMMENT` da revisão, que o SQLAlchemy lia como parâmetro, e o
+X-03 a receita com colunas fora do `GRANT` (o `42501` do privilégio em vez do da política).
 
 ### Handoff para Claude Code
 
@@ -5215,3 +5289,4 @@ Regras: a decisão é do fundador; uma violação por conteúdo; isolamento de t
 | 1.44 | Novembro 2026 | KAM-208 (a correlação entre tenants por comprador): as seis decisões do fundador de 2026-11-21 registadas no bloco (D1 a D6), os critérios 2 e 3 e a caixa 2 da DoD marcados, com a secção «Verificação dos Critérios de Aceitação»; o critério 1 e a caixa «parecer anexado» ficam vazios (não há parecer, e o ticket não o escreve *(a confirmar por parecer)*), e o 4 fica parcial (o dicionário sim, o DPIA não, por viver no espelho privado). O critério 6 e a caixa 1 da DoD do KAM-200 ganham «Revisto pelo KAM-208». Número provisório: renumera-se na integração contra a `main`. | Equipa KAMBÁ |
 | 1.45 | Novembro 2026 | KAM-209 (o preço anómalo por categoria): as quatro decisões do fundador de 2026-11-21 (opção A em todas) e as duas de 2026-11-22 (um sinal por loja e por janela de 30 dias; referências de pelo menos três lojas), os três critérios e as duas caixas da DoD marcados, com a secção «Verificação dos Critérios de Aceitação»; e o critério 4 do KAM-200 revisto, de **não satisfeito** a **satisfeito**. Escrita como 1.41 e renumerada na integração, depois do KAM-236, do KAM-225, do KAM-233 e do KAM-208. | Equipa KAMBÁ |
 | 1.46 | Novembro 2026 | Escrita como 1.44 e renumerada na integração, depois do KAM-208 e do KAM-209; o credor abriu como KAM-249 e passou a KAM-253, porque o 249 a 252 fundiram com o KAM-247, o KAM-241 e o KAM-243. **KAM-253 acrescentado**, no PR do **KAM-245** (EPIC-11), que o abre e não o implementa, pela decisão A do fundador de 2026-11-23: o `/internal/screen` despublica o conteúdo que bloqueia, e a re-análise de uma mudança de política continua sem despublicar, pelo critério 4 do KAM-191. O KAM-253 é o credor dessa assimetria, com a decisão por tomar. **Aresta recíproca:** o `Bloqueia` do KAM-191 passa de «—» a **KAM-253**. Número provisório: o maior da `main` + 1. | Equipa KAMBÁ |
+| 1.47 | Novembro 2026 | **KAM-240** (escrita como 1.42 e renumerada na integração, depois do KAM-225, do KAM-233, do KAM-208, do KAM-209 e do KAM-245): a idempotência do `PATCH /painel/produtos/:id` na base (revisão `0089`). A forma da tranca (a linha, sem prazo) e a **decisão da coordenação do lote 19** de 2026-11-22 sobre a retenção (C1-A: 24 h, purga a 25 h como lote) no bloco, e as duas secções de verificação. A alínea (c) do critério 1 do KAM-236 revista com a evidência; a caixa dele continua vazia pelas alíneas (a) e (b). Número **provisório**: renumera-se na integração. | Equipa KAMBÁ |

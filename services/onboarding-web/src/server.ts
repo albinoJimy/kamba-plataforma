@@ -21,7 +21,9 @@
  * registo sobre memória. As buscas do registo que atravessam tenants passam
  * pelas funções `SECURITY DEFINER` da `0084`, que só devolvem o caso e o tenant
  * (decisão do fundador de 2026-11-21, D1-A); o resto lê-se pela RLS do tenant
- * do caso. Os contadores e as revogações são tabelas (D3-A).
+ * do caso. Os contadores e as revogações são tabelas (D3-A), e a
+ * `Idempotency-Key` do `PATCH /painel/produtos/:id` também (KAM-240), num *pool*
+ * só seu (`IdempotenciaNaBase`).
  *
  * **O guia do ES não se monta em `prod`** (D2-A): a reserva da lista de espera e
  * a fila de revisão correm como `kamba_batch`, que este processo não tem, e os
@@ -119,6 +121,7 @@ import type {
   OpcoesDoPainel,
   TesteDoPainel,
 } from "./painel/rotas.ts";
+import { IdempotenciaNaBase } from "./painel/idempotencia_sql.ts";
 import { RevogacoesNaBase } from "./painel/revogacoes_sql.ts";
 import { RevogacoesEmMemoria, type Revogacoes } from "./painel/sessao.ts";
 import { testeDaActivacao } from "./painel/teste.ts";
@@ -224,6 +227,15 @@ const CHAVES_DO_CASO = [REF_KEK_DO_TELEFONE, REF_KEK_DOS_DADOS] as const;
  * Calibra-se com a carga real (KAM-084).
  */
 const LIGACOES_DA_INSCRICAO = 6;
+
+/**
+ * Quantas ligações do `kamba_app` a idempotência do painel abre, no máximo
+ * (KAM-240). **À parte da inscrição**: cada uma fica presa durante o PATCH ao
+ * COM, que lê as revogações pelo *pool* da inscrição (ver `IdempotenciaNaBase`).
+ * ***Proposta***: quatro PATCH em curso ao mesmo tempo; o quinto espera pela
+ * ligação até ao `connectionTimeoutMillis`. Calibra-se com a carga real (KAM-084).
+ */
+const LIGACOES_DA_IDEMPOTENCIA = 4;
 
 /**
  * Levantado em `prod` enquanto o SMS for o `FakeSmsProvider` (KAM-236, achado 1
@@ -673,6 +685,9 @@ async function montarPainel(guia: PassoGuiado | undefined): Promise<OpcoesDoPain
     revogacoes,
     casos,
     anelDaAssinatura: [assinatura, assinaturaAnterior],
+    // Sem base, a das rotas, em memória: só em `dev` e `staging` (em `prod` a
+    // base é obrigatória). Ver a nota do módulo.
+    idempotencia: NA_BASE ? new IdempotenciaNaBase(poolDe(URL_DA_APP, "idempotencia", LIGACOES_DA_IDEMPOTENCIA)) : undefined,
     precoMaximoKz: precoMaximoKz(process.env["PAINEL_PRECO_MAXIMO_KZ"]),
     reentrada: {
       otp,

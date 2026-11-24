@@ -763,6 +763,12 @@ TABELAS_INSCRICAO_NA_BASE = ("onboarding_contador", "onboarding_otp", "painel_re
 #: `TABELAS_CATALOGO_AI`.
 TABELAS_CORRELACAO = ("contact_xtenant_pseudonym",)
 
+#: O que a revisao da idempotencia do painel (KAM-240) acrescenta: a chave do
+#: `PATCH /painel/produtos/:id` (`painel_idempotencia`, de tenant, RLS `FORCE`,
+#: sem FK, pela razao da `painel_revogacao`; o `kamba_app` le, insere e muda por
+#: coluna, e so o `kamba_batch` apaga, pela retencao).
+TABELAS_IDEMPOTENCIA_DO_PAINEL = ("painel_idempotencia",)
+
 TABELAS = tuple(
     sorted(
         TABELAS_0001 + TABELAS_0003 + TABELAS_0004 + TABELAS_0005
@@ -785,6 +791,7 @@ TABELAS = tuple(
         + TABELAS_SOCIAL_DO_DONO
         + TABELAS_INSCRICAO_NA_BASE
         + TABELAS_CORRELACAO
+        + TABELAS_IDEMPOTENCIA_DO_PAINEL
     )
 )
 
@@ -801,9 +808,16 @@ TABELAS = tuple(
 #: O que existe em `platform` antes da revisao do social do dono (KAM-121),
 #: que e o topo da cadeia desde ela. A `0078` do KAM-230, entre as duas, nao
 #: cria tabela nenhuma.
+#: O que existe em `platform` antes da revisao da idempotencia do painel
+#: (KAM-240), que e o topo da cadeia desde ela.
+TABELAS_ANTES_DA_IDEMPOTENCIA_DO_PAINEL = tuple(sorted(set(TABELAS) - set(TABELAS_IDEMPOTENCIA_DO_PAINEL)))
+
 #: O que existe em `platform` antes da revisao da correlacao entre tenants
-#: (KAM-208), que e o topo da cadeia desde ela.
-TABELAS_ANTES_DA_CORRELACAO = tuple(sorted(set(TABELAS) - set(TABELAS_CORRELACAO)))
+#: (KAM-208). Deriva do de cima desde o KAM-240; a `0088`, entre as duas, nao
+#: cria tabela nenhuma.
+TABELAS_ANTES_DA_CORRELACAO = tuple(
+    sorted(set(TABELAS_ANTES_DA_IDEMPOTENCIA_DO_PAINEL) - set(TABELAS_CORRELACAO))
+)
 
 #: O que existe em `platform` antes da revisao da inscricao na base (KAM-236).
 #: Deriva do de cima desde o KAM-208; a `0085` e a `0086`, entre ela e a

@@ -1699,6 +1699,27 @@ ESPERADO_POR_TABELA.update(
     }
 )
 
+#: A idempotencia do painel (KAM-240). **Da aplicacao**: o `onboarding-web` le,
+#: reserva e grava a resposta como `kamba_app`, por coluna (ver
+#: `COLUNAS_POR_PAPEL`), e **nao apaga** (dicionario §2): uma chave vencida
+#: reaproveita-se pelo `UPDATE`. Quem apaga as vencidas e o executor da
+#: retencao, como `kamba_batch` (`CAMINHO_IDEMPOTENCIA_DO_PAINEL`).
+ESPERADO_POR_TABELA.update(
+    {
+        "painel_idempotencia": {
+            "kamba_app": {"SELECT"},
+            "kamba_batch": {"SELECT", "DELETE"},
+            "kamba_resolver": set(),
+            "kamba_identity": set(),
+            "kamba_audit": set(),
+            "kamba_agr": set(),
+            "kamba_pay_hooks": set(),
+            "kamba_migrator": set(PRIVILEGIOS_DE_TABELA),
+            "public": set(),
+        },
+    }
+)
+
 #: Os pedidos de orcamento (KAM-123, revisao do Orcamento expresso). **So a
 #: aplicacao**: o AGR corre como `kamba_app`, le, insere e actualiza por coluna
 #: (ver `COLUNAS_POR_PAPEL`). **Ninguem apaga**: um pedido fecha-se pelo
@@ -2723,6 +2744,12 @@ COLUNAS_POR_PAPEL = {
     ("kamba_app", "onboarding_contador", "UPDATE"): {"instantes", "actualizado_at"},
     ("kamba_app", "painel_revogacao", "INSERT"): {"tenant_id", "sid", "ate", "expira_at"},
     ("kamba_app", "painel_revogacao", "UPDATE"): {"ate", "expira_at"},
+    ("kamba_app", "painel_idempotencia", "INSERT"): {
+        "tenant_id", "chave", "impressao", "criado_at", "expira_at",
+    },
+    ("kamba_app", "painel_idempotencia", "UPDATE"): {
+        "impressao", "estado", "corpo", "criado_at", "expira_at",
+    },
     ("kamba_identity", "owner_phone_changes", "INSERT"): {
         "tenant_id", "pedido", "telefone_hmac", "owner_channel_wa", "prazo",
     },

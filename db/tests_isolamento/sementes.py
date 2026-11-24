@@ -1129,6 +1129,27 @@ def _revogacao_do_painel(cursor, tenant_id: str, canario: str) -> None:
     )
 
 
+def _idempotencia_do_painel(cursor, tenant_id: str, canario: str) -> None:
+    """Uma chave de idempotencia do painel (KAM-240, revisao `0089`).
+
+    O canario vai na `chave`, que e texto escolhido pelo navegador e cabe na
+    forma da `painel_idempotencia_chave_ck` (`canario_<rotulo>_<hex>`); o
+    `kamba_app` insere-a, pelo que o ataque do X-03 esbarra na RLS e nao num
+    privilegio de coluna. A coluna alteravel e o `expira_at`, uma das cinco do
+    `UPDATE` por coluna. A impressao e o SHA-256 do canario. **Sem FK**.
+
+    Semeia o administrador: o `kamba_batch` le e apaga, mas nao insere.
+    """
+    # So as colunas do `INSERT` do `kamba_app` (a reserva, sem resposta): o
+    # ataque do X-03 corre esta receita como `kamba_app`, e uma coluna fora do
+    # `GRANT` dava o 42501 do privilegio em vez do da politica.
+    cursor.execute(
+        "INSERT INTO platform.painel_idempotencia (tenant_id, chave, impressao, expira_at) "
+        "VALUES (%s, %s, sha256(convert_to(%s, 'UTF8')), now() + interval '1 day')",
+        (tenant_id, canario, canario),
+    )
+
+
 def _troca_do_dono(cursor, tenant_id: str, canario: str) -> None:
     """Uma troca de telefone do dono pedida (KAM-223). O canario vai no `pedido`.
 
@@ -2020,6 +2041,12 @@ RECEITAS: dict[tuple[str, str], Receita] = {
         _revogacao_do_painel, "sid", "expira_at", "2099-01-01T00:00:00+00:00",
         semeador="admin", guardado=_uuid,
     ),
+    # KAM-240: a idempotencia do painel. O canario vai na `chave`, e a coluna
+    # alteravel e o `expira_at`, uma das cinco do `GRANT UPDATE` por coluna.
+    ("platform", "painel_idempotencia"): Receita(
+        _idempotencia_do_painel, "chave", "expira_at", "2099-01-01T00:00:00+00:00",
+        semeador="admin",
+    ),
     ("platform", "events_outbox"): Receita(
         _evento_no_outbox, "agregado_id", None, None, semeador="admin"
     ),
@@ -2591,6 +2618,8 @@ ORDEM = (
     ("platform", "content_items"),
     # KAM-236: sem FK nenhuma, e ninguem a aponta.
     ("platform", "painel_revogacao"),
+    # KAM-240: sem FK nenhuma, e ninguem a aponta.
+    ("platform", "painel_idempotencia"),
     # KAM-009: as duas so tem FK para `tenants`, e por isso ficam no fim.
     ("platform", "tenant_usage"),
     ("platform", "usage_ledger"),

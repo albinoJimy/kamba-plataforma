@@ -185,6 +185,19 @@ CAMINHO_CONTADORES_DO_REGISTO: Final = Caminho(
     global_=True,
 )
 
+#: KAM-240: as chaves de idempotencia do painel, por tenant, pelo `criado_at`
+#: (a reserva, que recomeca quando uma chave vencida se reaproveita). Indice
+#: `painel_idempotencia_criado_idx`.
+CAMINHO_IDEMPOTENCIA_DO_PAINEL: Final = Caminho(
+    "platform.painel_idempotencia",
+    """SELECT DISTINCT tenant_id FROM platform.painel_idempotencia
+        WHERE criado_at < %s""",
+    """SELECT count(*) FROM platform.painel_idempotencia
+        WHERE tenant_id = %s::uuid AND criado_at < %s""",
+    """DELETE FROM platform.painel_idempotencia
+        WHERE tenant_id = %s::uuid AND criado_at < %s""",
+)
+
 #: **O fecho da conversa**, que o bloco manda definir no PR: o mais tardio de
 #: `window_expires_at` (a janela de 24 h do canal, que fecha sozinha) e
 #: `last_human_activity_at` (o humano do HND). Um contacto com varias conversas
@@ -221,6 +234,7 @@ CAMINHOS: Final[Mapping[str, tuple[Caminho, ...]]] = {
     "events_dlq": (CAMINHO_DLQ,),
     "entrada_em_quarentena": (CAMINHO_QUARENTENA,),
     "contadores_do_registo": (CAMINHO_CONTADORES_DO_REGISTO,),
+    "idempotencia_do_painel": (CAMINHO_IDEMPOTENCIA_DO_PAINEL,),
 }
 
 # ---------------------------------------------------------------- objectos

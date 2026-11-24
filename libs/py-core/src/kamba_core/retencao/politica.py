@@ -344,6 +344,19 @@ POLITICA: Final[tuple[Classe, ...]] = (
         fonte="packages/core-ts/src/inscricao/sql.ts (PARADA_MS)",
     ),
     Classe(
+        "idempotencia_do_painel",
+        APAGAR,
+        "painel_idempotencia.criado_at",
+        # KAM-240 (revisao da idempotencia do painel). A chave do PATCH dos
+        # produtos, a impressao do pedido e a resposta do COM, por tenant e sem
+        # pessoa. A chave vale 24 h; apaga-a o executor, como lote, uma hora
+        # depois. Decisao da coordenacao do lote 19 (2026-11-22), que o fundador
+        # pode reabrir: o `kamba_app` nao apaga linhas (dicionario §2).
+        (_t("platform.painel_idempotencia", ligada=True),),
+        prazo=Prazo(horas=25),
+        fonte="services/onboarding-web/src/painel/idempotencia.ts (VALIDADE_DA_CHAVE_MS)",
+    ),
+    Classe(
         "lg_checkpoints",
         DELEGADO,
         "ultima escrita da thread",

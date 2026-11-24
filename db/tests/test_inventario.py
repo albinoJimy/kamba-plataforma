@@ -2452,6 +2452,19 @@ INVENTARIO["painel_revogacao"] = {
     "criado_at": ("timestamp with time zone", NAO, "now()", "nao"),
 }
 
+#: A idempotencia do painel (KAM-240, revisao `0089`). A chave e escolhida pelo
+#: navegador, a impressao e um SHA-256 do pedido, e a resposta e a oferta do COM
+#: (sku, nome, preco, versao): nenhuma identifica uma pessoa.
+INVENTARIO["painel_idempotencia"] = {
+    "tenant_id": ("uuid", NAO, None, "nao"),
+    "chave": ("text", NAO, None, "nao — escolhida pelo navegador, aleatoria"),
+    "impressao": ("bytea", NAO, None, "nao — SHA-256 do pedido"),
+    "estado": ("smallint", SIM, None, "nao"),
+    "corpo": ("json", SIM, None, "nao — a oferta do COM, sem pessoa"),
+    "criado_at": ("timestamp with time zone", NAO, "now()", "nao"),
+    "expira_at": ("timestamp with time zone", NAO, None, "nao"),
+}
+
 #: A verificacao K1 de um documento (KAM-087, revisao `0043`). **O documento
 #: nao esta aqui**: esta no STO, e a linha guarda a chave. Os campos lidos (NIF,
 #: nome, BI, IBAN) vao cifrados em aplicacao no `extraido_enc`, e esquecem-se a
@@ -4621,6 +4634,17 @@ class TestInventario(ComBase):
                     "painel_revogacao_alvo_ck",
                     "painel_revogacao_ate_ck",
                     "painel_revogacao_pkey",
+                    # --------------------------------------- KAM-240 (0089)
+                    #
+                    # **Seis.** A forma da chave, o tamanho da impressao, o
+                    # dominio do estado, a resposta inteira ou nenhuma, o
+                    # prazo depois da reserva, e a chave primaria composta.
+                    "painel_idempotencia_chave_ck",
+                    "painel_idempotencia_estado_ck",
+                    "painel_idempotencia_impressao_ck",
+                    "painel_idempotencia_pkey",
+                    "painel_idempotencia_prazo_ck",
+                    "painel_idempotencia_resposta_ck",
                     # A verificacao: os tres dominios, as formas, o
                     # prefixo do STO e a idempotencia por `sha256`.
                     "kyc_check_custo_micro_usd_ck",
