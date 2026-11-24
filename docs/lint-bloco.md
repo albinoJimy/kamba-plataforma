@@ -191,7 +191,7 @@ ela não existia, tendo-a. Vinte e seis eram `| CA | Estado | Evidência |`, que
 79**, e fez aparecer um oitavo bloco com divergência.
 
 Dois pisos: `MINIMO_DE_BLOCOS` (150) apanha um `glob` que deixe de casar;
-`MINIMO_DE_BLOCOS_MEDIDOS` (**50**) apanha o modo de falha mais perigoso deste
+`MINIMO_DE_BLOCOS_MEDIDOS` (**97**) apanha o modo de falha mais perigoso deste
 *lint* — uma mudança na forma do cabeçalho põe o emparelhamento a zero e a saída
 continua a dizer «0 achados». Abaixo de qualquer um deles o comando sai com **2**.
 
@@ -199,31 +199,23 @@ continua a dizer «0 achados». Abaixo de qualquer um deles o comando sai com **
 > adversarial mediu que `MINIMO_DE_BLOCOS_MEDIDOS = 0` passava — porque `0 <= 81`
 > é verdade, e um piso a zero é o mesmo que não ter piso.
 
-> **O piso de emparelhados sobe quando o corpus cresce, e já subiu quatro
-> vezes.** O ensaio exige `piso >= medidos // 2`, pelo que cada **dois** blocos
-> de verificação novos pedem uma emenda: 40 → **41**, 41 → **42**, 42 → **43**,
-> 43 → **44** e, daí, até **97** (194 emparelhados na integração do KAM-246 com o KAM-251; a linha ficou em 50
-> desde o KAM-186, a terceira vez atrás do código), cada uma medida na
-> árvore de quem fundiu em segundo. **Quem a paga
-> é um dado sobre a ordem de fusão e não sobre o corpus**, e é por isso que o
+> **O piso de emparelhados sobe quando o corpus cresce.** O ensaio exige
+> `piso >= medidos // 2`, pelo que cada **dois** blocos de verificação novos
+> pedem uma emenda, medida na árvore de quem funde em segundo. **Quem a paga é
+> um dado sobre a ordem de fusão e não sobre o corpus**, e é por isso que o
 > `lint.py` não nomeia tickets na conta — o que vale é o número e como se mede.
+> A conta de cada subida fica no `lint.py` e no §10; esta secção diz o valor de
+> hoje **uma** vez, na frase «Dois pisos», na forma `` `NOME` (**N**) ``.
 >
-> **Esta linha esteve desactualizada duas vezes, e a segunda vez foi por dois
-> valores.** A primeira: dizia 40 quando o código dizia 41, desde o KAM-108, e
-> com ele o literal do `mutacao.py` — a mutação do piso não casava e passava por
-> medida sem o ser. As duas pontas ficaram emendadas no KAM-182. A segunda: o
-> 42 → 43 e o 43 → 44 mexeram **os dois** o `lint.py` e o `mutacao.py` e
-> deixaram esta linha em **42** nas duas vezes, pelo que o documento que manda
-> mexer em três sítios ficou a ser o sítio esquecido — duas integrações
-> seguidas. Apanhou-o a integração do **KAM-184**, que mediu **89** emparelhados
-> na sua árvore integrada: `89 // 2` são 44, pelo que o piso **não** se move com
-> ele e o que faltava era só esta linha, dois valores atrás.
->
-> Quem subir o piso mexe em **três** sítios: o `lint.py`, o `mutacao.py` e esta
-> linha. E quem **não** o sobe confirma que os três dizem o mesmo, que é o que as
-> duas últimas vezes ensinaram — **nenhum portão compara este número com a
-> constante que ele cita**, e é por isso que ele volta a ficar atrás. Ligar essa
-> comparação é do **KAM-183**, que governa esta regra.
+> Quem subir o piso mexe em **três** sítios: o `lint.py`, o `mutacao.py` e a
+> frase «Dois pisos». **E desde o KAM-257 um ensaio compara-os:** o
+> `test_mutacao.py` da suite do `lint_bloco`, que o gate 4 corre, fica vermelho
+> se o literal do `mutacao.py` ou o número da frase «Dois pisos» divergirem da
+> constante do `lint.py`, e se o `velho` de alguma mutação deixar de estar uma
+> vez, em código, no seu ficheiro. Até ao KAM-257 nenhum portão fazia esta
+> comparação, e as duas cópias ficaram atrás muitas vezes: o literal do
+> `mutacao.py` pelo menos sete, e a frase «Dois pisos» dizia **50** com o
+> código em 97 (o §10 regista as vezes em que esta secção foi acertada).
 
 ---
 
@@ -410,3 +402,4 @@ importações é mais longa do que parece.)
 | 1.12 | Novembro 2026 | **KAM-240: o piso sobe para 95, nas três superfícies.** Escrita como 1.10 e renumerada na integração, depois do KAM-243 e do KAM-245. Medido na árvore da integração com a `main` em `dbab7bca`: **190** emparelhados (189 na `main`, mais a secção de verificação do KAM-240), e `190 // 2` são 95. Número **provisório**: renumera-se na integração. | Equipa KAMBÁ |
 | 1.13 | Novembro 2026 | **KAM-239: o piso fica em 95, e as três superfícies dizem-no.** Medido na árvore da integração com a `main` em `a399191c`: **191** emparelhados (190 na `main`, mais a secção de verificação do KAM-239; o bloco do KAM-254 nasce sem ela), e `191 // 2` são 95 — o 94 → 95 já o pagou o KAM-240. O `lint.py` e o `mutacao.py` ganham a nota, e o §4 desta nota o número medido. O bloco seguinte a ganhar a verificação sobe-o para 96. | Equipa KAMBÁ |
 | 1.14 | Novembro 2026 | **KAM-246: o piso sobe para 97, e as três superfícies voltam a dizê-lo.** Escrita como 1.7 e renumerada na integração, depois do KAM-247 ao KAM-127 e do KAM-251. Medido na árvore da integração com a `main` em `fd5e5d1a`: **194** emparelhados (193 na `main`, com o KAM-251; mais a secção de verificação do KAM-246; os blocos do KAM-255 e do KAM-256 nascem sem ela), e `194 // 2` são 97. O 95 → 96 pagou-o o KAM-127 só no `lint.py`: o literal do `mutacao.py` e o §4 desta nota ficaram em 95, e a mutação do piso não se aplicava. Os três passam a 97 aqui. Serve até aos 195. | Equipa KAMBÁ |
+| 1.15 | Novembro 2026 | **KAM-257: um ensaio compara as três superfícies do piso.** O `tools/lint_bloco/tests/test_mutacao.py`, na suite que o gate 4 já corre, fica vermelho se o literal do `mutacao.py` ou a frase «Dois pisos» do §4 divergirem das constantes do `lint.py`, se o `velho` de uma mutação deixar de estar **uma** vez, e em código, no seu ficheiro, e se um piso novo do `lint.py` não tiver mutação. As cópias da varredura deixam esse ensaio de fora (`FORA_DAS_COPIAS`): com ele lá dentro, matava as vinte mutações por construção, e medido assim o M10 e o M11 apareciam como «morta». O §4 passa a dizer o piso **uma** vez, na forma que o ensaio lê, e a frase «Dois pisos» deixa os **50** que dizia com o código em 97. O piso fica em 97: com o bloco do KAM-257 são **195** emparelhados, e `195 // 2` são 97. Nenhum *job*, alvo do `Makefile` nem ficheiro do `.github/` muda: a suite do `lint_bloco` ganha um ensaio, como qualquer ticket que acrescenta ensaios à sua. | Equipa KAMBÁ |

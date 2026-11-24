@@ -192,8 +192,9 @@ def acrescentadas(antes: str | None, depois: str | None) -> list[str]:
 # --- piso do lint_bloco -----------------------------------------------------
 
 #: A constante, e o literal par dela no arreio de mutacao do `lint_bloco`: subir uma
-#: sem a outra deixa a mutacao inaplicavel em silencio (KAM-060: quatro vezes em
-#: quatro epics, e so o `--aplicaveis` o apanha).
+#: sem a outra deixa a mutacao inaplicavel (KAM-060: quatro vezes em quatro
+#: epics). Desde o KAM-257 apanha-o o `tests/test_mutacao.py` do `lint_bloco`,
+#: no gate 4; aqui so se mede o que um PR aberto tem de tomar na fusao.
 PISO = re.compile(r"^MINIMO_DE_BLOCOS_MEDIDOS\s*=\s*(\d+)", re.MULTILINE)
 PAR_DO_PISO = "tools/lint_bloco/mutacao.py"
 
