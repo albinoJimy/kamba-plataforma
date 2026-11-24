@@ -520,11 +520,16 @@ services:
       # KAM-228. O AGR verifica a credencial do `POST /internal/screening`, que o
       # classificador do `screen` do COM apresenta. Tem de ser o mesmo valor.
       KAMBA_SECRET_AGR_SCREENING_TOKEN: ${KAMBA_SECRET_AGR_SCREENING_TOKEN:?o cofre entrega a credencial da rota do classificador do AGR}
-      # A chave virtual da plataforma para o `screening-nano` (KAM-195), com que o
-      # AGR chama o LiteLLM do classificador. **Opcional**, como o inventario a
-      # declara: sem ela o `chamar` falha, o COM le `condicional`, e as condicoes
-      # recusam. Fecha, e nao abre.
-      KAMBA_SECRET_LITELLM_SCREENING_KEY: ${KAMBA_SECRET_LITELLM_SCREENING_KEY:-}
+      # KAM-250 (decisao do fundador de 2026-11-24, opcao 1). As chaves virtuais
+      # do LiteLLM — a de cada tenant e a do screening (KAM-195) — **nao** chegam
+      # por aqui: vivem num projecto Doppler so delas, e o AGR le-as pela API
+      # (`api.doppler.com`, pelo `proxy-saida`), com este *token* so de leitura
+      # desse projecto. A do tenant nem podia chegar por aqui: o nome dela leva o
+      # `tenant_id`, e nenhum compose o declara. **Opcional**: sem ele o `chamar`
+      # falha, o turno degrada, o COM le `condicional` e as condicoes recusam.
+      # Fecha, e nao abre (`services/agr/src/kamba_agr/llm/cofre_das_chaves.py`).
+      KAMBA_SECRET_DOPPLER_LLM_CHAVES_LEITURA: ${KAMBA_SECRET_DOPPLER_LLM_CHAVES_LEITURA:-}
+      KAMBA_LLM_CHAVES_PROJECTO: ${KAMBA_LLM_CHAVES_PROJECTO:-kamba-llm-chaves}
     deploy:
       replicas: 2
     networks:

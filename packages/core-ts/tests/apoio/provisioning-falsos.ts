@@ -31,6 +31,7 @@ import {
   type Caso,
   type ChaveDeLlm,
   type ClienteSql,
+  type CofreDeChaves,
   type Entitlements,
   type EstadoDePasso,
   type Espera,
@@ -43,6 +44,7 @@ import {
   type RotaDoCanal,
   type TesteDeCanal,
   Metricas,
+  resumoDaChave,
 } from "../../src/provisioning/index.ts";
 import type { ContaDeAtendimento, HandoffProvider } from "../../src/hnd/contrato.ts";
 import { Logger } from "../../src/logger/index.ts";
@@ -291,19 +293,64 @@ export class InventarioFalso<TChave> {
   }
 }
 
-/** A chave virtual do LiteLLM. */
+/**
+ * A chave virtual do LiteLLM, como o proxy medido a trata (KAM-250): o `id` é o
+ * `token`, que é o SHA-256 do valor que o `criar` recebe, e o `revogar` tira a
+ * chave pelo `token`.
+ *
+ * Grava os valores que recebeu **só** para o ensaio do «nenhum valor sai»
+ * comparar com o que foi para o *log* e para a base.
+ */
 export class ChaveDeLlmFalsa implements ChaveDeLlm {
-  readonly inventario = new InventarioFalso<{ alias: string; orcamento: number }>(
-    (c) => c.alias,
-    (c) => c.alias,
-  );
+  readonly #itens = new Map<string, RefExterna>();
+  criadas = 0;
+  procuras = 0;
   readonly revogadas: string[] = [];
+  readonly valores: string[] = [];
 
-  procurar = (c: { alias: string; orcamento: number }) => this.inventario.procurar(c);
-  criar = (c: { alias: string; orcamento: number }) => this.inventario.criar(c);
+  async procurar(c: { alias: string; orcamento: number }): Promise<RefExterna | null> {
+    this.procuras += 1;
+    return this.#itens.get(c.alias) ?? null;
+  }
+
+  async criar(c: { alias: string; orcamento: number; valor: string }): Promise<RefExterna> {
+    this.criadas += 1;
+    this.valores.push(c.valor);
+    const ref: RefExterna = { id: resumoDaChave(c.valor), nosso: true };
+    this.#itens.set(c.alias, ref);
+    return ref;
+  }
+
+  /** Semeia uma chave como se já existisse no proxy, sem contar criação. */
+  semear(alias: string, valor: string): void {
+    this.#itens.set(alias, { id: resumoDaChave(valor), nosso: true });
+  }
 
   async revogar(id: string): Promise<void> {
     this.revogadas.push(id);
+    for (const [alias, ref] of this.#itens) if (ref.id === id) this.#itens.delete(alias);
+  }
+
+  get quantos(): number {
+    return this.#itens.size;
+  }
+}
+
+/** O cofre das chaves virtuais: um mapa, que conta as escritas. */
+export class CofreDeChavesFalso implements CofreDeChaves {
+  readonly segredos = new Map<string, string>();
+  escritas = 0;
+  /** Faz a próxima escrita falhar, como um cofre em baixo. */
+  falharEscrita = false;
+
+  async ler(ref: string): Promise<string | null> {
+    return this.segredos.get(ref) ?? null;
+  }
+
+  async gravar(ref: string, valor: string): Promise<void> {
+    if (this.falharEscrita) throw new Error("cofre_indisponivel");
+    this.escritas += 1;
+    this.segredos.set(ref, valor);
   }
 }
 
@@ -568,6 +615,7 @@ export interface Montagem {
   readonly armazem: ArmazemFalso;
   readonly sql: SqlFalso;
   readonly chaveDeLlm: ChaveDeLlmFalsa;
+  readonly cofreDeChaves: CofreDeChavesFalso;
   readonly comercio: ComercioFalso;
   readonly handoff: HandoffFalso;
   readonly entitlements: EntitlementsFalsos;
@@ -595,6 +643,7 @@ export function montar(): Montagem & { dependencias: Record<string, unknown> } {
   const armazem = new ArmazemFalso();
   const sql = new SqlFalso();
   const chaveDeLlm = new ChaveDeLlmFalsa();
+  const cofreDeChaves = new CofreDeChavesFalso();
   const comercio = new ComercioFalso();
   const handoff = new HandoffFalso();
   const entitlements = new EntitlementsFalsos();
@@ -622,6 +671,7 @@ export function montar(): Montagem & { dependencias: Record<string, unknown> } {
     metricas,
     registoDoCaso,
     chaveDeLlm,
+    cofreDeChaves,
     comercio,
     handoff,
     entitlements,
@@ -652,6 +702,7 @@ export function montar(): Montagem & { dependencias: Record<string, unknown> } {
     armazem,
     sql,
     chaveDeLlm,
+    cofreDeChaves,
     comercio,
     handoff,
     entitlements,

@@ -38,6 +38,32 @@ cliente que mapeasse o 400 para `BUDGET_EXHAUSTED` dizia «sem orcamento» a um
 erro de provisionamento — e nunca dizia nada quando o orcamento acabasse de
 verdade. Ver `kamba_agr/llm/erros.py`.
 
+## O valor vai para o cofre, e nunca para o terminal (KAM-250)
+
+Ate ao KAM-250 o valor que o proxy emite nao chegava a lado nenhum: o
+`provisionar` nao o devolvia nem o imprimia, e o consumidor ficava sem chave. Pela
+decisao do fundador de 2026-11-24 (opcao 1, bloco do KAM-250), as chaves virtuais
+vivem num **projecto Doppler so delas** (`kamba_core.secrets.escrita`), e este
+*script* escreve-as la com um *token* de escrita limitado a esse projecto
+(`doppler_llm_chaves_escrita`). O AGR le-as do mesmo projecto, com um *token* so
+de leitura.
+
+**O valor gera-se aqui, e vai primeiro para o cofre.** O `/key/generate` aceita
+o `key` no corpo e usa-o como chave (medido no KAM-250, `docs/evidencia/KAM-250.md`),
+e o `token` que o `/key/list` devolve e o SHA-256 dela. Daqui sai a ordem, e a
+repeticao segura do criterio 3:
+
+1. le-se o cofre; sem valor, gera-se um e **grava-se antes** de falar com o proxy;
+2. o proxy cria a chave **com esse valor**;
+3. numa repeticao, o resumo do valor do cofre compara-se com o `token` da chave:
+   se bater, o valor do cofre autentica, e so se actualiza o orcamento — **nao se
+   reemite**; se a chave nao existir, cria-se com o valor que ja esta no cofre.
+
+So se reemite quando o proxy tem uma chave que o valor do cofre **nao** autentica
+(o cofre perdeu-a, ou a chave e anterior ao KAM-250): apaga-se e cria-se com o
+valor do cofre. Uma queda a meio de qualquer passo converge na corrida seguinte, e
+nenhum deles imprime ou regista o valor.
+
 ## O orcamento e um parametro, e nao se inventa
 
 `docs/tecnica/02` §13.3: «Orcamento mensal da chave = 15% x mensalidade em USD».
@@ -66,13 +92,34 @@ para que um `cron` o possa usar sem interpretar texto.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import math
 import os
+import pathlib
+import secrets
 import sys
 import urllib.error
 import urllib.request
-from typing import Any, Callable, Final
+from typing import Any, Callable, Final, Protocol
+
+# A porta de segredos vive em `libs/py-core`, que nao tem dependencias (ADR-L001):
+# este *script* continua a correr fora de qualquer `.venv`, a partir do checkout.
+_PY_CORE = pathlib.Path(__file__).resolve().parents[2] / "libs" / "py-core" / "src"
+if str(_PY_CORE) not in sys.path:
+    sys.path.insert(0, str(_PY_CORE))
+
+from kamba_core.secrets import (  # noqa: E402
+    PROJECTO_DAS_CHAVES_POR_OMISSAO,
+    VARIAVEL_DO_PROJECTO,
+    CofreInacessivelError,
+    DopplerGravador,
+    DopplerSecretProvider,
+    EnvSecretProvider,
+    SecretAusenteError,
+    transporte_http_de_escrita,
+    transporte_http_de_leitura,
+)
 
 #: A fraccao da mensalidade que vai para IA (`docs/tecnica/02` §13.3). ***Proposta***,
 #: calibra-se em H6.
@@ -122,6 +169,45 @@ VAR_ORCAMENTO_DO_SCREENING: Final = "KAMBA_LLM_ORCAMENTO_USD_SCREENING"
 #: O nome da chave virtual de um tenant. `tenant-<uuid>`, como o §13.1.
 def alias_do_tenant(tenant_id: str) -> str:
     return f"tenant-{tenant_id}"
+
+
+#: As referencias no cofre, como o `ops/secrets-inventory.yaml` as declara: a do
+#: tenant leva a instancia (`instancias: tenant`), a do screening nao.
+FAMILIA_DA_CHAVE_DO_TENANT: Final = "litellm_virtual_key"
+REF_DA_CHAVE_DO_SCREENING: Final = "litellm_screening_key"
+
+
+def ref_do_tenant(tenant_id: str) -> str:
+    return f"{FAMILIA_DA_CHAVE_DO_TENANT}/{tenant_id}"
+
+
+#: O *token* de escrita no projecto das chaves (decisao do fundador, KAM-250).
+REF_DO_TOKEN_DE_ESCRITA: Final = "doppler_llm_chaves_escrita"
+
+#: Octetos aleatorios do valor de uma chave. 32, como os *tokens* da casa.
+OCTETOS_DA_CHAVE: Final = 32
+
+
+def gerar_valor() -> str:
+    """Um valor novo de chave virtual. O prefixo `sk-` e o que o proxy exige (medido)."""
+    return "sk-" + secrets.token_urlsafe(OCTETOS_DA_CHAVE)
+
+
+def resumo_da_chave(valor: str) -> str:
+    """O `token` que o proxy guarda e lista para uma chave: o SHA-256 dela (medido).
+
+    E isto que deixa confirmar que o valor do cofre autentica a chave **sem o
+    mandar a lado nenhum**: compara-se com o `token` do `/key/list`.
+    """
+    return hashlib.sha256(valor.encode("utf-8")).hexdigest()
+
+
+class Cofre(Protocol):
+    """O que este *script* pede ao cofre: ler e gravar numa referencia fixa."""
+
+    def ler(self, ref: str) -> str | None: ...
+
+    def gravar(self, ref: str, valor: str) -> None: ...
 
 
 VAR_PROXY: Final = "KAMBA_LLM_PROXY_URL"
@@ -257,15 +343,29 @@ class Proxy:
                 return chave
         return None
 
-    def gerar(self, corpo: dict[str, Any]) -> dict[str, Any]:
+    def gerar(self, corpo: dict[str, Any]) -> None:
+        """`/key/generate`. **Nao devolve a resposta**, que traz a chave em claro.
+
+        Desde o KAM-250 o valor vai no corpo (`key`) e ja esta no cofre: quem chama
+        nao precisa de nada do que o proxy devolve, e uma resposta que nao sai
+        daqui nao pode ir parar a um *log*.
+
+        **E a mensagem de erro nao cita o corpo**, ao contrario das outras rotas:
+        medido no KAM-250, o 400 de uma chave mal formada ecoa os quatro primeiros
+        e os quatro ultimos caracteres dela («Received: VLmi****al-4»). So se
+        distingue o 400 do alias repetido, pelo texto medido, porque o `_garantir`
+        decide por ele.
+        """
         estado, resposta = self._pedir(
             f"{self._url}/key/generate", "POST", self._chave, corpo
         )
         if estado != 200:
-            raise ErroDeProvisionamento(
-                f"/key/generate respondeu {estado}: {str(resposta)[:300]}"
+            motivo = (
+                "already exists"
+                if "already exists" in str(resposta)
+                else "corpo omitido, porque pode ecoar a chave"
             )
-        return resposta if isinstance(resposta, dict) else {}
+            raise ErroDeProvisionamento(f"/key/generate respondeu {estado}: {motivo}")
 
     def actualizar(self, corpo: dict[str, Any]) -> dict[str, Any]:
         estado, resposta = self._pedir(
@@ -327,48 +427,75 @@ def revogar(proxy: Proxy, tenant_id: str) -> str:
     return "revogada"
 
 
-def provisionar(proxy: Proxy, tenant_id: str, plano: str, ambiente: Any = None) -> str:
-    """Cria **ou actualiza** a chave virtual do tenant. Devolve `criada` ou `actualizada`.
+def _garantir(
+    proxy: Proxy, cofre: Cofre, ref: str, comum: dict[str, Any], *, repetida: bool = False
+) -> str:
+    """Garante a chave `comum["key_alias"]` com o valor que esta no cofre em `ref`.
 
-    E isto que torna o criterio 4 idempotente: correr duas vezes com os mesmos
-    argumentos deixa a mesma chave, com o mesmo `key_alias`, o mesmo orcamento e
-    os mesmos metadados — e **nao** devolve 400.
-
-    O que **nao** se repete e a chave em si: o `/key/update` nao a reemite, pelo
-    que o valor que o cofre guarda continua valido. Reemitir a cada corrida
-    obrigava a reescrever o segredo de todos os tenants por causa de um, e a
-    escrita no cofre nem esta na porta (`ADR-L002` §6, lacuna do KAM-016).
+    Devolve `criada`, `actualizada` ou `reemitida`. A ordem esta no docstring do
+    modulo; o que importa aqui e que **o cofre e escrito antes do proxy**, pelo
+    que uma queda entre os dois deixa um valor no cofre sem chave — e a corrida
+    seguinte cria a chave com esse valor, sem reemitir.
     """
-    alias = alias_do_tenant(tenant_id)
-    orcamento = orcamento_do_plano(plano, ambiente)
+    alias = comum["key_alias"]
     existente = proxy.procurar(alias)
+    valor = cofre.ler(ref)
+    if existente is not None:
+        if valor is not None and existente.get("token") == resumo_da_chave(valor):
+            # O criterio 3 do KAM-250: o valor do cofre autentica, e a chave nao
+            # se reemite. O `/key/update` nao muda o valor.
+            proxy.actualizar(comum)
+            return "actualizada"
+        # O proxy tem uma chave que o cofre nao autentica: ninguem a consegue
+        # usar pelo procedimento escrito. Reemite-se, com o valor do cofre se o
+        # houver.
+        token = existente.get("token")
+        if not isinstance(token, str) or not token:
+            raise ErroDeProvisionamento(
+                f"a chave {alias} veio do /key/list sem o token: nao ha como a reemitir"
+            )
+        proxy.apagar(token)
+        desfecho = "reemitida"
+    else:
+        desfecho = "criada"
+    if valor is None:
+        valor = gerar_valor()
+        cofre.gravar(ref, valor)
+    try:
+        proxy.gerar({**comum, "key": valor})
+    except ErroDeProvisionamento as excepcao:
+        # **`check-then-act` nao e idempotente sob concorrencia**: duas corridas
+        # ao mesmo tempo — ou o KAM-091 a consumir `tenant.approved`
+        # *at-least-once* — vem as duas a chave por criar, e uma leva o 400
+        # «already exists» (o texto medido). Desde o KAM-250 nao basta cair para
+        # o `/key/update`: a outra corrida pode ter gravado no cofre outro valor
+        # depois desta. Repete-se o caminho inteiro **uma** vez, que compara o
+        # resumo e reemite se o cofre e a chave divergirem.
+        if "already exists" not in str(excepcao) or repetida:
+            raise
+        return _garantir(proxy, cofre, ref, comum, repetida=True)
+    return desfecho
+
+
+def provisionar(
+    proxy: Proxy, tenant_id: str, plano: str, ambiente: Any = None, *, cofre: Cofre
+) -> str:
+    """Cria, actualiza ou reemite a chave virtual do tenant, com o valor no cofre.
+
+    E isto que torna o criterio 4 do KAM-030 idempotente: correr duas vezes com
+    os mesmos argumentos deixa a mesma chave, com o mesmo `key_alias`, o mesmo
+    orcamento e os mesmos metadados — e **nao** devolve 400. E e isto que faz o
+    criterio 3 do KAM-250: a segunda corrida nao reemite, porque o valor que esta
+    em `litellm_virtual_key/<tenant_id>` continua a autenticar.
+    """
     comum: dict[str, Any] = {
-        "key_alias": alias,
+        "key_alias": alias_do_tenant(tenant_id),
         "models": list(MODELOS_DA_CHAVE),
-        "max_budget": orcamento,
+        "max_budget": orcamento_do_plano(plano, ambiente),
         "budget_duration": DURACAO,
         "metadata": {"tenant_id": tenant_id, "plano": plano},
     }
-    if existente is None:
-        try:
-            proxy.gerar(comum)
-        except ErroDeProvisionamento as excepcao:
-            # **`check-then-act` nao e idempotente sob concorrencia**, e o
-            # criterio 4 diz «e idempotente» sem qualificar: duas corridas ao
-            # mesmo tempo — ou o KAM-091 a consumir `tenant.approved`
-            # *at-least-once* — vem as duas `existente is None`, as duas chamam
-            # `/key/generate`, e uma leva o 400 «already exists». Apanha-se esse
-            # 400 **pelo texto que o proxy devolve** e cai-se para o
-            # `actualizar`, que e o desfecho correcto: a chave existe e fica com
-            # os valores desta corrida. Encontrado pela revisao adversarial
-            # (achado 10).
-            if "already exists" not in str(excepcao):
-                raise
-            proxy.actualizar(comum)
-            return "actualizada"
-        return "criada"
-    proxy.actualizar(comum)
-    return "actualizada"
+    return _garantir(proxy, cofre, ref_do_tenant(tenant_id), comum)
 
 
 def orcamento_do_screening(ambiente: Any = None) -> float:
@@ -389,11 +516,10 @@ def orcamento_do_screening(ambiente: Any = None) -> float:
     return valor
 
 
-def provisionar_screening(proxy: Proxy, ambiente: Any = None) -> str:
-    """Cria **ou actualiza** a chave da plataforma do screening (KAM-195).
+def provisionar_screening(proxy: Proxy, ambiente: Any = None, *, cofre: Cofre) -> str:
+    """Cria, actualiza ou reemite a chave da plataforma do screening (KAM-195).
 
-    O mesmo desenho do `provisionar`: procurar, e depois `/key/update` ou
-    `/key/generate`, com o 400 «already exists» a cair para o `actualizar`.
+    O mesmo desenho do `provisionar`, com o valor em `litellm_screening_key`.
     """
     comum: dict[str, Any] = {
         "key_alias": ALIAS_DA_CHAVE_DO_SCREENING,
@@ -402,17 +528,7 @@ def provisionar_screening(proxy: Proxy, ambiente: Any = None) -> str:
         "budget_duration": DURACAO,
         "metadata": {"papel": "screening"},
     }
-    if proxy.procurar(ALIAS_DA_CHAVE_DO_SCREENING) is not None:
-        proxy.actualizar(comum)
-        return "actualizada"
-    try:
-        proxy.gerar(comum)
-    except ErroDeProvisionamento as excepcao:
-        if "already exists" not in str(excepcao):
-            raise
-        proxy.actualizar(comum)
-        return "actualizada"
-    return "criada"
+    return _garantir(proxy, cofre, REF_DA_CHAVE_DO_SCREENING, comum)
 
 
 def orcamentos(proxy: Proxy) -> list[tuple[str, float, float]]:
@@ -440,6 +556,65 @@ def _proxy_do_ambiente() -> Proxy:
     )
 
 
+class CofreDoppler:
+    """O `Cofre` sobre o projecto Doppler das chaves virtuais (KAM-250).
+
+    Le e grava com o **mesmo** *token*, o de escrita, que no Doppler tambem le
+    (`A_CONFIRMAR_ESCRITA["limite_do_token"]`). A leitura nao guarda descarga
+    (`ttl_descarga_s=0`): uma leitura depois de uma escrita tem de ver a escrita.
+    """
+
+    def __init__(self, ambiente: str, projecto: str, token: str) -> None:
+        self._leitor = DopplerSecretProvider(
+            ambiente, projecto, ambiente, token, transporte_http_de_leitura,
+            ttl_descarga_s=0.0,
+        )
+        self._gravador = DopplerGravador(
+            ambiente, projecto, ambiente, token, transporte_http_de_escrita
+        )
+
+    def ler(self, ref: str) -> str | None:
+        try:
+            return self._leitor.get(ref)
+        except SecretAusenteError:
+            return None
+        except CofreInacessivelError as excepcao:
+            # As mensagens do adaptador nunca levam valores (regra 1 da porta).
+            raise ErroDeProvisionamento(str(excepcao)) from None
+
+    def gravar(self, ref: str, valor: str) -> None:
+        try:
+            self._gravador.gravar(ref, valor)
+        except CofreInacessivelError as excepcao:
+            raise ErroDeProvisionamento(str(excepcao)) from None
+
+
+def _cofre_do_ambiente() -> Cofre:
+    """O cofre das chaves, do ambiente. **Levanta antes de se falar com o proxy.**
+
+    A ordem importa: sem cofre, uma chave criada no proxy tinha um valor que nao
+    ficava em lado nenhum — e o defeito que o KAM-250 fecha.
+    """
+    ambiente = os.environ.get("KAMBA_ENV", "").strip()
+    if not ambiente:
+        raise ErroDeProvisionamento(
+            "KAMBA_ENV nao esta definido: o cofre das chaves tem uma configuracao "
+            "por ambiente, e o valor nao se grava no ambiente errado"
+        )
+    try:
+        acesso = EnvSecretProvider(ambiente).get(REF_DO_TOKEN_DE_ESCRITA)
+    except (SecretAusenteError, ValueError) as excepcao:
+        raise ErroDeProvisionamento(
+            f"sem o {REF_DO_TOKEN_DE_ESCRITA} no ambiente nao ha onde guardar a "
+            "chave, e uma chave sem cofre e uma chave perdida (KAM-250)"
+        ) from excepcao
+    projecto = os.environ.get(VARIAVEL_DO_PROJECTO, PROJECTO_DAS_CHAVES_POR_OMISSAO)
+    try:
+        return CofreDoppler(ambiente, projecto, acesso)
+    except Exception as excepcao:  # noqa: BLE001 - as do adaptador nao levam valores
+        raise ErroDeProvisionamento(f"cofre das chaves: {excepcao}") from None
+
+
 def main(argv: list[str] | None = None) -> int:
     args = list(sys.argv[1:] if argv is None else argv)
     if not args:
@@ -450,18 +625,20 @@ def main(argv: list[str] | None = None) -> int:
             if len(args) != 3:
                 print("uso: provisionar <tenant_id> <plano>", file=sys.stderr)
                 return 2
-            # O `tenant_id` **nao** vai para o `stdout` junto do valor da chave:
-            # o `/key/generate` devolve a chave em claro e isto nunca a imprime.
-            # Quem a guarda no cofre e quem corre o comando, do que o proxy
-            # devolveu — e por isso o que sai daqui e so o desfecho.
-            feito = provisionar(_proxy_do_ambiente(), args[1], args[2])
+            # O valor da chave **nunca** sai daqui: vai para o cofre
+            # (`litellm_virtual_key/<tenant_id>`) antes de ir para o proxy, e o
+            # que se imprime e so o desfecho e o alias (KAM-250). O cofre monta-se
+            # primeiro, para que a falta dele recuse antes de o proxy criar nada.
+            cofre = _cofre_do_ambiente()
+            feito = provisionar(_proxy_do_ambiente(), args[1], args[2], cofre=cofre)
             print(f"chave virtual {feito}: {alias_do_tenant(args[1])}")
             return 0
         if args[0] == "provisionar-screening":
             if len(args) != 1:
                 print("uso: provisionar-screening", file=sys.stderr)
                 return 2
-            feito = provisionar_screening(_proxy_do_ambiente())
+            cofre = _cofre_do_ambiente()
+            feito = provisionar_screening(_proxy_do_ambiente(), cofre=cofre)
             print(f"chave virtual {feito}: {ALIAS_DA_CHAVE_DO_SCREENING}")
             return 0
         if args[0] == "revogar":

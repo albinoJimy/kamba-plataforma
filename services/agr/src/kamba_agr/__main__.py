@@ -112,6 +112,7 @@ from .llm import precos as llm_precos
 from .llm import registo as llm_registo
 from .llm import screening as llm_screening
 from .llm.cliente import ClienteDeLlm, PROXY_POR_OMISSAO, REF_CHAVE_VIRTUAL, VARIAVEL_DO_PROXY
+from .llm.cofre_das_chaves import leitor_das_chaves
 from .tls.catalogo import catalogo_do_piloto
 from .tls import catalogo_tools
 from .tls import orcamento_tools
@@ -742,6 +743,13 @@ def main() -> int:
         log.warn(outcome="llm_destinos", error_code="so_destino_autorizado")
     else:
         log.warn(outcome="llm_destinos", error_code="so_dados_sinteticos")
+    # **As chaves virtuais leem-se do projecto Doppler delas (KAM-250)**, e nao
+    # do ambiente: a do tenant tem a instancia no nome
+    # (`litellm_virtual_key/<tenant_id>`) e nenhum compose a consegue declarar.
+    # Decisao do fundador de 2026-11-24; o desenho e a falha fechada estao em
+    # `llm/cofre_das_chaves.py`.
+    ler_chave, motivo_das_chaves = leitor_das_chaves(ambiente, segredos, servico=SERVICE)
+    log.info(outcome="llm_chaves", error_code=motivo_das_chaves)
     cliente_de_llm = ClienteDeLlm(
         aliases=aliases,
         tabela_de_precos=precos,
@@ -750,9 +758,8 @@ def main() -> int:
         # A chave virtual do tenant vem do cofre, com a instancia no nome
         # (`litellm_virtual_key/<tenant_id>`, `ops/secrets-inventory.yaml`). Nao
         # e obrigatoria no arranque: ela existe por tenant e o arranque nao sabe
-        # que tenants ha — o que se confirma aqui e que o **cofre** responde,
-        # que o `Secrets.arrancar` acima ja fez.
-        chave_virtual=lambda tenant_id: segredos.get(
+        # que tenants ha.
+        chave_virtual=lambda tenant_id: ler_chave(
             f"{REF_CHAVE_VIRTUAL}/{tenant_id}"
         ),
         url_do_proxy=os.environ.get(VARIAVEL_DO_PROXY, PROXY_POR_OMISSAO),
@@ -779,7 +786,7 @@ def main() -> int:
             tabela_de_precos=precos,
             porta_de_destinos=destinos,
             abrir_ligacao=ligar_para_llm,
-            chave_virtual=lambda _tenant_id: segredos.get(  # kamba:secrets-inventory dinamico a constante REF_CHAVE_DO_SCREENING do llm/screening.py e o dono do nome em codigo
+            chave_virtual=lambda _tenant_id: ler_chave(  # kamba:secrets-inventory dinamico a constante REF_CHAVE_DO_SCREENING do llm/screening.py e o dono do nome em codigo
                 llm_screening.REF_CHAVE_DO_SCREENING
             ),
             url_do_proxy=os.environ.get(VARIAVEL_DO_PROXY, PROXY_POR_OMISSAO),
