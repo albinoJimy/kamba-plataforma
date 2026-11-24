@@ -1198,7 +1198,8 @@ services:
     tmpfs:
       - /tmp:size=64m,mode=1777
     # Fechado como em producao (KAM-249); a razao, e o que fica aberto na
-    # 18333, esta no compose de producao.
+    # 18333, esta no compose de producao. **A 18333 reabre o S3 ao anonimo**
+    # (CONFIRMADO), com o credor KAM-255.
     command:
       - "server"
       - "-dir=/data"

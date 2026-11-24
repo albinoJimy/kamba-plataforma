@@ -256,6 +256,9 @@ MARCADORES = {
     # KAM-247: o `litellm` exige a palavra-passe do papel da base dele. Mesma
     # razao: o `:?` recusa interpolar o compose sem ela.
     "KAMBA_SECRET_DB_LITELLM_PASSWORD": "marcador",
+    # KAM-249: a credencial da fila, que o servidor e todos os URLs da fila
+    # exigem. Mesma razao.
+    "KAMBA_SECRET_QUEUE_PASSWORD": "marcador",
     # KAM-198: as duas ligacoes do processo de lote do onboarding. Mesma razao.
     "KAMBA_LOTE_DB_URL": "postgresql://marcador@marcador.invalid:5432/marcador",
     "KAMBA_LOTE_APP_DB_URL": "postgresql://marcador@marcador.invalid:5432/marcador",

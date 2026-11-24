@@ -1543,7 +1543,9 @@ services:
     # **O que fica aberto, CONFIRMADO:** a 18333, o gRPC do S3, segue o
     # `-s3.ip.bind` e a 4.48 nao tem *flag* que a feche ou a prenda ao
     # *loopback*. Um `PutIdentity` sem credencial nela reabre o S3 ao anonimo
-    # (medido: 403 -> 200). Esta no anexo, com credor.
+    # (medido: 403 -> 200). Esta no anexo, e o credor e o KAM-255 (decisao
+    # do fundador de 2026-11-24, opcao A): mTLS no gRPC, ou a D6 a escolher S3
+    # gerido. **Nao leia «S3 fechado» sem esta ressalva.**
     command:
       - "server"
       - "-dir=/data"

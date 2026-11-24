@@ -30,6 +30,8 @@ Pelo `make`: `make compose-prod-lint` (gate 2) e `make compose-prod-egress`
 | 6 — compatibilidade da fila | [`../../docs/adr/ADR-L009-ensaio-da-valkey.md`](../../docs/adr/ADR-L009-ensaio-da-valkey.md) | exige a fila e os consumidores a correr |
 | 7 — SeaweedFS (D6) | [`../../docs/evidencia/KAM-076.md`](../../docs/evidencia/KAM-076.md) §6 | a **D6 está aberta** e este ticket não a decide |
 | 8 — *flags* de licença | `lint` (Chatwoot, Langfuse) e `lint_arch medusa` (Medusa) | o Medusa já tinha *lint* próprio (KAM-042) |
+| KAM-249 — a fila exige credencial e todos a apresentam | `lint` (`r_fila_com_credencial`, em `prod` e `staging`) | a credencial é uma forma no ficheiro (`${KAMBA_SECRET_QUEUE_PASSWORD:?...}`); que a fila recuse sem ela mede-se em [`../../docs/evidencia/KAM-249.md`](../../docs/evidencia/KAM-249.md) §2 |
+| KAM-249 — o S3 do `seaweedfs` exige assinatura e só ele se alcança | `lint` (`r_armazenamento_com_credencial`) | a 18333, que a 4.48 não deixa fechar, **não** se lê no ficheiro: está no anexo, §3.4, com o credor KAM-255 |
 
 ---
 
