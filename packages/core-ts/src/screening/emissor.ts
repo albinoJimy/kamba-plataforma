@@ -48,6 +48,7 @@ import { validarPayload } from "../eventos/contratos.ts";
 import { comTenant } from "../tenant_guard/index.ts";
 import type { DependenciasDoScreen } from "./motor.ts";
 import type { EmissorDeViolacoes, PorProduto, Violacao } from "./reanalise.ts";
+import { RetiradaSql } from "./retirada.ts";
 import { CatalogoSql, type ClienteSql, EscritorSql } from "./sql.ts";
 
 export const TIPO_VIOLACAO = "screening.violation_detected";
@@ -175,10 +176,10 @@ export interface LigacoesDaReanalise {
  * (achado F3 da revisão adversarial).
  *
  * A garantia «a decisão e o evento na mesma transacção» depende de o
- * `EscritorSql`, o `EmissorSql` e o `porProdutoSql` assentarem na **mesma**
- * ligação. Deixá-la a quem monta o *job* era deixá-la a uma linha que ninguém
+ * `EscritorSql`, o `EmissorSql`, a `RetiradaSql` (KAM-253) e o `porProdutoSql`
+ * assentarem na **mesma** ligação. Deixá-la a quem monta o *job* era deixá-la a uma linha que ninguém
  * ensaia: um emissor sobre outra ligação confirmava o evento à parte. Aqui só
- * há um sítio onde a ligação da aplicação entra, e os três usam-na.
+ * há um sítio onde a ligação da aplicação entra, e os quatro usam-na.
  */
 export function dependenciasDaReanalise(ligacoes: LigacoesDaReanalise) {
   return {
@@ -186,6 +187,7 @@ export function dependenciasDaReanalise(ligacoes: LigacoesDaReanalise) {
     classificador: ligacoes.classificador,
     escritor: new EscritorSql(ligacoes.app),
     emissor: new EmissorSql(ligacoes.app),
+    retirada: new RetiradaSql(ligacoes.app),
     porProduto: porProdutoSql(ligacoes.app),
     catalogo: new CatalogoSql(ligacoes.batch),
   };
