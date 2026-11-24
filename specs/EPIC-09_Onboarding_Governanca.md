@@ -4997,6 +4997,18 @@ mutação que tira o ramo do mapa e avermelha a árvore real); as suites do `too
 do *gate* 3b e o `lint_backlog`, o `lint_refs`, o `lint_handoff` e o `lint_contagens`. O `tests` inteiro, o
 `tests_lote` inteiro e as mutações ficam para o CI.
 
+**Na integração com a `main` em `a399191c`** (a `0089` do KAM-240 já fundida): o *build* do `contracts` e do
+`core-ts`, os dois *typecheck* e o `node --test` do `onboarding-web` inteiro (**307**, com os do KAM-240) e do guia
+no `core-ts` (64); o *gate* 8 nas 21 suites do `ci-8`, com a conferência das 1314 mutações: dezanove verdes à
+primeira. O `tests` deu um vermelho real da integração: o `test_offboarding` do KAM-233 fixa as FK ao caso, e a
+`0090` traz a quinta. Foi corrigido como o `onboarding_otp` do KAM-236: o fundamento do certificado nomeia-o, e
+a pergunta de retenção junta-se à do KAM-248. O `test_offboarding` e o `test_retencao_bd` ficaram verdes (60). O
+`tests_eventos_consumo` ficou verde à segunda. O `tests_eventos` deu três vermelhos em cada uma das duas corridas,
+e eram ensaios diferentes de uma corrida para a outra, todos à espera de `esperar_por(..., 30)` numa máquina
+carregada (a primeira corrida levou 2 h 26 min). O ramo não toca em nenhum caminho de eventos: fica para o CI.
+Verdes também as suites de `tools/` tocadas (`compose_prod` 48, `lint_bloco` 41, `isolamento` 121), os três
+comandos do *gate* 3b e os linters documentais.
+
 ### Handoff para Claude Code
 
 ```text
