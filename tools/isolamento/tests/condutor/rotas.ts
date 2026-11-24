@@ -2790,8 +2790,11 @@ async function grupoDoGuia(relatorio: Relatorio): Promise<void> {
       falhar(`a montagem do guia levantou: ${razao(erro)}`);
     }
   } finally {
-    await pools.app.end().catch(() => undefined);
-    await pools.lote.end().catch(() => undefined);
+    // **Sem `await`**: o `end()` de um *pool* espera pelos clientes emprestados,
+    // e o processo de lote real pode segurar um. Esperar aqui pendurava o grupo
+    // ate ao tecto da ponte, sem relatorio; o condutor sai pelo `process.exit()`.
+    void pools.app.end().catch(() => undefined);
+    void pools.lote.end().catch(() => undefined);
   }
 }
 
