@@ -12,7 +12,7 @@
 
 version: 1
 fonte: "specs/02_Dicionario_de_Dados_Canonico.md"
-versao_dicionario: "1.147"
+versao_dicionario: "1.148"
 entradas:
   - seccao: "3.1"
     conceito: "Contacto"
@@ -2595,6 +2595,19 @@ entradas:
       - "kind"
       - "event_key"
       - "PRAZO_DO_CORPO_S"
+    variantes_literais: []
+  - seccao: "3.12"
+    conceito: "Credencial da fila"
+    canonico: "queue_password, lida como KAMBA_SECRET_QUEUE_PASSWORD"
+    literais:
+      - "queue_password"
+      - "KAMBA_SECRET_QUEUE_PASSWORD"
+    nomes:
+      - "queue_password"
+      - "KAMBA_SECRET_QUEUE_PASSWORD"
+    nomes_nota:
+      - "staging"
+      - "prod"
     variantes_literais: []
   - seccao: "3.12"
     conceito: "Métricas do GWY"
