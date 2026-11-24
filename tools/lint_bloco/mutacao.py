@@ -211,7 +211,7 @@ MUTACOES: tuple[tuple[str, str, str, str], ...] = (
     # KAM-245). O KAM-239 deixa-o em 95 (191 medidos, na arvore integrada com
     # o KAM-240).
     ("o piso de emparelhados a zero", "lint.py",
-     "MINIMO_DE_BLOCOS_MEDIDOS = 95", "MINIMO_DE_BLOCOS_MEDIDOS = 0"),
+     "MINIMO_DE_BLOCOS_MEDIDOS = 97", "MINIMO_DE_BLOCOS_MEDIDOS = 0"),
 )
 
 

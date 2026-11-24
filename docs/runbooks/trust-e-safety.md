@@ -100,10 +100,11 @@ aplicação o tenta escrever com outro papel: ou alguém está a tentar mudar um
 devia existir (uma injecção, um defeito novo), ou o próprio lote perdeu um privilégio sobre o tecto.
 **A base já recusou**: o tecto não mudou. O alerta existe para que se saiba quem tentou.
 
-- **Qual processo.** A etiqueta `job` diz qual: `onboarding_lote`, `com` ou `entrada`.
+- **Qual processo.** A etiqueta `job` diz qual: `onboarding_lote`, `com`, `entrada` ou, desde o KAM-251,
+  `onboarding_provisionamento` (o consumidor `dono`).
 - **Qual credencial.** O `onboarding-lote` não arranca com a `KAMBA_LOTE_DB_URL` de outro papel
   (`../../services/onboarding-web/src/lote.ts`), pelo que uma recusa nele não é a credencial do arranque:
-  é código a tentar o que não devia. Nos outros dois, confirmar que nenhuma mudança recente pôs SQL sobre
+  é código a tentar o que não devia. Nos outros três, confirmar que nenhuma mudança recente pôs SQL sobre
   `trust_level` no processo (`git log -S trust_level -- services packages`).
 - **Qual tenant.** **Não se lê desta série** (`OBS-I`), nem do `audit_log`, que só tem as escritas que
   passaram. O registo do processo no mesmo minuto pode dizer o passo que falhou, pelo `error_code`, e
@@ -184,3 +185,4 @@ dizer que o servidor deixou de escrever o `jsonlog`. **Enquanto dura, a regra do
 | 0.2 | Novembro 2026 | KAM-203: o §4, a regra `confianca_recalculo_com_falhas` | Equipa KAMBÁ |
 | 0.3 | Novembro 2026 | KAM-219: o §5, a regra `confianca_tecto_escrita_recusada` | Equipa KAMBÁ |
 | 0.4 | Novembro 2026 | KAM-225: o §6 e o §7, as regras `confianca_tecto_recusado_no_registo` e `registo_pg_registo_parado`, e o fim do §5 a apontar para o §6 | Equipa KAMBÁ |
+| 0.5 | Novembro 2026 | KAM-251: o `onboarding_provisionamento` na lista dos processos que servem a `tenant_guard_tecto_recusado_total` | Equipa KAMBÁ |
