@@ -1,0 +1,12 @@
+{
+  "_comment": "KAM-241: o consumidor `dono` corre compilado (`dist/provisionamento.js`), e nao com os tipos apagados no arranque. Apagar tipos carrega o amaro do Node (um modulo WASM) e custou +8,5 MiB de anon no contentor, medidos (`docs/evidencia/KAM-238.md` §6). So este ponto de entrada: o `server.ts` e o `lote.ts` continuam em `.ts`. O par `allowImportingTsExtensions` + `rewriteRelativeImportExtensions` e o do `packages/core-ts` (KAM-010): `./meta.ts` na fonte, `./meta.js` na emissao. O `dist/` fica ao lado do `src/`, pelo que o `require(\"../package.json\")` do `meta.ts` le o mesmo ficheiro.",
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "rootDir": "src",
+    "outDir": "dist",
+    "rewriteRelativeImportExtensions": true
+  },
+  "include": [],
+  "files": ["src/provisionamento.ts"]
+}

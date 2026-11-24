@@ -9,6 +9,7 @@
  * mudancas_de_conta                    o caso `trust` de cada mudança de conta ou NIF
  * compradores_do_dono  varrerCompradoresDoDono  o comprador noutro tenant do mesmo dono (KAM-208)
  * pseudonimos     purgarPseudonimos    a retenção do pseudónimo sem tenant (KAM-208)
+ * precos          varrerPrecos         o `avaliarPreco` sobre cada oferta publicada (KAM-209)
  * ```
  *
  * ## O interruptor do KAM-208
@@ -24,8 +25,10 @@
  * tenants) e deixa **uma** linha `batch.run` na cadeia da plataforma: o
  * `tenant_id` é nulo (`docs/auditoria.md`: o `batch.run` não tem tenant), o
  * `entity` é `ts_varredura`, o `entity_id` é o nome da varredura, e o
- * `payload_hash` é o SHA-256 de `<nome>:<sinais ou tenants>`. As duas
- * primeiras correm **na mesma transacção** que a linha de auditoria: uma
+ * `payload_hash` é o SHA-256 de `<nome>:<sinais ou tenants>` — o dos preços
+ * leva ainda as ofertas que não avaliou, pelo motivo,
+ * `precos:<sinais>:sem_categoria:<n>:poucas_lojas:<m>`. As duas primeiras e a dos preços correm
+ * **na mesma transacção** que a linha de auditoria: uma
  * corrida que não ficou registada não gravou sinais, e vice-versa. O
  * `fecharEncerramentos` não pode: cada encerramento é uma transição pela porta
  * do KAM-092, numa transacção sob o tenant dele, e a linha de auditoria vem
@@ -41,6 +44,7 @@ import { comBatch } from "../tenant_guard/index.ts";
 import type { ConjuntoSql } from "../revisao/sql.ts";
 import type { EstadoDaCorrelacao } from "../identity/correlacao.ts";
 import { purgarPseudonimos, varrerCompradoresDoDono, varrerFotos, varrerNaoEntregas } from "./efeito.ts";
+import { varrerPrecos } from "./precos.ts";
 import type { ContadoresDoTrust, MetricasDoTrust, Varredura } from "./metricas.ts";
 import type { Origem } from "./contrato.ts";
 import type { Passo, TipoDeSinal } from "./regras.ts";
@@ -72,6 +76,12 @@ export interface ResultadoDoCicloDoTrust {
   readonly feitas: Readonly<Partial<Record<Varredura, number>>>;
   /** As que falharam, pelo nome. */
   readonly falhas: readonly Varredura[];
+  /**
+   * As ofertas publicadas que a varredura dos preços contou e não avaliou
+   * (KAM-209), e que o `ts_ofertas_nao_avaliadas{motivo}` expõe. Ausente se ela
+   * falhou.
+   */
+  readonly naoAvaliadas?: { readonly semCategoria: number; readonly poucasLojas: number };
 }
 
 export interface OpcoesDoCicloDoTrust {
@@ -138,6 +148,7 @@ export class CicloDoTrust {
   async #volta(): Promise<ResultadoDoCicloDoTrust> {
     const feitas: Partial<Record<Varredura, number>> = {};
     const falhas: Varredura[] = [];
+    let naoAvaliadas: { readonly semCategoria: number; readonly poucasLojas: number } | undefined;
     const opcoes = (contadores: ContadoresDoTrust) => ({
       politica: this.#o.politica ?? POLITICA_DE_RISCO,
       contadores,
@@ -158,6 +169,20 @@ export class CicloDoTrust {
             ] as const,
           ]
         : []),
+      [
+        "precos",
+        () =>
+          this.#numaTransaccao(
+            "precos",
+            async (bd, c) => {
+              const r = await varrerPrecos(bd, opcoes(c));
+              naoAvaliadas = { semCategoria: r.semCategoria, poucasLojas: r.poucasLojas };
+              return r.sinais;
+            },
+            (n) =>
+              `precos:${n}:sem_categoria:${naoAvaliadas?.semCategoria ?? 0}:poucas_lojas:${naoAvaliadas?.poucasLojas ?? 0}`,
+          ),
+      ],
     ];
     for (const [nome, passo] of passos) {
       try {
@@ -168,7 +193,12 @@ export class CicloDoTrust {
         this.#o.metricas.varredura(nome, "falhou");
       }
     }
-    return { feitas, falhas };
+    if (falhas.includes("precos") || naoAvaliadas === undefined) return { feitas, falhas };
+    // Depois do `COMMIT` da varredura, como os contadores: uma volta desfeita
+    // não muda o que o `/metrics` diz.
+    this.#o.metricas.ofertasNaoAvaliadas("sem_categoria", naoAvaliadas.semCategoria);
+    this.#o.metricas.ofertasNaoAvaliadas("poucas_lojas", naoAvaliadas.poucasLojas);
+    return { feitas, falhas, naoAvaliadas };
   }
 
   /**
@@ -180,6 +210,7 @@ export class CicloDoTrust {
   async #numaTransaccao(
     nome: Varredura,
     varrer: (bd: ClienteSql, contadores: ContadoresDoTrust) => Promise<number>,
+    payload: (n: number) => string = (n) => `${nome}:${n}`,
   ): Promise<number> {
     const ligacao = await this.#o.lote.connect();
     const adiados = new ContadoresAdiados();
@@ -187,7 +218,7 @@ export class CicloDoTrust {
     try {
       const n = await comBatch(ligacao, `ts_varredura_${nome}`, async () => {
         const n = await varrer(ligacao, adiados);
-        await ligacao.query(SQL_AUDITAR_VARREDURA, [ACTOR_DAS_VARREDURAS, nome, `${nome}:${n}`]);
+        await ligacao.query(SQL_AUDITAR_VARREDURA, [ACTOR_DAS_VARREDURAS, nome, payload(n)]);
         return n;
       });
       adiados.despejar(this.#o.metricas);

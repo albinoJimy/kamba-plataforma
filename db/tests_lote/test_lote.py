@@ -79,6 +79,8 @@ GRUPOS = (
     "adversarial (f) do KAM-096, os dois lados: a recusa da base e o alerta (KAM-219)",
     "a activação no lote contra a base",
     "a inscrição na base (KAM-236)",
+    # KAM-209: a varredura do preço anómalo, no ficheiro do T&S.
+    "o preço anómalo contra a base (KAM-209)",
 )
 
 #: Os testes que **tem** de ter corrido e passado, pelo nome. Sao a letra dos
@@ -172,6 +174,16 @@ TESTES_OBRIGATORIOS = (
     "KAM-236: dois registos concorrentes do mesmo NIF dão um caso, e a mesma chave concorrente também",
     "KAM-236: vinte anotações de dois processos somam vinte, e o trocarUltimo concorrente devolve null uma vez",
     "KAM-236: uma sessão revogada continua revogada depois do reinício, e o corte de um tenant não toca o outro",
+    # KAM-209: o preço anómalo contra a base — as 19 e 20 referências e as
+    # fronteiras (Testes Requeridos), a `outra` e as sem categoria, e o
+    # isolamento: a mediana atravessa tenants só pelo `kamba_batch`.
+    "19 referências de outras lojas não avaliam; a 20.ª avalia, e o sinal diz só a contagem",
+    "1% e 100× da mediana ficam dentro; um cêntimo para fora sinaliza",
+    "as ofertas sem categoria e as da `outra` não se avaliam, e a volta conta as sem categoria",
+    "doze SKUs anómalos são um sinal, e não dão aviso nem limitação só por preço",
+    "uma loja com 20 ofertas a 1 Kz não fixa a mediana, e a volta conta a oferta que não avaliou",
+    "a mediana atravessa tenants só pelo kamba_batch: o kamba_app vê as ofertas do seu tenant e mais nenhuma",
+    "só as publicadas, não apagadas e de preço fixo são referência; o `a_partir_de` avalia-se",
 )
 
 

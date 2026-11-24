@@ -41,6 +41,8 @@ __pycache__/
 
 # Saida de compilacao dos pacotes partilhados (gerada por `make build`)
 packages/*/dist/
+# O consumidor `dono` compilado na imagem (KAM-241, `tsconfig.provisionamento.json`)
+services/onboarding-web/dist/
 
 # Dependencias do Node (monorepo pnpm)
 node_modules/

@@ -151,6 +151,8 @@ function base(opcoes: Opcoes = {}) {
                     stock_verificado_at: null,
                     estado: opcoes.estado ?? "rascunho",
                     categoria_restrita: null,
+                    // KAM-209: sem categoria o COM não publica.
+                    categoria: "moda",
                     atualizado_at: "2026-11-19T09:00:00.000Z",
                   },
                 ],
