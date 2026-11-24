@@ -794,6 +794,55 @@ CASOS: tuple[Caso, ...] = (
     ),
     # ------------------------------- KAM-187: os quatro processos do worker
     *_casos_dos_consumidores(),
+    # ------------------------------------- KAM-251: os alvos do onboarding
+    Caso(
+        "onboarding-sem-alvo-renomeado",
+        frozenset({"onboarding-sem-alvo"}),
+        "o `job` do consumidor `dono` e renomeado no `prometheus.yml`",
+        lambda c: c.trocar(
+            lint.PROMETHEUS, r"^  - job_name: onboarding_provisionamento$",
+            "  - job_name: onboarding_dono",
+        ),
+    ),
+    Caso(
+        "onboarding-sem-alvo-porta-do-job",
+        frozenset({"onboarding-sem-alvo"}),
+        "o `job` do consumidor `dono` passa a raspar a 3016",
+        lambda c: c.trocar(lint.PROMETHEUS, r"^        port: 3015$", "        port: 3016"),
+    ),
+    Caso(
+        "onboarding-sem-alvo-porta-do-processo",
+        frozenset({"onboarding-sem-alvo"}),
+        "o `onboarding-lote` passa a escutar na 3016 e o `job` continua na 3014",
+        lambda c: c.trocar(lint.PROD, r'^      LOTE_PORT: "3014"$', '      LOTE_PORT: "3016"'),
+    ),
+    Caso(
+        "onboarding-sem-alvo-porta-em-staging",
+        frozenset({"onboarding-sem-alvo"}),
+        "em *staging*, o consumidor `dono` passa a escutar na 3016",
+        lambda c: c.trocar(
+            lint.STAGING, r'^      PROVISIONAMENTO_PORT: "3015"$', '      PROVISIONAMENTO_PORT: "3016"'
+        ),
+    ),
+    Caso(
+        "onboarding-sem-alvo-atras-de-perfil",
+        frozenset({"onboarding-sem-alvo"}),
+        "o consumidor `dono` passa a arrancar so com um perfil: sem contentor, o `up` nao existe",
+        lambda c: c.trocar(
+            lint.PROD, r'^    command: \["node", "services/onboarding-web/dist/provisionamento\.js"\]$',
+            '    command: ["node", "services/onboarding-web/dist/provisionamento.js"]\n'
+            '    profiles: ["desligado"]',
+        ),
+    ),
+    Caso(
+        "onboarding-sem-alvo-outro-caminho",
+        frozenset({"onboarding-sem-alvo"}),
+        "o `job` do consumidor `dono` passa a raspar `/healthz`",
+        lambda c: c.trocar(
+            lint.PROMETHEUS, r"^  - job_name: onboarding_provisionamento$",
+            "  - job_name: onboarding_provisionamento\n    metrics_path: /healthz",
+        ),
+    ),
 )
 
 #: Toda a regra tem de ter canario. Um `lint.REGRAS` novo sem caso aqui falha o
@@ -853,6 +902,7 @@ MINIMO_POR_REGRA: dict[str, frozenset[str]] = {
         {"consumidor-em-falta", "consumidor-com-server-ts", "consumidor-mal-ligado",
          "consumidor-sem-alvo"}
     ),
+    "r_alvos_do_onboarding": frozenset({"onboarding-sem-alvo"}),
 }
 
 #: O que se copia: so o que o `varrer` le. Copiar a arvore toda levava segundos
