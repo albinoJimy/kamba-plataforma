@@ -4,7 +4,7 @@
 |---|---|
 | Produto | KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para Angola |
 | Documento | Epic — Onboarding e Governação |
-| Versão | 1.46 |
+| Versão | 1.47 |
 | Data | Outubro de 2026 |
 | Classificação | Documento de Referência — Interno |
 | Documento-fonte | `../docs/tecnica/10_Onboarding_Governanca.md`, `../docs/tecnica/00_Arquitectura_Solucao.md` (ADR-019) |
@@ -83,6 +83,7 @@ Fora deste epic (Clusters): estafetas, revendedores, rede de agentes de activaç
 | KAM-239 | O guia do ES em `prod`: o estado do guia na base, e a lista de espera, a fila de revisão e os *gates* pelo processo de lote | feature | M | P1 | KAM-236 |
 | KAM-240 | A idempotência do `PATCH /painel/produtos/:id` na base: a deduplicação sobrevive a um reinício e vale entre réplicas | feature | S | P1 | KAM-236 |
 | KAM-248 | Off-boarding, o que depende de fora: as provas e a entrega ao titular, a Medusa, o simulacro, o *token* de cada WABA e o resto da purga | feature | L | P1 | KAM-233, KAM-115, KAM-116, KAM-078 |
+| KAM-253 | Re-análise do screening: o produto publicado que uma versão nova da política bloqueia continua visível ao cliente | fix | S | P2 | KAM-191, KAM-245 |
 
 ---
 
@@ -2548,7 +2549,7 @@ Testes: integração, isolamento no X-01 e a medição de desempenho.
 | Prioridade | P1 |
 | Estimativa | S |
 | Dependências | KAM-088 |
-| Bloqueia | — |
+| Bloqueia | KAM-253 |
 | Responsável sugerido | Engenheiro de Plataforma (GOV), com o dono dos contratos de evento |
 | Documentos de referência | `EPIC-09_Onboarding_Governanca.md` (bloco KAM-088 e a sua verificação, critério 7), `02_Dicionario_de_Dados_Canonico.md` (§3.5 e §3.58), `../docs/tecnica/10_Onboarding_Governanca.md` (§8.2), `../docs/contratos.md` |
 
@@ -5135,6 +5136,72 @@ Testes: contrato por adaptador, integração com a base, e o simulacro em stagin
 
 ---
 
+## KAM-253 — Re-análise do screening: o produto publicado que uma versão nova da política bloqueia continua visível ao cliente
+
+| Campo | Valor |
+|---|---|
+| Epic | EPIC-09 — Onboarding e Governação |
+| Fase | 1 |
+| Tipo | fix |
+| Prioridade | P2 |
+| Estimativa | S |
+| Dependências | KAM-191, KAM-245 |
+| Bloqueia | — |
+| Responsável sugerido | Engenheiro de Plataforma (GOV), com o Engenheiro de Comércio (COM) |
+| Documentos de referência | `EPIC-09_Onboarding_Governanca.md` (blocos KAM-088 e KAM-191), `EPIC-11_Modulos_Entrada.md` (bloco KAM-245, decisão A), `../packages/core-ts/src/screening/reanalise.ts`, `../services/com/src/screening/index.ts` |
+
+### Contexto
+
+Credor da assimetria que a decisão A do fundador de 2026-11-23 deixou escrita no bloco do KAM-245. Desde o
+KAM-245, uma `bloqueada` do `/internal/screen` sobre o conteúdo exacto de um publicado emite a violação **e**
+tira o produto do catálogo visível, na mesma transacção. A re-análise de uma mudança de versão da política
+(KAM-088, critério 7; KAM-191) emite a mesma violação e **não** despublica, por desenho: o critério 4 do
+KAM-191 diz que «a re-análise continua a não suspender tenants nem despublicar produtos; o consumidor é o
+KAM-097». O resultado é que o mesmo conteúdo sai do catálogo se a `bloqueada` vier do `screen` e fica visível
+se vier de uma versão nova da política — com o `platform.oferta_publicavel` da revisão `0080` a dizer
+`bloqueada` para ele. O EPIC-09 tem como critério de saída «0 produtos de categoria bloqueada publicados».
+
+### Objectivo
+
+Decidir, e depois cumprir, o que acontece à visibilidade de um publicado que a re-análise bloqueia.
+
+### Critérios de Aceitação
+
+- [ ] A decisão está registada no bloco, com data e autor: despublicar na re-análise (emenda ao critério 4
+  do KAM-191), ou deixar a visibilidade à sanção do KAM-097, ou outra.
+- [ ] Se a re-análise despublicar: na transacção por produto que ela já abre, a decisão, a violação, a saída
+  de `publicado` para `rascunho` e o `catalog.product_changed`, como no `/internal/screen` do KAM-245; uma
+  falha de qualquer um desfaz os quatro.
+- [ ] O recurso humano da T&S (uma `permitida` de `humano`) continua a deixar o dono republicar.
+
+### Detalhes Técnicos
+
+- **Sem esquema novo** previsto: o `kamba_app` já escreve o `estado` da `offer_terms` (revisão `0028`).
+- A re-análise lê o catálogo como `kamba_batch` e escreve como `kamba_app`, na transacção por produto
+  (`porProdutoSql`); a saída de `publicado` vai nessa transacção.
+
+### Testes Requeridos
+
+- Unit da re-análise com a sequência exaustiva de instruções (a do KAM-191, critério 4), actualizada.
+- Integração: contra a base, a `bloqueada` por versão nova tira o produto e o IDX esconde-o.
+- **Adversarial:** o mesmo `sku` e o mesmo conteúdo noutro tenant ficam intactos.
+
+### Definition of Done
+
+- [ ] Critérios de Aceitação satisfeitos; a assimetria do bloco do KAM-245 revista com a evidência.
+
+### Handoff para Claude Code
+
+```text
+És o executor do ticket KAM-253 da KAMBÁ (a re-análise que bloqueia e não despublica).
+Lê specs/EPIC-09_Onboarding_Governanca.md (blocos KAM-088, KAM-191 e KAM-253),
+specs/EPIC-11_Modulos_Entrada.md (bloco KAM-245) e packages/core-ts/src/screening/reanalise.ts.
+Objectivo: que a visibilidade de um publicado bloqueado pela re-análise siga a decisão do fundador.
+Regras: a decisão é do fundador; uma violação por conteúdo; isolamento de tenant.
+```
+
+---
+
 ## Riscos do Epic e itens NÃO VERIFICADOS
 
 | Risco / item | Estado | Impacto | Mitigação / critério de saída | Decisão |
@@ -5220,4 +5287,5 @@ Testes: contrato por adaptador, integração com a base, e o simulacro em stagin
 | 1.43 | Novembro 2026 | **KAM-248 acrescentado**, no PR do **KAM-233**, que o abre e não o implementa, pela decisão da coordenação do lote 18 de 2026-11-22 (o precedente do KAM-218): o credor único do que o off-boarding espera de fora — as provas e a entrega ao titular (KAM-116 e KAM-115), a Medusa (D3), o *token* de cada WABA (KAM-078), o 404 da Graph, o resto da purga (o fundador) e o simulacro (*staging*). O `Bloqueia` do KAM-233 ganha-o, e o do KAM-247 (EPIC-03), o credor do LiteLLM sem base; o do KAM-116 ganha o KAM-248. E o KAM-233 entregue em parte: as decisões do fundador de 2026-11-21 e 2026-11-22 e a verificação dos critérios no bloco dele. Escritos como KAM-241 e KAM-242, e renumerados na integração contra a `main` em `25babeca` (o maior era o KAM-246) | Equipa KAMBÁ |
 | 1.44 | Novembro 2026 | KAM-208 (a correlação entre tenants por comprador): as seis decisões do fundador de 2026-11-21 registadas no bloco (D1 a D6), os critérios 2 e 3 e a caixa 2 da DoD marcados, com a secção «Verificação dos Critérios de Aceitação»; o critério 1 e a caixa «parecer anexado» ficam vazios (não há parecer, e o ticket não o escreve *(a confirmar por parecer)*), e o 4 fica parcial (o dicionário sim, o DPIA não, por viver no espelho privado). O critério 6 e a caixa 1 da DoD do KAM-200 ganham «Revisto pelo KAM-208». Número provisório: renumera-se na integração contra a `main`. | Equipa KAMBÁ |
 | 1.45 | Novembro 2026 | KAM-209 (o preço anómalo por categoria): as quatro decisões do fundador de 2026-11-21 (opção A em todas) e as duas de 2026-11-22 (um sinal por loja e por janela de 30 dias; referências de pelo menos três lojas), os três critérios e as duas caixas da DoD marcados, com a secção «Verificação dos Critérios de Aceitação»; e o critério 4 do KAM-200 revisto, de **não satisfeito** a **satisfeito**. Escrita como 1.41 e renumerada na integração, depois do KAM-236, do KAM-225, do KAM-233 e do KAM-208. | Equipa KAMBÁ |
-| 1.46 | Novembro 2026 | **KAM-240** (escrita como 1.42 e renumerada na integração, depois do KAM-225, do KAM-233, do KAM-208 e do KAM-209): a idempotência do `PATCH /painel/produtos/:id` na base (revisão `0089`). A forma da tranca (a linha, sem prazo) e a **decisão da coordenação do lote 19** de 2026-11-22 sobre a retenção (C1-A: 24 h, purga a 25 h como lote) no bloco, e as duas secções de verificação. A alínea (c) do critério 1 do KAM-236 revista com a evidência; a caixa dele continua vazia pelas alíneas (a) e (b). Número **provisório**: renumera-se na integração. | Equipa KAMBÁ |
+| 1.46 | Novembro 2026 | Escrita como 1.44 e renumerada na integração, depois do KAM-208 e do KAM-209; o credor abriu como KAM-249 e passou a KAM-253, porque o 249 a 252 fundiram com o KAM-247, o KAM-241 e o KAM-243. **KAM-253 acrescentado**, no PR do **KAM-245** (EPIC-11), que o abre e não o implementa, pela decisão A do fundador de 2026-11-23: o `/internal/screen` despublica o conteúdo que bloqueia, e a re-análise de uma mudança de política continua sem despublicar, pelo critério 4 do KAM-191. O KAM-253 é o credor dessa assimetria, com a decisão por tomar. **Aresta recíproca:** o `Bloqueia` do KAM-191 passa de «—» a **KAM-253**. Número provisório: o maior da `main` + 1. | Equipa KAMBÁ |
+| 1.47 | Novembro 2026 | **KAM-240** (escrita como 1.42 e renumerada na integração, depois do KAM-225, do KAM-233, do KAM-208, do KAM-209 e do KAM-245): a idempotência do `PATCH /painel/produtos/:id` na base (revisão `0089`). A forma da tranca (a linha, sem prazo) e a **decisão da coordenação do lote 19** de 2026-11-22 sobre a retenção (C1-A: 24 h, purga a 25 h como lote) no bloco, e as duas secções de verificação. A alínea (c) do critério 1 do KAM-236 revista com a evidência; a caixa dele continua vazia pelas alíneas (a) e (b). Número **provisório**: renumera-se na integração. | Equipa KAMBÁ |

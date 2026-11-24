@@ -52,6 +52,8 @@ export const ROTAS_DO_PAINEL = [
   // pedido do contacto de uma encomenda.
   "produto",
   "contacto",
+  // KAM-243: a foto do dono para o catálogo.
+  "foto",
 ] as const;
 export type RotaDoPainel = (typeof ROTAS_DO_PAINEL)[number];
 

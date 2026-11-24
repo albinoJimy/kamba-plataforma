@@ -4,7 +4,7 @@
 |---|---|
 | Produto | KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para Angola |
 | Documento | Epic — Módulos de Entrada |
-| Versão | 1.38 |
+| Versão | 1.40 |
 | Data | Novembro de 2026 |
 | Classificação | Documento de Referência — Interno |
 | Documento-fonte | `../docs/tecnica/00_Arquitectura_Solucao.md` (ADR-020, §13.3 D13), `../docs/tecnica/02_Agent_Runtime_Verticais.md` (§21), `../docs/exploracao/14-tese-minima-e-plano-de-validacao.md` (H10–H12) |
@@ -78,6 +78,7 @@ Estado da evidência (E5): **CONFIRMADO** — preços e termos publicados dos fo
 | KAM-245 | Catálogo do dono: a violação de um produto publicado que um `screen` posterior marca como `bloqueada`, e a re-análise que a emite | fix | S | P2 | KAM-119 |
 | KAM-246 | Social AI: a arte como imagem no WhatsApp e a página do painel com a ligação de descarga | feature | M | P1 | KAM-122, KAM-015 |
 | KAM-251 | Canal do dono: o `/metrics` do consumidor `dono` raspado pelo Prometheus em `prod` | fix | S | P2 | KAM-241 |
+| KAM-252 | STO no `onboarding-web`: a credencial do painel só de escrita na classe `media_imagem`, ou fora do painel | fix | M | P1 | KAM-243 |
 
 ---
 
@@ -325,7 +326,7 @@ As três perguntas foram à coordenação do lote a 2026-11-19, e o PR seguiu a 
 
 ### Verificação dos Critérios de Aceitação
 
-Dez critérios: **seis marcados**, três parciais e um não satisfeito, depois da revisão do KAM-231 (o 8 passou a marcado e o 10 a parcial). O que falta é medir com o modelo e a Meta reais (**KAM-109**) e a foto pelo painel (**KAM-243**).
+Dez critérios: **seis marcados**, três parciais e um não satisfeito, depois da revisão do KAM-231 (o 8 passou a marcado e o 10 a parcial). O que falta é medir com o modelo e a Meta reais (**KAM-109**); a foto pelo painel chegou com o **KAM-243**.
 
 Os ensaios:
 - [`services/agr/tests/test_catalogo_dono.py`](../services/agr/tests/test_catalogo_dono.py), com as regras, as tools pela ToolLayer real sobre o pipeline do KAM-049 e o grafo do dono (gate 4, AGR);
@@ -337,7 +338,7 @@ Os ensaios:
 
 | Critério | Estado | Evidência nomeada |
 |---|---|---|
-| 1 | **parcial — caixa vazia** | **As quatro estão ligadas com a classe do §21.3, e a foto real não chega.** `create_product_draft` é `write` com o passo 4 dispensado (decisão 3 do fundador, 2026-11-20); `ask_missing_fields` é `read`; `publish_product` é `write` com o botão `confirm:{action_id}`; `get_catalog_status` é `read` (`TestAMontagem.test_as_quatro_ligam_se_juntas`). A mesma media duas vezes dá **1** rascunho (`test_a_mesma_foto_duas_vezes_e_um_rascunho`). **Falta**: a foto pelo WhatsApp ou pelo painel não chega ao AGR, e o turno de uma foto diz-o ao dono (`test_uma_foto_diz_que_a_recepcao_nao_esta_ligada`). Credor **KAM-231**. *Revisto pelo KAM-231:* a foto do WhatsApp chega: o CHR passa-a pelo MED montado no `worker-canal-entrada`, a invocação leva o `asset_id`, e o nó do catálogo chama o `create_product_draft` com ele (`test_uma_foto_do_dono_da_um_rascunho_e_a_primeira_pergunta`, `test_a_mesma_foto_duas_vezes_e_um_rascunho`). **Falta** a foto pelo painel, credor **KAM-243** |
+| 1 | **parcial — caixa vazia** | **As quatro estão ligadas com a classe do §21.3, e a foto real não chega.** `create_product_draft` é `write` com o passo 4 dispensado (decisão 3 do fundador, 2026-11-20); `ask_missing_fields` é `read`; `publish_product` é `write` com o botão `confirm:{action_id}`; `get_catalog_status` é `read` (`TestAMontagem.test_as_quatro_ligam_se_juntas`). A mesma media duas vezes dá **1** rascunho (`test_a_mesma_foto_duas_vezes_e_um_rascunho`). **Falta**: a foto pelo WhatsApp ou pelo painel não chega ao AGR, e o turno de uma foto diz-o ao dono (`test_uma_foto_diz_que_a_recepcao_nao_esta_ligada`). Credor **KAM-231**. *Revisto pelo KAM-231:* a foto do WhatsApp chega: o CHR passa-a pelo MED montado no `worker-canal-entrada`, a invocação leva o `asset_id`, e o nó do catálogo chama o `create_product_draft` com ele (`test_uma_foto_do_dono_da_um_rascunho_e_a_primeira_pergunta`, `test_a_mesma_foto_duas_vezes_e_um_rascunho`). **Falta** a foto pelo painel, credor **KAM-243**. *Revisto pelo KAM-243:* a foto pelo painel chega pelo mesmo caminho — o `POST /painel/foto` guarda-a pelo MED e invoca o AGR com o `asset_id` (`test_uma_foto_pelo_painel_da_um_rascunho_e_a_primeira_pergunta`, «grava a foto numa linha armazenado do tenant da sessao e invoca o AGR com o asset_id»). Fica a descarga contra a Meta real, NÃO VERIFICADA |
 | 2 | **não satisfeito** | A latência mede-se com a fonte, o descodificador e a visão reais, que não existem. Credor **KAM-231**. *Revisto pelo KAM-231:* a fonte, o descodificador e a visão existem, e o turno avisa «estou a preparar» antes do `create_product_draft`, que tem 25 s (`test_o_aviso_sai_antes_do_resumo_com_chave_propria`). A descodificação e a análise de uma foto de 12 MP levam 0,2 s. O p95 continua por medir: precisa do modelo do `kamba-vision` em uso real: **KAM-109**, o Piloto que mede o H6 com o modelo real, e é aí que a caixa fecha |
 | 3 | marcado | **O stock também vai ao eco**: «50 mil», «12k», «1.500», «uns 10» voltam a perguntar, e «12 unidades» dá «12 unidades?» com os dois botões, sem gravar antes do toque (`test_6_o_stock_vai_ao_eco_e_so_o_toque_o_grava`). Um «Sim» de um eco antigo não reescreve o valor corrigido (`test_4_o_sim_de_um_eco_antigo_nao_reescreve_o_preco_corrigido`). **Cem frases de preço, zero valores gravados sem eco.** Cinquenta lidas ao valor certo e cinquenta que voltam a perguntar (`TestRegras.test_os_cem_casos_de_preco`, com a forma canónica a ler-se de volta em todas). O eco «45.000 Kz?» com dois botões, e nada se grava antes do toque, nem com um texto com a forma do botão (`test_o_preco_vai_ao_eco_com_dois_botoes_e_so_o_toque_o_grava`). Uma ambígua volta a perguntar (`test_um_preco_ambiguo_volta_a_perguntar_e_nada_se_grava`). O `preco` não entra pelas respostas, nem em conjunto com outro campo (`test_o_preco_nao_entra_pelas_respostas`). Nenhum modelo escreve argumentos de tool neste grafo. A primeira pergunta é sempre o `preco_tipo` (`test_as_perguntas_em_aberto_sao_as_do_kam_049`) |
 | 4 | **parcial — caixa vazia** | Até três perguntas por mensagem e um crítico de cada vez, pelo `completude` do KAM-049; a reparticão por linhas (`test_a_resposta_reparte_se_por_linhas_e_nunca_da_o_preco`). Uma resposta por voz fica com a fonte `dono_voz` (`test_uma_resposta_por_voz_fica_com_a_fonte_da_voz`). Dez ingestões dão dez rascunhos independentes, cada uma com o seu preço (`test_dez_fotos_dao_dez_rascunhos_independentes`), e com dois rascunhos a resposta vai pela referência ao certo (`test_com_dois_rascunhos_pede_a_referencia_e_com_ela_nao_mistura`). **Falta** o lote real «10 fotos em 60 s» pelo canal. Credor **KAM-231**. *Revisto pelo KAM-231:* dez fotos pelo grafo do dono, cada uma com o seu `asset_id`, dão dez rascunhos (`test_dez_fotos_dao_dez_rascunhos`). Falta a medida dos 60 s com a Meta e o modelo reais: **KAM-109**, o Piloto que mede o H6 com o modelo real, e é aí que a caixa fecha |
@@ -364,7 +365,7 @@ Os ensaios:
 | Achado | Onde | Credor |
 |---|---|---|
 | A quantidade em stock que o dono deu fica na ingestão e no resumo, e não chega ao Registo: o `ProductDraft` da porta não tem campo para ela | [`tls/registo_com.py`](../services/agr/src/kamba_agr/tls/registo_com.py) | **KAM-231**. *Revisto pelo KAM-231:* a quantidade vai com a publicação, e o COM ajusta o stock na mesma transacção, com o `stock.adjusted`; a coluna `offer_terms.stock_quantidade` continua por escrever, como no KAM-043 e no KAM-049 |
-| Um `screen` do conteúdo exacto de um produto já publicado, com a decisão `bloqueada`, faz a re-análise saltá-lo, e o `screening.violation_detected` não sai: a re-análise é quem o emite | nota de [`screening/index.ts`](../services/com/src/screening/index.ts) do COM | **KAM-231**, que liga a foto e o screening por produto em produção. *Revisto pelo KAM-231:* **não coube nele**, que liga a foto e não o screening por produto em produção. Credor **KAM-245**, por decisão da coordenação de 2026-11-22 |
+| Um `screen` do conteúdo exacto de um produto já publicado, com a decisão `bloqueada`, faz a re-análise saltá-lo, e o `screening.violation_detected` não sai: a re-análise é quem o emite | nota de [`screening/index.ts`](../services/com/src/screening/index.ts) do COM | **KAM-231**, que liga a foto e o screening por produto em produção. *Revisto pelo KAM-231:* **não coube nele**, que liga a foto e não o screening por produto em produção. Credor **KAM-245**, por decisão da coordenação de 2026-11-22. *Revisto pelo KAM-245:* fechado. A violação sai do `/internal/screen`, na transacção da decisão, e o produto passa a `rascunho` com o `catalog.product_changed` (decisão A do fundador, 2026-11-23); a re-análise de política continua a não despublicar, com credor **KAM-253** |
 
 ---
 
@@ -3213,11 +3214,11 @@ Testes: integração e adversarial.
 
 ### Verificação dos Critérios de Aceitação
 
-Seis critérios: **dois marcados** e quatro parciais. Sem imagem real, sem LLM pago e sem chave: cada foto é desenhada pelo Pillow nos ensaios, a Meta e o modelo são duplos, e o token dos ensaios não tem forma de token. **O que falta é medir com o modelo e a Meta reais**, que este repositório não tem, e a foto pelo painel, que tem credor (**KAM-243**).
+Seis critérios: **dois marcados** e quatro parciais. Sem imagem real, sem LLM pago e sem chave: cada foto é desenhada pelo Pillow nos ensaios, a Meta e o modelo são duplos, e o token dos ensaios não tem forma de token. **O que falta é medir com o modelo e a Meta reais**, que este repositório não tem; a foto pelo painel chegou com o **KAM-243**.
 
 | Critério | Estado | Evidência nomeada |
 |---|---|---|
-| 1 | **parcial — caixa vazia** | **Pelo WhatsApp, feito.** O `image.id` sai da explosão só numa `image` («KAM-231 — o `image.id` sai da explosao», três ensaios); o CHR chama o MED só para o dono e a invocação leva só o `asset_id` («o dono: o MED recebe o pedido da Meta, e a invocacao leva so o `asset_id`», «um cliente: o MED nao e chamado», «rejeitada, falhada ou por acabar: a invocacao vai sem `asset_id`»). O MED monta-se no `worker-canal-entrada` (`com tudo: liga a midia, e nao avisa`, `guarda a foto e devolve o asset_id, com cada instrucao sob o tenant e o token so no cabecalho`), e o cliente da Graph só descarrega de um anfitrião da lista (`o token nunca vai para fora da lista`). O grafo do dono chama o `create_product_draft` com o `asset_id`: uma foto dá **um** rascunho (`test_uma_foto_do_dono_da_um_rascunho_e_a_primeira_pergunta`), a mesma foto duas vezes dá **um** (`test_a_mesma_foto_duas_vezes_e_um_rascunho`), e o de outro tenant nenhum (`test_o_asset_de_outro_tenant_nao_vira_rascunho`). **Falta**: o painel (credor **KAM-243**), e a descarga contra a Meta real — o anfitrião `lookaside.fbsbx.com` é NAO VERIFICADO |
+| 1 | **parcial — caixa vazia** | **Pelo WhatsApp, feito.** O `image.id` sai da explosão só numa `image` («KAM-231 — o `image.id` sai da explosao», três ensaios); o CHR chama o MED só para o dono e a invocação leva só o `asset_id` («o dono: o MED recebe o pedido da Meta, e a invocacao leva so o `asset_id`», «um cliente: o MED nao e chamado», «rejeitada, falhada ou por acabar: a invocacao vai sem `asset_id`»). O MED monta-se no `worker-canal-entrada` (`com tudo: liga a midia, e nao avisa`, `guarda a foto e devolve o asset_id, com cada instrucao sob o tenant e o token so no cabecalho`), e o cliente da Graph só descarrega de um anfitrião da lista (`o token nunca vai para fora da lista`). O grafo do dono chama o `create_product_draft` com o `asset_id`: uma foto dá **um** rascunho (`test_uma_foto_do_dono_da_um_rascunho_e_a_primeira_pergunta`), a mesma foto duas vezes dá **um** (`test_a_mesma_foto_duas_vezes_e_um_rascunho`), e o de outro tenant nenhum (`test_o_asset_de_outro_tenant_nao_vira_rascunho`). **Falta**: o painel (credor **KAM-243**), e a descarga contra a Meta real — o anfitrião `lookaside.fbsbx.com` é NAO VERIFICADO. *Revisto pelo KAM-243:* **o painel aceita a mesma foto.** O `POST /painel/foto` guarda-a pelo MED do KAM-020 numa linha `armazenado` do tenant da sessão, com o `media_id` `painel.{uuid}` determinístico, e invoca o AGR com o `asset_id` pela credencial do painel («grava a foto numa linha armazenado do tenant da sessao e invoca o AGR com o asset_id», `services/onboarding-web/tests/foto.test.ts`); a admissão aceita esse turno e só esse (`test_outra_forma_e_a_mesma_401_e_nao_corre`), e a foto dá **um** rascunho e a primeira pergunta, e a mesma foto duas vezes **um** (`test_uma_foto_pelo_painel_da_um_rascunho_e_a_primeira_pergunta`, `test_a_mesma_foto_pelo_painel_duas_vezes_e_um_rascunho`). A caixa continua vazia só pela descarga contra a Meta real |
 | 2 | marcado | A `FonteDoMed` lê a `media_assets` e o STO no tenant da invocação (`TestAFonte`, com o canário do predicado). O `DescodificadorPillow` usa o Pillow 13.0.0, MIT-CMU, aprovado pelo fundador no KAM-122: o gate 11 dá vermelho sem a entrada e verde com ela (180 componentes). O `VisaoPeloGateway` vai pelo método `ver` do `ClienteDeLlm`, com o papel `vision` e a finalidade `visao` no *gate* do KAM-069 antes de sair um octeto (`test_a_finalidade_e_a_da_visao`, `test_em_prod_sem_destino_nada_sai_e_fica_a_linha`). Fora de `prod`, só sintéticas: o pipeline recebe o ambiente do processo (`test_o_processo_liga_a_do_entitlement`) e bloqueia com `so_sinteticas` (KAM-049) |
 | 3 | **parcial — caixa vazia** | «Estou a preparar» sai antes da *tool* e o resumo depois, com chaves próprias (`test_o_aviso_sai_antes_do_resumo_com_chave_propria`); o `create_product_draft` tem 25 s (`TestATabela`); dez fotos de um álbum, a menos de 1,5 s umas das outras, são dez turnos no `ExecutorDeTurnos` real, sem coalescer (`test_dez_fotos_de_um_album_sao_dez_turnos`, `test_uma_foto_e_um_texto_sao_dois_turnos_nas_duas_ordens`), e dez fotos dão dez rascunhos independentes (`test_dez_fotos_dao_dez_rascunhos`). O descodificador e a análise de uma foto de 12 MP levam 0,2 s. **Falta** o p95 de recepção e de rascunho com o modelo e a Meta reais, que não existem aqui: o `kamba-vision` tem `modelo: por_decidir`. Credor **KAM-109**, o Piloto que mede o H6 com o modelo real, e é aí que a caixa fecha |
 | 4 | marcado | Com o entitlement `foto` activo, o resumo oferece «melhorar foto», e sem ele, ou com a leitura a falhar, segue sem oferta e sem erro (`TestAOfertaDeMelhorarFoto`). O processo liga a porta do entitlement (`test_o_processo_liga_a_do_entitlement`). O trabalho de melhorar é o `enhance_image` do KAM-120 |
@@ -3785,7 +3786,7 @@ Regras: o pico do processo não sai dos 54 MiB; se a raspagem o mudar, mede com 
 | Prioridade | P1 |
 | Estimativa | M |
 | Dependências | KAM-231 |
-| Bloqueia | — |
+| Bloqueia | KAM-252 |
 | Responsável sugerido | Engenheiro de Plataforma com Engenheiro de Runtime/IA |
 | Documentos de referência | `EPIC-11_Modulos_Entrada.md` (blocos KAM-223 e KAM-231), `02_Dicionario_de_Dados_Canonico.md` (§3.16 e §3.81) |
 
@@ -3799,10 +3800,10 @@ O dono envia uma foto pelo painel web e ela vira um rascunho do catálogo pelo m
 
 ### Critérios de Aceitação
 
-- [ ] Uma rota do painel recebe a foto do dono (JPEG ou PNG, com o tecto do MED), grava-a no STO e numa linha `armazenado` da `platform.media_assets`, no tenant da sessão, e invoca o AGR com o `asset_id` e o `type` `image`. O `media_id` da linha é próprio do painel (`painel.{uuid}`), e a mesma foto enviada duas vezes dá **um** rascunho.
-- [ ] A admissão do AGR aceita, com a credencial do painel, um turno `image` com o `asset_id` e sem `message_id`, e recusa outra forma com o mesmo 401.
-- [ ] O `onboarding-web` recebe as chaves do STO, com a nota de quem lê e porquê em cada linha do inventário, e em `staging` e `prod` não arranca sem elas.
-- [ ] Isolamento: a sessão do tenant A nunca grava nem lê uma foto do tenant B.
+- [x] Uma rota do painel recebe a foto do dono (JPEG ou PNG, com o tecto do MED), grava-a no STO e numa linha `armazenado` da `platform.media_assets`, no tenant da sessão, e invoca o AGR com o `asset_id` e o `type` `image`. O `media_id` da linha é próprio do painel (`painel.{uuid}`), e a mesma foto enviada duas vezes dá **um** rascunho.
+- [x] A admissão do AGR aceita, com a credencial do painel, um turno `image` com o `asset_id` e sem `message_id`, e recusa outra forma com o mesmo 401.
+- [x] O `onboarding-web` recebe as chaves do STO, com a nota de quem lê e porquê em cada linha do inventário, e em `staging` e `prod` não arranca sem elas.
+- [x] Isolamento: a sessão do tenant A nunca grava nem lê uma foto do tenant B.
 
 ### Detalhes Técnicos
 
@@ -3816,8 +3817,8 @@ O dono envia uma foto pelo painel web e ela vira um rascunho do catálogo pelo m
 
 ### Definition of Done
 
-- [ ] Critérios de Aceitação satisfeitos; o critério 1 do KAM-231 revisto com a evidência.
-- [ ] Nenhuma imagem real nem chave no repositório.
+- [x] Critérios de Aceitação satisfeitos; o critério 1 do KAM-231 revisto com a evidência.
+- [x] Nenhuma imagem real nem chave no repositório.
 
 ### Handoff para Claude Code
 
@@ -3829,6 +3830,59 @@ Objectivo: a foto do painel chega ao create_product_draft pelo asset_id, como a 
 Regras: só imagens sintéticas; nenhuma chave no repositório; os segredos novos são decisão do fundador.
 Testes: integração, isolamento e adversarial.
 ```
+
+### Decisões em vigor
+
+| Data | Autor | Pergunta | Decisão |
+|---|---|---|---|
+| 2026-11-21 | O fundador, no KAM-231 (P2, P3 e P4), transmitidas pela coordenação | A visão, o tecto da *tool* e os segredos dos processos da foto | **As três na opção A, e não se reabrem.** A visão só pelo `ClienteDeLlm.ver`, com a `ImagemLimpa`; o `create_product_draft` a 25 s no `TECTOS_POR_TOOL`; cada processo recebe só os segredos de que precisa, com nota no inventário, e recusa arrancar sem eles em `staging` e `prod` |
+| 2026-11-23 | A coordenação, no *briefing* do KAM-243 | Critério 3: o `onboarding-web` é um consumidor novo das credenciais do STO | **Segue o padrão da P4-A.** As duas chaves do STO, com a nota no inventário, e o arranque recusa sem elas e sem a configuração do STO em `staging` e `prod`. *Substituída pela decisão do fundador da linha seguinte* |
+| 2026-11-23 | O fundador, no chat da coordenação, depois do PR do KAM-243 | O `onboarding-web` recebe o par de credenciais do STO, que lê e escreve os objectos de todos os tenants | **Opção A, com credor.** O `onboarding-web` fica consumidor do `storage_access_key_id` e do `storage_secret_access_key`, como no PR. O credor **KAM-252** dá à credencial do painel um âmbito só de escrita na classe `media_imagem`, ou tira-a ao painel, quando a D6 fixar o armazenamento |
+
+### Decisões do executor
+
+- **A foto passa pelo MED, e não por um `INSERT` próprio.** O `Med` do KAM-020 corre com um `ClienteDeMidia` que devolve os bytes do pedido (`midiaDoPedido`): a reserva em `pendente`, a *allowlist* no tipo real, o `put` com a chave do tenant e a marcação `armazenado` são as do WhatsApp, e escrevê-las outra vez era ter duas ordens para a mesma linha. A classe `media_imagem` do painel só aceita JPEG e PNG (`LIMITES_DO_PAINEL`): o WebP do MED existe pelos *stickers*, e o descodificador do AGR não o lê.
+- **O `media_id` é determinístico**: `painel.{uuid}`, um uuid (versão 8) dos primeiros 16 bytes do SHA-256 de «media_assets:painel:{tenant_id}:{sha256 dos bytes}», a forma do `messageIdDe` do KAM-232. A mesma foto (os mesmos octetos) no mesmo tenant é a mesma linha, e a idempotência do KAM-049 pelo `media_id` dá **um** rascunho; a mesma foto noutro tenant é outra linha. **Uma foto recomprimida é outra foto**, e dá outro rascunho: a leitura de «a mesma foto» é a dos octetos.
+- **O `wamid` do turno é `painel.{asset_id}.{envio}`**, sem `message_id`, com um envio novo por pedido (32 hexadecimais). É o `turn_id` do AGR: com `painel.{asset_id}` só, a mesma foto reenviada era o mesmo turno, as respostas dele já tinham saído e o dono não recebia nada (achado 3 da revisão). O rascunho continua um só, pela idempotência do KAM-049. A admissão exige esta forma com a credencial do painel, e um corpo com o `asset_id` e o `message_id` juntos recusa-se.
+- **A admissão só confere a forma; a prova lê-a o executor.** Antes do grafo, a linha da `media_assets` tem de ser a desta invocação (o tenant, o contacto e a conversa), `armazenado`, da classe `media_imagem` e com o `media_id` do painel, e o contacto tem de ser o dono vivo do tenant (`SQL_LER_FOTO_DO_PAINEL`) — a prova que o turno de texto faz no `SQL_LER_MENSAGEM`. Sem ela, 400 `invocacao_invalida`.
+- **Uma linha `pendente` antiga retoma-se.** Se o `put` no STO falhar, a linha fica em `pendente`, e com o `media_id` determinístico a mesma foto voltava sempre a ela. Passados `PRAZO_DA_RETOMA_S` (60 s, *proposta*), o pedido seguinte com a mesma foto acaba-a com os seus bytes e com a marcação condicional do MED; antes disso é de outro pedido a correr, e a resposta é 409.
+- **A resposta da foto sai pelo painel.** Um turno sem mensagem lida respondia pelo WhatsApp, a um dono que estava no painel e talvez fora da janela de 24 h; o executor reconhece o turno da foto do painel pelo `wamid` (`turno_da_foto_do_painel`) e põe o canal `painel`. A foto do WhatsApp continua a responder pelo WhatsApp.
+- **O corpo são os bytes**, com o `Content-Type` `image/jpeg` ou `image/png` — que um `<form>` de outra origem não manda sem *preflight*, pela razão do JSON das outras rotas do painel —, e o tipo que vale é o da assinatura. O tecto lê-se aos pedaços: acima dele a leitura pára e a resposta é 413, sem o corpo inteiro em memória.
+- **O STO é obrigatório em `staging` e `prod` mesmo que a foto não monte** (sem a ligação `kamba_app` ou sem o AGR), que é a letra do critério 3. Em `prod` o processo ainda recusa pelo SMS falso (KAM-236), antes de chegar ao STO; a regra fica escrita para o dia em que isso mudar, e o *compose* de produção já passa as variáveis.
+- **A foto não entra na `agent_messages`.** A conversa do painel mostra o «estou a preparar» e o resumo pelo canal `painel`, mas não uma entrada do dono para a foto: a fonte persistida é de texto (`CHECK` de 1 a 4096 caracteres), e uma entrada «[foto]» era texto inventado na conversa.
+- **A página do painel não ganha botão**: a conversa do KAM-223 também é só API, e a interface do dono é a do canal. A rota é a superfície.
+
+### Verificação dos Critérios de Aceitação
+
+Quatro critérios, **quatro marcados**. Sem imagem real e sem chave: cada foto é uma assinatura de JPEG ou PNG seguida de octetos fixos, o STO é o duplo do KAM-011 nos ensaios de processo e o MED corre contra o PostgreSQL no do *gate* 8.
+
+| Critério | Estado | Evidência nomeada |
+|---|---|---|
+| 1 | marcado | A rota guarda a foto numa linha `armazenado` da classe `media_imagem` do tenant da sessão, com a chave do STO no prefixo dele, e invoca o AGR com o `asset_id`, o `type` `image`, a persona `dono` e o `wamid` `painel.{asset_id}.{envio}`, sem `message_id` («grava a foto numa linha armazenado do tenant da sessao e invoca o AGR com o asset_id», `services/onboarding-web/tests/foto.test.ts`, com a `FotoDoDono`, a `recepcaoDoPainel` e o MED reais). O `media_id` é `painel.{uuid}` e determinístico («o media_id de uma foto do painel», `packages/core-ts/tests/dono.foto.test.ts`). A mesma foto duas vezes é uma linha e um objecto, em dois turnos («a mesma foto duas vezes e uma linha e um objecto, e dois turnos»), também ao mesmo tempo contra o PostgreSQL («a mesma foto duas vezes ao mesmo tempo…», `tests_bd/media.bd.test.ts`), e do lado do AGR dá **um** rascunho e a primeira pergunta (`test_uma_foto_pelo_painel_da_um_rascunho_e_a_primeira_pergunta`, `test_a_mesma_foto_pelo_painel_duas_vezes_e_um_rascunho`, `services/agr/tests/test_foto_do_painel.py`). O que não é JPEG nem PNG dá 415 e o que passa do tecto do MED 413, sem linha nem invocação, também com um corpo em fluxo sem `Content-Length`. Uma falha do STO deixa a linha `pendente`, e passado o prazo a mesma foto retoma-a («o STO em baixo deixa a linha pendente…», e contra o PostgreSQL «uma linha pendente antiga…») |
+| 2 | marcado | Com a credencial do painel, a foto corre o turno com o `asset_id` (`test_a_foto_do_painel_corre_o_turno_com_o_asset_id`), e o `wamid` de outro `asset_id`, o da Meta, o `asset_id` com o `message_id` e a `image` sem `asset_id` dão a mesma 401 da credencial errada, sem correr nada (`test_outra_forma_e_a_mesma_401_e_nao_corre`); o turno de texto do KAM-223 continua admitido. **E a forma não chega**: antes do grafo, o executor prova que a foto é a que o painel guardou para esta conversa e que o contacto é o dono, e sem isso responde 400 `invocacao_invalida` sem correr o grafo (`test_uma_foto_que_nao_se_prova_da_400_e_nao_corre_o_grafo`; contra o PostgreSQL, `test_um_cliente_nao_passa_por_dono_com_a_foto_dele` e os outros cinco de `db/tests_agr/test_foto_do_painel.py`). A resposta da foto do painel sai pelo `painel` e a do WhatsApp pelo WhatsApp (`TestOCanal`) |
+| 3 | marcado | As duas linhas do inventário (`storage_access_key_id`, `storage_secret_access_key`) ganham o `TEN` e a nota de quem lê e porquê. Em `staging`, o processo sai sem abrir a porta sem as chaves e sem a configuração do STO («em staging, sem as chaves do STO…», «em staging, com as chaves e sem a configuracao do STO…», `foto.test.ts`); os três *compose* passam as variáveis, obrigatórias no de `staging` e no de produção. Em `prod` a regra é a mesma (`STO_OBRIGATORIO`), e o processo ainda recusa antes, pelo SMS falso do KAM-236 |
+| 4 | marcado | O tenant é o da sessão: um `tenant_id` na consulta ou num cabeçalho não chega ao contexto, ao MED nem ao AGR («o tenant e o da sessao…», `foto.test.ts`; e o caso `X-01/ts/painel` do *gate* 6, com o item `POST:/painel/foto` e a marca `foto=a`). Contra o PostgreSQL, a mesma foto noutro tenant é outra linha, e a sessão de A não lê nem escreve a de B («a mesma foto noutro tenant e outra linha…», `tests_bd/media.bd.test.ts`). Do lado do AGR, o `asset_id` de A numa invocação de B não vira rascunho (`test_o_asset_do_tenant_a_numa_sessao_de_b_nao_vira_rascunho`), e a prova antes do grafo não lê a foto de outro tenant nem com o `asset_id` certo (`test_outro_tenant_nao_le_a_foto_nem_com_o_asset_id`, `db/tests_agr/test_foto_do_painel.py`) |
+
+Os testes requeridos: a integração foto pelo painel → rascunho → perguntas está medida em **duas metades**, como no KAM-231 — a rota até à invocação no `onboarding-web`, e a invocação admitida até ao rascunho e à primeira pergunta no AGR —, e não numa corrida só. Os adversariais: foto de outro tenant, foto repetida, ficheiro que não é imagem (incluindo um `Content-Type` de imagem com bytes de PDF) e imagem acima do tecto.
+
+### Verificação da Definition of Done
+
+| Caixa | Estado | Evidência nomeada |
+|---|---|---|
+| 1 | marcado | Os quatro critérios estão marcados. O critério 1 do KAM-231 está revisto com esta evidência (a metade do painel), e fica parcial só pela descarga contra a Meta real |
+| 2 | marcado | Nenhuma imagem no repositório: todas são octetos escritos nos ensaios. Nenhuma chave: os segredos dos ensaios de arranque geram-se a cada corrida, e os do STO são frases que não servem |
+
+### Verificação da revisão adversarial
+
+Uma revisão, por um agente que recebeu o código e os requisitos, e não o raciocínio do executor. **Cinco achados**: dois confirmados e três plausíveis, e oito hipóteses mortas (a colisão ou o oráculo do `media_id` entre tenants, o tenant escolhido pelo pedido, o caso do *gate* 6, o CSRF, o `Content-Length` a mentir, as chaves vazias em `dev`, o `botao` e o turno do WhatsApp com a credencial do painel, e os envios simultâneos iguais).
+
+| # | Achado | Estado | O que se fez |
+|---|---|---|---|
+| 1 | Com a credencial do painel, o turno da foto corria a persona `dono` para **qualquer** contacto do tenant e com qualquer foto `armazenado` dele: sem `message_id`, saltava a prova do `SQL_LER_MENSAGEM` | confirmado | O executor lê a linha antes do grafo (`SQL_LER_FOTO_DO_PAINEL`): a desta conversa, `armazenado`, `media_imagem`, com o `media_id` do painel e com o contacto dono vivo; sem ela, 400 `invocacao_invalida` (`TestAProvaAntesDoGrafo`, e seis ensaios contra o PostgreSQL em `db/tests_agr/test_foto_do_painel.py`) |
+| 2 | Uma falha do STO deixava a linha `pendente`, e com o `media_id` determinístico a mesma foto dava 409 para sempre | confirmado | A recepção do painel acaba uma linha `pendente` com mais de `PRAZO_DA_RETOMA_S` com os bytes do pedido (`retomar`), com ensaio no processo e contra o PostgreSQL |
+| 3 | A mesma foto reenviada era o mesmo `turn_id`, e o dono não recebia resposta nenhuma | plausível, e corrigido | O `wamid` passa a `painel.{asset_id}.{envio}`, com um envio por pedido; o rascunho continua um só |
+| 4 | O canal da resposta num lote que juntasse uma foto do painel e uma foto do WhatsApp | morto | A foto corre sozinha e fecha o lote (`_corre_sozinho`, `admissao.py`, KAM-231): não há lote misto |
+| 5 | Os ensaios de arranque podiam passar por outro obrigatório em falta | plausível, e corrigido | Um controlo positivo: o mesmo `staging` com o STO completo arranca e abre a porta («o controlo: o mesmo staging com o STO completo…») |
 
 
 ---
@@ -3943,7 +3997,7 @@ Uma revisão, por um agente que recebeu o ticket e o código, e não o raciocín
 | Prioridade | P2 |
 | Estimativa | S |
 | Dependências | KAM-119 |
-| Bloqueia | — |
+| Bloqueia | KAM-253 |
 | Responsável sugerido | Engenheiro de Comércio (COM) |
 | Documentos de referência | `EPIC-11_Modulos_Entrada.md` (bloco KAM-119, «Achado fora de âmbito»), `EPIC-09_Onboarding_Governanca.md` (KAM-088 e KAM-191) |
 
@@ -3957,13 +4011,33 @@ Um produto publicado cujo conteúdo um `screen` posterior marca como `bloqueado`
 
 ### Critérios de Aceitação
 
-- [ ] Um `screen` com decisão `bloqueada` sobre o conteúdo exacto de um produto publicado faz o `screening.violation_detected` sair uma vez, com o `sku` e a regra, e o produto deixa de ser visível ao cliente.
-- [ ] Um `screen` de um rascunho, ou de outro conteúdo, não emite nada.
-- [ ] A repetição do mesmo `screen` não emite segunda violação.
+- [x] Um `screen` com decisão `bloqueada` sobre o conteúdo exacto de um produto publicado faz o `screening.violation_detected` sair uma vez, com o `sku` e a regra, e o produto deixa de ser visível ao cliente.
+- [x] Um `screen` de um rascunho, ou de outro conteúdo, não emite nada.
+- [x] A repetição do mesmo `screen` não emite segunda violação.
 
 ### Detalhes Técnicos
 
 - **Sem esquema novo** previsto: a `screening_decision` e o evento são do KAM-088 e do KAM-191.
+- **Onde se emite:** no `/internal/screen` do COM (`gravarComViolacao`, `../services/com/src/screening/index.ts`), na transacção em que o `screen` grava a decisão — e não na re-análise, que salta o produto por ele já ter decisão para a versão e o conteúdo. É a regra dos achados F11 e F12 do KAM-088: uma violação que falhasse depois de a decisão confirmar perdia-se para sempre.
+
+### Decisão do fundador
+
+**Data: 2026-11-23. Autor: o fundador** (decisão transmitida pela coordenação do lote 20). A pergunta foi a da segunda metade do critério 1: como é que o produto «deixa de ser visível ao cliente». Hoje nenhum caminho despublica numa `bloqueada`. A re-análise de uma mudança de política emite e não despublica (KAM-191, critério 4), pelo que a analogia do objectivo («como numa mudança de política») não tem esse efeito.
+
+- **Escolhida — A:** no `/internal/screen`, na mesma transacção, ficam a decisão, a violação, a oferta de `publicado` para `rascunho` e o `catalog.product_changed`, que o IDX lê para esconder o documento. É o que o *trigger* `offer_terms_publicacao_segura` da revisão `0080` já faz a um publicado cujo nome novo não tem decisão. Fica em `rascunho` e não em `arquivado` porque o arquivo é terminal; assim o recurso humano da T&S (uma `permitida` de `humano`) deixa o dono republicar. A re-análise de política não muda. A assimetria fica escrita como achado, com credor novo: o **KAM-253**.
+- **Recusada — B:** a re-análise também despublica. Emendava o critério 4 do KAM-191.
+- **Recusada — C:** só emitir, e deixar a visibilidade à sanção do KAM-097.
+
+### Decisões do fundador sobre a revisão adversarial
+
+**Data: 2026-11-23. Autor: o fundador** (decisões transmitidas pela coordenação do lote 20). A revisão adversarial deste PR levou-lhe dois achados de T&S.
+
+- **D1 — escolhida B, neste PR:** a chave do sinal `violacao_de_categoria` (a `ts_signal.ref_evento`) passa a ser o **conteúdo**: um uuid derivado do tenant, do `sku`, da versão da política e do `sha256` que vêm no payload (`refDaViolacao`, `../packages/core-ts/src/trust/efeito.ts`). Deixa de ser o id do envelope. O peso (35) e a escada ficam iguais. O achado: a re-análise não tranca a oferta, nem volta a ler o produto na transacção dele. Em corrida com o `/internal/screen` do mesmo `sku`, nas duas ordens, saíam duas violações do mesmo conteúdo. Com o id do envelope como chave, isso dava dois sinais altos (70) e a `limitacao` automática por um só produto. Recusadas: A (um credor novo) e C (só escrever).
+- **D2 — escolhida A:** o produto fica em `rascunho`, como na decisão anterior, e o caso fica escrito como achado (abaixo). Recusada: B (o `pausado`, que mudava a decisão A).
+
+### Achado: o `rascunho` sob `limitacao` não se republica só com o recurso do produto
+
+O *trigger* da `limitacao` da revisão `0067` (`../db/migrations/versions/0067_subscricoes_de_trust.py`) trata `rascunho → publicado` como uma **primeira publicação**, e recusa-a (`23514`) enquanto houver uma `limitacao`, `suspensao` ou `encerramento` em vigor. Deixa passar `pausado → publicado`. Por isso, se o tenant tiver uma `limitacao` por outros sinais, a `permitida` de `humano` que a T&S dá no recurso do produto não chega para o dono o republicar: também é preciso o recurso da sanção (`recurso_estado = 'provido'`). Uma violação sozinha pesa 35 e não dá `limitacao`. Com a D1, a corrida também não a dá. Decisão D2 do fundador: fica assim, escrito aqui, sem credor.
 
 ### Testes Requeridos
 
@@ -3972,7 +4046,7 @@ Um produto publicado cujo conteúdo um `screen` posterior marca como `bloqueado`
 
 ### Definition of Done
 
-- [ ] Critérios de Aceitação satisfeitos; o achado do bloco do KAM-119 revisto com a evidência.
+- [x] Critérios de Aceitação satisfeitos; o achado do bloco do KAM-119 revisto com a evidência.
 
 ### Handoff para Claude Code
 
@@ -3984,6 +4058,102 @@ Regras: uma violação por conteúdo; isolamento de tenant.
 Testes: unit, idempotência e adversarial.
 ```
 
+### Decisões do executor
+
+- **A idempotência vem da transição, e não de uma marca nova.** Sem esquema, não há onde guardar «esta violação já saiu». O `gravarComViolacao` tranca a linha da oferta publicada (`FOR UPDATE`), lê o motivo do `assertPublishable` antes de gravar e volta a lê-lo depois. Só emite quando o motivo **passa** a `bloqueada`. Um segundo `screen` do mesmo conteúdo encontra-o já `bloqueada`, e não emite. O mesmo acontece a uma `bloqueada` que a re-análise já emitiu. A tranca serializa dois `screen` concorrentes do mesmo `sku`. **Não serializa a re-análise**, que não tranca a oferta, e a re-análise não muda: em corrida, as duas emitem a mesma violação. Quem as junta num sinal é o consumidor de T&S, pela chave do conteúdo (decisão D1).
+- **A saída de publicado não depende da transição.** Sempre que, depois de gravar, o conteúdo exacto do publicado está `bloqueada`, a oferta passa a `rascunho` e o `catalog.product_changed` sai. Isto apanha também o publicado que a re-análise deixou visível, quando o dono o volta a submeter.
+- **Uma `permitida` de `humano` continua a ganhar** (a regra do `assertPublishable`): uma `bloqueada` posterior das regras sobre um conteúdo que a T&S aprovou não emite nem despublica.
+- **O conteúdo exacto** é o `conteudoSha256` de `[categoria do tenant, [nome publicado]]`, a mesma forma que a re-análise lê (`SQL_POR_REANALISAR`). Um `screen` com outra categoria declarada no pedido, ou com outro texto, é outro conteúdo.
+- **Sem linha no `audit_log`:** as origens do registo são uma lista fechada do KAM-043, e a decisão, a violação e o `product_changed` ficam todos no *outbox* e na `screening_decision`, que são append-only.
+- **A recusa:** se a oferta trancada não sair de publicado, ou se um dos dois eventos falhar, a operação lança, a transacção desfaz-se toda (decisão incluída), e a rota responde `UPSTREAM_DOWN`, como já respondia a uma falha da escrita.
+
+### Verificação dos Critérios de Aceitação
+
+Três critérios, **três marcados**. A evidência está em `services/com/tests/screening.violacao.test.ts` (o ficheiro novo, **16/16**), que usa a política real e um duplo da base que **lê o texto da instrução**: cada predicado da tranca e da saída de publicado só filtra se estiver escrito. A suite inteira do COM dá **651/651**, o `trust.test.ts` do core-ts **51/51** e o `lote.test.ts` do `onboarding-web` **41/41** (o payload da violação do ensaio dele passou a ser o do contrato v1, com o `sha256`, de que a chave nova precisa). O duplo do `tests/publicacao.test.ts` (KAM-119) passou a ler o `estado = 'publicado'` da tranca e a contar a saída de publicado à parte. Sem isso, o ensaio do critério 5 do KAM-119 via uma oferta em rascunho como publicada.
+
+| Critério | Estado | Evidência nomeada |
+|---|---|---|
+| 1 | marcado | A violação sai uma vez, com o `sku`, a regra `alcool`, a versão e o sha em base32 (`criterio 1: a bloqueada do conteudo exacto de um publicado emite a violacao uma vez, com o sku e a regra`). O produto deixa de ser visível: a oferta fica `rascunho` e o `catalog.product_changed` sai **na mesma transacção** que a decisão e a violação (`decisao A: o publicado que o screen bloqueia fica rascunho e sai do indice na mesma transaccao`). Também sobre uma `permitida` anterior do motor (`tambem emite e despublica sobre uma permitida anterior do motor`). A falha de qualquer um dos dois eventos desfaz a decisão e a saída de publicado (`uma emissao que falha da UPSTREAM_DOWN e desfaz a decisao e a saida de publicado`) |
+| 2 | marcado | Um rascunho, um arquivado e um apagado não emitem, e a decisão grava-se na mesma (`criterio 2: o screen de um rascunho, de um arquivado ou de um apagado nao emite`). Outro nome, outra categoria no pedido, e uma `permitida` de um publicado também não (`criterio 2: o screen de outro conteudo nao emite`). Uma `bloqueada` de outro texto não tira o publicado que a re-análise já bloqueou (`criterio 2: a bloqueada de outro conteudo nao tira o publicado que a re-analise ja bloqueou`) |
+| 3 | marcado | A repetição do mesmo `screen` não emite segunda violação (`criterio 3: a repeticao do mesmo screen nao emite segunda violacao`). A `bloqueada` que a re-análise já emitiu também não, mas o `screen` despublica (`criterio 3: a bloqueada que a re-analise ja emitiu nao emite outra, e o screen despublica`). A tranca vem antes de ler as decisões e de gravar (`a tranca da oferta vem antes de ler as decisoes e de gravar`). **A corrida com a re-análise (decisão D1):** nas duas ordens (o `screen` confirma primeiro; a re-análise grava e emite, e o `screen` corre antes de ela confirmar), saem duas violações com o mesmo conteúdo, e as duas dão a mesma chave de sinal (`D1: a corrida do screen com a re-analise, nas duas ordens, emite duas vezes o mesmo conteudo, e o T&S le uma chave`). No consumidor, as duas ordens de chegada dão **um** sinal e só o `aviso`, sem `limitacao`; o controlo com a chave antiga dá a `limitacao` (`KAM-245, D1: a corrida do screen com a re-analise, nas duas ordens, da um sinal e nenhuma limitacao`, em `../packages/core-ts/tests/trust.test.ts`, com `D1: a chave da violacao e o conteudo, e cada parte dele a muda`) |
+
+**Os três pontos da decisão do fundador:**
+- o publicado sai do índice na mesma transacção (acima);
+- a re-análise continua a emitir sem despublicar, pelo `reanalisar` de produção sobre o mesmo duplo (`decisao A: a re-analise de uma mudanca de politica continua a emitir sem despublicar`);
+- o recurso humano republica: o `operacaoDePublicar` recusa com `VALIDATION_ERROR` e, depois de uma `permitida` de `humano`, publica (`decisao A: o recurso humano deixa o dono republicar o que o screen tirou`). Uma `permitida` humana anterior continua a ganhar (`uma permitida humana anterior continua a ganhar, sem violacao e sem despublicar`).
+
+**Testes Requeridos:**
+- **Adversarial:** o mesmo conteúdo noutro tenant (`adversarial: o mesmo conteudo noutro tenant`). Sem oferta no tenant do pedido, nada sai nem muda. Com oferta nos dois, só a do tenant do pedido muda, e o outro tenant tem a sua violação no `screen` dele.
+- **O canário do predicado:** tirar `estado = 'publicado'`, `deleted_at IS NULL` ou `sku = $2` só da tranca faz a operação recusar. Tirá-los da tranca e da saída de publicado faz a violação sair onde não devia. Tirar o `sku` da saída de publicado leva duas linhas, e a operação recusa e deixa a vizinha intacta (`canario do predicado: sem cada predicado da oferta, a violacao sai onde nao devia`).
+- **Contra o PostgreSQL:** a tranca e a saída de publicado, corridas como `kamba_app`, só tocam o publicado deste `sku` e deste tenant: rascunho, apagado e outro `sku` ficam de fora, a segunda saída não encontra nada, e com o contexto de outro tenant a RLS não deixa ver nem tirar (`TestPublicadoDoScreenDoCom`, em `../db/tests/test_screening_schema.py`; a suite dá **20/20** numa base descartável).
+- **Quatro mutações à mão no `gravarComViolacao`, todas vermelhas, com o controlo verde:**
+  - emitir sem a transição para `bloqueada` (1 ensaio vermelho);
+  - não comparar o sha do publicado (1 ensaio vermelho, o da `bloqueada` de outro conteúdo, escrito para esta mutação, que sobrevivia);
+  - não emitir o `catalog.product_changed` (5 ensaios vermelhos);
+  - não tirar de publicado (8 ensaios vermelhos).
+- **A mutação da D1:** pôr outra vez o id do envelope como chave do sinal deixa 2 ensaios vermelhos no `trust.test.ts` e 1 no COM, a corrida.
+
+### Verificação da Definition of Done
+
+| Caixa | Estado | Evidência nomeada |
+|---|---|---|
+| Critérios satisfeitos; o achado do KAM-119 revisto | marcado | Os três critérios acima. A linha do achado fora de âmbito no bloco do KAM-119 está revista: fechado por este ticket, com a assimetria da re-análise entregue ao **KAM-253** (EPIC-09), o credor que a decisão A do fundador pediu |
+
+
+---
+
+## KAM-252 — STO no `onboarding-web`: a credencial do painel só de escrita na classe `media_imagem`, ou fora do painel
+
+| Campo | Valor |
+|---|---|
+| Epic | EPIC-11 — Módulos de Entrada |
+| Fase | 1 |
+| Tipo | fix |
+| Prioridade | P1 |
+| Estimativa | M |
+| Dependências | KAM-243 |
+| Bloqueia | — |
+| Responsável sugerido | Engenheiro de Plataforma com SRE |
+| Documentos de referência | `EPIC-11_Modulos_Entrada.md` (bloco KAM-243, «Decisões em vigor»), `../ops/secrets-inventory.yaml` (`storage_access_key_id`, `storage_secret_access_key`), `../docs/tecnica/00_Arquitectura_Solucao.md` (§13.3, D6) |
+
+### Contexto
+
+Credor do KAM-243, aberto no PR dele por decisão do fundador de 2026-11-23. Para gravar a foto do dono pelo painel, o `onboarding-web` recebeu o par de credenciais do STO. Esse par é um só por ambiente e lê e escreve os objectos de **todos** os tenants: o isolamento por prefixo é da porta, não do servidor. O processo que serve a sessão do dono fica assim com mais alcance do que a rota precisa, porque ela só escreve na classe `media_imagem` do tenant da sessão. O fundador aceitou-o (opção A) com este credor, que se faz quando a D6 (SeaweedFS ou S3 gerido) fixar o armazenamento.
+
+### Objectivo
+
+A credencial do STO que o painel usa só chega para o que a rota da foto faz, ou o painel deixa de ter credencial do STO.
+
+### Critérios de Aceitação
+
+- [ ] Uma de duas, escolhida depois da D6 e escrita no bloco: o `onboarding-web` recebe uma credencial própria, só de escrita (sem leitura, listagem nem apagamento) no prefixo da classe `media_imagem`, com a nota no inventário de segredos; ou o `onboarding-web` deixa de ter credencial do STO, e os bytes da foto passam a um processo que já a tem.
+- [ ] Com a credencial do painel, uma leitura, uma listagem e um apagamento de um objecto de outro tenant ou de outra classe são recusados pelo servidor, e não só pela porta, com ensaio contra o armazenamento escolhido.
+- [ ] O `onboarding-web` deixa de constar como consumidor do `storage_access_key_id` e do `storage_secret_access_key` no inventário, e o arranque em `staging` e `prod` continua a recusar sem o que passar a precisar.
+
+### Detalhes Técnicos
+
+- **Espera pela D6.** As políticas por prefixo são do servidor, e o SeaweedFS e um S3 gerido não as escrevem da mesma forma.
+- **Sem esquema novo** previsto.
+
+### Testes Requeridos
+
+- Integração contra o armazenamento escolhido, com a credencial do painel.
+- **Adversarial:** a credencial do painel a ler, a listar e a apagar fora da classe e do tenant.
+
+### Definition of Done
+
+- [ ] Critérios de Aceitação satisfeitos; o inventário de segredos e o bloco do KAM-243 revistos com a evidência.
+
+### Handoff para Claude Code
+
+```text
+És o executor do ticket KAM-252 da KAMBÁ (a credencial do STO no painel).
+Lê specs/EPIC-11_Modulos_Entrada.md (blocos KAM-243 e KAM-252), ops/secrets-inventory.yaml (storage_access_key_id),
+services/onboarding-web/src/server.ts (montarArmazenamento) e packages/core-ts/src/storage/.
+Objectivo: a credencial do painel só escreve na classe media_imagem, ou o painel deixa de a ter.
+Regras: só depois da D6; nenhuma chave real no repositório; os segredos novos são decisão do fundador.
+Testes: integração e adversarial.
+```
 
 ---
 
@@ -4064,3 +4234,5 @@ Testes: unit, idempotência e adversarial.
 | 1.36 | Novembro 2026 | **KAM-244 entregue: a foto do dono sem prender a tomada da TLS.** Sem migração e sem emenda ao dicionário. A visão e o *screening* do pipeline do KAM-049 correm sem a tomada da ToolLayer, e o `Pedido.prazo` desce ao pipeline, repartido pelas etapas lentas; um *screening* sem tempo deixa a ingestão retomável, com o botão «Tentar outra vez». Emenda ao §6.5 do `docs/tecnica/02` (versão 1.15). Bloco do KAM-244: as decisões do executor e a verificação dos critérios (três marcados, com os limites escritos), da DoD e da revisão adversarial. No bloco do KAM-231, os achados 4 e 5 fechados com a evidência. | Equipa KAMBÁ |
 | 1.37 | Novembro 2026 | **KAM-242**, emenda de propagação: o achado fora do âmbito do bloco do KAM-238 (o *compose* de `prod` sem `memswap_limit`) passa a dizer que o KAM-242 o resolveu, e onde. Nenhuma caixa deste epic muda. Escrita como 1.36 e renumerada na integração, depois do KAM-244. Número **provisório**: renumera-se na integração. | Equipa KAMBÁ |
 | 1.38 | Novembro 2026 | Escrita como 1.36 e renumerada na integração, depois do KAM-244 e do KAM-242. **KAM-241 entregue: o consumidor `dono` no *compose* de `prod`, com 54 MiB medidos sob o próprio limite.** Sem migração, sem contrato e sem emenda do dicionário. Quatro alavancas medidas com o `db/ensaio_dono.py` e a rajada do KAM-238, sem *swap*: o ponto de entrada compilado (`services/onboarding-web/tsconfig.provisionamento.json`, um passo no `Dockerfile`, `dist/provisionamento.js`; apagar os tipos carregava o amaro, +8,5 MiB), a sonda em `bash` e o `NODE_OPTIONS=--max-semi-space-size=1 --max-old-space-size=24`. Sob 54m, `memory.peak` de 44–46 MiB e todos os veredictos verdes em três corridas (sem o `--max-old-space-size`, uma corrida em duas deu OOM); anexo `docs/evidencia/KAM-238.md` §6. O processo entra no *compose* de `prod` e no manifesto (`presente`, 54 MiB; soma 26 214 de 26 214,4), e o de `staging` passa a ter o mesmo serviço. O guião ganha `--node-options`, `--entrada` e a `--sonda compose`, mede por omissão o serviço como o *compose* o declara, confere o `NODE_OPTIONS` do contentor contra o pedido ou o do *compose*, e exige-o `healthy` depois da rajada. A suite do `tools/compose_prod` com as contagens novas e os dois marcadores do `egress-dez`. As linhas 2 e 3 do KAM-238 e a nota do KAM-215 revistas. O piso do `lint_bloco` sobe para 93 (186 medidos, com o KAM-247 e o KAM-242). **KAM-251** acrescentado, credor do `/metrics` do consumidor que nenhum *job* do Prometheus raspa (achado da revisão adversarial do KAM-241, por decisão da coordenação do lote 20); o KAM-241 passa a bloqueá-lo. Contagem: **34** tickets no epic. Número provisório, o maior da `main` mais um: renumera-se na integração. | Equipa KAMBÁ |
+| 1.39 | Novembro 2026 | **KAM-243 entregue: a foto do dono pelo painel.** Escrita como 1.36 e renumerada na integração, depois do KAM-244, do KAM-242 e do KAM-241. Sem migração. Emenda 1.142 do dicionário (§3.81 e §3.56). Bloco do KAM-243: as decisões em vigor (a P4-A do KAM-231, que a coordenação aplicou ao `onboarding-web`, e a decisão do fundador de 2026-11-23, que a substitui: o `onboarding-web` fica com o par do STO, opção A, com credor), as decisões do executor e a verificação dos critérios (quatro marcados), da DoD e da revisão adversarial (cinco achados: dois confirmados e dois plausíveis corrigidos, e um morto). No bloco do KAM-231, o critério 1 revisto com a evidência do painel, e a caixa fica vazia só pela descarga contra a Meta real; no do KAM-119, o critério 1 revisto da mesma forma. **KAM-252** acrescentado, credor do KAM-243 por decisão do fundador de 2026-11-23: a credencial do STO do painel só de escrita na classe `media_imagem`, ou fora do painel, quando a D6 fixar o armazenamento. Depende do KAM-243, cujo `Bloqueia` o ganha. Número **provisório**: renumera-se na integração. | Equipa KAMBÁ |
+| 1.40 | Novembro 2026 | **KAM-245 entregue: a violação de um publicado que o `screen` bloqueia, e a saída de publicado na mesma transacção.** Escrita como 1.36 e renumerada na integração, depois do KAM-244, do KAM-242, do KAM-241 e do KAM-243. Sem migração e sem contrato novo. Emenda 1.143 do dicionário (§3.5 e §3.58). A **decisão do fundador de 2026-11-23** (opção A; recusadas B e C) fica no bloco, com as **duas decisões do fundador sobre a revisão adversarial**, do mesmo dia: a D1 (opção B) faz da chave do sinal `violacao_de_categoria` o conteúdo e não o id do evento, contra a corrida com a re-análise, no consumidor de T&S (`packages/core-ts/src/trust/efeito.ts`) e no §3.68 do dicionário; a D2 (opção A) deixa o `rascunho` e escreve como achado o que o *trigger* da `0067` faz a ele sob `limitacao`. Também ficam as decisões do executor e as duas secções de verificação: três critérios de três e a caixa da DoD marcados. No bloco do KAM-119, a linha do achado fora de âmbito fica revista e fechada. A assimetria com a re-análise, que continua a não despublicar, vai para o **KAM-253**, aberto no EPIC-09 por este PR; o `Bloqueia` do KAM-245 ganha-o. O piso do `lint_bloco` sobe para 92 (184 medidos, na integração com o KAM-244). Medido contra a `main` em `b5529017`: a emenda escrita como 1.139 e renumerada na integração, depois do KAM-208. | Equipa KAMBÁ |
