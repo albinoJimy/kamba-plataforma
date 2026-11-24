@@ -5030,13 +5030,14 @@ colisões.
 | Critérios satisfeitos; a alínea (c) do critério 1 do KAM-236 revista | **satisfeito** | Os três acima. A alínea (c) do KAM-236 diz agora que está feita, com a revisão e esta secção; a caixa dele continua vazia pelas alíneas (a) e (b) |
 | As listas fechadas dos *gates* 6 e 8 e a política de retenção com a tabela nova | **satisfeito** | *Gate* 8: `base.py` (`TABELAS_IDEMPOTENCIA_DO_PAINEL`, e o `TABELAS_ANTES_DA_CORRELACAO` a derivar dele), `test_catalogo`, `test_inventario`, `test_privilegios`; o `tests_lote` com o ficheiro, o grupo e os seis nomes. *Gate* 6: a receita de sementes (pelas colunas do `INSERT` da aplicação), a `ORDEM` e as três listas do X-05; o X-03/X-04 e o X-05 65/65. Retenção: a classe e o caminho, e os 73 ensaios do `test_retencao` |
 
-**Medido nesta máquina**, com a `0089` ensaiada sobre a `0084` (as `0085` a `0088` ainda por fundir): o *gate* 8
-focado (`test_catalogo`, `test_inventario`, `test_privilegios`, `test_migracao`, `test_retencao_bd`, as descidas da
-inscrição, do canal do dono pelo painel, do social e da resposta do AGR) 124/124; o X-03/X-04 e o X-05 65/65; o
-ensaio de base 6/6; os tipos dos sete projectos sem erros; o `core-ts` 3556 a passar, 0 a falhar e 1 saltado (não deste ramo); o
-`onboarding-web` 278/0; os três comandos do *gate* 3b. **Fica para o CI:** o `tests_lote` inteiro (o Node não
-cabe aqui ao lado das outras sessões) e os dois casos X-01 de Node do `tests_isolamento` inteiro, que estouraram
-os 150 s com a máquina carregada — nenhum dos dois toca na tabela nova.
+**Medido nesta máquina**, na árvore da integração com a `publico/main` em `dbab7bca` (a `0089` sobre a `0088`):
+as 21 suites do `ci-8`, uma a uma, todas verdes salvo um caso do `tests` (1423 ensaios, 1 vermelho: o
+`test_contacto_da_encomenda`, intermitente conhecido e não deste ramo — um `uuid4` aleatório a casar `LIKE '%999%'`);
+o `tests_lote` 12/12, com o ensaio de base 6/6 e a medição «na base 1 gravacao(oes), em memoria 2»; o
+`tests_isolamento` (*gate* 6) 83/83; a conferência das mutações (1314, 0 inaplicáveis); os tipos do `contracts`, do
+`core-ts` e do `onboarding-web` sem erros; o `onboarding-web` 294/0; os linters rápidos, incluindo os três comandos
+do *gate* 3b; e as suites de `tools/` na árvore da integração anterior (`b3697872`), sem o `supply_chain`, que este
+ramo não toca. O `tests_agr` pede o `PYTHONPATH` do `Makefile` (sem ele, dois módulos não importam).
 
 **A revisão adversarial** correu numa passagem, sobre o diff antes do primeiro *commit*: nove achados, cinco
 CONFIRMADOS, três PLAUSÍVEIS e uma nota de integração. Não encontrou janela em que o COM grave duas vezes.
