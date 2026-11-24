@@ -47,7 +47,6 @@ STO ao servico exposto a Internet.
 
 from __future__ import annotations
 
-import dataclasses
 import datetime
 import json
 import os
@@ -127,7 +126,17 @@ def assinador_publico(
         return None
     if ambiente != "dev" and not publico.startswith("https://"):
         return None
-    return criar_storage_s3(config=dataclasses.replace(config, endpoint=publico), secrets=segredos)
+    # Construido campo a campo, e nao por `dataclasses.replace`: a fonte do AGR
+    # recusa-o em todo o lado, porque e a primeira forja de um `MinimisedText`
+    # (`tests/politica_llm_ast.py`).
+    so_para_assinar = StorageConfig(
+        endpoint=publico,
+        bucket=config.bucket,
+        regiao=config.regiao,
+        destino=config.destino,
+        avisos=config.avisos,
+    )
+    return criar_storage_s3(config=so_para_assinar, secrets=segredos)
 
 
 def _agora() -> datetime.datetime:
