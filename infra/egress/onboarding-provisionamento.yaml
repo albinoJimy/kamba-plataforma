@@ -1,7 +1,9 @@
 # Lista de saida do `onboarding-provisionamento` (KAM-215): o consumidor `dono`.
 #
 # Fala com a base (as duas ligacoes) e com a fila, ambas na rede interna, e e
-# raspado. Nenhum destino de saida: a decifra do telefone do caso e local, e a
+# raspado pelo Prometheus na 3015 (`job` `onboarding_provisionamento`, desde o
+# KAM-251; ate la, nenhum `job` o raspava). Raspar e entrada pela rede `app`, e
+# nao saida. Nenhum destino de saida: a decifra do telefone do caso e local, e a
 # chave vem do cofre pelo lancador (ADR-L002).
 
 version: 1
