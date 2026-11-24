@@ -108,7 +108,7 @@ after(async () => {
 });
 
 describe("a idempotência do painel na base (KAM-240)", () => {
-  it("KAM-240: dez pedidos com a mesma chave de dois processos gravam uma vez; em memória, duas", async (t) => {
+  it("KAM-240: dez pedidos com a mesma chave de dois processos gravam uma vez; em memória, duas", async (ctx) => {
     const [a, b] = [processo(), processo()];
     const t = tenant();
     const k = chave();
@@ -129,7 +129,7 @@ describe("a idempotência do painel na base (KAM-240)", () => {
     const q = patch(GRAVADO);
     await Promise.all(Array.from({ length: 10 }, (_, i) => (i % 2 === 0 ? ma : mb).uma(t, k, "SKU-1\u0000{}", q.fazer)));
     assert.equal(q.vezes(), 2, "em memória, cada processo grava a sua");
-    t.diagnostic(`[KAM-240] dois processos: na base ${p.vezes()} gravacao(oes), em memoria ${q.vezes()}`);
+    ctx.diagnostic(`[KAM-240] dois processos: na base ${p.vezes()} gravacao(oes), em memoria ${q.vezes()}`);
   });
 
   it("KAM-240: a repetição depois de um reinício devolve a resposta guardada sem correr nada", async () => {
