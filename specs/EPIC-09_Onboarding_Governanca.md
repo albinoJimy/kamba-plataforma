@@ -5187,7 +5187,7 @@ com o simulacro em *staging* a prová-lo.
 - [ ] **O 404 da Graph, medido** (a metade do critério 8 do KAM-233 que ficou): o `DELETE` de uma subscrição que já não existe, com o registo de evidência. Pede um *token* real de um WABA (o fundador, ou *staging*).
 - [ ] **O resto da purga** (critério 4 do KAM-233): as conversas espelhadas no Chatwoot, os *traces* e as *caches* por tenant, cada um no `purge_log`; e o pedido de eliminação aos fornecedores de LLM e STT, que é contactar subprocessadores — **do fundador**, e não por código sem ele.
 - [ ] **O simulacro** (critério 6 do KAM-233) em *staging*, com um tenant sintético, como o critério 7 do KAM-210 o descreve: documentado e repetível. Pede o ambiente.
-- [ ] **As duas tabelas da `0084` sem caminho de eliminação** (achado do KAM-233 na integração): o `onboarding_otp` aponta ao caso de onboarding sem cascata e não se apaga para ninguém, pelo que o caso deixa de sair com as provas; e a `painel_revogacao` também fica `sem_caminho` na purga. Se o `kamba_batch` ganha `DELETE` nelas, ou se ficam pela expiração, é retenção — **do fundador**.
+- [ ] **As duas tabelas da `0084` sem caminho de eliminação** (achado do KAM-233 na integração): o `onboarding_otp` aponta ao caso de onboarding sem cascata e não se apaga para ninguém, pelo que o caso deixa de sair com as provas; e a `painel_revogacao` também fica `sem_caminho` na purga. Se o `kamba_batch` ganha `DELETE` nelas, ou se ficam pela expiração, é retenção — **do fundador**. **E a da `0090`** (KAM-239, na integração com a `main` em `a399191c`): o `onboarding_guia` aponta ao caso da mesma forma, sem cascata e sem `DELETE` para ninguém, e entra na mesma pergunta; o fundamento do certificado já o nomeia.
 
 ### Detalhes Técnicos
 
