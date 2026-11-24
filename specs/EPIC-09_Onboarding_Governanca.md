@@ -5402,7 +5402,7 @@ instruções está no `../packages/core-ts/tests/screening.emissor.test.ts`, pel
   `lote` e `sondas` passaram os 150 s, e na segunda corrida também o `canais`. Nenhum dos três toca no screening,
   o conjunto mudou de uma corrida para a outra, e o grupo que monta o `/internal/screen` do COM (`com-interna`)
   passou nas duas. Fica ao CI;
-- o 3b com os três comandos, o `lint_bloco` (194 emparelhados, piso 97), o `lint_contagens`, o `lint_backlog`, o
+- o 3b com os três comandos, o `lint_bloco` (195 emparelhados na integração com o KAM-246, piso 97), o `lint_contagens`, o `lint_backlog`, o
   `lint_refs`, o `lint_handoff` e o `log_policy` (`lint` e `canario`);
 - a suite do `lint_bloco` (41/41) e as mutações dele, 18 mortas e 2 esperadas, com a do piso a casar outra vez.
 
