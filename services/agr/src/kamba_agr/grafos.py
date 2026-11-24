@@ -385,7 +385,7 @@ class SaidaPorLigar:
         self._aviso = aviso
 
     async def enfileirar(
-        self, estado: Mapping[str, Any], texto: str, *, chave: str, botoes: Any = ()
+        self, estado: Mapping[str, Any], texto: str, *, chave: str, botoes: Any = (), media: Any = None
     ) -> None:
         if self._aviso is not None:
             self._aviso("saida_por_ligar")

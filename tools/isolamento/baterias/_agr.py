@@ -647,6 +647,189 @@ def atacar_rota_do_screening(ctx) -> list[str]:  # noqa: ANN001
     return achados
 
 
+#: Os dois itens da pagina Social do painel (KAM-246). Fora do `ITEM_DE`: sao
+#: do `social/painel.rotas`, com a credencial do painel.
+ITENS_DO_PAINEL_SOCIAL = (
+    "rota:agr:kamba_agr/social/painel:rotas:POST:/internal/social/itens",
+    "rota:agr:kamba_agr/social/painel:rotas:POST:/internal/social/descarga",
+)
+
+
+def atacar_rotas_do_painel_social(ctx) -> list[str]:  # noqa: ANN001
+    """O X-01 das duas rotas da pagina Social do painel (KAM-246).
+
+    ## O que «A usa IDs de B» quer dizer aqui
+
+    O identificador de B que A pode ter e a **ligacao de descarga** de B (um
+    *token* que circula fora do painel, por ser de 24 h). O `tenant_id` do corpo
+    e o da sessao do painel, que o `onboarding-web` poe — e e autoridade, como no
+    `/internal/turn` do painel: quem tem o `agr_painel_token` e o painel. Fica
+    declarado em vez de medido, pela mesma razao do caso do screening.
+
+    As medicoes, com os quatro ataques do costume (coordenacao do lote 20):
+
+    1. a lista de A nao traz nada de B — nem a legenda de B, que leva o canario,
+       nem o `tenant_id` de B —, na resposta, nos cabecalhos e nos *logs*;
+    2. a ligacao de B aberta com o tenant de A, uma ligacao adulterada, uma de
+       outra chave e **a ligacao de A com o tenant de B no corpo** dao **o
+       mesmo** 404, sem nada de B; um segundo tenant no corpo e 400;
+    3. a sonda positiva: a lista de A traz o item de A, e a ligacao de A abre;
+    4. **sem credencial, e com o `agr_internal_token` em vez da do painel**, 401
+       nas duas, e a leitura dos itens nao e chamada.
+
+    O quarto ataque do costume — a **sessao** de outro tenant — e da pagina do
+    painel, que e quem tem sessao: e o caso `X-01/ts/painel` (a ligacao de A
+    aberta na sessao de B).
+
+    **O que este caso nao mede**: a leitura dos itens e um duplo por tenant. A
+    RLS da leitura (`RepositorioSql.itens_do_painel`) mede-a o
+    `db/tests_agr/test_social_do_dono.py`, contra a base.
+    """
+    _no_caminho()
+    import datetime  # noqa: PLC0415
+
+    from kamba_agr.app import create_app  # noqa: PLC0415
+    from kamba_agr.social import painel  # noqa: PLC0415
+    from kamba_agr.social.repositorio import APROVADO, Item  # noqa: PLC0415
+    from kamba_core.offboarding.exportacao import ligacao_assinada  # noqa: PLC0415
+    from kamba_core.storage import Ctx, ObjectMeta  # noqa: PLC0415
+    from kamba_core.storage.fake import criar_storage_fake  # noqa: PLC0415
+
+    agora = datetime.datetime.now(datetime.UTC)
+    chave_hmac = b"x01-chave-da-ligacao-de-descarga-"
+    armazenamento = criar_storage_fake(lambda: agora).storage
+    canario_de_b = next(iter(ctx.oraculo.proibidos.values()))
+    itens: dict[str, list[Any]] = {}
+    chaves_de: dict[str, str] = {}
+    for tenant, legenda in ((ctx.a.id, "Legenda de A."), (ctx.b.id, canario_de_b)):
+        objecto = f"t/{tenant}/arte/2026/11/{uuid.uuid4()}"
+        armazenamento.put(
+            Ctx(tenant), objecto, b"\xff\xd8\xffarte", ObjectMeta("image/jpeg", "arte", agora + datetime.timedelta(days=1))
+        )
+        chaves_de[tenant] = objecto
+        itens[tenant] = [
+            Item(
+                content_item_id=str(uuid.uuid4()),
+                tenant_id=tenant,
+                calendar_id=str(uuid.uuid4()),
+                semana_iso="2026-W48",
+                tipo="produto",
+                tema=legenda,
+                agendado_at=agora,
+                legenda=legenda,
+                estado=APROVADO,
+                arte_ref=objecto,
+            )
+        ]
+    chamadas: list[str] = []
+
+    def ler_itens(tenant: str) -> tuple[Any, ...]:
+        chamadas.append(tenant)
+        return tuple(itens.get(tenant, ()))
+
+    # A credencial do painel, e nao a do *shim* (`CREDENCIAL`, a das outras rotas
+    # do AGR neste ficheiro): e com a segunda que se ataca.
+    do_painel = "credencial-do-painel-do-x01"
+    app = create_app(
+        rotas_internas=painel.rotas(
+            credencial=lambda: do_painel,
+            painel=painel.PainelDoSocial(
+                itens=ler_itens, assinador=armazenamento, chaves=lambda: [chave_hmac], relogio=lambda: agora
+            ),
+        )
+    )
+    cabecalhos = {"content-type": "application/json", "x-kamba-interno": do_painel}
+    achados: list[str] = []
+
+    def varrer(item: str, texto: str, resposta_cabecalhos: dict[str, str]) -> None:
+        achados.extend(
+            f"{item}: {fuga}"
+            for fuga in ctx.oraculo.varrer_tudo({"corpo": texto, "cabecalhos": resposta_cabecalhos, "logs": ctx.logs})
+        )
+
+    # 1 e 3: a lista de A.
+    estado, resposta_cabecalhos, texto, registo = _pedir_com_logs(
+        app, "POST", painel.ROTA_DOS_ITENS, json.dumps({"tenant_id": ctx.a.id}).encode(), cabecalhos
+    )
+    ctx.logs.append(registo)
+    varrer(ITENS_DO_PAINEL_SOCIAL[0], texto, resposta_cabecalhos)
+    if estado != 200 or "Legenda de A." not in texto:
+        achados.append(
+            f"{ITENS_DO_PAINEL_SOCIAL[0]}: a sonda positiva falhou — a lista de A deu {estado} sem o item de A, "
+            "e a ausencia de B nao prova nada."
+        )
+
+    # 2: a ligacao de B, uma adulterada e uma de outra chave, com o tenant de A.
+    de_b = ligacao_assinada(chave_hmac, ctx.b.id, chaves_de[ctx.b.id], agora)
+    corpo_b64, mac = de_b.split(".")
+    adulterada = f"{corpo_b64}.{'A' if mac[0] != 'A' else 'B'}{mac[1:]}"
+    de_outra_chave = ligacao_assinada(b"y" * 32, ctx.a.id, chaves_de[ctx.a.id], agora)
+    de_a = ligacao_assinada(chave_hmac, ctx.a.id, chaves_de[ctx.a.id], agora)
+    estados: list[int] = []
+    for tenant, ligacao in (
+        (ctx.a.id, de_b),
+        (ctx.a.id, adulterada),
+        (ctx.a.id, de_outra_chave),
+        # O tenant de B no corpo, com a ligacao de A.
+        (ctx.b.id, de_a),
+    ):
+        estado, resposta_cabecalhos, texto, registo = _pedir_com_logs(
+            app,
+            "POST",
+            painel.ROTA_DA_DESCARGA,
+            json.dumps({"tenant_id": tenant, "ligacao": ligacao}).encode(),
+            cabecalhos,
+        )
+        ctx.logs.append(registo)
+        estados.append(estado)
+        varrer(ITENS_DO_PAINEL_SOCIAL[1], texto, resposta_cabecalhos)
+        if chaves_de[ctx.b.id] in texto:
+            achados.append(f"{ITENS_DO_PAINEL_SOCIAL[1]}: a resposta traz a chave do objecto de B")
+
+    from .x01_rotas import _uniformidade  # noqa: PLC0415
+
+    achados.extend(_uniformidade(ITENS_DO_PAINEL_SOCIAL[1], estados, aceitaveis=(404,)))
+
+    # Um segundo tenant no corpo nao escolhe nada: e um corpo fora da forma.
+    for rota, corpo in (
+        (painel.ROTA_DOS_ITENS, {"tenant_id": ctx.a.id, "tenant": ctx.b.id}),
+        (painel.ROTA_DA_DESCARGA, {"tenant_id": ctx.a.id, "ligacao": de_a, "tenant": ctx.b.id}),
+    ):
+        estado, resposta_cabecalhos, texto, registo = _pedir_com_logs(app, "POST", rota, json.dumps(corpo).encode(), cabecalhos)
+        ctx.logs.append(registo)
+        varrer(f"rota:agr:kamba_agr/social/painel:rotas:POST:{rota}", texto, resposta_cabecalhos)
+        if estado != 400:
+            achados.append(f"rota:agr:kamba_agr/social/painel:rotas:POST:{rota}: um segundo tenant no corpo deu {estado} e nao 400")
+
+    # 3: a ligacao de A abre.
+    estado, _, texto, _ = _pedir_com_logs(
+        app, "POST", painel.ROTA_DA_DESCARGA, json.dumps({"tenant_id": ctx.a.id, "ligacao": de_a}).encode(), cabecalhos
+    )
+    if estado != 200 or "url" not in texto:
+        achados.append(
+            f"{ITENS_DO_PAINEL_SOCIAL[1]}: a sonda positiva falhou — a ligacao de A deu {estado}, e o 404 da de B "
+            "nao prova nada."
+        )
+
+    # 4: sem credencial, e com a do *shim* em vez da do painel: 401, e a leitura
+    # dos itens nao e chamada.
+    antes = len(chamadas)
+    for rotulo, cabecalhos_do_ataque in (
+        ("sem credencial", {"content-type": "application/json"}),
+        ("com o agr_internal_token", {"content-type": "application/json", "x-kamba-interno": CREDENCIAL}),
+    ):
+        for rota, corpo in (
+            (painel.ROTA_DOS_ITENS, {"tenant_id": ctx.a.id}),
+            (painel.ROTA_DA_DESCARGA, {"tenant_id": ctx.a.id, "ligacao": de_a}),
+        ):
+            estado, _, _, _ = _pedir_com_logs(app, "POST", rota, json.dumps(corpo).encode(), cabecalhos_do_ataque)
+            if estado != 401:
+                achados.append(f"rota:agr:kamba_agr/social/painel:rotas:POST:{rota}: {rotulo} deu {estado} e nao 401")
+    if len(chamadas) != antes:
+        achados.append(f"{ITENS_DO_PAINEL_SOCIAL[0]}: um pedido sem credencial chegou a leitura dos itens")
+    return achados
+
+
 def atacar_sonda(ctx) -> list[str]:  # noqa: ANN001
     """O X-01 da `/healthz` do AGR: responde, e nao leva nada de B."""
     app, _ = _montar(ctx)

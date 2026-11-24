@@ -276,6 +276,9 @@ MARCADORES = {
     "KAMBA_SECRET_KEK_TOKEN_CLIENTE": "marcador",
     "KAMBA_SECRET_STORAGE_ACCESS_KEY_ID": "marcador",
     "KAMBA_SECRET_STORAGE_SECRET_ACCESS_KEY": "marcador",
+    # KAM-246 (Q3 = A): o AGR exige a chave da ligacao de descarga em `prod`.
+    # Mesma razao e mesmo sintoma.
+    "KAMBA_SECRET_CHAVE_DA_LIGACAO_DE_DESCARGA": "marcador",
     # KAM-236: o `onboarding-web` arranca em `prod` sobre a base, com a ligacao
     # do `kamba_app`, os segredos da inscricao e as duas KEK do caso. Mesma razao
     # e mesmo sintoma.

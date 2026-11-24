@@ -130,6 +130,13 @@ ROTA_DO_SCREENING_DO_AGR = (
     "rota:agr:kamba_agr/llm/screening:rotas:POST:/internal/screening",
 )
 
+#: As duas rotas da pagina Social do painel (KAM-246), com a credencial do
+#: painel: a lista e a abertura da ligacao de descarga.
+ROTAS_DO_PAINEL_SOCIAL_DO_AGR = (
+    "rota:agr:kamba_agr/social/painel:rotas:POST:/internal/social/itens",
+    "rota:agr:kamba_agr/social/painel:rotas:POST:/internal/social/descarga",
+)
+
 #: A sonda do AGR. Sem identificadores.
 SONDA_DO_AGR = ("rota:agr:kamba_agr/app:create_app:GET:/healthz",)
 
@@ -271,6 +278,12 @@ def _conduzir_screening_do_agr(ctx) -> list[str]:  # noqa: ANN001
     return atacar_rota_do_screening(ctx)
 
 
+def _conduzir_painel_social_do_agr(ctx) -> list[str]:  # noqa: ANN001
+    from ._agr import atacar_rotas_do_painel_social  # noqa: PLC0415
+
+    return atacar_rotas_do_painel_social(ctx)
+
+
 def _conduzir_sonda_do_agr(ctx) -> list[str]:  # noqa: ANN001
     from ._agr import atacar_sonda  # noqa: PLC0415
 
@@ -408,6 +421,16 @@ registar_caso(
     camada="rotas",
     enumeravel=ROTA_DO_SCREENING_DO_AGR,
     fn=_conduzir_screening_do_agr,
+    precisa="agr",
+    origens=("corpo", "cabecalhos", "logs"),
+)
+
+registar_caso(
+    id="X-01/agr/painel-social",
+    bateria="X-01",
+    camada="rotas",
+    enumeravel=ROTAS_DO_PAINEL_SOCIAL_DO_AGR,
+    fn=_conduzir_painel_social_do_agr,
     precisa="agr",
     origens=("corpo", "cabecalhos", "logs"),
 )
@@ -1012,6 +1035,9 @@ ROTAS_DO_PAINEL = (
     "rota:onboarding-web:painel/rotas:actor:POST:/painel/encomendas/:id/contacto",
     # KAM-243: a foto do dono para o catalogo.
     "rota:onboarding-web:painel/rotas:actor:POST:/painel/foto",
+    # KAM-246: a pagina Social e a ligacao de descarga, pedidas ao AGR.
+    "rota:onboarding-web:painel/rotas:actor:GET:/painel/social",
+    "rota:onboarding-web:painel/rotas:actor:GET:/painel/social/descarga",
 )
 
 #: Os estados de cada rota, quando nao sao os do `RECUSAS_ACEITAVEIS`. As listas
@@ -1054,6 +1080,11 @@ ACEITAVEIS_DO_PAINEL: dict[str, tuple[int, ...]] = {
     # KAM-243. A foto com a sessao de A responde **so** 200, com o `asset_id` de A
     # (a sonda): o que se mede e que o MED e o AGR so viram A.
     "rota:onboarding-web:painel/rotas:actor:POST:/painel/foto": (200,),
+    # KAM-246. A lista responde 200 com a sessao de A, so com o item de A; a
+    # ligacao de B com a sessao de A responde **so** 404, igual a uma adulterada
+    # ou expirada: nao diz se o item existe.
+    "rota:onboarding-web:painel/rotas:actor:GET:/painel/social": (200,),
+    "rota:onboarding-web:painel/rotas:actor:GET:/painel/social/descarga": (404,),
 }
 
 #: Ataques por rota do painel.
@@ -1114,6 +1145,18 @@ def _afirmacoes_do_painel(item: str, entradas: list[dict]) -> list[str]:
                 "intacto",
                 "A oferta de B mudou depois de um ataque com a sessao de A: e o "
                 "IDOR de escrita que o criterio 8 proibe.",
+            )
+        )
+    if item.endswith(("GET:/painel/social", "GET:/painel/social/descarga")):
+        achados.extend(
+            _exigir_marca(
+                item,
+                entradas,
+                "tenant",
+                "sessao",
+                "A pagina Social pediu ao AGR a lista ou a ligacao com outro tenant "
+                "que nao o da sessao do pedido (KAM-246): o tenant tem de ser o da "
+                "sessao, e nunca o da consulta, do cabecalho ou da ligacao.",
             )
         )
     if item.endswith("GET:/painel/canal"):

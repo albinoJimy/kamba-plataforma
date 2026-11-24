@@ -30,6 +30,14 @@ O Aprovar **nao** e um botao deste modulo: e o `confirm:{action_id}` da accao
 2026-11-21). Chega ao no `confirm` pela intencao `confirmar`, e o `aprovar`
 deste modulo corre o `approve_content` com a `Confirmation` desse turno.
 
+## A arte vai como imagem (KAM-246)
+
+A pre-visualizacao e a **primeira** entrega levam a chave do STO da arte no
+rascunho (`draft["media"]`), e o `send` grava-a na `agent_replies`: o consumidor
+do WhatsApp envia a imagem antes do texto. A legenda e a nota do rotulo de IA
+vao no texto, que se copia. **Uma entrega repetida nao leva imagem**: entregar
+duas vezes envia uma, e a arte fica sempre na pagina Social do painel.
+
 ## Os numeros do texto sao os da tool
 
 As horas do calendario e a legenda levam digitos e nao passam pelo validador
@@ -48,6 +56,7 @@ from collections.abc import Mapping
 from typing import Any, Final
 
 from ...social import regras
+from ...social.publicacao import NOTA_DO_ROTULO_DE_IA
 from ...tls.erros import (
     ENTITLEMENT_DENIED,
     LIMIT_EXCEEDED,
@@ -369,10 +378,16 @@ async def _pedir_aprovacao(
     if arte is not None and arte.get("texto_da_arte"):
         linhas.append(MSG_TEXTO_DA_ARTE)
         linhas.extend(str(x) for x in arte["texto_da_arte"])
-    linhas += [MSG_LEGENDA_PARA_APROVAR, str(dados.get("legenda") or ""), MSG_IMAGEM_POR_LIGAR, MSG_COMO_APROVAR]
+    linhas += [MSG_LEGENDA_PARA_APROVAR, str(dados.get("legenda") or "")]
+    if dados.get("is_ai_generated"):
+        linhas.append(NOTA_DO_ROTULO_DE_IA)
+    linhas += [MSG_ARTE_NO_PAINEL, MSG_COMO_APROVAR]
     if arte is not None and arte.get("alerta_de_custo"):
         linhas.append(MSG_ALERTA_DE_CUSTO)
     resposta = _resposta_estatica("\n".join(linhas))
+    if dados.get("arte_ref"):
+        # A imagem sai antes deste texto (KAM-246).
+        resposta["draft"]["media"] = str(dados["arte_ref"])
     resposta["draft"]["botoes"] = (
         f"confirm:{dados['action_id']}",
         regras.botao_do_item(regras.PREFIXO_DE_EDITAR, referencia),
@@ -436,10 +451,15 @@ async def _entregar(deps: Dependencias, estado: Mapping[str, Any], referencia: s
     linhas = [abertura.format(referencia=referencia), "", str(partes["legenda"]), ""]
     if partes.get("nota"):
         linhas.append(str(partes["nota"]))
-    linhas.append(MSG_IMAGEM_POR_LIGAR)
+    linhas.append(MSG_ARTE_NO_PAINEL)
     if partes.get("termos"):
         linhas.append(str(partes["termos"]))
-    return _resposta_estatica("\n".join(linhas))
+    resposta = _resposta_estatica("\n".join(linhas))
+    if not dados.get("ja_entregue") and partes.get("arte_ref"):
+        # **So a primeira entrega leva a imagem** (KAM-246): entregar duas vezes
+        # envia uma. A repetida reenvia a legenda, e a arte esta no painel.
+        resposta["draft"]["media"] = str(partes["arte_ref"])
+    return resposta
 
 
 def _frase_do_erro(erro: Any) -> str:
@@ -504,8 +524,11 @@ MSG_COMO_PEDIR_ARTE: Final = "Quando a legenda estiver boa, toque em Arte para p
 MSG_PRE_VISUALIZACAO: Final = "Pre-visualizacao de {referencia}, para aprovar:"
 MSG_TEXTO_DA_ARTE: Final = "Texto da arte:"
 MSG_LEGENDA_PARA_APROVAR: Final = "Legenda:"
-MSG_IMAGEM_POR_LIGAR: Final = (
-    "A imagem da arte ainda nao segue por esta conversa; fica guardada com o item."
+#: KAM-246: a imagem segue antes do texto, e o aviso de que nao seguia saiu.
+#: Esta frase vale nos dois canais: no do painel a imagem nao vai na conversa,
+#: e a pagina Social tem-na sempre.
+MSG_ARTE_NO_PAINEL: Final = (
+    "A arte tambem fica no painel, na pagina Social, para descarregar."
 )
 MSG_COMO_APROVAR: Final = (
     "Aprove, edite ou rejeite. Para editar a legenda, escreva EDITAR, a referencia, dois pontos e a "

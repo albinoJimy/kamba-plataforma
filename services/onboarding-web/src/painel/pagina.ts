@@ -130,7 +130,7 @@ function moldura(nonce: string, titulo: string, corpo: string, guiao = ""): stri
 <html lang="pt-AO"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>${escapar(titulo)} — KAMBÁ</title>${estilo(nonce)}</head>
-<body><nav><a href="/painel/produtos">Produtos</a><a href="/painel/encomendas">Encomendas</a><a href="/painel/canal">Canal</a>
+<body><nav><a href="/painel/produtos">Produtos</a><a href="/painel/encomendas">Encomendas</a><a href="/painel/canal">Canal</a><a href="/painel/social">Social</a>
 <form method="post" action="/painel/sair"><button type="submit">Sair</button></form></nav>
 <h1>${escapar(titulo)}</h1>
 ${corpo}${guiao}</body></html>`;
@@ -442,6 +442,14 @@ export function paginaDaLigacaoFechada(nonce: string): string {
 }
 
 /** A página de um recurso que não existe — ou que não é deste dono. A mesma. */
+/**
+ * A página Social (KAM-246), com o corpo já montado por `corpoDoSocial`
+ * (`./social.ts`), que escapa tudo o que vem de fora. Aqui só a moldura.
+ */
+export function paginaDoSocial(nonce: string, corpo: string): string {
+  return moldura(nonce, "Social", corpo);
+}
+
 export function paginaNaoEncontrada(nonce: string): string {
   return moldura(nonce, "Não encontrado", "<p>Não encontrámos o que procura.</p>");
 }

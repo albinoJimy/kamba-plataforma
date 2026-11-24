@@ -5400,7 +5400,7 @@ Entregue neste ramo, sem esquema:
   a porta `AvisoDaLista.entrega` e o desfecho `por_entregar` das métricas da lista);
 - o grupo `guia` do condutor do X-01 sobre a base ([`../tools/isolamento/tests/condutor/rotas.ts`](../tools/isolamento/tests/condutor/rotas.ts)),
   com a credencial do lote só para esse grupo;
-- a emenda 1.147 do dicionário.
+- a emenda 1.148 do dicionário.
 
 | Critério | Estado | Evidência |
 |---|---|---|
