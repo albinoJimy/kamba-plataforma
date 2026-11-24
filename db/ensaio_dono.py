@@ -1,8 +1,8 @@
 """O ensaio do KAM-238: o pico de memoria do consumidor `dono` sob uma rajada.
 
     python db/ensaio_dono.py [--casos N] [--limite 54m] [--sonda compose|node|bash]
-                             [--node-options=...] [--entrada caminho] [--manter]
-                             [--relatorio caminho.json]
+                             [--node-options=...] [--entrada caminho] [--prometheus]
+                             [--manter] [--relatorio caminho.json]
 
 Levanta, do **compose de staging** e com o nome de projecto `kam238-ensaio`, o
 PostgreSQL e a fila, cria os papeis e aplica as migracoes, e levanta o
@@ -49,6 +49,13 @@ nenhum *swap*, o contentor `healthy` depois da rajada, e o `NODE_OPTIONS` no
 contentor igual ao pedido (ou ao do compose, sem `--node-options`). Os segredos
 sao gerados nesta execucao e nao se imprimem; os telefones sao ficticios, com 999.
 
+`--prometheus` (KAM-251) levanta tambem o Prometheus do compose de *staging*,
+que monta o `prometheus.yml` de producao, antes da rajada: o pico mede-se com a
+raspagem do `/metrics` a correr no mesmo cgroup, e o relatorio leva o alvo do
+`job` `onboarding_provisionamento` (a `scrapeUrl`, a saude, o `up`), quantas
+raspagens cairam na drenagem e os nomes das series que o `job` trouxe. Um
+veredicto a mais: o alvo `up`, e so ele.
+
 ## Porque *staging* e nao producao
 
 O compose de *staging* levanta a pilha descartavel que o ensaio precisa (a base,
@@ -71,6 +78,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import urllib.parse
 from pathlib import Path
 
 RAIZ = Path(__file__).resolve().parents[1]
@@ -80,6 +88,8 @@ ADMIN = "kamba_admin"
 BASE = "kamba_gate8"
 SERVICO = "onboarding-provisionamento"
 CONSUMIDOR = "dono"
+#: O `job` do processo no `prometheus.yml` (KAM-251).
+JOB = "onboarding_provisionamento"
 PAPEIS = ("MIGRATOR", "APP", "BATCH", "RESOLVER", "IDENTITY", "AUDIT", "AGR", "PAY_HOOKS", "PAY")
 MIB = 1024 * 1024
 
@@ -290,6 +300,7 @@ def rajada(pilha: Pilha, runner: dict[str, str], casos: int, limite_s: float) ->
     antes = {**_cgroup(pilha, c), **_picos(pilha, c)}
 
     pilha.node(imagem, runner, "publicador_runner.ts", destacado=True, nome=f"{PROJECTO}-publicador")
+    drenagem_desde = time.time()
     amostras: list[float] = []
     t0 = time.monotonic()
     donos = 0
@@ -315,12 +326,58 @@ def rajada(pilha: Pilha, runner: dict[str, str], casos: int, limite_s: float) ->
         "tenant_provisioned_no_outbox": no_outbox,
         "antes_da_rajada": antes,
         "drenagem_s": drenagem_s,
+        "drenagem_desde_unix": round(drenagem_desde, 3),
         "donos": donos,
         "consumidos": consumidos,
         "dlq": dlq,
         "amostras": len(amostras),
         "working_set_max_mib": max(amostras),
         "depois": {**_cgroup(pilha, c), **_picos(pilha, c)},
+    }
+
+
+def _prometheus(pilha: Pilha, j: dict) -> dict:
+    """O alvo do consumidor no Prometheus da pilha (KAM-251).
+
+    A API so escuta em `127.0.0.1` dentro do contentor (`--web.listen-address`
+    do compose), e le-se por `docker exec` com o `wget` da imagem. Espera ate 90 s
+    pela primeira raspagem: o intervalo global e de 30 s.
+    """
+    c = pilha.contentor("prometheus")
+
+    def api(caminho: str) -> dict:
+        r = subprocess.run(
+            ["docker", "exec", c, "wget", "-q", "-O", "-", f"http://127.0.0.1:9090/api/v1/{caminho}"],
+            capture_output=True, text=True, timeout=60,
+        )
+        if r.returncode != 0:
+            raise RuntimeError(f"prometheus {caminho}: {r.stderr[-500:]}")
+        return json.loads(r.stdout)["data"]
+
+    def consulta(expressao: str) -> list[dict]:
+        return api("query?query=" + urllib.parse.quote(expressao, safe=""))["result"]
+
+    alvos: list[dict] = []
+    for _ in range(90):
+        alvos = [a for a in api("targets?state=active")["activeTargets"]
+                 if a["labels"].get("job") == JOB and a["health"] != "unknown"]
+        if alvos:
+            break
+        time.sleep(1)
+    # As raspagens que cairam na drenagem e nos 10 s de amostras a seguir: o
+    # pico da rajada so inclui o `/metrics` se houver pelo menos uma.
+    janela = max(1, round(j["drenagem_s"] + 10))
+    fim = j["drenagem_desde_unix"] + janela
+    na_drenagem = consulta(f'count_over_time(up{{job="{JOB}"}}[{janela}s] @ {fim:.3f})')
+    return {
+        "job": JOB,
+        "alvos": [{"scrape_url": a["scrapeUrl"], "health": a["health"], "last_error": a["lastError"]}
+                  for a in alvos],
+        "up": [float(s["value"][1]) for s in consulta(f'up{{job="{JOB}"}}')],
+        "raspagens_na_drenagem": int(float(na_drenagem[0]["value"][1])) if na_drenagem else 0,
+        "series": sorted({s["metric"]["__name__"] for s in consulta(f'{{job="{JOB}"}}')}
+                         - {"up", "scrape_duration_seconds", "scrape_samples_scraped",
+                            "scrape_samples_post_metric_relabeling", "scrape_series_added"}),
     }
 
 
@@ -393,6 +450,9 @@ def veredictos(r: dict) -> dict[str, bool]:
         == (r["node_options"] if r["node_options"] is not None else node_options_do_compose()),
         # Vivo e a responder a sonda depois da rajada, e nao so sem reinicio.
         "saudavel": j["depois"]["saude"] == "healthy",
+        # KAM-251: com `--prometheus`, o alvo do processo `up` e so ele.
+        **({"alvo_up": [a["health"] for a in r["prometheus"]["alvos"]] == ["up"]
+            and r["prometheus"]["up"] == [1.0]} if "prometheus" in r else {}),
     }
 
 
@@ -408,13 +468,16 @@ def principal() -> int:
     argumentos.add_argument("--entrada", default=None,
                             help="o ficheiro que o `node` corre, por sobreposicao (omissao: o `command:` do compose)")
     argumentos.add_argument("--espera", type=float, default=600, help="segundos para drenar a rajada")
+    argumentos.add_argument("--prometheus", action="store_true",
+                            help="levanta o Prometheus de staging e mede com a raspagem a correr (KAM-251)")
     argumentos.add_argument("--manter", action="store_true", help="nao derruba a pilha no fim")
     argumentos.add_argument("--relatorio", type=Path)
     opcoes = argumentos.parse_args()
 
     inicio = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
     relatorio: dict = {"inicio_utc": inicio, "limite": opcoes.limite, "sonda": opcoes.sonda,
-                      "node_options": opcoes.node_options, "entrada": opcoes.entrada}
+                      "node_options": opcoes.node_options, "entrada": opcoes.entrada,
+                      "com_prometheus": opcoes.prometheus}
     with tempfile.TemporaryDirectory(prefix="kam238-") as pasta:
         env, runner = _ambiente()
         pilha = Pilha(Path(pasta), env, opcoes.limite, opcoes.sonda, opcoes.node_options, opcoes.entrada)
@@ -440,10 +503,14 @@ def principal() -> int:
                 else:
                     raise RuntimeError(f"{comando[1]}: {r.stderr[-2000:]}")
             pilha.compose("up", "-d", "--build", "--wait", SERVICO, tempo=1800)
+            if opcoes.prometheus:
+                pilha.compose("up", "-d", "--wait", "prometheus", tempo=600)
             time.sleep(20)
             c = pilha.contentor(SERVICO)
             relatorio["repouso"] = {**_cgroup(pilha, c), **_picos(pilha, c)}
             relatorio["rajada"] = rajada(pilha, runner, opcoes.casos, opcoes.espera)
+            if opcoes.prometheus:
+                relatorio["prometheus"] = _prometheus(pilha, relatorio["rajada"])
             relatorio["veredictos"] = veredictos(relatorio)
         except Exception as erro:  # noqa: BLE001 — o relatorio leva o que se mediu
             relatorio["erro"] = f"{type(erro).__name__}: {erro}"

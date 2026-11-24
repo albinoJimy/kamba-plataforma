@@ -1523,6 +1523,69 @@ def r_consumidores(dados: Dados) -> list[Achado]:
     return achados
 
 
+#: KAM-251: os processos da imagem do `onboarding-web` que servem `/metrics` em
+#: producao, com o `job` que os raspa e a variavel e o valor da porta. O
+#: consumidor `dono` correu em `prod` desde o KAM-241 sem `job` nenhum, e o
+#: `infra/egress/onboarding-provisionamento.yaml` dizia que era raspado: nada
+#: ficou vermelho, porque a regra do KAM-187 so conhece a imagem do
+#: `worker-canal`.
+ALVOS_DO_ONBOARDING: dict[str, tuple[str, str, int]] = {
+    "onboarding-web": ("onboarding_web", "PORT", 3003),
+    "onboarding-lote": ("onboarding_lote", "LOTE_PORT", 3014),
+    "onboarding-provisionamento": ("onboarding_provisionamento", "PROVISIONAMENTO_PORT", 3015),
+}
+
+
+def r_alvos_do_onboarding(dados: Dados) -> list[Achado]:
+    """KAM-251: cada processo do onboarding em producao tem o seu `job`.
+
+    **`onboarding-sem-alvo`** — o servico esta no compose de producao e nenhum
+    `job_name` do `prometheus.yml` aponta para o nome dele na porta da tabela,
+    ou o servico escuta noutra porta (a variavel dele nao vale a da tabela). E o
+    `up` desse `job` que diz que o processo esta vivo para o Prometheus; sem
+    ele, uma DLQ que cresce ou uma recusa da guarda de tenant nao se ve em
+    `prod`, e nada fica vermelho.
+
+    Um servico da tabela que falte no compose nao e achado daqui: o
+    `r_conjunto` confere o compose contra o manifesto.
+    """
+    caminho = dados.raiz / PROMETHEUS
+    try:
+        configuracao = load_file(caminho)
+    except (OSError, YamlSubsetError) as excepcao:
+        raise ConfiguracaoInvalida(f"{PROMETHEUS}: ilegivel: {excepcao}") from excepcao
+    achados: list[Achado] = []
+    for servico, (job, variavel, porta) in sorted(ALVOS_DO_ONBOARDING.items()):
+        if servico not in dados.prod.servicos:
+            continue
+        no, chaves = dados.prod.servicos[servico]
+        escuta = _ambiente(dados.prod, chaves).get(variavel)
+        if escuta != str(porta):
+            achados.append(
+                Achado(
+                    "onboarding-sem-alvo", dados.prod.ficheiro, no.linha,
+                    f"o servico `{servico}` tem `{variavel}` a {escuta!r} e o `job` "
+                    f"`{job}` raspa a {porta} (KAM-251).",
+                )
+            )
+        alvos = [
+            descoberta
+            for raspagem in configuracao.get("scrape_configs") or []
+            if raspagem.get("job_name") == job
+            for descoberta in raspagem.get("dns_sd_configs") or []
+        ]
+        if not any(servico in (d.get("names") or []) and d.get("port") == porta for d in alvos):
+            achados.append(
+                Achado(
+                    "onboarding-sem-alvo", PROMETHEUS, 0,
+                    f"nenhum `job_name: {job}` do `prometheus.yml` aponta para "
+                    f"`{servico}` na porta {porta}: o processo corre em producao e "
+                    "as metricas dele nao chegam ao Prometheus (KAM-251).",
+                )
+            )
+    return achados
+
+
 REGRAS = (
     r_conjunto,
     r_denylist,
@@ -1538,6 +1601,7 @@ REGRAS = (
     r_flags_de_licenca,
     r_staging,
     r_consumidores,
+    r_alvos_do_onboarding,
 )
 
 
