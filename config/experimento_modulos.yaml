@@ -1,0 +1,51 @@
+# config/experimento_modulos.yaml — limiares do experimento dos modulos de entrada (KAM-127)
+#
+# TODOS OS VALORES FORAM RATIFICADOS PELO FUNDADOR A 2026-11-24 (decisoes 1 e 2
+# do bloco do KAM-127), e nenhum foi medido. Vem do
+# `docs/exploracao/14-tese-minima-e-plano-de-validacao.md` §2 (H10, H11, H12:
+# «Limiares sao propostas minhas») e dos criterios de abate do bloco do KAM-127
+# em `specs/EPIC-11_Modulos_Entrada.md`. Com ~10 PMEs as percentagens sao
+# grosseiras (6/10 = 60%, intervalo de Wilson 95% de ~31% a ~83%), e e por isso
+# que toda a leitura sai com n/N e o intervalo, e nunca so com a percentagem.
+#
+# **Pre-registado.** O documento
+# `docs/tecnica/evidencia/validacao/H10_H12_Modulos_Entrada.md` fixa estes
+# valores antes da primeira medicao. Mudar um limiar depois de haver resultado e
+# mudar o criterio, nao ajusta-lo: faz-se por PR, com linha nova de versao nesse
+# documento e o motivo.
+#
+# Quem le este ficheiro e o `kamba_core.modulos.experimento`, e so este formato:
+# `chave: inteiro`, uma por linha, com comentarios. O leitor **recusa** uma chave
+# que nao conhece, uma chave em falta e um valor que nao seja inteiro positivo.
+# As percentagens sao inteiros em pontos percentuais.
+
+version: 1
+
+# --- as tres hipoteses (`14` §2) -----------------------------------------------
+# H10: >= 60% das PMEs onboardadas usam >= 1 modulo nas 2 primeiras semanas.
+h10_limiar_pct: 60
+# H11: >= 30% das que entram por um modulo activam o atendimento aos 30 dias.
+h11_limiar_pct: 30
+# H12: custo <= 15% do preco de teste do modulo...
+h12_custo_pct: 15
+# ...e >= 3 PMEs distintas pagam por um modulo isolado.
+h12_pagantes: 3
+
+# --- as janelas ----------------------------------------------------------------
+# H10: a janela de uso, contada do `tenant.provisioned`; antes dela, censurada.
+janela_de_uso_dias: 14
+# H11: a janela de activacao, contada do primeiro valor de modulo.
+janela_de_activacao_dias: 30
+
+# --- os criterios de abate (bloco do KAM-127) -----------------------------------
+# (a) uso abaixo de 20% das PMEs aos 14 dias.
+abate_uso_minimo_pct: 20
+# (b) custo acima de 15% do preco de teste em 2 semanas seguidas...
+abate_custo_maximo_pct: 15
+abate_semanas_de_custo: 2
+# (c) incidentes de conteudo em 30 dias: >= 1 de gravidade alta, ou >= 3 de media.
+abate_incidentes_alta: 1
+abate_incidentes_media: 3
+abate_janela_de_incidentes_dias: 30
+# «Ajustar» tambem quando um criterio esta a 10% do seu limiar.
+ajuste_margem_pct: 10

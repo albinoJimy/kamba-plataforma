@@ -2841,6 +2841,32 @@ INVENTARIO["module_test_prices"] = {
     "carregado_em": ("timestamp with time zone", NAO, "now()", "nao"),
 }
 
+#: O experimento dos modulos de entrada (KAM-127, revisao do experimento dos
+#: modulos). **Nenhuma coluna e de cliente**: a decisao e global (modulo,
+#: numeros agregados com n/N e a decisao), e a exclusao e um tenant e um motivo
+#: de dominio fechado. O `responsavel` e o `registado_por` sao a **identidade
+#: de staff** de quem decide ou exclui (a do IdP, §3.65), e nao do titular —
+#: a resposta do `review_decision_log.revisor_id`.
+INVENTARIO["module_decisions"] = {
+    "id": ("uuid", NAO, "gen_random_uuid()", "nao"),
+    "modulo": ("text", NAO, None, "nao — codigo de lista fechada"),
+    "data_decisao": ("date", NAO, None, "nao"),
+    "metricas": ("jsonb", NAO, None, "nao — n/N, Wilson e racios agregados, sem tenant"),
+    "criterio": ("text", SIM, None, "nao — nomes dos criterios accionados"),
+    "decisao": ("text", NAO, None, "nao — codigo de lista fechada"),
+    "responsavel": ("text", NAO, None, "nao — identificador de staff, nao do titular"),
+    "justificacao": ("text", NAO, None, "nao — texto da equipa sobre o modulo, sem cliente"),
+    "revisao_em": ("date", SIM, None, "nao"),
+    "registado_em": ("timestamp with time zone", NAO, "clock_timestamp()", "nao"),
+}
+
+INVENTARIO["module_experiment_exclusions"] = {
+    "tenant_id": ("uuid", NAO, None, "nao"),
+    "motivo": ("text", NAO, None, "nao — `equipa` ou `teste`"),
+    "registado_por": ("text", NAO, None, "nao — identificador de staff, nao do titular"),
+    "registado_em": ("timestamp with time zone", NAO, "clock_timestamp()", "nao"),
+}
+
 #: A lista de espera do limite de onboarding (KAM-095, revisao da lista de
 #: espera). **Nenhum dado pessoal**: a entrada e um caso de onboarding (que e
 #: onde o NIF e o telefone vivem, cifrados), um estado e instantes. O convite
@@ -3289,6 +3315,37 @@ INVENTARIO["v_h12"] = {
     "preco_teste_minor": ("bigint", SIM, None, "nao — hipotese de preco do plano do tenant"),
     "racio": ("numeric", SIM, None, "nao"),
     "margem_minor": ("bigint", SIM, None, "nao"),
+}
+
+#: As tres vistas do experimento dos modulos (KAM-127). **Nenhuma coluna e de
+#: pessoa**: tenant, instantes, modulos e booleanos. O `contact_id` le-se por
+#: dentro da H11 e nao sai. Uma vista nao tem `NOT NULL` nem omissao.
+INVENTARIO["v_h10"] = {
+    "tenant_id": ("uuid", SIM, None, "nao"),
+    "provisionado_em": ("timestamp with time zone", SIM, None, "nao"),
+    "censurado": ("boolean", SIM, None, "nao"),
+    "catalogo": ("boolean", SIM, None, "nao"),
+    "foto": ("boolean", SIM, None, "nao"),
+    "social": ("boolean", SIM, None, "nao"),
+    "orcamento": ("boolean", SIM, None, "nao"),
+    "algum": ("boolean", SIM, None, "nao"),
+}
+
+INVENTARIO["v_h11"] = {
+    "tenant_id": ("uuid", SIM, None, "nao"),
+    "primeiro_valor_em": ("timestamp with time zone", SIM, None, "nao"),
+    "primeiro_modulo": ("text", SIM, None, "nao"),
+    "primeira_conversa_em": ("timestamp with time zone", SIM, None, "nao — o instante, sem o contacto"),
+    "entrou_por_modulo": ("boolean", SIM, None, "nao"),
+    "censurado": ("boolean", SIM, None, "nao"),
+    "activou": ("boolean", SIM, None, "nao"),
+}
+
+INVENTARIO["v_h12_pagantes"] = {
+    "tenant_id": ("uuid", SIM, None, "nao"),
+    "plano": ("text", SIM, None, "nao"),
+    "modulo": ("text", SIM, None, "nao"),
+    "ciclos_pagos": ("integer", SIM, None, "nao — uma contagem"),
 }
 
 #: **A sexta vista do esquema** (KAM-051, revisao `0037`): o contrato de leitura
@@ -3948,6 +4005,10 @@ class TestInventario(ComBase):
                         # custo aponta o tenant, sem cascata — e so de
                         # acrescentar, e um custo nao se apaga com o tenant.
                         "module_cost_ledger_tenant_fk",
+                        # KAM-127 (revisao do experimento dos modulos): a
+                        # exclusao aponta o tenant, sem cascata — e so de
+                        # acrescentar, e o registo do experimento fica.
+                        "module_experiment_exclusions_tenant_fk",
                         # KAM-059 (revisao do billing): as oito, todas sem
                         # cascata. Um ciclo nao se apaga com a subscricao, nem a
                         # cobranca com o ciclo (o ledger e *append-only*), nem a
@@ -4842,6 +4903,28 @@ class TestInventario(ComBase):
                     "module_cost_ledger_pkey",
                     "module_cost_ledger_ref_ck",
                     "module_cost_ledger_rubrica_ck",
+                    # ------- KAM-127 (revisao do experimento dos modulos)
+                    #
+                    # **Treze.** Dez na decisao — a chave primaria, os dominios
+                    # do `modulo` e da `decisao`, o objecto das `metricas`, os
+                    # comprimentos do `criterio`, do `responsavel` e da
+                    # `justificacao`, o `catalogo` que nao se abate, o
+                    # `ajustar` com data e a revisao depois da decisao — e
+                    # tres na exclusao: a chave `tenant_id`, o dominio do
+                    # `motivo` e o comprimento de quem a regista.
+                    "module_decisions_ajustar_ck",
+                    "module_decisions_catalogo_ck",
+                    "module_decisions_criterio_ck",
+                    "module_decisions_decisao_ck",
+                    "module_decisions_justificacao_ck",
+                    "module_decisions_metricas_ck",
+                    "module_decisions_modulo_ck",
+                    "module_decisions_pkey",
+                    "module_decisions_responsavel_ck",
+                    "module_decisions_revisao_ck",
+                    "module_experiment_exclusions_motivo_ck",
+                    "module_experiment_exclusions_pkey",
+                    "module_experiment_exclusions_registado_por_ck",
                     "module_test_prices_estado_ck",
                     "module_test_prices_modulo_ck",
                     "module_test_prices_pkey",

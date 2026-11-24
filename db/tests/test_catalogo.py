@@ -295,6 +295,10 @@ class TestConvencoes(ComBase):
                 # custo a plataforma inteira regista. A ordem e a do
                 # `ocorrido_em`.
                 "module_cost_ledger",
+                # KAM-127: a decisao de um modulo de entrada. `uuid` aleatorio e
+                # **nao** o `bigserial` do bloco, pela regra geral do §2; a ordem
+                # e a do `registado_em` (`clock_timestamp()`).
+                "module_decisions",
                 # KAM-117: o episodio de churn. `uuid` aleatorio pela regra
                 # geral: a auditoria le-o sob a `tenant_iso`, e um sequencial
                 # dizia-lhe quantos sinais a plataforma inteira abre.
@@ -772,6 +776,11 @@ class TestConvencoes(ComBase):
                 # em cada plano, e e a chave que o `carregar-precos` substitui.
                 # Entre os modelos de mensagem e a oferta («me» < «mo» < «of»).
                 ("module_cost_ledger", "id", "uuid", "gen_random_uuid()"),
+                # KAM-127 (revisao do experimento dos modulos): a decisao, `uuid`
+                # gerada pela regra geral; e a exclusao, com chave **natural** —
+                # o `tenant_id` —, porque um tenant fica fora da coorte uma vez so.
+                ("module_decisions", "id", "uuid", "gen_random_uuid()"),
+                ("module_experiment_exclusions", "tenant_id", "uuid", None),
                 ("module_test_prices", "modulo", "text", None),
                 ("module_test_prices", "plano", "text", None),
                 # KAM-015: um `uuid` gerado, como a conversa, e pela mesma
@@ -1508,6 +1517,10 @@ class TestConvencoes(ComBase):
              # um modulo, que a guarda de orcamento le). **Com** FK para
              # `tenants`.
              "module_cost_ledger",
+             # KAM-127 (revisao do experimento dos modulos). A exclusao comeca
+             # pelo `tenant_id` porque ele e a chave primaria. **Com** FK para
+             # `tenants`. A `module_decisions` nao tem tenant: e global.
+             "module_experiment_exclusions",
              # KAM-092 (revisao dos eventos do tenant). Os dois por indice
              # proprio: `onboarding_gate_tenant_idx (tenant_id)`, porque a chave
              # primaria comeca pelo `onboarding_id`; e
@@ -2300,7 +2313,11 @@ class TestConvencoes(ComBase):
         # **126** desde a revisao do guia na base (KAM-239): a composta
         # `onboarding_guia_caso_fk (onboarding_id, tenant_id)`, que prende o
         # estado do guia ao caso e ao tenant dele.
-        self.assertEqual(len(linhas), 126)
+        #
+        # **127** desde a revisao do experimento dos modulos (KAM-127): a
+        # `module_experiment_exclusions_tenant_fk`. A `module_decisions` nao
+        # tem FK: e global, sem tenant.
+        self.assertEqual(len(linhas), 127)
         for nome, alvo in linhas:
             with self.subTest(fk=nome):
                 self.assertTrue(alvo.startswith("platform."), alvo)

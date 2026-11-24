@@ -587,7 +587,7 @@ class TestSeisNegativos(unittest.TestCase):
         escrever(self.pasta, vendedor=VENDEDOR, gates=GATES, misto="consumidor: idx\nid: vendedor\n")
         with self.assertRaises(registo.RegistoInvalidoError) as capturado:
             registo.carregar(ambiente(), self.pasta)
-        self.assertIn("quatro formas", str(capturado.exception))
+        self.assertIn("cinco formas", str(capturado.exception))
 
     def test_a_mesma_vertical_duas_vezes_reprova(self) -> None:
         escrever(self.pasta, a=VENDEDOR, b=VENDEDOR, gates=GATES)

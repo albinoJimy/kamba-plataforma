@@ -1012,9 +1012,158 @@ class TestConsumidor(unittest.TestCase):
     def test_consumidor_e_vertical_no_mesmo_ficheiro_falham(self) -> None:
         self.unico(CONSUMIDOR + "id: vendedor\n", REGRA, "nao se misturam")
 
-    def test_a_mensagem_de_nenhuma_forma_nomeia_as_quatro(self) -> None:
-        achado = self.unico("version: 1.0.0\n", REGRA, "quatro unicas formas")
+    def test_a_mensagem_de_nenhuma_forma_nomeia_as_cinco(self) -> None:
+        achado = self.unico("version: 1.0.0\n", REGRA, "cinco unicas formas")
         self.assertIn("sem `consumidor`", achado.mensagem)
+        self.assertIn("sem `modulos_entrada`", achado.mensagem)
+
+
+#: A quinta forma (KAM-127), minima: os quatro modulos do ADR-020, todos ligados.
+MODULOS = """\
+version: 1.0.0
+modulos_entrada:
+  - modulo: catalogo
+    activo: true
+    abatavel: false
+  - modulo: foto
+    activo: true
+    abatavel: true
+  - modulo: social
+    activo: true
+    abatavel: true
+  - modulo: orcamento
+    activo: true
+    abatavel: true
+"""
+
+#: O quinto modulo, que o dicionario conhece por extensao no ensaio: a regra do
+#: ADR-020 tem de morder **sem** a ajuda do achado de nome.
+QUINTO = "  - modulo: arquivo\n    activo: true\n    abatavel: true\n"
+EMENDA = "docs/adr/ADR-020-emenda-arquivo-ai.md"
+
+
+class TestModulosDeEntrada(unittest.TestCase):
+    """A forma `modulos_entrada` (KAM-127, criterio 5): a regra de escopo por CI."""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.saber = saber()
+
+    def achados(self, fonte: str, ficheiro: str = "registry/modulos_entrada.yaml", saber_=None):
+        return registo.verificar(ficheiro, fonte, saber_ or self.saber)
+
+    def unico(self, fonte: str, classe: str, trecho: str, saber_=None):
+        achados = self.achados(fonte, saber_=saber_)
+        self.assertEqual([a.classe for a in achados], [classe], [str(a) for a in achados])
+        self.assertIn(trecho, achados[0].mensagem)
+        return achados[0]
+
+    def com_arquivo(self, emenda: str | None = None):
+        """Um `Saber` que conhece `arquivo` como modulo e, se pedido, a emenda."""
+        from unittest import mock
+
+        saber_ = saber()
+        tem_original = saber_.extensoes.tem
+        carregar_original = saber_.carregar
+        mock.patch.object(
+            saber_.extensoes, "tem",
+            side_effect=lambda tipo, nome: (tipo, nome) == ("modulo", "arquivo") or tem_original(tipo, nome),
+        ).start()
+        mock.patch.object(
+            saber_, "carregar",
+            side_effect=lambda rel: emenda if rel == EMENDA else carregar_original(rel),
+        ).start()
+        self.addCleanup(mock.patch.stopall)
+        return saber_
+
+    def test_o_ficheiro_real_do_repositorio_passa(self) -> None:
+        from .base import ROOT
+
+        fonte = (ROOT / "registry/modulos_entrada.yaml").read_text(encoding="utf-8")
+        self.assertEqual([str(a) for a in self.achados(fonte)], [])
+
+    def test_a_forma_minima_passa_com_qualquer_nome_de_ficheiro(self) -> None:
+        self.assertEqual(self.achados(MODULOS), [])
+        self.assertEqual(self.achados(MODULOS, "registry/escopo.yaml"), [])
+
+    def test_quatro_passam_e_o_quinto_falha_sem_emenda(self) -> None:
+        """O criterio 5: 100% das tentativas de um quinto sem emenda falham."""
+        saber_ = self.com_arquivo()
+        self.assertEqual(self.achados(MODULOS, saber_=saber_), [])
+        for emenda in (None, "", EMENDA, "docs/adr/qualquer.md", "../ADR-020-emenda-x.md"):
+            with self.subTest(emenda=emenda):
+                fonte = MODULOS + QUINTO + (f"emenda_adr_020: {emenda!r}\n" if emenda is not None else "")
+                self.unico(fonte, REGRA, "no maximo 4", saber_=saber_)
+
+    def test_o_quinto_com_a_emenda_que_existe_e_cita_o_adr_passa(self) -> None:
+        saber_ = self.com_arquivo(emenda="# Emenda ao ADR-020: o quinto modulo\n")
+        fonte = MODULOS + QUINTO + f"emenda_adr_020: {EMENDA}\n"
+        self.assertEqual([str(a) for a in self.achados(fonte, saber_=saber_)], [])
+
+    def test_a_emenda_que_nao_cita_o_adr_nao_conta(self) -> None:
+        saber_ = self.com_arquivo(emenda="# Outra coisa qualquer\n")
+        fonte = MODULOS + QUINTO + f"emenda_adr_020: {EMENDA}\n"
+        self.unico(fonte, REGRA, "no maximo 4", saber_=saber_)
+
+    def test_um_desligado_nao_conta_para_o_tecto(self) -> None:
+        saber_ = self.com_arquivo()
+        fonte = MODULOS.replace("modulo: foto\n    activo: true", "modulo: foto\n    activo: false") + QUINTO
+        self.assertEqual(self.achados(fonte, saber_=saber_), [])
+
+    def test_o_quinto_fora_do_dicionario_falha_tambem_pelo_nome(self) -> None:
+        classes = sorted(a.classe for a in self.achados(MODULOS + QUINTO))
+        self.assertEqual(classes, sorted([FORA, REGRA]))
+
+    def test_o_catalogo_nunca_se_abate(self) -> None:
+        desligado = MODULOS.replace("modulo: catalogo\n    activo: true", "modulo: catalogo\n    activo: false")
+        self.unico(desligado, REGRA, "nunca se abate")
+        abatavel = MODULOS.replace("activo: true\n    abatavel: false", "activo: true\n    abatavel: true")
+        self.unico(abatavel, REGRA, "nunca se abate")
+
+    def test_os_outros_desligam_se(self) -> None:
+        for modulo in ("foto", "social", "orcamento"):
+            with self.subTest(modulo=modulo):
+                fonte = MODULOS.replace(f"modulo: {modulo}\n    activo: true", f"modulo: {modulo}\n    activo: false")
+                self.assertEqual(self.achados(fonte), [])
+
+    def test_uma_vertical_nao_e_modulo_de_entrada(self) -> None:
+        fonte = MODULOS + "  - modulo: vendedor\n    activo: false\n    abatavel: true\n"
+        self.unico(fonte, FORA, "`vendedor`")
+
+    def test_o_mesmo_modulo_duas_vezes_falha(self) -> None:
+        self.unico(MODULOS + "  - modulo: foto\n    activo: false\n    abatavel: true\n", REGRA, "duas vezes")
+
+    def test_interruptor_que_nao_e_booleano_falha(self) -> None:
+        for mau in ('"true"', "1", "sim"):
+            with self.subTest(mau=mau):
+                fonte = MODULOS.replace("modulo: social\n    activo: true", f"modulo: social\n    activo: {mau}")
+                self.unico(fonte, REGRA, "booleano")
+
+    def test_chave_desconhecida_e_sem_version_falham(self) -> None:
+        self.unico(MODULOS + "maximo: 5\n", ILEGIVEL, "chave `maximo` desconhecida")
+        self.unico(MODULOS.replace("version: 1.0.0\n", ""), REGRA, "SemVer")
+        fonte = MODULOS.replace("    abatavel: true\n  - modulo: social", "    abatavel: true\n    preco: 1\n  - modulo: social")
+        self.unico(fonte, ILEGIVEL, "chave `preco` desconhecida")
+
+    def test_lista_vazia_falha(self) -> None:
+        self.unico("version: 1.0.0\nmodulos_entrada: []\n", ILEGIVEL, "pelo menos um")
+
+    def test_modulos_e_vertical_no_mesmo_ficheiro_falham(self) -> None:
+        self.unico(MODULOS + "id: vendedor\n", REGRA, "nao se misturam")
+
+    def test_sem_o_catalogo_falha(self) -> None:
+        sem = MODULOS.replace("  - modulo: catalogo\n    activo: true\n    abatavel: false\n", "")
+        self.unico(sem, REGRA, "sem `catalogo`")
+
+    def test_o_tecto_nao_se_parte_por_dois_ficheiros(self) -> None:
+        """Dois ficheiros de tres passavam cada um por si: o segundo e recusado."""
+        segundo = "version: 1.0.0\nmodulos_entrada:\n  - modulo: catalogo\n    activo: true\n    abatavel: false\n"
+        achados = registo.modulos_em_mais_de_um_ficheiro(
+            {"registry/modulos_entrada.yaml": MODULOS, "registry/mais.yaml": segundo, "registry/idx.yaml": CONSUMIDOR}
+        )
+        self.assertEqual([(a.ficheiro, a.classe) for a in achados], [("registry/modulos_entrada.yaml", REGRA)])
+        self.assertIn("num ficheiro so", achados[0].mensagem)
+        self.assertEqual(registo.modulos_em_mais_de_um_ficheiro({"registry/modulos_entrada.yaml": MODULOS}), [])
 
 
 class TestRegistoDeChaves(unittest.TestCase):

@@ -12,7 +12,7 @@
 
 version: 1
 fonte: "specs/02_Dicionario_de_Dados_Canonico.md"
-versao_dicionario: "1.145"
+versao_dicionario: "1.146"
 entradas:
   - seccao: "3.1"
     conceito: "Contacto"
@@ -23969,6 +23969,321 @@ entradas:
       - "onboarding"
       - "web"
     variantes_literais: []
+  - seccao: "3.86"
+    conceito: "Decisão de um módulo de entrada"
+    canonico: "platform.module_decisions, dez colunas: id, modulo, data_decisao, metricas, criterio, decisao, responsavel, justificacao, revisao_em, registado_em"
+    literais:
+      - "platform.module_decisions"
+      - "id"
+      - "modulo"
+      - "data_decisao"
+      - "metricas"
+      - "criterio"
+      - "decisao"
+      - "responsavel"
+      - "justificacao"
+      - "revisao_em"
+      - "registado_em"
+    nomes:
+      - "platform.module_decisions"
+      - "id"
+      - "modulo"
+      - "data_decisao"
+      - "metricas"
+      - "criterio"
+      - "decisao"
+      - "responsavel"
+      - "justificacao"
+      - "revisao_em"
+      - "registado_em"
+    nomes_nota:
+      - "id"
+      - "bigserial"
+      - "tenant_id"
+      - "module_test_prices"
+      - "module_decisions_imutavel"
+      - "UPDATE"
+      - "DELETE"
+      - "module_decisions_sem_truncate"
+      - "ENABLE"
+      - "ALWAYS"
+      - "platform.experimento_so_acrescenta"
+      - "responsavel"
+      - "revisor_id"
+      - "SELECT"
+      - "INSERT"
+      - "kamba_batch"
+      - "metricas"
+    variantes_literais: []
+  - seccao: "3.86"
+    conceito: "A decisão"
+    canonico: "module_decisions.decisao ∈ {manter, ajustar, abater}"
+    literais:
+      - "module_decisions.decisao"
+      - "manter"
+      - "ajustar"
+      - "abater"
+    nomes:
+      - "module_decisions.decisao"
+      - "manter"
+      - "ajustar"
+      - "abater"
+    nomes_nota:
+      - "module_decisions_catalogo_ck"
+      - "catalogo"
+      - "module_decisions_ajustar_ck"
+      - "ajustar"
+      - "revisao_em"
+    variantes_literais: []
+  - seccao: "3.86"
+    conceito: "Módulo da decisão"
+    canonico: "module_decisions.modulo ∈ {catalogo, foto, social, orcamento}"
+    literais:
+      - "module_decisions.modulo"
+      - "catalogo"
+      - "foto"
+      - "social"
+      - "orcamento"
+    nomes:
+      - "module_decisions.modulo"
+      - "catalogo"
+      - "foto"
+      - "social"
+      - "orcamento"
+    nomes_nota:
+      - "CHECK"
+    variantes_literais: []
+  - seccao: "3.86"
+    conceito: "Critério accionado"
+    canonico: "module_decisions.criterio: os nomes a_uso, b_custo, b_margem_negativa, c_incidentes, perto_do_limiar e d_catalogo_nao_se_abate, por vírgula"
+    literais:
+      - "module_decisions.criterio"
+      - "a_uso"
+      - "b_custo"
+      - "b_margem_negativa"
+      - "c_incidentes"
+      - "perto_do_limiar"
+      - "d_catalogo_nao_se_abate"
+    nomes:
+      - "module_decisions.criterio"
+      - "a_uso"
+      - "b_custo"
+      - "b_margem_negativa"
+      - "c_incidentes"
+      - "perto_do_limiar"
+      - "d_catalogo_nao_se_abate"
+    nomes_nota:
+      - "manter"
+      - "kamba_core.modulos.experimento"
+    variantes_literais: []
+  - seccao: "3.86"
+    conceito: "Exclusão da coorte"
+    canonico: "platform.module_experiment_exclusions, quatro colunas: tenant_id, motivo, registado_por, registado_em; chave tenant_id"
+    literais:
+      - "platform.module_experiment_exclusions"
+      - "tenant_id"
+      - "motivo"
+      - "registado_por"
+      - "registado_em"
+      - "tenant_id"
+    nomes:
+      - "platform.module_experiment_exclusions"
+      - "tenant_id"
+      - "motivo"
+      - "registado_por"
+      - "registado_em"
+    nomes_nota:
+      - "FORCE"
+      - "tenant_iso"
+      - "module_experiment_exclusions_imutavel"
+      - "module_experiment_exclusions_sem_truncate"
+      - "SELECT"
+      - "INSERT"
+      - "kamba_batch"
+    variantes_literais: []
+  - seccao: "3.86"
+    conceito: "Motivo da exclusão"
+    canonico: "module_experiment_exclusions.motivo ∈ {equipa, teste}"
+    literais:
+      - "module_experiment_exclusions.motivo"
+      - "equipa"
+      - "teste"
+    nomes:
+      - "module_experiment_exclusions.motivo"
+      - "equipa"
+      - "teste"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.86"
+    conceito: "Resultado de valor por módulo"
+    canonico: "platform.experimento_valores(p_agora) → (tenant_id, modulo, primeiro_em)"
+    literais:
+      - "platform.experimento_valores(p_agora)"
+      - "(tenant_id, modulo, primeiro_em)"
+    nomes:
+      - "platform.experimento_valores"
+      - "p_agora"
+      - "tenant_id"
+      - "modulo"
+      - "primeiro_em"
+    nomes_nota:
+      - "catalog_ingestions"
+      - "confirmado_at"
+      - "image_jobs"
+      - "atualizado_at"
+      - "events_log"
+    variantes_literais: []
+  - seccao: "3.86"
+    conceito: "Coorte do experimento"
+    canonico: "platform.experimento_coorte(p_agora) → (tenant_id, provisionado_em)"
+    literais:
+      - "platform.experimento_coorte(p_agora)"
+      - "(tenant_id, provisionado_em)"
+    nomes:
+      - "platform.experimento_coorte"
+      - "p_agora"
+      - "tenant_id"
+      - "provisionado_em"
+    nomes_nota:
+      - "events_log"
+      - "tenants.tipo"
+      - "pme"
+    variantes_literais: []
+  - seccao: "3.86"
+    conceito: "H10 por tenant"
+    canonico: "platform.experimento_h10(p_agora, p_janela_dias) e platform.v_h10(tenant_id, provisionado_em, censurado, catalogo, foto, social, orcamento, algum)"
+    literais:
+      - "platform.experimento_h10(p_agora, p_janela_dias)"
+      - "platform.v_h10(tenant_id, provisionado_em, censurado, catalogo, foto, social, orcamento, algum)"
+    nomes:
+      - "platform.experimento_h10"
+      - "p_agora"
+      - "p_janela_dias"
+      - "platform.v_h10"
+      - "tenant_id"
+      - "provisionado_em"
+      - "censurado"
+      - "catalogo"
+      - "foto"
+      - "social"
+      - "orcamento"
+      - "algum"
+    nomes_nota:
+      - "now"
+      - "entrada"
+      - "dias"
+      - "censurado"
+    variantes_literais: []
+  - seccao: "3.86"
+    conceito: "H11 por tenant"
+    canonico: "platform.experimento_h11(p_agora, p_janela_dias) e platform.v_h11(tenant_id, primeiro_valor_em, primeiro_modulo, primeira_conversa_em, entrou_por_modulo, censurado, activou)"
+    literais:
+      - "platform.experimento_h11(p_agora, p_janela_dias)"
+      - "platform.v_h11(tenant_id, primeiro_valor_em, primeiro_modulo, primeira_conversa_em, entrou_por_modulo, censurado, activou)"
+    nomes:
+      - "platform.experimento_h11"
+      - "p_agora"
+      - "p_janela_dias"
+      - "platform.v_h11"
+      - "tenant_id"
+      - "primeiro_valor_em"
+      - "primeiro_modulo"
+      - "primeira_conversa_em"
+      - "entrou_por_modulo"
+      - "censurado"
+      - "activou"
+    nomes_nota:
+      - "now"
+      - "contacts.papel"
+      - "definir_dono"
+      - "contact_id"
+    variantes_literais: []
+  - seccao: "3.86"
+    conceito: "Pagantes da H12"
+    canonico: "platform.v_h12_pagantes(tenant_id, plano, modulo, ciclos_pagos)"
+    literais:
+      - "platform.v_h12_pagantes(tenant_id, plano, modulo, ciclos_pagos)"
+    nomes:
+      - "platform.v_h12_pagantes"
+      - "tenant_id"
+      - "plano"
+      - "modulo"
+      - "ciclos_pagos"
+    nomes_nota:
+      - "module_test_prices"
+      - "v_h12"
+    variantes_literais: []
+  - seccao: "3.86"
+    conceito: "Leitura de colunas pelo lote"
+    canonico: "SELECT (estado, confirmado_at) em catalog_ingestions, ao kamba_batch"
+    literais:
+      - "SELECT (estado, confirmado_at)"
+      - "catalog_ingestions"
+      - "kamba_batch"
+    nomes:
+      - "SELECT"
+      - "estado"
+      - "confirmado_at"
+      - "catalog_ingestions"
+      - "kamba_batch"
+    nomes_nota:
+      - "kamba_batch"
+      - "SECURITY"
+      - "INVOKER"
+      - "contacts"
+      - "BYPASSRLS"
+    variantes_literais: []
+  - seccao: "3.86"
+    conceito: "Comando do experimento"
+    canonico: "experimento-modulos (../db/experimento_modulos.py), job ops_experimento_modulos"
+    literais:
+      - "experimento-modulos"
+      - "ops_experimento_modulos"
+    nomes:
+      - "experimento"
+      - "modulos"
+      - "ops_experimento_modulos"
+    nomes_nota:
+      - "ler"
+      - "reproduzir"
+      - "decidir"
+      - "registar"
+      - "excluir"
+    variantes_literais: []
+  - seccao: "3.86"
+    conceito: "Limiares do experimento"
+    canonico: "config/experimento_modulos.yaml, lido por kamba_core.modulos.experimento.ler"
+    literais:
+      - "kamba_core.modulos.experimento.ler"
+    nomes:
+      - "kamba_core.modulos.experimento.ler"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.86"
+    conceito: "Regra de escopo dos módulos"
+    canonico: "registry/modulos_entrada.yaml, a quinta forma do registo (chave de topo modulos_entrada), com modulo, activo, abatavel e emenda_adr_020"
+    literais:
+      - "modulos_entrada"
+      - "modulo"
+      - "activo"
+      - "abatavel"
+      - "emenda_adr_020"
+    nomes:
+      - "modulos_entrada"
+      - "modulo"
+      - "activo"
+      - "abatavel"
+      - "emenda_adr_020"
+    nomes_nota:
+      - "activo"
+      - "emenda_adr_020"
+      - "catalogo"
+      - "modulos_entrada"
+      - "modulos_em_mais_de_um_ficheiro"
+      - "modulos_desligados"
+      - "ENTITLEMENT_DENIED"
+      - "PortaDeOrcamento"
+    variantes_literais: []
 
 tabelas:
   - nome: "contacts"
@@ -25772,6 +26087,80 @@ tabelas:
     assinatura: "platform.guia_caso_por_phone_number_id(text)"
     seccao: "3.85"
     conceito: "Política e busca do guia pelo número"
+  - nome: "experimento_valores"
+    esquema: "platform"
+    colunas:
+      - "p_agora"
+    aberta: false
+    assinatura: "platform.experimento_valores(p_agora)"
+    seccao: "3.86"
+    conceito: "Resultado de valor por módulo"
+  - nome: "experimento_coorte"
+    esquema: "platform"
+    colunas:
+      - "p_agora"
+    aberta: false
+    assinatura: "platform.experimento_coorte(p_agora)"
+    seccao: "3.86"
+    conceito: "Coorte do experimento"
+  - nome: "experimento_h10"
+    esquema: "platform"
+    colunas:
+      - "p_agora"
+      - "p_janela_dias"
+    aberta: false
+    assinatura: "platform.experimento_h10(p_agora, p_janela_dias)"
+    seccao: "3.86"
+    conceito: "H10 por tenant"
+  - nome: "v_h10"
+    esquema: "platform"
+    colunas:
+      - "tenant_id"
+      - "provisionado_em"
+      - "censurado"
+      - "catalogo"
+      - "foto"
+      - "social"
+      - "orcamento"
+      - "algum"
+    aberta: false
+    assinatura: "platform.v_h10(tenant_id, provisionado_em, censurado, catalogo, foto, social, orcamento, algum)"
+    seccao: "3.86"
+    conceito: "H10 por tenant"
+  - nome: "experimento_h11"
+    esquema: "platform"
+    colunas:
+      - "p_agora"
+      - "p_janela_dias"
+    aberta: false
+    assinatura: "platform.experimento_h11(p_agora, p_janela_dias)"
+    seccao: "3.86"
+    conceito: "H11 por tenant"
+  - nome: "v_h11"
+    esquema: "platform"
+    colunas:
+      - "tenant_id"
+      - "primeiro_valor_em"
+      - "primeiro_modulo"
+      - "primeira_conversa_em"
+      - "entrou_por_modulo"
+      - "censurado"
+      - "activou"
+    aberta: false
+    assinatura: "platform.v_h11(tenant_id, primeiro_valor_em, primeiro_modulo, primeira_conversa_em, entrou_por_modulo, censurado, activou)"
+    seccao: "3.86"
+    conceito: "H11 por tenant"
+  - nome: "v_h12_pagantes"
+    esquema: "platform"
+    colunas:
+      - "tenant_id"
+      - "plano"
+      - "modulo"
+      - "ciclos_pagos"
+    aberta: false
+    assinatura: "platform.v_h12_pagantes(tenant_id, plano, modulo, ciclos_pagos)"
+    seccao: "3.86"
+    conceito: "Pagantes da H12"
 
 dominios:
   - coluna: "consent_event.purpose"
@@ -27720,6 +28109,30 @@ dominios:
       - "tecto_da_meta"
     seccao: "3.85"
     conceito: "Motivo do guia falhado na base"
+    so_no_registo: false
+  - coluna: "module_decisions.decisao"
+    valores:
+      - "manter"
+      - "ajustar"
+      - "abater"
+    seccao: "3.86"
+    conceito: "A decisão"
+    so_no_registo: false
+  - coluna: "module_decisions.modulo"
+    valores:
+      - "catalogo"
+      - "foto"
+      - "social"
+      - "orcamento"
+    seccao: "3.86"
+    conceito: "Módulo da decisão"
+    so_no_registo: false
+  - coluna: "module_experiment_exclusions.motivo"
+    valores:
+      - "equipa"
+      - "teste"
+    seccao: "3.86"
+    conceito: "Motivo da exclusão"
     so_no_registo: false
 
 variantes:

@@ -626,6 +626,13 @@ SEM_DADOS_PESSOAIS: Final[Mapping[str, str]] = {
     # KAM-117: os episodios de churn e de dormente. Um tenant, um sinal de
     # dominio fechado e instantes; recalculaveis pelo *job* a qualquer altura.
     "platform.churn_signal_episode": "sinais de churn do negocio: um sinal e instantes",
+    # KAM-127: o experimento dos modulos de entrada. A decisao de cada modulo e
+    # global (sem tenant) e a exclusao e um tenant e um motivo de dominio
+    # fechado; nenhuma leva titular nem conteudo — so a identidade de staff de
+    # quem decide ou exclui (como o `revisor_id`) —, e as duas sao o registo do
+    # experimento, so de acrescentar.
+    "platform.module_decisions": "decisao por modulo de entrada: sem tenant, com a identidade de staff",
+    "platform.module_experiment_exclusions": "tenant fora da coorte do experimento: um motivo e o staff",
     "servicos.services": "catalogo de servicos",
     "servicos.resources": "recursos do negocio",
     "servicos.availability_rules": "horarios do negocio",

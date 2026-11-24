@@ -102,7 +102,7 @@ class TestAOfertaDeMelhorarFoto(unittest.TestCase):
     def test_o_processo_liga_a_do_entitlement(self) -> None:
         from kamba_agr import __main__ as principal
 
-        portas = principal._portas_da_foto(EntradaDaFoto(), "dev")
+        portas = principal._portas_da_foto(EntradaDaFoto(), "dev", frozenset())
         self.assertIsInstance(portas["enhance"], EnhancePorEntitlement)
         self.assertEqual(portas["ambiente"], "dev")
 

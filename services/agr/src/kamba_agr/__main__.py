@@ -198,15 +198,20 @@ def _executores_do_comercio(cliente: ClienteDoCom | None) -> dict[str, Any]:
     return executores_do_com(cliente) if cliente is not None else {}
 
 
-def _portas_da_foto(entrada: Any, ambiente: str) -> dict[str, Any]:
+def _portas_da_foto(entrada: Any, ambiente: str, desligados: frozenset[str]) -> dict[str, Any]:
     """As portas da foto do `PortasDoCatalogo` (KAM-231): as mesmas com e sem COM."""
     from .catalogo.descodificador import DescodificadorPillow
-    from .catalogo.montagem import EnhancePorEntitlement
+    from .catalogo.montagem import MODULO_DA_FOTO, EnhancePorEntitlement
 
     return {
         "ambiente": ambiente,
         # A oferta de «melhorar foto» com o `foto` activo (KAM-231, criterio 4).
-        "enhance": EnhancePorEntitlement(evt.LeitorDeEntitlements(ligar_para_eventos).ler),
+        # KAM-127: e com o `foto` ligado no registo. O `foto` nao tem tool na
+        # ToolLayer, e esta oferta e o unico sitio por onde o dono chega a ele.
+        "enhance": EnhancePorEntitlement(
+            evt.LeitorDeEntitlements(ligar_para_eventos).ler,
+            desligado=MODULO_DA_FOTO in desligados,
+        ),
         "descodificador": DescodificadorPillow(),
         "fonte_sobre": entrada.fonte_sobre,
         "storage": entrada.storage,
@@ -215,7 +220,9 @@ def _portas_da_foto(entrada: Any, ambiente: str) -> dict[str, Any]:
     }
 
 
-def _executores_do_catalogo(credencial: CredencialDoCom, entrada: Any, ambiente: str) -> dict[str, Any]:
+def _executores_do_catalogo(
+    credencial: CredencialDoCom, entrada: Any, ambiente: str, desligados: frozenset[str] = frozenset()
+) -> dict[str, Any]:
     """As quatro tools do catalogo do dono (KAM-119). **Ligam-se sempre.**
 
     Escrevem na nossa base (`catalog_ingestions`), como as do orcamento. O
@@ -238,14 +245,16 @@ def _executores_do_catalogo(credencial: CredencialDoCom, entrada: Any, ambiente:
     base = os.environ.get(VARIAVEL_DO_COM, "").strip()
     if not base:
         portas = PortasDoCatalogo(
-            screening=ScreeningPorLigar(), registo=RegistoPorLigar(), **_portas_da_foto(entrada, ambiente)
+            screening=ScreeningPorLigar(),
+            registo=RegistoPorLigar(),
+            **_portas_da_foto(entrada, ambiente, desligados),
         )
     else:
         cliente = ClienteDoCom(base=base, credencial=credencial)
         portas = PortasDoCatalogo(
             screening=ScreeningPeloCom(cliente=cliente, sujeito_tipo=SUJEITO_DO_PRODUTO, vertical="dono"),
             registo=RegistoPeloCom(cliente=cliente),
-            **_portas_da_foto(entrada, ambiente),
+            **_portas_da_foto(entrada, ambiente, desligados),
         )
     return catalogo_tools.executores(portas)
 
@@ -481,6 +490,15 @@ def main() -> int:
     # eram duas listas de tools a poder divergir, com a validacao a conferir uma
     # e o `invoke` a executar a outra.
     pasta = registo.directorio_do_registo()
+    # KAM-127: os modulos de entrada abatidos (`registry/modulos_entrada.yaml`,
+    # `activo: false`). Leem-se aqui, antes do catalogo, porque a oferta da foto
+    # se monta com ele; a ToolLayer recebe-os mais abaixo. Um interruptor
+    # ilegivel e o mesmo codigo de saida de um registo invalido.
+    try:
+        desligados = registo.modulos_desligados(pasta)
+    except (registo.RegistoInvalidoError, registo.FicheiroIlegivelError) as exc:
+        log.excepcao(exc, "registo_invalido")
+        return SAIDA_REGISTO_INVALIDO
     # A credencial do COM e lida do cofre mais abaixo e liga-se a este objecto
     # quando o for: ver a `CredencialDoCom`.
     credencial_do_com = CredencialDoCom()
@@ -502,7 +520,7 @@ def main() -> int:
             # KAM-228: a porta do `screen` das condicoes, pelo mesmo cliente.
             **orcamento_tools.executores(cliente_do_com=cliente_do_com),
             # KAM-119. As quatro do catalogo do dono: ver o `_executores_do_catalogo`.
-            **_executores_do_catalogo(credencial_do_com, entrada_da_foto, ambiente),
+            **_executores_do_catalogo(credencial_do_com, entrada_da_foto, ambiente, desligados),
             # KAM-121. As quatro do social: ver o `_executores_do_social`.
             **_executores_do_social(credencial_do_com),
         }
@@ -629,7 +647,14 @@ def main() -> int:
     # **Quem a invoca e o grafo, que e o KAM-031 e o KAM-035**: e esta instancia
     # que o `build_graph(deps)` do §5.2 recebe, ligada mais abaixo (KAM-186) —
     # a mesma nas duas verticais, pela razao do disjuntor escrita acima.
-    tools = ToolLayer(catalogo, abrir_ligacao=ligar_para_tools, metricas=METRICAS)
+    # KAM-127: os modulos de entrada abatidos (lidos acima, com a `pasta`)
+    # recusam-se no passo 2, a todos os tenants.
+    tools = ToolLayer(
+        catalogo,
+        abrir_ligacao=ligar_para_tools,
+        metricas=METRICAS,
+        modulos_desligados=desligados,
+    )
     # **O `error_code` tem forma, e esta linha nao a tinha.** A *allowlist* do
     # `docs/tecnica/08` §7.3 aceita uma sequencia de palavras com ate tres
     # digitos no fim de cada uma (`http_404`, `sha256`), e
@@ -861,8 +886,12 @@ def main() -> int:
         # ligacao das accoes (escreve). KAM-221: a proposta sai pela resposta do
         # KAM-224 (`agent_replies` e `agent.replied`), numa ligacao da saida;
         # com a janela fechada ainda nada sai, ate a revisao do `template_nome`.
+        # KAM-127: com o `orcamento` abatido no registo, a porta nao oferece o
+        # botao, nao envia e nao liberta a janela.
         "orcamentos": PortaDeOrcamento(
-            ligar_para_accoes, saida=NotificacaoPelaResposta(ligar_para_saida)
+            ligar_para_accoes,
+            saida=NotificacaoPelaResposta(ligar_para_saida),
+            desligado="orcamento" in desligados,
         ),
         # O limiar do `retrieve` e o do pontuador que o `search_catalog` usa.
         # Ligado o indice real (KAM-061), e o `LIMIAR_DO_RRF` de `tls/idx.py`, e

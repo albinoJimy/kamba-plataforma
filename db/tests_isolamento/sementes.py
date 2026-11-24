@@ -2539,6 +2539,22 @@ SEM_RECEITA_COM_RAZAO = {
     # (`test_o_ledger_de_a_e_invisivel_a_b`), e o `kamba_app` nao insere nem
     # executa a funcao de escrita (`test_a_aplicacao_nao_escreve`).
     ("platform", "module_cost_ledger"),
+    # KAM-127: as exclusoes do experimento dos modulos, pela razao da
+    # `audit_log` — e so por essa. Tem RLS `FORCE` e politica `tenant_iso`,
+    # mas os gatilhos `module_experiment_exclusions_imutavel` e
+    # `..._sem_truncate`, `ENABLE ALWAYS`, recusam o `DELETE` com que estas
+    # receitas limpam, a todos, incluindo ao administrador: a exclusao de um
+    # tenant da coorte e so de acrescentar. Semea-la aqui obrigava a desligar
+    # o gatilho na limpeza, que e o defeito que a nota da `audit_log` descreve.
+    #
+    # So o `kamba_batch` (`BYPASSRLS`) tem privilegio nela. O isolamento
+    # prova-se em `db/tests/test_experimento_modulos_schema.py`
+    # (`test_a_exclusao_fica_no_seu_tenant`): o `kamba_app` leva `42501` a ler e
+    # a escrever, e com o privilegio dado so dentro da transaccao do ensaio,
+    # sem contexto e com o de B nao ve a exclusao de A, e o `WITH CHECK` recusa
+    # escrever no tenant de outro. A `module_decisions` nao entra: e global,
+    # sem `tenant_id`.
+    ("platform", "module_experiment_exclusions"),
 }
 
 #: `tenants` primeiro: as outras referenciam-na. Depois, pela ordem das FK. As

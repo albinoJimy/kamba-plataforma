@@ -71,6 +71,7 @@ from . import auditoria, idempotency
 from .contexto import Confirmation, ToolContext
 from .disjuntor import Disjuntor
 from .erros import (
+    ENTITLEMENT_DENIED,
     TENANT_MISMATCH,
     TOOL_NOT_ALLOWED,
     UPSTREAM_DOWN,
@@ -495,8 +496,12 @@ class ToolLayer:
         ligacoes: int | None = None,
         espera_de_idempotencia_ms: int = idempotency.TECTO_DE_ESPERA_MS,
         dormir: Callable[[float], None] = time.sleep,
+        modulos_desligados: frozenset[str] = frozenset(),
     ) -> None:
         self.catalogo = catalogo
+        #: Os modulos de entrada abatidos (KAM-127): o `registry/modulos_entrada.yaml`
+        #: com `activo: false`, lido no arranque pelo `registo.modulos_desligados`.
+        self.modulos_desligados = frozenset(modulos_desligados)
         # Um tecto proprio so para uma tool `write` (KAM-231): uma `read` com
         # 25 s era uma leitura que prende uma tomada o tempo de uma escrita.
         for nome in TECTOS_POR_TOOL:
@@ -904,6 +909,19 @@ class ToolLayer:
         vende, tenha ou nao o `catalogo`.
         """
         assert inv.especificacao is not None  # o passo 1 guarda-a antes de passar
+        # **O interruptor do registo vem antes do entitlement** (KAM-127,
+        # criterio 8). Um modulo abatido recusa-se a todos os tenants, tenham ou
+        # nao o entitlement, e com o mesmo codigo: o grafo do dono ja traduz o
+        # `ENTITLEMENT_DENIED` de cada modulo numa frase estatica. So o modulo
+        # **da tool** — uma tool sem modulo proprio (as do Vendedor e de
+        # Servicos) nunca e desligada por aqui: no atendimento, so o que e do modulo
+        # (o `request_quote` do `orcamento`) deixa de responder.
+        proprio = inv.especificacao.modulo
+        if proprio is not None and proprio in self.modulos_desligados:
+            return ErroDeTool(
+                codigo=ENTITLEMENT_DENIED,
+                detalhe=f"modulo `{proprio}` desligado no registo (registry/modulos_entrada.yaml)",
+            )
         chave, valor = (inv.tecto if inv.tecto is not None else (None, None))
         with tenant_guard.tx(inv.ligacao, inv.ctx.tenant_id) as cursor:
             erro = hook_de_tool(

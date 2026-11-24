@@ -81,6 +81,7 @@ __all__ = [
     "VerticalDoRegisto",
     "carregar",
     "directorio_do_registo",
+    "modulos_desligados",
     "nos_do_grafo",
 ]
 
@@ -119,11 +120,15 @@ _CHAVE_DA_VERTICAL: Final = "id"
 _CHAVE_DOS_GATES: Final = "gates"
 _CHAVE_DOS_PLANOS: Final = "plans"
 _CHAVE_DO_CONSUMIDOR: Final = "consumidor"
+#: A quinta forma (KAM-127): os interruptores dos modulos de entrada. Nao e
+#: vertical: le-a o `modulos_desligados`, e o `_ler_pasta` salta-a.
+_CHAVE_DOS_MODULOS: Final = "modulos_entrada"
 _CHAVES_DE_FORMA: Final = (
     _CHAVE_DA_VERTICAL,
     _CHAVE_DOS_GATES,
     _CHAVE_DOS_PLANOS,
     _CHAVE_DO_CONSUMIDOR,
+    _CHAVE_DOS_MODULOS,
 )
 
 
@@ -427,13 +432,15 @@ def _ler_pasta(
             erros.append(
                 f"`{caminho.name}` declara {declaradas or 'nenhuma'} das chaves de forma "
                 f"({', '.join(f'`{c}`' for c in _CHAVES_DE_FORMA)}): "
-                "um ficheiro do registo e exactamente uma das quatro formas"
+                "um ficheiro do registo e exactamente uma das cinco formas"
             )
             continue
         if declaradas == [_CHAVE_DOS_PLANOS]:
             continue  # KAM-009: quem le os planos e o provisionamento.
         if declaradas == [_CHAVE_DO_CONSUMIDOR]:
             continue  # KAM-194: um consumidor que nao e vertical nao e do AGR.
+        if declaradas == [_CHAVE_DOS_MODULOS]:
+            continue  # KAM-127: le-o o `modulos_desligados`, e nao e vertical.
         if declaradas == [_CHAVE_DOS_GATES]:
             registos.append(ler_gates(caminho, documento))
             continue
@@ -461,6 +468,58 @@ def _ler_pasta(
             "zero conversas e nao diz porque"
         )
     return verticais, gates, erros
+
+
+def modulos_desligados(pasta: Path) -> frozenset[str]:
+    """Os modulos de entrada com `activo: false` (KAM-127, criterio 8).
+
+    **Pela chave de topo `modulos_entrada`**, como as outras formas, e nunca
+    pelo nome do ficheiro. Sem ficheiro nenhum dessa forma, nenhum modulo esta
+    desligado: o interruptor e um abate decidido, e a ausencia dele nao e uma
+    decisao. Um ficheiro que a declara e nao se le — um `activo` que nao e
+    booleano, um modulo sem nome, dois ficheiros a dizer o mesmo — **falha o
+    arranque** (`RegistoInvalidoError`): um interruptor ilegivel lido como
+    «ligado» era o modulo abatido a voltar em silencio.
+
+    O tecto de quatro e o `catalogo` que nunca se abate sao do gate 3b
+    (`tools/canon_lint/registo.py`); aqui le-se so o interruptor.
+    """
+    desligados: set[str] = set()
+    erros: list[str] = []
+    vistos: set[str] = set()
+    ficheiros = 0
+    for caminho in sorted(pasta.glob("*.yaml")):
+        documento = ler_yaml(caminho)
+        if _CHAVE_DOS_MODULOS not in documento:
+            continue
+        ficheiros += 1
+        modulos = documento.get(_CHAVE_DOS_MODULOS)
+        if not isinstance(modulos, list):
+            erros.append(f"`{caminho.name}`: `{_CHAVE_DOS_MODULOS}` nao e uma lista")
+            continue
+        for item in modulos:
+            nome = item.get("modulo") if isinstance(item, dict) else None
+            activo = item.get("activo") if isinstance(item, dict) else None
+            if not isinstance(nome, str) or not nome or not isinstance(activo, bool):
+                erros.append(
+                    f"`{caminho.name}`: modulo de entrada ilegivel ({item!r}); o "
+                    "interruptor tem `modulo` e `activo` booleano"
+                )
+                continue
+            if nome in vistos:
+                erros.append(f"`{caminho.name}`: o modulo `{nome}` esta declarado duas vezes")
+                continue
+            vistos.add(nome)
+            if not activo:
+                desligados.add(nome)
+    if ficheiros > 1:
+        erros.append(
+            f"`{pasta}` tem {ficheiros} ficheiros com `{_CHAVE_DOS_MODULOS}`: os interruptores "
+            "vivem num so"
+        )
+    if erros:
+        raise RegistoInvalidoError(erros)
+    return frozenset(desligados)
 
 
 def _coerencia(

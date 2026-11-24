@@ -4,7 +4,7 @@
 |---|---|
 | Produto | KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para Angola |
 | Documento | Foundation — Dicionário de Dados Canónico |
-| Versão | 1.145 — **PROPOSTA** (a do §6; o cabeçalho ficou em 1.0 durante treze emendas, e é a linha 7 do KAM-141) |
+| Versão | 1.146 — **PROPOSTA** (a do §6; o cabeçalho ficou em 1.0 durante treze emendas, e é a linha 7 do KAM-141) |
 | Data | Novembro de 2026 |
 | Classificação | Documento de Referência — Interno |
 | Documento-fonte | `../docs/tecnica/` (docs 00–10), `specs/EPIC-*.md` |
@@ -5326,6 +5326,53 @@ sem via, credores do KAM-115 e do KAM-116. O `onboarding-web` continua a recusar
 guia não estão no compose de `prod`: são do fundador quando a app existir. Os sinais da Meta continuam sem
 consumidor ligado (o `aplicarWebhook` do KAM-093); a busca pelo número fica pronta para ele.
 
+### 3.86 O experimento dos módulos de entrada: H10–H12, a coorte, as decisões e a regra de escopo (KAM-127)
+
+*Emenda 1.146, **proposta**.* Os nomes do experimento que decide se cada módulo de entrada fica: a
+revisão do KAM-127 (`experimento_dos_modulos`), o comando
+[`db/experimento_modulos.py`](../db/experimento_modulos.py), o módulo
+[`kamba_core.modulos.experimento`](../libs/py-core/src/kamba_core/modulos/experimento.py), a
+configuração `config/experimento_modulos.yaml` e o `registry/modulos_entrada.yaml`. As hipóteses, as
+definições e os limiares estão pré-registados em
+[`../docs/tecnica/evidencia/validacao/H10_H12_Modulos_Entrada.md`](../docs/tecnica/evidencia/validacao/H10_H12_Modulos_Entrada.md);
+a operação em [`../docs/experimento-modulos.md`](../docs/experimento-modulos.md). A `v_h12` é do §3.69 e
+não muda.
+
+**A regra que nenhuma coluna exprime: «usa um módulo» é um resultado de valor, e não uma abertura** —
+um produto publicado, uma versão de foto escolhida, um item social aprovado, um orçamento enviado. Os
+eventos leem-se do `events_log` (24 meses) e não do `events_outbox`, que a retenção apaga 7 dias depois
+de publicado.
+
+**Três divergências do bloco, com a razão escrita.** A `module_decisions` tem `id` `uuid` e
+`registado_em`, e não `bigserial`, pela regra do §2 que a `screening_decision` (§3.58) já seguiu. «Paga
+por um módulo isolado» lê-se do ciclo da assinatura pago (§3.67), e não do pagamento confirmado da
+encomenda, que desde a emenda 1.96 agrega por encomenda: o fundador decidiu-o a 2026-11-24. E a exclusão da
+equipa e dos testes é uma tabela própria, porque o tenant não tem marca de teste (a `is_test` é da
+conversa, §3.74).
+
+| Conceito | Nome canónico | Substitui | Notas |
+|---|---|---|---|
+| Decisão de um módulo de entrada | `platform.module_decisions`, **dez** colunas: `id`, `modulo`, `data_decisao`, `metricas`, `criterio`, `decisao`, `responsavel`, `justificacao`, `revisao_em`, `registado_em` | — | *proposta* (emenda 1.146, KAM-127). O DDL do bloco dava-lhe `id bigserial`. Global, sem `tenant_id` e sem RLS, como a `module_test_prices`. Só de acrescentar: os gatilhos `module_decisions_imutavel` (`UPDATE`, `DELETE`) e `module_decisions_sem_truncate`, os dois `ENABLE ALWAYS`, pela função `platform.experimento_so_acrescenta()`. O `responsavel` é a identidade de *staff* de quem decide (§3.65), como o `revisor_id`. `SELECT` e `INSERT` só do `kamba_batch`. As `metricas` são um objecto com n/N e o intervalo de Wilson 95% |
+| A decisão | `module_decisions.decisao` ∈ {`manter`, `ajustar`, `abater`} | — | *proposta* (emenda 1.146, KAM-127). As três do bloco. `module_decisions_catalogo_ck`: o `catalogo` **nunca** se abate (ADR-020); `module_decisions_ajustar_ck`: um `ajustar` leva `revisao_em` |
+| Módulo da decisão | `module_decisions.modulo` ∈ {`catalogo`, `foto`, `social`, `orcamento`} | — | *proposta* (emenda 1.146, KAM-127). Os do §3.7, com `CHECK` de domínio, como no *ledger* do §3.69 |
+| Critério accionado | `module_decisions.criterio`: os nomes `a_uso`, `b_custo`, `b_margem_negativa`, `c_incidentes`, `perto_do_limiar` e `d_catalogo_nao_se_abate`, por vírgula | — | *proposta* (emenda 1.146, KAM-127). Nulo num `manter`. Os nomes são os do `kamba_core.modulos.experimento` |
+| Exclusão da coorte | `platform.module_experiment_exclusions`, **quatro** colunas: `tenant_id`, `motivo`, `registado_por`, `registado_em`; chave `tenant_id` | — | *proposta* (emenda 1.146, KAM-127). Os tenants da equipa e de teste, fora da coorte. RLS `FORCE` pela `tenant_iso`; só de acrescentar pelos gatilhos `module_experiment_exclusions_imutavel` e `module_experiment_exclusions_sem_truncate`; `SELECT` e `INSERT` só do `kamba_batch` |
+| Motivo da exclusão | `module_experiment_exclusions.motivo` ∈ {`equipa`, `teste`} | — | *proposta* (emenda 1.146, KAM-127). Os dois do critério 2 |
+| Resultado de valor por módulo | `platform.experimento_valores(p_agora)` → `(tenant_id, modulo, primeiro_em)` | — | *proposta* (emenda 1.146, KAM-127). O primeiro resultado de valor de cada tenant em cada módulo: `catalog_ingestions` publicada (`confirmado_at`), `image_jobs` escolhida e não sintética (`atualizado_at`, **INDÍCIO**), e os eventos de item aprovado e de orçamento enviado no `events_log` |
+| Coorte do experimento | `platform.experimento_coorte(p_agora)` → `(tenant_id, provisionado_em)` | — | *proposta* (emenda 1.146, KAM-127). O primeiro evento de provisionamento do tenant no `events_log`; só `tenants.tipo = 'pme'` e sem exclusão |
+| H10 por tenant | `platform.experimento_h10(p_agora, p_janela_dias)` e `platform.v_h10(tenant_id, provisionado_em, censurado, catalogo, foto, social, orcamento, algum)` | — | *proposta* (emenda 1.146, KAM-127). A vista é a função com `now()` e 14 dias; a janela é semiaberta, `[entrada, entrada + 14 dias)`. Uma PME com menos de 14 dias fica `censurado` e não entra no N. Falha fechada: relógio nulo ou janela não positiva levantam `22023`. Oito colunas, lista fechada |
+| H11 por tenant | `platform.experimento_h11(p_agora, p_janela_dias)` e `platform.v_h11(tenant_id, primeiro_valor_em, primeiro_modulo, primeira_conversa_em, entrou_por_modulo, censurado, activou)` | — | *proposta* (emenda 1.146, KAM-127). A vista é a função com `now()` e 30 dias, semiaberta como a H10. A primeira conversa de cliente é a primeira resposta do bot, pelo WhatsApp, fora de conversa de teste, a um contacto que **não é** o «tenants.owner_contact_id» — o mesmo escritor do `contacts.papel` (a `definir_dono`), lido sem o cofre de identidade; o `contact_id` do *payload* lê-se por dentro e não sai. Sete colunas, lista fechada |
+| Pagantes da H12 | `platform.v_h12_pagantes(tenant_id, plano, modulo, ciclos_pagos)` | — | *proposta* (emenda 1.146, KAM-127). Os tenants da coorte com um ciclo pago de um plano de **um só** módulo — o plano com uma só linha na `module_test_prices`. O plano é o actual da subscrição, como na `v_h12`. Quatro colunas |
+| Leitura de colunas pelo lote | `SELECT (estado, confirmado_at)` em `catalog_ingestions`, ao `kamba_batch` | — | *proposta* (emenda 1.146, KAM-127). O que as funções precisam para correrem como `kamba_batch` (`SECURITY INVOKER`), e nada de conteúdo. **Nada na `contacts`**: o `kamba_batch` tem `BYPASSRLS`, e uma coluna dela era o cofre de identidade de todos os tenants (a lição do KAM-200) |
+| Comando do experimento | `experimento-modulos` (`../db/experimento_modulos.py`), *job* `ops_experimento_modulos` | — | *proposta* (emenda 1.146, KAM-127). Quatro subcomandos: `ler`, `reproduzir` (a métrica em Python contra a base, numa amostra), `decidir` (a regra propõe para os quatro; o `--registar` grava **um** módulo, com a decisão de quem decide e a proposta ao lado) e `excluir` |
+| Limiares do experimento | `config/experimento_modulos.yaml`, lido por `kamba_core.modulos.experimento.ler` | — | *proposta* (emenda 1.146, KAM-127). Treze chaves inteiras, ratificadas pelo fundador a 2026-11-24: as três hipóteses, as duas janelas, os critérios de abate e a margem de ajuste. Falha fechada |
+| Regra de escopo dos módulos | `registry/modulos_entrada.yaml`, a quinta forma do registo (chave de topo `modulos_entrada`), com `modulo`, `activo`, `abatavel` e `emenda_adr_020` | — | *proposta* (emenda 1.146, KAM-127). O gate 3b recusa mais de quatro `activo` sem `emenda_adr_020` (um `docs/adr/ADR-020-emenda-<slug>.md` que exista e cite o ADR-020) e o `catalogo` desligado ou abatível. O gate 3b recusa também um ficheiro sem o `catalogo` e um segundo ficheiro com `modulos_entrada` (`modulos_em_mais_de_um_ficheiro`). O AGR lê o `activo` no arranque (`modulos_desligados`) e recusa as tools de um módulo desligado no passo 2 com `ENTITLEMENT_DENIED`; as portas fora da ToolLayer obedecem também — a oferta de «melhorar foto» e a `PortaDeOrcamento` (o botão do Vendedor, o envio da proposta e a libertação da janela) |
+
+**O que esta emenda não decide, e a quem.** Os limiares, a regra de escopo e a leitura do pagamento
+pelo ciclo da assinatura — o fundador, que os decidiu a 2026-11-24 (bloco do KAM-127). As leituras das semanas 8, 10 e 12 e o ensaio do abate em
+*staging* — o Piloto (KAM-109). A classificação dos incidentes de conteúdo em alta e média, que é de
+uma pessoa e não tem tabela.
+
 ## 4. Itens que continuam por decidir
 
 | Item | Estado | Ticket |
@@ -5492,3 +5539,4 @@ Qualquer alteração a um nome canónico é uma emenda a este documento (linha e
 | 1.143 | Novembro 2026 | **Emenda (*proposta*), KAM-245: a violação de um publicado que o screen bloqueia.** Sobre a 1.142 do KAM-243. Escrita como 1.139 e renumerada na integração, depois do KAM-208, do KAM-247, do KAM-209 e do KAM-243. No §3.5, a violação de categoria passa a sair também da rota do screen do COM, e não só da re-análise. No §3.58, a linha «Rota do `screen` no COM» ganha o que a rota faz a uma decisão bloqueada do sujeito produto sobre o conteúdo exacto de um publicado: na transacção da decisão, tranca a oferta, emite a violação uma vez por conteúdo e versão, passa a oferta a rascunho e emite o evento de produto alterado. Decisão A do fundador de 2026-11-23. No §3.68, a chave do sinal da violação de categoria passa a ser o conteúdo (o sku, a versão da política e o sha256), e não o id do evento: decisão D1 do fundador do mesmo dia, contra a corrida entre a rota do screen e a re-análise. Sem esquema, sem contrato novo e sem nome canónico novo. Número provisório: quem fundir depois renumera. | Equipa KAMBÁ |
 | 1.144 | Novembro 2026 | **Emenda (*proposta*), KAM-240: a idempotência do painel na base.** Sobre a 1.143 do KAM-245. Escrita como 1.136 e renumerada na integração, depois do KAM-231, do KAM-122, do KAM-233, do KAM-208, do KAM-247, do KAM-209, do KAM-243 e do KAM-245. §3.84 novo, com duas linhas — a chave de idempotência do `PATCH /painel/produtos/:id` (`painel_idempotencia`), com a retenção de 24 h e a purga a 25 h por **decisão da coordenação do lote 19 de 2026-11-22** (recusadas 1 h e a tabela fora da retenção), e o adaptador com a porta. Revisão `0089`, depois da `0088`. Número **provisório**: renumera-se na integração | Equipa KAMBÁ |
 | 1.145 | Novembro 2026 | **Emenda (*proposta*), KAM-239: o guia do ES em `prod`.** Sobre a 1.144 do KAM-240. Escrita como 1.136 e renumerada na integração, depois do KAM-231, do KAM-122, do KAM-233, do KAM-208, do KAM-247, do KAM-209, do KAM-243, do KAM-245 e do KAM-240. §3.85 novo, com oito linhas — o estado do guia (`onboarding_guia`), os domínios do estado e do motivo, a política `guia_busca` e a busca pelo número (`guia_caso_por_phone_number_id`, na forma da D1-A do KAM-236), os adaptadores, a rota interna do guia no lote (**decisão do fundador de 2026-11-22, A**: oito operações, a credencial `onboarding_lote_token`; recusadas a tabela de pedidos e o evento), o guia pelo lote no `onboarding-web` e a volta do guia no lote. §3.83: a linha do registo na base deixa de nomear o registo do guia fora de `prod`, que sai do código. Revisão `0090`, depois da `0089`. | Equipa KAMBÁ |
+| 1.146 | Novembro 2026 | **Emenda (*proposta*), KAM-127: o experimento dos módulos de entrada.** Sobre a 1.145 do KAM-239. Escrita como 1.139 e renumerada na integração, depois do KAM-208, do KAM-247, do KAM-209, do KAM-243, do KAM-245, do KAM-240 e do KAM-239. §3.86 novo (escrito como §3.84), com quinze linhas — a `module_decisions` (dez colunas, só de acrescentar, o `catalogo` que nunca se abate), a `module_experiment_exclusions` (equipa e teste fora da coorte), as quatro funções e as três vistas (`v_h10`, `v_h11`, `v_h12_pagantes`), o `SELECT` de duas colunas da `catalog_ingestions` ao `kamba_batch` (e nada na `contacts`), o comando `experimento-modulos`, os limiares do `config/experimento_modulos.yaml` e a quinta forma do registo (`registry/modulos_entrada.yaml`, a regra de escopo do ADR-020). Três divergências do bloco, ditas no §3.86. Os limiares são *proposta* e esperam o fundador | Equipa KAMBÁ |

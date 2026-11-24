@@ -294,6 +294,9 @@ class TestCatalogoReal(ComBase):
                 # coluna ao lado dela.
                 # KAM-124: o ledger de custo por modulo («me» < «mo» < «of»).
                 ("platform", "module_cost_ledger", "tenant_id"),
+                # KAM-127: as exclusoes do experimento («module_c» < «module_e»).
+                # Sem receita de sementes (ver `sementes.SEM_RECEITA_COM_RAZAO`).
+                ("platform", "module_experiment_exclusions", "tenant_id"),
                 # KAM-098: as fases do off-boarding («me» < «offb» < «offe»).
                 # Sem receita de sementes (ver `sementes.SEM_RECEITA_COM_RAZAO`).
                 ("platform", "offboarding_run", "tenant_id"),
@@ -649,6 +652,8 @@ class TestCatalogoReal(ComBase):
                 # KAM-124: o ledger de custo por modulo, uma politica so, a do
                 # `db/rls.py` («me» < «mo» < «of»).
                 ("module_cost_ledger", "tenant_iso", "ALL", "{public}"),
+                # KAM-127: as exclusoes do experimento, a do `db/rls.py`.
+                ("module_experiment_exclusions", "tenant_iso", "ALL", "{public}"),
                 # KAM-098: as fases do off-boarding, a do `db/rls.py`.
                 ("offboarding_run", "tenant_iso", "ALL", "{public}"),
                 ("offer_terms", "tenant_iso", "ALL", "{public}"),
@@ -966,6 +971,8 @@ class TestCatalogoReal(ComBase):
              # KAM-124: o ledger de custo por modulo, entre os modelos de
              # mensagem e a oferta («me» < «mo» < «of»).
              "module_cost_ledger",
+             # KAM-127: as exclusoes do experimento («module_c» < «module_e»).
+             "module_experiment_exclusions",
              # KAM-098: as fases do off-boarding («offb» < «offe»).
              "offboarding_run",
              "offer_terms",
