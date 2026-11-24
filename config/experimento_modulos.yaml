@@ -1,6 +1,7 @@
 # config/experimento_modulos.yaml — limiares do experimento dos modulos de entrada (KAM-127)
 #
-# TODOS OS VALORES SAO *PROPOSTA* DO FUNDADOR, e nenhum foi medido. Vem do
+# TODOS OS VALORES FORAM RATIFICADOS PELO FUNDADOR A 2026-11-24 (decisoes 1 e 2
+# do bloco do KAM-127), e nenhum foi medido. Vem do
 # `docs/exploracao/14-tese-minima-e-plano-de-validacao.md` §2 (H10, H11, H12:
 # «Limiares sao propostas minhas») e dos criterios de abate do bloco do KAM-127
 # em `specs/EPIC-11_Modulos_Entrada.md`. Com ~10 PMEs as percentagens sao

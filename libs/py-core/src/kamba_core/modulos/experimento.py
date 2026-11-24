@@ -84,7 +84,7 @@ class LimiaresInvalidos(ValueError):
 
 @dataclass(frozen=True)
 class Limiares:
-    """Os limiares do experimento, todos *proposta*. Percentagens em pontos."""
+    """Os limiares do experimento, ratificados pelo fundador a 2026-11-24. Percentagens em pontos."""
 
     h10_limiar_pct: int
     h11_limiar_pct: int

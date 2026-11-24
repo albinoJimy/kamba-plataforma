@@ -4,8 +4,8 @@
 |---|---|
 | Produto | KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para Angola |
 | Documento | Validação — pré-registo das hipóteses H10–H12, das definições operacionais, dos critérios de abate e da regra de decisão dos módulos de entrada |
-| Versão | 1.0 |
-| Data | 2026-11-23 |
+| Versão | 1.1 |
+| Data | 2026-11-24 |
 | Classificação | Documento de Referência — Interno |
 | Ticket | KAM-127 (EPIC-11) |
 | Estado | NÃO VERIFICADO — nenhuma das três hipóteses foi medida; este documento é anterior à primeira medição |
@@ -17,7 +17,7 @@
 
 | Aprovação | Nome | Data |
 |---|---|---|
-| Fundador | *(por ratificar)* | — |
+| Fundador | Ratificado (decisões do fundador de 2026-11-24, no bloco do KAM-127) | 2026-11-24 |
 | Responsável de Produto | *(por nomear)* | — |
 
 > **Este documento nasce antes da medição, e é isso que o torna útil.** Um
@@ -26,9 +26,9 @@
 > «usar», «entrar por um módulo», «activar» e «pagar», os critérios de abate e
 > a regra que transforma uma leitura em manter, ajustar ou abater.
 >
-> **Todos os limiares são *proposta*** — do fundador no `14` §2 («Limiares são
-> propostas minhas») e do bloco do KAM-127 nos critérios de abate — e esperam a
-> ratificação dele. Uma alteração depois desta versão faz-se por linha nova de
+> **Os limiares foram ratificados pelo fundador a 2026-11-24** (versão 1.1),
+> antes da primeira leitura — vinham do `14` §2 («Limiares são propostas
+> minhas») e do bloco do KAM-127 nos critérios de abate. Uma alteração depois desta versão faz-se por linha nova de
 > «Controlo de versões», com o motivo; uma alteração **depois de haver
 > resultado** é uma mudança de critério, e não um ajuste.
 >
@@ -39,7 +39,7 @@
 
 ## 1. As três hipóteses
 
-| H | Enunciado | Métrica | Limiar (*proposta*) | Leitura |
+| H | Enunciado | Métrica | Limiar | Leitura |
 |---|---|---|---|---|
 | H10 | Os módulos de entrada atraem PMEs | % das PMEs da coorte que usam ≥ 1 módulo nos primeiros 14 dias | ≥ 60% | semanas 8, 10 e 12 |
 | H11 | Os módulos de entrada levam ao atendimento | % das PMEs que entram por um módulo e activam o atendimento aos 30 dias | ≥ 30% | semanas 8, 10 e 12 |
@@ -116,19 +116,19 @@ Abrir o painel, pedir uma legenda ou fotografar sem publicar **não conta**.
   disposição a pagar NÃO VERIFICADA).
 * **≥ 3 PMEs distintas por módulo.**
 
-> **Divergência com a letra do bloco, a decidir pelo fundador.** O bloco diz
+> **Divergência com a letra do bloco, decidida pelo fundador a 2026-11-24 (decisão 4: o ciclo).** O bloco dizia
 > «pagamento confirmado (`payment.confirmed` ou `payment.manual_confirmed`)». Desde
 > a emenda 1.96 do dicionário (KAM-059), esses dois eventos agregam por
 > **encomenda**, e o pagamento de um ciclo da assinatura é o `billing.cycle_paid`,
 > com o ciclo em `paga` na mesma transacção. Ler o `payment.*` mediria pagamentos
-> de clientes à PME, e não da PME à KAMBÁ. Este pré-registo usa o ciclo pago;
-> a leitura vai à coordenação como pergunta.
+> de clientes à PME, e não da PME à KAMBÁ. Este pré-registo usa o ciclo pago,
+> e a letra do critério 4 ficou emendada nesse sentido.
 
 ---
 
-## 3. Os critérios de abate, por módulo (*propostas*)
+## 3. Os critérios de abate, por módulo
 
-| | Critério | Limiar (*proposta*) |
+| | Critério | Limiar |
 |---|---|---|
 | (a) | Uso baixo | < 20% das PMEs da coorte usam o módulo aos 14 dias |
 | (b) | Custo | > 15% do preço de teste do módulo em 2 semanas seguidas, **ou** margem negativa no mês |
@@ -163,8 +163,8 @@ accionou fica registado na mesma.
 perto quando fica abaixo de 22% (20% × 1,10); o custo quando a última semana
 completa passa 13,5% (15% × 0,90). **Não se aplica aos incidentes**: são contagens
 inteiras com limiares de 1 e 3, e não há contagem entre o 2 (dentro) e o 3
-(abate). A letra do bloco não diz se os 10% são relativos ou absolutos; esta é a
-leitura, e vai à coordenação.
+(abate). A letra do bloco não dizia se os 10% são relativos ou absolutos; esta
+leitura foi decidida pelo fundador a 2026-11-24 (decisão 2).
 
 **Sem coorte não há decisão.** Com N = 0 o uso não se mede: o `decidir` devolve
 `dados_insuficientes`, e o relatório regista essa justificação em vez de uma
@@ -243,7 +243,7 @@ KAM-110: este experimento não bloqueia o Gate.
 Revisto no fim do Piloto (critério de saída do EPIC-11): valor inicial, valor
 medido e decisão.
 
-| Limiar | Valor inicial (*proposta*) | Valor medido | Decisão | Data |
+| Limiar | Valor inicial (ratificado a 2026-11-24) | Valor medido | Decisão | Data |
 |---|---|---|---|---|
 | H10 | ≥ 60% | | | |
 | H11 | ≥ 30% | | | |
@@ -258,9 +258,9 @@ medido e decisão.
 
 ## 8. O que este pré-registo não decide, e os limites conhecidos
 
-* **Os limiares e a regra de escopo são do fundador.** Estão aqui como *proposta*,
-  com a fonte, e foram levados à coordenação; a ratificação acrescenta uma linha
-  de versão e preenche a tabela de aprovação.
+* **Os limiares e a regra de escopo são do fundador**, que os ratificou a
+  2026-11-24 (versão 1.1). O inquérito do §5 e a definição de «activa o
+  atendimento» não estavam entre as decisões e continuam *proposta*.
 * **O `foto` não tem caminho em produção, e mede zero por construção.** Nenhum
   processo chama hoje o serviço da foto (`kamba_core.foto`): a oferta de
   «melhorar foto» do catálogo só pergunta se o módulo está activo, e o trabalho é
@@ -294,3 +294,4 @@ medido e decisão.
 | Versão | Data | Alteração | Autor |
 |---|---|---|---|
 | 1.0 | 2026-11-23 | Pré-registo inicial (KAM-127), antes da primeira medição. Limiares *proposta* do `14` §2 e do bloco do KAM-127. | Equipa KAMBÁ |
+| 1.1 | 2026-11-24 | Ratificação, ainda antes da primeira medição: os limiares e as janelas, a margem relativa (uso e custo), o `events_log` para o `social` e o `orcamento`, o ciclo pago da assinatura e a regra de escopo — decisões do fundador de 2026-11-24, no bloco do KAM-127. Os valores não mudam. | Equipa KAMBÁ |

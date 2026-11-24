@@ -4,20 +4,20 @@
 |---|---|
 | Documento | `docs/experimento-modulos.md` |
 | Ticket | KAM-127 — Experimento dos módulos de entrada: hipóteses H10–H12, regra de escopo e critérios de abate |
-| Estado | **Proposta.** Os limiares e a regra de escopo esperam a ratificação do fundador. A instrumentação está medida em `db/tests/test_experimento_modulos_schema.py`, `libs/py-core/tests/test_experimento_modulos.py`, `services/agr/tests/test_modulos_desligados.py` e `tools/canon_lint/tests/test_superficies_de_ficheiro.py`. **Nenhuma PME foi medida** |
+| Estado | **Ratificado pelo fundador a 2026-11-24**: os limiares, a margem, as fontes, o pagamento pelo ciclo e a regra de escopo (decisões do fundador de 2026-11-24, no bloco do KAM-127). A instrumentação está medida em `db/tests/test_experimento_modulos_schema.py`, `libs/py-core/tests/test_experimento_modulos.py`, `services/agr/tests/test_modulos_desligados.py` e `tools/canon_lint/tests/test_superficies_de_ficheiro.py`. **Nenhuma PME foi medida** |
 | Âmbito | A operação do experimento: a coorte, a leitura, a reprodução, a decisão e o efeito de um abate. **Não** as hipóteses nem os limiares, que estão pré-registados em `docs/tecnica/evidencia/validacao/H10_H12_Modulos_Entrada.md` |
 | Fontes | `specs/EPIC-11_Modulos_Entrada.md` (KAM-127); `docs/exploracao/14-tese-minima-e-plano-de-validacao.md` §2; ADR-020; `docs/modulos-entrada.md` (KAM-124) |
 
 | Aprovação | Nome | Data |
 |---|---|---|
-| Fundador | *(por ratificar)* | — |
+| Fundador | Ratificado (decisões do fundador de 2026-11-24, no bloco do KAM-127) | 2026-11-24 |
 
 ## 1. As peças
 
 | Peça | O que faz |
 |---|---|
 | `registry/modulos_entrada.yaml` | os quatro módulos e o interruptor `activo` de cada um; o gate 3b recusa um quinto activo sem emenda ao ADR-020 e o `catalogo` desligado |
-| `config/experimento_modulos.yaml` | os limiares e as janelas, todos *proposta*, lidos por `kamba_core.modulos.experimento` a falhar fechado |
+| `config/experimento_modulos.yaml` | os limiares e as janelas, ratificados a 2026-11-24, lidos por `kamba_core.modulos.experimento` a falhar fechado |
 | `platform.v_h10`, `platform.v_h11` | a H10 e a H11 por tenant, com `now()` e as janelas de 14 e 30 dias |
 | `platform.v_h12` (KAM-124), `platform.v_h12_pagantes` | o custo e o racio da H12, e as PMEs que pagam por um módulo isolado |
 | `platform.module_experiment_exclusions` | os tenants da equipa e de teste, fora da coorte |
@@ -107,7 +107,7 @@ o efeito de cada interruptor sem a pilha.
 ## 6. O que este documento não decide
 
 Os limiares, a regra de escopo e a leitura de «paga por um módulo isolado» pelo
-ciclo da assinatura (e não pelo `payment.*`), que são do fundador. Os preços de
+ciclo da assinatura (e não pelo `payment.*`), que o fundador decidiu a 2026-11-24. Os preços de
 teste, que são do KAM-124 e hipóteses. A decisão de cada módulo, que é de quem a
 regista.
 
@@ -116,3 +116,4 @@ regista.
 | Versão | Data | Alteração | Autor |
 |---|---|---|---|
 | 1.0 | Novembro 2026 | Versão inicial (KAM-127). | Equipa KAMBÁ |
+| 1.1 | 2026-11-24 | Ratificação: as cinco decisões do fundador de 2026-11-24, no bloco do KAM-127; o estado e a aprovação deixam de ser *proposta*. | Equipa KAMBÁ |

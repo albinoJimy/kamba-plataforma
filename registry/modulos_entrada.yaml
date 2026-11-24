@@ -27,6 +27,9 @@
 #    alteracao. Quem o faz, e quando, e a decisao registada em
 #    `platform.module_decisions` (docs/experimento-modulos.md).
 #
+# A regra foi aprovada pelo fundador a 2026-11-24, no gate 3b (decisao 5 do
+# bloco do KAM-127).
+#
 # `abatavel` e o criterio de abate (d): o Catalogo AI **nunca se abate**, so se
 # ajusta (ADR-020, pre-requisito do onboarding). O gate 3b recusa
 # `activo: false` ou `abatavel: true` no `catalogo`.

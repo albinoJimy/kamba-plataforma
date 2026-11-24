@@ -11,8 +11,8 @@
 dicionario), como o `revisor_id` da revisao humana: nunca um cliente.
 
 O nome do comando no canon e `experimento-modulos`, e o *job* e
-`ops_experimento_modulos`. **Nenhum limiar aqui e decisao**: sao as *propostas*
-do `config/experimento_modulos.yaml`, pre-registadas em
+`ops_experimento_modulos`. **Nenhum limiar vive aqui**: sao os do
+`config/experimento_modulos.yaml`, ratificados pelo fundador a 2026-11-24 e pre-registadas em
 `docs/tecnica/evidencia/validacao/H10_H12_Modulos_Entrada.md`. E **nenhuma
 decisao fica registada sem um humano**: o `decidir` so escreve em
 `platform.module_decisions` com `--registar` e o nome de quem responde.

@@ -5346,7 +5346,7 @@ de publicado.
 **Três divergências do bloco, com a razão escrita.** A `module_decisions` tem `id` `uuid` e
 `registado_em`, e não `bigserial`, pela regra do §2 que a `screening_decision` (§3.58) já seguiu. «Paga
 por um módulo isolado» lê-se do ciclo da assinatura pago (§3.67), e não do pagamento confirmado da
-encomenda, que desde a emenda 1.96 agrega por encomenda: a leitura vai ao fundador. E a exclusão da
+encomenda, que desde a emenda 1.96 agrega por encomenda: o fundador decidiu-o a 2026-11-24. E a exclusão da
 equipa e dos testes é uma tabela própria, porque o tenant não tem marca de teste (a `is_test` é da
 conversa, §3.74).
 
@@ -5365,11 +5365,11 @@ conversa, §3.74).
 | Pagantes da H12 | `platform.v_h12_pagantes(tenant_id, plano, modulo, ciclos_pagos)` | — | *proposta* (emenda 1.146, KAM-127). Os tenants da coorte com um ciclo pago de um plano de **um só** módulo — o plano com uma só linha na `module_test_prices`. O plano é o actual da subscrição, como na `v_h12`. Quatro colunas |
 | Leitura de colunas pelo lote | `SELECT (estado, confirmado_at)` em `catalog_ingestions`, ao `kamba_batch` | — | *proposta* (emenda 1.146, KAM-127). O que as funções precisam para correrem como `kamba_batch` (`SECURITY INVOKER`), e nada de conteúdo. **Nada na `contacts`**: o `kamba_batch` tem `BYPASSRLS`, e uma coluna dela era o cofre de identidade de todos os tenants (a lição do KAM-200) |
 | Comando do experimento | `experimento-modulos` (`../db/experimento_modulos.py`), *job* `ops_experimento_modulos` | — | *proposta* (emenda 1.146, KAM-127). Quatro subcomandos: `ler`, `reproduzir` (a métrica em Python contra a base, numa amostra), `decidir` (a regra propõe para os quatro; o `--registar` grava **um** módulo, com a decisão de quem decide e a proposta ao lado) e `excluir` |
-| Limiares do experimento | `config/experimento_modulos.yaml`, lido por `kamba_core.modulos.experimento.ler` | — | *proposta* (emenda 1.146, KAM-127). Treze chaves inteiras, todas *proposta*: as três hipóteses, as duas janelas, os critérios de abate e a margem de ajuste. Falha fechada |
+| Limiares do experimento | `config/experimento_modulos.yaml`, lido por `kamba_core.modulos.experimento.ler` | — | *proposta* (emenda 1.146, KAM-127). Treze chaves inteiras, ratificadas pelo fundador a 2026-11-24: as três hipóteses, as duas janelas, os critérios de abate e a margem de ajuste. Falha fechada |
 | Regra de escopo dos módulos | `registry/modulos_entrada.yaml`, a quinta forma do registo (chave de topo `modulos_entrada`), com `modulo`, `activo`, `abatavel` e `emenda_adr_020` | — | *proposta* (emenda 1.146, KAM-127). O gate 3b recusa mais de quatro `activo` sem `emenda_adr_020` (um `docs/adr/ADR-020-emenda-<slug>.md` que exista e cite o ADR-020) e o `catalogo` desligado ou abatível. O gate 3b recusa também um ficheiro sem o `catalogo` e um segundo ficheiro com `modulos_entrada` (`modulos_em_mais_de_um_ficheiro`). O AGR lê o `activo` no arranque (`modulos_desligados`) e recusa as tools de um módulo desligado no passo 2 com `ENTITLEMENT_DENIED`; as portas fora da ToolLayer obedecem também — a oferta de «melhorar foto» e a `PortaDeOrcamento` (o botão do Vendedor, o envio da proposta e a libertação da janela) |
 
 **O que esta emenda não decide, e a quem.** Os limiares, a regra de escopo e a leitura do pagamento
-pelo ciclo da assinatura — o fundador. As leituras das semanas 8, 10 e 12 e o ensaio do abate em
+pelo ciclo da assinatura — o fundador, que os decidiu a 2026-11-24 (bloco do KAM-127). As leituras das semanas 8, 10 e 12 e o ensaio do abate em
 *staging* — o Piloto (KAM-109). A classificação dos incidentes de conteúdo em alta e média, que é de
 uma pessoa e não tem tabela.
 
