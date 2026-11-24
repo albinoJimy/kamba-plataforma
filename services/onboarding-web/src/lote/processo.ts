@@ -774,9 +774,15 @@ export interface OpcoesDoProcesso {
  * que volta à página dentro das 48 h gasta-o ao carregar em «Ligar» (o `reserve`
  * aceita o convite vivo sem o código). O que falta diz-se numa linha por convite,
  * sem caso nem ligação, para que um convite por entregar se veja.
+ *
+ * **E não entrega** (`entrega: false`, KAM-254): a lista conta-o `por_entregar`
+ * na métrica, e um convite destes que vence às 48 h manda o caso para o fim da
+ * fila **sem gastar tentativa** — um dono que nunca soube do convite não é
+ * abandonado por ele (decisão do fundador de 2026-11-24, A).
  */
 export class AvisoDaListaSemVia implements AvisoDaLista {
   readonly #log: Pick<Logger, "warn">;
+  readonly entrega = false;
 
   constructor(log: Pick<Logger, "warn">) {
     this.#log = log;
@@ -961,11 +967,12 @@ export function montarProcesso(o: OpcoesDoProcesso): ProcessoDeLote {
       metricas: new MetricasDaLista(),
       ...(o.relogio === undefined ? {} : { relogio: o.relogio }),
     });
+    const revisao = filaDoGuia(servico, onboardings);
     guia = {
       lista,
       gates: gatesDoGuiaNaBase(o.lote),
-      revisao: filaDoGuia(servico, onboardings),
-      ciclo: new CicloDoGuia({ lote: o.lote, lista, ...(o.relogio === undefined ? {} : { relogio: o.relogio }) }),
+      revisao,
+      ciclo: new CicloDoGuia({ lote: o.lote, lista, revisao, ...(o.relogio === undefined ? {} : { relogio: o.relogio }) }),
     };
   }
   return {
@@ -1084,8 +1091,9 @@ export function registarVoltaDoOffboarding(log: Pick<Logger, "info" | "error">, 
 
 /** A linha de registo de uma volta da activação (KAM-202): o que falhou, pelo passo. */
 /** Uma volta do guia: os abandonados contam-se, e cada passo que falhou diz-se pelo nome. */
-export function registarVoltaDoGuia(log: Pick<Logger, "info" | "error">, r: ResultadoDoCicloDoGuia): void {
+export function registarVoltaDoGuia(log: Pick<Logger, "info" | "warn" | "error">, r: ResultadoDoCicloDoGuia): void {
   if (r.abandonados > 0) log.info({ outcome: "es_popups_abandonados" });
+  if (r.gatesReconciliados > 0 || r.revisoesAbertas > 0) log.warn({ outcome: "guia_efeitos_reconciliados" });
   for (const passo of r.falhou) log.error({ outcome: `guia_volta_${passo}_falhou`, error_code: `guia_volta_${passo}_falhou` });
 }
 

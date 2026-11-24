@@ -7,6 +7,8 @@
  *     gatesDoGuiaNaBase  os dois *gates* do guia na `platform.onboarding_gate`,
  *                        como `kamba_batch` (o `onboarding-lote`)
  *     abandonarVencidosNaBase   a volta dos 30 minutos, como `kamba_batch`
+ *     reconciliarMetaEsNaBase   o `meta_es` igual ao estado do guia (KAM-254)
+ *     abrirRevisoesEmFaltaNaBase   o `es_falhado` dos presos sem caso (KAM-254)
  *
  * ## O tenant do caso, antes de tudo (a forma da D1-A do KAM-236)
  *
@@ -50,6 +52,7 @@ import {
   TIPO_DO_ITEM,
   type EstadoDoGuia,
   type EstadoGuardado,
+  type FilaDeRevisao,
   type GateDoEs,
   type GatesDoOnboarding,
   type ItemAvaliado,
@@ -128,6 +131,59 @@ INSERT INTO platform.onboarding_gate (onboarding_id, tenant_id, gate, ok, eviden
 SELECT c.id, c.tenant_id, $2, $3, $4 FROM platform.onboarding_case c WHERE c.id = $1
 ON CONFLICT (onboarding_id, gate) DO UPDATE SET ok = EXCLUDED.ok, evidencia_ref = EXCLUDED.evidencia_ref
 RETURNING onboarding_id`;
+
+/**
+ * **A reconciliação do `meta_es`**, como `kamba_batch` (KAM-254, critério 1).
+ *
+ * O `PassoGuiado` grava a transição na base e só depois pede o *gate* ao lote; se
+ * o lote estiver em baixo nesse instante, o *gate* fica com o valor de antes. Esta
+ * instrução põe o `meta_es` igual ao que o estado do guia manda, para os quatro
+ * estados que o escrevem — `verificado` e `pronto` verde, `falhado` vermelho com o
+ * motivo, `desligado` vermelho — e só onde difere. Os outros estados não escrevem
+ * o `meta_es`, e ficam como estão.
+ *
+ * **O guia tranca-se `FOR SHARE`**: uma transição concorrente do `onboarding-web`
+ * espera pelo fim desta instrução, e o *gate* que ela pede depois chega por último.
+ * Sem a tranca, uma leitura do guia em `verificado` podia escrever verde por cima
+ * do vermelho de um `desligado` que acabou de acontecer.
+ */
+export const SQL_RECONCILIAR_META_ES = `
+INSERT INTO platform.onboarding_gate (onboarding_id, tenant_id, gate, ok, evidencia_ref)
+SELECT g.onboarding_id, c.tenant_id, 'meta_es',
+       g.estado IN ('verificado', 'pronto'),
+       CASE WHEN g.estado IN ('verificado', 'pronto') THEN 'sincronizado_e_verificado'
+            WHEN g.estado = 'desligado' THEN 'desligado'
+            ELSE g.motivo END
+  FROM platform.onboarding_guia g
+  JOIN platform.onboarding_case c ON c.id = g.onboarding_id
+  LEFT JOIN platform.onboarding_gate x ON x.onboarding_id = g.onboarding_id AND x.gate = 'meta_es'
+ WHERE (g.estado IN ('verificado', 'pronto', 'desligado') OR (g.estado = 'falhado' AND g.motivo IS NOT NULL))
+   AND (x.onboarding_id IS NULL
+        OR x.ok IS DISTINCT FROM (g.estado IN ('verificado', 'pronto'))
+        OR x.evidencia_ref IS DISTINCT FROM
+           CASE WHEN g.estado IN ('verificado', 'pronto') THEN 'sincronizado_e_verificado'
+                WHEN g.estado = 'desligado' THEN 'desligado'
+                ELSE g.motivo END)
+ ORDER BY g.onboarding_id
+ LIMIT $1
+   FOR SHARE OF g
+ON CONFLICT (onboarding_id, gate) DO UPDATE SET ok = EXCLUDED.ok, evidencia_ref = EXCLUDED.evidencia_ref
+RETURNING onboarding_id::text AS onboarding_id`;
+
+/**
+ * Os guias presos por `numero_divergente` **sem** `review_case` `es_falhado` aberto
+ * depois de o número ter sido ligado (KAM-254, critério 1). Um preso é terminal
+ * até a revisão o desprender, pelo que o caso desta prisão é o único que nasce
+ * depois do `numero_ligado_at`; um anterior é de outra tentativa.
+ */
+export const SQL_PRESOS_SEM_REVISAO = `SELECT g.onboarding_id::text AS onboarding_id
+  FROM platform.onboarding_guia g
+ WHERE g.estado = 'falhado' AND g.motivo = 'numero_divergente'
+   AND NOT EXISTS (SELECT 1 FROM platform.review_case r
+                    WHERE r.onboarding_id = g.onboarding_id AND r.tipo = 'es_falhado'
+                      AND r.criado_at >= coalesce(g.numero_ligado_at, '-infinity'::timestamptz))
+ ORDER BY g.onboarding_id
+ LIMIT $1`;
 
 // ------------------------------------------------------------------ a leitura
 
@@ -329,6 +385,44 @@ export function guiaNaBase(o: OpcoesDoGuiaNaBase): RepositorioDoGuia {
  */
 export async function abandonarVencidosNaBase(lote: ClienteSql, antes: Date): Promise<readonly string[]> {
   return (await linhas(lote, SQL_ABANDONAR_VENCIDOS, [antes])).map((l) => String(l["onboarding_id"]));
+}
+
+/** Quantos guias uma volta reconcilia, no máximo, por passo. ***Proposta***. */
+export const RECONCILIADOS_POR_VOLTA = 200;
+
+/**
+ * O `meta_es` igual ao estado do guia, como `kamba_batch` (`SQL_RECONCILIAR_META_ES`).
+ * Devolve os casos cujo *gate* mudou.
+ */
+export async function reconciliarMetaEsNaBase(
+  lote: ClienteSql,
+  limite: number = RECONCILIADOS_POR_VOLTA,
+): Promise<readonly string[]> {
+  return (await linhas(lote, SQL_RECONCILIAR_META_ES, [limite])).map((l) => String(l["onboarding_id"]));
+}
+
+/**
+ * Abre o `es_falhado` dos guias presos que não o têm (`SQL_PRESOS_SEM_REVISAO`),
+ * pela mesma porta do `PassoGuiado`, que é idempotente. Devolve os casos que
+ * abriu; um que falhe não pára os outros, e a volta seguinte tenta-o outra vez.
+ */
+export async function abrirRevisoesEmFaltaNaBase(
+  lote: ClienteSql,
+  revisao: FilaDeRevisao,
+  limite: number = RECONCILIADOS_POR_VOLTA,
+): Promise<{ readonly abertos: readonly string[]; readonly falhados: number }> {
+  const abertos: string[] = [];
+  let falhados = 0;
+  for (const l of await linhas(lote, SQL_PRESOS_SEM_REVISAO, [limite])) {
+    const id = String(l["onboarding_id"]);
+    try {
+      await revisao.abrir(id, "es_falhado", "numero_divergente");
+      abertos.push(id);
+    } catch {
+      falhados += 1;
+    }
+  }
+  return { abertos, falhados };
 }
 
 /** Levantada quando o *gate* é de um caso que não existe. Falha fechado. */

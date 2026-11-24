@@ -5355,6 +5355,26 @@ não saiu, e que as rotas do guia se meçam no X-01 sobre a base.
 - A rota interna do KAM-239 tem só as oito operações fechadas. Uma operação nova é uma alteração ao custo que
   o fundador aceitou, e leva-se à coordenação antes de a escrever.
 
+### Decisões do fundador
+
+**Data: 2026-11-24. Autor: o fundador** (respondida no chat da coordenação, e trazida por ela).
+
+| # | Pergunta | Escolha | Recusadas |
+|---|---|---|---|
+| D1 | O que faz um convite da lista que não chegou ao dono quando vence às 48 h | **A**: vence sem gastar tentativa, e o caso vai para o fim da fila, como o KAM-095 já faz ao aviso que falha a sair. As 48 h não mudam, e o «à segunda, `abandonado`» continua a valer para os convites entregues | B, vencer e ficar no mesmo lugar (sem via, uma cabeça que não volta à página prendia uma vaga para sempre); C, o convite por entregar não vencer (mudava a regra das 48 h) |
+
+### Decisões da coordenação
+
+**Data: 2026-11-24. Autor: a coordenação do lote 22.** Reversível, sem esquema nem canon novo.
+
+| # | Pergunta | Escolha | Recusadas |
+|---|---|---|---|
+| C1 | Onde vive a marca «por entregar» | **A**: no processo. A porta do aviso declara se entrega (`AvisoDaLista.entrega`; o `AvisoDaListaSemVia` não entrega), e a métrica é o desfecho novo `por_entregar` do `es_lista_espera_convites_total`. **O limite, à letra:** um convite emitido sem via que vença depois do *deploy* da via do KAM-116 conta como entregue; a janela é de 48 h depois desse *deploy* | B, uma coluna `convite_entregue_at` na `waitlist_entry` (exacta por convite, mas custa uma revisão e a emenda do esquema) |
+
+**E o critério 1, escolhido dentro da letra** (que dá as duas formas), sem objecção da coordenação: o lote
+**reconcilia a partir do estado do guia**, na volta do `CicloDoGuia`, sem operação nova na rota interna e
+sem esquema. O `meta_pagamento` fica fora: escreve-se antes de qualquer transição, e o dono repete o pedido.
+
 ### Testes Requeridos
 
 - Integração: contra a base, uma transição com o lote em baixo chega ao `review_case` e ao `onboarding_gate`

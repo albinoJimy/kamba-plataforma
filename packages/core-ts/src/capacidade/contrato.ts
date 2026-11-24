@@ -159,6 +159,19 @@ export interface RepositorioDaLista {
  */
 export interface AvisoDaLista {
   convidar(onboardingId: string, ligacao: string, expiraEm: Date): Promise<void>;
+  /**
+   * **O aviso chega ao dono?** (KAM-254, decisão da coordenação do lote 22 de
+   * 2026-11-24, A.) `false` numa porta **sem via**, que regista e não manda: o
+   * convite fica vivo, mas o dono só o vê se voltar à página, e por isso um
+   * convite destes que vence **não gasta tentativa** (decisão do fundador de
+   * 2026-11-24, A). Omisso vale `true`.
+   *
+   * **O limite**, aceite com a decisão: a marca é do processo e não do convite.
+   * Um convite emitido sem via que vença depois de o *deploy* da via (KAM-116)
+   * entrar conta como entregue — a janela é a validade do convite, 48 h depois
+   * desse *deploy*.
+   */
+  readonly entrega?: boolean;
 }
 
 /** Porque é que a lista recusa um pedido. */

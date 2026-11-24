@@ -62,12 +62,17 @@ def _parametros_de_node() -> dict:
     """
     destino = ligacao.alvo()
     utilizador, senha = ligacao.credenciais("app")
+    # KAM-254: o grupo `guia` monta tambem o processo de lote real, que corre
+    # como `kamba_batch` (a lista, os gates e a fila do guia). As rotas atacadas
+    # continuam no `kamba_app`; esta credencial so serve o lado do lote.
+    lote, senha_do_lote = ligacao.credenciais("batch")
     return {
         "host": destino.host,
         "port": destino.porta,
         "user": utilizador,
         "password": senha,
         "database": destino.base,
+        "lote": {"user": lote, "password": senha_do_lote},
     }
 
 

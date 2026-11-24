@@ -11,6 +11,12 @@
  *             (`arrancar`), como kamba_batch
  * abandono    a volta dos 30 minutos corre no lote, em todos os tenants, e o
  *             adaptador da aplicação recusa-a pelo nome
+ * em baixo    (KAM-254) uma transição feita com o lote em baixo perde o gate e
+ *             a fila no instante, e a volta seguinte do lote reconcilia-os a
+ *             partir do estado do guia; uma transição concorrente espera pela
+ *             tranca e escreve por último
+ * sem via     (KAM-254) com o aviso sem via do lote real, um convite que vence
+ *             duas vezes não abandona o caso nem gasta tentativa
  * ```
  *
  * Os casos semeiam-se pelo administrador, com o telefone em octetos aleatórios: o
@@ -28,6 +34,7 @@ import { BASE_DESCARTAVEL } from "./apoio.ts";
 import {
   PassoGuiado,
   AvisosEmMemoria,
+  SQL_RECONCILIAR_META_ES,
   VarreduraNoLoteError,
   guiaNaBase,
   type Atestados,
@@ -36,7 +43,7 @@ import { casosNaBase, type CifraDoCaso, type PoolDaInscricao } from "../src/insc
 import type { RepositorioDeCasos } from "../src/inscricao/contrato.ts";
 import type { ConjuntoSql } from "../src/revisao/index.ts";
 import { comTenant } from "../src/tenant_guard/index.ts";
-import { ClienteDoLote, portasDoGuia } from "../../../services/onboarding-web/src/guia_pelo_lote.ts";
+import { ClienteDoLote, LoteIndisponivelError, portasDoGuia } from "../../../services/onboarding-web/src/guia_pelo_lote.ts";
 import { CicloDoGuia } from "../../../services/onboarding-web/src/lote/interno.ts";
 import { arrancar } from "../../../services/onboarding-web/src/lote/processo.ts";
 
@@ -300,6 +307,7 @@ describe("o guia na base (KAM-239)", () => {
     const parados: string[] = [];
     const ciclo = new CicloDoGuia({
       lote: novoPool("batch"),
+      revisao: { abrir: async () => {} },
       lista: {
         expirarVencidos: async () => 0,
         promover: async () => 0,
@@ -315,5 +323,189 @@ describe("o guia na base (KAM-239)", () => {
     for (const c of vencidos) assert.equal((await app.ler(c.id))?.estado, "abandonado");
     assert.equal((await app.ler(recente.id))?.estado, "iniciado", "o de cinco minutos fica");
     assert.deepEqual(parados, ["medir"]);
+  });
+
+  it("KAM-254: uma transição feita com o lote em baixo chega ao onboarding_gate e ao review_case quando o lote volta", async () => {
+    const lote = novoPool("batch");
+    const app = novoPool("app");
+    const { processo, interna } = await arrancar({
+      lote: lote as unknown as ConjuntoSql,
+      app: app as unknown as ConjuntoSql,
+      log: { warn: () => {} },
+      inicioDaAmostragem: null,
+      guia: { origem: ORIGEM, credencial: CREDENCIAL },
+    });
+    assert.ok(interna && processo.guia, "o lote serve a rota interna com o guia configurado");
+    const voltaDoLote = processo.guia.ciclo;
+    // **O lote em baixo** é o `fetch` a falhar como falha com a porta fechada.
+    let emBaixo = false;
+    const cliente = new ClienteDoLote({
+      base: "http://lote.invalid",
+      credencial: async () => CREDENCIAL,
+      buscar: (async (url: string | URL | Request, init?: RequestInit) => {
+        if (emBaixo) throw new TypeError("fetch failed");
+        return interna.request(new URL(String(url)).pathname, init);
+      }) as typeof fetch,
+    });
+    const portas = portasDoGuia<never>({ ambiente: "prod", lote: cliente, emMemoria: () => assert.fail("nada em memória em prod") });
+    const repositorio = guiaNaBase({ pool: app as unknown as PoolDaInscricao });
+    const guia = new PassoGuiado({
+      casos: casosDoEnsaio(app),
+      repositorio,
+      capacidade: portas.lista,
+      ligador: { ligar: async () => assert.fail("o ensaio não liga") },
+      gates: portas.gates,
+      revisao: portas.revisao,
+      pagamento: { verificar: async () => "desconhecido" },
+      aviso: new AvisosEmMemoria(),
+      anelDoPepper: [randomBytes(32), null],
+      chaveDaAssinatura: randomBytes(32),
+      origem: ORIGEM,
+      configId: "config-de-ensaio",
+    });
+    /** Um guia em `subscrito` com um número ligado, pela aplicação. */
+    const subscrito = async (): Promise<{ readonly id: string; readonly numero: string }> => {
+      const { id } = await caso();
+      const numero = numeroDaMeta();
+      await repositorio.abrir(id);
+      assert.equal(await repositorio.transitar(id, "pre_voo", "iniciado", { iniciadoEm: new Date() }), true);
+      assert.equal(await repositorio.transitar(id, "iniciado", "es_concluido", { phoneNumberId: numero, wabaId: "waba-ensaio" }), true);
+      assert.equal(await repositorio.transitar(id, "es_concluido", "subscrito", {}), true);
+      return { id, numero };
+    };
+    const gateDe = async (id: string): Promise<readonly { ok: boolean; evidencia_ref: string }[]> =>
+      (
+        await admin.query<{ ok: boolean; evidencia_ref: string }>(
+          "SELECT ok, evidencia_ref FROM platform.onboarding_gate WHERE onboarding_id = $1 AND gate = 'meta_es'",
+          [id],
+        )
+      ).rows;
+    const revisoesDe = async (id: string): Promise<number> =>
+      (
+        await admin.query<{ n: number }>(
+          "SELECT count(*)::int AS n FROM platform.review_case WHERE onboarding_id = $1 AND tipo = 'es_falhado'",
+          [id],
+        )
+      ).rows[0]?.n ?? -1;
+
+    const divergente = await subscrito();
+    const desligado = await subscrito();
+    const verificado = await subscrito();
+    emBaixo = true;
+    // O número que não é o do OTP: o guia prende-se na base, e o gate e a fila perdem-se.
+    await assert.rejects(guia.confirmarNumero(divergente.numero, "+0 000"), LoteIndisponivelError);
+    // O canal desligado: o mesmo.
+    await assert.rejects(guia.desligado(desligado.numero), LoteIndisponivelError);
+    // O verificado sem o gate verde: a forma do `#talvezVerificar` com o lote em baixo.
+    assert.equal(await repositorio.transitar(verificado.id, "subscrito", "verificado", {}), true);
+    assert.equal((await repositorio.ler(divergente.id))?.estado, "falhado");
+    assert.equal((await repositorio.ler(desligado.id))?.estado, "desligado");
+    for (const c of [divergente, desligado, verificado]) assert.deepEqual(await gateDe(c.id), [], "nada chegou ao gate");
+    assert.equal(await revisoesDe(divergente.id), 0, "nada chegou à fila");
+
+    // **O lote volta**, e a volta seguinte reconcilia.
+    emBaixo = false;
+    const r = await voltaDoLote.correr();
+    assert.deepEqual(r.falhou, []);
+    assert.ok(r.gatesReconciliados >= 3, "os três gates");
+    assert.ok(r.revisoesAbertas >= 1, "o es_falhado do preso");
+    assert.deepEqual(await gateDe(divergente.id), [{ ok: false, evidencia_ref: "numero_divergente" }]);
+    assert.deepEqual(await gateDe(desligado.id), [{ ok: false, evidencia_ref: "desligado" }]);
+    assert.deepEqual(await gateDe(verificado.id), [{ ok: true, evidencia_ref: "sincronizado_e_verificado" }]);
+    assert.equal(await revisoesDe(divergente.id), 1);
+
+    // **Idempotente**: a volta seguinte não abre outro caso.
+    const segunda = await voltaDoLote.correr();
+    assert.deepEqual(segunda.falhou, []);
+    assert.equal(await revisoesDe(divergente.id), 1);
+
+    // **E o caso aberto pelo próprio guia conta**: um preso que a rota já levou à
+    // fila não ganha segundo caso.
+    const comFila = await subscrito();
+    assert.equal(await guia.confirmarNumero(comFila.numero, "+0 000"), false);
+    assert.equal(await revisoesDe(comFila.id), 1);
+    await voltaDoLote.correr();
+    assert.equal(await revisoesDe(comFila.id), 1);
+  });
+
+  it("KAM-254: a reconciliação tranca o guia, e uma transição concorrente escreve o gate por último", async () => {
+    const repositorio = guiaNaBase({ pool: novoPool("app") as unknown as PoolDaInscricao });
+    const { id } = await caso();
+    await repositorio.abrir(id);
+    await repositorio.transitar(id, "pre_voo", "iniciado", { iniciadoEm: new Date() });
+    await repositorio.transitar(id, "iniciado", "es_concluido", { phoneNumberId: numeroDaMeta(), wabaId: "waba-ensaio" });
+    await repositorio.transitar(id, "es_concluido", "subscrito", {});
+    await repositorio.transitar(id, "subscrito", "verificado", {});
+
+    // A transição do `onboarding-web` a meio: o guia passa a `desligado` numa
+    // transacção que ainda não confirmou.
+    const web = new pg.Client(configuracao("admin"));
+    await web.connect();
+    try {
+      await web.query("BEGIN");
+      await web.query("UPDATE platform.onboarding_guia SET estado = 'desligado' WHERE onboarding_id = $1", [id]);
+      let acabou = false;
+      const reconciliacao = novoPool("batch")
+        .query(SQL_RECONCILIAR_META_ES, [1000])
+        .then((r) => {
+          acabou = true;
+          return r;
+        });
+      await new Promise((feito) => setTimeout(feito, 300));
+      assert.equal(acabou, false, "a reconciliação espera pela transição");
+      await web.query("COMMIT");
+      await reconciliacao;
+    } finally {
+      await web.end();
+    }
+    const gate = await admin.query<{ ok: boolean; evidencia_ref: string }>(
+      "SELECT ok, evidencia_ref FROM platform.onboarding_gate WHERE onboarding_id = $1 AND gate = 'meta_es'",
+      [id],
+    );
+    // Sem a tranca, a leitura de antes escrevia verde por cima do `desligado`.
+    assert.deepEqual(gate.rows, [{ ok: false, evidencia_ref: "desligado" }]);
+  });
+
+  it("KAM-254: sem via, um convite que vence duas vezes no lote real não abandona o caso nem gasta tentativa", async () => {
+    await admin.query("DELETE FROM platform.waitlist_entry");
+    await admin.query("UPDATE platform.onboarding_capacity SET es_max_por_7d = 1");
+    const { processo } = await arrancar({
+      lote: novoPool("batch") as unknown as ConjuntoSql,
+      app: novoPool("app") as unknown as ConjuntoSql,
+      log: { warn: () => {} },
+      inicioDaAmostragem: null,
+      guia: { origem: ORIGEM, credencial: CREDENCIAL },
+    });
+    assert.ok(processo.guia, "o lote monta a lista com o aviso sem via");
+    const { lista, ciclo } = processo.guia;
+    const primeiro = await caso();
+    const segundo = await caso();
+    assert.equal(await lista.reserve(primeiro.id), "granted");
+    assert.equal(await lista.reserve(segundo.id), "lista_espera");
+    // A vaga do primeiro sai da janela: a volta do lote convida o segundo, sem via.
+    await admin.query(
+      "UPDATE platform.waitlist_entry SET concluido_em = now() - interval '8 days' WHERE onboarding_id = $1",
+      [primeiro.id],
+    );
+    const ler = async () =>
+      (
+        await admin.query<{ estado: string; tentativas: number; fase: string }>(
+          `SELECT w.estado, w.tentativas, c.fase FROM platform.waitlist_entry w
+             JOIN platform.onboarding_case c ON c.id = w.onboarding_id WHERE w.onboarding_id = $1`,
+          [segundo.id],
+        )
+      ).rows[0];
+    assert.deepEqual((await ciclo.correr()).falhou, []);
+    assert.equal((await ler())?.estado, "convidado");
+    // Vence duas vezes, que era o que abandonava o caso (critério 5 do KAM-095).
+    for (let vez = 0; vez < 2; vez += 1) {
+      await admin.query(
+        `UPDATE platform.waitlist_entry SET convidado_em = now() - interval '3 days',
+           convite_expira_em = now() - interval '1 hour' WHERE onboarding_id = $1`,
+        [segundo.id],
+      );
+      assert.deepEqual((await ciclo.correr()).falhou, []);
+    }
+    assert.deepEqual(await ler(), { estado: "convidado", tentativas: 0, fase: "aguarda_es" });
   });
 });

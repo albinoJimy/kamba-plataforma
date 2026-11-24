@@ -309,6 +309,48 @@ describe("unit: convites, expiração e desistência", () => {
     assert.equal(m.repo.linha(id(2))?.tentativas, 0);
     assert.equal(await m.lista.promover(), 1);
     assert.equal(m.aviso.enviados[0]?.onboardingId, id(3), "o seguinte é convidado, e não a cabeça avariada outra vez");
+    assert.equal(m.metricas.convites("por_entregar"), 1, "KAM-254: o aviso que falha conta-se por entregar");
+    assert.equal(m.metricas.convites("enviado"), 1);
+  });
+
+  it("KAM-254: sem via, o convite fica vivo e conta-se por entregar; ao vencer vai para o fim sem gastar tentativa, e nunca abandona", async () => {
+    const m = montar(1);
+    m.aviso.entrega = false;
+    await entrarNaFila(m, [1, 2, 3]);
+    m.relogio.agora = T0 + 8 * DIA;
+    assert.equal(await m.lista.promover(), 0, "nenhum convite chegou a ninguém");
+    assert.equal(m.repo.linha(id(2))?.estado, "convidado", "o convite fica: o dono que volta à página gasta-o");
+    assert.equal(m.metricas.convites("por_entregar"), 1);
+    assert.equal(m.metricas.convites("enviado"), 0);
+    // Quatro voltas de 48 h, o dobro das que abandonavam: nenhuma gasta tentativa.
+    for (let volta = 0; volta < 4; volta += 1) {
+      m.avancar(VALIDADE_DO_CONVITE_H * HORA);
+      await m.lista.expirarVencidos();
+    }
+    for (const n of [2, 3]) {
+      assert.notEqual(m.repo.linha(id(n))?.estado, "expirado", `o ${n} não foi abandonado`);
+      assert.equal(m.repo.linha(id(n))?.tentativas, 0, `o ${n} não gastou tentativa`);
+      assert.equal(m.casos.fases.get(id(n)), "aguarda_es");
+    }
+    // E foi para o fim: depois da primeira expiração, a vez passou ao 3.
+    assert.ok(m.metricas.convites("por_entregar") >= 4, "cada convite por entregar conta-se");
+    assert.equal(m.metricas.convites("expirado"), 4, "a expiração conta-se como sempre");
+    // A reserva com o convite vencido também não gasta: o caso volta ao fim.
+    const convidado = [2, 3].find((n) => m.repo.linha(id(n))?.estado === "convidado");
+    assert.ok(convidado !== undefined);
+    m.avancar(VALIDADE_DO_CONVITE_H * HORA + 1);
+    assert.equal(await m.lista.reserve(id(convidado)), "lista_espera");
+    assert.equal(m.repo.linha(id(convidado))?.tentativas, 0);
+  });
+
+  it("KAM-254: sem via, a recusa do dono gasta tentativa: ele viu o convite", async () => {
+    const m = montar(1);
+    m.aviso.entrega = false;
+    await entrarNaFila(m, [1, 2, 3]);
+    m.relogio.agora = T0 + 8 * DIA;
+    await m.lista.promover();
+    await m.lista.recusar(id(2), conviteDe(m, 2));
+    assert.equal(m.repo.linha(id(2))?.tentativas, 1);
   });
 
   it("um convite vencido usado na reserva, à segunda expiração, recusa — e a expiração fica escrita", async () => {
