@@ -1699,7 +1699,7 @@ def r_armazenamento_com_credencial(dados: Dados) -> list[Achado]:
       `PUT` e `GET` anonimos em `/buckets/...` e contorna a assinatura do S3.
 
     O que esta regra **nao** ve, porque nao ha *flag* que o feche: a 18333, o
-    gRPC do S3, que segue o `-s3.ip.bind` (anexo do KAM-249; credor KAM-255).
+    gRPC do S3, que segue o `-s3.ip.bind` (anexo do KAM-249; credor KAM-257).
     """
     achados: list[Achado] = []
     for relativo, ficheiro in ((PROD, dados.prod), (STAGING, dados.staging)):

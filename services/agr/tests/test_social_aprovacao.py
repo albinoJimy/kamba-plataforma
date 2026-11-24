@@ -753,6 +753,41 @@ class TestOGrafo(unittest.TestCase):
         self.assertIn("Vestidos novos para a semana.", texto)
         self.assertEqual(len(mundo.repo.eventos), 1)
 
+    def test_kam_246_a_arte_vai_como_imagem_na_pre_visualizacao_e_so_na_primeira_entrega(self) -> None:
+        mundo = MundoDaArte()
+        ref = mundo.item_com_legenda()
+        texto, botoes = self._turno(mundo, botao=f"arte:{ref}")
+        (item,) = mundo.repo.itens_por_prefixo(A, regras.prefixo_da_referencia(ref))
+        arte = item.arte_ref
+        # A pre-visualizacao leva a chave do STO da arte do item, e o aviso de que
+        # a imagem nao seguia saiu; a nota do rotulo de IA vai no texto.
+        media = mundo.saida.medias[-1]
+        self.assertIsNotNone(media)
+        self.assertTrue(media.startswith(f"t/{A}/arte/"))
+        self.assertEqual(media, arte)
+        self.assertNotIn("ainda nao segue", texto)
+        self.assertIn("rotulo de IA", texto)
+        self.assertIn("pagina Social", texto)
+        # A aprovacao nao leva imagem.
+        self._turno(mundo, botao=botoes[0])
+        self.assertIsNone(mundo.saida.medias[-1])
+        # A primeira entrega leva-a; a segunda reenvia a legenda sem ela.
+        texto, _ = self._turno(mundo, f"ENVIAR {ref}")
+        self.assertEqual(mundo.saida.medias[-1], media)
+        self.assertNotIn("ainda nao segue", texto)
+        self.assertIn("Vestidos novos para a semana.", texto)
+        texto, _ = self._turno(mundo, botao=f"enviar:{ref}")
+        self.assertIn("ja lhe foi entregue", texto)
+        self.assertIsNone(mundo.saida.medias[-1], "entregar duas vezes envia uma imagem")
+
+    def test_kam_246_uma_edicao_pede_outra_vez_a_aprovacao_com_a_mesma_imagem(self) -> None:
+        mundo = MundoDaArte()
+        ref = mundo.item_com_legenda()
+        self._turno(mundo, botao=f"arte:{ref}")
+        primeira = mundo.saida.medias[-1]
+        self._turno(mundo, f"EDITAR {ref}: Vestidos de capulana para a festa.")
+        self.assertEqual(mundo.saida.medias[-1], primeira)
+
     def test_o_botao_antigo_depois_de_uma_edicao_nao_diz_aprovado(self) -> None:
         mundo = MundoDaArte()
         ref = mundo.item_com_legenda()

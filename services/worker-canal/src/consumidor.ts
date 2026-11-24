@@ -71,15 +71,24 @@ import { REF_DA_KEK } from '@kamba/core-ts/onboarding';
 import type { ObterDestinatario } from '@kamba/core-ts/outbound';
 import {
   CONSUMIDOR_DO_OUTBOUND,
+  arteDoSto,
   clienteDaGraphPorCanal,
   destinatarioPelaIdentidade,
   efeitoDoOutbound,
   envioPeloSaida,
   type ClienteDoCanal,
   type DesfechoDaResposta,
+  type LerArte,
   type LigacaoDoEnvio,
 } from '@kamba/core-ts/resposta';
-import { EnvSecretProvider, Secrets, isAmbiente, type Ambiente } from '@kamba/core-ts/secrets';
+import {
+  ArranqueAbortadoError,
+  EnvSecretProvider,
+  Secrets,
+  isAmbiente,
+  type Ambiente,
+} from '@kamba/core-ts/secrets';
+import { criarStorageS3, lerConfig } from '@kamba/core-ts/storage';
 
 const log = instalar(SERVICE);
 
@@ -171,6 +180,12 @@ export class SaidaSemPortasError extends Error {
 export interface PortasDoOutbound {
   readonly meta: ClienteDoCanal | null;
   readonly destinatario: ObterDestinatario | null;
+  /**
+   * O leitor da arte no STO (KAM-246). `null` só em `dev` sem armazenamento: uma
+   * resposta com imagem recua então pela escada (`ArteSemLeitorError`), e o texto
+   * não sai sem ela. Em `staging` e `prod` o `portasDoOutbound` recusa sem ele.
+   */
+  readonly arte?: LerArte | null;
   /** Toma uma ligação `kamba_app` própria para o `Saida`. */
   readonly tomar: () => Promise<LigacaoDoEnvio>;
   readonly devolver: (ligacao: LigacaoDoEnvio, erro?: unknown) => Promise<void> | void;
@@ -199,15 +214,29 @@ export function efeitoDoConsumidor(consumer: string, portas: PortasDoOutbound): 
       meta: portas.meta,
       destinatario: portas.destinatario,
     }),
-    portas.aoTratar === undefined ? {} : { aoTratar: portas.aoTratar },
+    {
+      ...(portas.aoTratar === undefined ? {} : { aoTratar: portas.aoTratar }),
+      ...(portas.arte === undefined || portas.arte === null ? {} : { lerArte: portas.arte }),
+    },
   );
 }
 
-/** As duas portas de produção do `outbound`, e o que fechar no fim. */
+/** As portas de produção do `outbound`, e o que fechar no fim. */
 export interface PortasDeProducao {
   readonly meta: ClienteDoCanal;
   readonly destinatario: ObterDestinatario;
+  /** O leitor da arte (KAM-246). `null` só em `dev`, sem armazenamento configurado. */
+  readonly arte: LerArte | null;
 }
+
+/** O nome do processo no cofre e nas recusas de arranque. */
+const SERVICO_DO_CONSUMIDOR = 'worker-canal-consumidor';
+
+/**
+ * As duas credenciais do STO, para ler a arte (KAM-246). Obrigatórias em
+ * `staging` e `prod`, como a KEK; o consumidor só lê (`head` e `get`).
+ */
+const CREDENCIAIS_DO_ARMAZENAMENTO = ['storage_access_key_id', 'storage_secret_access_key'] as const;
 
 /** O que o `portasDoOutbound` pede ao processo: o ambiente e a ligação de identidade. */
 export interface ArranqueDoOutbound {
@@ -239,12 +268,24 @@ export async function portasDoOutbound(a: ArranqueDoOutbound): Promise<PortasDeP
   const ambiente = ambienteDoOutbound(a.env);
   const provider = new EnvSecretProvider({ ambiente, env: a.env });
   const cofre = await Secrets.arrancar({
-    servico: 'worker-canal-consumidor',
+    servico: SERVICO_DO_CONSUMIDOR,
     provider,
-    // Obrigatória onde o inventário a declara obrigatória (`staging`, `prod`).
-    // Em `dev` o processo arranca sem ela, e cada envio sobe o erro do cofre.
-    obrigatorios: ambiente === 'dev' ? [] : [REF_DA_KEK],
+    // Obrigatórias onde o inventário as declara obrigatórias (`staging`, `prod`).
+    // Em `dev` o processo arranca sem elas, e cada envio sobe o erro do cofre.
+    obrigatorios: ambiente === 'dev' ? [] : [REF_DA_KEK, ...CREDENCIAIS_DO_ARMAZENAMENTO],
   });
+  // O armazenamento da arte (KAM-246): em `staging` e `prod` não arranca sem ele;
+  // em `dev` arranca, e uma resposta com imagem espera na escada.
+  let arte: LerArte | null = null;
+  try {
+    arte = arteDoSto(criarStorageS3({ config: lerConfig({ ambiente, env: a.env }), secrets: cofre }));
+  } catch (erro) {
+    if (ambiente !== 'dev') {
+      // A mensagem do `lerConfig` nomeia as variáveis e nunca os valores.
+      const motivo = erro instanceof Error ? erro.message : 'configuracao ilegivel';
+      throw new ArranqueAbortadoError(SERVICO_DO_CONSUMIDOR, `armazenamento da arte: ${motivo}`);
+    }
+  }
   const identidade = await Identidade.arrancar({
     chaves: new EnvKeyProvider({ ambiente, env: a.env }),
     env: a.env,
@@ -258,6 +299,7 @@ export async function portasDoOutbound(a: ArranqueDoOutbound): Promise<PortasDeP
       tomar: a.tomarIdentidade,
       devolver: a.devolverIdentidade,
     }),
+    arte,
   };
 }
 
@@ -323,6 +365,7 @@ async function principal(): Promise<void> {
   const efeito = efeitoDoConsumidor(consumer, {
     meta: producao?.meta ?? null,
     destinatario: producao?.destinatario ?? null,
+    arte: producao?.arte ?? null,
     tomar: async () => envios.connect(),
     devolver: (ligacao, erro) => (ligacao as pg.PoolClient).release(erro instanceof Error ? erro : undefined),
     // O motivo não vai ao registo: o `outcome` tem gramática fechada, e o

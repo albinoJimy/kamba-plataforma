@@ -18,8 +18,11 @@ import { describe, it } from "node:test";
 
 import { Adiar } from "../src/eventos/consumo.ts";
 import type { Envelope } from "../src/eventos/envelope.ts";
-import type { Pedido, Resultado } from "../src/outbound/contrato.ts";
+import { MAXIMO_DA_IMAGEM, type Pedido, type Resultado } from "../src/outbound/contrato.ts";
+import { ObjectoInexistenteError, criarStorageFake } from "../src/storage/index.ts";
 import {
+  ArteRecusadaError,
+  ArteSemLeitorError,
   CANAIS_DA_RESPOSTA,
   CanalSemCredencialError,
   ReenvioAdiadoError,
@@ -31,13 +34,17 @@ import {
   SQL_RESPOSTA_DO_WHATSAPP,
   TIPO_DA_RESPOSTA,
   ESPERA_DO_REENVIO_S,
+  arteDoSto,
   botoesDaLinha,
+  chaveDaArte,
+  chaveDaImagem,
   chaveDoReenvio,
   decidirEnvio,
   templateDaLinha,
   efeitoDoOutbound,
   efeitoDoPainel,
   envioPeloSaida,
+  exigirJpeg,
   lerResposta,
   type DesfechoDaResposta,
 } from "../src/resposta/index.ts";
@@ -58,6 +65,7 @@ interface Linha {
   botoes: unknown;
   template_nome: string | null;
   template_parametros: unknown;
+  media_ref: string | null;
   turno_iniciado_em: Date | null;
   entregue_at: Date | null;
 }
@@ -80,6 +88,7 @@ class BaseFalsa {
       botoes: [],
       template_nome: null,
       template_parametros: [],
+      media_ref: null,
       turno_iniciado_em: new Date("2026-11-19T11:59:58Z"),
       entregue_at: null,
       ...sobrepor,
@@ -123,6 +132,8 @@ class BaseFalsa {
           ...(sql.includes("r.template_nome, r.template_parametros")
             ? { template_nome: l.template_nome, template_parametros: l.template_parametros }
             : {}),
+          // KAM-246: a chave da arte so com a coluna no texto da instrucao.
+          ...(sql.includes("r.media_ref") ? { media_ref: l.media_ref } : {}),
           turno_iniciado_em: l.turno_iniciado_em,
           entregue_at: l.entregue_at,
           channel_id: CANAL,
@@ -791,5 +802,278 @@ describe("envioPeloSaida", () => {
     await assert.rejects(enviar(pedido), /ligacao caiu/);
     assert.equal(devolvidas.length, 1);
     assert.ok(devolvidas[0] instanceof Error);
+  });
+});
+
+describe("a arte como imagem, antes do texto (KAM-246)", () => {
+  const ARTE = `t/${TENANT}/arte/2026/11/0b1c2d3e-4f50-4617-8a9b-0c1d2e3f4a5b`;
+  const JPEG = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 1, 2, 3]);
+
+  /** O leitor da arte, que conta as leituras e devolve o JPEG. */
+  function leitor(bytes: Uint8Array = JPEG) {
+    const lidas: string[] = [];
+    return {
+      lidas,
+      lerArte: async (_tenant: string, chave: string) => {
+        lidas.push(chave);
+        return bytes;
+      },
+    };
+  }
+
+  it("a imagem sai primeiro, com a chave da imagem e os bytes do STO; o texto depois, com a do turno", async () => {
+    const bd = new BaseFalsa();
+    const linha = bd.nova({ media_ref: ARTE, botoes: [{ id: "confirm:a1", titulo: "Aprovar" }] });
+    const saida = outbound();
+    const arte = leitor();
+    const desfechos: string[] = [];
+    await efeitoDoOutbound(saida.enviar, { lerArte: arte.lerArte, aoTratar: (d) => desfechos.push(d) })(
+      bd,
+      envelope(payload(linha)),
+    );
+    assert.equal(saida.pedidos.length, 2);
+    const [imagem, texto] = saida.pedidos;
+    assert.equal(imagem!.idempotencyKey, chaveDaImagem(linha.chave));
+    assert.deepEqual(imagem!.corpo, { tipo: "imagem", jpeg: JPEG });
+    assert.equal(imagem!.doBot, true);
+    assert.equal(texto!.idempotencyKey, linha.chave);
+    assert.equal(texto!.corpo.tipo, "botoes");
+    assert.deepEqual(arte.lidas, [ARTE]);
+    assert.notEqual(linha.entregue_at, null);
+    assert.deepEqual(desfechos, ["imagem_enviada", "enviada"]);
+  });
+
+  it("sem media_ref, nada muda: uma mensagem e nenhuma leitura do STO", async () => {
+    const bd = new BaseFalsa();
+    const linha = bd.nova();
+    const saida = outbound();
+    const arte = leitor();
+    await efeitoDoOutbound(saida.enviar, { lerArte: arte.lerArte })(bd, envelope(payload(linha)));
+    assert.equal(saida.pedidos.length, 1);
+    assert.deepEqual(arte.lidas, []);
+  });
+
+  it("uma chave de outro tenant, de outra classe ou forjada: 0 leituras, 0 envios, e a resposta não se marca", async () => {
+    const chaves = [
+      `t/${OUTRO}/arte/2026/11/0b1c2d3e-4f50-4617-8a9b-0c1d2e3f4a5b`,
+      `t/${TENANT}/foto/2026/11/0b1c2d3e-4f50-4617-8a9b-0c1d2e3f4a5b`,
+      `t/${TENANT}/arte/2026/11/../../${OUTRO}`,
+      "https://exemplo.invalid/arte.jpg",
+    ];
+    for (const media_ref of chaves) {
+      const bd = new BaseFalsa();
+      const linha = bd.nova({ media_ref });
+      const saida = outbound();
+      const arte = leitor();
+      const desfechos: string[] = [];
+      await efeitoDoOutbound(saida.enviar, { lerArte: arte.lerArte, aoTratar: (d, m) => desfechos.push(`${d}:${m}`) })(
+        bd,
+        envelope(payload(linha)),
+      );
+      assert.equal(saida.pedidos.length, 0, media_ref);
+      assert.deepEqual(arte.lidas, [], media_ref);
+      assert.equal(linha.entregue_at, null);
+      assert.match(desfechos[0]!, /^arte_recusada:de_outr[ao]_/);
+    }
+  });
+
+  it("o leitor recusa um objecto que não é JPEG: 0 envios", async () => {
+    const bd = new BaseFalsa();
+    const linha = bd.nova({ media_ref: ARTE });
+    const saida = outbound();
+    const desfechos: string[] = [];
+    const lerArte = async () => exigirJpeg(new Uint8Array([0x89, 0x50, 0x4e, 0x47]));
+    await efeitoDoOutbound(saida.enviar, { lerArte, aoTratar: (d, m) => desfechos.push(`${d}:${m}`) })(
+      bd,
+      envelope(payload(linha)),
+    );
+    assert.equal(saida.pedidos.length, 0);
+    assert.deepEqual(desfechos, ["arte_recusada:nao_e_jpeg"]);
+  });
+
+  it("um objecto que a retenção já apagou não prende o texto: sai a legenda, sem a imagem", async () => {
+    const bd = new BaseFalsa();
+    const linha = bd.nova({ media_ref: ARTE });
+    const saida = outbound();
+    const desfechos: string[] = [];
+    const lerArte = async (): Promise<Uint8Array> => {
+      throw new ObjectoInexistenteError();
+    };
+    await efeitoDoOutbound(saida.enviar, { lerArte, aoTratar: (d, m) => desfechos.push(`${d}:${m}`) })(
+      bd,
+      envelope(payload(linha)),
+    );
+    assert.equal(saida.pedidos.length, 1);
+    assert.notEqual(saida.pedidos[0]?.corpo.tipo, "imagem");
+    assert.equal(desfechos[0], "imagem_nao_enviada:arte_inexistente");
+    assert.notEqual(linha.entregue_at, null, "o texto saiu, e marca a resposta");
+  });
+
+  it("o STO em baixo recua pela escada, e nada sai", async () => {
+    const bd = new BaseFalsa();
+    const linha = bd.nova({ media_ref: ARTE });
+    const saida = outbound();
+    const lerArte = async (): Promise<Uint8Array> => {
+      throw new Error("sto em baixo");
+    };
+    await assert.rejects(efeitoDoOutbound(saida.enviar, { lerArte })(bd, envelope(payload(linha))), /sto em baixo/);
+    assert.equal(saida.pedidos.length, 0);
+  });
+
+  it("sem leitor da arte, recua pela escada e nada sai", async () => {
+    const bd = new BaseFalsa();
+    const linha = bd.nova({ media_ref: ARTE });
+    const saida = outbound();
+    await assert.rejects(efeitoDoOutbound(saida.enviar)(bd, envelope(payload(linha))), ArteSemLeitorError);
+    assert.equal(saida.pedidos.length, 0);
+  });
+
+  it("uma imagem com template é uma linha sem forma, e nada sai", async () => {
+    const bd = new BaseFalsa();
+    const linha = bd.nova({ media_ref: ARTE, template_nome: "orcamento_pronto", template_parametros: ["x"] });
+    const saida = outbound();
+    await assert.rejects(
+      efeitoDoOutbound(saida.enviar, { lerArte: leitor().lerArte })(bd, envelope(payload(linha))),
+      RespostaInvalidaError,
+    );
+    assert.equal(saida.pedidos.length, 0);
+  });
+
+  it("a imagem que se sabe não ter saído adia a resposta inteira: o texto não sai antes dela", async () => {
+    const bd = new BaseFalsa();
+    const linha = bd.nova({ media_ref: ARTE });
+    const saida = outbound({ ok: false, motivo: "RATE_LIMITED", codigo: null });
+    await assert.rejects(
+      efeitoDoOutbound(saida.enviar, { lerArte: leitor().lerArte })(bd, envelope(payload(linha))),
+      ReenvioAdiadoError,
+    );
+    assert.equal(saida.pedidos.length, 1);
+    assert.equal(saida.pedidos[0]!.corpo.tipo, "imagem");
+    assert.equal(linha.entregue_at, null);
+  });
+
+  it("na volta seguinte, a imagem que não saiu reenvia-se pela chave derivada, e o texto sai", async () => {
+    const bd = new BaseFalsa();
+    const linha = bd.nova({ media_ref: ARTE });
+    // A primeira volta deixou a linha da imagem `failed` com o código do carregamento, que não é ambíguo.
+    bd.envios.set(`${TENANT}|${chaveDaImagem(linha.chave)}`, { state: "failed", wamid: null, error_code: -2 });
+    const saida = outboundEmSequencia(REPETIDO, ENVIADO, ENVIADO);
+    const desfechos: string[] = [];
+    await efeitoDoOutbound(saida.enviar, { lerArte: leitor().lerArte, aoTratar: (d, m) => desfechos.push(`${d}:${m}`) })(
+      bd,
+      envelope(payload(linha)),
+    );
+    assert.deepEqual(
+      saida.pedidos.map((p) => p.idempotencyKey),
+      [chaveDaImagem(linha.chave), chaveDoReenvio(chaveDaImagem(linha.chave)), linha.chave],
+    );
+    assert.deepEqual(desfechos, ["imagem_enviada:reenviada", "enviada:undefined"]);
+    assert.notEqual(linha.entregue_at, null);
+  });
+
+  it("entregar duas vezes envia uma imagem: a que já saiu não se lê nem se envia outra vez", async () => {
+    const bd = new BaseFalsa();
+    const linha = bd.nova({ media_ref: ARTE });
+    bd.envios.set(`${TENANT}|${chaveDaImagem(linha.chave)}`, { state: "sent", wamid: "w0", error_code: null });
+    const saida = outbound();
+    const arte = leitor();
+    const desfechos: string[] = [];
+    await efeitoDoOutbound(saida.enviar, { lerArte: arte.lerArte, aoTratar: (d) => desfechos.push(d) })(
+      bd,
+      envelope(payload(linha)),
+    );
+    assert.deepEqual(arte.lidas, []);
+    assert.deepEqual(
+      saida.pedidos.map((p) => p.corpo.tipo),
+      ["texto"],
+    );
+    assert.deepEqual(desfechos, ["imagem_enviada", "enviada"]);
+  });
+
+  it("uma imagem que não sai por decisão (a janela) fica registada, e o texto segue para o Saida decidir", async () => {
+    const bd = new BaseFalsa();
+    const linha = bd.nova({ media_ref: ARTE });
+    const saida = outboundEmSequencia({ ok: false, motivo: "WINDOW_CLOSED", codigo: null });
+    const desfechos: string[] = [];
+    await efeitoDoOutbound(saida.enviar, { lerArte: leitor().lerArte, aoTratar: (d, m) => desfechos.push(`${d}:${m}`) })(
+      bd,
+      envelope(payload(linha)),
+    );
+    assert.deepEqual(desfechos, ["imagem_nao_enviada:recusada:WINDOW_CLOSED", "recusada:WINDOW_CLOSED"]);
+    assert.equal(linha.entregue_at, null, "fora da janela, nada se marca entregue");
+  });
+
+  it("a resposta já entregue não lê a arte nem envia nada", async () => {
+    const bd = new BaseFalsa();
+    const linha = bd.nova({ media_ref: ARTE, entregue_at: new Date() });
+    const saida = outbound();
+    const arte = leitor();
+    await efeitoDoOutbound(saida.enviar, { lerArte: arte.lerArte })(bd, envelope(payload(linha)));
+    assert.equal(saida.pedidos.length, 0);
+    assert.deepEqual(arte.lidas, []);
+  });
+});
+
+describe("arteDoSto e chaveDaArte (KAM-246)", () => {
+  const CHAVE = `t/${TENANT}/arte/2026/11/0b1c2d3e-4f50-4617-8a9b-0c1d2e3f4a5b`;
+  const PRAZO = new Date("2027-01-01T00:00:00Z");
+
+  it("a chave é do tenant e da classe arte, ou recusa com o motivo", () => {
+    assert.equal(chaveDaArte(TENANT, CHAVE), CHAVE);
+    assert.throws(() => chaveDaArte(OUTRO, CHAVE), (e: unknown) => e instanceof ArteRecusadaError && e.motivo === "de_outro_tenant");
+    assert.throws(
+      () => chaveDaArte(TENANT, CHAVE.replace("/arte/", "/foto/")),
+      (e: unknown) => e instanceof ArteRecusadaError && e.motivo === "de_outra_classe",
+    );
+    for (const ma of ["", "arte.jpg", `${CHAVE}/x`, CHAVE.toUpperCase()]) {
+      assert.throws(() => chaveDaArte(TENANT, ma), ArteRecusadaError);
+    }
+  });
+
+  it("lê o JPEG do STO do tenant, tal e qual (sem o recodificar)", async () => {
+    const { storage: sto } = criarStorageFake();
+    const jpeg = new Uint8Array([0xff, 0xd8, 0xff, 0xe1, 9, 8, 7, 6]);
+    await sto.put({ tenantId: TENANT }, CHAVE, jpeg, { contentType: "image/jpeg", classe: "arte", retainUntil: PRAZO });
+    const lidos = await arteDoSto(sto)(TENANT, CHAVE);
+    assert.deepEqual([...lidos], [...jpeg]);
+  });
+
+  it("recusa outro tipo de conteúdo, um objecto acima do tecto e bytes que não são JPEG", async () => {
+    const { storage: sto } = criarStorageFake();
+    const ctx = { tenantId: TENANT };
+    const outra = (fim: string) => CHAVE.replace(/[0-9a-f]{12}$/, fim);
+    await sto.put(ctx, outra("000000000001"), new Uint8Array([0x89, 0x50]), { contentType: "image/png", classe: "arte", retainUntil: PRAZO });
+    await assert.rejects(
+      arteDoSto(sto)(TENANT, outra("000000000001")),
+      (e: unknown) => e instanceof ArteRecusadaError && e.motivo === "nao_e_jpeg",
+    );
+    await sto.put(ctx, outra("000000000002"), new Uint8Array(MAXIMO_DA_IMAGEM + 1).fill(0xff), {
+      contentType: "image/jpeg",
+      classe: "arte",
+      retainUntil: PRAZO,
+    });
+    await assert.rejects(
+      arteDoSto(sto)(TENANT, outra("000000000002")),
+      (e: unknown) => e instanceof ArteRecusadaError && e.motivo === "fora_do_tamanho",
+    );
+    await sto.put(ctx, outra("000000000003"), new Uint8Array([1, 2, 3]), { contentType: "image/jpeg", classe: "arte", retainUntil: PRAZO });
+    await assert.rejects(
+      arteDoSto(sto)(TENANT, outra("000000000003")),
+      (e: unknown) => e instanceof ArteRecusadaError && e.motivo === "nao_e_jpeg",
+    );
+  });
+
+  it("uma chave de outro tenant não chega ao STO", async () => {
+    let tocou = false;
+    const { storage: sto } = criarStorageFake();
+    const espiao = {
+      ...sto,
+      head: async (...a: Parameters<typeof sto.head>) => {
+        tocou = true;
+        return sto.head(...a);
+      },
+    };
+    await assert.rejects(arteDoSto(espiao)(OUTRO, CHAVE), ArteRecusadaError);
+    assert.equal(tocou, false);
   });
 });

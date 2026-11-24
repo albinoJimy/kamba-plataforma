@@ -498,6 +498,17 @@ services:
       KAMBA_SECRET_KEK_TOKEN_CLIENTE_ANTERIOR: ${KAMBA_SECRET_KEK_TOKEN_CLIENTE_ANTERIOR:-}
       KAMBA_SECRET_KEK_CONTACT_DEK: ${KAMBA_SECRET_KEK_CONTACT_DEK:?o cofre entrega a KEK das DEK de contacto}
       KAMBA_SECRET_KEK_CONTACT_DEK_ANTERIOR: ${KAMBA_SECRET_KEK_CONTACT_DEK_ANTERIOR:-}
+      # KAM-246: o consumidor le a arte do STO (`head` e `get`, classe `arte`)
+      # para a carregar na Meta antes do texto. Em staging e prod nao arranca
+      # sem o armazenamento (`portasDoOutbound`).
+      KAMBA_STORAGE_ENDPOINT: ${KAMBA_STORAGE_ENDPOINT:?o deploy diz onde e o armazenamento (D6 aberta)}
+      KAMBA_STORAGE_BUCKET: ${KAMBA_STORAGE_BUCKET:?o deploy nomeia o bucket}
+      KAMBA_STORAGE_REGION: ${KAMBA_STORAGE_REGION:?o deploy nomeia a regiao}
+      KAMBA_STORAGE_DESTINO_COUNTRY: ${KAMBA_STORAGE_DESTINO_COUNTRY:?o deploy diz o pais do armazenamento (ADR-008)}
+      KAMBA_STORAGE_DESTINO_PROVIDER: ${KAMBA_STORAGE_DESTINO_PROVIDER:?o deploy diz o fornecedor do armazenamento}
+      KAMBA_STORAGE_DESTINO_APD_REF: ${KAMBA_STORAGE_DESTINO_APD_REF:-}
+      KAMBA_SECRET_STORAGE_ACCESS_KEY_ID: ${KAMBA_SECRET_STORAGE_ACCESS_KEY_ID:?o cofre entrega a chave de acesso do armazenamento}
+      KAMBA_SECRET_STORAGE_SECRET_ACCESS_KEY: ${KAMBA_SECRET_STORAGE_SECRET_ACCESS_KEY:?o cofre entrega o segredo do armazenamento}
     # **Uma replica.** As dezasseis filas de particao garantem a ordem por
     # agregado com «concorrencia 1 por fila» (`docs/eventos.md` §4, *Fan-out*);
     # uma segunda replica punha dois *workers* na mesma particao.
@@ -657,6 +668,16 @@ services:
       KAMBA_STORAGE_DESTINO_APD_REF: ${KAMBA_STORAGE_DESTINO_APD_REF:-}
       KAMBA_SECRET_STORAGE_ACCESS_KEY_ID: ${KAMBA_SECRET_STORAGE_ACCESS_KEY_ID:?o cofre entrega a chave de acesso do armazenamento}
       KAMBA_SECRET_STORAGE_SECRET_ACCESS_KEY: ${KAMBA_SECRET_STORAGE_SECRET_ACCESS_KEY:?o cofre entrega o segredo do armazenamento}
+      # KAM-246 (decisao do fundador de 2026-11-23, A). O endpoint do STO com
+      # que se assinam os URLs que o navegador abre, e so para isso. Fora de
+      # `dev` tem de ser https; sem ele a pagina Social responde 503 e nunca
+      # cai para o endpoint interno. Ter o STO com endpoint publico e da D6.
+      KAMBA_STORAGE_ENDPOINT_PUBLICO: ${KAMBA_STORAGE_ENDPOINT_PUBLICO:-}
+      # KAM-246 (Q3 = A). O AGR assina e abre a ligacao de descarga de 24 h da
+      # pagina Social do painel. Anel: a anterior abre as ligacoes vivas numa
+      # rotacao.
+      KAMBA_SECRET_CHAVE_DA_LIGACAO_DE_DESCARGA: ${KAMBA_SECRET_CHAVE_DA_LIGACAO_DE_DESCARGA:?o cofre entrega a chave da ligacao de descarga}
+      KAMBA_SECRET_CHAVE_DA_LIGACAO_DE_DESCARGA_ANTERIOR: ${KAMBA_SECRET_CHAVE_DA_LIGACAO_DE_DESCARGA_ANTERIOR:-}
       # KAM-228. O AGR verifica a credencial do `POST /internal/screening`, que o
       # classificador do `screen` do COM apresenta. Tem de ser o mesmo valor.
       KAMBA_SECRET_AGR_SCREENING_TOKEN: ${KAMBA_SECRET_AGR_SCREENING_TOKEN:?o cofre entrega a credencial da rota do classificador do AGR}
@@ -1544,7 +1565,7 @@ services:
     # **O que fica aberto, CONFIRMADO:** a 18333, o gRPC do S3, segue o
     # `-s3.ip.bind` e a 4.48 nao tem *flag* que a feche ou a prenda ao
     # *loopback*. Um `PutIdentity` sem credencial nela reabre o S3 ao anonimo
-    # (medido: 403 -> 200). Esta no anexo, e o credor e o KAM-255 (decisao
+    # (medido: 403 -> 200). Esta no anexo, e o credor e o KAM-257 (decisao
     # do fundador de 2026-11-24, opcao A): mTLS no gRPC, ou a D6 a escolher S3
     # gerido. **Nao leia «S3 fechado» sem esta ressalva.**
     command:

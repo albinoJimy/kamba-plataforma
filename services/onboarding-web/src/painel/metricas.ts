@@ -54,6 +54,9 @@ export const ROTAS_DO_PAINEL = [
   "contacto",
   // KAM-243: a foto do dono para o catálogo.
   "foto",
+  // KAM-246: a página Social e a ligação de descarga.
+  "social",
+  "social_descarga",
 ] as const;
 export type RotaDoPainel = (typeof ROTAS_DO_PAINEL)[number];
 
