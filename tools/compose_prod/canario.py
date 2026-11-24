@@ -131,6 +131,95 @@ def _servico(nome: str, extra: str = "") -> str:
 {extra}"""
 
 
+#: O URL da fila como os dois compose o escrevem desde o KAM-249.
+_URL_DA_FILA = (
+    "redis://:${KAMBA_SECRET_QUEUE_PASSWORD:?o cofre entrega a credencial da fila}@queue:6379"
+)
+_EXIGIR_A_FILA = "${KAMBA_SECRET_QUEUE_PASSWORD:?o cofre entrega a credencial da fila}"
+
+
+def _casos_da_fila() -> tuple[Caso, ...]:
+    """KAM-249: a fila com credencial, e todos os clientes a apresenta-la."""
+    return (
+        Caso(
+            "fila-sem-requirepass",
+            frozenset({"fila-sem-credencial"}),
+            "o servidor da fila de producao arranca sem `requirepass`",
+            lambda c: c.trocar(
+                lint.PROD,
+                r'^        requirepass "\$\$\{KAMBA_SECRET_QUEUE_PASSWORD\}"\n', "",
+            ),
+        ),
+        Caso(
+            "fila-credencial-opcional",
+            frozenset({"fila-sem-credencial"}),
+            "em *staging*, a credencial da fila passa a `:-` e o compose arranca sem ela",
+            lambda c: c.trocar(
+                lint.STAGING,
+                r"^      KAMBA_SECRET_QUEUE_PASSWORD: " + re.escape(_EXIGIR_A_FILA) + "$",
+                "      KAMBA_SECRET_QUEUE_PASSWORD: ${KAMBA_SECRET_QUEUE_PASSWORD:-}",
+            ),
+        ),
+        Caso(
+            "fila-sonda-sem-credencial",
+            frozenset({"fila-sem-credencial"}),
+            "a sonda da fila de producao perde o `REDISCLI_AUTH`",
+            lambda c: c.trocar(
+                lint.PROD, r"^      REDISCLI_AUTH: " + re.escape(_EXIGIR_A_FILA) + r"\n", "",
+            ),
+        ),
+        Caso(
+            "fila-requirepass-em-argumento",
+            frozenset({"fila-senha-em-argumento"}),
+            "o servidor da fila recebe a senha em `--requirepass`, na linha de comando",
+            lambda c: c.trocar(
+                lint.PROD, r"--maxmemory-policy noeviction <<FIM$",
+                '--maxmemory-policy noeviction --requirepass "$${KAMBA_SECRET_QUEUE_PASSWORD}" <<FIM',
+            ),
+        ),
+        Caso(
+            "fila-sonda-com-a-em-argumento",
+            frozenset({"fila-senha-em-argumento"}),
+            "a sonda da fila de *staging* passa a senha com `-a`",
+            lambda c: c.trocar(
+                lint.STAGING,
+                r'"\$\{KAMBA_QUEUE_CLI:-valkey-cli\} ping \| grep -q PONG"',
+                '"${KAMBA_QUEUE_CLI:-valkey-cli} -a $$KAMBA_SECRET_QUEUE_PASSWORD ping | grep -q PONG"',
+            ),
+        ),
+        Caso(
+            "cliente-da-fila-sem-credencial",
+            frozenset({"cliente-da-fila-sem-credencial"}),
+            "o primeiro `KAMBA_QUEUE_URL` de producao volta a `redis://queue:6379`",
+            lambda c: c.trocar(
+                lint.PROD, r"^      KAMBA_QUEUE_URL: " + re.escape(_URL_DA_FILA) + "$",
+                "      KAMBA_QUEUE_URL: redis://queue:6379",
+            ),
+        ),
+        Caso(
+            "cliente-da-fila-com-senha-escrita",
+            frozenset({"cliente-da-fila-sem-credencial"}),
+            "o `REDIS_URL` do Chatwoot de *staging* leva uma senha escrita no ficheiro",
+            lambda c: c.trocar(
+                lint.STAGING, r"^      REDIS_URL: " + re.escape(_URL_DA_FILA) + "/1$",
+                "      REDIS_URL: redis://:escrita-no-ficheiro@queue:6379/1",
+            ),
+        ),
+        Caso(
+            "armazenamento-sem-identidade",
+            frozenset({"armazenamento-anonimo"}),
+            "o `seaweedfs` de producao perde o `AWS_SECRET_ACCESS_KEY`",
+            lambda c: c.trocar(lint.PROD, r"^      AWS_SECRET_ACCESS_KEY: \$\{.*\}\n", ""),
+        ),
+        Caso(
+            "armazenamento-filer-na-rede",
+            frozenset({"armazenamento-exposto"}),
+            "em *staging*, o *master*, o *volume* e o *filer* voltam a todas as interfaces",
+            lambda c: c.trocar(lint.STAGING, r'^      - "-ip\.bind=127\.0\.0\.1"\n', ""),
+        ),
+    )
+
+
 def _casos_dos_consumidores() -> tuple[Caso, ...]:
     """KAM-187: um caso por processo e por defeito, mais os dois de *staging*.
 
@@ -249,8 +338,8 @@ def _casos_dos_consumidores() -> tuple[Caso, ...]:
             frozenset({"consumidor-mal-ligado"}),
             "o *shim* recebe a fila como `KAMBA_QUEUE_URL`, que ele nao le",
             lambda c: c.trocar(
-                lint.PROD, r"^      KAMBA_REDIS_URL: redis://queue:6379$",
-                "      KAMBA_QUEUE_URL: redis://queue:6379",
+                lint.PROD, r"^      KAMBA_REDIS_URL: " + re.escape(_URL_DA_FILA) + "$",
+                "      KAMBA_QUEUE_URL: " + _URL_DA_FILA,
             ),
         ),
         Caso(
@@ -794,6 +883,8 @@ CASOS: tuple[Caso, ...] = (
     ),
     # ------------------------------- KAM-187: os quatro processos do worker
     *_casos_dos_consumidores(),
+    # ------------------------------------- KAM-249: a fila com credencial
+    *_casos_da_fila(),
 )
 
 #: Toda a regra tem de ter canario. Um `lint.REGRAS` novo sem caso aqui falha o
@@ -852,6 +943,12 @@ MINIMO_POR_REGRA: dict[str, frozenset[str]] = {
     "r_consumidores": frozenset(
         {"consumidor-em-falta", "consumidor-com-server-ts", "consumidor-mal-ligado",
          "consumidor-sem-alvo"}
+    ),
+    "r_fila_com_credencial": frozenset(
+        {"fila-sem-credencial", "fila-senha-em-argumento", "cliente-da-fila-sem-credencial"}
+    ),
+    "r_armazenamento_com_credencial": frozenset(
+        {"armazenamento-anonimo", "armazenamento-exposto"}
     ),
 }
 

@@ -4,7 +4,7 @@
 |---|---|
 | Produto | KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para Angola |
 | Documento | Epic — Topologia e Operação |
-| Versão | 1.34 |
+| Versão | 1.35 |
 | Data | Novembro de 2026 |
 | Classificação | Documento de Referência — Interno |
 | Documento-fonte | `../docs/tecnica/09_Topologia_Operacao_Escala.md` |
@@ -2006,14 +2006,14 @@ Que a fila da rede `data` só aceite quem apresenta credencial, e que se saiba, 
 
 ### Critérios de Aceitação
 
-- [ ] A `queue` de `prod` e de `staging` exige credencial: um cliente sem ela recebe `NOAUTH` (ou o
+- [x] A `queue` de `prod` e de `staging` exige credencial: um cliente sem ela recebe `NOAUTH` (ou o
   equivalente da imagem fixada), medido.
-- [ ] Os serviços que usam a fila apresentam-na, vinda do cofre (`ADR-L002`), e o segredo está no
+- [x] Os serviços que usam a fila apresentam-na, vinda do cofre (`ADR-L002`), e o segredo está no
   `../ops/secrets-inventory.yaml` com os consumidores certos; o compose recusa-se a arrancar sem ela.
-- [ ] O S3 do `seaweedfs`, levantado com o perfil `sto-proprio`, medido com um pedido anónimo: se
+- [x] O S3 do `seaweedfs`, levantado com o perfil `sto-proprio`, medido com um pedido anónimo: se
   aceitar, fecha-se com uma configuração de identidades e mede-se a recusa; se recusar, o resultado
   fica no anexo.
-- [ ] Um ensaio, ou uma regra do `compose_prod`, que falhe se a `queue` voltar a arrancar sem
+- [x] Um ensaio, ou uma regra do `compose_prod`, que falhe se a `queue` voltar a arrancar sem
   credencial.
 
 ### Detalhes Técnicos
@@ -2032,8 +2032,37 @@ Que a fila da rede `data` só aceite quem apresenta credencial, e que se saiba, 
 
 ### Definition of Done
 
-- [ ] Critérios satisfeitos, com o comando de cada medição registado.
-- [ ] Sem segredos em ficheiro: a credencial pelo cofre.
+- [x] Critérios satisfeitos, com o comando de cada medição registado.
+- [x] Sem segredos em ficheiro: a credencial pelo cofre.
+
+### Verificação dos Critérios de Aceitação
+
+Seis caixas — 4 critérios e 2 linhas de DoD —, **seis marcadas**. Medido no ramo
+`feature/KAM-249-valkey-com-autenticacao` sobre a base `cf5a563f`, a 2026-11-24, com as imagens fixadas
+dos dois *compose* e com o serviço levantado pelo **próprio** *compose* de `prod` e de `staging`. Os
+comandos, as tabelas e o que fica por medir estão em
+[`../docs/evidencia/KAM-249.md`](../docs/evidencia/KAM-249.md).
+
+> **O S3 fechou-se e há uma porta que o reabre.** O critério 3 cumpre-se à letra (o anónimo mediu-se
+> aceite, fechou-se com identidades e mediu-se a recusa), e a medição encontrou duas coisas que ele não
+> nomeava: o *filer* da 8888 aceitava escrita anónima por baixo do S3 — fechou-se aqui, prendendo-o ao
+> *loopback* —, e a 18333, o gRPC do S3, aceita um `PutIdentity` sem credencial que reabre o S3 ao
+> anónimo (**CONFIRMADO**, anexo §3.4). A 4.48 não tem *flag* que a feche; o mTLS do gRPC ou a D6 a
+> escolher S3 gerido é a escolha que foi levada à coordenação.
+
+| # | Critério | Estado | Evidência | Credor |
+|---|---|---|---|---|
+| 1 | A `queue` de `prod` e de `staging` exige credencial; sem ela, `NOAUTH` | **satisfeito** | Pela imagem fixada e pelo próprio *compose* (`docker compose -f infra/compose/docker-compose.<ambiente>.yml up -d --no-deps queue`), de outro contentor na rede `data`: `valkey-cli -h queue ping` e `lpush bull:wa-inbound:wait` sem credencial → `NOAUTH Authentication required.` nos dois ambientes; credencial errada → `WRONGPASS`; com ela → `PONG`; `healthy`, `appendonly yes`, `noeviction` (anexo §2.2 e §2.3). A senha chega pelo stdin e não por argumento: **0** processos com ela no `cmdline`, e o `docker stop` sai com 0 e paragem limpa (o `--requirepass` em argumento ficava no `cmdline` do PID 1; o *pipe* matava o servidor sem fechar o AOF, saída 143) | — |
+| 2 | Os serviços que usam a fila apresentam-na, do cofre; inventário com os consumidores; o *compose* recusa arrancar sem ela | **satisfeito** | Os **10** URLs da fila de `prod` e os **11** de `staging` (com o Langfuse) levam `redis://:${KAMBA_SECRET_QUEUE_PASSWORD:?...}@queue:6379`: o `config` renderizado tem 10 e 11 com a credencial e **0** sem ela; sem a variável, `docker compose ... config -q` sai **1** com «required variable KAMBA_SECRET_QUEUE_PASSWORD is missing a value» (anexo §2.3). Os clientes medidos com a senha no URL: o `Redis::Config` do Chatwoot, o `ioredis` do Langfuse e o `FilasBullmq`/`opcoesDaUrl` do núcleo dão `PONG`/0, e sem ela `NOAUTH` (anexo §2.4). Segredo novo `queue_password` em `../ops/secrets-inventory.yaml`, com os consumidores EVT, GWY, CHR, AGR, GOV, TEN, HND e OBS, e no §3.12 do dicionário (emenda 1.147). O AGR e o IDX **não** a recebem: não falam com a fila, recebem pela ponte HTTP. O GWY usa-a no código e nenhum *compose* lhe liga a fila (dívida do `../docs/evidencia/KAM-083.md`, achado 1): a regra do critério 4 obriga a credencial no dia em que lha derem | — |
+| 3 | O S3 do `seaweedfs` medido com um pedido anónimo; se aceitar, fecha-se com identidades e mede-se a recusa | **satisfeito** | **Aceitava**: ListBuckets, CreateBucket, PutObject e GetObject anónimos a 200, e o *filer* da 8888 a 201/200 (anexo §3.1). Fechado com o par do `StorageProvider` em `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY` (a identidade de administração, sem ficheiro) e o *master*, o *volume* e o *filer* no *loopback*; pelo próprio *compose* com `--profile sto-proprio`, nos dois ambientes: os cinco pedidos anónimos a **403 `AccessDenied`**, o assinado a 200, o segredo errado a 403 `SignatureDoesNotMatch`, e só a 8333 e a 18333 alcançáveis (anexo §3.3). A sonda passou a `8333/healthz`. **Fica aberta a 18333** (nota acima e anexo §3.4) | a 18333: à espera da decisão da coordenação |
+| 4 | Um ensaio, ou uma regra do `compose_prod`, que falhe se a `queue` voltar a arrancar sem credencial | **satisfeito** | A regra **`r_fila_com_credencial`** (`../tools/compose_prod/lint.py`), em `prod` e em `staging`, com três achados: `fila-sem-credencial` (sem `requirepass` da variável, sem `:?`, ou sem `REDISCLI_AUTH` na sonda), `fila-senha-em-argumento` e `cliente-da-fila-sem-credencial`. E a **`r_armazenamento_com_credencial`**, para o S3 não voltar atrás: `armazenamento-anonimo` e `armazenamento-exposto`. Nove casos de canário e as duas entradas em `MINIMO_POR_REGRA`; `python -m compose_prod --root .. lint` → **0 achados**, 16 regras; `canario` → **80 de 80** casos a morder, 16 de 16 regras | — |
+
+#### Definition of Done
+
+| # | Linha | Estado | Evidência | Credor |
+|---|---|---|---|---|
+| 1 | Critérios satisfeitos, com o comando de cada medição | **satisfeito** | Os quatro acima; cada tabela do anexo diz o comando que a produziu, e o §5 diz como se repete | — |
+| 2 | Sem segredos em ficheiro: a credencial pelo cofre | **satisfeito** | Nenhum valor em ficheiro: a senha e o par são interpolações `${...:?...}` que o lançador do cofre enche (ADR-L002), e a regra `cliente-da-fila-sem-credencial` recusa um URL com a senha escrita (caso `cliente-da-fila-com-senha-escrita`). Nas medições, os valores geraram-se em cada corrida e as saídas trocam-nos por `<SENHA>` | — |
 
 ### Handoff para Claude Code
 
@@ -2121,3 +2150,4 @@ Testes: a medição com e sem credencial na imagem fixada, o S3 anónimo, e o ca
 | 1.32 | Novembro 2026 | **Aresta recíproca, sem alteração de conteúdo:** o `Bloqueia` do KAM-078 ganha o **KAM-248** (EPIC-09), aberto no PR do KAM-233: o *token* de cada WABA chega ao `onboarding-lote` pelo lançador do cofre (ADR-L002) | Equipa KAMBÁ |
 | 1.33 | Novembro 2026 | **KAM-249** acrescentado, no PR do **KAM-247** (EPIC-03), que o abre e não o implementa, por decisão do fundador de 2026-11-23: a A1 do KAM-247 mantém-se, com um credor para a fila sem credencial na rede `data` e o S3 do `seaweedfs` por medir. Aresta recíproca: o `Bloqueia` do KAM-076 ganha o KAM-249. | Equipa KAMBÁ |
 | 1.34 | Novembro 2026 | **KAM-242 entregue.** O `memswap_limit` igual ao `mem_limit` nos 24 serviços do *compose* de `prod`, a regra `memoria-com-swap` do `compose_prod` com três casos de canário, e o *swap* do *host* registado como NÃO VERIFICADO, com o que o mede (uma linha nova nos «Riscos do Epic e itens NÃO VERIFICADOS»). Quatro caixas de cinco marcadas; a linha 2 do DoD fica parcial (o `make smoke` não correu). Anexo `../docs/evidencia/KAM-242.md`. Número **provisório**: renumera-se na integração. | Equipa KAMBÁ |
+| 1.35 | Novembro 2026 | **KAM-249 entregue.** A `queue` de `prod` e de `staging` exige credencial (`queue_password`, pelo cofre, lida pelo servidor do stdin e apresentada por todos os clientes no URL), e o S3 do `seaweedfs` mediu-se aceitando anónimos e fechou-se com identidades e com o *filer* no *loopback*. Duas regras novas no `compose_prod`, com canário. Os seis itens marcados com evidência; a 18333 do S3, que o reabre, fica registada e à espera da decisão da coordenação. Anexo `../docs/evidencia/KAM-249.md`. | Equipa KAMBÁ |
