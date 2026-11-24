@@ -19,9 +19,13 @@
  * valor que ninguém gravou. A impressão do pedido (`sku` e corpo) guarda-se ao
  * lado, e uma chave reutilizada com outra impressão dá `422`.
  *
- * **Em memória, pela razão do `./sessao.ts`**: o `server.ts` não arranca em
- * `prod`. O tecto de entradas e a validade são *proposta*. A versão na base é
- * do KAM-240 (decisão C2 da coordenação, no bloco do KAM-236).
+ * ## Duas versões, a mesma promessa
+ *
+ * Esta, **em memória**, só serve um processo: um reinício ou uma segunda
+ * réplica perdem-na. Fica para os ensaios e para `dev` sem base. A da base é a
+ * `IdempotenciaNaBase` de `./idempotencia_sql.ts` (KAM-240), e o `server.ts`
+ * usa-a sempre que há base. As duas cumprem a `Deduplicacao`. O tecto de
+ * entradas e a validade são *proposta*.
  */
 
 /** Validade de uma chave, em milissegundos. ***Proposta***: 24 horas. */
@@ -51,7 +55,18 @@ export type Desfecho =
   | { readonly tipo: "nova" | "repetida"; readonly resposta: Guardada }
   | { readonly tipo: "reutilizada" };
 
-export class Idempotencia {
+/** O que as rotas do painel pedem à idempotência: em memória ou na base. */
+export interface Deduplicacao {
+  /**
+   * Corre `fazer` uma vez por `(tenant, chave)`.
+   *
+   * `repetida` quer dizer que a resposta é a da primeira vez e **nada** correu.
+   * Uma resposta 5xx, ou com `guardar: false`, não se guarda.
+   */
+  uma(tenantId: string, chave: string, impressao: string, fazer: () => Promise<Guardada>): Promise<Desfecho>;
+}
+
+export class Idempotencia implements Deduplicacao {
   readonly #entradas = new Map<string, Entrada>();
   readonly #relogio: () => number;
 

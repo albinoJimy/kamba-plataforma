@@ -615,6 +615,10 @@ class TestConvencoes(ComBase):
                 ("consent_texts", "version", "text", None),
                 ("contact_deks", "dek_id", "uuid", "gen_random_uuid()"),
                 ("contact_endpoints", "id", "uuid", "gen_random_uuid()"),
+                # KAM-208: chave natural, o contacto no seu tenant: um
+                # pseudonimo por contacto.
+                ("contact_xtenant_pseudonym", "contact_id", "uuid", None),
+                ("contact_xtenant_pseudonym", "tenant_id", "uuid", None),
                 ("contacts", "contact_id", "uuid", "gen_random_uuid()"),
                 # KAM-121: o calendario e o item do social, pela regra geral
                 # («conta» < «conte» < «contr»).
@@ -864,6 +868,12 @@ class TestConvencoes(ComBase):
                 # negocio esta nos dois indices unicos parciais
                 # (`painel_revogacao_sid_uq`, `painel_revogacao_corte_uq`)
                 # («ow» < «pai» < «pay»).
+                # KAM-240: a idempotencia do painel tem chave **natural e
+                # composta**, `(tenant_id, chave)`, pela razao da
+                # `order_intents`: e o recibo, e o `ON CONFLICT` da reserva
+                # arbitra por ela («pai_i» < «pai_r»).
+                ("painel_idempotencia", "chave", "text", None),
+                ("painel_idempotencia", "tenant_id", "uuid", None),
                 ("painel_revogacao", "revogacao_id", "uuid", "gen_random_uuid()"),
                 # KAM-052: a chave e um `uuid` gerado, e a chave de negocio
                 # esta ao lado, no indice unico parcial
@@ -1565,6 +1575,13 @@ class TestConvencoes(ComBase):
              # sid)` e o `painel_revogacao_corte_uq (tenant_id)`, sem FK.
              "onboarding_otp",
              "painel_revogacao",
+             # KAM-208 (revisao da correlacao entre tenants). Pela chave
+             # primaria `(tenant_id, contact_id)`. **Com** FK para `tenants` e
+             # a composta para o contacto.
+             "contact_xtenant_pseudonym",
+             # KAM-240: a idempotencia do painel, pela chave primaria
+             # `(tenant_id, chave)`, sem FK (a razao da `painel_revogacao`).
+             "painel_idempotencia",
              # KAM-239 (revisao do guia na base). Pelo
              # `onboarding_guia_tenant_idx (tenant_id)`, com a FK composta ao caso.
              "onboarding_guia"},
@@ -2277,11 +2294,13 @@ class TestConvencoes(ComBase):
         # `onboarding_otp_caso_fk (onboarding_id, tenant_id)`, que prende o
         # desafio ao caso e ao tenant dele. A `painel_revogacao` nao tem FK: o
         # tenant de uma sessao do painel pode ainda nao ter linha em `tenants`.
+        # **125** desde a revisao da correlacao entre tenants (KAM-208): a do
+        # tenant e a composta do contacto da `contact_xtenant_pseudonym`.
         #
-        # **124** desde a revisao do guia na base (KAM-239): a composta
+        # **126** desde a revisao do guia na base (KAM-239): a composta
         # `onboarding_guia_caso_fk (onboarding_id, tenant_id)`, que prende o
         # estado do guia ao caso e ao tenant dele.
-        self.assertEqual(len(linhas), 124)
+        self.assertEqual(len(linhas), 126)
         for nome, alvo in linhas:
             with self.subTest(fk=nome):
                 self.assertTrue(alvo.startswith("platform."), alvo)
@@ -2297,7 +2316,7 @@ class TestPapeis(ComBase):
         )
         return {linha[0]: linha[1:] for linha in linhas}
 
-    def test_existem_os_nove_e_so_os_nove(self) -> None:
+    def test_existem_os_dez_e_so_os_dez(self) -> None:
         """Os tres do KAM-003, o `kamba_resolver` do KAM-004, o `kamba_identity`
         do KAM-008, o `kamba_audit` do KAM-012, o `kamba_agr` do KAM-026 e o
         `kamba_pay_hooks` do KAM-053.
@@ -2326,12 +2345,20 @@ class TestPapeis(ComBase):
         que abre a `refund_cases`. Existe para que a tabela tenha um so dono
         **imposto pela base** — o COM corre como `kamba_app`, e uma porta
         concedida ao `kamba_app` deixava o COM abrir casos.
+
+        **O decimo e o `kamba_litellm` do KAM-247**, por decisao do fundador de
+        2026-11-23 (opcao A1), e e o unico **fora da plataforma**: o papel do
+        proxy de LLM, dono da base `kamba_litellm` e sem `CONNECT` na base da
+        plataforma. Nao esta no `ligacao.PAPEIS` e por isso nao entra na matriz
+        do `test_privilegios`; entra aqui porque esta consulta le o cluster, e
+        um papel `kamba_*` que ninguem declarou e o que ela existe para apanhar.
+        O que ele alcanca mede-se em `test_papel_do_litellm.py`.
         """
         self.assertEqual(
             set(self.atributos()),
             {"kamba_migrator", "kamba_app", "kamba_batch", "kamba_resolver",
              "kamba_identity", "kamba_audit", "kamba_agr", "kamba_pay_hooks",
-             "kamba_pay"},
+             "kamba_pay", "kamba_litellm"},
         )
 
     def test_nenhum_e_superutilizador_nem_cria_bases_ou_papeis(self) -> None:
@@ -2378,6 +2405,9 @@ class TestPapeis(ComBase):
                 # `app.tenant_id` do envelope, e a porta le a encomenda sob
                 # RLS. Com `BYPASSRLS` abria casos em qualquer tenant.
                 "kamba_pay": False,
+                # KAM-247: o proxy de LLM nao tem RLS a contornar na base dele,
+                # e na da plataforma nem entra.
+                "kamba_litellm": False,
             },
         )
 

@@ -36,6 +36,7 @@ export type {
   ComTenant,
   EntregaDoChr,
   Quarentena,
+  RecepcaoDeMidia,
   Registo,
   ResolucaoDeContacto,
   ResultadoDoChr,

@@ -337,6 +337,86 @@ export const SQL_FOTOS_REPETIDAS = `
 `;
 
 /**
+ * As ofertas que a varredura do preço anómalo lê (KAM-209): as publicadas, com
+ * preço (`fixo` ou `a_partir_de`) e com categoria, **de todos os tenants** — é o
+ * `kamba_batch`, o papel auditado que atravessa tenants, quem a corre. **Todas
+ * se avaliam; só as de preço fixo são referência** (decisão do fundador de
+ * 2026-11-21: a mediana das ofertas publicadas de preço fixo, da mesma moeda e
+ * categoria, de **outros** tenants). Um `a_partir_de` diz o mínimo, e comparado
+ * com a mediana diz o mesmo que um fixo; como referência puxava-a para baixo. O
+ * `sob_consulta` não tem preço, e não se avalia. Quais categorias não se
+ * avaliam (a `outra`) e quem é referência decide-o o código (`./precos.ts`), e
+ * não esta consulta: uma fonte.
+ *
+ * Sem `LIMIT`, e é deliberado: a mediana de uma categoria precisa de todas as
+ * ofertas dela, e um corte punha a referência a depender da ordem.
+ * shortcut: a volta lê o catálogo publicado inteiro para a memória do processo
+ * de lote e, por oferta, percorre as referências da categoria (O(n²) por
+ * categoria); revê-se quando uma categoria passar de ~10 mil ofertas
+ * publicadas, passando a mediana para a base (`percentile_disc` por categoria,
+ * moeda e tenant excluído).
+ */
+export const SQL_OFERTAS_COM_PRECO = `
+  SELECT o.tenant_id::text AS tenant_id, o.sku, o.categoria, o.currency, o.preco_tipo,
+         o.preco_minor::text AS preco_minor
+    FROM platform.offer_terms o
+   WHERE o.estado = 'publicado' AND o.deleted_at IS NULL
+     AND o.preco_tipo IN ('fixo', 'a_partir_de') AND o.categoria IS NOT NULL
+   ORDER BY o.categoria, o.currency, o.tenant_id, o.sku
+`;
+
+/**
+ * Quantas ofertas publicadas não têm categoria (KAM-209). São as que já
+ * estavam publicadas antes da revisão `0088`: a guarda vale só na publicação,
+ * e estas ficam nulas e não se avaliam (decisão do fundador de 2026-11-21). A
+ * varredura conta-as, para que o que fica por avaliar se veja.
+ */
+export const SQL_OFERTAS_SEM_CATEGORIA = `
+  SELECT count(*)::int AS n
+    FROM platform.offer_terms
+   WHERE estado = 'publicado' AND deleted_at IS NULL AND categoria IS NULL
+`;
+
+/**
+ * Das chaves de janela pedidas (`$1`, uma por loja com SKUs anómalos), as que já
+ * têm o seu `preco_anomalo`: a volta não grava duas vezes a mesma loja na mesma
+ * janela, nem a devolve à escada.
+ */
+export const SQL_PRECOS_JA_SINALIZADOS = `
+  SELECT ref_evento::text AS ref_evento
+    FROM platform.ts_signal
+   WHERE tipo = 'preco_anomalo' AND ref_evento = ANY($1::uuid[])
+`;
+
+/**
+ * A correlação entre tenants por comprador (KAM-208): por tenant, quantos
+ * compradores (contacto de encomenda paga ou entregue nos últimos 30 dias)
+ * compram também noutro tenant **do mesmo dono**, pelo pseudónimo sem tenant
+ * visto nos últimos 90. A função é `SECURITY DEFINER` e devolve **só** o
+ * tenant e a contagem — nunca o pseudónimo nem o outro tenant (revisão
+ * `0087`); o `kamba_batch` não tem `SELECT` na tabela do pseudónimo, só o
+ * `EXECUTE` dela. As janelas são da função, e não daqui. **A lista de tenants
+ * é a de todos, sempre**: com um subconjunto a função dizia se dois tenants
+ * têm o mesmo dono (o limite está escrito na revisão).
+ */
+export const SQL_COMPRADORES_NOUTRA_LOJA_DO_DONO = `
+  SELECT r.tenant_id::text AS tenant_id, r.contagem
+    FROM platform.ts_compradores_noutra_loja_do_dono(
+           (SELECT coalesce(array_agg(t.id ORDER BY t.id), '{}'::uuid[]) FROM platform.tenants t)) AS r
+   ORDER BY r.tenant_id
+`;
+
+/**
+ * A retenção do pseudónimo sem tenant (KAM-208, D4): apaga os vistos antes de
+ * `$1`, em todos os tenants, e devolve quantos.
+ */
+export const SQL_PURGAR_PSEUDONIMOS = `
+  SELECT platform.contact_xtenant_purgar(
+           (SELECT coalesce(array_agg(t.id ORDER BY t.id), '{}'::uuid[]) FROM platform.tenants t),
+           $1) AS apagados
+`;
+
+/**
  * Os sinais `mudanca_de_conta` que ainda não têm caso `trust` (KAM-200,
  * critério 5). Os sinais nascem nos *triggers* da revisão `0067`, sobre a
  * `payment_accounts` e o `tenants.nif`; o caso abre-o a varredura, pela fila. A

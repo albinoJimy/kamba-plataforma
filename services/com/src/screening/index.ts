@@ -39,13 +39,27 @@
  * compara o resumo do conteúdo que ele próprio analisaria, e uma decisão sobre
  * outro texto já não esconde nada.
  *
- * **O que fica por fechar, e fica dito:** uma decisão `bloqueada` gravada por
- * aqui sobre o conteúdo **exacto** de um produto já publicado também é uma
- * decisão para a versão e para o conteúdo, e a re-análise salta-o — sem emitir
- * a violação, que só ela emite. O chamador do Catálogo AI faz o `screen` de um
- * rascunho antes de o publicar, e o `/internal/publish-product` recusa a
- * `bloqueada`; o caso que sobra é o de um publicado cujo texto se passa por
- * aqui depois.
+ * ## A `bloqueada` de um publicado emite aqui (KAM-245)
+ *
+ * Uma decisão `bloqueada` gravada por aqui sobre o conteúdo **exacto** de um
+ * produto já publicado também é uma decisão para a versão e para o conteúdo, e
+ * a re-análise salta-o. Até ao KAM-245 o `screening.violation_detected`, que só
+ * a re-análise emitia, não saía. Agora sai daqui, **na transacção da decisão**
+ * (`gravarComViolacao`), pela mesma razão da re-análise (achados F11 e F12 do
+ * KAM-088): uma violação que falhasse depois de a decisão confirmar perdia-se
+ * para sempre, porque a re-análise já não via o produto.
+ *
+ * Emite-se uma vez por conteúdo: só quando a decisão nova faz o conteúdo
+ * publicado **passar** a `bloqueada` aos olhos do `assertPublishable`. Uma
+ * repetição, ou uma `bloqueada` que a re-análise já emitiu, encontra-o
+ * `bloqueada` antes, e não emite; uma `permitida` humana anterior continua a
+ * ganhar, e também não.
+ *
+ * **E o produto sai do catálogo visível na mesma transacção** (decisão A do
+ * fundador, 2026-11-23): a oferta passa a `rascunho` e sai o
+ * `catalog.product_changed`, que o IDX lê para esconder o documento. A
+ * re-análise de uma mudança de política **não** despublica (KAM-191, critério
+ * 4); a assimetria está escrita no bloco do KAM-245, com credor.
  *
  * O sujeito das condições entrou no `SUJEITOS` e no `CHECK` com a revisão
  * `0074` (decisão do fundador de 2026-11-19, bloco do KAM-222).
@@ -73,6 +87,8 @@
 
 import {
   assertPublishable,
+  conteudoSha256,
+  EmissorSql,
   EscritorSql,
   FINALIDADE_DAS_CONDICOES,
   FINALIDADE_DO_CATALOGO,
@@ -83,6 +99,7 @@ import {
   screen,
   type ClassificadorDeCategorias,
   type EntradaDoScreen,
+  type LinhaDeDecisao,
   type PoliticaCompilada,
   type ResultadoDoScreen,
   type SujeitoTipo,
@@ -100,6 +117,7 @@ import {
   type Resultado,
   type ResultadoFinal,
 } from "../port/index.ts";
+import { emitirProdutoAlterado } from "../produtos/eventos.ts";
 import { confirmacaoValida } from "../produtos/index.ts";
 
 /** O sujeito das condições de um orçamento. Está no `CHECK` desde a revisão `0074`. */
@@ -239,9 +257,9 @@ export function operacaoDeScreen(deps: DependenciasDoScreenDoCom): OperacaoDeScr
           escritor: {
             gravar: (linha) =>
               deps.comTenant(tenantId, (cliente) =>
-                new EscritorSql(cliente as unknown as ConstructorParameters<typeof EscritorSql>[0]).gravar(
-                  linha,
-                ),
+                (sujeitoTipo as string) === SUJEITO_DO_PRODUTO && linha.decisao === "bloqueada"
+                  ? gravarComViolacao(cliente, tenantId, linha, deps.politica)
+                  : new EscritorSql(sqlDe(cliente)).gravar(linha),
               ),
           },
         },
@@ -270,6 +288,114 @@ export function operacaoDeScreen(deps: DependenciasDoScreenDoCom): OperacaoDeScr
   };
 }
 
+// ------------------------------------- a violacao de um publicado (KAM-245)
+
+/**
+ * O `nome` de uma oferta **publicada** do tenant, com a linha trancada.
+ *
+ * A tranca serializa dois `screen` do mesmo `sku`: o segundo espera que o
+ * primeiro confirme, e a leitura das decisões que faz a seguir já vê a
+ * `bloqueada` dele. Sem ela, os dois liam «ainda não bloqueada» e emitiam os
+ * dois.
+ */
+export const SQL_PUBLICADO_SOB_TRANCA = `
+SELECT nome FROM platform.offer_terms
+WHERE tenant_id = $1 AND sku = $2 AND estado = 'publicado' AND deleted_at IS NULL
+FOR UPDATE`;
+
+/**
+ * Grava uma `bloqueada` de um produto e, se ela bloquear o conteúdo publicado,
+ * emite a violação no mesmo cliente — logo na mesma transacção (KAM-245).
+ *
+ * ```text
+ * sem oferta publicada com este sku       grava, e nada mais
+ * outro conteudo (nome ou categoria)      grava, e nada mais
+ * o conteudo continua publicavel          grava, e nada mais (uma permitida humana ganha)
+ * o conteudo publicado passa a bloqueada  grava, emite a violacao e despublica
+ * o conteudo publicado ja era bloqueada   grava e despublica, sem segunda violacao
+ * a emissao ou a escrita falha            lanca: a decisao desfaz-se com elas
+ * ```
+ *
+ * Despublicar é o `SQL_DESPUBLICAR` e o `catalog.product_changed` com o
+ * `estado` `rascunho`, que o IDX lê para esconder o documento (o
+ * `efeito_do_produto` reescreve-o a partir da oferta viva). O rasto de **porquê**
+ * fica na `screening_decision` e na violação; não há linha de `audit_log`,
+ * cujas origens são uma lista fechada do KAM-043.
+ *
+ * O conteúdo publicado é o da re-análise e o do `publish-product`:
+ * `{categoria_declarada: <a do tenant>, textos: [nome]}`. Um `screen` com outra
+ * categoria no pedido dá outro resumo, e não é sobre o que está publicado.
+ */
+export async function gravarComViolacao(
+  cliente: ClienteSql,
+  tenantId: string,
+  linha: LinhaDeDecisao,
+  politica: PoliticaCompilada,
+): Promise<void> {
+  const escritor = new EscritorSql(sqlDe(cliente));
+  const oferta = await cliente.query(SQL_PUBLICADO_SOB_TRANCA, [tenantId, linha.sujeitoRef]);
+  const nome = oferta.rows[0]?.["nome"];
+  if (typeof nome !== "string") return escritor.gravar(linha);
+  const { rows } = await cliente.query(SQL_CATEGORIA_DO_TENANT, [tenantId]);
+  const categoria = rows[0]?.["sujeito_ref"];
+  const publicada: EntradaDoScreen = {
+    categoria_declarada: typeof categoria === "string" ? categoria : "",
+    textos: [nome],
+  };
+  const sha = conteudoSha256(publicada);
+  if (!Buffer.from(sha).equals(Buffer.from(linha.conteudoSha256))) return escritor.gravar(linha);
+  const motivo = () => motivoDeNaoPublicar(cliente, tenantId, linha.sujeitoRef, publicada, politica);
+  const antes = await motivo();
+  await escritor.gravar(linha);
+  if ((await motivo()) !== "bloqueada") return;
+  if (antes !== "bloqueada") {
+    await new EmissorSql(sqlDe(cliente)).emitir({
+      tenantId,
+      sku: linha.sujeitoRef,
+      regras: linha.regras,
+      versaoPolitica: linha.versaoPolitica,
+      conteudoSha256: sha,
+    });
+  }
+  const saiu = await cliente.query(SQL_DESPUBLICAR, [tenantId, linha.sujeitoRef]);
+  if (saiu.rows.length !== 1) {
+    // A linha está trancada desde o início: não sair é um defeito, e lançar
+    // desfaz a decisão e a violação com ela.
+    throw new Error("a oferta trancada nao saiu de publicado");
+  }
+  await emitirProdutoAlterado(cliente, tenantId, linha.sujeitoRef, "rascunho");
+}
+
+/**
+ * Tira de `publicado` a oferta cujo conteúdo o `screen` bloqueou (KAM-245,
+ * decisão A do fundador de 2026-11-23). Para `rascunho`, e não `arquivado`, que
+ * é terminal: o recurso humano da T&S (uma `permitida` de `humano`) deixa o
+ * dono republicar. É o que o *trigger* `offer_terms_publicacao_segura` da
+ * revisão `0080` faz a um publicado cujo nome novo não tem decisão.
+ */
+export const SQL_DESPUBLICAR = `
+UPDATE platform.offer_terms
+   SET estado = 'rascunho', atualizado_at = clock_timestamp()
+ WHERE tenant_id = $1 AND sku = $2 AND estado = 'publicado' AND deleted_at IS NULL
+RETURNING sku`;
+
+/** O motivo do `assertPublishable`, ou `null` se o conteúdo é publicável. */
+async function motivoDeNaoPublicar(
+  cliente: ClienteSql,
+  tenantId: string,
+  sku: string,
+  entrada: EntradaDoScreen,
+  politica: PoliticaCompilada,
+): Promise<NaoPublicavelError["motivo"] | null> {
+  try {
+    await assertPublishable({ tenantId, ref: sku, entrada }, { politica, leitor: new LeitorSql(leitorDe(cliente)) });
+    return null;
+  } catch (excepcao) {
+    if (excepcao instanceof NaoPublicavelError) return excepcao.motivo;
+    throw excepcao;
+  }
+}
+
 // ------------------------------------------------- a publicacao (KAM-119)
 
 /**
@@ -286,6 +412,13 @@ export interface PedidoDePublicacao {
   readonly sku: string;
   /** A confirmação do dono: o `actor` é `dono`, e o `id` é quem confirmou (o `contact_id`, pelo AGR). */
   readonly confirmacao: OwnerConfirmation;
+  /**
+   * A quantidade em stock que o dono deu e confirmou no eco (KAM-231), ou
+   * ausente. Vai ao `ajustarStock` do Registo **na mesma transacção** da
+   * publicação: um produto publicado sem a quantidade, com ela à espera de
+   * outro pedido, era o defeito que o bloco do KAM-119 deixou escrito.
+   */
+  readonly stock?: number;
 }
 
 /**
@@ -299,6 +432,7 @@ export type PublicarConferido = (
   ref: ProductRef,
   confirmacao: OwnerConfirmation,
   nomeEsperado: string,
+  stock?: number,
 ) => Promise<Resultado<void>>;
 
 export interface DependenciasDaPublicacao {
@@ -369,7 +503,13 @@ export function operacaoDePublicar(deps: DependenciasDaPublicacao): OperacaoDePu
     }
     if (entrada === null) return erro("NOT_FOUND");
     try {
-      return await deps.publicar(ctx, { sku: pedido.sku, registoId: null }, pedido.confirmacao, entrada.textos[0]!);
+      return await deps.publicar(
+        ctx,
+        { sku: pedido.sku, registoId: null },
+        pedido.confirmacao,
+        entrada.textos[0]!,
+        pedido.stock,
+      );
     } catch {
       return erro("UPSTREAM_DOWN");
     }
@@ -455,4 +595,9 @@ export function screeningDoNomeNovo(
 /** O cliente da transacção na forma que o `LeitorSql` pede. */
 function leitorDe(cliente: ClienteSql): ConstructorParameters<typeof LeitorSql>[0] {
   return cliente as unknown as ConstructorParameters<typeof LeitorSql>[0];
+}
+
+/** O cliente da transacção na forma que o `EscritorSql` e o `EmissorSql` pedem. */
+function sqlDe(cliente: ClienteSql): ConstructorParameters<typeof EscritorSql>[0] {
+  return cliente as unknown as ConstructorParameters<typeof EscritorSql>[0];
 }

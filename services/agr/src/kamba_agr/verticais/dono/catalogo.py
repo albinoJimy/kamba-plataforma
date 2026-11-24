@@ -13,7 +13,9 @@ de tool sai de um modelo de linguagem.
 | botao `preco:{ingestao}:{centimos}` | grava o preco do eco (`create_product_draft`, `preco_confirmado`) |
 | botao `preco_corrigir:{ingestao}` | pede o preco outra vez; nada se grava |
 | botao `mesmo_produto:` / `outro_produto:` | a resposta a «e o mesmo produto?» |
-| uma foto | a media nao chega ao AGR (o `agent_invocation` nao a leva): diz-se ao dono, e o credor esta no bloco |
+| botao `retomar:` | o screening outra vez, numa ingestao que ele nao decidiu (KAM-244) |
+| uma foto com `asset_id` | o rascunho pela foto (`create_product_draft`, `asset_id`), KAM-231 |
+| uma foto sem `asset_id` | a foto nao chegou ao STO (o MED recusou, falhou ou nao esta montado): diz-se ao dono |
 | texto, com rascunho a espera de resposta | a resposta as perguntas em aberto; o preco vai so ao eco |
 | texto sobre o catalogo, sem resposta a dar | o estado do catalogo (`get_catalog_status`) |
 
@@ -40,6 +42,7 @@ from typing import Any, Final
 from kamba_core.catalogo.completude import CRITICOS
 
 from ...catalogo import regras
+from ...contexto import chave_de_envio
 from ...tls.contexto import Confirmation
 from ...tls.erros import ENTITLEMENT_DENIED, NOT_FOUND, TOOL_NOT_ALLOWED, UPSTREAM_TIMEOUT, VALIDATION_ERROR
 from ..vendedor.nos import Dependencias, _invocar, _resposta_estatica, _texto_do_cliente
@@ -93,9 +96,7 @@ async def tratar(deps: Dependencias, estado: Mapping[str, Any]) -> dict[str, Any
     if toque is not None:
         return await _do_botao(deps, estado, toque)
     if estado.get("input_kind") == "image":
-        # A media nao chega ao estado: o `agent_invocation` nao tem campo para
-        # ela, e o MED nao esta montado (credor no bloco do KAM-119).
-        return _resposta_estatica(MSG_FOTO_POR_LIGAR)
+        return await _da_foto(deps, estado)
     texto = _texto_do_cliente(estado)
     status = await estado_do_catalogo(deps, estado)
     if status is None:
@@ -119,6 +120,34 @@ async def tratar(deps: Dependencias, estado: Mapping[str, Any]) -> dict[str, Any
     if len(abertos) > 1 and resto and estado.get("intent") != "modulos":
         return _resposta_estatica("\n".join((MSG_QUAL_RASCUNHO, *_referencias(abertos))))
     return _resposta_do_estado(status)
+
+
+async def _da_foto(deps: Dependencias, estado: Mapping[str, Any]) -> dict[str, Any]:
+    """Uma foto do dono vira rascunho (KAM-231).
+
+    O `asset_id` vem do estado, que o tirou da invocacao: o CHR (pelo MED) ou o
+    painel guardaram a foto no STO antes de invocar. **Nenhum argumento vem de
+    um modelo**: o no constroi-o do estado, como os outros deste modulo. Sem
+    `asset_id`, a foto nao chegou ao STO — o MED recusou-a, falhou, ou nao esta
+    montado — e o dono e avisado, sem rascunho.
+    """
+    asset_id = estado.get("asset_id")
+    if not isinstance(asset_id, str) or not asset_id:
+        return _resposta_estatica(MSG_FOTO_POR_LIGAR)
+    # Decisao do fundador de 2026-11-21 (P3, opcao A): o turno avisa **antes** da
+    # tool, que tem tecto de 25 s, e o resumo sai depois pelo `send`. O aviso
+    # tem chave propria do turno (`turn_id:1`), pelo que um turno repetido nao
+    # o envia duas vezes; o resumo e o `turn_id:0` de sempre.
+    await deps.saida.enfileirar(estado, MSG_A_PREPARAR, chave=chave_de_envio(str(estado["turn_id"]), SEQ_DO_AVISO))
+    recebida = await _invocar(deps, estado, "create_product_draft", {"asset_id": asset_id})
+    if not recebida.ok:
+        if getattr(recebida.error, "codigo", "") == UPSTREAM_TIMEOUT:
+            # KAM-244: a camada cortou, e o pipeline acaba na *thread* dele e
+            # grava o estado. O dono ve-o no turno seguinte, pelo estado do
+            # catalogo (as referencias `PRD-…` dos que esperam por ele).
+            return _resposta_estatica(MSG_FOTO_EM_CURSO)
+        return _resposta_estatica(_frase_do_erro(recebida.error))
+    return _resposta_da_ingestao(recebida.data)
 
 
 async def _responder(
@@ -198,6 +227,10 @@ async def _do_botao(deps: Dependencias, estado: Mapping[str, Any], toque: regras
         argumentos: dict[str, Any] = {"ingestao": toque.ingestao, "preco_confirmado": toque.valor}
     elif toque.accao == "stock":
         argumentos = {"ingestao": toque.ingestao, "stock_confirmado": toque.valor}
+    elif toque.accao == "retomar":
+        # KAM-244: «tentar outra vez» o screening que nao decidiu. Sem respostas,
+        # o executor pergunta-lhe outra vez (`retomar` do KAM-049).
+        argumentos = {"ingestao": toque.ingestao, "respostas": {}}
     else:
         argumentos = {"ingestao": toque.ingestao, "mesmo_produto": toque.accao == "mesmo_produto"}
     gravada = await _invocar(deps, estado, "create_product_draft", argumentos)
@@ -280,6 +313,12 @@ def _resposta_da_ingestao(dados: Mapping[str, Any]) -> dict[str, Any]:
         resposta = _resposta_estatica("\n".join(linhas))
         resposta["draft"]["botoes"] = (f"confirm:{dados['action_id']}",)
         return resposta
+    if estado_da_ingestao == "bloqueada_categoria" and dados.get("retomavel"):
+        # KAM-244: o screening nao chegou a decidir (sem tempo, ou em baixo). Nao
+        # e «nao pode ser publicado»: o toque seguinte pergunta-lhe outra vez.
+        resposta = _resposta_estatica(MSG_POR_VERIFICAR)
+        resposta["draft"]["botoes"] = (regras.botao_de_retomar(str(dados["ingestao"])),)
+        return resposta
     return _resposta_estatica(FRASE_DO_ESTADO.get(str(estado_da_ingestao), MSG_NAO_CONSEGUI))
 
 
@@ -316,8 +355,21 @@ def _frase_do_erro(erro: Any) -> str:
 
 # **Sem digitos**, todos: vao ao `send` sem passar pelo validador (aresta 34).
 MSG_CATALOGO_INACTIVO: Final = "O modulo do catalogo nao esta activo para a sua loja."
+#: O aviso antes do `create_product_draft` de uma foto (KAM-231, P3). Sem
+#: digitos, como os outros textos estaticos.
+MSG_A_PREPARAR: Final = "Recebi a foto. Estou a preparar o produto, ja lhe digo o que vi."
+#: O `seq` do aviso no turno: o resumo e o `0` do `send`.
+SEQ_DO_AVISO: Final = 1
+#: KAM-244: a camada cortou a tool da foto, que continua a preparar o produto.
+MSG_FOTO_EM_CURSO: Final = (
+    "Ainda estou a preparar este produto. Daqui a pouco escreva produtos para ver em que ficou."
+)
+#: KAM-244: o screening nao decidiu a categoria a tempo. Vai com o botao «Tentar outra vez».
+MSG_POR_VERIFICAR: Final = (
+    "Ainda nao consegui verificar a categoria deste produto. Toque no botao para eu tentar outra vez."
+)
 MSG_FOTO_POR_LIGAR: Final = (
-    "Ainda nao consigo receber fotos por aqui. Pode criar o produto pelo painel da loja."
+    "Nao consegui receber esta foto. Envie-a outra vez, ou crie o produto pelo painel da loja."
 )
 MSG_REFERENCIA_DESCONHECIDA: Final = (
     "Nao encontrei esse produto em preparacao. Confira a referencia PRD."

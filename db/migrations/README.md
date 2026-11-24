@@ -18,7 +18,7 @@ Tudo a partir de `db/`, com a ligação configurada **só pelo ambiente** — n�
 URL no `alembic.ini`, porque conteria uma palavra-passe.
 
 ```bash
-python bootstrap.py                                        # como admin: cria os nove papéis
+python bootstrap.py                                        # como admin: cria os nove papéis (e o do LiteLLM, abaixo)
 python -m alembic -c migrations/alembic.ini upgrade head   # como kamba_migrator
 python -m alembic -c migrations/alembic.ini downgrade base
 ```
@@ -37,6 +37,7 @@ python -m alembic -c migrations/alembic.ini downgrade base
 | `KAMBA_SECRET_DB_AGR_PASSWORD` | `kamba_agr` — o checkpointer: escreve o esquema `lg` e **não tem `USAGE` no `platform`** (KAM-026) |
 | `KAMBA_SECRET_DB_PAY_HOOKS_PASSWORD` | `kamba_pay_hooks` — atende os callbacks de pagamento: grava o `payment_callbacks_inbox` (que **não tem `tenant_id`**) e resolve o `webhook_token` por função, antes de existir contexto de tenant (KAM-053) |
 | `KAMBA_SECRET_DB_PAY_PASSWORD` | `kamba_pay` — o consumidor do PAY: o único com `EXECUTE` na porta que abre a `refund_cases` a partir de um `order.refund_requested`, e por isso o COM (`kamba_app`) não a abre (KAM-197) |
+| `KAMBA_SECRET_DB_LITELLM_PASSWORD` | `kamba_litellm` — o papel do proxy de LLM, **fora da plataforma**: dono da base `kamba_litellm`, sem `CONNECT` na da plataforma (KAM-247). **Opcional**: sem ela o `bootstrap.py` não cria o papel nem a base, e di-lo. Em `staging` e `prod` é obrigatória, e o `bootstrap.py` corre com ela **antes** de o `litellm` arrancar, senão o proxy falha a autenticação em ciclo |
 | `KAMBA_DOWNGRADE_0003_COPIA` | Só no `downgrade` da `0003` com linhas de identidade: o ficheiro **novo** onde fica a cópia lógica |
 | `KAMBA_DOWNGRADE_0005_COPIA` | Idem, para a `0005` (consumo e DLQ) |
 | `KAMBA_DOWNGRADE_0006_COPIA` | Idem, para a `0006`: o `downgrade` apaga o registo de auditoria, que é prova |

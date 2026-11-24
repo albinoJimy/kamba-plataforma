@@ -224,6 +224,28 @@ servicos:
       nao foram medidos com eles: reve-se com a primeira medicao de repouso em
       `staging`.
 
+  # KAM-241, credor do KAM-238 (decisoes do fundador de 2026-11-21 e
+  # 2026-11-22: o tecto nao se toca, e o limite nao baixa sem medicao). **Tambem
+  # nao sai de nenhuma linha** do doc 09 §4.2, como os processos do KAM-187, do
+  # KAM-194 e do KAM-225: a soma do manifesto, contando os pendentes, passa de
+  # 26 160 para 26 214 MiB (+54), 79,998% da RAM do *host*, a 0,4 MiB do tecto
+  # de 26 214,4 do criterio 4 do KAM-076. **Nao sobra folga:** o proximo
+  # processo paga a sua memoria ou volta ao fundador.
+  - nome: onboarding-provisionamento
+    estado: presente
+    rede: app
+    memoria_mib: 54
+    razao: >-
+      O consumidor `dono` (KAM-215): a imagem do `onboarding-web` com outro
+      `command:` (`dist/provisionamento.js`, compilado). Consome as dezasseis
+      filas `evt.dono.p<n>` e cria o contacto `dono` do `tenant.provisioned`.
+      Processo proprio e nao o lote, porque a KEK do telefone do caso e so dele
+      (decisao do fundador de 2026-11-20). 54 MiB **medidos** sob o proprio
+      limite e sem *swap*, com uma rajada de 300 `tenant.provisioned` e o
+      `NODE_OPTIONS=--max-semi-space-size=1 --max-old-space-size=24`: todos os
+      veredictos verdes em tres corridas, e o `memory.peak` em 44-46 MiB
+      (`docs/evidencia/KAM-238.md` §6).
+
   - nome: chatwoot
     estado: presente
     rede: app
@@ -289,6 +311,24 @@ servicos:
       Entra com configuracao minima: **as metricas, os paineis e os 12 alertas
       sao o KAM-080**. Mede-se que `ops` existe e esta isolada; nao se afirma
       que ha observabilidade.
+
+  # KAM-225, decisao do fundador de 2026-11-21 (opcao A). **Tambem nao sai de
+  # nenhuma linha** do doc 09 §4.2, como os processos do KAM-187 e do KAM-194:
+  # a soma do manifesto, contando os pendentes, passa de 26 112 para 26 160 MiB
+  # (+48), 79,8% da RAM do *host*, dentro dos 80% do criterio 4 do KAM-076.
+  # Da folga de 102 MiB ate ao tecto de 26 214 consome 48; sobram 54, medidos
+  # sobre a `publico/main` em `b37d1ffe` e remedidos em `25babeca`, ja com o
+  # KAM-231, o KAM-238 e o KAM-122 — quem fundir depois remede.
+  - nome: registo-pg
+    estado: presente
+    rede: ops
+    memoria_mib: 48
+    razao: >-
+      O recolector do registo do PostgreSQL (KAM-225), `python -m
+      kamba_core.registo_pg` com a imagem do AGR: le o `jsonlog` do servidor
+      num volume so de leitura e conta a recusa `42501` sobre o tecto de
+      confianca. 48 MiB **medidos**: 28 MiB de RSS, e 32 MiB de pico do
+      cgroup sob rajada, com a sonda a correr (`docs/evidencia/KAM-225.md`).
 
   # ------------------------------------------------------------- pendentes
   - nome: medusa

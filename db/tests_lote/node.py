@@ -52,15 +52,18 @@ VARIAVEL_DOS_MODULOS = "KAMBA_RAIZ_NODE_MODULES"
 #: O que os testes em Node precisam de saber do ambiente. So nomes: os valores
 #: passam pelo ambiente do processo, nunca pela linha de comandos.
 #:
-#: Quatro, e nao as cinco do CHR: o `kamba_resolver` e o `kamba_identity` nao
-#: entram, porque este modulo nao resolve canal nenhum nem toca em identidade de
-#: contacto — entra-se sempre pelo `tenant_id`.
+#: Seis: o `kamba_resolver` nao entra, porque este modulo nao resolve canal
+#: nenhum. O `kamba_identity` entra desde o KAM-233: o fecho dos `pendentes` do
+#: off-boarding decifra os telefones da exportacao pelo cofre, e o ensaio dele
+#: liga como esse papel. Sem ele no contentor, o ensaio falhava ao montar a
+#: ligacao, e so onde nao ha `node` no `PATH` (o *runner* herda o ambiente todo).
 VARIAVEIS = (
     "KAMBA_DB_NAME",
     "POSTGRES_USER",
     "POSTGRES_PASSWORD",
     "KAMBA_SECRET_DB_APP_PASSWORD",
     "KAMBA_SECRET_DB_BATCH_PASSWORD",
+    "KAMBA_SECRET_DB_IDENTITY_PASSWORD",
 )
 
 #: Os `node_modules` que o ensaio resolve: o da raiz, o do pacote e o do

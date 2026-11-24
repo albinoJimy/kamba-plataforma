@@ -11,16 +11,26 @@ provisioning; manualmente por *script* na Fase 0». O automatico e no evento
 
 ## Porque e que a idempotencia e nossa e nao do proxy
 
-Medido contra a imagem fixada (`docs/evidencia/KAM-030-litellm.md`):
+Contra a imagem fixada, **com base de dados** (`docs/evidencia/KAM-247.md` §2,
+e o §3 do `docs/evidencia/KAM-233.md`):
 
-* `POST /key/generate` com um `key_alias` novo → **200**;
+* `POST /key/generate` com um `key_alias` novo → **200** (medido no KAM-233 e no
+  KAM-247);
 * o **mesmo** corpo outra vez → **400** `"Key with alias '…' already exists.
-  Unique key aliases across all keys are required."`
+  Unique key aliases across all keys are required."` (medido no KAM-247);
+* `POST /key/update` com o `key_alias` e o `max_budget` → **200** (medido no
+  KAM-247).
+
+Esta nota dizia «medido» e apontava o `docs/evidencia/KAM-030-litellm.md`, que
+nao traz nenhuma das medicoes (achado do KAM-233). **E sem base nao ha chave
+nenhuma**: o `/key/generate` responde 500 (`DB not connected`). Desde o KAM-247 o
+proxy de `staging` e `prod` tem a base `kamba_litellm` (decisao do fundador de
+2026-11-23), e este *script* corre contra ele.
 
 Ou seja, o `/key/generate` **nao e idempotente**, e o criterio 4 exige que criar
 a chave de um tenant o seja. A idempotencia faz-se aqui, em tres passos:
-procurar em `/key/list`, e depois `/key/update` (que aceita `key_alias`, medido:
-200) ou `/key/generate`.
+procurar em `/key/list`, e depois `/key/update` ou `/key/generate`; e o 400 de
+uma corrida concorrente cai para o `/key/update`, pelo texto medido acima.
 
 **E isto e tambem a razao de o mapeamento de erro do cliente nao ser pelo 400**:
 o proxy usa o 400 para «alias repetido» e o **422** para orcamento esgotado. Um
@@ -194,8 +204,11 @@ class Proxy:
         self._pedir = pedir or _pedir_http
 
     #: Quantas chaves se pedem por pagina. O proxy pagina, e o `total_count`
-    #: diz quantas ha.
-    POR_PAGINA = 500
+    #: diz quantas ha. **100, e nao 500**: a imagem fixada recusa `size` acima de
+    #: 100 com **422** («Input should be less than or equal to 100»), medido no
+    #: KAM-233 (`docs/evidencia/KAM-233.md` §3a). Com 500, o `listar` levantava em
+    #: todas as chamadas, e com ele o `provisionar`, o `revogar` e o `orcamentos`.
+    POR_PAGINA = 100
 
     def listar(self) -> list[dict[str, Any]]:
         """Todas as chaves, por paginas. **Levanta se nao as conseguir todas.**
@@ -268,11 +281,11 @@ class Proxy:
     def apagar(self, token: str) -> None:
         """`/key/delete` de uma chave, pelo `token` que o `/key/list` devolve.
 
-        **NAO VERIFICADO** contra a imagem fixada: a forma do corpo (`keys`, com o
-        *token* em resumo que o `/key/list?return_full_object=true` traz) e a do
-        proxy em versoes recentes, e nao esta medida no
-        `docs/evidencia/KAM-030-litellm.md`. Por isso quem chama confirma pela
-        listagem, e nao pelo 200.
+        Medido na imagem fixada (KAM-233, `docs/evidencia/KAM-233.md` §3): o
+        corpo `{"keys": [token]}`, com o *token* em resumo que o
+        `/key/list?return_full_object=true` traz, da 200 e a chave deixa de
+        autenticar; o mesmo pedido outra vez da **404**, e nao 200. Quem chama
+        procura antes e confirma pela listagem, e nao pelo 200.
         """
         estado, resposta = self._pedir(
             f"{self._url}/key/delete", "POST", self._chave, {"keys": [token]}

@@ -56,6 +56,16 @@ const PERMITIDOS: Readonly<Record<string, string>> = {
   "../logger/index.ts": "o registo, com a lista branca de nove campos (KAM-068)",
   "../storage/index.ts": "a porta do armazenamento (KAM-011), que o MED consome",
   "../entrada/index.ts": "o vocabulario `WA_TYPES` do webhook (KAM-013)",
+  // KAM-231: o `ClienteDeMidia` de producao (`graph.ts`) e o *token* do canal
+  // (`credencial.ts`). Nenhum dos quatro importa PAY nem COM.
+  "../outbound/cliente.ts":
+    "a versao e o anfitriao da Graph (KAM-015), as duas constantes e mais nada",
+  "../onboarding/cifra.ts":
+    "abrir o criptograma do `token_ref` do canal com a `kek_token_cliente` (KAM-016)",
+  "../onboarding/segredos.ts":
+    "o `id` da KEK dos tokens de cliente, do ficheiro estreito que o gate 9 dispensa",
+  "../secrets/port.ts":
+    "a porta de leitura do cofre e os dois erros de segredo ausente (KAM-010)",
 };
 
 /** Os módulos cuja importação é o defeito que o critério 8 nomeia. */

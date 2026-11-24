@@ -199,7 +199,11 @@ class TestTentativas(ComBase):
         lote = self._papel("kamba_batch")
         self.assertErroSql(ESTADO_INVALIDO, lote,
                            f"UPDATE {TENTATIVA} SET resultado = 'ok', causa = NULL WHERE onboarding_id = %s", (self.onb,))
-        self.assertErroSql(PRIVILEGIO_INSUFICIENTE, lote, f"DELETE FROM {TENTATIVA} WHERE onboarding_id = %s", (self.onb,))
+        # Desde a `0086` (KAM-233, decisao do fundador de 2026-11-21, Q3 = B) o lote
+        # **apaga** a tentativa, e so a purga do encerramento o faz (`CAMINHOS_DO_ENCERRAMENTO`);
+        # o que continua a nao poder e reescreve-la.
+        lote.execute("SELECT has_table_privilege('kamba_batch', %s, 'DELETE')", (TENTATIVA,))
+        self.assertTrue(lote.fetchone()[0])
 
     def test_as_restricoes(self) -> None:
         for sql, args in (

@@ -64,6 +64,9 @@ class PortaDeScreening(Protocol):
     tambem as condicoes de um orcamento, pela ponte do COM
     (`kamba_agr.tls.screening`), e entao `categoria_declarada` e `None`: a ponte
     usa a categoria declarada do tenant.
+
+    `tecto_s` e o que sobra do prazo da invocacao (KAM-244), ou `None` sem
+    prazo; com zero ou menos a porta nao chama o motor e levanta.
     """
 
     def screen(
@@ -72,6 +75,8 @@ class PortaDeScreening(Protocol):
         sujeito_ref: str,
         categoria_declarada: str | None,
         textos: Sequence[str],
+        *,
+        tecto_s: float | None = None,
     ) -> ResultadoDoScreen: ...
 
 
@@ -91,6 +96,8 @@ class ScreeningPorLigar:
         sujeito_ref: str,
         categoria_declarada: str | None,
         textos: Sequence[str],
+        *,
+        tecto_s: float | None = None,
     ) -> ResultadoDoScreen:
         raise RuntimeError(
             "o screening do KAM-088 corre em TypeScript e nao tem ponte para o "

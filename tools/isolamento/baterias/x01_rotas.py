@@ -509,6 +509,34 @@ registar_caso(
     origens=("corpo", "cabecalhos"),
 )
 
+# ------------------------- o recolector do registo do PostgreSQL (KAM-225)
+#
+# Duas rotas do `python -m kamba_core.registo_pg`, num `BaseHTTPRequestHandler`
+# como o do IDX. O ataque esta em `_registo_pg.py`.
+
+#: A sonda e as metricas do recolector. Sem identificadores a entrada.
+SONDAS_DO_REGISTO_PG = (
+    "rota:py-core:kamba_core/registo_pg/processo:tratador:GET:/healthz",
+    "rota:py-core:kamba_core/registo_pg/processo:tratador:GET:/metrics",
+)
+
+
+def _conduzir_sondas_do_registo_pg(ctx) -> list[str]:  # noqa: ANN001
+    from ._registo_pg import atacar_sonda_e_metricas  # noqa: PLC0415
+
+    return atacar_sonda_e_metricas(ctx)
+
+
+registar_caso(
+    id="X-01/registo-pg/sondas",
+    bateria="X-01",
+    camada="rotas",
+    enumeravel=SONDAS_DO_REGISTO_PG,
+    fn=_conduzir_sondas_do_registo_pg,
+    precisa="postgres",
+    origens=("corpo", "cabecalhos"),
+)
+
 registar_caso(
     id="X-01/ts/sondas",
     bateria="X-01",
@@ -944,6 +972,10 @@ registar_caso(
 #                             e o tenant de B no corpo, na consulta e no
 #                             cabecalho: 200, e a tentativa abre-se so no caso e
 #                             no tenant da sessao de A
+#     foto (KAM-243)          a sessao de A com o tenant de B na consulta e no
+#                             cabecalho e uma foto sintetica: 200 com o `asset_id`
+#                             de A, e o MED e o AGR so recebem o tenant e o thread
+#                             de A, com a persona `dono` e o `type` `image`
 #
 # **O 200 das listas entra por item e nao no global**, pela razao do `/metrics`
 # do COM: a afirmacao delas e «o tenant e o da sessao», e essa mede-se a ver os
@@ -976,6 +1008,8 @@ ROTAS_DO_PAINEL = (
     "rota:onboarding-web:painel/rotas:actor:GET:/painel/produtos/:id",
     # KAM-206: o contacto do cliente de uma encomenda, mascarado, pelo botao.
     "rota:onboarding-web:painel/rotas:actor:POST:/painel/encomendas/:id/contacto",
+    # KAM-243: a foto do dono para o catalogo.
+    "rota:onboarding-web:painel/rotas:actor:POST:/painel/foto",
 )
 
 #: Os estados de cada rota, quando nao sao os do `RECUSAS_ACEITAVEIS`. As listas
@@ -1015,6 +1049,9 @@ ACEITAVEIS_DO_PAINEL: dict[str, tuple[int, ...]] = {
     # KAM-206. O contacto da encomenda de B com a sessao de A: **so** 404, igual
     # ao de uma encomenda que nao existe e ao de uma fora da regra.
     "rota:onboarding-web:painel/rotas:actor:POST:/painel/encomendas/:id/contacto": (404,),
+    # KAM-243. A foto com a sessao de A responde **so** 200, com o `asset_id` de A
+    # (a sonda): o que se mede e que o MED e o AGR so viram A.
+    "rota:onboarding-web:painel/rotas:actor:POST:/painel/foto": (200,),
 }
 
 #: Ataques por rota do painel.
@@ -1199,6 +1236,14 @@ def _afirmacoes_do_painel(item: str, entradas: list[dict]) -> list[str]:
             "A mensagem do `POST /painel/conversa` gravou-se ou invocou o AGR noutro "
             "tenant ou thread que nao o de A, sem a persona `dono`, ou com um "
             "botao: o pedido escolheu o tenant, ou um texto passou por botao.",
+        ),
+        (
+            "POST:/painel/foto",
+            "foto",
+            "A foto do `POST /painel/foto` foi ao MED ou ao AGR noutro tenant ou "
+            "thread que nao o de A, sem a persona `dono`, sem o `type` `image`, "
+            "com outro `asset_id` ou com um `message_id`: o pedido escolheu o "
+            "tenant da foto.",
         ),
     ):
         if item.endswith(sufixo):

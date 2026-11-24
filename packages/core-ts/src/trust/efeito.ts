@@ -29,11 +29,16 @@
  * papel auditado que atravessa tenants. A foto repetida é a única correlação
  * entre tenants deste ticket, e sai só como sinal informativo (peso 0) com uma
  * contagem — nunca o outro tenant.
+ *
+ * O KAM-208 acrescenta a segunda: o comprador que compra noutro tenant do mesmo
+ * dono (`varrerCompradoresDoDono`), também informativa e também só com uma
+ * contagem, e a purga do pseudónimo que a sustenta (`purgarPseudonimos`).
  */
 
 import { createHash } from "node:crypto";
 
 import type { Efeito } from "../eventos/consumo.ts";
+import { DIAS_DE_RETENCAO_DO_PSEUDONIMO } from "../identity/correlacao.ts";
 import type { SinalNovo } from "./contrato.ts";
 import type { ContadoresDoTrust } from "./metricas.ts";
 import {
@@ -51,12 +56,14 @@ import { ServicoDeTrust } from "./servico.ts";
 import {
   RepositorioDeTrustSql,
   type ClienteSql,
+  SQL_COMPRADORES_NOUTRA_LOJA_DO_DONO,
   SQL_COMPRADORES_PAGOS,
   SQL_CONTACTOS_DO_DONO,
   SQL_FOTOS_REPETIDAS,
   SQL_NAO_ENTREGUES,
   SQL_PEDIDO_E_COMPRADOR,
   SQL_PEDIDOS_MANUAIS,
+  SQL_PURGAR_PSEUDONIMOS,
   SQL_QUEIXAS,
   SQL_TENANT_E_TECTO,
 } from "./sql.ts";
@@ -102,7 +109,28 @@ function contar(o: OpcoesDoTrust): { readonly contadores?: ContadoresDoTrust } {
  */
 export function refDaJanela(tenantId: string, familia: string, agora: Date, dias: number): string {
   const janela = (agora.getTime() - (agora.getTime() % (dias * DIA))) / (dias * DIA);
-  const h = createHash("sha256").update(`kamba/trust/${familia}/v1\0${tenantId}\0${janela}`, "utf8").digest();
+  return uuidDoResumo(`kamba/trust/${familia}/v1\0${tenantId}\0${janela}`);
+}
+
+/**
+ * A chave do sinal de uma violação de categoria (KAM-245, decisão D1 do
+ * fundador de 2026-11-23): o **conteúdo** que violou — o `sku`, a versão da
+ * política e o `sha256` do payload — e não o `envelope.id`.
+ *
+ * O `/internal/screen` do COM e a re-análise podem emitir a mesma violação em
+ * corrida: a re-análise não tranca a oferta nem volta a ler o produto na
+ * transacção dele. Com o `envelope.id` como chave, as duas davam dois sinais
+ * altos (35 + 35) e a `limitacao` automática por um só produto. Com esta, a
+ * segunda é a reentrega da primeira. Uma versão nova da política, ou um texto
+ * novo, é outra chave, e volta a contar, como antes.
+ */
+export function refDaViolacao(tenantId: string, sku: string, versaoPolitica: string, sha256: string): string {
+  return uuidDoResumo(`kamba/trust/violacao_de_categoria/v1\0${tenantId}\0${sku}\0${versaoPolitica}\0${sha256}`);
+}
+
+/** Os primeiros 16 octetos de um SHA-256, com os bits de versão (8) e de variante do RFC 9562. */
+function uuidDoResumo(texto: string): string {
+  const h = createHash("sha256").update(texto, "utf8").digest();
   h[6] = ((h[6] ?? 0) & 0x0f) | 0x80;
   h[8] = ((h[8] ?? 0) & 0x3f) | 0x80;
   const x = h.subarray(0, 16).toString("hex");
@@ -237,7 +265,12 @@ export async function sinaisDoEvento(
       sinais.push({
         tenantId,
         tipo: "violacao_de_categoria",
-        refEvento: envelope.id,
+        refEvento: refDaViolacao(
+          tenantId,
+          texto(payload["sku"]),
+          texto(payload["versao_politica"]),
+          texto(payload["sha256"]),
+        ),
         detalhe: { sku: texto(payload["sku"]), versao_politica: texto(payload["versao_politica"]) },
         ocorridoEm,
       });
@@ -298,4 +331,50 @@ export async function varrerFotos(bd: ClienteSql, o: OpcoesDoTrust = {}): Promis
     if (!r.repetido) n++;
   }
   return n;
+}
+
+/**
+ * Dias para trás em que uma encomenda paga ou entregue faz do contacto um
+ * «comprador» para a correlação entre tenants (D6 do KAM-208, *proposta*: a
+ * janela do KAM-096). É também a janela do sinal: um por tenant em cada uma.
+ */
+export const DIAS_DO_COMPRADOR_NOUTRA_LOJA = 30;
+
+/**
+ * O comprador que compra noutro tenant do mesmo dono (KAM-208): informativo,
+ * peso 0, com a contagem e nunca o outro tenant. Corre como `kamba_batch`, e só
+ * com o interruptor ligado — quem o decide é o `CicloDoTrust`.
+ */
+export async function varrerCompradoresDoDono(bd: ClienteSql, o: OpcoesDoTrust = {}): Promise<number> {
+  const p = o.politica ?? POLITICA_DE_RISCO;
+  const agora = (o.relogio ?? (() => new Date()))();
+  const servico = new ServicoDeTrust({ repositorio: new RepositorioDeTrustSql(bd, "lote"), politica: p, relogio: () => agora, ...contar(o) });
+  let n = 0;
+  // As janelas (30 dias de compras, 90 de pseudónimo visto) são da função da
+  // base, e não argumento: com elas aqui, quem chama bissectava uma encomenda.
+  for (const l of (await bd.query(SQL_COMPRADORES_NOUTRA_LOJA_DO_DONO)).rows) {
+    const tenantId = String(l["tenant_id"]);
+    const r = await servico.sinalizar({
+      tenantId,
+      tipo: "comprador_noutra_loja_do_dono",
+      refEvento: refDaJanela(tenantId, "compradores_do_dono", agora, DIAS_DO_COMPRADOR_NOUTRA_LOJA),
+      detalhe: { contagem: inteiro(l["contagem"]) },
+      ocorridoEm: agora,
+    });
+    if (!r.repetido) n++;
+  }
+  return n;
+}
+
+/**
+ * A retenção do pseudónimo sem tenant (D4 do KAM-208): apaga os vistos há mais
+ * de `DIAS_DE_RETENCAO_DO_PSEUDONIMO`. **Corre com o interruptor desligado
+ * também**: apagar nunca é o risco, e desligar não pode deixar pseudónimos
+ * para trás. Devolve quantos apagou.
+ */
+export async function purgarPseudonimos(bd: ClienteSql, o: Pick<OpcoesDoTrust, "relogio"> = {}): Promise<number> {
+  const agora = (o.relogio ?? (() => new Date()))();
+  const antes = new Date(agora.getTime() - DIAS_DE_RETENCAO_DO_PSEUDONIMO * DIA);
+  const [l] = (await bd.query(SQL_PURGAR_PSEUDONIMOS, [antes])).rows;
+  return l === undefined ? 0 : inteiro(l["apagados"]);
 }

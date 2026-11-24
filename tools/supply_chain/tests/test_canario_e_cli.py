@@ -106,7 +106,17 @@ class TestRepositorioReal(unittest.TestCase):
         # **KAM-215: de 68 para 70.** O consumidor `dono` (imagem do
         # `onboarding-web`), **+1 em desenvolvimento e em *staging*** e nao em
         # producao: la o `Identidade.arrancar` recusa o `EnvKeyProvider`.
-        self.assertEqual(resumo["servicos"], 70)
+        #
+        # **KAM-225: de 70 para 72.** O recolector do registo do PostgreSQL
+        # (imagem do AGR), **+1 em producao e em *staging*** e nao em
+        # desenvolvimento: la o `postgres` nao escreve o `jsonlog`, e o
+        # recolector recusava arrancar sem nada para ler.
+        #
+        # **KAM-241: de 72 para 73.** O consumidor `dono` entra em producao
+        # (imagem do `onboarding-web`, o `dist/provisionamento.js` compilado e a
+        # sonda em `bash`), **+1 so em producao**: em desenvolvimento e em
+        # *staging* ja estava desde o KAM-215. A lista de saidas e a mesma.
+        self.assertEqual(resumo["servicos"], 73)
 
         _, resumo = egress.verificar(ROOT)
         # Idem: as quatro listas de saidas sao **vazias** com `por_omissao:
@@ -142,7 +152,9 @@ class TestRepositorioReal(unittest.TestCase):
         # armazenamento, os dois em `data`.
         # **KAM-215: de 27 para 28.** O `onboarding-provisionamento`, com a sua
         # lista e `destinos: []`: fala com a base e com a fila, e e raspado.
-        self.assertEqual(resumo["servicos"], 28)
+        # **KAM-225: de 28 para 29.** O `registo-pg`, com a sua lista e
+        # `destinos: []`: le o registo do PostgreSQL de um volume e e raspado.
+        self.assertEqual(resumo["servicos"], 29)
         # **E os destinos de 3 para 8**, que e a conta que importa ler devagar:
         # os 3 do `litellm` continuam, o `gwy` passa a declarar
         # `graph.facebook.com` (ADR-001 faz dele o unico servico que fala com a
@@ -167,7 +179,13 @@ class TestRepositorioReal(unittest.TestCase):
         # `graph.facebook.com`; o ADR-001 faz do GWY o unico endpoint de
         # *webhook*, e nao o unico servico que fala com a Meta. O proxy nao
         # muda: e o mesmo destino, com um terceiro declarante.
-        self.assertEqual(resumo["destinos"], 10)
+        # **KAM-231: de 10 para 13.** O `worker-canal-entrada` corre o MED e
+        # descarrega a media da Meta: declara `graph.facebook.com` (o URL da
+        # media) e `lookaside.fbsbx.com` (a CDN da descarga, NAO VERIFICADO;
+        # decisao do fundador de 2026-11-22). O proxy passa a abrir o
+        # `lookaside.fbsbx.com` tambem, e este e o unico FQDN novo: os outros
+        # dois sao declarantes novos de destinos que ja existiam.
+        self.assertEqual(resumo["destinos"], 13)
 
         _, resumo = licencas.verificar(ROOT)
         self.assertEqual(resumo["estados"]["pendente_de_decisao"], 2)  # redis e valkey: D12

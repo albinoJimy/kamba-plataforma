@@ -10,7 +10,10 @@
 # (`app`), as duas redes `internal: true`. **Desde o KAM-218 sai para a Graph
 # API**, pelo `proxy-saida` (`HTTPS_PROXY`): a fase `canal` do off-boarding
 # cancela a subscricao de *webhooks* do WABA, e o cancelamento do pedido
-# refa-la. Nunca apaga o WABA nem o numero (E1).
+# refa-la. Nunca apaga o WABA nem o numero (E1). **Desde o KAM-233 fala tambem
+# com o `litellm` e com o `chatwoot`**, na rede `app` e fora do `proxy-saida`
+# (estao no `NO_PROXY`): a fase `revogacao` apaga a chave do tenant e suspende a
+# conta de atendimento dele. Sao destinos internos, e nao entram em `destinos`.
 # O aviso ao dono nao sai deste processo (nao ha agregador de SMS escolhido).
 version: 1
 servico: onboarding-lote

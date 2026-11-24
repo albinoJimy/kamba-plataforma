@@ -22,7 +22,7 @@
  * também. Estão aqui como números, e o dicionário diz que são proposta.
  */
 
-import type { ChaveDeLlm, InboxDeAtendimento, RegistoDeCanalDeComercio, CanalDoCliente } from "../provisioning/contrato.ts";
+import type { InboxDeAtendimento, RegistoDeCanalDeComercio, CanalDoCliente } from "../provisioning/contrato.ts";
 
 /** As sete fases, pela ordem do bloco. O `CHECK` da revisão tem as mesmas. */
 export const FASES = [
@@ -141,11 +141,32 @@ export interface ProvasDoTitular {
   ligacaoDoEmailConfere(tenantId: string, token: string): Promise<boolean>;
 }
 
-/** As portas da revogação: as da saga de provisioning (KAM-091), as mesmas. */
+/**
+ * As portas da revogação: as da saga de provisioning (KAM-091), e as três que o
+ * KAM-233 junta — a chave do tenant pelo alias, a conta de atendimento e as
+ * sessões do painel. Os tipos destas três são estruturais, e não importados do
+ * HND nem do `onboarding-web`, para que o contrato do off-boarding não dependa
+ * deles.
+ */
 export interface PortasDaRevogacao {
-  readonly chaveDeLlm: Pick<ChaveDeLlm, "revogar">;
+  readonly chaveDeLlm: {
+    /**
+     * Pelo alias `tenant-<uuid>`, que é onde a saga e o `chaves.py` a criam.
+     * `inexistente` só com a listagem a confirmar que ela não está lá (ver
+     * `./litellm.ts`).
+     */
+    revogarDoTenant(tenantId: string): Promise<"revogada" | "inexistente">;
+  };
   readonly canalDeComercio: Pick<RegistoDeCanalDeComercio, "arquivar">;
   readonly inbox: Pick<InboxDeAtendimento, "desligar">;
+  /** A conta do Chatwoot do tenant, arquivada: o `archiveAccount` do `HandoffProvider`. */
+  readonly contaDeAtendimento: {
+    archiveAccount(tenantId: string): Promise<"arquivada" | "inexistente" | "sem_conta">;
+  };
+  /** As sessões do painel do dono, revogadas até ao instante dado, em segundos (KAM-236). */
+  readonly sessoesDoPainel: {
+    revogarDoTenant(tenantId: string, ate: number): Promise<void>;
+  };
 }
 
 /** A porta do canal do cliente na Meta, a da saga. Só se usa pelo guarda. */

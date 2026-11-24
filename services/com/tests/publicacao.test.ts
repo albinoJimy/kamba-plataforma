@@ -45,6 +45,7 @@ import { TIPO_PRODUCT_CHANGED } from "../src/produtos/index.ts";
 import {
   operacaoDePublicar,
   SQL_CATEGORIA_DO_TENANT,
+  SQL_DESPUBLICAR,
   SQL_NOME_DA_OFERTA,
   SUJEITO_DO_PRODUTO,
 } from "../src/screening/index.ts";
@@ -122,13 +123,20 @@ function base(opcoes: Opcoes = {}) {
         return { rows: [{ event_id: `evt-${eventos.length}` }] };
       }
       if (sql.includes("platform.offer_terms")) {
+        // A saida de publicado do `screen` (KAM-245) nao e uma publicacao.
+        if (sql === SQL_DESPUBLICAR) {
+          escritas.push("despublicar");
+          return { rows: [{ sku: SKU }] };
+        }
         if (/^\s*UPDATE/i.test(sql)) {
           escritas.push("publicar");
           return { rows: [{ sku: SKU, estado: "publicado", atualizado_at: "x" }] };
         }
         if (/FOR UPDATE/.test(sql)) {
+          // A tranca do `screen` (KAM-245) so ve a oferta publicada.
+          const soPublicada = sql.includes("estado = 'publicado'") && (opcoes.estado ?? "rascunho") !== "publicado";
           return {
-            rows: opcoes.semOferta
+            rows: opcoes.semOferta || soPublicada
               ? []
               : [
                   {
@@ -143,6 +151,8 @@ function base(opcoes: Opcoes = {}) {
                     stock_verificado_at: null,
                     estado: opcoes.estado ?? "rascunho",
                     categoria_restrita: null,
+                    // KAM-209: sem categoria o COM não publica.
+                    categoria: "moda",
                     atualizado_at: "2026-11-19T09:00:00.000Z",
                   },
                 ],
@@ -156,7 +166,16 @@ function base(opcoes: Opcoes = {}) {
     assert.equal(tenantId, TENANT);
     transaccoes += 1;
     opcoes.naTransaccao?.(transaccoes, oferta);
-    return trabalho(cliente);
+    // Uma transaccao que lanca desfaz-se: o que escreveu e o que emitiu saem,
+    // como na base (KAM-231, para medir a recusa do ajuste de stock).
+    const antes = { eventos: eventos.length, escritas: escritas.length };
+    try {
+      return await trabalho(cliente);
+    } catch (e) {
+      eventos.length = antes.eventos;
+      escritas.length = antes.escritas;
+      throw e;
+    }
   };
   /** Uma decisão gravada à mão para o conteúdo `(categoria, nome)`. */
   const decidir = (decisao: Decisao, categoria: string, nome: string, origem: Origem = "regra") =>
@@ -207,6 +226,51 @@ test("KAM-119: com uma permitida para o mesmo conteudo, publica uma vez", async 
   assert.deepEqual(b.escritas, ["publicar"]);
   assert.deepEqual(b.eventos, [TIPO_PRODUCT_CHANGED]);
   assert.equal(b.transaccoes, 2);
+});
+
+test("KAM-231: a quantidade do dono vai ao Registo com a publicacao, na mesma transaccao", async () => {
+  const b = base({ categoria: "moda" });
+  b.decidir("permitida", "moda", NOME);
+  const operar = operacoesDoCom({ comTenant: b.comTenant, anel: ANEL }).publicarProduto;
+  assert.deepEqual(await operar(CTX, { sku: SKU, confirmacao: CONFIRMACAO, stock: 500 }), {
+    tipo: "ok",
+    valor: undefined,
+  });
+  // A publicacao e o ajuste, os dois na transaccao de publicar: o `stock.adjusted`
+  // sai depois do `product.changed`, e nao ha terceira transaccao.
+  assert.deepEqual(b.eventos, [TIPO_PRODUCT_CHANGED, "stock.adjusted"]);
+  assert.equal(b.transaccoes, 2);
+});
+
+test("KAM-231: sem quantidade, a publicacao nao ajusta o stock", async () => {
+  const b = base({ categoria: "moda" });
+  b.decidir("permitida", "moda", NOME);
+  assert.deepEqual(await publicar(b), { tipo: "ok", valor: undefined });
+  assert.ok(!b.eventos.includes("stock.adjusted"));
+});
+
+test("KAM-231: um ajuste de stock recusado desfaz a publicacao", async () => {
+  const b = base({ categoria: "moda" });
+  b.decidir("permitida", "moda", NOME);
+  const operar = operacoesDoCom({ comTenant: b.comTenant, anel: ANEL }).publicarProduto;
+  // Um `qty` que o `ajustarStock` recusa (a API interna ja o recusaria antes): a
+  // publicacao que correu na mesma transaccao desfaz-se, e nada sai.
+  assert.deepEqual(await operar(CTX, { sku: SKU, confirmacao: CONFIRMACAO, stock: -1 }), {
+    tipo: "erro",
+    erro: "VALIDATION_ERROR",
+  });
+  assert.deepEqual(b.eventos, []);
+  assert.deepEqual(b.escritas, []);
+});
+
+test("KAM-231: uma publicacao recusada nao ajusta o stock", async () => {
+  const b = base({ categoria: "moda" });
+  const operar = operacoesDoCom({ comTenant: b.comTenant, anel: ANEL }).publicarProduto;
+  assert.deepEqual(await operar(CTX, { sku: SKU, confirmacao: CONFIRMACAO, stock: 500 }), {
+    tipo: "erro",
+    erro: "VALIDATION_ERROR",
+  });
+  assert.deepEqual(b.eventos, []);
 });
 
 test("KAM-119: uma linha bloqueada ou condicional para o conteudo recusa, mesmo com uma permitida ao lado", async () => {

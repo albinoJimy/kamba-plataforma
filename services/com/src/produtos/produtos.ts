@@ -65,6 +65,8 @@
  * um PostgreSQL real. É **NÃO VERIFICADO**, e está escrito onde se afirma.
  */
 
+import { eCategoriaDeProduto } from "@kamba/core-ts/trust";
+
 import {
   conflito,
   erro,
@@ -156,6 +158,9 @@ function lerTermos(linha: Readonly<Record<string, unknown>>): TermosDaOferta {
       linha["categoria_restrita"] === undefined
         ? null
         : String(linha["categoria_restrita"]),
+    // Uma categoria fora da lista não chega aqui (`offer_terms_categoria_ck`),
+    // e se chegasse lia-se como nenhuma: nula não publica, e não se inventa.
+    categoria: eCategoriaDeProduto(linha["categoria"]) ? linha["categoria"] : null,
     atualizadoAt: emInstante(linha["atualizado_at"]) ?? "",
   };
 }
@@ -244,6 +249,7 @@ export async function upsertProductDraft(
           preco_valido_ate: rascunho.precoValidoAte ?? null,
           stock_modo: stockModo,
           preco_atualizado_at: new Date().toISOString(),
+          categoria: rascunho.categoria ?? null,
         },
         sufixo:
           "ON CONFLICT (tenant_id, sku) DO NOTHING " +
@@ -316,6 +322,8 @@ async function actualizarTermos(
   stockModo: TermosDaOferta["stockModo"],
 ): Promise<Resultado<ProductRef>> {
   const validoAte = rascunho.precoValidoAte ?? null;
+  // Omitida, a categoria é a que a linha já tem (ver o `RascunhoDeProduto`).
+  const categoria = rascunho.categoria ?? antes.categoria;
   const mudouOPreco =
     antes.precoTipo !== rascunho.precoTipo ||
     antes.precoMinor !== precoMinor ||
@@ -323,7 +331,8 @@ async function actualizarTermos(
   const mudouAlgo =
     mudouOPreco ||
     antes.nome !== rascunho.nome ||
-    antes.stockModo !== stockModo;
+    antes.stockModo !== stockModo ||
+    antes.categoria !== categoria;
 
   if (!mudouAlgo) {
     // Nada muda: sai sem escrever, sem auditar e sem emitir.
@@ -347,6 +356,7 @@ async function actualizarTermos(
       validoAte,
       stockModo,
       precoAtualizadoAt,
+      categoria,
     ]),
   );
   if (escrita.tipo === "erro") return erro(escrita.erro);
@@ -402,6 +412,9 @@ export function validarRascunho(
   if (rascunho.precoTipo === SOB_CONSULTA && temPreco) return "VALIDATION_ERROR";
   if (rascunho.precoTipo !== SOB_CONSULTA && !temPreco) return "VALIDATION_ERROR";
   if ((rascunho.precoMinor ?? 0n) < 0n) return "VALIDATION_ERROR";
+  // KAM-209: a categoria é da lista fechada. O tipo já o diz; isto é para quem
+  // chega por JSON, e a base recusa-a de qualquer modo (`offer_terms_categoria_ck`).
+  if (rascunho.categoria !== undefined && !eCategoriaDeProduto(rascunho.categoria)) return "VALIDATION_ERROR";
   return null;
 }
 
@@ -498,6 +511,11 @@ export async function publishProduct(
   // de a poder mostrar ao dono. Lê-se antes para distinguir as razões, e o
   // predicado do `UPDATE` continua a ser quem a impõe.
   if (antes.categoriaRestrita !== null) return erro("VALIDATION_ERROR");
+
+  // KAM-209: sem categoria não se publica. A base recusa-o de qualquer modo (o
+  // *trigger* `offer_terms_categoria_na_publicacao` salta a linha), e lê-se
+  // antes pela razão da categoria restrita: é uma recusa de domínio com nome.
+  if (antes.categoria === null) return erro("VALIDATION_ERROR");
 
   // KAM-200: a primeira publicação de uma loja com `limitacao` de T&S em vigor é
   // recusada pela base (`23514`, revisão `0067`), como a inserção de um produto

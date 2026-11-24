@@ -427,9 +427,14 @@ function rascunhoDeProdutoDoCorpo(corpo: Record<string, unknown>): ProductDraft 
   const precoMinor = bruto === null ? null : emMinor(bruto);
   if (bruto !== null && precoMinor === null) return null;
   if (stockModo !== undefined && typeof stockModo !== "string") return null;
+  // KAM-209: a categoria da lista fechada, opcional. O domínio é do adaptador
+  // (`rascunhoDoDraft`), que recusa uma fora da lista com o mesmo `VALIDATION_ERROR`.
+  const categoria = corpo["categoria"];
+  if (categoria !== undefined && typeof categoria !== "string") return null;
   return {
     sku,
     nome,
+    ...(categoria === undefined ? {} : { categoria }),
     atributos: {
       preco_tipo: precoTipo,
       // Cadeia de dígitos e não `bigint`: o `rascunhoDoDraft` aceita as duas, e
@@ -461,7 +466,14 @@ function pedidoDePublicacaoDoCorpo(corpo: Record<string, unknown>): PedidoDePubl
   const em = (confirmacao as Record<string, unknown>)["em"];
   if (typeof actorId !== "string" || actorId.length === 0) return null;
   if (typeof em !== "string" || em.length === 0) return null;
-  return { sku, confirmacao: { actor: { kind: "dono", id: actorId }, em } };
+  // KAM-231: a quantidade que o dono confirmou, inteiro seguro e não negativo.
+  const stock = corpo["stock"];
+  if (stock !== undefined && (!Number.isSafeInteger(stock) || (stock as number) < 0)) return null;
+  return {
+    sku,
+    confirmacao: { actor: { kind: "dono", id: actorId }, em },
+    ...(stock === undefined ? {} : { stock: stock as number }),
+  };
 }
 
 /** O filtro do `listOrders` que o corpo descreve. A validação é do módulo. */

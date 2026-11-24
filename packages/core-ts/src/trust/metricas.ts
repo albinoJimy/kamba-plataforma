@@ -6,6 +6,7 @@
  * ts_sinais_total{tipo}             counter  sinais novos gravados, por tipo
  * ts_sancoes_total{passo,origem}    counter  passos novos da escada, por passo e origem
  * ts_varreduras_total{varredura,desfecho}  counter  corridas das varreduras do lote
+ * ts_ofertas_nao_avaliadas{motivo}  gauge    ofertas publicadas que a varredura dos preços não avaliou (KAM-209)
  * ```
  *
  * **Contam o que é novo.** Um sinal ou uma sanção repetidos (a reentrega de um
@@ -22,8 +23,8 @@
  * shortcut: contagem antes do COMMIT no consumidor; revê-se quando o `consumir`
  * ganhar um gancho depois da transacção (ou um contador por `events_consumed`).
  *
- * **As etiquetas são domínios fechados** (`tipo` 9, `passo` 4, `origem` 2,
- * `varredura` 4, `desfecho` 2), e nenhuma leva tenant, sinal nem caso
+ * **As etiquetas são domínios fechados** (`tipo` 10, `passo` 4, `origem` 2,
+ * `varredura` 7, `desfecho` 2, `motivo` 2), e nenhuma leva tenant, sinal nem caso
  * (`OBS-I`). Qual tenant é lê-se da `ts_sanction`, por quem tem papel para isso.
  *
  * **Nascem a zero**: todas as séries saem desde o arranque, e uma regra de
@@ -39,9 +40,26 @@ import { PASSOS, TIPOS_DE_SINAL, type Passo, type TipoDeSinal } from "./regras.t
 export const METRICA_SINAIS = "ts_sinais_total";
 export const METRICA_SANCOES = "ts_sancoes_total";
 export const METRICA_VARREDURAS = "ts_varreduras_total";
+export const METRICA_NAO_AVALIADAS = "ts_ofertas_nao_avaliadas";
+
+/**
+ * Porque uma oferta publicada não se avaliou (KAM-209): sem categoria (as de
+ * antes da revisão `0088`), ou com vinte referências de menos de três lojas.
+ * Domínio da etiqueta `motivo`.
+ */
+export const MOTIVOS_DE_NAO_AVALIADA = ["sem_categoria", "poucas_lojas"] as const;
+export type MotivoDeNaoAvaliada = (typeof MOTIVOS_DE_NAO_AVALIADA)[number];
 
 /** As varreduras do lote. Domínio da etiqueta `varredura`. */
-export const VARREDURAS = ["nao_entrega", "fotos", "encerramentos", "mudancas_de_conta"] as const;
+export const VARREDURAS = [
+  "nao_entrega",
+  "fotos",
+  "encerramentos",
+  "mudancas_de_conta",
+  "pseudonimos",
+  "compradores_do_dono",
+  "precos",
+] as const;
 export type Varredura = (typeof VARREDURAS)[number];
 
 /** O desfecho de uma corrida. Uma falha não pára as outras varreduras. */
@@ -52,6 +70,7 @@ const AJUDA: Readonly<Record<string, readonly [string, string]>> = {
   [METRICA_SINAIS]: ["counter", "Sinais de Trust & Safety novos, por tipo."],
   [METRICA_SANCOES]: ["counter", "Passos novos da escada de sancoes, por passo e origem."],
   [METRICA_VARREDURAS]: ["counter", "Corridas das varreduras de Trust & Safety, por desfecho."],
+  [METRICA_NAO_AVALIADAS]: ["gauge", "Ofertas publicadas que a varredura dos precos nao avaliou, por motivo."],
 };
 
 /** O que o `ServicoDeTrust` e as varreduras contam. A `MetricasDoTrust` cumpre-a. */
@@ -79,6 +98,19 @@ export class MetricasDoTrust implements ContadoresDoTrust {
     this.#sancoes.set(k, (this.#sancoes.get(k) ?? 0) + 1);
   }
 
+  readonly #naoAvaliadas = new Map<string, number>(MOTIVOS_DE_NAO_AVALIADA.map((m) => [m, 0]));
+
+  /**
+   * As ofertas publicadas que a última volta da varredura dos preços não
+   * avaliou, pelo motivo (KAM-209). Um *gauge*, e não um contador: é o tamanho
+   * do que fica por avaliar, e desce quando um dono dá categoria a uma oferta ou
+   * quando chegam referências de mais lojas.
+   */
+  ofertasNaoAvaliadas(motivo: MotivoDeNaoAvaliada, n: number): void {
+    if (!this.#naoAvaliadas.has(motivo) || !Number.isSafeInteger(n) || n < 0) return;
+    this.#naoAvaliadas.set(motivo, n);
+  }
+
   varredura(v: Varredura, desfecho: DesfechoDaVarredura): void {
     const k = `${v}|${desfecho}`;
     if (!this.#varreduras.has(k)) return;
@@ -97,6 +129,8 @@ export class MetricasDoTrust implements ContadoresDoTrust {
           const [p, o] = k.split("|");
           linhas.push(`${nome}{passo="${p}",origem="${o}"} ${n}`);
         }
+      } else if (nome === METRICA_NAO_AVALIADAS) {
+        for (const [m, n] of this.#naoAvaliadas) linhas.push(`${nome}{motivo="${m}"} ${n}`);
       } else {
         for (const [k, n] of this.#varreduras) {
           const [v, d] = k.split("|");

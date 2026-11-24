@@ -624,7 +624,7 @@ class TestPipeline(unittest.TestCase):
         self.assertEqual(r.estado, estados.RASCUNHO, r)
         self.assertEqual(
             r.resumo,
-            "Camisa polo nike, categoria vestuario, cor azul, variantes M e L, "
+            "Camisa polo nike, categoria vestuario (moda), cor azul, variantes M e L, "
             "entrega entrega em Luanda, 12 000 Kz, 5 em stock",
         )
         self.assertEqual(len(m.registo.rascunhos), 1)
@@ -1072,7 +1072,7 @@ class TestPipeline(unittest.TestCase):
         r = _ate_ao_rascunho(m, m.servico.receber(A, "m1").ingestao.id)
         publicar = m.registo.publicar
 
-        def falha(*_: object) -> None:
+        def falha(*_: object, **__: object) -> None:
             raise ConnectionError("COM em baixo")
 
         m.registo.publicar = falha  # type: ignore[method-assign]

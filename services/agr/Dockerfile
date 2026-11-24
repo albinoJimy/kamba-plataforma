@@ -29,6 +29,18 @@ RUN python -m pip install --require-hashes --no-deps \
 
 FROM ${PYTHON_IMAGE} AS runtime
 WORKDIR /app
+# As artes do social (KAM-122, decisoes D1 e D2 do fundador de 2026-11-21): a
+# Noto Sans (OFL-1.1) e o tesseract com os dados do portugues (Apache-2.0), do
+# arquivo Debian assinado da base, e **nenhum binario no repositorio**. O
+# tesseract corre como processo, sem rede (`social/ocr.py`); a fonte le-se de
+# `/usr/share/fonts/truetype/noto` (`social/desenho.py`). As versoes sao as do
+# arquivo `trixie` no dia da construcao: o SBOM por imagem, que as fixa, e do
+# KAM-078. `--no-install-recommends` e a limpeza das listas mantem a camada
+# so com o que se pediu.
+RUN apt-get update \
+    && apt-get install --yes --no-install-recommends \
+        fonts-noto-core tesseract-ocr tesseract-ocr-por \
+    && rm -rf /var/lib/apt/lists/*
 ARG KAMBA_COMMIT_SHA=unknown
 # HOST=0.0.0.0 e definido aqui, e nunca no codigo: dentro do contentor e preciso
 # escutar na interface da rede do compose, mas correr o servico a mao na maquina

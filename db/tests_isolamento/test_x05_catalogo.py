@@ -211,6 +211,9 @@ class TestCatalogoReal(ComBase):
                 ("platform", "consent_event", "tenant_id"),
                 ("platform", "contact_deks", "tenant_id"),
                 ("platform", "contact_endpoints", "tenant_id"),
+                # KAM-208: o pseudonimo sem tenant («contact_x» < «contacts»,
+                # porque '_' < 's').
+                ("platform", "contact_xtenant_pseudonym", "tenant_id"),
                 ("platform", "contacts", "tenant_id"),
                 # KAM-121: o calendario e os itens do social («conta» < «conte»).
                 ("platform", "content_calendar", "tenant_id"),
@@ -337,6 +340,8 @@ class TestCatalogoReal(ComBase):
                 ("platform", "owner_notices", "tenant_id"),
                 # KAM-223: a troca de telefone do dono («owner_n» < «owner_p»).
                 ("platform", "owner_phone_changes", "tenant_id"),
+                # KAM-240: a idempotencia do painel («ow» < «pai_i» < «pai_r»).
+                ("platform", "painel_idempotencia", "tenant_id"),
                 # KAM-236: as revogacoes do painel («ow» < «pai» < «pay»).
                 ("platform", "painel_revogacao", "tenant_id"),
                 # KAM-052: a conta de pagamento, **depois** das do aviso ao
@@ -574,6 +579,8 @@ class TestCatalogoReal(ComBase):
                 ("consent_event", "tenant_iso", "ALL", "{public}"),
                 ("contact_deks", "tenant_iso", "ALL", "{public}"),
                 ("contact_endpoints", "tenant_iso", "ALL", "{public}"),
+                # KAM-208: o pseudonimo sem tenant.
+                ("contact_xtenant_pseudonym", "tenant_iso", "ALL", "{public}"),
                 ("contacts", "tenant_iso", "ALL", "{public}"),
                 # KAM-121: o calendario e os itens do social, uma politica cada.
                 ("content_calendar", "tenant_iso", "ALL", "{public}"),
@@ -684,6 +691,8 @@ class TestCatalogoReal(ComBase):
                 ("owner_notices", "tenant_iso", "ALL", "{public}"),
                 # KAM-223: a troca de telefone do dono, uma politica so.
                 ("owner_phone_changes", "tenant_iso", "ALL", "{public}"),
+                # KAM-240: a idempotencia do painel, uma politica so.
+                ("painel_idempotencia", "tenant_iso", "ALL", "{public}"),
                 # KAM-236: as revogacoes do painel, uma politica so.
                 ("painel_revogacao", "tenant_iso", "ALL", "{public}"),
                 # KAM-052: **uma** politica e nao duas. O `docs/tecnica/04`
@@ -905,7 +914,8 @@ class TestCatalogoReal(ComBase):
              # KAM-059: a sombra da comissao («com» < «con»).
              "commission_accruals",
              "consent_event",
-             "contact_deks", "contact_endpoints", "contacts",
+             # KAM-208: o pseudonimo sem tenant, entre as da identidade.
+             "contact_deks", "contact_endpoints", "contact_xtenant_pseudonym", "contacts",
              # KAM-121: o calendario e os itens do social («conta» < «conte»).
              "content_calendar", "content_items",
              # KAM-090: a prova de aceite, com a `tenant_iso` do `db/rls.py`.
@@ -990,6 +1000,8 @@ class TestCatalogoReal(ComBase):
              "owner_contacts", "owner_notices",
              # KAM-223: a troca de telefone do dono («owner_n» < «owner_p»).
              "owner_phone_changes",
+             # KAM-240: a idempotencia do painel («ow» < «pai_i» < «pai_r»).
+             "painel_idempotencia",
              # KAM-236: as revogacoes do painel («ow» < «pai» < «pay»).
              "painel_revogacao",
              # KAM-052: a coluna de isolamento e `tenant_id` como nas outras
@@ -1552,6 +1564,14 @@ class TestFicheirosDePolitica(unittest.TestCase):
         }
     )
 
+    #: KAM-208 (decisao do fundador de 2026-11-21, D2): a comparacao da
+    #: correlacao entre tenants e a purga do pseudonimo sem tenant. O `EXECUTE`
+    #: e so do `kamba_batch`, que nao tem privilegio nenhum na tabela; a funcao
+    #: devolve o tenant e a contagem, nunca o pseudonimo nem o outro tenant.
+    CORRELACAO_NA_ALLOWLIST = (
+        "platform.ts_compradores_noutra_loja_do_dono(p_tenants uuid[])",
+        "platform.contact_xtenant_purgar(p_tenants uuid[], p_antes timestamp with time zone)",
+    )
     #: A busca do guia pelo numero ligado (KAM-239), na forma da D1-A do
     #: KAM-236: devolve so o caso e o tenant, e o `EXECUTE` e so do `kamba_app`.
     #: `../tests/test_guia_na_base_schema.py` mede as colunas e o `42501`.
@@ -1604,6 +1624,7 @@ class TestFicheirosDePolitica(unittest.TestCase):
             }
             | set(self.MANUAIS_NA_ALLOWLIST)
             | set(self.REGISTO_NA_ALLOWLIST)
+            | set(self.CORRELACAO_NA_ALLOWLIST)
             | {self.GUIA_NA_ALLOWLIST},
         )
 

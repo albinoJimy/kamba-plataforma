@@ -21,7 +21,9 @@
  * registo sobre memória. As buscas do registo que atravessam tenants passam
  * pelas funções `SECURITY DEFINER` da `0084`, que só devolvem o caso e o tenant
  * (decisão do fundador de 2026-11-21, D1-A); o resto lê-se pela RLS do tenant
- * do caso. Os contadores e as revogações são tabelas (D3-A).
+ * do caso. Os contadores e as revogações são tabelas (D3-A), e a
+ * `Idempotency-Key` do `PATCH /painel/produtos/:id` também (KAM-240), num *pool*
+ * só seu (`IdempotenciaNaBase`).
  *
  * **O guia do ES corre sobre a base e sobre o lote** (KAM-239). O estado dele
  * vive na `onboarding_guia` (revisão do guia na base), pela mesma ligação
@@ -57,7 +59,9 @@ import { port } from "@kamba/core-ts";
 import {
   ConversaDoDono,
   conversaPeloPool,
+  FotoDoDono,
   invocadorPorHttp,
+  recepcaoDoPainel,
   trocaPeloPool,
   type DestinoDoAviso,
   type MomentoDoAviso,
@@ -98,7 +102,13 @@ import {
 } from "@kamba/core-ts/inscricao";
 import { instalar } from "@kamba/core-ts/logger";
 import { versaoDaGraph } from "@kamba/core-ts/onboarding";
-import { EnvSecretProvider, Secrets, isAmbiente } from "@kamba/core-ts/secrets";
+import { ArranqueAbortadoError, EnvSecretProvider, Secrets, isAmbiente } from "@kamba/core-ts/secrets";
+import {
+  criarStorageS3,
+  lerConfig as lerConfigDoStorage,
+  type StorageConfig,
+  type StorageProvider,
+} from "@kamba/core-ts/storage";
 import {
   FakeSmsProvider,
   REF_PEPPER as REF_PEPPER_DO_SMS,
@@ -113,7 +123,14 @@ import { REF_DA_CREDENCIAL_DO_LOTE } from "./lote/interno.ts";
 import { LigadorPorHttp } from "./ligador.ts";
 import { CanalPeloCom } from "./painel/canal.ts";
 import { ComercioPorHttp } from "./painel/comercio.ts";
-import type { OpcoesDaConversa, OpcoesDaTroca, OpcoesDoPainel, TesteDoPainel } from "./painel/rotas.ts";
+import type {
+  OpcoesDaConversa,
+  OpcoesDaFoto,
+  OpcoesDaTroca,
+  OpcoesDoPainel,
+  TesteDoPainel,
+} from "./painel/rotas.ts";
+import { IdempotenciaNaBase } from "./painel/idempotencia_sql.ts";
 import { RevogacoesNaBase } from "./painel/revogacoes_sql.ts";
 import { RevogacoesEmMemoria, type Revogacoes } from "./painel/sessao.ts";
 import { testeDaActivacao } from "./painel/teste.ts";
@@ -180,6 +197,17 @@ const SEGREDO_DO_AGR = "agr_painel_token";
 const VARIAVEL_DOS_PROXIES = "ONBOARDING_PROXIES_DE_CONFIANCA";
 
 /**
+ * As duas chaves do STO, para a foto do dono pelo painel (KAM-243). Pela forma
+ * da decisão do fundador de 2026-11-21 para o `worker-canal-entrada` e o AGR
+ * (P4, opção A): o processo recebe só os segredos de que precisa, e em
+ * `staging` e `prod` **não arranca** sem eles nem sem a configuração do STO
+ * (`KAMBA_STORAGE_*`). Em `dev`, sem eles, a foto fica desligada (503) e o
+ * arranque di-lo numa linha. Quem as tem lê e escreve os objectos de todos os
+ * tenants: o isolamento é o prefixo do tenant na porta (`ArmazenamentoPorTenant`).
+ */
+const SEGREDOS_DO_STO = ["storage_access_key_id", "storage_secret_access_key"] as const;
+
+/**
  * As quatro variáveis do passo guiado do ES (KAM-093). **Nenhuma é segredo**: o
  * `appId` e o `config_id` são identificadores públicos que a página entrega ao
  * SDK da Meta, a origem é o endereço público deste serviço, e o GWY interno é
@@ -218,6 +246,15 @@ const CHAVES_DO_CASO = [REF_KEK_DO_TELEFONE, REF_KEK_DOS_DADOS] as const;
  * Calibra-se com a carga real (KAM-084).
  */
 const LIGACOES_DA_INSCRICAO = 6;
+
+/**
+ * Quantas ligações do `kamba_app` a idempotência do painel abre, no máximo
+ * (KAM-240). **À parte da inscrição**: cada uma fica presa durante o PATCH ao
+ * COM, que lê as revogações pelo *pool* da inscrição (ver `IdempotenciaNaBase`).
+ * ***Proposta***: quatro PATCH em curso ao mesmo tempo; o quinto espera pela
+ * ligação até ao `connectionTimeoutMillis`. Calibra-se com a carga real (KAM-084).
+ */
+const LIGACOES_DA_IDEMPOTENCIA = 4;
 
 /**
  * Levantado em `prod` enquanto o SMS for o `FakeSmsProvider` (KAM-236, achado 1
@@ -295,6 +332,9 @@ if (GUIA_PELO_LOTE && !NA_BASE) {
 // O SMS é o falso em qualquer ambiente (ver o erro): em `prod`, recusa.
 if (env === "prod") throw new SmsFalsoEmProducaoError();
 
+/** O STO é obrigatório fora de `dev` (KAM-243). Ver `SEGREDOS_DO_STO`. */
+const STO_OBRIGATORIO = env !== "dev";
+
 const provider = new EnvSecretProvider({ ambiente: env });
 const secrets = await Secrets.arrancar({
   servico: SERVICE,
@@ -311,8 +351,48 @@ const secrets = await Secrets.arrancar({
     ...(CONVERSA_MONTA ? [SEGREDO_DO_AGR] : []),
     ...(NA_BASE ? CHAVES_DO_CASO : []),
     ...(GUIA_PELO_LOTE ? [REF_DA_CREDENCIAL_DO_LOTE] : []),
+    ...(STO_OBRIGATORIO ? SEGREDOS_DO_STO : []),
   ],
 });
+
+/**
+ * O STO da foto do dono (KAM-243), ou `undefined` em `dev` sem ele. Em `staging`
+ * e `prod`, a configuração em falta **aborta** o arranque — as chaves já
+ * abortaram no `Secrets.arrancar` acima. A mensagem do `lerConfig` nomeia as
+ * variáveis e nunca os valores.
+ */
+async function montarArmazenamento(): Promise<StorageProvider | undefined> {
+  let config: StorageConfig;
+  try {
+    config = lerConfigDoStorage({ ambiente: env, env: process.env });
+  } catch (erro) {
+    if (STO_OBRIGATORIO) {
+      const motivo = erro instanceof Error ? erro.message : "configuracao ilegivel";
+      throw new ArranqueAbortadoError(SERVICE, `armazenamento da foto do painel: ${motivo}`);
+    }
+    log.info({ outcome: "painel_foto_desligada" });
+    return undefined;
+  }
+  if (!STO_OBRIGATORIO) {
+    // Em `dev` nada disto é obrigatório no arranque, e por isso pergunta-se aqui:
+    // um processo que montasse a foto sem as chaves falhava a primeira foto do
+    // dono em vez de arrancar sem ela.
+    // Os nomes em literal, e não pelo `SEGREDOS_DO_STO`: o inventário (gate 9)
+    // lê os pedidos de segredo pelo nome escrito.
+    const presentes = await Promise.all(
+      [secrets.getRing("storage_access_key_id"), secrets.getRing("storage_secret_access_key")].map((leitura) =>
+        leitura.then(() => true, () => false),
+      ),
+    );
+    if (presentes.includes(false)) {
+      log.info({ outcome: "painel_foto_desligada" });
+      return undefined;
+    }
+  }
+  return criarStorageS3({ config, secrets });
+}
+
+const armazenamento = await montarArmazenamento();
 
 const [pepper, pepperAnterior] = await anelDoPepper(secrets);
 const [assinatura, assinaturaAnterior] = await anelDaAssinatura(secrets);
@@ -584,17 +664,30 @@ const LIGACOES_DA_APP = 4;
  * A conversa do dono com o Assistente (KAM-223), **só com a ligação `kamba_app`
  * e o endereço do AGR**. A credencial lê-se a cada pedido, porque roda.
  */
-async function montarConversa(): Promise<OpcoesDaConversa | undefined> {
+async function montarConversa(): Promise<{ conversa?: OpcoesDaConversa; foto?: OpcoesDaFoto }> {
   if (URL_DA_APP === "" || URL_DO_AGR === "") {
     log.info({ outcome: "painel_conversa_desligada" });
-    return undefined;
+    return {};
   }
   const pool = poolDe(URL_DA_APP, "app", LIGACOES_DA_APP);
+  const portas = conversaPeloPool(pool);
+  const invocar = invocadorPorHttp({ agr: URL_DO_AGR, credencial: () => secrets.get("agr_painel_token") });
+  // KAM-243: a foto do dono vai pelo mesmo *pool*, o mesmo contexto do dono e a
+  // mesma credencial do AGR, e precisa do STO. Sem ele (só em `dev`), a rota da
+  // foto responde 503 e a conversa serve igual.
+  const foto: OpcoesDaFoto | undefined =
+    armazenamento === undefined
+      ? undefined
+      : {
+          foto: new FotoDoDono({
+            contexto: portas.contexto,
+            receber: recepcaoDoPainel({ pool, armazenamento, log }),
+            invocar,
+          }),
+        };
   return {
-    conversa: new ConversaDoDono({
-      ...conversaPeloPool(pool),
-      invocar: invocadorPorHttp({ agr: URL_DO_AGR, credencial: () => secrets.get("agr_painel_token") }),
-    }),
+    conversa: { conversa: new ConversaDoDono({ ...portas, invocar }) },
+    ...(foto === undefined ? {} : { foto }),
   };
 }
 
@@ -624,12 +717,16 @@ async function montarPainel(guia: PassoGuiado | undefined): Promise<OpcoesDoPain
     return undefined;
   }
   const comercio = new ComercioPorHttp(com, await secrets.get("com_internal_token"));
+  const { conversa, foto } = await montarConversa();
   return {
     comercio,
     canal: new CanalPeloCom(comercio),
     revogacoes,
     casos,
     anelDaAssinatura: [assinatura, assinaturaAnterior],
+    // Sem base, a das rotas, em memória: só em `dev` e `staging` (em `prod` a
+    // base é obrigatória). Ver a nota do módulo.
+    idempotencia: NA_BASE ? new IdempotenciaNaBase(poolDe(URL_DA_APP, "idempotencia", LIGACOES_DA_IDEMPOTENCIA)) : undefined,
     precoMaximoKz: precoMaximoKz(process.env["PAINEL_PRECO_MAXIMO_KZ"]),
     reentrada: {
       otp,
@@ -641,7 +738,8 @@ async function montarPainel(guia: PassoGuiado | undefined): Promise<OpcoesDoPain
       religar: guia === undefined ? undefined : (id) => guia.religar(id),
     },
     troca: await montarTroca(guia !== undefined),
-    conversa: await montarConversa(),
+    conversa,
+    foto,
     teste: montarTeste(),
   };
 }

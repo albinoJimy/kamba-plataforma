@@ -4,7 +4,7 @@
 |---|---|
 | Produto | KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para Angola |
 | Documento | Epic — Topologia e Operação |
-| Versão | 1.29 |
+| Versão | 1.34 |
 | Data | Novembro de 2026 |
 | Classificação | Documento de Referência — Interno |
 | Documento-fonte | `../docs/tecnica/09_Topologia_Operacao_Escala.md` |
@@ -18,7 +18,7 @@ Este epic põe a KAMBÁ a **correr de forma operável**: ambientes (`dev`, `stag
 
 O epic concretiza **ADR-008** (alojamento, *backups*, CDN e observabilidade são «alojamento»; nenhum dado pessoal de produção sai de Angola sem registo da APD), **ADR-009** (Redis/Valkey reconstruível a partir do *outbox*), **ADR-014** (`StorageProvider`, sem MinIO), **ADR-018** (observabilidade leve: Langfuse **não** entra em produção no Piloto; tabela de chamadas LLM sem conteúdo), **ADR-002** (n8n e Typebot fora de produção), **ADR-005** (LiteLLM ≥ 1.83.0 por *digest* e cosign), **ADR-006** (Postgres 18.6), **ADR-001** (alertas `PARTNER_REMOVED`, 20 mps em coexistência) e **ADR-019** (`onboarding-web` no Compose, sem vitrine). As propostas locais ADR-P06 a ADR-P10 do doc 09 (host único, pgBackRest, sem Langfuse, Valkey, Node 24/Hono 4.x) são tratadas como **propostas**; a Valkey (ADR-P09) fica condicionada a teste em *staging* (D12).
 
-**Estado das afirmações.** Só os requisitos de recursos de Chatwoot (≥ 4 GB e 4 núcleos), Langfuse v4 (4 núcleos, 16 GiB, 100 GiB) e Medusa (≥ 2 GB) vêm de documentação oficial (CONFIRMADO). A memória por serviço, os preços de VM, o volume por PME, as cotações de Luanda, a latência Luanda↔JNB e os limites do BullMQ são ESTIMATIVA ou NÃO VERIFICADO: os tickets KAM-084 (carga) e KAM-085 (DR) existem para os validar ou corrigir, e nenhum ticket trata um número do doc 09 como requisito sem esse critério de saída. **Fase:** 0 (KAM-075, 076, 077, 080, 187: chão de infraestrutura e observabilidade mínima) e 1 (KAM-078, 079, 081–085, 188). `prod` corre **só com dados sintéticos** até D1 e ao procedimento APD (KAM-105, KAM-069). Abreviaturas: «doc 09» designa `../docs/tecnica/09_Topologia_Operacao_Escala.md`, «doc 00» designa `../docs/tecnica/00_Arquitectura_Solucao.md`, «E1» a «E5» designam `../docs/tecnica/evidencia/E1_…` a `E5_…`.
+**Estado das afirmações.** Só os requisitos de recursos de Chatwoot (≥ 4 GB e 4 núcleos), Langfuse v4 (4 núcleos, 16 GiB, 100 GiB) e Medusa (≥ 2 GB) vêm de documentação oficial (CONFIRMADO). A memória por serviço, os preços de VM, o volume por PME, as cotações de Luanda, a latência Luanda↔JNB e os limites do BullMQ são ESTIMATIVA ou NÃO VERIFICADO: os tickets KAM-084 (carga) e KAM-085 (DR) existem para os validar ou corrigir, e nenhum ticket trata um número do doc 09 como requisito sem esse critério de saída. **Fase:** 0 (KAM-075, 076, 077, 080, 187: chão de infraestrutura e observabilidade mínima) e 1 (KAM-078, 079, 081–085, 188, 242). `prod` corre **só com dados sintéticos** até D1 e ao procedimento APD (KAM-105, KAM-069). Abreviaturas: «doc 09» designa `../docs/tecnica/09_Topologia_Operacao_Escala.md`, «doc 00» designa `../docs/tecnica/00_Arquitectura_Solucao.md`, «E1» a «E5» designam `../docs/tecnica/evidencia/E1_…` a `E5_…`.
 
 ---
 
@@ -53,6 +53,8 @@ O epic concretiza **ADR-008** (alojamento, *backups*, CDN e observabilidade são
 | KAM-085 | Simulacro de recuperação (DR drill) com RTO medido | chore | M | P0 | KAM-079 |
 | KAM-187 | O compose de produção corre os consumidores do `worker-canal` | feature | L | P0 | KAM-076, KAM-080, KAM-013, KAM-025 |
 | KAM-188 | O teste de carga repete-se no *host* P0 | chore | M | P1 | KAM-084, KAM-077, KAM-186, KAM-187 |
+| KAM-242 | O compose de produção sem *swap*: o `memswap_limit` igual ao `mem_limit` em todos os serviços, exigido pelo `compose_prod`, e o *swap* do *host* registado | chore | S | P1 | KAM-076, KAM-238 |
+| KAM-249 | A fila sem credencial na rede `data`: o Valkey com autenticação, e o S3 do `seaweedfs` medido | fix | M | P1 | KAM-076, KAM-247 |
 
 ---
 
@@ -174,7 +176,7 @@ do fundador. Os comandos e os números estão em
 | Prioridade | P0 |
 | Estimativa | L |
 | Dependências | KAM-075 |
-| Bloqueia | KAM-078, KAM-079, KAM-080, KAM-084, KAM-187 |
+| Bloqueia | KAM-078, KAM-079, KAM-080, KAM-084, KAM-187, KAM-242, KAM-249 |
 | Responsável sugerido | Plataforma/SRE |
 | Documentos de referência | `../docs/tecnica/09_Topologia_Operacao_Escala.md` (§3, §4, §20), `../docs/tecnica/08_Seguranca_Conformidade.md` (§4.4, §4.8), ADR-002, ADR-005, ADR-006, ADR-009, ADR-014, ADR-018, ADR-019 |
 
@@ -348,7 +350,7 @@ Não expandas escopo: pgBackRest é KAM-079, métricas KAM-080. Testes: verifica
 | Prioridade | P0 |
 | Estimativa | L |
 | Dependências | KAM-002, KAM-076, KAM-024 |
-| Bloqueia | — |
+| Bloqueia | KAM-248 |
 | Responsável sugerido | Plataforma/SRE |
 | Documentos de referência | `specs/01_Engineering_Standards_e_Handoff.md` (§4, gates 14–18), `../docs/tecnica/09_Topologia_Operacao_Escala.md` (§6, §7), `../docs/tecnica/08_Seguranca_Conformidade.md` (§4.8), `../docs/tecnica/evidencia/E2_Pagamentos_Angola.md` (§1.2), ADR-005, ADR-009 |
 
@@ -800,6 +802,14 @@ subprocessadores (critério 4), e a **ausência de *staging* e de produção**
 > cita. Medido no ramo do KAM-219 sobre a `publico/main` em `f0a31b54`: **33
 > módulos, 161 nomes**, 163 declaradas, e as restantes nas mesmas. Nenhuma caixa
 > deste epic muda.
+>
+> **E o KAM-225 trouxe o par dele, em Python:** o
+> `libs/py-core/src/kamba_core/registo_pg/metricas.py`, com **dois** nomes: o
+> contador da mesma recusa lida do registo do PostgreSQL e a idade do registo,
+> que o recolector `registo-pg` serve e as regras `confianca_tecto_recusado_no_registo`
+> e `registo_pg_registo_parado` citam. Medido no ramo do KAM-225 sobre a
+> `publico/main` em `95826f19`: **34 módulos, 163 nomes**, 165 declaradas, e as
+> restantes nas mesmas. Nenhuma caixa deste epic muda.
 >
 > É por isso que **8 das 12 linhas do §9.2 não se escreveram**. Um alerta sobre
 > uma série que ninguém produz nunca dispara, e um alerta que nunca dispara
@@ -1880,6 +1890,164 @@ Nao expandas escopo: ajustar limites no compose e um PR de seguimento. PR com o 
 
 ---
 
+## KAM-242 — O compose de produção sem *swap*: o `memswap_limit` igual ao `mem_limit` em todos os serviços, exigido pelo `compose_prod`, e o *swap* do *host* registado
+
+| Campo | Valor |
+|---|---|
+| Epic | EPIC-08 — Topologia e Operação |
+| Fase | 1 |
+| Tipo | chore |
+| Prioridade | P1 |
+| Estimativa | S |
+| Dependências | KAM-076, KAM-238 |
+| Bloqueia | — |
+| Responsável sugerido | Plataforma/SRE |
+| Documentos de referência | `EPIC-08_Topologia_Operacao.md` (bloco KAM-076, critério 4), `EPIC-11_Modulos_Entrada.md` (bloco KAM-238, decisão do fundador de 2026-11-22), `../docs/evidencia/KAM-238.md` §3, `../infra/compose/docker-compose.prod.yml`, `../tools/compose_prod/lint.py` |
+
+### Contexto
+
+Credor do KAM-238, aberto no PR dele por decisão do fundador de 2026-11-22. A medição do KAM-238 mostrou que um `mem_limit` sem `memswap_limit` deixa o contentor usar **outro tanto de *swap***: sob `mem_limit: 54m`, o consumidor `dono` «sobreviveu» com 19 MiB em *swap* e o `memory.peak` colado ao limite (`../docs/evidencia/KAM-238.md` §3). O *compose* de `prod` não fixa `memswap_limit` em serviço nenhum, e se o *host* de produção tem *swap* é **NÃO VERIFICADO**: não há menção a *swap* em `../infra/` nem no `../docs/tecnica/09_Topologia_Operacao_Escala.md`. Se tiver, a soma do critério 4 do KAM-076 mede só metade do que os processos podem ocupar, e um limite «medido» pode estar a contar com *swap* que ninguém declarou.
+
+### Objectivo
+
+Que cada `mem_limit` do *compose* de `prod` seja um tecto real de memória, sem *swap* por omissão, e que o estado do *swap* do *host* fique escrito.
+
+### Critérios de Aceitação
+
+- [x] Cada serviço do `../infra/compose/docker-compose.prod.yml` com `mem_limit` tem `memswap_limit` igual a ele.
+- [x] O `tools/compose_prod` recusa um serviço com `mem_limit` sem `memswap_limit` igual, com uma regra nova e um caso de canário que a faz morder.
+- [x] O estado do *swap* do *host* de produção (tem ou não tem, e com que política) fica registado com o seu estado de verificação; enquanto não houver *host*, a linha diz **NÃO VERIFICADO** e o que o mede.
+
+### Detalhes Técnicos
+
+- O `memswap_limit` é a memória **mais** o *swap*: igual ao `mem_limit` quer dizer zero de *swap*. O `docker compose` honra-o fora de *swarm*, como o `mem_limit`.
+- Um processo que hoje caiba no limite só com *swap* passa a ter OOM: antes de fixar, confirma que nenhum limite do manifesto assenta numa medição feita com *swap* (o KAM-225 mediu com `--memory-swap` igual ao limite; o KAM-084 e o KAM-187 mediram o *working set*).
+- Mexer na regra do `compose_prod` não muda o tecto nem a soma: é uma condição a mais sobre cada serviço.
+
+### Testes Requeridos
+
+- Unidade: a regra nova do `tools/compose_prod`, com um caso de canário.
+- Integração: a suite do `tools/compose_prod` sobre a árvore real.
+
+### Definition of Done
+
+- [x] Critérios de Aceitação satisfeitos; o §3 do `../docs/evidencia/KAM-238.md` aponta para o resultado.
+- [ ] Nenhum segredo no *compose*; `make up && make smoke` verde.
+
+### Handoff para Claude Code
+
+```text
+És o executor do ticket KAM-242 da KAMBÁ (o compose de produção sem swap).
+Lê specs/EPIC-08_Topologia_Operacao.md (blocos KAM-076 e KAM-242) e docs/evidencia/KAM-238.md §3.
+Objectivo: memswap_limit igual ao mem_limit em todos os serviços de prod, exigido pelo compose_prod, e o swap do host registado.
+Regras: não mexer no tecto nem nos limites; uma regra nova com canário; o swap do host fica NÃO VERIFICADO até se medir.
+```
+
+### Verificação dos Critérios de Aceitação
+
+Cinco caixas — 3 critérios e 2 linhas de DoD —, **quatro marcadas** e **uma vazia** (a linha 2 do DoD,
+pelo `make smoke`, que não correu). Medido no ramo `feature/KAM-242-sem-swap` sobre a base `4e9909b9`, a
+2026-11-23. Os comandos, a medição e o que fica por medir estão em
+[`../docs/evidencia/KAM-242.md`](../docs/evidencia/KAM-242.md).
+
+> **Nenhum limite medido assentava em *swap*.** O KAM-084 já aplicava os limites com `--memory-swap`
+> igual a eles (`db/tests_dimensionamento/test_cenarios.py`), e o KAM-225 também; o resto é estimativa ou
+> proposta. O «200,6 MiB» que o manifesto dá ao `worker-canal-entrada` é de uma corrida do KAM-084 **sem**
+> limites, numa versão do anexo que a corrida 5 substituiu (dívida 216).
+
+| # | Critério | Estado | Evidência | Credor |
+|---|---|---|---|---|
+| 1 | Cada serviço de `prod` com `mem_limit` tem `memswap_limit` igual | **satisfeito** | Os **24** serviços, com o `memswap_limit` na linha a seguir ao `mem_limit` e o mesmo valor; `python -m compose_prod --root .. lint` → 24 serviços, **0 achados**; `test_todos_os_servicos_de_prod_tem_memswap_igual_ao_limite` lê-os um a um sem passar pela regra. Medido nesta máquina que o `docker compose` o honra: `memory.swap.max` a **0** com ele, e igual ao limite sem ele (anexo §2). Nenhum limite assentava numa medição com *swap* (anexo §3 e a nota acima) | — |
+| 2 | O `compose_prod` recusa um serviço com `mem_limit` sem `memswap_limit` igual, com regra nova e canário | **satisfeito** | A regra **`memoria-com-swap`** (`../tools/compose_prod/lint.py`, `_swap`, chamada pelo `r_endurecimento`), que compara o valor lido (`1g` = `1024m`; `-1` e `0` recusados, os dois medidos no anexo §2). Três casos de canário — `swap-em-falta`, `swap-maior-que-o-limite`, `swap-ilimitado` — e a entrada em `MINIMO_POR_REGRA`; os quatro casos que trocavam o texto do `mem_limit` passaram a trocar os dois. `test_o_mesmo_valor_noutra_unidade_nao_e_achado` e `test_zero_nao_e_igual_ao_limite` | — |
+| 3 | O *swap* do *host* registado, com estado e o que o mede | **satisfeito** | **NÃO VERIFICADO** — não há *host* (D1). Três linhas no anexo §4 (tem *swap* e quanto; a política; o *kernel* honra o limite por contentor), cada uma com o comando que a responde, e uma linha nos «Riscos do Epic e itens NÃO VERIFICADOS» deste epic | — |
+
+#### Definition of Done
+
+| # | Linha | Estado | Evidência | Credor |
+|---|---|---|---|---|
+| 1 | Critérios satisfeitos; o §3 do anexo do KAM-238 aponta para o resultado | **satisfeito** | Os três acima; o `../docs/evidencia/KAM-238.md` §3 ganha o parágrafo «Resolvido pelo KAM-242» (versão 1.1) | — |
+| 2 | Nenhum segredo no *compose*; `make up && make smoke` verde | **parcial** | O diff do *compose* são 24 linhas `memswap_limit` e um comentário, sem segredo nenhum. O `make smoke` **não correu**: levanta o `docker-compose.dev.yml`, que este ticket não toca, e nesta máquina não há `make` | nenhum ticket: a caixa fica vazia até o `make smoke` correr |
+
+
+---
+
+## KAM-249 — A fila sem credencial na rede `data`: o Valkey com autenticação, e o S3 do `seaweedfs` medido
+
+| Campo | Valor |
+|---|---|
+| Epic | EPIC-08 — Topologia e Operação |
+| Fase | 1 |
+| Tipo | fix |
+| Prioridade | P1 |
+| Estimativa | M |
+| Dependências | KAM-076, KAM-247 |
+| Bloqueia | — |
+| Responsável sugerido | Plataforma/SRE |
+| Documentos de referência | `EPIC-03_Agent_Runtime_Verticais.md` (bloco KAM-247, decisões do fundador de 2026-11-23), `../docs/evidencia/KAM-247.md` §5, `../infra/compose/docker-compose.prod.yml` (`queue`, `seaweedfs`), `../docs/dividas-documentais.md` (linha 95) |
+
+### Contexto
+
+Credor do KAM-247, aberto no PR dele por decisão do fundador de 2026-11-23. A A1 do KAM-247 pôs o
+`litellm` na rede `data`, e a leitura do compose de `prod` mostrou o que isso alcança
+(`../docs/evidencia/KAM-247.md` §5): a **`queue` não pede credencial nenhuma** — o comando não tem
+`requirepass` nem ACL, e o `KAMBA_QUEUE_URL` dos serviços não leva credencial —, pelo que qualquer
+membro de `data` lê e injecta trabalhos BullMQ, a entrada e a saída de WhatsApp incluídas. O risco já
+existia para os quinze serviços de aplicação que estão em `data`; o proxy de LLM, que o E4 chama o
+componente de maior superfície de ataque, herda-o. E o S3 do `seaweedfs` (perfil `sto-proprio`) arranca
+sem `-s3.config`: que aceite pedidos anónimos é **PLAUSÍVEL** e não está medido.
+
+Fora deste ticket, por decisão do fundador: o `CONNECT` do PUBLIC às bases `postgres`,
+`kamba_chatwoot` e `kamba_medusa`, que fica na dívida 95.
+
+### Objectivo
+
+Que a fila da rede `data` só aceite quem apresenta credencial, e que se saiba, medido, se o S3 do
+`seaweedfs` aceita pedidos anónimos.
+
+### Critérios de Aceitação
+
+- [ ] A `queue` de `prod` e de `staging` exige credencial: um cliente sem ela recebe `NOAUTH` (ou o
+  equivalente da imagem fixada), medido.
+- [ ] Os serviços que usam a fila apresentam-na, vinda do cofre (`ADR-L002`), e o segredo está no
+  `../ops/secrets-inventory.yaml` com os consumidores certos; o compose recusa-se a arrancar sem ela.
+- [ ] O S3 do `seaweedfs`, levantado com o perfil `sto-proprio`, medido com um pedido anónimo: se
+  aceitar, fecha-se com uma configuração de identidades e mede-se a recusa; se recusar, o resultado
+  fica no anexo.
+- [ ] Um ensaio, ou uma regra do `compose_prod`, que falhe se a `queue` voltar a arrancar sem
+  credencial.
+
+### Detalhes Técnicos
+
+- **Componentes:** a fila (ADR-009), os serviços que a usam (o `worker-canal`, o AGR, o IDX, o lote do
+  onboarding e os outros membros de `data`), o STO.
+- **Esquema:** nenhum.
+- **A fila é reconstruível a partir do *outbox*** (ADR-009): mudar a credencial não perde mensagens,
+  mas reinicia os consumidores.
+
+### Testes Requeridos
+
+- Medição contra a imagem fixada da fila: com e sem credencial.
+- Medição do S3 anónimo com o perfil `sto-proprio`.
+- O canário da regra nova, se for uma regra.
+
+### Definition of Done
+
+- [ ] Critérios satisfeitos, com o comando de cada medição registado.
+- [ ] Sem segredos em ficheiro: a credencial pelo cofre.
+
+### Handoff para Claude Code
+
+```text
+És o executor do ticket KAM-249 da KAMBÁ (a fila sem credencial na rede data).
+Lê specs/EPIC-08_Topologia_Operacao.md (blocos KAM-076 e KAM-249), specs/EPIC-03_Agent_Runtime_Verticais.md
+(bloco KAM-247), docs/evidencia/KAM-247.md e infra/compose/docker-compose.prod.yml.
+Objectivo: a queue com credencial, apresentada por todos os serviços que a usam, e o S3 do seaweedfs medido.
+Regras: a credencial pelo cofre; o compose recusa-se a arrancar sem ela; nada de dados reais.
+Testes: a medição com e sem credencial na imagem fixada, o S3 anónimo, e o canário se houver regra nova.
+```
+
+---
+
 ## Riscos do Epic e itens NÃO VERIFICADOS
 
 | Risco / item | Estado | Decisão | Tratamento no epic |
@@ -1893,6 +2061,7 @@ Nao expandas escopo: ajustar limites no compose e um PR de seguimento. PR com o 
 | Requisitos de CPU e versões de Node do Medusa | NÃO VERIFICADO | D3 | KAM-076 confirma em `engines`; KAM-084 mede |
 | Garantias de entrega do BullMQ e limite de ~10k jobs/min | NÃO VERIFICADO | ADR-009 | KAM-084 mede; handlers idempotentes em qualquer caso |
 | Memória por serviço (18,6 GB), custo de infra ($450–680), custo por PME ($49–80 no Piloto) | ESTIMATIVA | — | KAM-084 e KAM-081 medem; KAM-085 valida o RTO |
+| *Swap* do *host* de produção: se tem, quanto, a política (`vm.swappiness`) e se o *kernel* honra o limite de *swap* por contentor | NÃO VERIFICADO | D1 | KAM-242: o *compose* de `prod` fixa `memswap_limit` igual ao `mem_limit`, pelo que o *swap* do *host* deixa de contar para o tecto se o *kernel* o honrar; mede-se no *host* (`../docs/evidencia/KAM-242.md` §4) |
 | Timeout e *retry* exactos do webhook Meta; comportamento de desactivação após falhas | NÃO VERIFICADO | D5 | KAM-078 e KAM-084 testam o ack < 500 ms; pergunta em KAM-101 |
 | Quem paga os custos em USD (Meta, cloud, LLM) | Não decidido | D9 | KAM-081 parametriza `meta_payer`; decisão em KAM-104/KAM-105 |
 | Preços de LLM e tokenizador (+30%); Gemini Flash dobra a 2027-01-01 | INDÍCIO-forte | ADR-005 | KAM-081 usa tabela de preços versionada com data |
@@ -1947,3 +2116,8 @@ Nao expandas escopo: ajustar limites no compose e um PR de seguimento. PR com o 
 | 1.27 | Novembro 2026 | **KAM-203**, emenda de **propagação** como a 1.25: o inventário fechado de módulos de métricas do `tools/obs_lint` ganha o `packages/core-ts/src/confianca/metricas.ts`, e a nota do bloco do KAM-080 passa a **32 módulos, 160 nomes**, 162 declaradas, com o KAM-210 já fundido. Nenhuma caixa muda. | Equipa KAMBÁ |
 | 1.28 | Novembro 2026 | **KAM-219**, emenda de **propagação** como a 1.25: o inventário fechado de módulos de métricas do `tools/obs_lint` ganha o `packages/core-ts/src/tenant_guard/metricas.ts`, e a nota do bloco do KAM-080 passa a **33 módulos, 161 nomes**, 163 declaradas. Nenhuma caixa muda. | Equipa KAMBÁ |
 | 1.29 | Novembro 2026 | **KAM-235**, emenda de **propagação**: a linha do critério 7 do KAM-080 regista que o `pricing` dos *statuses* passou a persistir pelo estágio de saída do `worker-canal`. A métrica agregada por categoria continua por fazer, e a caixa não muda | Equipa KAMBÁ |
+| 1.30 | Novembro 2026 | **KAM-242** acrescentado, no PR do **KAM-238** (EPIC-11), por decisão do fundador de 2026-11-22: o *compose* de `prod` passa a fixar o `memswap_limit` igual ao `mem_limit`, com o `compose_prod` a exigi-lo, e o *swap* do *host* fica registado (hoje NÃO VERIFICADO). Um bloco e uma linha na «Tabela Resumo», e a fase no §1. Arestas recíprocas: o `Bloqueia` do KAM-076 ganha o KAM-242 (e o do KAM-238, no EPIC-11). Número **provisório**, o maior da `main` (KAM-240) mais dois: renumera-se na integração se outro fundir antes. Nenhuma caixa deste epic muda. | Equipa KAMBÁ |
+| 1.31 | Novembro 2026 | **KAM-225**, emenda de **propagação** como a 1.25: o inventário fechado de módulos de métricas do `tools/obs_lint` ganha o `libs/py-core/src/kamba_core/registo_pg/metricas.py`, e a nota do bloco do KAM-080 passa a **34 módulos, 163 nomes**, 165 declaradas. Nenhuma caixa muda. | Equipa KAMBÁ |
+| 1.32 | Novembro 2026 | **Aresta recíproca, sem alteração de conteúdo:** o `Bloqueia` do KAM-078 ganha o **KAM-248** (EPIC-09), aberto no PR do KAM-233: o *token* de cada WABA chega ao `onboarding-lote` pelo lançador do cofre (ADR-L002) | Equipa KAMBÁ |
+| 1.33 | Novembro 2026 | **KAM-249** acrescentado, no PR do **KAM-247** (EPIC-03), que o abre e não o implementa, por decisão do fundador de 2026-11-23: a A1 do KAM-247 mantém-se, com um credor para a fila sem credencial na rede `data` e o S3 do `seaweedfs` por medir. Aresta recíproca: o `Bloqueia` do KAM-076 ganha o KAM-249. | Equipa KAMBÁ |
+| 1.34 | Novembro 2026 | **KAM-242 entregue.** O `memswap_limit` igual ao `mem_limit` nos 24 serviços do *compose* de `prod`, a regra `memoria-com-swap` do `compose_prod` com três casos de canário, e o *swap* do *host* registado como NÃO VERIFICADO, com o que o mede (uma linha nova nos «Riscos do Epic e itens NÃO VERIFICADOS»). Quatro caixas de cinco marcadas; a linha 2 do DoD fica parcial (o `make smoke` não correu). Anexo `../docs/evidencia/KAM-242.md`. Número **provisório**: renumera-se na integração. | Equipa KAMBÁ |

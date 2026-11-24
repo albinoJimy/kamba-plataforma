@@ -37,7 +37,8 @@ MODOS: Final = (MODO_EFECTIVA, MODO_DRY_RUN)
 #:
 #:   ok        apagou (ou, em dry-run, contou) o que a janela pedia
 #:   recusada  a politica nao deixa purgar (fiscal sem prazo, sem caminho)
-#:   retida    um hold legal impediu a purga desta unidade
+#:   retida    um hold legal impediu a purga desta unidade, ou uma obrigacao
+#:             legal por confirmar a guarda (`branqueamento_sem_parecer`)
 #:   falhou    a unidade levantou; nada dela ficou (alerta Sev2)
 RESULTADO_OK: Final = "ok"
 RESULTADO_RECUSADA: Final = "recusada"
@@ -53,6 +54,10 @@ MOTIVO_HOLD_CONTACTO: Final = "hold_contacto"
 MOTIVO_SEM_CAMINHO: Final = "sem_caminho"
 MOTIVO_PARTICAO: Final = "particao_por_criar"
 MOTIVO_ERRO: Final = "erro"
+#: KAM-233 (decisao do fundador de 2026-11-21, Q3 = B; revisao `0086`): a lei de
+#: prevencao do branqueamento pode pedir que a identificacao se guarde anos, e
+#: falta o parecer. O `kyc_check` e o `fraud_signals` ficam `retida` com ele.
+MOTIVO_BRANQUEAMENTO_SEM_PARECER: Final = "branqueamento_sem_parecer"
 MOTIVOS: Final = (
     MOTIVO_FISCAL_SEM_PRAZO,
     MOTIVO_FISCAL_IMUTAVEL,
@@ -61,6 +66,7 @@ MOTIVOS: Final = (
     MOTIVO_SEM_CAMINHO,
     MOTIVO_PARTICAO,
     MOTIVO_ERRO,
+    MOTIVO_BRANQUEAMENTO_SEM_PARECER,
 )
 
 #: A escrita. Doze parametros, pela ordem de `Registo`.

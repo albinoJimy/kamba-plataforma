@@ -333,6 +333,10 @@ REV_FINALIDADE_DO_SCREENING = _revisao_por_glob("*_finalidade_do_screening.py")
 #: `db/tests/test_finalidade_das_condicoes_schema.py`.
 REV_FINALIDADE_DAS_CONDICOES = _revisao_por_glob("*_finalidade_das_condicoes.py")
 REV_SOCIAL_DO_DONO = _revisao_por_glob("*_social_do_dono.py")
+#: KAM-122: a revisao da arte e da aprovacao do social, pela mesma razao — o
+#: numero (`0085`) e o da fila de integracao. O ensaio que a prova e o
+#: `db/tests/test_arte_e_aprovacao_do_social_schema.py`.
+REV_ARTE_E_APROVACAO_DO_SOCIAL = _revisao_por_glob("*_arte_e_aprovacao_do_social.py")
 #: KAM-095: a revisao da lista de espera, pela razao da do Catalogo AI — o
 #: numero (`0059`) e provisorio. O ensaio que a prova e o
 #: `db/tests/test_lista_espera_schema.py`.
@@ -914,6 +918,25 @@ MUTACOES = [
     ("bootstrap: kamba_app com BYPASSRLS", BOOT,
      '"kamba_app": "LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS"',
      '"kamba_app": "LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION BYPASSRLS"'),
+    # KAM-247: o papel e a base do proxy de LLM. Apanhadas pelo
+    # `tests/test_papel_do_litellm.py`; as cinco primeiras sao as que a revisao
+    # adversarial deu como vivas antes de o ensaio mexer no papel a mao.
+    ("bootstrap: kamba_litellm com CONNECT na plataforma", BOOT,
+     '"REVOKE ALL ON DATABASE %I FROM %I"', '"GRANT CONNECT ON DATABASE %I TO %I"'),
+    ("bootstrap: CONNECT dado a mao ao kamba_litellm fica", BOOT,
+     '"REVOKE ALL ON DATABASE %I FROM %I"', '"SELECT %L::text, %L::text"'),
+    ("bootstrap: kamba_litellm fora das pertencas revogadas", BOOT,
+     "papeis = [*ATRIBUTOS, PAPEL_DO_LITELLM]", "papeis = [*ATRIBUTOS]"),
+    ("bootstrap: atributos do kamba_litellm nao repostos", BOOT,
+     '        cursor.execute(f"ALTER ROLE {papel} {ATRIBUTOS_DO_LITELLM}")\n',
+     "        pass\n"),
+    ("bootstrap: configuracao do kamba_litellm nao reposta", BOOT,
+     '    _executar_formatado(cursor, "ALTER ROLE %I RESET ALL", papel)\n', ""),
+    ("bootstrap: base do proxy aberta ao PUBLIC", BOOT,
+     '"REVOKE CONNECT, TEMPORARY ON DATABASE %I FROM PUBLIC"',
+     '"GRANT CONNECT, TEMPORARY ON DATABASE %I TO PUBLIC"'),
+    ("bootstrap: dono da base do proxy nao reposto", BOOT,
+     '"ALTER DATABASE %I OWNER TO %I"', '"SELECT %L::text, %L::text"'),
     ("guarda: vertical por igualdade com assistente", GUARDA,
      "\"WHERE vertical NOT IN ('vendedor', 'servicos')\"",
      "\"WHERE vertical = 'assistente'\""),
@@ -1380,9 +1403,11 @@ MUTACOES = [
      '            cifrar(dek, bsuid, contextoDaCifra(tenant, dekId, "bsuid_enc")),',
      '            Buffer.from(bsuid, "utf8"),', IDENTIDADE),
     ("identidade: trocar de numero deixa a cifra do antigo", ID_SERVICO,
+     # KAM-208: o bloco ganhou o apagamento do pseudonimo sem tenant antes da
+     # `}`; a mutacao tira so o dos telefones, que e o que ela mede.
      "        if (telefoneDoContacto !== null && !eOMesmoNumero) {\n"
-     "          await executar(cliente, SQL.APAGAR_TELEFONES, [tenant, contacto]);\n        }\n",
-     "", IDENTIDADE),
+     "          await executar(cliente, SQL.APAGAR_TELEFONES, [tenant, contacto]);\n",
+     "        if (telefoneDoContacto !== null && !eOMesmoNumero) {\n", IDENTIDADE),
     # ----------------------------------- KAM-008, revisao adversarial (ANALISE-08)
     # As que **sobreviveram** a primeira versao dos testes, mais as dos defeitos
     # que as duas revisoes encontraram.
@@ -7813,6 +7838,67 @@ MUTACOES = [
     # O criterio 8: um item nascia sem `is_ai_generated`, e nenhum codigo o
     # escreve. O `test_o_catalogo_e_exactamente_o_inventario` tem de a matar.
 
+    # ------------------- KAM-122 (revisao da arte e da aprovacao do social)
+    #
+    # Oito: a finalidade, a descida, quatro ao gatilho (a aresta para
+    # `entregue`, os finais, a legenda e o texto da arte de um aprovado) e duas
+    # as restricoes da arte. O alvo
+    # e a revisao descoberta pelo *glob* (`REV_ARTE_E_APROVACAO_DO_SOCIAL`), e o
+    # ensaio que as mata e o `test_arte_e_aprovacao_do_social_schema.py`.
+    ('arte e aprovacao: o dominio nao ganha a finalidade', REV_ARTE_E_APROVACAO_DO_SOCIAL,
+     "    \"'geracao_de_imagem'\",\n",
+     "",
+     "tests"),
+    # A revisao corria e o `CHECK` ficava com as dezassete: o *gate* negava
+    # sempre o fundo gerado. O
+    # `test_a_geracao_de_imagem_e_a_decima_oitava_e_e_aceite` tem de a matar.
+    ('arte e aprovacao: a descida apaga o destino', REV_ARTE_E_APROVACAO_DO_SOCIAL,
+     "    if linhas:\n        raise RuntimeError(",
+     "    if False:\n        raise RuntimeError(",
+     "tests"),
+    # A descida deixava de recusar com um destino `geracao_de_imagem`, e o
+    # `ADD CONSTRAINT` das dezassete rebentava a meio. O
+    # `test_com_um_destino_recusa_e_sem_ele_desce_e_volta` tem de a matar.
+    ('arte e aprovacao: entregue sem passar por aprovado', REV_ARTE_E_APROVACAO_DO_SOCIAL,
+     "(OLD.estado = 'pendente_aprovacao' AND NEW.estado IN ('aprovado', 'rejeitado', 'expirado'))",
+     "(OLD.estado = 'pendente_aprovacao' AND NEW.estado IN ('aprovado', 'entregue', 'rejeitado', 'expirado'))",
+     "tests"),
+    # O criterio 6: um item `pendente_aprovacao` com a hora da aprovacao escrita
+    # passava a `entregue` sem o dono o ter aprovado. O
+    # `test_entregue_so_de_aprovado` tem de a matar.
+    ('arte e aprovacao: um final muda', REV_ARTE_E_APROVACAO_DO_SOCIAL,
+     "IF OLD.estado IN ({FINAIS_SQL}) AND NEW IS DISTINCT FROM OLD THEN",
+     "IF false AND OLD.estado IN ({FINAIS_SQL}) AND NEW IS DISTINCT FROM OLD THEN",
+     "tests"),
+    # Um item `rejeitado` ou `expirado` mudava de colunas sem mudar de estado.
+    # O `test_os_finais_nao_mudam` tem de a matar.
+    ('arte e aprovacao: a legenda de um aprovado muda', REV_ARTE_E_APROVACAO_DO_SOCIAL,
+     "               NEW.legenda IS DISTINCT FROM OLD.legenda\n               OR NEW.arte_ref",
+     "               NEW.arte_ref",
+     "tests"),
+    # O criterio 5: a legenda mudava num item `aprovado` e a aprovacao deixava
+    # de ser a do que o dono viu. O
+    # `test_um_aprovado_nao_muda_a_legenda_a_arte_nem_o_hash` tem de a matar.
+    ('arte e aprovacao: o texto da arte de um aprovado muda', REV_ARTE_E_APROVACAO_DO_SOCIAL,
+     "               OR NEW.arte_texto IS DISTINCT FROM OLD.arte_texto\n",
+     "",
+     "tests"),
+    # O texto que esta na imagem (o preco em Kz, o nome) mudava num item
+    # `aprovado` sem nova aprovacao. O mesmo ensaio tem de a matar.
+    ('arte e aprovacao: a arte de outro tenant', REV_ARTE_E_APROVACAO_DO_SOCIAL,
+     "\n                   AND left(arte_ref, 38) = 't/' || tenant_id::text)),",
+     ")),",
+     "tests"),
+    # A chave do STO deixava de estar presa ao tenant da linha: um item apontava
+    # a arte de outra loja. O
+    # `test_a_arte_e_uma_chave_do_sto_do_tenant_da_linha` tem de a matar.
+    ('arte e aprovacao: quatro tentativas', REV_ARTE_E_APROVACAO_DO_SOCIAL,
+     "CHECK (arte_tentativas BETWEEN 0 AND 3)",
+     "CHECK (arte_tentativas BETWEEN 0 AND 4)",
+     "tests"),
+    # O criterio 9: «max. 3 tentativas de arte por item». O
+    # `test_ate_tres_tentativas_e_custo_nao_negativo` tem de a matar.
+
     # ------------------------------------------------------------- KAM-061
     # O indice de pesquisa: o DDL e a funcao (`db/indice.py`), a camada de
     # resposta e o consumidor (`kamba_core.idx`). **Metade ataca a ligacao e nao
@@ -8271,12 +8357,9 @@ MUTACOES = [
      '"GRANT SELECT, INSERT, UPDATE (estado, na_fila_desde, ',
      '"GRANT SELECT, INSERT, UPDATE (estado, aprovado_em, na_fila_desde, ',
      "tests"),
-    # O lote apaga uma entrada, e com ela a vaga dada na janela de 7 dias: o
-    # mesmo ensaio, no `DELETE`.
-    ("lista de espera: o lote apaga entradas", REV_LISTA_DE_ESPERA,
-     '"GRANT SELECT, INSERT, UPDATE (',
-     '"GRANT SELECT, INSERT, DELETE, UPDATE (',
-     "tests"),
+    # A mutacao «o lote apaga entradas» saiu com o KAM-233: a `0086` (Q3 = B)
+    # da ao lote o `DELETE` da `waitlist_entry` para a purga do encerramento, e
+    # um `DELETE` a mais nesta revisao deixou de mudar o que a base aceita.
     # A aplicacao le a fila, que atravessa tenants pela posicao:
     # `test_a_aplicacao_nao_le_nem_a_fila_nem_o_limite`.
     ("lista de espera: a aplicacao le a fila", REV_LISTA_DE_ESPERA,

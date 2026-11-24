@@ -11,6 +11,10 @@ tool sai de um modelo de linguagem.
 | Entrada | Accao |
 |---|---|
 | botao `tom:{tom}` | grava o tom do perfil |
+| botao `arte:SOC-…`, ou «ARTE SOC-…» («OUTRA ARTE SOC-…» regera) | a arte e o pedido de aprovacao, com Aprovar, Editar e Rejeitar (KAM-122) |
+| botao `editar:SOC-…` | diz como mandar a legenda nova; «EDITAR SOC-…: texto» e a edicao |
+| botao `rejeitar:SOC-…`, ou «REJEITAR SOC-…» | rejeita o item |
+| botao `enviar:SOC-…`, ou «ENVIAR SOC-…» | a entrega ao dono de um item aprovado |
 | botao `legenda:SOC-…`, ou uma referencia `SOC-…` no texto | a legenda do item; o resto do texto e a instrucao do dono |
 | «FACTOS: …», «DIAS: …», e os outros campos | grava esse campo, a qualquer altura |
 | um verbo de publicar **e** uma rede («publica no Instagram») | diz que nao publica, e o que faz |
@@ -18,6 +22,13 @@ tool sai de um modelo de linguagem.
 | botao `social:nova`, ou so «NOVA» | outro calendario para a mesma semana |
 | texto, com o perfil a meio | a resposta a pergunta em aberto |
 | «ideias», «calendario», as redes, sem perfil a meio | o calendario, o comeco do perfil, ou o convite |
+
+## A aprovacao e o botao `confirm:{action_id}`
+
+O Aprovar **nao** e um botao deste modulo: e o `confirm:{action_id}` da accao
+`aprovar_conteudo` que o `request_approval` propoe (decisao D4 do fundador,
+2026-11-21). Chega ao no `confirm` pela intencao `confirmar`, e o `aprovar`
+deste modulo corre o `approve_content` com a `Confirmation` desse turno.
 
 ## Os numeros do texto sao os da tool
 
@@ -32,11 +43,21 @@ from __future__ import annotations
 
 import datetime
 import re
+import unicodedata
 from collections.abc import Mapping
 from typing import Any, Final
 
 from ...social import regras
-from ...tls.erros import ENTITLEMENT_DENIED, LIMIT_EXCEEDED, NOT_FOUND, TOOL_NOT_ALLOWED, UPSTREAM_DOWN, VALIDATION_ERROR
+from ...tls.erros import (
+    ENTITLEMENT_DENIED,
+    LIMIT_EXCEEDED,
+    NOT_FOUND,
+    TOOL_NOT_ALLOWED,
+    UPSTREAM_DOWN,
+    UPSTREAM_TIMEOUT,
+    VALIDATION_ERROR,
+)
+from ...tls.contexto import Confirmation
 from ..vendedor.nos import Dependencias, _invocar, _resposta_estatica, _texto_do_cliente
 
 #: As palavras das redes que levam um texto livre a este modulo, pelas regras do
@@ -49,8 +70,45 @@ PALAVRAS_DO_SOCIAL: Final = re.compile(
 #: Um pedido de publicacao que o modulo nao faz (criterio 7, D13): o verbo **e**
 #: a rede. So o verbo nao chega — «prefiro publicar segunda as 18h» e a resposta
 #: a pergunta dos dias (achado I6 da revisao adversarial).
-_VERBO_DE_PUBLICAR: Final = re.compile(r"\b(?:publica|publique|publicar|publicas|posta|postar|partilha|partilhar|agenda)\b")
-_REDE: Final = re.compile(r"\b(?:instagram|facebook|tiktok|redes sociais|rede social|status|estado do whatsapp)\b")
+#:
+#: KAM-237: «poe», «ponha», «coloca» e «mete» publicam como os outros («poe este
+#: produto no facebook», `don-cat-058`), e o conjuntivo de cortesia tambem
+#: («poste», «partilhe»). **O «pôr» so com o acento** (`_POR`): sem ele e a
+#: preposicao, e «ideias para o instagram por favor» passava a pedido de
+#: publicacao.
+_VERBO_DE_PUBLICAR: Final = re.compile(
+    r"\b(?:publica|publique|publiquem|publicar|publicas|posta|poste|postem|postar|partilha|partilhe"
+    r"|partilhem|partilhar|agenda|agende|poe|poes|ponha|coloca|coloque|colocar|mete|meter)\b"
+)
+_POR: Final = re.compile(r"\bpôr\b")
+#: As redes. **O «status» so como o sitio onde se publica** («no status», «para
+#: o estado do whatsapp»), e o «whatsapp» so pelo status dele: o dono fala com o
+#: assistente pelo WhatsApp, e «agenda a entrega pelo whatsapp», «poe o link do
+#: whatsapp no produto» ou «coloca o status da encomenda como entregue» nao sao
+#: pedidos de publicacao (achados A1 e A2 da revisao adversarial do KAM-237). Por
+#: isso nenhum dos dois entra no `PALAVRAS_DO_SOCIAL`.
+_REDE: Final = re.compile(
+    r"\b(?:instagram|insta|facebook|tiktok|tik tok|redes sociais|rede social"
+    r"|(?:status|estado) do whatsapp|whatsapp status"
+    r"|(?:no|pro|para o) face"
+    r"|(?:no|pro|para o|em) (?:meu |nosso )?status(?! d[aoe]s? (?!whatsapp)))\b"
+)
+
+#: Os comandos de um item (KAM-122): a palavra, a referencia e, no EDITAR, o texto.
+_COMANDO_DO_ITEM: Final = re.compile(
+    r"\A\s*(outra arte|arte|editar|enviar|rejeitar)\s+(SOC-[A-HJ-NP-R]{8})\b\s*:?\s*(.*)\Z",
+    re.DOTALL | re.IGNORECASE,
+)
+
+
+def comando_do_item(texto: str) -> tuple[str, str, str] | None:
+    """`(comando, referencia, resto)` de «ARTE SOC-…», «EDITAR SOC-…: texto», ou `None`."""
+    casado = _COMANDO_DO_ITEM.match(texto) if texto else None
+    if casado is None:
+        return None
+    comando = regras.sem_acentos(casado.group(1)).lower()
+    return comando, casado.group(2).upper(), casado.group(3).strip()
+
 
 #: Os comandos exactos do calendario: o texto todo, e nada mais.
 COMANDOS_DO_CALENDARIO: Final = frozenset({"ideias", "calendario", "ideias da semana", "nova", "novas ideias"})
@@ -94,7 +152,18 @@ def edicao(texto: str) -> tuple[str, str] | None:
 
 def pede_publicacao(texto: str) -> bool:
     limpo = _limpo(texto)
-    return bool(_VERBO_DE_PUBLICAR.search(limpo) and _REDE.search(limpo))
+    verbo = _VERBO_DE_PUBLICAR.search(limpo) or _POR.search(unicodedata.normalize("NFC", texto.lower()))
+    return bool(verbo and _REDE.search(limpo))
+
+
+def e_do_social(texto: str) -> bool:
+    """A regra do social no `classify`: uma palavra das redes, ou um pedido de publicacao.
+
+    KAM-237: o pedido de publicacao vai ao social **antes** das palavras do
+    catalogo, porque e o social que diz que nao publica («partilha o catalogo no
+    status», `don-cat-059`). Sem rede, «publica o produto» continua no catalogo.
+    """
+    return bool(PALAVRAS_DO_SOCIAL.search(_limpo(texto))) or pede_publicacao(texto)
 
 
 def e_comando_social(estado: Mapping[str, Any], texto: str) -> bool:
@@ -141,8 +210,13 @@ async def tratar(deps: Dependencias, estado: Mapping[str, Any]) -> dict[str, Any
             return await _responder(deps, estado, "tom", toque.valor)
         if toque.accao == "legenda":
             return await _legenda(deps, estado, toque.valor, None)
+        if toque.accao in ("arte", "editar", "rejeitar", "enviar"):
+            return await _do_item(deps, estado, toque.accao, toque.valor, "")
         return await _calendario(deps, estado, nova=toque.accao == "nova")
     texto = _texto_do_cliente(estado)
+    comando = comando_do_item(texto)
+    if comando is not None:
+        return await _do_item(deps, estado, *comando)
     referencia, resto = regras.referencia_no_texto(texto)
     if referencia is not None:
         return await _legenda(deps, estado, referencia, resto or None)
@@ -245,6 +319,126 @@ async def _legenda(deps: Dependencias, estado: Mapping[str, Any], referencia: st
     linhas = [MSG_LEGENDA, str(dados["legenda"]), MSG_LEGENDA_RASCUNHO]
     if dados.get("revisao_reforcada"):
         linhas.append(MSG_REVISAO_REFORCADA_LONGA)
+    linhas.append(MSG_COMO_PEDIR_ARTE)
+    resposta = _resposta_estatica("\n".join(linhas))
+    resposta["draft"]["botoes"] = (regras.botao_do_item(regras.PREFIXO_DA_ARTE, str(dados["referencia"])),)
+    return resposta
+
+
+# ------------------------------------------------------------------ a arte, a aprovacao e a entrega (KAM-122)
+
+
+async def _do_item(deps: Dependencias, estado: Mapping[str, Any], comando: str, referencia: str, resto: str) -> dict[str, Any]:
+    if comando in ("arte", "outra arte"):
+        return await _arte(deps, estado, referencia, nova=comando == "outra arte")
+    if comando == "editar":
+        if not resto:
+            return _resposta_estatica(MSG_COMO_EDITAR.format(referencia=referencia))
+        return await _pedir_aprovacao(deps, estado, referencia, legenda=resto[:1000])
+    if comando == "rejeitar":
+        rejeitado = await _invocar(deps, estado, "reject_content", {"referencia": referencia})
+        if not rejeitado.ok:
+            return _resposta_estatica(_frase_do_erro(rejeitado.error))
+        return _resposta_estatica(MSG_REJEITADO)
+    return await _entregar(deps, estado, referencia)
+
+
+async def _arte(deps: Dependencias, estado: Mapping[str, Any], referencia: str, *, nova: bool) -> dict[str, Any]:
+    gerada = await _invocar(deps, estado, "generate_art", {"referencia": referencia, "nova": nova})
+    if not gerada.ok:
+        return _resposta_estatica(_frase_do_erro(gerada.error))
+    return await _pedir_aprovacao(deps, estado, referencia, arte=gerada.data)
+
+
+async def _pedir_aprovacao(
+    deps: Dependencias,
+    estado: Mapping[str, Any],
+    referencia: str,
+    *,
+    legenda: str | None = None,
+    arte: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    argumentos: dict[str, Any] = {"referencia": referencia}
+    if legenda is not None:
+        argumentos["legenda"] = legenda
+    pedido = await _invocar(deps, estado, "request_approval", argumentos)
+    if not pedido.ok:
+        return _resposta_estatica(_frase_do_erro(pedido.error))
+    dados = pedido.data
+    linhas = [MSG_PRE_VISUALIZACAO.format(referencia=referencia)]
+    if arte is not None and arte.get("texto_da_arte"):
+        linhas.append(MSG_TEXTO_DA_ARTE)
+        linhas.extend(str(x) for x in arte["texto_da_arte"])
+    linhas += [MSG_LEGENDA_PARA_APROVAR, str(dados.get("legenda") or ""), MSG_IMAGEM_POR_LIGAR, MSG_COMO_APROVAR]
+    if arte is not None and arte.get("alerta_de_custo"):
+        linhas.append(MSG_ALERTA_DE_CUSTO)
+    resposta = _resposta_estatica("\n".join(linhas))
+    resposta["draft"]["botoes"] = (
+        f"confirm:{dados['action_id']}",
+        regras.botao_do_item(regras.PREFIXO_DE_EDITAR, referencia),
+        regras.botao_do_item(regras.PREFIXO_DE_REJEITAR, referencia),
+    )
+    return resposta
+
+
+async def aprovar(deps: Dependencias, estado: Mapping[str, Any], botao: str, action_id: str) -> dict[str, Any] | None:
+    """A aprovacao depois do botao `confirm:{action_id}`, ou `None` se a accao nao e de conteudo.
+
+    Corre pelo `approve_content`, com a `Confirmation` deste turno: o passo 4
+    confere que o botao cita o `action_id` dos argumentos e que e deste contacto.
+    """
+    resultado = await _invocar(
+        deps,
+        estado,
+        "approve_content",
+        {"action_id": action_id},
+        confirmacao=Confirmation(botao=botao, contact_id=estado["contact_id"], turn_id=estado["turn_id"]),
+        chave=f"approve_content:{action_id}",
+    )
+    if resultado.ok:
+        dados = resultado.data
+        # **Um botao repetido devolve o resultado guardado** (o passo 5 do §6.3),
+        # e esse resultado e o do primeiro toque: depois de uma edicao, o item ja
+        # nao esta aprovado. A frase nao o afirma.
+        if dados.get("confirmacao_extra") and not getattr(resultado, "idempotent_replay", False):
+            # A revisao reforcada: o primeiro botao pede o segundo.
+            resposta = _resposta_estatica(MSG_CONFIRMACAO_EXTRA)
+            resposta["draft"]["botoes"] = (f"confirm:{dados['action_id']}",)
+            return resposta
+        if getattr(resultado, "idempotent_replay", False):
+            frase = MSG_BOTAO_JA_USADO
+        else:
+            frase = MSG_JA_APROVADO if dados.get("ja_aprovado") else MSG_APROVADO
+        resposta = _resposta_estatica(frase)
+        resposta["draft"]["botoes"] = (regras.botao_do_item(regras.PREFIXO_DE_ENVIAR, str(dados["referencia"])),)
+        return resposta
+    erro = resultado.error
+    codigo, detalhe = getattr(erro, "codigo", ""), getattr(erro, "detalhe", "")
+    if codigo in (NOT_FOUND, TOOL_NOT_ALLOWED, ENTITLEMENT_DENIED) and detalhe != "item_desconhecido":
+        # Uma accao de outro modulo, ou o social desligado: fala a frase da confirmacao.
+        return None
+    return _resposta_estatica(_frase_do_erro(erro))
+
+
+async def _entregar(deps: Dependencias, estado: Mapping[str, Any], referencia: str) -> dict[str, Any]:
+    """A entrega ao dono (criterio 8): so quando ele pede, e a janela esta aberta por ele.
+
+    O dono acabou de escrever, pelo que a janela de vinte e quatro horas da
+    conversa dele esta aberta: a entrega vai como resposta. Fora dela nao ha
+    entrega nenhuma — o item fica `aprovado` no painel.
+    """
+    entregue = await _invocar(deps, estado, "deliver_content", {"referencia": referencia})
+    if not entregue.ok:
+        return _resposta_estatica(_frase_do_erro(entregue.error))
+    dados = entregue.data
+    partes = dados["entrega"]
+    abertura = MSG_JA_ENTREGUE if dados.get("ja_entregue") else MSG_ENTREGA
+    linhas = [abertura.format(referencia=referencia), "", str(partes["legenda"]), ""]
+    if partes.get("nota"):
+        linhas.append(str(partes["nota"]))
+    linhas.append(MSG_IMAGEM_POR_LIGAR)
+    if partes.get("termos"):
+        linhas.append(str(partes["termos"]))
     return _resposta_estatica("\n".join(linhas))
 
 
@@ -258,6 +452,10 @@ def _frase_do_erro(erro: Any) -> str:
         return MSG_SEM_PUBLICACOES
     if codigo == UPSTREAM_DOWN and detalhe == "legendas_por_ligar":
         return MSG_LEGENDAS_POR_LIGAR
+    if codigo == LIMIT_EXCEEDED and detalhe == "tentativas_esgotadas":
+        return MSG_TENTATIVAS_ESGOTADAS
+    if codigo == UPSTREAM_TIMEOUT:
+        return MSG_NAO_CONSEGUI
     return FRASE_DA_RECUSA.get(detalhe, MSG_NAO_CONSEGUI)
 
 
@@ -301,6 +499,40 @@ MSG_LEGENDAS_POR_LIGAR: Final = (
 )
 MSG_NAO_CONSEGUI: Final = "Nao consegui tratar esse pedido das redes sociais agora. Tente outra vez daqui a pouco."
 
+# KAM-122: a arte, a aprovacao e a entrega. Sem digitos, como as outras.
+MSG_COMO_PEDIR_ARTE: Final = "Quando a legenda estiver boa, toque em Arte para preparar a imagem e pedir a sua aprovacao."
+MSG_PRE_VISUALIZACAO: Final = "Pre-visualizacao de {referencia}, para aprovar:"
+MSG_TEXTO_DA_ARTE: Final = "Texto da arte:"
+MSG_LEGENDA_PARA_APROVAR: Final = "Legenda:"
+MSG_IMAGEM_POR_LIGAR: Final = (
+    "A imagem da arte ainda nao segue por esta conversa; fica guardada com o item."
+)
+MSG_COMO_APROVAR: Final = (
+    "Aprove, edite ou rejeite. Para editar a legenda, escreva EDITAR, a referencia, dois pontos e a "
+    "legenda nova. Para outra arte, escreva OUTRA ARTE e a referencia."
+)
+MSG_ALERTA_DE_CUSTO: Final = (
+    "Atencao: cada arte nova custa. Este item so tem mais uma tentativa de arte."
+)
+MSG_COMO_EDITAR: Final = "Escreva EDITAR {referencia}: e a seguir a legenda nova."
+MSG_REJEITADO: Final = "Rejeitado. Esse conteudo nao sera usado."
+MSG_APROVADO: Final = (
+    "Aprovado. Quando quiser publicar, toque em Enviar e eu mando-lhe a legenda para copiar. "
+    "Eu nao publico nada: publica o senhor."
+)
+MSG_JA_APROVADO: Final = "Esse conteudo ja estava aprovado. Toque em Enviar quando quiser publicar."
+MSG_CONFIRMACAO_EXTRA: Final = (
+    "Este conteudo esta em revisao reforcada: confirme outra vez que o quer aprovar, no botao abaixo."
+)
+MSG_BOTAO_JA_USADO: Final = (
+    "Esse botao ja foi usado. Se mudou o conteudo depois, aprove-o no botao da pre-visualizacao mais recente."
+)
+MSG_ENTREGA: Final = "Aqui esta o conteudo {referencia} para publicar. A legenda vem a seguir, para copiar:"
+MSG_JA_ENTREGUE: Final = "O conteudo {referencia} ja lhe foi entregue. A legenda vai outra vez, para copiar:"
+MSG_TENTATIVAS_ESGOTADAS: Final = (
+    "Este item ja teve as tentativas de arte do plano. Aprove uma das artes ou rejeite o item."
+)
+
 #: O tipo de um item, no texto ao dono.
 TITULO_DO_TIPO: Final = {
     "produto": "Produto",
@@ -329,6 +561,21 @@ FRASE_DA_RECUSA: Final = {
     ),
     "perfil_incompleto": MSG_PERFIL_PRIMEIRO,
     "item_fechado": "Essa ideia ja nao esta em rascunho.",
+    "sem_arte": "Primeiro a arte: toque em Arte, ou escreva ARTE e a referencia.",
+    "sem_legenda": "Primeiro a legenda: toque no botao da legenda dessa ideia.",
+    "ja_aprovado": "Esse conteudo ja esta aprovado. Para mudar a legenda, escreva EDITAR, a referencia e o texto.",
+    "aprovacao_invalidada": (
+        "Esse botao e de uma versao anterior: o conteudo mudou depois dele. Use o botao da pre-visualizacao mais recente."
+    ),
+    "por_aprovar": "Esse conteudo ainda nao foi aprovado. Aprove-o primeiro no botao da pre-visualizacao.",
+    "texto_nao_cabe": "O texto da arte nao cabe no modelo. Encurte o nome ou o facto e tente outra vez.",
+    "arte_desactualizada": (
+        "Os factos da loja mudaram depois desta arte, e ela tem um valor que ja nao vale. Escreva OUTRA ARTE e a referencia."
+    ),
+    "arte_por_ligar": "As artes ainda nao estao disponiveis por aqui.",
+    "fontes_em_falta": "As artes ainda nao estao disponiveis por aqui.",
+    "accao_por_confirmar": "Esse botao ainda nao foi confirmado.",
+    "botoes_esgotados": MSG_NAO_CONSEGUI,
     "faltam_factos": (
         "Para por precos, descontos, datas ou contactos na legenda, escreva primeiro FACTOS: seguido "
         "dos factos da loja, um por linha, e em cada promocao a data em que acaba. Nao invento valores."

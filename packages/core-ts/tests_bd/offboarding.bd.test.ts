@@ -34,6 +34,7 @@ import type pg from "pg";
 import pgModulo from "pg";
 
 import { ResolvedorDeCanal } from "../src/chr/canal.ts";
+import { arquivarContaDoTenant } from "../src/hnd/arquivo.ts";
 import {
   AVISO_DA_APP_BUSINESS,
   ConfirmacaoIncompletaError,
@@ -53,14 +54,34 @@ import {
   type CanalDaMeta,
   type PortasDaRevogacao,
   type ProvasDoTitular,
+  ACTOR_DO_ENCERRAMENTO,
+  telefonesPeloCofre,
+  type PoolDaIdentidade,
+  type PortaDosTelefones,
 } from "../src/offboarding/index.ts";
 import type { ConjuntoSql } from "../src/revisao/sql.ts";
 import { tenantGate } from "../src/ten/estados.ts";
-import { BASE_DESCARTAVEL, activarTenant, criarCanal, criarTenant, ligar } from "./apoio.ts";
+import { criarStorageFake } from "../src/storage/index.ts";
+import {
+  BASE_DESCARTAVEL,
+  ChavesDeTeste,
+  activarTenant,
+  criarCanal,
+  criarTenant,
+  daquiAUmAno,
+  ligar,
+  poolDe,
+  telefoneDeEnsaio,
+} from "./apoio.ts";
 
 const MS_POR_DIA = 86_400_000;
 const D0 = new Date(Date.now() - 10 * MS_POR_DIA);
 const dia = (n: number) => new Date(D0.getTime() + n * MS_POR_DIA);
+
+/** Os telefones de ensaio: uma chave na forma do STO, e nenhum telefone (os ensaios do ciclo). */
+const TELEFONES_DE_ENSAIO: PortaDosTelefones = {
+  entregar: async ({ tenantId }) => ({ chave: `t/${tenantId}/dsar/2026/01/${randomUUID()}`, contactos: 0, telefones: 0 }),
+};
 
 let admin: pg.Client;
 let lote: pg.Client;
@@ -265,7 +286,7 @@ describe("o off-boarding contra a base", () => {
     for (const fase of ["pendentes", "exportacao", "revogacao", "purga", "certificado"]) {
       assert.equal(f[fase]?.estado, "cancelada", fase);
     }
-    await assert.rejects(verificarPendentes(lote, { tenantId: tenant, agora: dia(4) }), FaseForaDeOrdemError);
+    await assert.rejects(verificarPendentes(lote, { tenantId: tenant, agora: dia(4), telefones: TELEFONES_DE_ENSAIO }), FaseForaDeOrdemError);
     await assert.rejects(desligarCanal(lote, { tenantId: tenant, canal: meta.canal, agora: dia(4) }), FaseForaDeOrdemError);
     // Repetir o cancelamento não religa nada outra vez.
     assert.equal((await cancelarPedido(lote, { tenantId: tenant, canal: meta.canal, agora: dia(4) })).religados, 0);
@@ -284,13 +305,80 @@ describe("o off-boarding contra a base", () => {
     await assert.rejects(cancelarPedido(lote, { tenantId: outro.tenant, canal: meta.canal, agora: dia(7) }), PedidoError);
   });
 
-  it("os pendentes: sem encomendas, reservas nem reembolsos abertos, a fase conclui", async () => {
+  it("os pendentes: sem encomendas, reservas nem reembolsos abertos, a fase conclui com os telefones no STO", async () => {
     const { tenant } = await tenantAtivo("off-pendentes");
     await pedidoVerificado(tenant);
-    const r = await verificarPendentes(lote, { tenantId: tenant, agora: dia(1) });
-    assert.equal(r.concluida, true);
-    assert.deepEqual(r.pendentes, { encomendas: 0, disputas: 0, reservas: 0, reembolsos: 0 });
-    assert.equal((await fases(tenant)).pendentes?.estado, "concluida");
+    // KAM-233 (Q2 = B, Q2b = A): a porta real, como `kamba_identity`, com o STO em memória.
+    const chaves = new ChavesDeTeste("k233");
+    const identidade = await chaves.identidade();
+    const identidades = poolDe("identity", 1);
+    const sto = criarStorageFake();
+    try {
+      const id = await identidades.connect();
+      const telefone = telefoneDeEnsaio();
+      let contactId: string;
+      try {
+        await identidade.iniciarRotacao(id, "k233").catch(() => {});
+        ({ contactId } = await identidade.resolveContact(id, {
+          tenantId: tenant,
+          telefone,
+          guardarTelefone: { finalidade: "entrega", expiraAt: daquiAUmAno() },
+        }));
+      } finally {
+        id.release();
+      }
+      const porta = telefonesPeloCofre({
+        pool: identidades as unknown as PoolDaIdentidade,
+        identidade,
+        armazenamento: sto.storage,
+      });
+      const r = await verificarPendentes(lote, { tenantId: tenant, agora: dia(1), telefones: porta });
+      assert.equal(r.concluida, true);
+      assert.deepEqual(r.pendentes, { encomendas: 0, disputas: 0, reservas: 0, reembolsos: 0 });
+      const f = await fases(tenant);
+      assert.equal(f.pendentes?.estado, "concluida");
+      const guardado = f.pendentes?.resultado.telefones as { chave: string; contactos: number; telefones: number };
+      assert.equal(guardado.contactos, 1);
+      assert.equal(guardado.telefones, 1);
+      assert.ok(!JSON.stringify(f.pendentes?.resultado).includes(telefone), "o telefone nao fica na fase");
+      // O objecto: no tenant, na classe do pacote, a expirar com a purga, e os três campos.
+      assert.match(guardado.chave, new RegExp(`^t/${tenant}/dsar/`));
+      const [ref] = await sto.storage.list({ tenantId: tenant }, `t/${tenant}/dsar/`);
+      assert.equal(ref?.key, guardado.chave);
+      const info = await sto.storage.head({ tenantId: tenant }, ref!);
+      assert.equal(info.retainUntil.getTime(), f.purga?.prazo.getTime());
+      const partes: Uint8Array[] = [];
+      for await (const parte of await sto.storage.get({ tenantId: tenant }, ref!)) partes.push(parte);
+      const doc = JSON.parse(Buffer.concat(partes).toString("utf8")) as { linhas: Record<string, string>[] };
+      assert.deepEqual(doc.linhas, [{ contact_id: contactId, finalidade: "entrega", telefone: doc.linhas[0]?.telefone ?? "" }]);
+      assert.ok(doc.linhas[0]?.telefone.endsWith(telefone.slice(-9)), "o telefone decifrado");
+      // A auditoria: uma linha, como `kamba_identity`, do contacto, sem o telefone.
+      const auditoria = await admin.query(
+        "SELECT actor_type, actor_id, action, entity, entity_id, payload_hash FROM platform.audit_log WHERE tenant_id = $1",
+        [tenant],
+      );
+      // As linhas **deste tenant**, e só duas: o `batch.run` da fase `verificacao`, que o
+      // `pedidoVerificado` acima escreve (KAM-098), e a decifra do único contacto. O fecho dos
+      // `pendentes` não escreve `batch.run`, e cada contacto decifrado dá uma linha e uma só.
+      // Comparadas como conjunto: a ordem do `audit_log` é a da cadeia, que não é deste ensaio.
+      const linhasDaAuditoria = auditoria.rows
+        .map((l) => [l.actor_type, l.actor_id, l.action, l.entity, l.entity_id].join(" / "))
+        .sort();
+      assert.deepEqual(linhasDaAuditoria, [
+        ["system", ACTOR_DO_ENCERRAMENTO, "batch.run", "offboarding_verificacao", tenant].join(" / "),
+        ["system", "offboarding", "privacy.telefones_exportados", "contact", contactId].join(" / "),
+      ].sort());
+      assert.ok(!JSON.stringify(auditoria.rows).includes(telefone.slice(-9)));
+    } finally {
+      await admin.query("ALTER TABLE platform.audit_log DISABLE TRIGGER audit_log_sem_update_nem_delete");
+      try {
+        await admin.query("DELETE FROM platform.audit_log WHERE tenant_id = $1", [tenant]);
+      } finally {
+        await admin.query("ALTER TABLE platform.audit_log ENABLE ALWAYS TRIGGER audit_log_sem_update_nem_delete");
+      }
+      await admin.query("DELETE FROM platform.audit_heads WHERE tenant_id = $1", [tenant]);
+      await identidades.end();
+    }
   });
 
   it("a revogação no D7: as portas da saga, os entitlements, os canais e um tenant.closed; um crash a meio retoma", async () => {
@@ -305,10 +393,38 @@ describe("o off-boarding contra a base", () => {
       );
     }
     await admin.query("INSERT INTO platform.entitlements (tenant_id, modulo) VALUES ($1, 'vendedor')", [tenant]);
+    // A conta do Chatwoot do tenant (KAM-233): lê-se da `handoff_accounts` pela
+    // ligação do lote, como o processo a lê, e só o arquivo do provedor é duplo.
+    const conta = Math.floor(Math.random() * 1e9) + 1;
+    await admin.query(
+      "INSERT INTO platform.handoff_accounts (tenant_id, provedor, account_id, inbox_id, bot_id, provider_user_id, token_ref, user_token_ref) " +
+        "VALUES ($1, 'chatwoot', $2, 1, 1, $2, 'ref-do-bot', 'ref-do-utilizador')",
+      [tenant, conta],
+    );
     const chamadas: string[] = [];
     let falhar = true;
     const portas: PortasDaRevogacao = {
-      chaveDeLlm: { revogar: async (id) => void chamadas.push(`revogar:${id}`) },
+      chaveDeLlm: {
+        revogarDoTenant: async (t) => {
+          chamadas.push(`alias:${t}`);
+          return "revogada";
+        },
+      },
+      contaDeAtendimento: {
+        archiveAccount: (t) =>
+          arquivarContaDoTenant({
+            bd: lote,
+            arquivo: {
+              arquivarConta: async (id) => {
+                chamadas.push(`conta:${id}`);
+                return "arquivada";
+              },
+            },
+            tenantId: t,
+            provedor: "chatwoot",
+          }),
+      },
+      sessoesDoPainel: { revogarDoTenant: async (t, ate) => void chamadas.push(`painel:${t === tenant}:${ate}`) },
       canalDeComercio: {
         arquivar: async (id) => {
           if (falhar) {
@@ -337,7 +453,20 @@ describe("o off-boarding contra a base", () => {
     assert.deepEqual((await fases(tenant)).revogacao?.resultado.passos, { chave_llm: "concluido" });
     const r = await revogar(lote, { tenantId: tenant, portas, agora: dia(7) });
     assert.equal(r.encerrado, true);
-    assert.deepEqual(chamadas, ["revogar:llm-ensaio", "arquivar:medusa-ensaio", "desligar:inbox-ensaio"], "a chave não foi revogada duas vezes");
+    assert.deepEqual(
+      chamadas,
+      [
+        `alias:${tenant}`,
+        "arquivar:medusa-ensaio",
+        "desligar:inbox-ensaio",
+        `conta:${conta}`,
+        `painel:true:${Math.floor(dia(7).getTime() / 1000)}`,
+      ],
+      "a chave sai pelo alias, uma vez, mesmo com o token na saga",
+    );
+    const passos = (await fases(tenant)).revogacao?.resultado.passos as Record<string, string> | undefined;
+    assert.equal(passos?.conta_atendimento, "concluido");
+    assert.equal(passos?.sessoes_do_painel, "concluido");
 
     const estado = await admin.query("SELECT estado FROM platform.tenants WHERE id = $1", [tenant]);
     assert.equal(estado.rows[0]?.estado, "encerrado");
@@ -357,7 +486,7 @@ describe("o off-boarding contra a base", () => {
     // Repetir não chama as portas nem emite outro evento.
     const outra = await revogar(lote, { tenantId: tenant, portas, agora: dia(8) });
     assert.equal(outra.encerrado, false);
-    assert.equal(chamadas.length, 3);
+    assert.equal(chamadas.length, 5);
     const depois = await admin.query("SELECT count(*)::int AS n FROM platform.events_outbox WHERE tenant_id = $1 AND tipo = 'tenant.closed'", [tenant]);
     assert.equal(depois.rows[0]?.n, 1);
   });
@@ -392,9 +521,16 @@ describe("o ciclo do processo de lote (KAM-210, critério 1)", () => {
     const meta = metaEspia();
     const chamadas: string[] = [];
     const portas: PortasDaRevogacao = {
-      chaveDeLlm: { revogar: async (id) => void chamadas.push(`revogar:${id}`) },
+      chaveDeLlm: {
+        revogarDoTenant: async (t) => {
+          chamadas.push(`alias:${t === tenant}`);
+          return "revogada";
+        },
+      },
       canalDeComercio: { arquivar: async (id) => void chamadas.push(`arquivar:${id}`) },
       inbox: { desligar: async (id) => void chamadas.push(`desligar:${id}`) },
+      contaDeAtendimento: { archiveAccount: async () => "sem_conta" },
+      sessoesDoPainel: { revogarDoTenant: async () => {} },
     };
     await admin.query(
       "INSERT INTO platform.provisioning_step (onboarding_id, tenant_id, step, status, attempt, external_id) " +
@@ -407,7 +543,7 @@ describe("o ciclo do processo de lote (KAM-210, critério 1)", () => {
       const metricas = new MetricasDoOffboarding();
       const ciclo = new CicloDoOffboarding({
         lote: pool as unknown as ConjuntoSql,
-        portas: { canal: meta.canal, revogacao: portas },
+        portas: { canal: meta.canal, revogacao: portas, telefones: TELEFONES_DE_ENSAIO },
         metricas,
         relogio: () => agora,
       });
@@ -435,7 +571,7 @@ describe("o ciclo do processo de lote (KAM-210, critério 1)", () => {
       await ciclo.correr();
       f = await fases(tenant);
       assert.equal(f.revogacao?.estado, "concluida");
-      assert.deepEqual(chamadas, ["revogar:llm-ciclo"]);
+      assert.deepEqual(chamadas, ["alias:true"]);
       const estado = await admin.query("SELECT estado FROM platform.tenants WHERE id = $1", [tenant]);
       assert.equal(estado.rows[0]?.estado, "encerrado");
 
@@ -443,7 +579,7 @@ describe("o ciclo do processo de lote (KAM-210, critério 1)", () => {
       await ciclo.correr();
       await ciclo.correr();
       assert.deepEqual(meta.chamadas.filter((c) => c.endsWith(waba)), [`cancelar:${waba}`]);
-      assert.deepEqual(chamadas, ["revogar:llm-ciclo"]);
+      assert.deepEqual(chamadas, ["alias:true"]);
       const ev = await admin.query(
         "SELECT count(*)::int AS n FROM platform.events_outbox WHERE tenant_id = $1 AND tipo = 'tenant.closed'",
         [tenant],
@@ -475,7 +611,7 @@ describe("o ciclo do processo de lote (KAM-210, critério 1)", () => {
       };
       const r = await new CicloDoOffboarding({
         lote: pool as unknown as ConjuntoSql,
-        portas: { canal, revogacao: REVOGACAO_SEM_ADAPTADOR },
+        portas: { canal, revogacao: REVOGACAO_SEM_ADAPTADOR, telefones: TELEFONES_DE_ENSAIO },
         metricas,
         relogio: () => dia(3),
       }).correr();

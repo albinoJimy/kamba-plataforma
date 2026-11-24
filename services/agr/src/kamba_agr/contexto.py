@@ -81,15 +81,43 @@ MODO_DO_BOT: Final = "bot"
 VERTICAIS: Final = ("vendedor", "servicos")
 
 #: Os campos opcionais do contrato: a `persona` (KAM-118), o `botao`
-#: (KAM-211) e o `message_id` (KAM-223). **Aditivos da v1**: um CHR anterior nao
+#: (KAM-211), o `message_id` (KAM-223) e o `asset_id` (KAM-231). **Aditivos da v1**: um CHR anterior nao
 #: os escreve, e a porta le entao a omissao. Ficam fora do `CAMPOS` de proposito
 #: — o `CAMPOS` e a lista dos **obrigatorios**, e ha ensaios que a percorrem a
 #: apagar um campo de cada vez e a esperar `campo_em_falta`.
-CAMPOS_OPCIONAIS: Final = ("persona", "botao", "message_id")
+CAMPOS_OPCIONAIS: Final = ("persona", "botao", "message_id", "asset_id")
 
 #: O `wa_type` da resposta a um botao ou a uma lista (`button_reply`,
 #: `list_reply`). So ele leva `botao`.
 TIPO_INTERACTIVO: Final = "interactive"
+
+#: O prefixo do `wamid` de um turno do painel: `painel.{message_id}` (KAM-223)
+#: ou `painel.{asset_id}` (KAM-243). Com ponto e nao dois pontos, porque o
+#: esquema do `agent_invocation` nao aceita `:` no `wamid`. A admissao
+#: (`api_interna.py`) exige a forma exacta com a credencial do painel, e o
+#: executor (`turno.py`) responde pelo canal `painel` ao turno da foto.
+PREFIXO_DO_WAMID_DO_PAINEL: Final = "painel."
+
+#: O sufixo de envio do `wamid` de uma foto do painel: 32 hexadecimais (um uuid
+#: aleatorio sem hifens), um por envio (KAM-243). Ver `wamid_da_foto_do_painel`.
+_ENVIO_DA_FOTO = re.compile(r"\A[0-9a-f]{32}\Z")
+
+
+def wamid_da_foto_do_painel(wamid: str, asset_id: str) -> bool:
+    """O `wamid` de um turno de foto do painel: `painel.{asset_id}.{envio}`.
+
+    **O envio e de cada pedido, e nao da foto** (achado 3 da revisao adversarial
+    do KAM-243): com `painel.{asset_id}` so, a mesma foto reenviada era o mesmo
+    `turn_id`, e as respostas dele (`turn_id:seq`) ja tinham saido — o dono que
+    voltasse a mandar a foto nao recebia nada. O rascunho continua a ser um so,
+    pela idempotencia do KAM-049 sobre o `media_id` da linha. O `asset_id` fica
+    no `wamid` para a admissao o casar com o do corpo.
+    """
+    prefixo = f"{PREFIXO_DO_WAMID_DO_PAINEL}{asset_id}."
+    return wamid.startswith(prefixo) and _ENVIO_DA_FOTO.fullmatch(wamid[len(prefixo) :]) is not None
+
+#: O `wa_type` de uma foto. So ele leva `asset_id` (KAM-231).
+TIPO_IMAGEM: Final = "image"
 
 #: A forma do `botao`: o `reply.id` que **nos** emitimos — `confirm:{uuid}`,
 #: `falar_com_humano`, os `id` do aviso do §3.19 —, e nunca o titulo. Alfabeto
@@ -180,6 +208,11 @@ class InvocacaoDoAgente:
     #: conversa desta invocacao, e passa o texto pelo
     #: `guardas.mensagem_do_cliente` antes da janela (`mensagens.py`).
     message_id: str | None = None
+    #: KAM-231. O `asset_id` da foto do dono em `platform.media_assets`, ou
+    #: `None`. **Nunca os bytes** nem o `media_id` da Meta: o executor do
+    #: `create_product_draft` le a linha por ele, no tenant da invocacao. So
+    #: numa `image` do dono.
+    asset_id: str | None = None
 
     @property
     def chave_do_registo(self) -> str:
@@ -293,8 +326,23 @@ def ler_invocacao(corpo: Any) -> InvocacaoDoAgente:
         if not isinstance(message_id, str) or not _UUID.fullmatch(message_id):
             raise InvocacaoInvalidaError("campo_invalido_message_id")
 
+    # **O `asset_id` so vem numa `image` do dono, e com a forma de um UUID**
+    # (KAM-231). Pela razao do `botao`: noutro tipo ou noutra persona e um corpo
+    # incoerente, e um cliente nao cria rascunhos de catalogo. O codigo nunca
+    # leva o valor.
+    asset_id = None
+    if "asset_id" in corpo:
+        asset_id = corpo["asset_id"]
+        if (
+            not isinstance(asset_id, str)
+            or not _UUID.fullmatch(asset_id)
+            or valores["type"] != TIPO_IMAGEM
+            or persona != PERSONA_DONO
+        ):
+            raise InvocacaoInvalidaError("campo_invalido_asset_id")
+
     return InvocacaoDoAgente(
-        **valores, persona=persona, botao=botao, message_id=message_id
+        **valores, persona=persona, botao=botao, message_id=message_id, asset_id=asset_id
     )
 
 

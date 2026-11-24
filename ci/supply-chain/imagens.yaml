@@ -408,6 +408,15 @@ fontes_adicionais:
   # tres imagens e os tres digests estao nesse ficheiro (o `chatwoot` e o
   # `chatwoot-worker` partilham a mesma), onde o passo `imagens`
   # deste gate os ve e confere.
+  # KAM-238: o ensaio do pico de memoria do consumidor `dono` numa pilha
+  # levantada. Mesma forma do KAM-187, e o mesmo compose de staging.
+  - ficheiro: db/ensaio_dono.py
+    sem_imagem: >-
+      Chama `docker compose -f infra/compose/docker-compose.staging.yml`, que e
+      onde as imagens e os digests estao declarados; `docker run` e `docker
+      exec` correm so sobre a imagem que esse compose constroi desta arvore
+      (lida do `docker inspect` do contentor). O ensaio nao puxa nada por conta
+      propria.
   # KAM-187: o ensaio dos quatro processos do `worker-canal` levanta o compose
   # de staging inteiro, e as imagens e os digests sao os desse ficheiro. Nao e
   # dispensa: e a mesma declaracao do spike do Chatwoot, logo abaixo.
@@ -422,6 +431,14 @@ fontes_adicionais:
     sem_imagem: >-
       Chama `docker compose -f infra/compose/docker-compose.staging.yml`, que e
       onde as imagens e os digests estao declarados. O ensaio nao constroi nem
+      puxa nada por conta propria.
+  # KAM-225: o ensaio do recolector do registo do PostgreSQL numa pilha
+  # levantada. Mesma forma do de cima, e o mesmo compose de staging.
+  - ficheiro: db/ensaio_registo_pg.py
+    sem_imagem: >-
+      Chama `docker compose -f infra/compose/docker-compose.staging.yml`, que e
+      onde as imagens e os digests estao declarados, e `docker exec` e
+      `docker stats` sobre os contentores dessa pilha. O ensaio nao constroi nem
       puxa nada por conta propria.
   - ficheiro: infra/chatwoot/spike.py
     sem_imagem: >-
