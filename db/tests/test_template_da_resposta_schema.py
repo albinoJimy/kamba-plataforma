@@ -30,11 +30,20 @@ def _anterior() -> str:
     return achado.group(1)
 
 
+def _propria() -> str:
+    """O numero da propria revisao, lido do nome do ficheiro."""
+    return REVISAO.name[:4]
+
+
 class TestDowngradeDoTemplateDaResposta(unittest.TestCase):
     """Desce pelo numero da revisao anterior, lido da revisao, e volta.
 
     **Nao exige `em_head()` no meio**, pela licao do KAM-089: com outra revisao
     por cima, o Alembic desce-a primeiro.
+
+    **E compara na propria revisao, e nao na cabeca** (KAM-246): a `0092` pos
+    a `media_ref` e duas restricoes na mesma tabela, e uma descida medida a
+    partir da cabeca contava-as como desta revisao.
     """
 
     @classmethod
@@ -76,6 +85,7 @@ class TestDowngradeDoTemplateDaResposta(unittest.TestCase):
             conexao.close()
 
     def test_desce_e_volta(self) -> None:
+        alembic_ok("downgrade", _propria())
         colunas, restricoes, insert = self._estado()
         novas = {"template_nome", "template_parametros"}
         # As tres da revisao e, no PostgreSQL 18, o `NOT NULL` da coluna, que o
@@ -97,7 +107,7 @@ class TestDowngradeDoTemplateDaResposta(unittest.TestCase):
         self.assertEqual(depois[0], sorted(set(colunas) - novas))
         self.assertEqual(depois[1], sorted(set(restricoes) - tres))
         self.assertEqual(depois[2], sorted(set(insert) - novas))
-        alembic_ok("upgrade", "head")
+        alembic_ok("upgrade", _propria())
         self.assertEqual(self._estado(), (colunas, restricoes, insert))
 
 

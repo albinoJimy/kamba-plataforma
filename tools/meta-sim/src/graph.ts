@@ -57,6 +57,12 @@ export interface Pedido {
   /** O corpo já em objecto, ou `null`. */
   readonly corpo: Record<string, unknown> | null;
   readonly cabecalhos: Readonly<Record<string, string>>;
+  /**
+   * Os bytes do corpo, tal e qual (KAM-246). O carregamento de média é
+   * `multipart/form-data`, que não é JSON: o `corpo` fica `null` e o teste lê
+   * os bytes daqui.
+   */
+  readonly bruto?: Uint8Array;
 }
 
 /** Uma resposta do Graph falso. */
@@ -150,6 +156,7 @@ export class GraphFalso {
   #plano: Plano;
   readonly #g: Gerador;
   #envios = 0;
+  #carregamentos = 0;
   readonly #registo: Registo[] = [];
   readonly #subscritos = new Map<string, Set<string>>();
   readonly #templates = new Map<string, Record<string, unknown>>();
@@ -180,12 +187,14 @@ export class GraphFalso {
   programar(plano: Plano): void {
     this.#plano = plano;
     this.#envios = 0;
+    this.#carregamentos = 0;
     if (plano.base !== undefined) this.#base = plano.base;
   }
 
   /** Volta a contagem de envios a zero. Para reutilizar o servidor entre casos. */
   reiniciarContagens(): void {
     this.#envios = 0;
+    this.#carregamentos = 0;
   }
 
   /** Tudo o que o servidor atendeu, pela ordem. */
@@ -196,6 +205,16 @@ export class GraphFalso {
   /** Quantos envios atendeu, incluindo os que recusou. */
   get envios(): number {
     return this.#envios;
+  }
+
+  /** Quantos carregamentos de média atendeu (`POST /<pnid>/media`, KAM-246). */
+  get carregamentos(): number {
+    return this.#carregamentos;
+  }
+
+  /** Os bytes de uma média carregada ou oferecida, pelo `id`; `undefined` se não existe. */
+  midia(id: string): { readonly bytes: Uint8Array; readonly mimeType: string } | undefined {
+    return this.#midias.get(id);
   }
 
   /** Os `subscribed_apps` de um WABA. */
@@ -243,6 +262,7 @@ export class GraphFalso {
 
     if (resto[0] === "oauth" && resto[1] === "access_token") return this.#trocarCode(pedido);
     if (resto.length === 2 && resto[1] === "messages") return this.#enviar(pedido, resto[0] ?? "");
+    if (resto.length === 2 && resto[1] === "media" && pedido.metodo === "POST") return this.#carregar(pedido);
     if (resto.length === 2 && resto[1] === "message_templates") {
       return this.#template(pedido, resto[0] ?? "");
     }
@@ -322,6 +342,34 @@ export class GraphFalso {
         messages: [{ id: `wamid.${Buffer.from(`${phoneNumberId}|${this.#g.texto(16, "0123456789abcdef")}`, "utf8").toString("base64url")}` }],
       },
     };
+  }
+
+  /**
+   * `POST /<versao>/<phone_number_id>/media` (KAM-246): o carregamento de uma
+   * imagem antes de a enviar pelo `id`.
+   *
+   * Guarda o corpo **inteiro** (o `multipart/form-data`) sob o `id` devolvido,
+   * para o teste confirmar que os bytes do ficheiro chegaram tal e qual. Sem o
+   * cabeçalho do `multipart`, recusa: um carregamento em JSON não é a forma que
+   * a Meta documenta (os limites de tamanho e de tipo são NÃO VERIFICADO no
+   * `E1`, e por isso o servidor não os simula).
+   */
+  #carregar(pedido: Pedido): Resposta {
+    this.#carregamentos += 1;
+    const tipo = pedido.cabecalhos["content-type"] ?? "";
+    if (!tipo.startsWith("multipart/form-data") || pedido.bruto === undefined) {
+      return {
+        estado: 400,
+        corpo: erroDoGraph(
+          CODIGOS_PROPOSTOS.erroInterno,
+          "Upload media must be multipart/form-data",
+          this.#fbtrace(),
+        ) as unknown as Record<string, unknown>,
+      };
+    }
+    const id = this.#g.texto(16, "0123456789");
+    this.#midias.set(id, { bytes: pedido.bruto, mimeType: tipo });
+    return { estado: 200, corpo: { id } };
   }
 
   /** `POST /<versao>/<waba_id>/message_templates` e o `GET` da lista. */
@@ -478,7 +526,8 @@ export class GraphFalso {
       req.on("data", (p: Buffer) => pedacos.push(p));
       req.on("end", () => {
         const url = new URL(req.url ?? "/", "http://interno");
-        const texto = Buffer.concat(pedacos).toString("utf8");
+        const bruto = Buffer.concat(pedacos);
+        const texto = bruto.toString("utf8");
         let corpo: Record<string, unknown> | null = null;
         if (texto.length > 0) {
           try {
@@ -501,6 +550,7 @@ export class GraphFalso {
           consulta: Object.fromEntries(url.searchParams),
           corpo,
           cabecalhos,
+          ...(bruto.length > 0 ? { bruto: new Uint8Array(bruto) } : {}),
         });
         if (resposta.corpo instanceof Uint8Array) {
           res.writeHead(resposta.estado, {

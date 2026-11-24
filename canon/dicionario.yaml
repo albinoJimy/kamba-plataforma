@@ -12,7 +12,7 @@
 
 version: 1
 fonte: "specs/02_Dicionario_de_Dados_Canonico.md"
-versao_dicionario: "1.146"
+versao_dicionario: "1.147"
 entradas:
   - seccao: "3.1"
     conceito: "Contacto"
@@ -2361,6 +2361,20 @@ entradas:
       - "KAMBA_STORAGE_DESTINO_COUNTRY"
       - "KAMBA_STORAGE_DESTINO_PROVIDER"
       - "KAMBA_STORAGE_DESTINO_APD_REF"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.11"
+    conceito: "Endpoint público do armazenamento, só para assinar os URLs que o navegador abre"
+    canonico: "KAMBA_STORAGE_ENDPOINT_PUBLICO, com a forma do endpoint e https fora de dev; sem ele, fora de dev, a página Social do painel responde 503 e nunca assina com o endpoint interno"
+    literais:
+      - "KAMBA_STORAGE_ENDPOINT_PUBLICO"
+      - "https"
+      - "dev"
+      - "dev"
+    nomes:
+      - "KAMBA_STORAGE_ENDPOINT_PUBLICO"
+      - "https"
+      - "dev"
     nomes_nota: []
     variantes_literais: []
   - seccao: "3.11"
@@ -22143,9 +22157,9 @@ entradas:
     variantes_literais: []
   - seccao: "3.80"
     conceito: "Resposta de um turno"
-    canonico: "platform.agent_replies(reply_id, tenant_id, chave, contact_id, conversation_id, canal, texto, botoes, turno_iniciado_em, criado_at, entregue_at, template_nome, template_parametros)"
+    canonico: "platform.agent_replies(reply_id, tenant_id, chave, contact_id, conversation_id, canal, texto, botoes, turno_iniciado_em, criado_at, entregue_at, template_nome, template_parametros, media_ref)"
     literais:
-      - "platform.agent_replies(reply_id, tenant_id, chave, contact_id, conversation_id, canal, texto, botoes, turno_iniciado_em, criado_at, entregue_at, template_nome, template_parametros)"
+      - "platform.agent_replies(reply_id, tenant_id, chave, contact_id, conversation_id, canal, texto, botoes, turno_iniciado_em, criado_at, entregue_at, template_nome, template_parametros, media_ref)"
     nomes:
       - "platform.agent_replies"
       - "reply_id"
@@ -22161,6 +22175,7 @@ entradas:
       - "entregue_at"
       - "template_nome"
       - "template_parametros"
+      - "media_ref"
     nomes_nota:
       - "FORCE"
       - "kamba_app"
@@ -22170,6 +22185,20 @@ entradas:
       - "chave"
       - "agent_replies_chave_uq"
       - "botoes"
+    variantes_literais: []
+  - seccao: "3.80"
+    conceito: "Imagem de uma resposta"
+    canonico: "agent_replies.media_ref"
+    literais:
+      - "agent_replies.media_ref"
+    nomes:
+      - "agent_replies.media_ref"
+    nomes_nota:
+      - "CHECK"
+      - "arte"
+      - "kamba_app"
+      - "agent.replied"
+      - "outbound"
     variantes_literais: []
   - seccao: "3.80"
     conceito: "Canal de uma resposta"
@@ -22198,6 +22227,8 @@ entradas:
     nomes_nota:
       - "versao_max"
       - "kamba_app"
+      - "staging"
+      - "prod"
     variantes_literais: []
   - seccao: "3.80"
     conceito: "Consumidor da resposta no painel"
@@ -23489,6 +23520,36 @@ entradas:
       - "fontes_em_falta"
     nomes_nota:
       - "detalhe"
+    variantes_literais: []
+  - seccao: "3.82"
+    conceito: "Página Social do painel, do lado do AGR"
+    canonico: "POST /internal/social/itens e POST /internal/social/descarga"
+    literais: []
+    nomes: []
+    nomes_nota:
+      - "onboarding"
+      - "web"
+      - "aprovado"
+      - "entregue"
+      - "agr_painel_token"
+    variantes_literais: []
+  - seccao: "3.82"
+    conceito: "Chave da ligação de descarga"
+    canonico: "chave_da_ligacao_de_descarga, no inventário de segredos"
+    literais:
+      - "chave_da_ligacao_de_descarga"
+    nomes:
+      - "chave_da_ligacao_de_descarga"
+    nomes_nota:
+      - "staging"
+      - "prod"
+    variantes_literais: []
+  - seccao: "3.82"
+    conceito: "Página Social do painel"
+    canonico: "GET /painel/social e GET /painel/social/descarga"
+    literais: []
+    nomes: []
+    nomes_nota: []
     variantes_literais: []
   - seccao: "3.83"
     conceito: "Chave de idempotência do registo"
@@ -25843,8 +25904,9 @@ tabelas:
       - "entregue_at"
       - "template_nome"
       - "template_parametros"
+      - "media_ref"
     aberta: false
-    assinatura: "platform.agent_replies(reply_id, tenant_id, chave, contact_id, conversation_id, canal, texto, botoes, turno_iniciado_em, criado_at, entregue_at, template_nome, template_parametros)"
+    assinatura: "platform.agent_replies(reply_id, tenant_id, chave, contact_id, conversation_id, canal, texto, botoes, turno_iniciado_em, criado_at, entregue_at, template_nome, template_parametros, media_ref)"
     seccao: "3.80"
     conceito: "Resposta de um turno"
   - nome: "agent_messages"

@@ -446,3 +446,43 @@ describe("por cima de TCP, como o KAM-015 o vai usar", () => {
     }
   });
 });
+
+describe("o carregamento de média, antes da imagem (KAM-246)", () => {
+  it("um multipart guarda os bytes sob o id devolvido, e conta o carregamento", async () => {
+    const g = servidor();
+    const { base, fechar } = await g.ouvir();
+    try {
+      const jpeg = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 7, 7, 7]);
+      const formulario = new FormData();
+      formulario.set("messaging_product", "whatsapp");
+      formulario.set("type", "image/jpeg");
+      formulario.set("file", new Blob([jpeg], { type: "image/jpeg" }), "arte.jpg");
+      const resposta = await fetch(`${base}/${VERSAO}/${NUMERO}/media`, { method: "POST", body: formulario });
+      assert.equal(resposta.status, 200);
+      const { id } = (await resposta.json()) as { id: string };
+      assert.match(id, /^[0-9]{16}$/);
+      assert.equal(g.carregamentos, 1);
+      assert.equal(g.envios, 0, "carregar nao e enviar");
+      const guardada = g.midia(id);
+      assert.ok(guardada !== undefined);
+      assert.ok(Buffer.from(guardada.bytes).includes(Buffer.from(jpeg)), "os bytes do ficheiro chegaram tal e qual");
+    } finally {
+      await fechar();
+    }
+  });
+
+  it("um carregamento que nao e multipart recusa, e conta-se", () => {
+    const g = servidor();
+    const resposta = g.responder({
+      metodo: "POST",
+      caminho: `/${VERSAO}/${NUMERO}/media`,
+      consulta: {},
+      corpo: { file: "x" },
+      cabecalhos: { "content-type": "application/json" },
+    });
+    assert.equal(resposta.estado, 400);
+    assert.equal(g.carregamentos, 1);
+    g.reiniciarContagens();
+    assert.equal(g.carregamentos, 0);
+  });
+});
