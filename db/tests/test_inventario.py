@@ -1303,6 +1303,15 @@ INVENTARIO = {
             "devolver `NULL` — que num `WHERE` nao e verdadeiro, pelo que "
             "**toda** a reserva era recusada, em silencio",
         ),
+        # KAM-209 (0088): a categoria da oferta, da lista fechada.
+        "categoria": (
+            "text",
+            SIM,
+            None,
+            "nao — um de oito `id` de `policy/categorias_de_produto.yaml`, por "
+            "`CHECK`. Nula nas ofertas publicadas antes da revisao `0088`; a base "
+            "nao publica sem ela",
+        ),
         "criado_at": ("timestamp with time zone", NAO, "now()", "nao"),
         "atualizado_at": (
             "timestamp with time zone",
@@ -5259,6 +5268,9 @@ class TestInventario(ComBase):
                     "offer_terms_preco_ck",
                     "offer_terms_preco_nao_negativo_ck",
                     "offer_terms_categoria_restrita_ck",
+                    # KAM-209 (0088): a categoria da oferta, na lista fechada
+                    # de `policy/categorias_de_produto.yaml`.
+                    "offer_terms_categoria_ck",
                     # KAM-045 (0033): as **tres** que a reserva de stock
                     # acrescenta a tabela do KAM-043. Eram quatro: o
                     # `offer_terms_stock_garantido_exige_quantidade_ck` saiu

@@ -224,6 +224,28 @@ servicos:
       nao foram medidos com eles: reve-se com a primeira medicao de repouso em
       `staging`.
 
+  # KAM-241, credor do KAM-238 (decisoes do fundador de 2026-11-21 e
+  # 2026-11-22: o tecto nao se toca, e o limite nao baixa sem medicao). **Tambem
+  # nao sai de nenhuma linha** do doc 09 §4.2, como os processos do KAM-187, do
+  # KAM-194 e do KAM-225: a soma do manifesto, contando os pendentes, passa de
+  # 26 160 para 26 214 MiB (+54), 79,998% da RAM do *host*, a 0,4 MiB do tecto
+  # de 26 214,4 do criterio 4 do KAM-076. **Nao sobra folga:** o proximo
+  # processo paga a sua memoria ou volta ao fundador.
+  - nome: onboarding-provisionamento
+    estado: presente
+    rede: app
+    memoria_mib: 54
+    razao: >-
+      O consumidor `dono` (KAM-215): a imagem do `onboarding-web` com outro
+      `command:` (`dist/provisionamento.js`, compilado). Consome as dezasseis
+      filas `evt.dono.p<n>` e cria o contacto `dono` do `tenant.provisioned`.
+      Processo proprio e nao o lote, porque a KEK do telefone do caso e so dele
+      (decisao do fundador de 2026-11-20). 54 MiB **medidos** sob o proprio
+      limite e sem *swap*, com uma rajada de 300 `tenant.provisioned` e o
+      `NODE_OPTIONS=--max-semi-space-size=1 --max-old-space-size=24`: todos os
+      veredictos verdes em tres corridas, e o `memory.peak` em 44-46 MiB
+      (`docs/evidencia/KAM-238.md` §6).
+
   - nome: chatwoot
     estado: presente
     rede: app

@@ -517,12 +517,34 @@ REGRAS_OBRIGATORIAS = ("estado_contra_caixa",)
 #: medidos**, e `183 // 2` sao 91. O piso fica em 91, que serve ate aos 183:
 #: o bloco seguinte sobe-o para 92.
 #:
-#: **O 184.o e o do KAM-243**, medido na arvore da integracao com a
+#: **O 184.o e o do KAM-247**, medido na arvore da integracao com a
 #: `publico/main` em `b5529017` (o #260 do KAM-244 ja fundido, com **183
-#: medidos** na `main`): o bloco do KAM-243 ganha a verificacao, e o do KAM-249
-#: nasce sem ela. **184 medidos**, e `184 // 2` sao 92. Sobe para 92, que serve
-#: ate aos 185.
-MINIMO_DE_BLOCOS_MEDIDOS = 92
+#: medidos** na `main`): o bloco do KAM-247 ganha a verificacao. **184
+#: medidos**, e `184 // 2` sao 92. Sobe para 92, que serve ate aos 185.
+#:
+#: **O 185.o e o do KAM-242**, medido na arvore da integracao com a
+#: `publico/main` em `a87c2e72` (o #259 do KAM-247 ja fundido, com **184
+#: medidos** na `main`): o bloco do KAM-242 ganha a verificacao. **185
+#: medidos**, e `185 // 2` sao 92. O piso fica em 92, que serve ate aos 185:
+#: o bloco seguinte sobe-o para 93.
+#:
+#: **O 186.o e o do KAM-241**, medido na arvore da integracao com a
+#: `publico/main` em `97c5ce4e` (o #258 do KAM-242 ja fundido, com **185
+#: medidos** na `main`): o bloco do KAM-241 ganha a verificacao. **186
+#: medidos**, e `186 // 2` sao 93. Sobe para 93, que serve ate aos 187.
+#:
+#: **O 187.o e o do KAM-209**, medido na arvore da integracao com a
+#: `publico/main` em `d7445570` (o #262 do KAM-241 ja fundido, com **186
+#: medidos** na `main`): o bloco do KAM-209 ganha a verificacao. **187
+#: medidos**, e `187 // 2` sao 93. O piso fica em 93, que serve ate aos 187:
+#: o bloco seguinte sobe-o para 94.
+#:
+#: **O 188.o e o do KAM-243**, medido na arvore da integracao com a
+#: `publico/main` em `b3697872` (o #264 do KAM-209 ja fundido, com **187
+#: medidos** na `main`): o bloco do KAM-243 ganha a verificacao, e o do KAM-252
+#: nasce sem ela. **188 medidos**, e `188 // 2` sao 94. Sobe para 94, que serve
+#: ate aos 189.
+MINIMO_DE_BLOCOS_MEDIDOS = 94
 
 #: Quantos blocos existem, no minimo. O mesmo argumento, para a camada de baixo:
 #: se o `ler_blocos` deixar de ver a populacao, o piso de cima podia continuar a

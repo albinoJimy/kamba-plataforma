@@ -58,6 +58,8 @@
  * `additionalProperties: false`.
  */
 
+import type { CategoriaDeProduto } from "@kamba/core-ts/trust";
+
 import {
   PRECO_TIPOS,
   STOCK_MODOS,
@@ -69,7 +71,7 @@ import {
 } from "../port/contrato.ts";
 
 export { PRECO_TIPOS, STOCK_MODOS };
-export type { ClienteSql, PrecoTipo, StockModo };
+export type { CategoriaDeProduto, ClienteSql, PrecoTipo, StockModo };
 
 /** O modo de preço que **nunca** devolve número (critério 2). */
 export const SOB_CONSULTA: PrecoTipo = "sob_consulta";
@@ -261,6 +263,12 @@ export interface TermosDaOferta {
   readonly stockVerificadoAt: string | null;
   readonly estado: EstadoDaOferta;
   readonly categoriaRestrita: string | null;
+  /**
+   * A categoria da lista fechada (KAM-209, `policy/categorias_de_produto.yaml`).
+   * Nula nas ofertas publicadas antes da revisão `0088`; a base não deixa
+   * publicar sem ela.
+   */
+  readonly categoria: CategoriaDeProduto | null;
   readonly atualizadoAt: string;
 }
 
@@ -308,6 +316,12 @@ export interface RascunhoDeProduto {
   readonly precoMinor?: bigint | null;
   readonly precoValidoAte?: string | null;
   readonly stockModo?: StockModo;
+  /**
+   * A categoria da lista fechada (KAM-209). **Omitida guarda a que a oferta
+   * tem**: um rascunho reescrito sem ela não a apaga, porque apagá-la tirava
+   * uma oferta publicada da avaliação do preço sem ninguém o pedir.
+   */
+  readonly categoria?: CategoriaDeProduto;
 }
 
 /** O ajuste de stock do critério 5. */

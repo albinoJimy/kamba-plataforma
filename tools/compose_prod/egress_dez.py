@@ -253,6 +253,9 @@ MARCADORES = {
     "KAMBA_DB_NAME": "marcador",
     "KAMBA_SECRET_DB_APP_PASSWORD": "marcador",
     "KAMBA_SECRET_DB_BATCH_PASSWORD": "marcador",
+    # KAM-247: o `litellm` exige a palavra-passe do papel da base dele. Mesma
+    # razao: o `:?` recusa interpolar o compose sem ela.
+    "KAMBA_SECRET_DB_LITELLM_PASSWORD": "marcador",
     # KAM-198: as duas ligacoes do processo de lote do onboarding. Mesma razao.
     "KAMBA_LOTE_DB_URL": "postgresql://marcador@marcador.invalid:5432/marcador",
     "KAMBA_LOTE_APP_DB_URL": "postgresql://marcador@marcador.invalid:5432/marcador",
@@ -292,6 +295,10 @@ MARCADORES = {
     # razao e mesmo sintoma.
     "KAMBA_SECRET_CHATWOOT_PLATFORM_TOKEN": "marcador",
     "KAMBA_LOTE_IDENTITY_DB_URL": "postgresql://marcador@marcador.invalid:5432/marcador",
+    # KAM-241: o consumidor `dono` entra no compose de producao com as duas
+    # ligacoes dele (`kamba_app` e `kamba_identity`). Mesma razao e mesmo sintoma.
+    "KAMBA_PROVISIONAMENTO_APP_DB_URL": "postgresql://marcador@marcador.invalid:5432/marcador",
+    "KAMBA_PROVISIONAMENTO_IDENTITY_DB_URL": "postgresql://marcador@marcador.invalid:5432/marcador",
 }
 
 
