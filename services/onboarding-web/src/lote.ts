@@ -22,6 +22,11 @@
  * Na porta `LOTE_PORT` (3014 por omissão) e em `127.0.0.1` por omissão: é o
  * `Dockerfile` que põe `HOST=0.0.0.0`, nunca o código.
  *
+ * **E a rota interna do guia** (KAM-239), só com a `LOTE_INTERNO_PORT`: as oito
+ * operações `POST /interno/guia/*` (`./lote/interno.ts`), noutra porta e no
+ * anfitrião `LOTE_INTERNO_HOST` — nunca o `HOST` das métricas —, com a credencial
+ * `onboarding_lote_token` obrigatória no arranque.
+ *
  * ## Arranca em `prod`, e não arranca sem as credenciais
  *
  * Ao contrário do `server.ts`, que recusa `prod` por correr sobre repositórios em
@@ -33,12 +38,15 @@
 import { serve } from "@hono/node-server";
 import { INTERVALO_DA_CONFIANCA_POR_OMISSAO_MS } from "@kamba/core-ts/confianca";
 import { instalar } from "@kamba/core-ts/logger";
+import { EnvSecretProvider, Secrets } from "@kamba/core-ts/secrets";
 import type { PortaDosTelefones } from "@kamba/core-ts/offboarding";
 import pg from "pg";
 
 import { SERVICE } from "./meta.ts";
+import { REF_DA_CREDENCIAL_DO_LOTE, servirRotaInterna } from "./lote/interno.ts";
 import {
   arrancar,
+  registarVoltaDoGuia,
   consumidorDoPainel,
   consumidorDoTrust,
   lerConfiguracao,
@@ -89,7 +97,19 @@ async function principal(): Promise<void> {
   }
   let arrancou = false;
   try {
-    const { processo, app: http } = await arrancar({
+    // KAM-239: a credencial da rota interna do guia, **obrigatória** com a porta
+    // dela — o `Secrets.arrancar` sai antes de abrir porta nenhuma sem ela.
+    const credencialDoGuia =
+      config.interno === null
+        ? null
+        : await (
+            await Secrets.arrancar({
+              servico: SERVICE,
+              provider: new EnvSecretProvider({ ambiente: config.ambiente }),
+              obrigatorios: [REF_DA_CREDENCIAL_DO_LOTE],
+            })
+          ).get(REF_DA_CREDENCIAL_DO_LOTE);
+    const { processo, app: http, interna } = await arrancar({
       lote,
       app,
       log,
@@ -103,6 +123,11 @@ async function principal(): Promise<void> {
         env: process.env,
         ...(telefones === null ? {} : { telefones }),
       }),
+      // KAM-208: a varredura da correlação entre tenants; em `prod`, trancada.
+      correlacao: config.correlacao,
+      ...(config.interno === null || credencialDoGuia === null
+        ? {}
+        : { guia: { origem: config.interno.origem, credencial: credencialDoGuia } }),
     });
     // **Espera-se pela porta aberta antes de dizer `service_started`.** O
     // `serve` devolve antes de o `listen` acabar, e uma porta ocupada chegava
@@ -119,6 +144,20 @@ async function principal(): Promise<void> {
         falhou(erro);
       });
     });
+    // KAM-239: a rota interna do guia, **noutra porta e noutro anfitrião** — o
+    // do compose só a rede `app` o resolve —, e nunca na das métricas.
+    const rotaInterna = config.interno;
+    const servidorInterno =
+      interna === null || rotaInterna === null
+        ? null
+        : await servirRotaInterna(interna, rotaInterna).catch((erro: Error & { code?: string }) => {
+            log.error({ outcome: "porta_interna_falhou", error_code: erro.code ?? erro.name });
+            throw erro;
+          });
+    log.info({ outcome: servidorInterno === null ? "guia_interno_desligado" : "guia_interno_ligado" });
+    // E a volta do guia que saiu do `onboarding-web`: os 30 minutos e a lista.
+    const pararGuia =
+      processo.guia === null ? () => {} : processo.guia.ciclo.agendar(config.intervaloMs, (r) => registarVoltaDoGuia(log, r));
     const parar = processo.ciclo.agendar(config.intervaloMs, (r) => registarVolta(log, r));
     // A primeira volta já, e não daqui a um intervalo: as métricas sairiam a
     // zero durante um minuto inteiro depois de cada arranque.
@@ -181,6 +220,8 @@ async function principal(): Promise<void> {
     });
     log.info({ outcome: "service_stopping" });
     parar();
+    pararGuia();
+    servidorInterno?.close();
     pararTrust();
     pararDiaria();
     pararDescidas();

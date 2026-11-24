@@ -43,16 +43,29 @@ Este modulo **nao regista nada** (ADR-010): os campos de um produto e o texto
 de uma resposta do dono nao saem para um *logger*. O que se mede vive na
 propria linha — `custo_llm_usd`, o estado, os campos com `corrigido` — e le-se
 pelo `indicadores.py`.
+
+## O prazo e a ligacao (KAM-244)
+
+Quem chama pode dar ao servico o **prazo absoluto** da invocacao (`prazo`, em
+`time.monotonic()`: o `Pedido.prazo` da ToolLayer) e uma forma de correr um
+trabalho de rede **sem segurar a ligacao da base** (`fora_da_ligacao`: o
+`Pedido.sem_tomada` do KAM-230). Com o prazo, cada etapa lenta recebe o que
+sobra dele menos o que as seguintes precisam (`tecto_s`, nas portas da visao,
+do screening e do Registo), e a soma no pior caso cabe no prazo com a reserva
+das escritas. A visao e o screening correm fora da ligacao; o repositorio le a
+ligacao **corrente** em cada operacao, e por isso a retomada e a que escreve.
+Sem prazo (um ensaio, a `retomar` de operacao), cada porta usa o seu tecto.
 """
 
 from __future__ import annotations
 
 import hashlib
+import time
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
-from typing import Final, Protocol, runtime_checkable
+from typing import Any, Final, Protocol, TypeVar, runtime_checkable
 
 from ..destinos.porta import FINALIDADE_VISAO
 from ..idx.normalizacao import Lexico, passo_1
@@ -60,6 +73,7 @@ from ..idx.numeros import por_extenso
 from ..storage.port import Ctx, ObjectMeta, ObjectRef, StorageProvider
 from ..storage.chave import nova_chave
 from . import completude, estados
+from .categorias import categoria_de_produto
 from .exif import FormatoNaoSuportado, ImagemInvalida, limpar_metadados, tem_metadados
 from .extraccao import (
     CAMPOS_DA_VISAO,
@@ -75,7 +89,15 @@ from .extraccao import (
 from .imagem import Descodificador, ImagemIlegivel, analisar
 from .normalizacao import ler_preco, normalizar
 from .repositorio import Ingestao, LojaLimitada, Repositorio, novo_id
-from .screening import DECISOES, PortaDeScreening, ResultadoDoScreen, categoria_restrita
+from .screening import (
+    DECISOES,
+    SCREENING_INDISPONIVEL,
+    PortaDeScreening,
+    ResultadoDoScreen,
+    categoria_restrita,
+)
+
+_T = TypeVar("_T")
 
 #: A classe da chave no STO (`t/{tenant}/{classe}/…`).
 CLASSE_STO: Final = "catalogo"
@@ -100,6 +122,39 @@ MOTIVO_SEM_DESTINO: Final = "sem_destino"
 MOTIVO_SO_SINTETICAS: Final = "so_sinteticas"
 MOTIVO_METADADOS: Final = "metadados"
 MOTIVO_LIMITE_DE_PERGUNTAS: Final = "limite_de_perguntas"
+
+#: O orcamento de tempo das etapas lentas, quando ha prazo (KAM-244). Em
+#: milissegundos, e *proposta*: nenhum se mediu com o fornecedor real (o
+#: `kamba-vision` esta `por_decidir`). Cada etapa recebe o que sobra do prazo
+#: menos a reserva das que vem depois dela, e por isso o pior caso acaba antes
+#: do prazo com a reserva das escritas, seja qual for a ordem em que as portas
+#: se atrasam.
+#:
+#: * as escritas do fim: a linha da ingestao, a accao do botao e a sua leitura
+#:   (a mesma reserva do `submit_quote`, KAM-230);
+#: * o Registo: o `upsert-product-draft` e uma escrita curta no COM;
+#: * o screening: o minimo do classificador da rota (`MINIMO_PARA_CHAMAR_S`,
+#:   3 s), a margem de resposta dela (1 s) e a gravacao da decisao no COM.
+RESERVA_DAS_ESCRITAS_MS: Final = 1_000
+RESERVA_DO_REGISTO_MS: Final = 2_000
+RESERVA_DO_SCREENING_MS: Final = 6_000
+#: O que a visao deixa ao resto: o screening, o Registo e as escritas (9 s).
+RESERVA_DEPOIS_DA_VISAO_MS: Final = RESERVA_DO_SCREENING_MS + RESERVA_DO_REGISTO_MS + RESERVA_DAS_ESCRITAS_MS
+#: O que o screening deixa ao resto: o Registo e as escritas (3 s).
+RESERVA_DEPOIS_DO_SCREENING_MS: Final = RESERVA_DO_REGISTO_MS + RESERVA_DAS_ESCRITAS_MS
+
+#: As regras de uma `bloqueada_categoria` que **nao** sao uma decisao sobre o
+#: produto, e sim o screening que nao chegou a decidir: a porta em baixo ou sem
+#: tempo (KAM-244). Uma ingestao assim retoma-se (`retomar`), que pergunta outra
+#: vez ao screening e so sai se ele agora permitir. As outras sao decisoes, e so
+#: o T&S as levanta.
+#:
+#: **O `classificador_indisponivel` nao entra**, embora tambem nao seja uma
+#: decisao sobre o produto: o COM grava-o como `condicional` a espera de humano,
+#: e o `screen` seguinte do mesmo conteudo nao e publicavel ate o T&S decidir
+#: (`revisao_pendente`). Oferecer «tentar outra vez» dava ao dono um botao que
+#: nunca resulta (achado 3 da revisao adversarial do KAM-244).
+REGRAS_RETOMAVEIS: Final = (SCREENING_INDISPONIVEL,)
 
 #: A chave da sugestao de preco dentro do `extraido`. Nao e um campo do
 #: produto: nunca entra no Registo, no resumo, na completude nem na
@@ -141,11 +196,15 @@ class ExtractorDeVisao(Protocol):
 
     `fornecedores` sao todos os que o alias pode alcancar, com o *fallback*:
     o *gate* autoriza-os a todos, pela razao do cliente do AGR.
+
+    `tecto_s` e o que sobra do prazo da invocacao a esta chamada (KAM-244), ou
+    `None` sem prazo: a porta usa o menor dos dois tectos, e com zero ou menos
+    nao chama o modelo e levanta `ErroDaVisao`.
     """
 
     fornecedores: tuple[str, ...]
 
-    def extrair(self, tenant_id: str, imagem: bytes) -> RespostaDaVisao: ...
+    def extrair(self, tenant_id: str, imagem: bytes, *, tecto_s: float | None = None) -> RespostaDaVisao: ...
 
 
 @runtime_checkable
@@ -166,12 +225,24 @@ class ConfirmacaoDoDono:
 
 @runtime_checkable
 class PortaDoRegisto(Protocol):
-    """O produto no Registo e a `offer_terms` (o `upsertProductDraft` e o `publishProduct`)."""
+    """O produto no Registo e a `offer_terms` (o `upsertProductDraft` e o `publishProduct`).
 
-    def rascunho(self, tenant_id: str, sku: str, campos: Mapping[str, Campo]) -> None: ...
+    `tecto_s` tem o sentido do da visao (KAM-244): o que sobra do prazo, ou
+    `None`; com zero ou menos a porta nao chama o COM e levanta como uma falha.
+    """
+
+    def rascunho(
+        self, tenant_id: str, sku: str, campos: Mapping[str, Campo], *, tecto_s: float | None = None
+    ) -> None: ...
 
     def publicar(
-        self, tenant_id: str, sku: str, confirmacao: ConfirmacaoDoDono, *, stock: int | None = None
+        self,
+        tenant_id: str,
+        sku: str,
+        confirmacao: ConfirmacaoDoDono,
+        *,
+        stock: int | None = None,
+        tecto_s: float | None = None,
     ) -> None:
         """Publica. `stock` e a quantidade que o dono deu (KAM-231), ou `None`."""
         ...
@@ -337,7 +408,14 @@ def resumo(campos: Mapping[str, Campo]) -> str:
         partes.append(cabeca)
     for nome, rotulo in ROTULOS_DO_RESUMO:
         if valor(nome):
-            partes.append(f"{rotulo} {valor(nome)}")
+            texto = valor(nome)
+            if nome == "categoria":
+                # KAM-209: a categoria da lista fechada que a oferta vai levar,
+                # para que a confirmacao do dono a cubra (`categorias.py`).
+                fechada = categoria_de_produto(texto)
+                if fechada is not None and fechada != texto:
+                    texto = f"{texto} ({fechada})"
+            partes.append(f"{rotulo} {texto}")
     for nome in sorted(set(campos) - _FORA_DOS_ROTULOS):
         if valor(nome):
             partes.append(f"{nome} {valor(nome)}")
@@ -380,6 +458,13 @@ class ServicoDeIngestao:
     registo: PortaDoRegisto
     ambiente: str
     agora: Callable[[], datetime] = field(default=lambda: datetime.now(UTC))
+    #: O prazo absoluto da invocacao, em `relogio()` (KAM-244), ou `None`.
+    prazo: float | None = None
+    #: O relogio do prazo. O de um ensaio avanca quando uma porta «espera».
+    relogio: Callable[[], float] = time.monotonic
+    #: Corre um trabalho de rede sem segurar a ligacao da base (KAM-244): o
+    #: `Pedido.sem_tomada` da ToolLayer. A omissao corre-o com ela.
+    fora_da_ligacao: Callable[[Callable[[], Any]], Any] = field(default=lambda trabalho: trabalho())
 
     # ------------------------------------------------------------ entradas
 
@@ -608,7 +693,12 @@ class ServicoDeIngestao:
         linha = self._mudar(linha, replace(linha, estado=estados.EM_EXTRACCAO)).ingestao
         custo = Decimal(0)
         try:
-            resposta = self.visao.extrair(linha.tenant_id, imagem)
+            # Fora da ligacao, com o que sobra do prazo menos o que o screening,
+            # o Registo e as escritas precisam (KAM-244).
+            tenant = linha.tenant_id
+            resposta = self._fora(
+                lambda: self.visao.extrair(tenant, imagem, tecto_s=self._tecto_s(RESERVA_DEPOIS_DA_VISAO_MS))
+            )
             custo = resposta.custo_usd
             extraccao = ler_resposta_da_visao(resposta.texto)
         except ErroDaVisao as erro:
@@ -643,13 +733,18 @@ class ServicoDeIngestao:
         preco_sugerido: str | None,
         custo: Decimal,
     ) -> Resultado:
-        # Etapa 6: screening. Qualquer falha e restritiva.
+        # Etapa 6: screening. Qualquer falha e restritiva. Fora da ligacao, com o
+        # que sobra do prazo menos o Registo e as escritas (KAM-244).
+        categoria, textos = self._texto(campos, "categoria") or "", self._textos(campos)
         try:
-            resultado: ResultadoDoScreen | None = self.screening.screen(
-                linha.tenant_id,
-                linha.id,
-                self._texto(campos, "categoria") or "",
-                self._textos(campos),
+            resultado: ResultadoDoScreen | None = self._fora(
+                lambda: self.screening.screen(
+                    linha.tenant_id,
+                    linha.id,
+                    categoria,
+                    textos,
+                    tecto_s=self._tecto_s(RESERVA_DEPOIS_DO_SCREENING_MS),
+                )
             )
         except Exception:  # noqa: BLE001 — falha fechada
             resultado = None
@@ -697,7 +792,7 @@ class ServicoDeIngestao:
         texto = resumo(produto)
         alvo = replace(nova, estado=estados.RASCUNHO, campos_em_falta=(), sku=sku)
         resultado = self._mudar(linha, alvo, resumo=texto, versao_texto=versao_do_texto(texto))
-        self.registo.rascunho(nova.tenant_id, sku, produto)
+        self.registo.rascunho(nova.tenant_id, sku, produto, tecto_s=self._tecto_s(RESERVA_DAS_ESCRITAS_MS))
         return resultado
 
     # ------------------------------------------------------------ apoio
@@ -725,8 +820,13 @@ class ServicoDeIngestao:
         nome = self._texto(produto, "nome")
         if not nome or not linha.sku:
             raise ConfirmacaoRecusada("sem nome ou sem sku")
+        sku = linha.sku
         try:
-            resultado: ResultadoDoScreen | None = self.screening.screen(linha.tenant_id, linha.sku, None, (nome,))
+            resultado: ResultadoDoScreen | None = self._fora(
+                lambda: self.screening.screen(
+                    linha.tenant_id, sku, None, (nome,), tecto_s=self._tecto_s(RESERVA_DEPOIS_DO_SCREENING_MS)
+                )
+            )
         except Exception:  # noqa: BLE001 — falha fechada, sem mudar o estado
             raise PublicacaoRecusada(MOTIVO_SCREENING_INDISPONIVEL) from None
         if resultado is None or resultado.decisao not in DECISOES:
@@ -747,16 +847,39 @@ class ServicoDeIngestao:
         if not linha.sku:
             raise ConfirmacaoRecusada("sem sku")
         produto = {n: c for n, c in linha.campos.items() if n != SUGESTAO}
-        self.registo.rascunho(linha.tenant_id, linha.sku, produto)
+        self.registo.rascunho(linha.tenant_id, linha.sku, produto, tecto_s=self._tecto_s(RESERVA_DAS_ESCRITAS_MS))
         # KAM-231: a quantidade que o dono deu vai ao Registo **com** a
         # publicacao, e nao fica so na ingestao e no resumo. So quando a ha: um
         # produto sem quantidade (stock por confirmar, ilimitado) publica sem ela.
         stock = produto.get("stock")
         quantidade = stock.valor if stock is not None and isinstance(stock.valor, str) else None
         if quantidade is not None and quantidade.isdigit():
-            self.registo.publicar(linha.tenant_id, linha.sku, confirmacao, stock=int(quantidade))
+            self.registo.publicar(
+                linha.tenant_id,
+                linha.sku,
+                confirmacao,
+                stock=int(quantidade),
+                tecto_s=self._tecto_s(RESERVA_DAS_ESCRITAS_MS),
+            )
         else:
-            self.registo.publicar(linha.tenant_id, linha.sku, confirmacao)
+            self.registo.publicar(
+                linha.tenant_id, linha.sku, confirmacao, tecto_s=self._tecto_s(RESERVA_DAS_ESCRITAS_MS)
+            )
+
+    def _tecto_s(self, reserva_ms: int) -> float | None:
+        """O que sobra do prazo a uma etapa, menos o que as seguintes precisam (KAM-244).
+
+        `None` sem prazo: a porta usa o seu tecto. Pode ser zero ou negativo, e
+        entao a porta nao chama e levanta, e o pipeline segue pelo caminho da
+        falha dela, que ja existe em cada etapa.
+        """
+        if self.prazo is None:
+            return None
+        return self.prazo - self.relogio() - reserva_ms / 1000
+
+    def _fora(self, trabalho: Callable[[], _T]) -> _T:
+        """`trabalho` sem segurar a ligacao da base (KAM-244). So para rede."""
+        return self.fora_da_ligacao(trabalho)  # type: ignore[no-any-return]
 
     def _sem_escrever(self, linha: Ingestao) -> Resultado:
         """O estado de agora, sem gravar nada: a resposta a uma mensagem repetida."""

@@ -253,6 +253,9 @@ MARCADORES = {
     "KAMBA_DB_NAME": "marcador",
     "KAMBA_SECRET_DB_APP_PASSWORD": "marcador",
     "KAMBA_SECRET_DB_BATCH_PASSWORD": "marcador",
+    # KAM-247: o `litellm` exige a palavra-passe do papel da base dele. Mesma
+    # razao: o `:?` recusa interpolar o compose sem ela.
+    "KAMBA_SECRET_DB_LITELLM_PASSWORD": "marcador",
     # KAM-198: as duas ligacoes do processo de lote do onboarding. Mesma razao.
     "KAMBA_LOTE_DB_URL": "postgresql://marcador@marcador.invalid:5432/marcador",
     "KAMBA_LOTE_APP_DB_URL": "postgresql://marcador@marcador.invalid:5432/marcador",
@@ -282,6 +285,10 @@ MARCADORES = {
     "KAMBA_SECRET_PEPPER_SMS_DESTINO": "marcador",
     "KAMBA_SECRET_KEK_TELEFONE_DO_CASO": "marcador",
     "KAMBA_SECRET_KEK_DADOS_DO_CASO": "marcador",
+    # KAM-239: o guia pela rota interna do lote. A credencial dos dois lados e a
+    # origem publica do convite da lista. Mesma razao e mesmo sintoma.
+    "KAMBA_SECRET_ONBOARDING_LOTE_TOKEN": "marcador",
+    "ONBOARDING_ORIGEM": "https://marcador.invalid",
     "KAMBA_STORAGE_ENDPOINT": "http://marcador.invalid:8333",
     "KAMBA_STORAGE_BUCKET": "marcador",
     "KAMBA_STORAGE_REGION": "marcador",
@@ -292,6 +299,10 @@ MARCADORES = {
     # razao e mesmo sintoma.
     "KAMBA_SECRET_CHATWOOT_PLATFORM_TOKEN": "marcador",
     "KAMBA_LOTE_IDENTITY_DB_URL": "postgresql://marcador@marcador.invalid:5432/marcador",
+    # KAM-241: o consumidor `dono` entra no compose de producao com as duas
+    # ligacoes dele (`kamba_app` e `kamba_identity`). Mesma razao e mesmo sintoma.
+    "KAMBA_PROVISIONAMENTO_APP_DB_URL": "postgresql://marcador@marcador.invalid:5432/marcador",
+    "KAMBA_PROVISIONAMENTO_IDENTITY_DB_URL": "postgresql://marcador@marcador.invalid:5432/marcador",
 }
 
 

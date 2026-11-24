@@ -12,7 +12,7 @@
 
 version: 1
 fonte: "specs/02_Dicionario_de_Dados_Canonico.md"
-versao_dicionario: "1.139"
+versao_dicionario: "1.146"
 entradas:
   - seccao: "3.1"
     conceito: "Contacto"
@@ -123,6 +123,27 @@ entradas:
     nomes_nota: []
     variantes_literais:
       - "msisdn_hash"
+  - seccao: "3.1"
+    conceito: "Pseudónimo do telefone sem tenant"
+    canonico: "contact_xtenant_pseudonym(tenant_id, contact_id, pseudonimo, kid, visto_at)"
+    literais:
+      - "contact_xtenant_pseudonym(tenant_id, contact_id, pseudonimo, kid, visto_at)"
+    nomes:
+      - "contact_xtenant_pseudonym"
+      - "tenant_id"
+      - "contact_id"
+      - "pseudonimo"
+      - "kid"
+      - "visto_at"
+    nomes_nota:
+      - "pepper_contact_xtenant"
+      - "kid"
+      - "phone_hmac"
+      - "kamba_identity"
+      - "contacts_xtenant_esquecer"
+      - "platform.contact_xtenant_esquecer"
+      - "visto_at"
+    variantes_literais: []
   - seccao: "3.1"
     conceito: "Prova de consentimento"
     canonico: "consent_event (append-only)"
@@ -7578,6 +7599,35 @@ entradas:
     nomes_nota:
       - "destinos"
     variantes_literais: []
+  - seccao: "3.29"
+    conceito: "Base do proxy de LLM"
+    canonico: "kamba_litellm — a base e o papel que é dono dela, com o mesmo nome"
+    literais:
+      - "kamba_litellm"
+    nomes:
+      - "kamba_litellm"
+    nomes_nota:
+      - "prod"
+      - "postgres"
+      - "PAPEIS"
+      - "CONNECT"
+      - "dat.llm_call_log"
+      - "data"
+    variantes_literais: []
+  - seccao: "3.29"
+    conceito: "Palavra-passe do papel do proxy"
+    canonico: "db_litellm_password, lida como KAMBA_SECRET_DB_LITELLM_PASSWORD"
+    literais:
+      - "db_litellm_password"
+      - "KAMBA_SECRET_DB_LITELLM_PASSWORD"
+    nomes:
+      - "db_litellm_password"
+      - "KAMBA_SECRET_DB_LITELLM_PASSWORD"
+    nomes_nota:
+      - "staging"
+      - "prod"
+      - "DATABASE_PASSWORD"
+    variantes_literais: []
   - seccao: "3.30"
     conceito: "Veredicto do validador"
     canonico: "Verdict.errors ∈ {money_unbacked, sku_price_mismatch, name_sku_mismatch, qty_unbacked, datetime_unbacked, discount_unbacked, number_unbacked}"
@@ -10243,6 +10293,7 @@ entradas:
       - "nome"
       - "criado_at"
       - "atualizado_at"
+      - "categoria"
       - "platform"
       - "PRIMARY"
       - "KEY"
@@ -14917,6 +14968,7 @@ entradas:
       - "teste"
       - "produto"
       - "contacto"
+      - "foto"
       - "motivo"
       - "sem_sessao"
       - "nao_encontrado"
@@ -18260,11 +18312,12 @@ entradas:
       - "sku"
       - "versao_politica"
       - "pedidos"
+      - "fonte"
       - "CHECK"
     variantes_literais: []
   - seccao: "3.68"
     conceito: "Tipo de sinal"
-    canonico: "ts_signal.tipo ∈ {auto_compra, burla_provavel, confirmacao_suspeita, foto_repetida, preco_anomalo, queixa_recorrente, nao_entrega, mudanca_de_conta, violacao_de_categoria}"
+    canonico: "ts_signal.tipo ∈ {auto_compra, burla_provavel, confirmacao_suspeita, foto_repetida, preco_anomalo, queixa_recorrente, nao_entrega, mudanca_de_conta, violacao_de_categoria, comprador_noutra_loja_do_dono}"
     literais:
       - "ts_signal.tipo"
       - "auto_compra"
@@ -18276,6 +18329,7 @@ entradas:
       - "nao_entrega"
       - "mudanca_de_conta"
       - "violacao_de_categoria"
+      - "comprador_noutra_loja_do_dono"
     nomes:
       - "ts_signal.tipo"
       - "auto_compra"
@@ -18287,7 +18341,9 @@ entradas:
       - "nao_entrega"
       - "mudanca_de_conta"
       - "violacao_de_categoria"
+      - "comprador_noutra_loja_do_dono"
     nomes_nota:
+      - "comprador_noutra_loja_do_dono"
       - "mudanca_de_conta"
       - "preco_anomalo"
     variantes_literais: []
@@ -18615,6 +18671,172 @@ entradas:
       - "fotos"
       - "encerramentos"
       - "mudancas_de_conta"
+      - "pseudonimos"
+      - "compradores_do_dono"
+      - "precos"
+    variantes_literais: []
+  - seccao: "3.68"
+    conceito: "Comprador noutra loja do mesmo dono"
+    canonico: "comprador_noutra_loja_do_dono, um ts_signal.tipo de severidade baixa e peso 0"
+    literais:
+      - "comprador_noutra_loja_do_dono"
+      - "ts_signal.tipo"
+      - "baixa"
+    nomes:
+      - "comprador_noutra_loja_do_dono"
+      - "ts_signal.tipo"
+      - "baixa"
+    nomes_nota:
+      - "detalhe"
+    variantes_literais: []
+  - seccao: "3.68"
+    conceito: "A comparação"
+    canonico: "platform.ts_compradores_noutra_loja_do_dono(p_tenants) → o tenant e a contagem"
+    literais:
+      - "platform.ts_compradores_noutra_loja_do_dono(p_tenants)"
+    nomes:
+      - "platform.ts_compradores_noutra_loja_do_dono"
+      - "p_tenants"
+    nomes_nota:
+      - "SECURITY"
+      - "DEFINER"
+      - "kamba_batch"
+      - "kid"
+    variantes_literais: []
+  - seccao: "3.68"
+    conceito: "A purga do pseudónimo"
+    canonico: "platform.contact_xtenant_purgar(p_tenants, p_antes) → quantos apagou"
+    literais:
+      - "platform.contact_xtenant_purgar(p_tenants, p_antes)"
+    nomes:
+      - "platform.contact_xtenant_purgar"
+      - "p_tenants"
+      - "p_antes"
+    nomes_nota:
+      - "SECURITY"
+      - "DEFINER"
+      - "kamba_batch"
+    variantes_literais: []
+  - seccao: "3.68"
+    conceito: "O interruptor"
+    canonico: "KAMBA_CORRELACAO_ENTRE_TENANTS, que só liga com o valor ligada"
+    literais:
+      - "KAMBA_CORRELACAO_ENTRE_TENANTS"
+    nomes:
+      - "KAMBA_CORRELACAO_ENTRE_TENANTS"
+    nomes_nota:
+      - "compradores_do_dono"
+    variantes_literais: []
+  - seccao: "3.68"
+    conceito: "Categoria da oferta"
+    canonico: "offer_terms.categoria ∈ {moda, mercearia, restauracao, beleza, electronica, servicos, material_construcao, outra}"
+    literais:
+      - "offer_terms.categoria"
+      - "moda"
+      - "mercearia"
+      - "restauracao"
+      - "beleza"
+      - "electronica"
+      - "servicos"
+      - "material_construcao"
+      - "outra"
+    nomes:
+      - "offer_terms.categoria"
+      - "moda"
+      - "mercearia"
+      - "restauracao"
+      - "beleza"
+      - "electronica"
+      - "servicos"
+      - "material_construcao"
+      - "outra"
+    nomes_nota:
+      - "CHECK"
+      - "offer_terms_categoria_ck"
+      - "servicos"
+      - "material_construcao"
+      - "outra"
+      - "categoria"
+      - "id"
+    variantes_literais: []
+  - seccao: "3.68"
+    conceito: "A lista das categorias de produto"
+    canonico: "policy/categorias_de_produto.yaml, versão 1.0.0"
+    literais: []
+    nomes: []
+    nomes_nota:
+      - "CHECK"
+      - "CATEGORIAS_DE_PRODUTO"
+      - "CATEGORIAS"
+      - "kamba_core.catalogo.categorias"
+      - "id"
+    variantes_literais: []
+  - seccao: "3.68"
+    conceito: "A guarda na publicação"
+    canonico: "platform.offer_terms_categoria_na_publicacao(), no trigger offer_terms_categoria_na_publicacao"
+    literais:
+      - "platform.offer_terms_categoria_na_publicacao()"
+      - "offer_terms_categoria_na_publicacao"
+    nomes:
+      - "platform.offer_terms_categoria_na_publicacao"
+      - "offer_terms_categoria_na_publicacao"
+    nomes_nota:
+      - "SECURITY"
+      - "INVOKER"
+      - "ENABLE"
+      - "ALWAYS"
+      - "publicado"
+      - "publishProduct"
+      - "INSERT"
+    variantes_literais: []
+  - seccao: "3.68"
+    conceito: "A fonte das referências do preço anómalo"
+    canonico: "plataforma/1, na chave fonte do ts_signal.detalhe"
+    literais:
+      - "fonte"
+      - "ts_signal.detalhe"
+    nomes:
+      - "fonte"
+      - "ts_signal.detalhe"
+    nomes_nota:
+      - "kamba_batch"
+      - "LOJAS_MINIMAS_DAS_REFERENCIAS"
+      - "fonte"
+      - "CHAVES_DO_DETALHE"
+      - "ts_signal_detalhe_ck"
+      - "contagem"
+      - "versao_politica"
+    variantes_literais: []
+  - seccao: "3.68"
+    conceito: "Varredura do preço anómalo"
+    canonico: "precos, o entity_id de ts_varredura e o valor da etiqueta varredura de ts_varreduras_total"
+    literais:
+      - "precos"
+      - "entity_id"
+      - "ts_varredura"
+      - "varredura"
+      - "ts_varreduras_total"
+    nomes:
+      - "precos"
+      - "entity_id"
+      - "ts_varredura"
+      - "varredura"
+      - "ts_varreduras_total"
+    nomes_nota:
+      - "avaliarPreco"
+      - "refDaJanela"
+      - "ts_ofertas_nao_avaliadas"
+      - "batch.run"
+    variantes_literais: []
+  - seccao: "3.68"
+    conceito: "Ofertas publicadas que a varredura não avaliou"
+    canonico: "ts_ofertas_nao_avaliadas{motivo}, gauge com dois motivos (sem categoria, poucas lojas), no /metrics do processo de lote"
+    literais:
+      - "ts_ofertas_nao_avaliadas{motivo}"
+    nomes:
+      - "ts_ofertas_nao_avaliadas"
+      - "motivo"
+    nomes_nota: []
     variantes_literais: []
   - seccao: "3.69"
     conceito: "Ledger de custo por módulo"
@@ -22134,7 +22356,7 @@ entradas:
     variantes_literais: []
   - seccao: "3.81"
     conceito: "O turno do painel"
-    canonico: "wamid = painel.{message_id}, type = text, persona = dono"
+    canonico: "wamid = painel.{message_id}, type = text, persona = dono; e, desde a emenda 1.142 (KAM-243), o da foto: wamid = painel.{asset_id}.{envio} (wamid_da_foto_do_painel; o envio são 32 hexadecimais, um por pedido), type = image, persona = dono, sem message_id"
     literais:
       - "wamid"
       - "painel.{message_id}"
@@ -22142,6 +22364,14 @@ entradas:
       - "text"
       - "persona"
       - "dono"
+      - "wamid"
+      - "painel.{asset_id}.{envio}"
+      - "wamid_da_foto_do_painel"
+      - "type"
+      - "image"
+      - "persona"
+      - "dono"
+      - "message_id"
     nomes:
       - "wamid"
       - "painel"
@@ -22150,10 +22380,16 @@ entradas:
       - "text"
       - "persona"
       - "dono"
+      - "asset_id"
+      - "envio"
+      - "wamid_da_foto_do_painel"
+      - "image"
     nomes_nota:
       - "wamid"
       - "turn_id"
       - "botao"
+      - "PREFIXO_DO_WAMID_DO_PAINEL"
+      - "contexto.py"
     variantes_literais: []
   - seccao: "3.81"
     conceito: "A leitura da mensagem no AGR"
@@ -22182,15 +22418,19 @@ entradas:
     variantes_literais: []
   - seccao: "3.81"
     conceito: "O canal da resposta de um turno"
-    canonico: "CANAL_DO_TURNO, canal_do_turno"
+    canonico: "CANAL_DO_TURNO, canal_do_turno, turno_da_foto_do_painel"
     literais:
       - "CANAL_DO_TURNO"
       - "canal_do_turno"
+      - "turno_da_foto_do_painel"
     nomes:
       - "CANAL_DO_TURNO"
       - "canal_do_turno"
+      - "turno_da_foto_do_painel"
     nomes_nota:
       - "SaidaPorEvento"
+      - "painel"
+      - "wamid"
       - "whatsapp"
       - "canal_por_omissao"
       - "main"
@@ -22198,13 +22438,15 @@ entradas:
     variantes_literais: []
   - seccao: "3.81"
     conceito: "A admissão de um turno do painel"
-    canonico: "invocacao_do_painel_admitida, SEGREDO_DO_PAINEL"
+    canonico: "invocacao_do_painel_admitida, SEGREDO_DO_PAINEL, TIPO_DA_FOTO_DO_PAINEL"
     literais:
       - "invocacao_do_painel_admitida"
       - "SEGREDO_DO_PAINEL"
+      - "TIPO_DA_FOTO_DO_PAINEL"
     nomes:
       - "invocacao_do_painel_admitida"
       - "SEGREDO_DO_PAINEL"
+      - "TIPO_DA_FOTO_DO_PAINEL"
     nomes_nota:
       - "api_interna.py"
       - "agr_painel_token"
@@ -22215,7 +22457,14 @@ entradas:
       - "botao"
       - "wamid"
       - "painel"
+      - "asset_id"
+      - "image"
+      - "envio"
+      - "ler_foto_do_painel_sincrono"
+      - "SQL_LER_FOTO_DO_PAINEL"
       - "invocacao_invalida"
+      - "FotoDoPainelNaoEncontradaError"
+      - "SQL_LER_MENSAGEM"
     variantes_literais: []
   - seccao: "3.81"
     conceito: "A conversa do dono pelo painel"
@@ -22270,11 +22519,76 @@ entradas:
       - "agr_painel_token"
       - "invocadorPorHttp"
     nomes_nota:
-      - "dono"
       - "message_id"
+      - "asset_id"
       - "nao_autorizado"
     variantes_literais:
       - "agr_internal_token"
+  - seccao: "3.81"
+    conceito: "A foto do dono pelo painel"
+    canonico: "POST /painel/foto, FotoDoDono, OpcoesDaFoto, PortasDaFoto, recepcaoDoPainel, invocacaoDaFoto, mediaIdDoPainel, DOMINIO_DO_MEDIA_ID_DO_PAINEL = media_assets:painel"
+    literais:
+      - "FotoDoDono"
+      - "OpcoesDaFoto"
+      - "PortasDaFoto"
+      - "recepcaoDoPainel"
+      - "invocacaoDaFoto"
+      - "mediaIdDoPainel"
+      - "DOMINIO_DO_MEDIA_ID_DO_PAINEL"
+      - "media_assets:painel"
+    nomes:
+      - "FotoDoDono"
+      - "OpcoesDaFoto"
+      - "PortasDaFoto"
+      - "recepcaoDoPainel"
+      - "invocacaoDaFoto"
+      - "mediaIdDoPainel"
+      - "DOMINIO_DO_MEDIA_ID_DO_PAINEL"
+      - "media_assets"
+      - "painel"
+    nomes_nota:
+      - "Content"
+      - "Type"
+      - "tipoDaFoto"
+      - "media_imagem"
+      - "BYTES_MAXIMOS_DA_FOTO"
+      - "ClienteDeMidia"
+      - "midiaDoPedido"
+      - "LIMITES_DO_PAINEL"
+      - "armazenado"
+      - "platform.media_assets"
+      - "sqlNoTenant"
+      - "media_id"
+      - "painel"
+      - "uuid"
+      - "pendente"
+      - "PRAZO_DA_RETOMA_S"
+      - "put"
+      - "SQL_PENDENTE_ANTIGA"
+      - "invocacaoDaFoto"
+      - "wamid"
+      - "asset_id"
+    variantes_literais: []
+  - seccao: "3.81"
+    conceito: "O STO no onboarding-web"
+    canonico: "SEGREDOS_DO_STO, montarArmazenamento"
+    literais:
+      - "SEGREDOS_DO_STO"
+      - "montarArmazenamento"
+    nomes:
+      - "onboarding"
+      - "web"
+      - "SEGREDOS_DO_STO"
+      - "montarArmazenamento"
+    nomes_nota:
+      - "storage_access_key_id"
+      - "storage_secret_access_key"
+      - "staging"
+      - "prod"
+      - "dev"
+      - "kamba_app"
+      - "media_imagem"
+    variantes_literais: []
   - seccao: "3.81"
     conceito: "Troca de telefone persistida"
     canonico: "platform.owner_phone_changes(change_id, tenant_id, pedido, telefone_hmac, owner_channel_wa, estado, prazo, contact_id, antigo_hmac, desafio_chave, desafio_hmac, desafio_expira_em, desafio_tentativas, criado_at, decidido_at)"
@@ -23380,25 +23694,282 @@ entradas:
     variantes_literais: []
   - seccao: "3.83"
     conceito: "O registo na base"
-    canonico: "ONBOARDING_APP_DB_URL (obrigatória em prod), BaseEmFaltaEmProducaoError, LIGACOES_DA_INSCRICAO, registo_na_base, es_guia_fora_de_prod"
+    canonico: "ONBOARDING_APP_DB_URL (obrigatória em prod), BaseEmFaltaEmProducaoError, LIGACOES_DA_INSCRICAO, registo_na_base"
     literais:
       - "ONBOARDING_APP_DB_URL"
       - "prod"
       - "BaseEmFaltaEmProducaoError"
       - "LIGACOES_DA_INSCRICAO"
       - "registo_na_base"
-      - "es_guia_fora_de_prod"
     nomes:
       - "ONBOARDING_APP_DB_URL"
       - "prod"
       - "BaseEmFaltaEmProducaoError"
       - "LIGACOES_DA_INSCRICAO"
       - "registo_na_base"
-      - "es_guia_fora_de_prod"
     nomes_nota:
       - "prod"
     variantes_literais: []
   - seccao: "3.84"
+    conceito: "Chave de idempotência do painel"
+    canonico: "platform.painel_idempotencia(tenant_id, chave, impressao, estado, corpo, criado_at, expira_at)"
+    literais:
+      - "platform.painel_idempotencia(tenant_id, chave, impressao, estado, corpo, criado_at, expira_at)"
+    nomes:
+      - "platform.painel_idempotencia"
+      - "tenant_id"
+      - "chave"
+      - "impressao"
+      - "estado"
+      - "corpo"
+      - "criado_at"
+      - "expira_at"
+    nomes_nota:
+      - "PATCH"
+      - "prod"
+      - "tenant_id"
+      - "chave"
+      - "FORCE"
+      - "painel_revogacao"
+      - "impressao"
+      - "estado"
+      - "corpo"
+      - "painel_idempotencia_resposta_ck"
+      - "kamba_app"
+      - "kamba_batch"
+      - "idempotencia_do_painel"
+      - "criado_at"
+      - "CAMINHO_IDEMPOTENCIA_DO_PAINEL"
+    variantes_literais: []
+  - seccao: "3.84"
+    conceito: "O adaptador e a porta"
+    canonico: "IdempotenciaNaBase, Deduplicacao, LIGACOES_DA_IDEMPOTENCIA"
+    literais:
+      - "IdempotenciaNaBase"
+      - "Deduplicacao"
+      - "LIGACOES_DA_IDEMPOTENCIA"
+    nomes:
+      - "IdempotenciaNaBase"
+      - "Deduplicacao"
+      - "LIGACOES_DA_IDEMPOTENCIA"
+    nomes_nota:
+      - "Deduplicacao"
+      - "Idempotencia"
+      - "dev"
+      - "IdempotenciaNaBase"
+      - "server.ts"
+    variantes_literais: []
+  - seccao: "3.85"
+    conceito: "Estado do guia do ES"
+    canonico: "platform.onboarding_guia(onboarding_id, tenant_id, estado, preflight_at, iniciado_at, motivo, tentativa_id, phone_number_id, numero_ligado_at, waba_id, numero_confirmado, sincronizado, actualizado_at, criado_at)"
+    literais:
+      - "platform.onboarding_guia(onboarding_id, tenant_id, estado, preflight_at, iniciado_at, motivo, tentativa_id, phone_number_id, numero_ligado_at, waba_id, numero_confirmado, sincronizado, actualizado_at, criado_at)"
+    nomes:
+      - "platform.onboarding_guia"
+      - "onboarding_id"
+      - "tenant_id"
+      - "estado"
+      - "preflight_at"
+      - "iniciado_at"
+      - "motivo"
+      - "tentativa_id"
+      - "phone_number_id"
+      - "numero_ligado_at"
+      - "waba_id"
+      - "numero_confirmado"
+      - "sincronizado"
+      - "actualizado_at"
+      - "criado_at"
+    nomes_nota:
+      - "FORCE"
+      - "estado"
+      - "motivo"
+      - "onboarding_case.preflight"
+      - "preflight_at"
+      - "phone_number_id"
+      - "numero_ligado_at"
+      - "kamba_app"
+      - "kamba_batch"
+      - "actualizado_at"
+    variantes_literais: []
+  - seccao: "3.85"
+    conceito: "Estado do guia na base"
+    canonico: "onboarding_guia.estado ∈ {pre_voo, iniciado, es_concluido, subscrito, a_sincronizar, verificado, pronto, abandonado, falhado, desligado}"
+    literais:
+      - "onboarding_guia.estado"
+      - "pre_voo"
+      - "iniciado"
+      - "es_concluido"
+      - "subscrito"
+      - "a_sincronizar"
+      - "verificado"
+      - "pronto"
+      - "abandonado"
+      - "falhado"
+      - "desligado"
+    nomes:
+      - "onboarding_guia.estado"
+      - "pre_voo"
+      - "iniciado"
+      - "es_concluido"
+      - "subscrito"
+      - "a_sincronizar"
+      - "verificado"
+      - "pronto"
+      - "abandonado"
+      - "falhado"
+      - "desligado"
+    nomes_nota:
+      - "EstadoGuardado.estado"
+      - "onboarding_guia_estado_ck"
+      - "pre_voo"
+    variantes_literais: []
+  - seccao: "3.85"
+    conceito: "Motivo do guia falhado na base"
+    canonico: "onboarding_guia.motivo ∈ {numero_divergente, sincronizacao_vencida, ligacao_recusada, tecto_da_meta}"
+    literais:
+      - "onboarding_guia.motivo"
+      - "numero_divergente"
+      - "sincronizacao_vencida"
+      - "ligacao_recusada"
+      - "tecto_da_meta"
+    nomes:
+      - "onboarding_guia.motivo"
+      - "numero_divergente"
+      - "sincronizacao_vencida"
+      - "ligacao_recusada"
+      - "tecto_da_meta"
+    nomes_nota:
+      - "EstadoGuardado.motivo"
+      - "onboarding_guia_motivo_ck"
+      - "falhado"
+      - "iniciado"
+    variantes_literais: []
+  - seccao: "3.85"
+    conceito: "Política e busca do guia pelo número"
+    canonico: "guia_busca em platform.onboarding_guia, platform.guia_caso_por_phone_number_id(text)"
+    literais:
+      - "guia_busca"
+      - "platform.onboarding_guia"
+      - "platform.guia_caso_por_phone_number_id(text)"
+    nomes:
+      - "guia_busca"
+      - "platform.onboarding_guia"
+      - "platform.guia_caso_por_phone_number_id"
+      - "text"
+    nomes_nota:
+      - "phone_number_id"
+      - "SECURITY"
+      - "DEFINER"
+      - "plpgsql"
+      - "search_path"
+      - "pg_catalog"
+      - "platform"
+      - "id"
+      - "tenant_id"
+      - "numero_ligado_at"
+      - "EXECUTE"
+      - "kamba_app"
+      - "kamba_migrator"
+      - "app.guia_busca"
+    variantes_literais: []
+  - seccao: "3.85"
+    conceito: "Os adaptadores do guia na base"
+    canonico: "guiaNaBase, gatesDoGuiaNaBase, abandonarVencidosNaBase, preflightDosItens, VarreduraNoLoteError"
+    literais:
+      - "guiaNaBase"
+      - "gatesDoGuiaNaBase"
+      - "abandonarVencidosNaBase"
+      - "preflightDosItens"
+      - "VarreduraNoLoteError"
+    nomes:
+      - "guiaNaBase"
+      - "gatesDoGuiaNaBase"
+      - "abandonarVencidosNaBase"
+      - "preflightDosItens"
+      - "VarreduraNoLoteError"
+    nomes_nota:
+      - "guiaNaBase"
+      - "kamba_app"
+      - "gatesDoGuiaNaBase"
+      - "onboarding_gate"
+      - "kamba_batch"
+    variantes_literais: []
+  - seccao: "3.85"
+    conceito: "A rota interna do guia no lote"
+    canonico: "POST /interno/guia/reservar, /libertar, /posicao, /convite, /recusar, /desistir, /gate, /revisao; segredo onboarding_lote_token; criarAppInterna, LOTE_INTERNO_PORT, LOTE_INTERNO_HOST"
+    literais:
+      - "onboarding_lote_token"
+      - "criarAppInterna"
+      - "LOTE_INTERNO_PORT"
+      - "LOTE_INTERNO_HOST"
+    nomes:
+      - "onboarding_lote_token"
+      - "criarAppInterna"
+      - "LOTE_INTERNO_PORT"
+      - "LOTE_INTERNO_HOST"
+    nomes_nota:
+      - "onboarding"
+      - "lote"
+      - "kamba_batch"
+      - "onboarding_id"
+    variantes_literais: []
+  - seccao: "3.85"
+    conceito: "O guia pelo lote no onboarding-web"
+    canonico: "ONBOARDING_LOTE_INTERNO_URL, ClienteDoLote, ListaPeloLote, GatesPeloLote, RevisaoPeloLote, portasDoGuia, LoteEmFaltaEmProducaoError, LoteIndisponivelError, es_guia_pelo_lote, es_guia_em_memoria"
+    literais:
+      - "ONBOARDING_LOTE_INTERNO_URL"
+      - "ClienteDoLote"
+      - "ListaPeloLote"
+      - "GatesPeloLote"
+      - "RevisaoPeloLote"
+      - "portasDoGuia"
+      - "LoteEmFaltaEmProducaoError"
+      - "LoteIndisponivelError"
+      - "es_guia_pelo_lote"
+      - "es_guia_em_memoria"
+    nomes:
+      - "onboarding"
+      - "web"
+      - "ONBOARDING_LOTE_INTERNO_URL"
+      - "ClienteDoLote"
+      - "ListaPeloLote"
+      - "GatesPeloLote"
+      - "RevisaoPeloLote"
+      - "portasDoGuia"
+      - "LoteEmFaltaEmProducaoError"
+      - "LoteIndisponivelError"
+      - "es_guia_pelo_lote"
+      - "es_guia_em_memoria"
+    nomes_nota:
+      - "prod"
+    variantes_literais: []
+  - seccao: "3.85"
+    conceito: "A volta do guia no lote"
+    canonico: "CicloDoGuia, AvisoDaListaSemVia, es_popups_abandonados, lista_espera_convite_por_entregar, guia_interno_ligado, guia_interno_desligado, guia_interno_recusado, guia_interno_falhou"
+    literais:
+      - "CicloDoGuia"
+      - "AvisoDaListaSemVia"
+      - "es_popups_abandonados"
+      - "lista_espera_convite_por_entregar"
+      - "guia_interno_ligado"
+      - "guia_interno_desligado"
+      - "guia_interno_recusado"
+      - "guia_interno_falhou"
+    nomes:
+      - "CicloDoGuia"
+      - "AvisoDaListaSemVia"
+      - "es_popups_abandonados"
+      - "lista_espera_convite_por_entregar"
+      - "guia_interno_ligado"
+      - "guia_interno_desligado"
+      - "guia_interno_recusado"
+      - "guia_interno_falhou"
+    nomes_nota:
+      - "onboarding"
+      - "web"
+    variantes_literais: []
+  - seccao: "3.86"
     conceito: "Decisão de um módulo de entrada"
     canonico: "platform.module_decisions, dez colunas: id, modulo, data_decisao, metricas, criterio, decisao, responsavel, justificacao, revisao_em, registado_em"
     literais:
@@ -23444,7 +24015,7 @@ entradas:
       - "kamba_batch"
       - "metricas"
     variantes_literais: []
-  - seccao: "3.84"
+  - seccao: "3.86"
     conceito: "A decisão"
     canonico: "module_decisions.decisao ∈ {manter, ajustar, abater}"
     literais:
@@ -23464,7 +24035,7 @@ entradas:
       - "ajustar"
       - "revisao_em"
     variantes_literais: []
-  - seccao: "3.84"
+  - seccao: "3.86"
     conceito: "Módulo da decisão"
     canonico: "module_decisions.modulo ∈ {catalogo, foto, social, orcamento}"
     literais:
@@ -23482,7 +24053,7 @@ entradas:
     nomes_nota:
       - "CHECK"
     variantes_literais: []
-  - seccao: "3.84"
+  - seccao: "3.86"
     conceito: "Critério accionado"
     canonico: "module_decisions.criterio: os nomes a_uso, b_custo, b_margem_negativa, c_incidentes, perto_do_limiar e d_catalogo_nao_se_abate, por vírgula"
     literais:
@@ -23505,7 +24076,7 @@ entradas:
       - "manter"
       - "kamba_core.modulos.experimento"
     variantes_literais: []
-  - seccao: "3.84"
+  - seccao: "3.86"
     conceito: "Exclusão da coorte"
     canonico: "platform.module_experiment_exclusions, quatro colunas: tenant_id, motivo, registado_por, registado_em; chave tenant_id"
     literais:
@@ -23530,7 +24101,7 @@ entradas:
       - "INSERT"
       - "kamba_batch"
     variantes_literais: []
-  - seccao: "3.84"
+  - seccao: "3.86"
     conceito: "Motivo da exclusão"
     canonico: "module_experiment_exclusions.motivo ∈ {equipa, teste}"
     literais:
@@ -23543,7 +24114,7 @@ entradas:
       - "teste"
     nomes_nota: []
     variantes_literais: []
-  - seccao: "3.84"
+  - seccao: "3.86"
     conceito: "Resultado de valor por módulo"
     canonico: "platform.experimento_valores(p_agora) → (tenant_id, modulo, primeiro_em)"
     literais:
@@ -23562,7 +24133,7 @@ entradas:
       - "atualizado_at"
       - "events_log"
     variantes_literais: []
-  - seccao: "3.84"
+  - seccao: "3.86"
     conceito: "Coorte do experimento"
     canonico: "platform.experimento_coorte(p_agora) → (tenant_id, provisionado_em)"
     literais:
@@ -23578,7 +24149,7 @@ entradas:
       - "tenants.tipo"
       - "pme"
     variantes_literais: []
-  - seccao: "3.84"
+  - seccao: "3.86"
     conceito: "H10 por tenant"
     canonico: "platform.experimento_h10(p_agora, p_janela_dias) e platform.v_h10(tenant_id, provisionado_em, censurado, catalogo, foto, social, orcamento, algum)"
     literais:
@@ -23603,7 +24174,7 @@ entradas:
       - "dias"
       - "censurado"
     variantes_literais: []
-  - seccao: "3.84"
+  - seccao: "3.86"
     conceito: "H11 por tenant"
     canonico: "platform.experimento_h11(p_agora, p_janela_dias) e platform.v_h11(tenant_id, primeiro_valor_em, primeiro_modulo, primeira_conversa_em, entrou_por_modulo, censurado, activou)"
     literais:
@@ -23627,7 +24198,7 @@ entradas:
       - "definir_dono"
       - "contact_id"
     variantes_literais: []
-  - seccao: "3.84"
+  - seccao: "3.86"
     conceito: "Pagantes da H12"
     canonico: "platform.v_h12_pagantes(tenant_id, plano, modulo, ciclos_pagos)"
     literais:
@@ -23642,7 +24213,7 @@ entradas:
       - "module_test_prices"
       - "v_h12"
     variantes_literais: []
-  - seccao: "3.84"
+  - seccao: "3.86"
     conceito: "Leitura de colunas pelo lote"
     canonico: "SELECT (estado, confirmado_at) em catalog_ingestions, ao kamba_batch"
     literais:
@@ -23662,7 +24233,7 @@ entradas:
       - "contacts"
       - "BYPASSRLS"
     variantes_literais: []
-  - seccao: "3.84"
+  - seccao: "3.86"
     conceito: "Comando do experimento"
     canonico: "experimento-modulos (../db/experimento_modulos.py), job ops_experimento_modulos"
     literais:
@@ -23679,7 +24250,7 @@ entradas:
       - "registar"
       - "excluir"
     variantes_literais: []
-  - seccao: "3.84"
+  - seccao: "3.86"
     conceito: "Limiares do experimento"
     canonico: "config/experimento_modulos.yaml, lido por kamba_core.modulos.experimento.ler"
     literais:
@@ -23688,7 +24259,7 @@ entradas:
       - "kamba_core.modulos.experimento.ler"
     nomes_nota: []
     variantes_literais: []
-  - seccao: "3.84"
+  - seccao: "3.86"
     conceito: "Regra de escopo dos módulos"
     canonico: "registry/modulos_entrada.yaml, a quinta forma do registo (chave de topo modulos_entrada), com modulo, activo, abatavel e emenda_adr_020"
     literais:
@@ -23762,6 +24333,18 @@ tabelas:
     assinatura: "hmac_key_versions(kid, estado, criado_at)"
     seccao: "3.1"
     conceito: "Versões da chave de pesquisa"
+  - nome: "contact_xtenant_pseudonym"
+    esquema: ""
+    colunas:
+      - "tenant_id"
+      - "contact_id"
+      - "pseudonimo"
+      - "kid"
+      - "visto_at"
+    aberta: false
+    assinatura: "contact_xtenant_pseudonym(tenant_id, contact_id, pseudonimo, kid, visto_at)"
+    seccao: "3.1"
+    conceito: "Pseudónimo do telefone sem tenant"
   - nome: "tenants"
     esquema: "platform"
     colunas:
@@ -25038,6 +25621,30 @@ tabelas:
     assinatura: "platform.ts_limitacao_do_catalogo()"
     seccao: "3.68"
     conceito: "A limitação no catálogo"
+  - nome: "ts_compradores_noutra_loja_do_dono"
+    esquema: "platform"
+    colunas:
+      - "p_tenants"
+    aberta: false
+    assinatura: "platform.ts_compradores_noutra_loja_do_dono(p_tenants)"
+    seccao: "3.68"
+    conceito: "A comparação"
+  - nome: "contact_xtenant_purgar"
+    esquema: "platform"
+    colunas:
+      - "p_tenants"
+      - "p_antes"
+    aberta: false
+    assinatura: "platform.contact_xtenant_purgar(p_tenants, p_antes)"
+    seccao: "3.68"
+    conceito: "A purga do pseudónimo"
+  - nome: "offer_terms_categoria_na_publicacao"
+    esquema: "platform"
+    colunas: []
+    aberta: false
+    assinatura: "platform.offer_terms_categoria_na_publicacao()"
+    seccao: "3.68"
+    conceito: "A guarda na publicação"
   - nome: "module_cost_gravar"
     esquema: "platform"
     colunas:
@@ -25437,13 +26044,56 @@ tabelas:
     assinatura: "platform.painel_revogacao(revogacao_id, tenant_id, sid, ate, expira_at, criado_at)"
     seccao: "3.83"
     conceito: "Revogações do painel"
+  - nome: "painel_idempotencia"
+    esquema: "platform"
+    colunas:
+      - "tenant_id"
+      - "chave"
+      - "impressao"
+      - "estado"
+      - "corpo"
+      - "criado_at"
+      - "expira_at"
+    aberta: false
+    assinatura: "platform.painel_idempotencia(tenant_id, chave, impressao, estado, corpo, criado_at, expira_at)"
+    seccao: "3.84"
+    conceito: "Chave de idempotência do painel"
+  - nome: "onboarding_guia"
+    esquema: "platform"
+    colunas:
+      - "onboarding_id"
+      - "tenant_id"
+      - "estado"
+      - "preflight_at"
+      - "iniciado_at"
+      - "motivo"
+      - "tentativa_id"
+      - "phone_number_id"
+      - "numero_ligado_at"
+      - "waba_id"
+      - "numero_confirmado"
+      - "sincronizado"
+      - "actualizado_at"
+      - "criado_at"
+    aberta: false
+    assinatura: "platform.onboarding_guia(onboarding_id, tenant_id, estado, preflight_at, iniciado_at, motivo, tentativa_id, phone_number_id, numero_ligado_at, waba_id, numero_confirmado, sincronizado, actualizado_at, criado_at)"
+    seccao: "3.85"
+    conceito: "Estado do guia do ES"
+  - nome: "guia_caso_por_phone_number_id"
+    esquema: "platform"
+    colunas:
+      - "text"
+    aberta: false
+    assinatura: "platform.guia_caso_por_phone_number_id(text)"
+    seccao: "3.85"
+    conceito: "Política e busca do guia pelo número"
   - nome: "experimento_valores"
     esquema: "platform"
     colunas:
       - "p_agora"
     aberta: false
     assinatura: "platform.experimento_valores(p_agora)"
-    seccao: "3.84"
+    seccao: "3.86"
     conceito: "Resultado de valor por módulo"
   - nome: "experimento_coorte"
     esquema: "platform"
@@ -25451,7 +26101,7 @@ tabelas:
       - "p_agora"
     aberta: false
     assinatura: "platform.experimento_coorte(p_agora)"
-    seccao: "3.84"
+    seccao: "3.86"
     conceito: "Coorte do experimento"
   - nome: "experimento_h10"
     esquema: "platform"
@@ -25460,7 +26110,7 @@ tabelas:
       - "p_janela_dias"
     aberta: false
     assinatura: "platform.experimento_h10(p_agora, p_janela_dias)"
-    seccao: "3.84"
+    seccao: "3.86"
     conceito: "H10 por tenant"
   - nome: "v_h10"
     esquema: "platform"
@@ -25475,7 +26125,7 @@ tabelas:
       - "algum"
     aberta: false
     assinatura: "platform.v_h10(tenant_id, provisionado_em, censurado, catalogo, foto, social, orcamento, algum)"
-    seccao: "3.84"
+    seccao: "3.86"
     conceito: "H10 por tenant"
   - nome: "experimento_h11"
     esquema: "platform"
@@ -25484,7 +26134,7 @@ tabelas:
       - "p_janela_dias"
     aberta: false
     assinatura: "platform.experimento_h11(p_agora, p_janela_dias)"
-    seccao: "3.84"
+    seccao: "3.86"
     conceito: "H11 por tenant"
   - nome: "v_h11"
     esquema: "platform"
@@ -25498,7 +26148,7 @@ tabelas:
       - "activou"
     aberta: false
     assinatura: "platform.v_h11(tenant_id, primeiro_valor_em, primeiro_modulo, primeira_conversa_em, entrou_por_modulo, censurado, activou)"
-    seccao: "3.84"
+    seccao: "3.86"
     conceito: "H11 por tenant"
   - nome: "v_h12_pagantes"
     esquema: "platform"
@@ -25509,7 +26159,7 @@ tabelas:
       - "ciclos_pagos"
     aberta: false
     assinatura: "platform.v_h12_pagantes(tenant_id, plano, modulo, ciclos_pagos)"
-    seccao: "3.84"
+    seccao: "3.86"
     conceito: "Pagantes da H12"
 
 dominios:
@@ -27051,6 +27701,7 @@ dominios:
       - "nao_entrega"
       - "mudanca_de_conta"
       - "violacao_de_categoria"
+      - "comprador_noutra_loja_do_dono"
     seccao: "3.68"
     conceito: "Tipo de sinal"
     so_no_registo: false
@@ -27095,6 +27746,19 @@ dominios:
       - "negado"
     seccao: "3.68"
     conceito: "Desfecho de um recurso"
+    so_no_registo: false
+  - coluna: "offer_terms.categoria"
+    valores:
+      - "moda"
+      - "mercearia"
+      - "restauracao"
+      - "beleza"
+      - "electronica"
+      - "servicos"
+      - "material_construcao"
+      - "outra"
+    seccao: "3.68"
+    conceito: "Categoria da oferta"
     so_no_registo: false
   - coluna: "module_cost_ledger.modulo"
     valores:
@@ -27422,12 +28086,36 @@ dominios:
     seccao: "3.83"
     conceito: "A cifra do NIF e do e-mail do caso"
     so_no_registo: false
+  - coluna: "onboarding_guia.estado"
+    valores:
+      - "pre_voo"
+      - "iniciado"
+      - "es_concluido"
+      - "subscrito"
+      - "a_sincronizar"
+      - "verificado"
+      - "pronto"
+      - "abandonado"
+      - "falhado"
+      - "desligado"
+    seccao: "3.85"
+    conceito: "Estado do guia na base"
+    so_no_registo: false
+  - coluna: "onboarding_guia.motivo"
+    valores:
+      - "numero_divergente"
+      - "sincronizacao_vencida"
+      - "ligacao_recusada"
+      - "tecto_da_meta"
+    seccao: "3.85"
+    conceito: "Motivo do guia falhado na base"
+    so_no_registo: false
   - coluna: "module_decisions.decisao"
     valores:
       - "manter"
       - "ajustar"
       - "abater"
-    seccao: "3.84"
+    seccao: "3.86"
     conceito: "A decisão"
     so_no_registo: false
   - coluna: "module_decisions.modulo"
@@ -27436,14 +28124,14 @@ dominios:
       - "foto"
       - "social"
       - "orcamento"
-    seccao: "3.84"
+    seccao: "3.86"
     conceito: "Módulo da decisão"
     so_no_registo: false
   - coluna: "module_experiment_exclusions.motivo"
     valores:
       - "equipa"
       - "teste"
-    seccao: "3.84"
+    seccao: "3.86"
     conceito: "Motivo da exclusão"
     so_no_registo: false
 

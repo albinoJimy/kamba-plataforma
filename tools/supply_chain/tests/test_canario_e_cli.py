@@ -111,7 +111,12 @@ class TestRepositorioReal(unittest.TestCase):
         # (imagem do AGR), **+1 em producao e em *staging*** e nao em
         # desenvolvimento: la o `postgres` nao escreve o `jsonlog`, e o
         # recolector recusava arrancar sem nada para ler.
-        self.assertEqual(resumo["servicos"], 72)
+        #
+        # **KAM-241: de 72 para 73.** O consumidor `dono` entra em producao
+        # (imagem do `onboarding-web`, o `dist/provisionamento.js` compilado e a
+        # sonda em `bash`), **+1 so em producao**: em desenvolvimento e em
+        # *staging* ja estava desde o KAM-215. A lista de saidas e a mesma.
+        self.assertEqual(resumo["servicos"], 73)
 
         _, resumo = egress.verificar(ROOT)
         # Idem: as quatro listas de saidas sao **vazias** com `por_omissao:

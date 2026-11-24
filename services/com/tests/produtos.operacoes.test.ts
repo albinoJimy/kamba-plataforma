@@ -38,6 +38,7 @@ import {
   ChamadaNaoPermitidaError,
   adaptadorMedusa,
   comRegisto,
+  rascunhoDoDraft,
   type Dependencias,
 } from "../src/adapters/medusa/index.ts";
 import {
@@ -105,6 +106,7 @@ function base(opcoes: Opcoes = {}): {
           stock_verificado_at: "2026-11-02T11:00:00.000Z",
           estado: "publicado",
           categoria_restrita: null,
+          categoria: "mercearia",
           atualizado_at: "2026-11-02T11:00:00.000Z",
         }
       : opcoes.oferta;
@@ -538,6 +540,7 @@ test("DoD: publicar um rascunho escreve, audita e emite — uma vez de cada", as
       stock_verificado_at: null,
       estado: "rascunho",
       categoria_restrita: null,
+      categoria: "mercearia",
       atualizado_at: "2026-11-02T11:00:00.000Z",
     },
   });
@@ -955,4 +958,105 @@ test("KAM-200: com limitação de T&S, a primeira publicação é recusa de dom�
   assert.deepEqual(resultado, { tipo: "erro", erro: "VALIDATION_ERROR" });
   assert.deepEqual(visto.eventos, []);
   assert.deepEqual(visto.auditorias, []);
+});
+
+// ------------------------------------------ KAM-209: a categoria da oferta
+
+/** Uma base que regista o texto e os parâmetros de cada escrita na oferta. */
+function baseQueGuarda(oferta: Record<string, unknown> | null) {
+  const escritas: { sql: string; parametros: readonly unknown[] }[] = [];
+  const cliente: ClienteSql = {
+    async query(sql: string, parametros: readonly unknown[] = []) {
+      if (sql.includes("platform.tenants")) return { rows: [{ medusa_merchant_id: "merch", medusa_sales_channel_id: null }] };
+      if (sql.includes("audit_append")) return { rows: [{}] };
+      if (sql.includes("evt_emitir")) return { rows: [{ event_id: "evt" }] };
+      if (sql.includes("platform.offer_terms")) {
+        if (/^\s*(UPDATE|INSERT)/i.test(sql)) {
+          escritas.push({ sql, parametros: [...parametros] });
+          return { rows: [{ sku: SKU, medusa_variant_id: null, estado: "rascunho", atualizado_at: "x" }] };
+        }
+        return { rows: oferta === null ? [] : [oferta] };
+      }
+      return { rows: [] };
+    },
+  };
+  return { cliente, escritas };
+}
+
+const RASCUNHO_SEM_CATEGORIA = {
+  sku: SKU,
+  nome: "Arroz 5 kg",
+  preco_tipo: "fixo",
+  preco_minor: "1250000",
+  currency: "AOA",
+  preco_atualizado_at: null,
+  preco_valido_ate: null,
+  stock_modo: "garantido",
+  stock_verificado_at: null,
+  estado: "rascunho",
+  categoria_restrita: null,
+  categoria: null,
+  atualizado_at: "2026-11-02T11:00:00.000Z",
+};
+
+/** O `upsertProductDraft` pela porta, com os termos fixos de um arroz e a categoria pedida. */
+async function rascunhoPelaPorta(cliente: ClienteSql, extra: { readonly categoria?: string }) {
+  const porta = adaptadorMedusa(deps(cliente), () => AGORA);
+  return porta.upsertProductDraft(ctx(), {
+    sku: SKU,
+    nome: "Arroz 5 kg",
+    ...extra,
+    atributos: { preco_tipo: "fixo", preco_minor: 1_250_000, stock_modo: "garantido" },
+  });
+}
+
+test("KAM-209: sem categoria nao se publica, e nada se escreve", async () => {
+  const { cliente, visto } = base({ oferta: RASCUNHO_SEM_CATEGORIA });
+  const porta = adaptadorMedusa(deps(cliente), () => AGORA);
+  const resultado = await porta.publishProduct(
+    ctx(),
+    { sku: SKU, registoId: null },
+    { actor: { kind: "dono", id: "msg-1" }, em: "2026-11-01T10:00:00Z" },
+  );
+  assert.deepEqual(resultado, { tipo: "erro", erro: "VALIDATION_ERROR" });
+  assert.deepEqual(visto.escritas, []);
+  assert.deepEqual(visto.eventos, []);
+});
+
+test("KAM-209: o rascunho novo leva a categoria da lista para o INSERT", async () => {
+  const { cliente, escritas } = baseQueGuarda(null);
+  const r = await rascunhoPelaPorta(cliente, { categoria: "moda" });
+  assert.equal(r.tipo, "ok");
+  const insercao = escritas.find((e) => /^\s*INSERT/i.test(e.sql));
+  assert.ok(insercao !== undefined);
+  assert.match(insercao.sql, /categoria/);
+  assert.ok(insercao.parametros.includes("moda"));
+});
+
+test("KAM-209: uma categoria fora da lista e VALIDATION_ERROR, antes de escrever", async () => {
+  for (const categoria of ["vestuario", "Moda", "", "outras"]) {
+    const { cliente, escritas } = baseQueGuarda(null);
+    const r = await rascunhoPelaPorta(cliente, { categoria });
+    assert.deepEqual(r, { tipo: "erro", erro: "VALIDATION_ERROR" }, categoria);
+    assert.deepEqual(escritas, [], categoria);
+  }
+});
+
+test("KAM-209: um rascunho sem categoria guarda a que a oferta tem, e mudar a categoria escreve", async () => {
+  const { cliente, escritas } = baseQueGuarda({ ...RASCUNHO_SEM_CATEGORIA, categoria: "mercearia" });
+  // O mesmo rascunho sem categoria: nada muda, nada se escreve.
+  assert.equal((await rascunhoPelaPorta(cliente, {})).tipo, "ok");
+  assert.equal(escritas.length, 0);
+  // Outra categoria: escreve, e o último parâmetro (`$9`) é ela.
+  assert.equal((await rascunhoPelaPorta(cliente, { categoria: "beleza" })).tipo, "ok");
+  assert.equal(escritas.length, 1);
+  assert.equal(escritas[0]?.parametros.at(-1), "beleza");
+});
+
+test("KAM-209: o rascunhoDoDraft le a categoria do ProductDraft", () => {
+  const atributos = { preco_tipo: "fixo", preco_minor: "100" };
+  assert.equal(rascunhoDoDraft({ sku: "a", nome: "b", categoria: "moda", atributos })?.categoria, "moda");
+  assert.equal(rascunhoDoDraft({ sku: "a", nome: "b", categoria: "vestuario", atributos }), null);
+  const semCategoria = rascunhoDoDraft({ sku: "a", nome: "b", categoria: null, atributos });
+  assert.ok(semCategoria !== null && !("categoria" in semCategoria));
 });

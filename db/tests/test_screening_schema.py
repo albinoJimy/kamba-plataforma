@@ -396,6 +396,73 @@ class TestCategoriaDoTenantDoCom(ComBase):
         self.assertEqual(list(app.fetchall()), [])
 
 
+class TestPublicadoDoScreenDoCom(ComBase):
+    """KAM-245: a tranca e a saida de publicado do `/internal/screen`, como `kamba_app`.
+
+    O duplo do `screening.violacao.test.ts` le o texto das duas instrucoes; aqui
+    corre-as o PostgreSQL. Mede o que o duplo nao ve: o `FOR UPDATE` e o
+    `UPDATE` com os privilegios de coluna do `kamba_app`, o *trigger* da `0080`
+    a deixar sair de publicado, e a RLS.
+    """
+
+    def _oferta(self, admin, tenant: str, sku: str, estado: str = "publicado") -> None:
+        admin.execute(
+            "INSERT INTO platform.offer_terms (tenant_id, sku, nome, preco_tipo, preco_minor, estado) "
+            "VALUES (%s, %s, %s, 'fixo', 100, %s)",
+            (tenant, sku, f"produto {sku}", estado),
+        )
+
+    def test_a_tranca_e_a_saida_so_tocam_o_publicado_deste_sku_e_deste_tenant(self) -> None:
+        admin = self.ligar("admin").cursor()
+        outro = factories.tenant(admin)
+        self._oferta(admin, outro, "alvo")
+        tenant = factories.tenant(admin)
+        self._oferta(admin, tenant, "alvo")
+        self._oferta(admin, tenant, "vizinho")
+        self._oferta(admin, tenant, "rascunho", estado="rascunho")
+        self._oferta(admin, tenant, "apagado")
+        admin.execute(
+            "UPDATE platform.offer_terms SET deleted_at = now() WHERE tenant_id = %s AND sku = 'apagado'",
+            (tenant,),
+        )
+        tranca = ConsultaDoTypeScript("SQL_PUBLICADO_SOB_TRANCA", SCREEN_DO_COM_TS)
+        saida = ConsultaDoTypeScript("SQL_DESPUBLICAR", SCREEN_DO_COM_TS)
+        admin.execute("SET LOCAL ROLE kamba_app")
+        factories.contexto(admin, tenant)
+        for sku, esperado in (("alvo", [("produto alvo",)]), ("rascunho", []), ("apagado", []), ("nada", [])):
+            with self.subTest(sku=sku):
+                admin.execute(tranca.sql, tranca.args(tenant, sku))
+                self.assertEqual([tuple(l) for l in admin.fetchall()], esperado)
+        admin.execute(saida.sql, saida.args(tenant, "alvo"))
+        self.assertEqual([tuple(l) for l in admin.fetchall()], [("alvo",)])
+        # Uma segunda saida ja nao encontra nada, e a tranca tambem nao.
+        admin.execute(saida.sql, saida.args(tenant, "alvo"))
+        self.assertEqual(list(admin.fetchall()), [])
+        admin.execute(tranca.sql, tranca.args(tenant, "alvo"))
+        self.assertEqual(list(admin.fetchall()), [])
+        # Com o contexto do outro tenant, a RLS nao deixa ver nem tirar o deste.
+        factories.contexto(admin, outro)
+        admin.execute(tranca.sql, tranca.args(tenant, "vizinho"))
+        self.assertEqual(list(admin.fetchall()), [])
+        admin.execute(saida.sql, saida.args(tenant, "vizinho"))
+        self.assertEqual(list(admin.fetchall()), [])
+        admin.execute("RESET ROLE")
+        admin.execute(
+            "SELECT tenant_id::text, sku, estado FROM platform.offer_terms "
+            "WHERE tenant_id IN (%s, %s) AND deleted_at IS NULL ORDER BY tenant_id = %s, sku",
+            (tenant, outro, tenant),
+        )
+        self.assertEqual(
+            [tuple(l) for l in admin.fetchall()],
+            [
+                (outro, "alvo", "publicado"),
+                (tenant, "alvo", "rascunho"),
+                (tenant, "rascunho", "rascunho"),
+                (tenant, "vizinho", "publicado"),
+            ],
+        )
+
+
 class TestViolacao(ComBase):
     """KAM-191: o `SQL_EMITIR_VIOLACAO` do `emissor.ts`, na transaccao da decisao.
 

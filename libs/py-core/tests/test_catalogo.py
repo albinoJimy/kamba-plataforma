@@ -624,7 +624,7 @@ class TestPipeline(unittest.TestCase):
         self.assertEqual(r.estado, estados.RASCUNHO, r)
         self.assertEqual(
             r.resumo,
-            "Camisa polo nike, categoria vestuario, cor azul, variantes M e L, "
+            "Camisa polo nike, categoria vestuario (moda), cor azul, variantes M e L, "
             "entrega entrega em Luanda, 12 000 Kz, 5 em stock",
         )
         self.assertEqual(len(m.registo.rascunhos), 1)

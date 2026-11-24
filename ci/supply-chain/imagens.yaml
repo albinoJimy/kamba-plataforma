@@ -331,6 +331,14 @@ fontes_adicionais:
   # contentor Node na rede do gate quando a maquina nao tem `node`.
   - ficheiro: db/tests_lote/node.py
     constante: IMAGEM_NODE
+  # KAM-239: o ensaio de que a rota interna do guia nao escuta fora da rede `app`
+  # levanta duas redes e contentores Node, mas **nao nomeia imagem**: usa a
+  # `IMAGEM_NODE` do `db/tests_lote/node.py`, logo acima, com o mesmo digest.
+  - ficheiro: db/tests_lote/test_rota_interna_rede.py
+    sem_imagem: >-
+      Cria duas redes internas e corre contentores Node com a imagem do
+      db/tests_lote/node.py (node.IMAGEM_NODE), declarada acima; nao guarda
+      referencia de imagem propria.
   # KAM-005: o publicador e TypeScript e corre num contentor Node quando a
   # maquina nao tem `node`, na rede do gate.
   - ficheiro: db/tests_eventos/node.py

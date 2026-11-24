@@ -918,6 +918,25 @@ MUTACOES = [
     ("bootstrap: kamba_app com BYPASSRLS", BOOT,
      '"kamba_app": "LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS"',
      '"kamba_app": "LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION BYPASSRLS"'),
+    # KAM-247: o papel e a base do proxy de LLM. Apanhadas pelo
+    # `tests/test_papel_do_litellm.py`; as cinco primeiras sao as que a revisao
+    # adversarial deu como vivas antes de o ensaio mexer no papel a mao.
+    ("bootstrap: kamba_litellm com CONNECT na plataforma", BOOT,
+     '"REVOKE ALL ON DATABASE %I FROM %I"', '"GRANT CONNECT ON DATABASE %I TO %I"'),
+    ("bootstrap: CONNECT dado a mao ao kamba_litellm fica", BOOT,
+     '"REVOKE ALL ON DATABASE %I FROM %I"', '"SELECT %L::text, %L::text"'),
+    ("bootstrap: kamba_litellm fora das pertencas revogadas", BOOT,
+     "papeis = [*ATRIBUTOS, PAPEL_DO_LITELLM]", "papeis = [*ATRIBUTOS]"),
+    ("bootstrap: atributos do kamba_litellm nao repostos", BOOT,
+     '        cursor.execute(f"ALTER ROLE {papel} {ATRIBUTOS_DO_LITELLM}")\n',
+     "        pass\n"),
+    ("bootstrap: configuracao do kamba_litellm nao reposta", BOOT,
+     '    _executar_formatado(cursor, "ALTER ROLE %I RESET ALL", papel)\n', ""),
+    ("bootstrap: base do proxy aberta ao PUBLIC", BOOT,
+     '"REVOKE CONNECT, TEMPORARY ON DATABASE %I FROM PUBLIC"',
+     '"GRANT CONNECT, TEMPORARY ON DATABASE %I TO PUBLIC"'),
+    ("bootstrap: dono da base do proxy nao reposto", BOOT,
+     '"ALTER DATABASE %I OWNER TO %I"', '"SELECT %L::text, %L::text"'),
     ("guarda: vertical por igualdade com assistente", GUARDA,
      "\"WHERE vertical NOT IN ('vendedor', 'servicos')\"",
      "\"WHERE vertical = 'assistente'\""),
@@ -1384,9 +1403,11 @@ MUTACOES = [
      '            cifrar(dek, bsuid, contextoDaCifra(tenant, dekId, "bsuid_enc")),',
      '            Buffer.from(bsuid, "utf8"),', IDENTIDADE),
     ("identidade: trocar de numero deixa a cifra do antigo", ID_SERVICO,
+     # KAM-208: o bloco ganhou o apagamento do pseudonimo sem tenant antes da
+     # `}`; a mutacao tira so o dos telefones, que e o que ela mede.
      "        if (telefoneDoContacto !== null && !eOMesmoNumero) {\n"
-     "          await executar(cliente, SQL.APAGAR_TELEFONES, [tenant, contacto]);\n        }\n",
-     "", IDENTIDADE),
+     "          await executar(cliente, SQL.APAGAR_TELEFONES, [tenant, contacto]);\n",
+     "        if (telefoneDoContacto !== null && !eOMesmoNumero) {\n", IDENTIDADE),
     # ----------------------------------- KAM-008, revisao adversarial (ANALISE-08)
     # As que **sobreviveram** a primeira versao dos testes, mais as dos defeitos
     # que as duas revisoes encontraram.

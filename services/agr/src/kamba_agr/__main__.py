@@ -1007,6 +1007,9 @@ def main() -> int:
         # KAM-223: o texto do turno, lido pelo `message_id` da
         # `platform.agent_messages`, com uma ligacao `kamba_app` por leitura.
         ler_mensagem=LeitorDeMensagens(ligar_para_mensagens).ler,
+        # KAM-243: a foto de um turno do painel, lida pela mesma ligacao, com a
+        # prova de que o contacto e o dono (achado 1 da revisao adversarial).
+        ler_foto_do_painel=LeitorDeMensagens(ligar_para_mensagens).foto_do_painel,
         # KAM-221, criterio 2: a mensagem de um cliente liberta as propostas
         # dele em `aguarda_janela`, pela mesma porta do envio.
         ao_cliente_escrever=portas_do_grafo["orcamentos"].libertar,

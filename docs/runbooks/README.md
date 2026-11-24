@@ -3,7 +3,7 @@
 | Campo | Valor |
 |---|---|
 | Ticket | **KAM-083** — Runbooks operacionais (`specs/EPIC-08_Topologia_Operacao.md`) |
-| Versão | 1.8 |
+| Versão | 1.9 |
 | Fontes | [`../tecnica/09_Topologia_Operacao_Escala.md`](../tecnica/09_Topologia_Operacao_Escala.md) §9.2 (alertas), §12 (degradação N0–N6), §13 (os dez runbooks), §16 (*on-call*) |
 | Ensaios | [`folha-de-ensaio.md`](folha-de-ensaio.md) — o roteiro de cada ensaio, a folha de tempos e o calendário do *game day* |
 | Evidência | [`../evidencia/KAM-083.md`](../evidencia/KAM-083.md) |
@@ -258,7 +258,6 @@ procedimento.
 | **Não há escala de *on-call*** com pessoas | «Escalar ao secundário» não tem destinatário | `ops/on-call.md`, credor o fundador |
 | **Não há sonda sintética externa** | A metade «sonda falha 2×» do `ingress_parado` não existe | `docs/observabilidade.md`, D1/KAM-105 |
 | **O GWY do compose não arranca tal como está escrito**: exige `KAMBA_QUEUE_URL`, `KAMBA_AMBIENTE` e os dois segredos da Meta, e nenhum compose lhos passa | Numa pilha levantada assim, o `ingress_parado` dispara e a causa é nossa | `services/gwy/src/server.ts`; [RB-K01](RB-K01-meta-em-baixo.md) §0 |
-| **O LiteLLM do compose não tem base de dados**: sem chaves virtuais nem orçamentos por *tenant* (medido: `/key/*` respondem 500 «DB not connected») | O «subir o limite» e o «`max_budget: 0`» não têm onde se aplicar | [RB-K03](RB-K03-llm-em-baixo-ou-sem-budget.md) §0 |
 
 ---
 
@@ -275,3 +274,4 @@ procedimento.
 | 1.6 | Novembro 2026 | **KAM-203**: a regra `confianca_recalculo_com_falhas` entra no `kamba-trust.yml` e na tabela do §5.1 (passam a catorze, depois da do KAM-210), com o §4 do [`trust-e-safety.md`](trust-e-safety.md). Nenhum runbook novo. | Equipa KAMBÁ |
 | 1.7 | Novembro 2026 | **KAM-219**: a regra `confianca_tecto_escrita_recusada` entra no `kamba-trust.yml` e na tabela do §5.1 (passam a quinze), com o §5 do [`trust-e-safety.md`](trust-e-safety.md). Nenhum runbook novo. | Equipa KAMBÁ |
 | 1.8 | Novembro 2026 | **KAM-225**: as regras `confianca_tecto_recusado_no_registo` e `registo_pg_registo_parado` entram no `kamba-trust.yml` e na tabela do §5.1 (passam a dezassete), com o §6 e o §7 do [`trust-e-safety.md`](trust-e-safety.md). Nenhum runbook novo. | Equipa KAMBÁ |
+| 1.9 | Novembro 2026 | **KAM-247**: sai a linha «O LiteLLM do compose não tem base de dados». Tem a `kamba_litellm` desde a decisão do fundador de 2026-11-23 (opção A1), e o RB-K03 §0, ponto 3, diz o que mudou. | Equipa KAMBÁ |

@@ -102,6 +102,12 @@ ESPERADO_POR_TABELA.update(
         # titular e um `DELETE` verdadeiro (doc 06 §7.6), e so aqui.
         "contact_endpoints": _identidade("SELECT", "INSERT", "DELETE"),
         "hmac_key_versions": _identidade("SELECT", "INSERT"),
+        # KAM-208 (revisao `0087`, decisao do fundador de 2026-11-21, D2): o
+        # pseudonimo sem tenant e do `kamba_identity` e de mais ninguem — nem do
+        # `kamba_batch`, que so o compara pela funcao `SECURITY DEFINER`. Os
+        # quatro de dados porque a resolucao o escreve (`INSERT ... ON CONFLICT
+        # DO UPDATE`, que le a linha que substitui) e o apaga com o numero.
+        "contact_xtenant_pseudonym": _identidade("SELECT", "INSERT", "UPDATE", "DELETE"),
     }
 )
 
@@ -1693,6 +1699,48 @@ ESPERADO_POR_TABELA.update(
     }
 )
 
+#: A idempotencia do painel (KAM-240). **Da aplicacao**: o `onboarding-web` le,
+#: reserva e grava a resposta como `kamba_app`, por coluna (ver
+#: `COLUNAS_POR_PAPEL`), e **nao apaga** (dicionario §2): uma chave vencida
+#: reaproveita-se pelo `UPDATE`. Quem apaga as vencidas e o executor da
+#: retencao, como `kamba_batch` (`CAMINHO_IDEMPOTENCIA_DO_PAINEL`).
+ESPERADO_POR_TABELA.update(
+    {
+        "painel_idempotencia": {
+            "kamba_app": {"SELECT"},
+            "kamba_batch": {"SELECT", "DELETE"},
+            "kamba_resolver": set(),
+            "kamba_identity": set(),
+            "kamba_audit": set(),
+            "kamba_agr": set(),
+            "kamba_pay_hooks": set(),
+            "kamba_migrator": set(PRIVILEGIOS_DE_TABELA),
+            "public": set(),
+        },
+    }
+)
+
+#: O guia na base (KAM-239). **Da aplicacao e do lote**: o `onboarding-web` le
+#: e escreve o estado do guia como `kamba_app`, com o `INSERT` e o `UPDATE` por
+#: coluna (ver `COLUNAS_POR_PAPEL`), e o `onboarding-lote` le e muda so o estado,
+#: como `kamba_batch`, na volta dos 30 minutos. **Ninguem apaga** (dicionario §2):
+#: o guia sai com o caso.
+ESPERADO_POR_TABELA.update(
+    {
+        "onboarding_guia": {
+            "kamba_app": {"SELECT"},
+            "kamba_batch": {"SELECT"},
+            "kamba_resolver": set(),
+            "kamba_identity": set(),
+            "kamba_audit": set(),
+            "kamba_agr": set(),
+            "kamba_pay_hooks": set(),
+            "kamba_migrator": set(PRIVILEGIOS_DE_TABELA),
+            "public": set(),
+        },
+    }
+)
+
 #: Os pedidos de orcamento (KAM-123, revisao do Orcamento expresso). **So a
 #: aplicacao**: o AGR corre como `kamba_app`, le, insere e actualiza por coluna
 #: (ver `COLUNAS_POR_PAPEL`). **Ninguem apaga**: um pedido fecha-se pelo
@@ -2742,6 +2790,23 @@ COLUNAS_POR_PAPEL = {
     ("kamba_app", "onboarding_contador", "UPDATE"): {"instantes", "actualizado_at"},
     ("kamba_app", "painel_revogacao", "INSERT"): {"tenant_id", "sid", "ate", "expira_at"},
     ("kamba_app", "painel_revogacao", "UPDATE"): {"ate", "expira_at"},
+    ("kamba_app", "painel_idempotencia", "INSERT"): {
+        "tenant_id", "chave", "impressao", "criado_at", "expira_at",
+    },
+    ("kamba_app", "painel_idempotencia", "UPDATE"): {
+        "impressao", "estado", "corpo", "criado_at", "expira_at",
+    },
+    # KAM-239 (revisao do guia na base). O guia insere-se com o caso e o
+    # tenant, e o resto nasce pelos `DEFAULT`; o `UPDATE` da aplicacao sao as
+    # transicoes, o instante do pre-voo e os dois factos do `verificado`. O
+    # lote muda so o estado, no abandono dos popups vencidos.
+    ("kamba_app", "onboarding_guia", "INSERT"): {"onboarding_id", "tenant_id"},
+    ("kamba_app", "onboarding_guia", "UPDATE"): {
+        "estado", "preflight_at", "iniciado_at", "motivo", "tentativa_id",
+        "phone_number_id", "numero_ligado_at", "waba_id", "numero_confirmado", "sincronizado",
+        "actualizado_at",
+    },
+    ("kamba_batch", "onboarding_guia", "UPDATE"): {"estado", "actualizado_at"},
     ("kamba_identity", "owner_phone_changes", "INSERT"): {
         "tenant_id", "pedido", "telefone_hmac", "owner_channel_wa", "prazo",
     },

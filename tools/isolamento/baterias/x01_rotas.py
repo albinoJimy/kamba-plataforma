@@ -972,6 +972,10 @@ registar_caso(
 #                             e o tenant de B no corpo, na consulta e no
 #                             cabecalho: 200, e a tentativa abre-se so no caso e
 #                             no tenant da sessao de A
+#     foto (KAM-243)          a sessao de A com o tenant de B na consulta e no
+#                             cabecalho e uma foto sintetica: 200 com o `asset_id`
+#                             de A, e o MED e o AGR so recebem o tenant e o thread
+#                             de A, com a persona `dono` e o `type` `image`
 #
 # **O 200 das listas entra por item e nao no global**, pela razao do `/metrics`
 # do COM: a afirmacao delas e «o tenant e o da sessao», e essa mede-se a ver os
@@ -1004,6 +1008,8 @@ ROTAS_DO_PAINEL = (
     "rota:onboarding-web:painel/rotas:actor:GET:/painel/produtos/:id",
     # KAM-206: o contacto do cliente de uma encomenda, mascarado, pelo botao.
     "rota:onboarding-web:painel/rotas:actor:POST:/painel/encomendas/:id/contacto",
+    # KAM-243: a foto do dono para o catalogo.
+    "rota:onboarding-web:painel/rotas:actor:POST:/painel/foto",
 )
 
 #: Os estados de cada rota, quando nao sao os do `RECUSAS_ACEITAVEIS`. As listas
@@ -1043,6 +1049,9 @@ ACEITAVEIS_DO_PAINEL: dict[str, tuple[int, ...]] = {
     # KAM-206. O contacto da encomenda de B com a sessao de A: **so** 404, igual
     # ao de uma encomenda que nao existe e ao de uma fora da regra.
     "rota:onboarding-web:painel/rotas:actor:POST:/painel/encomendas/:id/contacto": (404,),
+    # KAM-243. A foto com a sessao de A responde **so** 200, com o `asset_id` de A
+    # (a sonda): o que se mede e que o MED e o AGR so viram A.
+    "rota:onboarding-web:painel/rotas:actor:POST:/painel/foto": (200,),
 }
 
 #: Ataques por rota do painel.
@@ -1227,6 +1236,14 @@ def _afirmacoes_do_painel(item: str, entradas: list[dict]) -> list[str]:
             "A mensagem do `POST /painel/conversa` gravou-se ou invocou o AGR noutro "
             "tenant ou thread que nao o de A, sem a persona `dono`, ou com um "
             "botao: o pedido escolheu o tenant, ou um texto passou por botao.",
+        ),
+        (
+            "POST:/painel/foto",
+            "foto",
+            "A foto do `POST /painel/foto` foi ao MED ou ao AGR noutro tenant ou "
+            "thread que nao o de A, sem a persona `dono`, sem o `type` `image`, "
+            "com outro `asset_id` ou com um `message_id`: o pedido escolheu o "
+            "tenant da foto.",
         ),
     ):
         if item.endswith(sufixo):
@@ -1505,6 +1522,85 @@ registar_caso(
         com_idor=True,
         aceitaveis_por_item=ACEITAVEIS_DA_API_INTERNA_DO_COM,
         afirmacoes=_afirmacoes_da_api_interna_do_com,
+    ),
+    precisa="node",
+    origens=("corpo", "cabecalhos", "erro"),
+)
+
+
+# ----------------------------------- a rota interna do guia no lote (KAM-239)
+#
+# As oito operacoes da rota interna do `onboarding-lote`
+# (`services/onboarding-web/src/lote/interno.ts`; decisao do fundador de
+# 2026-11-22, A). O custo aceite e uma superficie HTTP num processo que passa a
+# RLS, e este caso mede as duas metades que o tornam pequeno, como o da API
+# interna do COM: **sem a credencial** — ausente, errada do mesmo comprimento,
+# no cabecalho errado, com um espaco a mais — as quatro respostas sao o mesmo
+# 401 e nenhuma chega as portas (`portas=0`); e **com ela**, nenhuma operacao le
+# o tenant do corpo (`tenant-do-corpo=ignorado`): a porta recebe o caso de A, e
+# nada de B. O canario de B vai no corpo dos ataques, e o oraculo varre as
+# respostas.
+ROTAS_INTERNAS_DO_GUIA = (
+    "rota:onboarding-web:lote/interno:criarAppInterna:POST:/interno/guia/reservar",
+    "rota:onboarding-web:lote/interno:criarAppInterna:POST:/interno/guia/libertar",
+    "rota:onboarding-web:lote/interno:criarAppInterna:POST:/interno/guia/posicao",
+    "rota:onboarding-web:lote/interno:criarAppInterna:POST:/interno/guia/convite",
+    "rota:onboarding-web:lote/interno:criarAppInterna:POST:/interno/guia/recusar",
+    "rota:onboarding-web:lote/interno:criarAppInterna:POST:/interno/guia/desistir",
+    "rota:onboarding-web:lote/interno:criarAppInterna:POST:/interno/guia/gate",
+    "rota:onboarding-web:lote/interno:criarAppInterna:POST:/interno/guia/revisao",
+)
+
+#: A unica recusa aceite: a credencial e o que se ataca, e vem antes de tudo.
+RECUSA_DA_ROTA_INTERNA_DO_GUIA = (401,)
+
+
+def _afirmacoes_do_guia_interno(item: str, entradas: list[dict]) -> list[str]:
+    """As medicoes de cada operacao que vem na `nota`, e que o oraculo nao ve."""
+    achados: list[str] = []
+    for chave, esperado, porque in (
+        (
+            "canario-de-b",
+            "presente",
+            "Sem o canario de B no corpo dos ataques, o zero do oraculo prova "
+            "que o varrimento nao encontra o que nunca la esteve.",
+        ),
+        (
+            "portas",
+            "0",
+            "Um pedido sem a credencial chegou a uma porta do lote: a rota "
+            "interna corre como `kamba_batch`, e passa a RLS.",
+        ),
+        (
+            "sonda",
+            "200",
+            "A metade positiva nao respondeu 200: o caso nao mediu a operacao "
+            "com a credencial, e o `tenant-do-corpo` nao diz nada.",
+        ),
+        (
+            "tenant-do-corpo",
+            "ignorado",
+            "A porta recebeu o tenant do corpo, ou nao recebeu o caso de A: o "
+            "tenant de um gate ou de um caso de revisao sai do caso, na base.",
+        ),
+    ):
+        achados.extend(_exigir_marca(item, entradas, chave, esperado, porque))
+    if len(entradas) != 4:
+        achados.append(f"{item}: {len(entradas)} ataques e nao quatro.")
+    return achados
+
+
+registar_caso(
+    id="X-01/ts/guia-interno",
+    bateria="X-01",
+    camada="rotas",
+    enumeravel=ROTAS_INTERNAS_DO_GUIA,
+    fn=_caso_ts(
+        "guia-interno",
+        ROTAS_INTERNAS_DO_GUIA,
+        com_idor=True,
+        aceitaveis=RECUSA_DA_ROTA_INTERNA_DO_GUIA,
+        afirmacoes=_afirmacoes_do_guia_interno,
     ),
     precisa="node",
     origens=("corpo", "cabecalhos", "erro"),

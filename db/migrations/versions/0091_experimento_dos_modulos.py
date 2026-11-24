@@ -83,7 +83,7 @@ import rls
 revision = "0091"
 #: Sobre a `0090` do KAM-239, o numero que a coordenacao deu (fila 0087 KAM-208,
 #: 0088 KAM-209, 0089 KAM-240, 0090 KAM-239).
-down_revision = "0086"
+down_revision = "0090"
 branch_labels = None
 depends_on = None
 

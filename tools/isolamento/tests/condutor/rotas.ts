@@ -2758,6 +2758,12 @@ async function grupoDoGuia(relatorio: Relatorio): Promise<void> {
 //                           o canal do dono de A: o WhatsApp, guardado em A com o
 //                           canal activo. O de B e o painel, com o canal
 //                           desligado, pelo que uma leitura de B mostrava o painel
+//   foto=a                  (KAM-243) as tres fotos do POST /painel/foto, com o
+//                           tenant de B na consulta e no cabecalho, foram ao MED e
+//                           ao AGR no tenant e no thread de A, com o `type`
+//                           `image`, a persona `dono`, o `asset_id` de A e o
+//                           `wamid` `painel.{asset_id}.{envio}`, sem `message_id`
+//   sonda=viva (foto)       (KAM-243) a resposta das tres trouxe o `asset_id` de A
 
 const ITENS_DO_PAINEL = [
   "rota:onboarding-web:painel/rotas:actor:GET:/painel/entrar",
@@ -2785,6 +2791,8 @@ const ITENS_DO_PAINEL = [
   "rota:onboarding-web:painel/rotas:actor:GET:/painel/produtos/:id",
   // KAM-206: o contacto do cliente de uma encomenda, mascarado, pelo botao.
   "rota:onboarding-web:painel/rotas:actor:POST:/painel/encomendas/:id/contacto",
+  // KAM-243: a foto do dono para o catalogo.
+  "rota:onboarding-web:painel/rotas:actor:POST:/painel/foto",
 ] as const;
 
 /** Os telefones da reentrada (KAM-190). Ficticios, com 999. */
@@ -3070,6 +3078,34 @@ async function grupoDoPainel(relatorio: Relatorio): Promise<void> {
       },
     };
 
+    // KAM-243: a foto do dono, com a `FotoDoDono` **real** sobre portas de duplo.
+    // O MED de duplo guarda por tenant, e o `asset_id` de B leva o canario: uma
+    // rota que tirasse o tenant de outro sitio que nao a sessao devolvia-o.
+    const ASSET_DE_A_NO_PAINEL = `${MARCADOR_DE_A}-asset`;
+    const pedidosAoMed: string[] = [];
+    const invocacoesDaFoto: Record<string, unknown>[] = [];
+    const FotoDoDono = donoModulo["FotoDoDono"] as new (p: unknown) => unknown;
+    const foto = {
+      foto: new FotoDoDono({
+        contexto: async (tenant: string) => ({
+          contactId: `${tenant.slice(0, 8)}-0000-4000-8000-0000000000c9`,
+          conversationId: `${tenant.slice(0, 8)}-0000-4000-8000-0000000000ca`,
+          channelId: `${tenant.slice(0, 8)}-0000-4000-8000-0000000000cb`,
+          vertical: "vendedor",
+          modo: "bot",
+        }),
+        receber: async (pedido: { tenantId: string }) => {
+          pedidosAoMed.push(pedido.tenantId);
+          const assetId = pedido.tenantId === TENANT_DE_A_NO_PAINEL ? ASSET_DE_A_NO_PAINEL : canario;
+          return { estado: "armazenado", assetId, referencia: `media://${assetId}`, repetido: false };
+        },
+        invocar: async (invocacao: Record<string, unknown>) => {
+          invocacoesDaFoto.push(invocacao);
+          return { estado: 200, desfecho: "executado" };
+        },
+      }),
+    };
+
     const app = (rotas["rotasDoPainel"] as (o: unknown) => AppHono)({
       comercio,
       canal: canalEspiao,
@@ -3080,6 +3116,7 @@ async function grupoDoPainel(relatorio: Relatorio): Promise<void> {
       reentrada,
       troca,
       conversa,
+      foto,
       teste,
     });
     const cookieDeA = `kamba_painel=${cunharSessao(sessaoDeA, chave)}`;
@@ -3506,6 +3543,38 @@ async function grupoDoPainel(relatorio: Relatorio): Promise<void> {
         ? "sonda=viva"
         : "sonda=morta",
     );
+
+    // ---- POST /painel/foto (KAM-243): a sessao de A com o tenant de B na
+    // consulta e no cabecalho, e uma foto sintetica (so a assinatura de um JPEG).
+    // O MED e o AGR so veem A, e a resposta traz o `asset_id` de A (a sonda).
+    const fotoSintetica = new Uint8Array(64).fill(1);
+    fotoSintetica.set([0xff, 0xd8, 0xff, 0xe0]);
+    for (let vez = 0; vez < 3; vez += 1) {
+      const [c, headers] = comTenantDeB("/painel/foto", vez);
+      await empurrar(
+        ITENS_DO_PAINEL[20],
+        "POST",
+        c,
+        { method: "POST", headers: { ...headers, "content-type": "image/jpeg" }, body: fotoSintetica },
+        sonda,
+      );
+    }
+    const fotoDeA =
+      pedidosAoMed.length === 3 &&
+      pedidosAoMed.every((t) => t === TENANT_DE_A_NO_PAINEL) &&
+      invocacoesDaFoto.length === 3 &&
+      invocacoesDaFoto.every(
+        (i) =>
+          i["tenant_id"] === TENANT_DE_A_NO_PAINEL &&
+          String(i["thread_id"]).startsWith(`${TENANT_DE_A_NO_PAINEL}:`) &&
+          i["type"] === "image" &&
+          i["persona"] === "dono" &&
+          i["asset_id"] === ASSET_DE_A_NO_PAINEL &&
+          String(i["wamid"]).startsWith(`painel.${ASSET_DE_A_NO_PAINEL}.`) &&
+          !("message_id" in i) &&
+          !("botao" in i),
+      );
+    marcarEm(20, fotoDeA ? "foto=a" : "foto=alheia");
   } catch (erro) {
     falhar(`a montagem do painel levantou: ${razao(erro)}`);
   }
@@ -3931,6 +4000,138 @@ async function grupoDoLote(relatorio: Relatorio): Promise<void> {
   }
 }
 
+// ------------------------------------- a rota interna do guia no lote (KAM-239)
+//
+// A lista e **literal** e a ordem e a do caso em `baterias/x01_rotas.py`.
+const ITENS_DO_GUIA_INTERNO = [
+  "rota:onboarding-web:lote/interno:criarAppInterna:POST:/interno/guia/reservar",
+  "rota:onboarding-web:lote/interno:criarAppInterna:POST:/interno/guia/libertar",
+  "rota:onboarding-web:lote/interno:criarAppInterna:POST:/interno/guia/posicao",
+  "rota:onboarding-web:lote/interno:criarAppInterna:POST:/interno/guia/convite",
+  "rota:onboarding-web:lote/interno:criarAppInterna:POST:/interno/guia/recusar",
+  "rota:onboarding-web:lote/interno:criarAppInterna:POST:/interno/guia/desistir",
+  "rota:onboarding-web:lote/interno:criarAppInterna:POST:/interno/guia/gate",
+  "rota:onboarding-web:lote/interno:criarAppInterna:POST:/interno/guia/revisao",
+] as const;
+
+/** Obviamente falsa e de baixa entropia, pela razao do `INTERNO_DE_ENSAIO` do COM. */
+const CREDENCIAL_DO_GUIA_INTERNO = "ensaio-x01-credencial-do-lote";
+
+/**
+ * As oito operacoes da rota interna do guia (`services/onboarding-web/src/lote/interno.ts`),
+ * atacadas como as do COM: o ataque leva o `onboarding_id` de B, o `tenant_id` de
+ * B e o canario de B no corpo, **sem** a credencial, com uma errada do mesmo
+ * comprimento, e com a certa no cabecalho errado. As quatro tem de dar o mesmo
+ * 401, e nenhuma pode chegar as portas (`portas=0`).
+ *
+ * A metade positiva corre na mesma app, **antes** dos ataques, e nao entra no
+ * relatorio, pela razao do COM: o 200 dela quebrava a uniformidade. Leva o caso
+ * de A e o `tenant_id` de B no corpo, e o que se mede e que a porta recebe o caso
+ * de A e nada de B (`tenant-do-corpo=ignorado`): nenhuma operacao le um tenant do
+ * pedido. O veredicto vai na `nota` de cada entrada.
+ */
+async function grupoDoGuiaInterno(relatorio: Relatorio): Promise<void> {
+  const falhar = (nota: string): void => {
+    for (const item of ITENS_DO_GUIA_INTERNO) {
+      const partes = item.split(":");
+      relatorio.rotas.push({
+        item,
+        metodo: partes[4] ?? "",
+        caminho: partes.slice(5).join(":"),
+        estado: 0,
+        corpo: "",
+        cabecalhos: {},
+        executado: false,
+        nota,
+      });
+    }
+  };
+
+  let interno: Record<string, unknown>;
+  try {
+    interno = await importarDoRepo("services/onboarding-web/src/lote/interno.ts");
+  } catch (erro) {
+    falhar(`nao se conseguiu importar a rota interna do guia: ${razao(erro)}`);
+    return;
+  }
+  const criar = interno["criarAppInterna"];
+  if (typeof criar !== "function") {
+    falhar("services/onboarding-web/src/lote/interno.ts nao exporta criarAppInterna como funcao");
+    return;
+  }
+
+  try {
+    const canario = canarioOuSubstituto();
+    const marcaDoCanario = canarios().length === 0 ? "canario-de-b=ausente" : "canario-de-b=presente";
+    const tenantB = ambiente("KAMBA_X01_TENANT_B") || "00000000-0000-4000-8000-00000000000b";
+    const casoDeA = "0000000a-0000-4000-8000-00000000000a";
+    const casoDeB = "0000000b-0000-4000-8000-0000000000b0";
+    const chamadas: unknown[][] = [];
+    const registar = (...argumentos: unknown[]): void => {
+      chamadas.push(argumentos);
+    };
+    const lista = {
+      reserve: async (id: string) => (registar("reserve", id), "granted"),
+      release: async (id: string) => registar("release", id),
+      posicao: async (id: string) => (registar("posicao", id), { estado: "concluido" }),
+      validarConvite: async (id: string, convite: unknown) => (
+        registar("validarConvite", id, convite), { expiraEm: new Date("2026-11-24T10:00:00.000Z") }
+      ),
+      recusar: async (id: string, convite: unknown) => registar("recusar", id, convite),
+      desistir: async (id: string) => registar("desistir", id),
+    };
+    const gates = { marcar: async (...a: unknown[]) => registar("marcar", ...a) };
+    const revisao = { abrir: async (...a: unknown[]) => registar("abrir", ...a) };
+    const app = (criar as (o: unknown) => AppHono)({ lista, gates, revisao, credencial: CREDENCIAL_DO_GUIA_INTERNO });
+    const corpo = (caso: string, convite: string) =>
+      JSON.stringify({
+        onboarding_id: caso,
+        tenant_id: tenantB,
+        convite,
+        gate: "meta_es",
+        verde: true,
+        motivo: "numero_divergente",
+      });
+    const errada = "x".repeat(CREDENCIAL_DO_GUIA_INTERNO.length);
+    for (const item of ITENS_DO_GUIA_INTERNO) {
+      const caminho = item.split(":").slice(5).join(":");
+      // A metade positiva: o caso de A com o tenant de B no corpo.
+      const antes = chamadas.length;
+      const sonda = await app.request(caminho, {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-kamba-interno": CREDENCIAL_DO_GUIA_INTERNO },
+        body: corpo(casoDeA, "convite-de-a"),
+      });
+      const recebido = JSON.stringify(chamadas.slice(antes));
+      const ignorado = chamadas.length === antes + 1 && recebido.includes(casoDeA) && !recebido.includes(tenantB);
+      const ataques: { readonly headers: Record<string, string> }[] = [
+        { headers: { "content-type": "application/json" } },
+        { headers: { "content-type": "application/json", "x-kamba-interno": errada } },
+        { headers: { "content-type": "application/json", authorization: `Bearer ${CREDENCIAL_DO_GUIA_INTERNO}` } },
+        // Um sufixo visivel, e nao um espaco: o `Headers` apara o espaco no fim, e o
+        // pedido chegava autenticado (achado 1 da revisao adversarial do KAM-239).
+        { headers: { "content-type": "application/json", "x-kamba-interno": `${CREDENCIAL_DO_GUIA_INTERNO}-x` } },
+      ];
+      const antesDosAtaques = chamadas.length;
+      const entradas: EntradaDeRota[] = [];
+      for (const ataque of ataques) {
+        entradas.push(
+          await medir(item, "POST", caminho, app, { method: "POST", headers: ataque.headers, body: corpo(casoDeB, canario) }),
+        );
+      }
+      const portas = chamadas.length - antesDosAtaques;
+      for (const entrada of entradas) {
+        entrada.nota =
+          `${marcaDoCanario} portas=${portas} sonda=${sonda.status} ` +
+          `tenant-do-corpo=${ignorado ? "ignorado" : "lido"}`;
+        relatorio.rotas.push(entrada);
+      }
+    }
+  } catch (erro) {
+    falhar(`a montagem da rota interna do guia levantou: ${razao(erro)}`);
+  }
+}
+
 // ---------------------------------------------------------------------- o main
 
 const GRUPOS: Record<string, (relatorio: Relatorio) => Promise<void>> = {
@@ -3946,6 +4147,7 @@ const GRUPOS: Record<string, (relatorio: Relatorio) => Promise<void>> = {
   painel: grupoDoPainel,
   equipa: grupoDaEquipa,
   lote: grupoDoLote,
+  "guia-interno": grupoDoGuiaInterno,
 };
 
 async function main(): Promise<number> {

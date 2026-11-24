@@ -344,6 +344,19 @@ POLITICA: Final[tuple[Classe, ...]] = (
         fonte="packages/core-ts/src/inscricao/sql.ts (PARADA_MS)",
     ),
     Classe(
+        "idempotencia_do_painel",
+        APAGAR,
+        "painel_idempotencia.criado_at",
+        # KAM-240 (revisao da idempotencia do painel). A chave do PATCH dos
+        # produtos, a impressao do pedido e a resposta do COM, por tenant e sem
+        # pessoa. A chave vale 24 h; apaga-a o executor, como lote, uma hora
+        # depois. Decisao da coordenacao do lote 19 (2026-11-22), que o fundador
+        # pode reabrir: o `kamba_app` nao apaga linhas (dicionario §2).
+        (_t("platform.painel_idempotencia", ligada=True),),
+        prazo=Prazo(horas=25),
+        fonte="services/onboarding-web/src/painel/idempotencia.ts (VALIDADE_DA_CHAVE_MS)",
+    ),
+    Classe(
         "lg_checkpoints",
         DELEGADO,
         "ultima escrita da thread",
@@ -471,6 +484,14 @@ POLITICA: Final[tuple[Classe, ...]] = (
             _t("platform.tenant_channels", pendencia=_RELACAO),
             _t("platform.contacts", pendencia=_RELACAO),
             _t("platform.contact_endpoints", pendencia=_RELACAO + "; expira_at com KAM-072"),
+            # KAM-208 (revisao `0087`). O pseudonimo do telefone sem tenant: sai
+            # com o contacto (o *trigger* `contacts_xtenant_esquecer`) e vence
+            # aos 90 dias do `visto_at` pela purga do lote de T&S (D4), menos o
+            # do dono enquanto for dono (D4b). Nao e este *job* que o apaga.
+            _t(
+                "platform.contact_xtenant_pseudonym",
+                pendencia=_RELACAO + "; visto_at aos 90 dias pela purga do lote de T&S (KAM-208)",
+            ),
             _t("platform.contact_deks", pendencia=_RELACAO),
             _t("platform.conversations", pendencia=_RELACAO),
             _t("platform.owner_contacts", pendencia=_RELACAO),
@@ -518,6 +539,10 @@ POLITICA: Final[tuple[Classe, ...]] = (
             # caso: so o HMAC do codigo, um por caso, marcado usado no acerto e
             # no esgotamento (nunca apagado pela aplicacao); sai com o caso.
             _t("platform.onboarding_otp", pendencia=_RELACAO + "; sai com o caso de onboarding"),
+            # KAM-239 (revisao do guia na base). O estado do guia do ES de um
+            # caso: um por caso, os identificadores da Meta do numero ligado e
+            # nunca o numero; nao se apaga pela aplicacao, e sai com o caso.
+            _t("platform.onboarding_guia", pendencia=_RELACAO + "; sai com o caso de onboarding"),
             # KAM-094 (revisao do catalogo minimo). As tentativas do teste
             # ponta a ponta vivem com o caso, que as aponta por FK composta, e
             # saem com ele. Nenhuma coluna de pessoa: o telefone de onde o dono
