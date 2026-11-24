@@ -30,8 +30,9 @@ acesso a mais nenhum segredo. E a excepcao a (A) do `ADR-L002`, escrita no §7 d
 O `DopplerSecretProvider` descarrega a configuracao inteira e guarda-a 60 s. Uma
 chave gravada pela saga segundos antes do primeiro turno do tenant (o
 `teste_ponta_a_ponta` do KAM-091) nao estaria na descarga guardada. Por isso uma
-**ausencia** pede uma descarga nova — no maximo uma por `INTERVALO_DO_REFRESCO_S`,
-para que um tenant sem chave nao ponha o AGR a bater no Doppler a cada turno.
+**ausencia** descarta a descarga guardada e pede outra — no maximo uma por
+referencia em cada `INTERVALO_DO_REFRESCO_S`, para que um tenant sem chave nao
+ponha o AGR a bater no Doppler a cada turno.
 """
 
 from __future__ import annotations
@@ -62,41 +63,48 @@ AMBIENTES_COM_PROJECTO: Final = ("staging", "prod")
 
 
 class _ComRefresco:
-    """Um `SecretProvider` que, numa ausencia, descarrega outra vez (com limite)."""
+    """Um `SecretProvider` que, numa ausencia, descarta a descarga guardada e le outra vez.
+
+    **A descarga nova fica guardada**, e e o que a primeira versao nao fazia: lia a
+    chave nova numa descarga a parte e deixava a guardada com 60 s de idade, pelo
+    que o AGR alternava entre ter e nao ter a chave do tenant que acabou de nascer
+    (medido pela revisao adversarial). E o intervalo conta **por referencia**: a
+    ausencia de um tenant sem chave nao atrasa a leitura da chave de outro.
+    """
 
     def __init__(
         self,
-        guardado: DopplerSecretProvider,
-        fresco: DopplerSecretProvider,
+        provedor: DopplerSecretProvider,
         intervalo_s: float,
         agora: Callable[[], float],
     ) -> None:
-        self.nome = guardado.nome
-        self.ambiente = guardado.ambiente
-        self._guardado = guardado
-        self._fresco = fresco
+        self.nome = provedor.nome
+        self.ambiente = provedor.ambiente
+        self._provedor = provedor
         self._intervalo = intervalo_s
         self._agora = agora
-        self._ultimo: float | None = None
+        self._ultimo: dict[str, float] = {}
 
     def health(self) -> None:
-        self._guardado.health()
+        self._provedor.health()
 
     def get(self, ref: str) -> str:
         return self.get_ring(ref)[0]
 
     def get_ring(self, ref: str) -> tuple[str, str | None]:
         try:
-            return self._guardado.get_ring(ref)
+            return self._provedor.get_ring(ref)
         except SecretAusenteError:
             agora = self._agora()
-            if self._ultimo is not None and agora - self._ultimo < self._intervalo:
+            ultimo = self._ultimo.get(ref)
+            if ultimo is not None and agora - ultimo < self._intervalo:
                 raise
-            self._ultimo = agora
-            return self._fresco.get_ring(ref)
+            self._ultimo[ref] = agora
+            self._provedor.descartar_descarga()
+            return self._provedor.get_ring(ref)
 
     def versions(self, ref: str) -> tuple[str, ...]:
-        return self._guardado.versions(ref)
+        return self._provedor.versions(ref)
 
 
 def leitor_das_chaves(
@@ -124,15 +132,14 @@ def leitor_das_chaves(
 
         return sem_token, "chaves_sem_token_de_leitura"
     projecto = env.get(VARIAVEL_DO_PROJECTO, PROJECTO_DAS_CHAVES_POR_OMISSAO)
-    guardado = DopplerSecretProvider(ambiente, projecto, ambiente, token, transporte)
-    fresco = DopplerSecretProvider(
-        ambiente, projecto, ambiente, token, transporte, ttl_descarga_s=0.0
+    provedor = DopplerSecretProvider(
+        ambiente, projecto, ambiente, token, transporte, agora=agora
     )
     # A fachada `Secrets` da a janela de ultimo valor conhecido com o Doppler em
     # baixo (KAM-010), e nao a da a uma chave **apagada**: revogar continua imediato.
     fachada = Secrets(
         servico=servico,
-        provider=_ComRefresco(guardado, fresco, INTERVALO_DO_REFRESCO_S, agora),
+        provider=_ComRefresco(provedor, INTERVALO_DO_REFRESCO_S, agora),
         obrigatorios=(),
         agora=agora,
     )

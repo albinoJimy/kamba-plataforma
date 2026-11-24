@@ -666,6 +666,34 @@ class TestAMensagemDoFornecedorNaoVaza(unittest.TestCase):
         self.assertIn("resposta_nao_json", str(apanhado.exception))
 
 
+class TestAChaveQueNaoSeLe(unittest.TestCase):
+    """KAM-250: uma chave que o cofre nao da nao se regista como falha de rede.
+
+    Desde o KAM-250 a chave le-se pela API do Doppler; registada como «nao se
+    alcancou o proxy», uma falha do cofre mandava quem diagnostica ao sitio errado.
+    E a excepcao do cofre nao viaja no `__context__`.
+    """
+
+    def test_a_falha_diz_que_foi_a_chave_e_nao_chama_o_proxy(self) -> None:
+        from kamba_core.secrets import SecretAusenteError
+
+        transporte = _Transporte()
+        cliente, lig, _ = _cliente(transporte)
+
+        def sem_chave(tenant_id: str) -> str:
+            raise SecretAusenteError(f"litellm_virtual_key/{tenant_id}", "doppler")
+
+        cliente._chave_virtual = sem_chave
+        with self.assertRaises(FornecedorFalhou) as apanhado:
+            cliente.chamar("chat", _msg("x"), CTX)
+        texto = str(apanhado.exception)
+        self.assertIn("a chave virtual nao se leu do cofre", texto)
+        self.assertNotIn("proxy", texto)
+        self.assertIn("SecretAusenteError", texto)
+        self.assertIsNone(apanhado.exception.__cause__.__context__)
+        self.assertEqual(transporte.chamadas, [], "sem chave nao se chama o proxy")
+
+
 class TestQuemServiu(unittest.TestCase):
     """Criterio 6: o *fallback* aparece no registo como tal.
 

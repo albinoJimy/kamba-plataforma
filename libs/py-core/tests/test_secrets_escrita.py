@@ -73,22 +73,37 @@ class TestOPedido(unittest.TestCase):
             },
         )
 
+    def test_o_nome_vai_em_maiusculas_com_o_hex_do_tenant(self) -> None:
+        """`A_CONFIRMAR_ESCRITA["nomes"]`: so maiusculas, digitos e `_`."""
+        t = _Transporte()
+        inquilino = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"
+        _gravador(t).gravar(f"litellm_virtual_key/{inquilino}", VALOR)
+        (nome,) = json.loads(t.pedidos[0][2])["secrets"]
+        self.assertEqual(nome, "KAMBA_SECRET_LITELLM_VIRTUAL_KEY__AAAAAAAA_BBBB_4CCC_8DDD_EEEEEEEEEEEE")
+        self.assertIn("nomes", A_CONFIRMAR_ESCRITA)
+
     def test_o_nome_e_o_que_o_leitor_procura(self) -> None:
         """A escrita e a leitura usam o mesmo `nome_da_variavel`: o que se grava lê-se."""
         from kamba_core.secrets import DopplerSecretProvider
 
         t = _Transporte()
-        _gravador(t).gravar("litellm_screening_key", VALOR)
-        segredos = json.loads(t.pedidos[0][2])["secrets"]
+        inquilino = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"
+        for ref in ("litellm_screening_key", f"litellm_virtual_key/{inquilino}"):
+            _gravador(t).gravar(ref, VALOR)
+        segredos: dict[str, str] = {}
+        for _, _, corpo in t.pedidos:
+            segredos.update(json.loads(corpo)["secrets"])
         leitor = DopplerSecretProvider(
             "prod", "kamba-llm-chaves", "prod", "dp.st.leitura",
             lambda url, cab: RespostaHttp(200, json.dumps(segredos)),
         )
         self.assertEqual(leitor.get("litellm_screening_key"), VALOR)
+        self.assertEqual(leitor.get(f"litellm_virtual_key/{inquilino}"), VALOR)
 
     def test_a_forma_por_confirmar_esta_declarada(self) -> None:
         self.assertEqual(
-            set(A_CONFIRMAR_ESCRITA), {"caminho", "corpo", "resposta", "limite_do_token"}
+            set(A_CONFIRMAR_ESCRITA),
+            {"caminho", "corpo", "resposta", "nomes", "limite_do_token"},
         )
 
 
@@ -135,6 +150,9 @@ class TestOValorNaoSaiNosErros(unittest.TestCase):
         self.assertNotIn(VALOR, texto)
         self.assertNotIn("dp.st.escrita", texto)
         self.assertIsNone(apanhado.exception.__cause__)
+        # O `__context__` tambem: o `from None` so apaga o `__cause__`, e o
+        # contexto levava a excepcao original, com o corpo (achado da revisao).
+        self.assertIsNone(apanhado.exception.__context__)
         return apanhado.exception
 
     def test_uma_falha_de_transporte_que_cita_o_corpo(self) -> None:

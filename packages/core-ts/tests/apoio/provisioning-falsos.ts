@@ -322,8 +322,8 @@ export class ChaveDeLlmFalsa implements ChaveDeLlm {
   }
 
   /** Semeia uma chave como se já existisse no proxy, sem contar criação. */
-  semear(alias: string, valor: string): void {
-    this.#itens.set(alias, { id: resumoDaChave(valor), nosso: true });
+  semear(alias: string, valor: string, nosso = true): void {
+    this.#itens.set(alias, { id: resumoDaChave(valor), nosso });
   }
 
   async revogar(id: string): Promise<void> {

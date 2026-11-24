@@ -57,6 +57,16 @@ describe("KAM-250 — o DopplerGravador", () => {
     });
   });
 
+  it("o nome vai em maiusculas, com o hex do tenant", async () => {
+    const t = transporte();
+    await gravador(t.f).gravar("litellm_virtual_key/aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee", VALOR);
+    const p = t.pedidos[0];
+    assert.ok(p !== undefined);
+    assert.deepEqual(Object.keys(JSON.parse(p.corpo).secrets), [
+      "KAMBA_SECRET_LITELLM_VIRTUAL_KEY__AAAAAAAA_BBBB_4CCC_8DDD_EEEEEEEEEEEE",
+    ]);
+  });
+
   it("as familias sao as duas chaves virtuais", () => {
     assert.deepEqual([...FAMILIAS_DAS_CHAVES_DO_LLM], ["litellm_virtual_key", "litellm_screening_key"]);
   });

@@ -53,6 +53,8 @@ export const A_CONFIRMAR_ESCRITA = {
   corpo:
     "forma do corpo; `corpoDoPedido` assume {project, config, secrets: {NOME: valor}} — docs.doppler.com",
   resposta: "o código de sucesso; este adaptador aceita só 200 — docs.doppler.com",
+  nomes:
+    "a regra de nomes de segredo; o gravador escreve o nome em maiúsculas (o hex do tenant_id incluído) e o leitor Python aceita as duas caixas — docs.doppler.com",
   limiteDoToken:
     "que um service token de escrita fica limitado ao projecto e à configuração para que foi emitido — E4 §2.14 di-lo em resumo",
 } as const;
@@ -157,7 +159,8 @@ export class DopplerGravador implements GravadorDeSegredo {
           accept: "application/json",
           "content-type": "application/json",
         },
-        corpo: corpoDoPedido(this.projecto, this.config, nomeDaVariavel(r), valor),
+        // Em maiúsculas: `A_CONFIRMAR_ESCRITA.nomes`.
+        corpo: corpoDoPedido(this.projecto, this.config, nomeDaVariavel(r).toUpperCase(), valor),
       });
     } catch (erro) {
       // Só o nome da classe atravessa: a mensagem de uma biblioteca de rede pode

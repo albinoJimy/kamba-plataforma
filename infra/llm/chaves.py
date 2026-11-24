@@ -28,9 +28,11 @@ proxy de `staging` e `prod` tem a base `kamba_litellm` (decisao do fundador de
 2026-11-23), e este *script* corre contra ele.
 
 Ou seja, o `/key/generate` **nao e idempotente**, e o criterio 4 exige que criar
-a chave de um tenant o seja. A idempotencia faz-se aqui, em tres passos:
-procurar em `/key/list`, e depois `/key/update` ou `/key/generate`; e o 400 de
-uma corrida concorrente cai para o `/key/update`, pelo texto medido acima.
+a chave de um tenant o seja. A idempotencia faz-se aqui: procurar em
+`/key/list`, e depois `/key/update` ou `/key/generate` (ou, desde o KAM-250,
+apagar e gerar, quando o cofre nao autentica a chave). O 400 de uma corrida
+concorrente, pelo texto medido acima, repete o caminho **uma** vez, que compara
+o resumo do valor do cofre e reemite se divergirem (`_garantir`).
 
 **E isto e tambem a razao de o mapeamento de erro do cliente nao ser pelo 400**:
 o proxy usa o 400 para «alias repetido» e o **422** para orcamento esgotado. Um

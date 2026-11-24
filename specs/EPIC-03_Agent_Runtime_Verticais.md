@@ -4,7 +4,7 @@
 |---|---|
 | Produto | KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para Angola |
 | Documento | Epic — Agent Runtime e Verticais |
-| Versão | 1.29 |
+| Versão | 1.30 |
 | Data | Outubro de 2026 |
 | Classificação | Documento de Referência — Interno |
 | Documento-fonte | `../docs/tecnica/02_Agent_Runtime_Verticais.md`, `../docs/tecnica/00_Arquitectura_Solucao.md` |
@@ -5609,6 +5609,21 @@ caminho de escrita (`ADR-L002` §6). Medido no KAM-247 (§3 do anexo): a chave d
 envolvendo o `Proxy.gerar`. Logo nenhum consumidor — o AGR com a `litellm_virtual_key/<tenant_id>`, o
 classificador com a `litellm_screening_key` — a recebe pelo procedimento escrito.
 
+### Decisões do fundador
+
+| Campo | Valor |
+|---|---|
+| Decisão | **Opção 1: um projecto Doppler próprio para as chaves virtuais.** O provisionamento (o `chaves.py` e o passo `chave_llm`) escreve com um *token* de escrita limitado a esse projecto; o AGR lê as duas chaves pela API com um *token* só de leitura limitado a esse projecto, sem reiniciar; dois segredos novos no inventário; emenda ao `ADR-L002`, que fica *proposta* até ele a ratificar. **Recusadas:** a 2 (só o operador grava, e a saga falha fechada em `prod`) e a 3 (um *token* de escrita na configuração `prod` que já existe) |
+| Data | 2026-11-24 |
+| Autor | o fundador (respondida no chat da coordenação, e trazida por ela) |
+
+A pergunta chegou-lhe com um achado medido antes da primeira edição: em `staging` e `prod` o AGR
+**não conseguia ler** a chave de tenant nenhum, nem depois de reiniciar. Os segredos chegam-lhe por
+interpolação do *compose*, que declara uma lista fixa de `KAMBA_SECRET_*`, e a chave do tenant vira
+`KAMBA_SECRET_LITELLM_VIRTUAL_KEY__<tenant_id>`, um nome que nenhum *compose* consegue declarar. E um
+*service token* do Doppler vale para uma configuração inteira (`E4` §2.14, em
+resumo): um *token* de escrita na de `prod` reescrevia a *master key*, os *peppers* e as KEK.
+
 ### Objectivo
 
 Que o valor de cada chave virtual que o proxy emite chegue ao cofre, na referência que o inventário
@@ -5616,15 +5631,15 @@ declara, sem passar por um terminal nem por um registo, e que o consumidor a lei
 
 ### Critérios de Aceitação
 
-- [ ] A escrita no cofre desenhada e implementada na porta de segredos (`ADR-L002` §6), com a forma
+- [x] A escrita no cofre desenhada e implementada na porta de segredos (`ADR-L002` §6), com a forma
   da API do fornecedor medida ou o NÃO VERIFICADO dela declarado e isolado.
-- [ ] O `provisionar` e o `provisionar-screening` do `chaves.py`, e o passo `chave_llm` do KAM-091,
+- [x] O `provisionar` e o `provisionar-screening` do `chaves.py`, e o passo `chave_llm` do KAM-091,
   gravam o valor que o `/key/generate` devolve na referência do inventário, e nunca o imprimem.
-- [ ] Uma repetição não perde a chave nem a reemite sem necessidade: o valor que está no cofre continua
+- [x] Uma repetição não perde a chave nem a reemite sem necessidade: o valor que está no cofre continua
   a autenticar no proxy.
-- [ ] O AGR lê a chave do tenant e a do screening do cofre e chama o proxy com elas, medido contra o
+- [x] O AGR lê a chave do tenant e a do screening do cofre e chama o proxy com elas, medido contra o
   proxy com base.
-- [ ] Nenhum valor de chave em *log*, em *stdout* ou na base da plataforma (ensaio).
+- [x] Nenhum valor de chave em *log*, em *stdout* ou na base da plataforma (ensaio).
 
 ### Detalhes Técnicos
 
@@ -5641,8 +5656,55 @@ declara, sem passar por um terminal nem por um registo, e que o consumidor a lei
 
 ### Definition of Done
 
-- [ ] Critérios satisfeitos, com a evidência nomeada.
-- [ ] Sem segredos: nenhum valor de chave fora do cofre e do proxy.
+- [x] Critérios satisfeitos, com a evidência nomeada.
+- [x] Sem segredos: nenhum valor de chave fora do cofre e do proxy.
+
+### Verificação dos Critérios de Aceitação
+
+Ramo `feature/KAM-250-chaves-virtuais-no-cofre`, base `cf5a563f` (`publico/main`). As medições estão no
+`../docs/evidencia/KAM-250.md`: a imagem do proxy fixada por *digest*, endurecida como em `prod`, com
+base, numa rede `--internal`, com modelos falsos e **um Doppler falso** — a forma da API do Doppler é
+NÃO VERIFICADO, porque não há conta.
+
+| # | Critério | Estado | Evidência |
+|---|---|---|---|
+| 1 | A escrita no cofre na porta de segredos | satisfeito | A porta `GravadorDeSegredo.gravar(ref, valor)` e o `DopplerGravador`, em `../libs/py-core/src/kamba_core/secrets/escrita.py` e `../packages/core-ts/src/secrets/gravacao.ts`, ao lado da `SecretWriter` do KAM-016 e não dentro dela (o `cunhar` dela inventa a referência, e aqui a referência é a do inventário). Só escreve as duas famílias das chaves virtuais. O NÃO VERIFICADO está declarado em `A_CONFIRMAR_ESCRITA` (caminho, corpo, resposta, nomes, alcance do *token*) e isolado em `_corpo_do_pedido` / `corpoDoPedido` e no URL do `gravar`. Ensaios: `../libs/py-core/tests/test_secrets_escrita.py` (14) e `../packages/core-ts/tests/secrets.gravacao.test.ts` (9), contra um duplo que lê o URL, os cabeçalhos e o corpo. A emenda é o §7 do `../docs/adr/ADR-L002-injeccao-de-segredos.md`, *proposta* |
+| 2 | O `chaves.py` e o passo `chave_llm` gravam o valor e nunca o imprimem | satisfeito | O valor gera-se (`sk-` e 32 octetos), grava-se em `litellm_virtual_key/<tenant_id>` ou `litellm_screening_key` **antes** de ir ao proxy, e o `/key/generate` recebe-o no `key` (medido: usa-o e devolve-o, §1 do anexo). O `chaves.py`: `TestOValorVaiParaOCofre` e `TestOComandoComOCofre` em `../services/agr/tests/test_llm_chaves.py`, e os passos 1 a 3 do §2 do anexo com os comandos reais. O passo `chave_llm`: `../packages/core-ts/tests/provisioning.chave_no_cofre.test.ts`, contra os duplos do proxy e do cofre, que é o que os Testes Requeridos pedem. **Limite, e não é deste ticket:** a saga do KAM-091 não tem processo em `prod` (nenhum serviço consome o `tenant.approved` com ela) nem um `ChaveDeLlm` real com `criar`; quem a ligar liga também o `cofreDeChaves` e a saída do processo para `api.doppler.com` |
+| 3 | Uma repetição não perde a chave nem a reemite sem necessidade | satisfeito | A repetição compara o SHA-256 do valor do cofre com o `token` que o proxy lista (medido: são iguais, §1 do anexo), e só reemite quando não batem. Medido de ponta a ponta: a segunda e a terceira corrida dão «actualizada», com **uma** escrita no cofre, e a chave lida do cofre continua a dar 200 depois de um reinício do proxy (§2, passos 2, 9 e 10); uma chave anterior ao KAM-250 é «reemitida» e a nova autentica (passo 8). Nos ensaios: `test_a_segunda_corrida_nao_reemite_e_o_cofre_continua_a_autenticar` (o canário), a queda entre o cofre e o proxy, a corrida concorrente, e os mesmos casos no passo da saga |
+| 4 | O AGR lê as duas chaves do cofre e chama o proxy com elas | satisfeito | `../services/agr/src/kamba_agr/llm/cofre_das_chaves.py`: em `staging` e `prod` lê-as pela API do projecto das chaves, com o `doppler_llm_chaves_leitura`, sem reiniciar; sem ele não as lê de lado nenhum (fecha). O `__main__.py` liga as duas, a do tenant e a do screening, ao mesmo leitor. Medido contra o proxy com base (§2, passos 4 a 6 e 11): a do tenant chama o `kamba-chat` (200) e não o `screening-nano` (403), a do screening o contrário, e sem o *token* nada se lê, nem com a chave posta à mão no ambiente. Ensaios: `../services/agr/tests/test_llm_cofre_das_chaves.py`, incluindo a ligação no `__main__` e a chave que acabou de nascer |
+| 5 | Nenhum valor de chave em *log*, *stdout* ou na base (ensaio) | satisfeito | Os ensaios: `test_o_valor_nao_sai_em_stdout_nem_stderr` (os comandos reais, três corridas), `test_o_erro_do_generate_nao_cita_o_corpo` (o 400 medido ecoa oito caracteres da chave), `TestOValorNaoSaiNosErros` no gravador (com o `__context__`), `TestAChaveQueNaoSeLe` no cliente, e `nenhum valor de chave no log nem na base` na saga (a base recebe o resumo, o `litellm_key_id`, e nunca o valor). Medido: nenhum valor nem fragmento dele nas saídas dos comandos, e a base do proxy guarda o resumo (§2, passos 13 e 14) |
+
+**A decisão.** O fundador escolheu a opção 1 a 2026-11-24 (secção «Decisões do fundador», acima). Os dois
+segredos novos estão no `../ops/secrets-inventory.yaml`, só em `staging` e `prod` e sem `obrigatorio_em`;
+o `KAMBA_SECRET_LITELLM_SCREENING_KEY` sai dos dois *compose*, e entra o *token* de leitura, com `:-`. A
+saída `api.doppler.com` entra no `../services/agr/egress.yaml` e na *allowlist* do `proxy-saida`, e o
+`../infra/compose/envoy/envoy.yaml` foi regenerado. Nenhum serviço novo, nenhuma migração.
+
+**Nove mutações `llm:`** no `../db/mutacoes.py` (três do critério 3, uma do 5, quatro do 4 — duas mutam a
+ligação no `__main__` —, e a família do gravador), e as duas baterias novas nas listas literais. O
+corredor recusa-se a correr na `main` de hoje, por um ensaio do KAM-219, e mediram-se numa cópia
+(§4 do anexo): linha de base verde e as nove mortas.
+
+**A revisão adversarial**, independente e só de leitura, correu sobre o primeiro *commit* e deu nove
+achados. Tratados neste PR:
+- **O AGR alternava entre ter e não ter a chave de um tenant que acabou de nascer**: o refresco lia
+  numa descarga à parte e deixava a guardada com 60 s. Passa a descartar a guardada, e o intervalo
+  conta por referência. Ensaio novo, com o relógio a avançar.
+- **O valor podia viajar no `__context__`** de uma falha de transporte: o `from None` só apaga o
+  `__cause__`. O gravador levanta fora do `except`, e o ensaio afere o contexto.
+- **O nome da variável leva o hex do tenant em minúsculas**, e a regra de nomes do Doppler é NÃO
+  VERIFICADO: o gravador escreve em maiúsculas, o leitor aceita as duas caixas, e a regra entra no
+  `A_CONFIRMAR_ESCRITA`.
+- **O *runbook* de rotação mandava rodar com `/key/delete`**, e com o `chaves.py` novo isso recriava a
+  chave com o mesmo valor: passa a mandar apagar o segredo no cofre. O `docs/agr.md` deixava o egresso
+  do AGR em `destinos: []`.
+- **Uma falha do cofre registava-se como «não se alcançou o proxy»**: o cliente distingue-a.
+- O docstring do `chaves.py` e o caso `nosso: false` do passo da saga (reemitir a chave feita à mão é
+  deliberado, e tem ensaio).
+
+Ficam declarados, e não corrigidos: o `revogar` **não apaga** o segredo do cofre (o *runbook* di-lo; a
+rotação está fora deste ticket), e as mutações do lado TypeScript mediram-se à mão, porque as suites
+do `core-ts` no corredor são de base de dados e não correm estes ensaios.
 
 ### Handoff para Claude Code
 
@@ -5722,3 +5784,4 @@ Testes: contrato contra os duplos, e a chave emitida, gravada, lida e usada cont
 | 1.27 | Novembro 2026 | KAM-232 (EPIC-11): o critério 2 do KAM-033 revisto — a linha da `agent_messages` em claro 90 dias e o corpo da `wa-inbound` com prazo de 24 h, por decisão do fundador de 2026-11-20; a primeira é excepção escrita à letra do critério. Nenhuma caixa muda. Sobre a 1.26 da `main` em `28bb7e88` | Equipa KAMBÁ |
 | 1.28 | Novembro 2026 | **KAM-247** acrescentado, no PR do **KAM-233** (EPIC-09), que o abre e não o implementa, pela decisão do fundador de 2026-11-21 (Q1 = A): o LiteLLM de `prod` arranca sem base e a imagem fixada não tem chaves virtuais sem ela (medido, `../docs/evidencia/KAM-233.md` §2). O `Bloqueia` do KAM-030 ganha-o. Escrito como KAM-239 e depois KAM-241, e renumerado na integração contra a `main` em `25babeca` (o maior era o KAM-246) | Equipa KAMBÁ |
 | 1.29 | Novembro 2026 | **KAM-247 entregue**, pela decisão do fundador de 2026-11-23 (opção A1, e o `start_period` a 600 s): o bloco ganha a «Decisão do fundador» e a «Verificação dos Critérios de Aceitação». Marcados os critérios 1 e 4 e a caixa dos segredos; os critérios 2 e 5 ficam **parciais**, à espera de *staging*, e o 3 não se aplica. **E o KAM-250 acrescentado**, credor das chaves virtuais no cofre, pela decisão do fundador de 2026-11-23; o `Bloqueia` do KAM-247 ganha o KAM-249 (EPIC-08) e o KAM-250. | Equipa KAMBÁ |
+| 1.30 | Novembro 2026 | **KAM-250 entregue**, pela decisão do fundador de 2026-11-24 (opção 1): o bloco ganha as «Decisões do fundador» e a «Verificação dos Critérios de Aceitação». Os **cinco** critérios e as duas caixas da DoD marcados; o limite do critério 2 (a saga do KAM-091 sem processo em `prod`) fica escrito. As chaves virtuais vivem num projecto Doppler próprio, o provisionamento grava-as antes de as criar no proxy, e o AGR lê-as pela API; emenda *proposta* ao `ADR-L002` (§7) e ao dicionário (1.147). | Equipa KAMBÁ |

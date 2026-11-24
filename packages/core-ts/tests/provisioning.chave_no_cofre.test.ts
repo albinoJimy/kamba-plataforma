@@ -86,6 +86,15 @@ describe("KAM-250 — o passo `chave_llm` grava o valor no cofre", () => {
     assert.equal(m.chaveDeLlm.quantos, 1);
   });
 
+  it("a chave feita a mao (nosso: false) tambem se reemite, porque o alias e do tenant", async () => {
+    m.chaveDeLlm.semear(ALIAS, "sk-da-fase-0", false);
+    const id = await passoDaChave(m).ensure(CASO);
+    assert.deepEqual(m.chaveDeLlm.revogadas, [resumoDaChave("sk-da-fase-0")]);
+    const valor = m.cofreDeChaves.segredos.get(REF);
+    assert.ok(valor !== undefined);
+    assert.equal(id, resumoDaChave(valor));
+  });
+
   it("um valor no cofre que nao bate reemite com esse valor", async () => {
     m.chaveDeLlm.semear(ALIAS, "sk-outro");
     m.cofreDeChaves.segredos.set(REF, "sk-o-do-cofre");

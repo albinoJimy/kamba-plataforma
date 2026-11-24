@@ -129,6 +129,35 @@ class TestAChaveQueAcabouDeNascer(unittest.TestCase):
         relogio.t += 1
         self.assertEqual(ler(f"litellm_virtual_key/{TENANT}"), "sk-nasceu-agora")
 
+    def test_a_chave_que_nasceu_continua_la_nas_leituras_seguintes(self) -> None:
+        """O achado 1 da revisão adversarial: o AGR alternava entre ter e não ter a chave."""
+        doppler, relogio, ler = self.montar()
+        doppler.conteudo = {"KAMBA_SECRET_LITELLM_SCREENING_KEY": "sk-s"}
+        ler("litellm_screening_key")
+        doppler.conteudo[NOME_DO_TENANT] = "sk-b"
+        for passo in (11, 1, 3, 7, 1, 5):
+            relogio.t += passo
+            with self.subTest(t=relogio.t):
+                self.assertEqual(ler(f"litellm_virtual_key/{TENANT}"), "sk-b")
+
+    def test_a_ausencia_de_um_tenant_nao_atrasa_a_chave_de_outro(self) -> None:
+        doppler, relogio, ler = self.montar()
+        outro = "22222222-2222-4222-8222-222222222222"
+        with self.assertRaises(SecretAusenteError):
+            ler(f"litellm_virtual_key/{TENANT}")
+        doppler.conteudo["KAMBA_SECRET_LITELLM_VIRTUAL_KEY__" + outro.replace("-", "_")] = "sk-o"
+        relogio.t += 1
+        self.assertEqual(ler(f"litellm_virtual_key/{outro}"), "sk-o")
+
+    def test_um_nome_gravado_em_maiusculas_le_se(self) -> None:
+        """O gravador escreve o nome em maiúsculas (o hex do tenant incluído)."""
+        doppler, _, ler = self.montar()
+        inquilino = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"
+        doppler.conteudo = {
+            ("KAMBA_SECRET_LITELLM_VIRTUAL_KEY__" + inquilino.replace("-", "_")).upper(): "sk-m"
+        }
+        self.assertEqual(ler(f"litellm_virtual_key/{inquilino}"), "sk-m")
+
     def test_um_tenant_sem_chave_nao_poe_o_agr_a_bater_no_doppler(self) -> None:
         doppler, relogio, ler = self.montar()
         for _ in range(20):

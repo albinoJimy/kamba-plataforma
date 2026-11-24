@@ -280,6 +280,14 @@ export function montarPassos(d: Dependencias): ReadonlyMap<Passo, DefinicaoDePas
         } else {
           // O proxy tem uma chave que o cofre não autentica: ninguém a usa pelo
           // procedimento escrito, e reemite-se — com o valor do cofre, se o houver.
+          //
+          // **Também com `nosso: false`, e é de propósito.** A regra do critério 8
+          // do KAM-091 («só se compensa o que a saga criou») é sobre **desfazer**
+          // um recurso; isto é o passo a **garantir** o recurso que o alias
+          // `tenant-<uuid>` diz ser deste tenant. A chave feita à mão na Fase 0
+          // pelo `infra/llm/chaves.py` não leva a etiqueta da saga e não tem o
+          // valor no cofre: deixá-la ficar era deixar o tenant sem chave que o
+          // AGR consiga ler. O `chaves.py` faz o mesmo.
           if (existente !== null) await d.chaveDeLlm.revogar(existente.id);
           // **O cofre antes do proxy** (KAM-250): uma queda entre os dois deixa
           // um valor no cofre sem chave, e a repetição cria a chave com esse

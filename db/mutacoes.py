@@ -4841,8 +4841,9 @@ MUTACOES = [
      "    if True:",
      AGR_UNIT),
     ('llm: uma ausencia nao pede descarga nova', AG_LLM_COFRE,
-     "            return self._fresco.get_ring(ref)",
-     "            raise",
+     "            self._provedor.descartar_descarga()
+",
+     "",
      AGR_UNIT),
     ('llm: a chave do tenant liga-se ao ambiente', AG_MAIN,
      "        chave_virtual=lambda tenant_id: ler_chave(",

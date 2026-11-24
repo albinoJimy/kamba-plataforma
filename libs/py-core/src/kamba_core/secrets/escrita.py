@@ -84,6 +84,11 @@ A_CONFIRMAR_ESCRITA = {
     "resposta": (
         "o codigo de sucesso; este adaptador aceita so 200 — docs.doppler.com"
     ),
+    "nomes": (
+        "a regra de nomes de segredo; o gravador escreve o nome em maiusculas "
+        "(o hex do tenant_id incluido) e o leitor aceita as duas caixas — "
+        "docs.doppler.com"
+    ),
     "limite_do_token": (
         "que um service token de escrita fica limitado ao projecto e a "
         "configuracao para que foi emitido — E4 §2.14 diz-o em resumo"
@@ -179,15 +184,22 @@ class DopplerGravador:
             "accept": "application/json",
             "content-type": "application/json",
         }
-        corpo = _corpo_do_pedido(self.projecto, self.config, nome_da_variavel(ref), valor)
+        # Em maiusculas: `A_CONFIRMAR_ESCRITA["nomes"]`. O leitor aceita as duas.
+        nome = nome_da_variavel(ref).upper()
+        corpo = _corpo_do_pedido(self.projecto, self.config, nome, valor)
+        falhou: str | None = None
         try:
             resposta = self._transporte(url, cabecalhos, corpo)
         except Exception as erro:  # noqa: BLE001 - so o nome da classe atravessa
             # A mensagem de uma biblioteca de rede pode trazer o URL, os
             # cabecalhos ou, num erro de serializacao, o corpo — que leva o valor.
-            raise CofreInacessivelError(
-                self.nome, f"transporte falhou: {type(erro).__name__}"
-            ) from None
+            falhou = type(erro).__name__
+        if falhou is not None:
+            # **Fora do `except`**, e nao com `from None`: o `from None` so apaga
+            # o `__cause__`, e o `__context__` continuava a levar a excepcao
+            # original — com o corpo, se o transporte o citasse. E a regra do
+            # `kamba_core/storage/s3.py`. Achado da revisao adversarial do KAM-250.
+            raise CofreInacessivelError(self.nome, f"transporte falhou: {falhou}")
         if resposta.status in (401, 403):
             raise CofreInacessivelError(
                 self.nome,
