@@ -4,7 +4,7 @@
 |---|---|
 | Produto | KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para Angola |
 | Documento | Epic — Topologia e Operação |
-| Versão | 1.34 |
+| Versão | 1.35 |
 | Data | Novembro de 2026 |
 | Classificação | Documento de Referência — Interno |
 | Documento-fonte | `../docs/tecnica/09_Topologia_Operacao_Escala.md` |
@@ -55,6 +55,7 @@ O epic concretiza **ADR-008** (alojamento, *backups*, CDN e observabilidade são
 | KAM-188 | O teste de carga repete-se no *host* P0 | chore | M | P1 | KAM-084, KAM-077, KAM-186, KAM-187 |
 | KAM-242 | O compose de produção sem *swap*: o `memswap_limit` igual ao `mem_limit` em todos os serviços, exigido pelo `compose_prod`, e o *swap* do *host* registado | chore | S | P1 | KAM-076, KAM-238 |
 | KAM-249 | A fila sem credencial na rede `data`: o Valkey com autenticação, e o S3 do `seaweedfs` medido | fix | M | P1 | KAM-076, KAM-247 |
+| KAM-257 | O gRPC do S3 do `seaweedfs` sem credencial: a 18333 reabre o S3 ao anónimo, fechada por mTLS ou pela D6 | fix | M | P2 | KAM-249 |
 
 ---
 
@@ -1981,7 +1982,7 @@ pelo `make smoke`, que não correu). Medido no ramo `feature/KAM-242-sem-swap` s
 | Prioridade | P1 |
 | Estimativa | M |
 | Dependências | KAM-076, KAM-247 |
-| Bloqueia | — |
+| Bloqueia | KAM-257 |
 | Responsável sugerido | Plataforma/SRE |
 | Documentos de referência | `EPIC-03_Agent_Runtime_Verticais.md` (bloco KAM-247, decisões do fundador de 2026-11-23), `../docs/evidencia/KAM-247.md` §5, `../infra/compose/docker-compose.prod.yml` (`queue`, `seaweedfs`), `../docs/dividas-documentais.md` (linha 95) |
 
@@ -2006,14 +2007,14 @@ Que a fila da rede `data` só aceite quem apresenta credencial, e que se saiba, 
 
 ### Critérios de Aceitação
 
-- [ ] A `queue` de `prod` e de `staging` exige credencial: um cliente sem ela recebe `NOAUTH` (ou o
+- [x] A `queue` de `prod` e de `staging` exige credencial: um cliente sem ela recebe `NOAUTH` (ou o
   equivalente da imagem fixada), medido.
-- [ ] Os serviços que usam a fila apresentam-na, vinda do cofre (`ADR-L002`), e o segredo está no
+- [x] Os serviços que usam a fila apresentam-na, vinda do cofre (`ADR-L002`), e o segredo está no
   `../ops/secrets-inventory.yaml` com os consumidores certos; o compose recusa-se a arrancar sem ela.
-- [ ] O S3 do `seaweedfs`, levantado com o perfil `sto-proprio`, medido com um pedido anónimo: se
+- [x] O S3 do `seaweedfs`, levantado com o perfil `sto-proprio`, medido com um pedido anónimo: se
   aceitar, fecha-se com uma configuração de identidades e mede-se a recusa; se recusar, o resultado
   fica no anexo.
-- [ ] Um ensaio, ou uma regra do `compose_prod`, que falhe se a `queue` voltar a arrancar sem
+- [x] Um ensaio, ou uma regra do `compose_prod`, que falhe se a `queue` voltar a arrancar sem
   credencial.
 
 ### Detalhes Técnicos
@@ -2032,8 +2033,44 @@ Que a fila da rede `data` só aceite quem apresenta credencial, e que se saiba, 
 
 ### Definition of Done
 
-- [ ] Critérios satisfeitos, com o comando de cada medição registado.
-- [ ] Sem segredos em ficheiro: a credencial pelo cofre.
+- [x] Critérios satisfeitos, com o comando de cada medição registado.
+- [x] Sem segredos em ficheiro: a credencial pelo cofre.
+
+### Decisões do fundador
+
+| Data | Autor | Pergunta | Decisão |
+|---|---|---|---|
+| 2026-11-24 | O fundador (respondida no chat da coordenação, e trazida por ela) | Critério 3. O S3 do `seaweedfs` mediu-se aceitando anónimos e fechou-se com identidades e com o *filer* no *loopback* (anónimo a 403, *filer* inalcançável). Mas a 18333, o gRPC do S3, aceita um `PutIdentity` sem credencial de qualquer membro de `data` e reabre o S3 ao anónimo (**CONFIRMADO**, anexo §3.4), e a 4.48 não tem *flag* que a feche. Opções: **A** entregar o fecho medido, com a 18333 como achado e credor; **B** o mTLS do gRPC neste ticket (credenciais novas, **NÃO VERIFICADO** com o `weed server`); **C** deixar o S3 fora e o critério 3 parcial | **A**: «fecho agora, credor». Entrega-se o fecho medido do S3 e do *filer*; a 18333 fica achado **CONFIRMADO** com o credor **KAM-257** (mTLS no gRPC, ou S3 gerido pela D6); o critério 3 marca-se à letra, com o achado nomeado. **Recusadas:** a B (o mTLS neste ticket) e a C (o S3 fora, o critério 3 parcial). O credor abriu com um número provisório e tomou o máximo da `main` + 1 na integração |
+
+### Verificação dos Critérios de Aceitação
+
+Seis caixas — 4 critérios e 2 linhas de DoD —, **seis marcadas**. Medido no ramo
+`feature/KAM-249-valkey-com-autenticacao` sobre a base `cf5a563f`, a 2026-11-24, com as imagens fixadas
+dos dois *compose* e com o serviço levantado pelo **próprio** *compose* de `prod` e de `staging`. Os
+comandos, as tabelas e o que fica por medir estão em
+[`../docs/evidencia/KAM-249.md`](../docs/evidencia/KAM-249.md).
+
+> **O S3 fechou-se e há uma porta que o reabre.** O critério 3 cumpre-se à letra (o anónimo mediu-se
+> aceite, fechou-se com identidades e mediu-se a recusa), e a medição encontrou duas coisas que ele não
+> nomeava: o *filer* da 8888 aceitava escrita anónima por baixo do S3 — fechou-se aqui, prendendo-o ao
+> *loopback* —, e a 18333, o gRPC do S3, aceita um `PutIdentity` sem credencial que reabre o S3 ao
+> anónimo (**CONFIRMADO**, anexo §3.4). A 4.48 não tem *flag* que a feche. Pela decisão do fundador de
+> 2026-11-24 (acima, opção A), fica com o credor **KAM-257**: o mTLS do gRPC, ou a D6 a escolher S3
+> gerido.
+
+| # | Critério | Estado | Evidência | Credor |
+|---|---|---|---|---|
+| 1 | A `queue` de `prod` e de `staging` exige credencial; sem ela, `NOAUTH` | **satisfeito** | Pela imagem fixada e pelo próprio *compose* (`docker compose -f infra/compose/docker-compose.<ambiente>.yml up -d --no-deps queue`), de outro contentor na rede `data`: `valkey-cli -h queue ping` e `lpush bull:wa-inbound:wait` sem credencial → `NOAUTH Authentication required.` nos dois ambientes; credencial errada → `WRONGPASS`; com ela → `PONG`; `healthy`, `appendonly yes`, `noeviction` (anexo §2.2 e §2.3). A senha chega pelo stdin e não por argumento: **0** processos com ela no `cmdline`, e o `docker stop` sai com 0 e paragem limpa (o `--requirepass` em argumento ficava no `cmdline` do PID 1; o *pipe* matava o servidor sem fechar o AOF, saída 143) | — |
+| 2 | Os serviços que usam a fila apresentam-na, do cofre; inventário com os consumidores; o *compose* recusa arrancar sem ela | **satisfeito** | Os **10** URLs da fila de `prod` e os **11** de `staging` (com o Langfuse) levam `redis://:${KAMBA_SECRET_QUEUE_PASSWORD:?...}@queue:6379`: o `config` renderizado tem 10 e 11 com a credencial e **0** sem ela; sem a variável, `docker compose ... config -q` sai **1** com «required variable KAMBA_SECRET_QUEUE_PASSWORD is missing a value» (anexo §2.3). Os clientes medidos com a senha no URL: o `Redis::Config` do Chatwoot, o `ioredis` do Langfuse e o `FilasBullmq`/`opcoesDaUrl` do núcleo dão `PONG`/0, e sem ela `NOAUTH` (anexo §2.4). Segredo novo `queue_password` em `../ops/secrets-inventory.yaml`, com os consumidores EVT, GWY, CHR, AGR, GOV, TEN, HND, OBS e COM, e no §3.12 do dicionário (emenda 1.148). Os **serviços** `agr` e `idx` não a recebem: não falam com a fila, recebem pela ponte HTTP (o AGR que o inventário lista como consumidor é o `worker-canal-agr-shim`, que consome a `agr-inbound`). O GWY e o consumidor de pagamentos do COM (`services/com/src/payments/consumidor.ts`) exigem-na no código e nenhum *compose* lhes liga a fila (para o GWY, dívida do `../docs/evidencia/KAM-083.md`, achado 1): a regra do critério 4 obriga a credencial no dia em que lha derem | — |
+| 3 | O S3 do `seaweedfs` medido com um pedido anónimo; se aceitar, fecha-se com identidades e mede-se a recusa | **satisfeito** | **Aceitava**: ListBuckets, CreateBucket, PutObject e GetObject anónimos a 200, e o *filer* da 8888 a 201/200 (anexo §3.1). Fechado com o par do `StorageProvider` em `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY` (a identidade de administração, sem ficheiro) e o *master*, o *volume* e o *filer* no *loopback*; pelo próprio *compose* com `--profile sto-proprio`, nos dois ambientes: os cinco pedidos anónimos a **403 `AccessDenied`**, o assinado a 200, o segredo errado a 403 `SignatureDoesNotMatch`, e só a 8333 e a 18333 alcançáveis (anexo §3.3). A sonda passou a `8333/healthz`. **Fica aberta a 18333** (nota acima e anexo §3.4), pela decisão do fundador de 2026-11-24 | KAM-257 (a 18333) |
+| 4 | Um ensaio, ou uma regra do `compose_prod`, que falhe se a `queue` voltar a arrancar sem credencial | **satisfeito** | A regra **`r_fila_com_credencial`** (`../tools/compose_prod/lint.py`), em `prod` e em `staging`, com três achados: `fila-sem-credencial`, `fila-senha-em-argumento` e `cliente-da-fila-sem-credencial`. A primeira lê a **forma** do comando, e não o texto `requirepass`: o `-` como primeiro argumento do `docker-entrypoint.sh`, o *here-doc* fechado, uma só linha `requirepass` efectiva e igual à esperada, o `:?` e o `REDISCLI_AUTH` na sonda — a revisão adversarial mediu a fila a arrancar **aberta**, com a sonda verde, sem o `-`, com a linha comentada e com um `requirepass ""` a seguir, e a regra que procurava o texto não via nenhuma das três (anexo §2.2). A terceira apanha também `valkey://`, o anfitrião em maiúsculas e o nome do contentor. E a **`r_armazenamento_com_credencial`**, para o S3 não voltar atrás: `armazenamento-anonimo` e `armazenamento-exposto`. Quinze casos de canário, um por fuga medida, e as duas entradas em `MINIMO_POR_REGRA`; `python -m compose_prod --root .. lint` → **0 achados**, 16 regras; `canario` → **86 de 86** casos a morder, 16 de 16 regras | — |
+
+#### Definition of Done
+
+| # | Linha | Estado | Evidência | Credor |
+|---|---|---|---|---|
+| 1 | Critérios satisfeitos, com o comando de cada medição | **satisfeito** | Os quatro acima; cada tabela do anexo diz o comando que a produziu, o §5 diz como se repete, e o §6 tem os guiões inteiros (as portas, o S3 com SigV4, o `PutIdentity` da 18333 e os clientes da fila) | — |
+| 2 | Sem segredos em ficheiro: a credencial pelo cofre | **satisfeito** | Nenhum valor em ficheiro: a senha e o par são interpolações `${...:?...}` que o lançador do cofre enche (ADR-L002), e a regra `cliente-da-fila-sem-credencial` recusa um URL com a senha escrita (caso `cliente-da-fila-com-senha-escrita`). Nas medições, os valores geraram-se em cada corrida e as saídas trocam-nos por `<SENHA>` | — |
 
 ### Handoff para Claude Code
 
@@ -2048,6 +2085,84 @@ Testes: a medição com e sem credencial na imagem fixada, o S3 anónimo, e o ca
 
 ---
 
+## KAM-257 — O gRPC do S3 do `seaweedfs` sem credencial: a 18333 reabre o S3 ao anónimo, fechada por mTLS ou pela D6
+
+| Campo | Valor |
+|---|---|
+| Epic | EPIC-08 — Topologia e Operação |
+| Fase | 1 |
+| Tipo | fix |
+| Prioridade | P2 |
+| Estimativa | M |
+| Dependências | KAM-249 |
+| Bloqueia | — |
+| Responsável sugerido | Plataforma/SRE |
+| Documentos de referência | bloco KAM-249 (decisões do fundador de 2026-11-24), `../docs/evidencia/KAM-249.md` §3.4, `../infra/compose/docker-compose.prod.yml` (`seaweedfs`), `../docs/tecnica/00_Arquitectura_Solucao.md` §13.3 (D6) |
+
+### Contexto
+
+Credor do KAM-249, aberto no PR dele por decisão do fundador de 2026-11-24 (opção A). O KAM-249 mediu o S3
+do `seaweedfs` (perfil `sto-proprio`) a aceitar pedidos anónimos e fechou-o: o par do `StorageProvider`
+como identidade de administração, e o *master*, o *volume* e o *filer* no *loopback*. Mas a **18333**, o
+gRPC do S3, segue o `-s3.ip.bind` e a 4.48 não tem *flag* que a feche nem que a prenda ao *loopback*
+(`-s3.port.grpc=0` deixa-a aberta, medido). O serviço `messaging_pb.SeaweedS3IamCache` dessa porta aceita
+um `PutIdentity` **sem credencial**, e um só pedido de qualquer membro de `data` — os quinze serviços de
+aplicação e o `litellm` — reabre o S3 ao anónimo: o ListBuckets anónimo passa de 403 a 200, medido pelo
+próprio *compose* de `prod` e de `staging` (**CONFIRMADO**, `../docs/evidencia/KAM-249.md` §3.4).
+
+O perfil `sto-proprio` não corre enquanto a D6 (SeaweedFS ou S3 gerido) estiver aberta. Este ticket é a
+condição para ele correr com o S3 fechado.
+
+### Objectivo
+
+Que nenhum membro de `data` consiga mudar as identidades do S3 sem credencial, medido; ou que a D6 escolha
+S3 gerido e o `seaweedfs` saia do *compose*.
+
+### Critérios de Aceitação
+
+- [ ] Um `PutIdentity` sem credencial na 18333, de outro contentor em `data`, é recusado, e o ListBuckets
+  anónimo continua a 403 depois dele, medido pelo *compose* de `prod` e de `staging` com o perfil
+  `sto-proprio`; ou a D6 decidida por S3 gerido, o `seaweedfs` fora dos dois *compose* e este critério
+  marcado com a decisão.
+- [ ] O que o fecha (certificados, chaves, CA) chega pelo cofre (`ADR-L002`), está no
+  `../ops/secrets-inventory.yaml`, e o *compose* recusa-se a arrancar sem ele.
+- [ ] O `StorageProvider` continua a ler e escrever pelo S3 assinado depois do fecho (o *filer* empurra as
+  identidades para o S3 pela mesma porta), medido.
+- [ ] Uma regra do `compose_prod`, com canário, que falhe se o fecho sair do *compose*.
+
+### Detalhes Técnicos
+
+- **Componentes:** o STO (`seaweedfs`), o `compose_prod`.
+- **Esquema:** nenhum.
+- **Caminho provável, NÃO VERIFICADO:** o mTLS do gRPC do SeaweedFS (`security.toml`, secções `[grpc.s3]`
+  e `[grpc.client]`), com os ficheiros escritos em `tmpfs` ao arranque a partir do ambiente, como a fila
+  do KAM-249 recebe a senha. Como o `weed server` se comporta com mTLS só numa parte dos componentes não
+  está medido. Uma versão do SeaweedFS com *flag* para prender o gRPC ao *loopback* também fecharia.
+
+### Testes Requeridos
+
+- O `PutIdentity` sem credencial, antes e depois, com o ListBuckets anónimo como prova.
+- O S3 assinado depois do fecho.
+- O canário da regra nova.
+
+### Definition of Done
+
+- [ ] Critérios satisfeitos, com o comando de cada medição registado.
+- [ ] Sem segredos em ficheiro versionado; memória dentro do tecto do manifesto.
+
+### Handoff para Claude Code
+
+```text
+És o executor do ticket KAM-257 da KAMBÁ (o gRPC do S3 do seaweedfs sem credencial).
+Lê specs/EPIC-08_Topologia_Operacao.md (blocos KAM-249 e KAM-257), docs/evidencia/KAM-249.md
+e infra/compose/docker-compose.prod.yml.
+Objectivo: a 18333 recusa o PutIdentity sem credencial, ou a D6 tira o seaweedfs do compose.
+Regras: o que fecha vem do cofre; o StorageProvider continua a funcionar; nada de dados reais.
+Testes: o PutIdentity antes e depois, o S3 assinado, e o canário da regra nova.
+```
+
+---
+
 ## Riscos do Epic e itens NÃO VERIFICADOS
 
 | Risco / item | Estado | Decisão | Tratamento no epic |
@@ -2058,6 +2173,7 @@ Testes: a medição com e sem credencial na imagem fixada, o S3 anónimo, e o ca
 | CDN/WAF como subprocessador com acesso a conteúdo (N1) | Aguarda parecer | D12 | KAM-077: caminho de webhooks directo à origem por omissão |
 | Valkey com BullMQ, Chatwoot e Medusa; licença actual do Redis | NÃO VERIFICADO | D12 | KAM-076: teste em *staging*; ADR-P09 só se passar |
 | SeaweedFS: *multipart*, URLs assinadas, *object lock* | NÃO VERIFICADO | D6 | KAM-076 ensaia se D6 = SeaweedFS; senão S3 gerido |
+| gRPC do S3 do SeaweedFS (18333) sem credencial: um `PutIdentity` de qualquer membro de `data` reabre o S3 ao anónimo, e a 4.48 não tem *flag* que a feche | CONFIRMADO | D6 | KAM-249 mediu-o (`../docs/evidencia/KAM-249.md` §3.4); KAM-257 fecha-o por mTLS, ou a D6 escolhe S3 gerido |
 | Requisitos de CPU e versões de Node do Medusa | NÃO VERIFICADO | D3 | KAM-076 confirma em `engines`; KAM-084 mede |
 | Garantias de entrega do BullMQ e limite de ~10k jobs/min | NÃO VERIFICADO | ADR-009 | KAM-084 mede; handlers idempotentes em qualquer caso |
 | Memória por serviço (18,6 GB), custo de infra ($450–680), custo por PME ($49–80 no Piloto) | ESTIMATIVA | — | KAM-084 e KAM-081 medem; KAM-085 valida o RTO |
@@ -2121,3 +2237,4 @@ Testes: a medição com e sem credencial na imagem fixada, o S3 anónimo, e o ca
 | 1.32 | Novembro 2026 | **Aresta recíproca, sem alteração de conteúdo:** o `Bloqueia` do KAM-078 ganha o **KAM-248** (EPIC-09), aberto no PR do KAM-233: o *token* de cada WABA chega ao `onboarding-lote` pelo lançador do cofre (ADR-L002) | Equipa KAMBÁ |
 | 1.33 | Novembro 2026 | **KAM-249** acrescentado, no PR do **KAM-247** (EPIC-03), que o abre e não o implementa, por decisão do fundador de 2026-11-23: a A1 do KAM-247 mantém-se, com um credor para a fila sem credencial na rede `data` e o S3 do `seaweedfs` por medir. Aresta recíproca: o `Bloqueia` do KAM-076 ganha o KAM-249. | Equipa KAMBÁ |
 | 1.34 | Novembro 2026 | **KAM-242 entregue.** O `memswap_limit` igual ao `mem_limit` nos 24 serviços do *compose* de `prod`, a regra `memoria-com-swap` do `compose_prod` com três casos de canário, e o *swap* do *host* registado como NÃO VERIFICADO, com o que o mede (uma linha nova nos «Riscos do Epic e itens NÃO VERIFICADOS»). Quatro caixas de cinco marcadas; a linha 2 do DoD fica parcial (o `make smoke` não correu). Anexo `../docs/evidencia/KAM-242.md`. Número **provisório**: renumera-se na integração. | Equipa KAMBÁ |
+| 1.35 | Novembro 2026 | **KAM-249 entregue.** A `queue` de `prod` e de `staging` exige credencial (`queue_password`, pelo cofre, lida pelo servidor do stdin e apresentada por todos os clientes no URL), e o S3 do `seaweedfs` mediu-se aceitando anónimos e fechou-se com identidades e com o *filer* no *loopback*. Duas regras novas no `compose_prod`, com canário. Os seis itens marcados com evidência; a 18333 do S3, que o reabre, fica como achado **CONFIRMADO** pela decisão do fundador de 2026-11-24 (opção A, registada no bloco). **KAM-257** acrescentado, o credor dela (mTLS no gRPC, ou a D6 a escolher S3 gerido): aberto com um número provisório e com o máximo da `main` + 1 na integração; aresta recíproca no `Bloqueia` do KAM-249, e uma linha nos riscos do epic. Anexo `../docs/evidencia/KAM-249.md`. | Equipa KAMBÁ |
