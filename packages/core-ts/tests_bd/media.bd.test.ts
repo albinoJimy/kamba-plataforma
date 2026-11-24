@@ -45,7 +45,9 @@ import {
   type PedidoDeMidia,
 } from "../src/med/index.ts";
 import { criarStorageFake } from "../src/storage/index.ts";
-import { BASE_DESCARTAVEL, apagarTenant, criarCanal, criarTenant, ligar } from "./apoio.ts";
+import type { AgentInvocation } from "../src/chr/contrato.ts";
+import { FotoDoDono, mediaIdDoPainel, PRAZO_DA_RETOMA_S, recepcaoDoPainel } from "../src/dono/index.ts";
+import { BASE_DESCARTAVEL, apagarTenant, criarCanal, criarTenant, ligar, poolDe } from "./apoio.ts";
 
 /**
  * Põe o contexto de *tenant* na ligação, **de sessão**.
@@ -609,6 +611,161 @@ describe("o MED contra a base (KAM-020)", () => {
         assert.ok(!linha.tudo.includes("lookaside"), "o dominio da Meta esta na base");
         assert.ok(!linha.tudo.includes("http"), "ha um URL na base");
       }
+    });
+  });
+
+  // ------------------------------------------------ KAM-243: a foto do painel
+  //
+  // A `recepcaoDoPainel` sobre um *pool* `kamba_app`, como no `onboarding-web`:
+  // uma ligação por pedido e o tenant em cada instrução. O que só o PostgreSQL
+  // prova: a mesma foto enviada duas vezes **ao mesmo tempo** dá uma linha (o
+  // `ON CONFLICT` da reserva com o `media_id` determinístico), e o tenant de uma
+  // sessão não lê nem escreve a foto de outro.
+  describe("KAM-243 — a foto do painel", () => {
+    let pool: pg.Pool;
+
+    before(() => {
+      pool = poolDe("app", 4);
+    });
+
+    after(async () => {
+      await pool.end();
+    });
+
+    function jpeg(semente: number): Uint8Array {
+      const bytes = new Uint8Array(512).fill(semente);
+      bytes.set([0xff, 0xd8, 0xff, 0xe0]);
+      return bytes;
+    }
+
+    function fotoDe(tenant: string, conversa: string, contacto: string, sto = criarStorageFake()) {
+      const invocacoes: AgentInvocation[] = [];
+      const foto = new FotoDoDono({
+        contexto: async () => ({
+          contactId: contacto,
+          conversationId: conversa,
+          channelId: "00000000-0000-4000-8000-000000000000",
+          vertical: "vendedor",
+          modo: "bot",
+        }),
+        receber: recepcaoDoPainel({ pool, armazenamento: sto.storage }),
+        invocar: async (invocacao) => {
+          invocacoes.push(invocacao);
+          return { estado: 200, desfecho: "executado" };
+        },
+      });
+      return { foto, invocacoes, sto, enviar: (bytes: Uint8Array) => foto.enviar(tenant, bytes) };
+    }
+
+    it("a mesma foto duas vezes ao mesmo tempo e uma linha armazenado, um objecto e o mesmo asset_id", async () => {
+      const [tenant, conversa, contacto] = await tenantNovo("foto-painel");
+      const f = fotoDe(tenant, conversa, contacto);
+      const [r1, r2] = await Promise.all([f.enviar(jpeg(1)), f.enviar(jpeg(1))]);
+      // Uma das duas pode ter encontrado a outra a meio (`pendente`, 409 no
+      // painel); a que acabou guardou. A seguir, a mesma foto devolve a linha.
+      const r3 = await f.enviar(jpeg(1));
+      assert.ok(r3.enviada && r3.repetida, "a terceira vez encontra a linha armazenada");
+      for (const r of [r1, r2]) {
+        assert.ok(r.enviada || r.motivo === "a_tratar", JSON.stringify(r));
+        if (r.enviada) assert.equal(r.assetId, r3.assetId);
+      }
+      await definirContexto(app, tenant);
+      const linhas = await app.query<{ estado: string; media_id: string; classe: string; storage_ref: string }>(
+        "SELECT estado, media_id, classe, storage_ref FROM platform.media_assets WHERE tenant_id = $1",
+        [tenant],
+      );
+      assert.equal(linhas.rows.length, 1);
+      assert.equal(linhas.rows[0]?.estado, "armazenado");
+      assert.equal(linhas.rows[0]?.classe, "media_imagem");
+      assert.equal(linhas.rows[0]?.media_id, mediaIdDoPainel(tenant, jpeg(1)));
+      assert.ok(linhas.rows[0]?.storage_ref.startsWith(`t/${tenant}/media_imagem/`));
+      assert.equal(f.sto.total(), 1);
+      assert.ok(f.invocacoes.every((i) => i.asset_id === r3.assetId && i.wamid.startsWith(`painel.${r3.assetId}.`)));
+    });
+
+    it("a mesma foto noutro tenant e outra linha, e a sessao de A nao a ve nem a escreve", async () => {
+      const [tA, cA, kA] = await tenantNovo("foto-painel-a");
+      const [tB, cB, kB] = await tenantNovo("foto-painel-b");
+      const deA = await fotoDe(tA, cA, kA).enviar(jpeg(2));
+      const deB = await fotoDe(tB, cB, kB).enviar(jpeg(2));
+      assert.ok(deA.enviada && deB.enviada);
+      assert.notEqual(deA.assetId, deB.assetId);
+
+      await definirContexto(app, tA);
+      const minhas = await app.query<{ n: string }>(
+        "SELECT count(*)::text AS n FROM platform.media_assets WHERE asset_id = $1",
+        [deA.assetId],
+      );
+      assert.equal(minhas.rows[0]?.n, "1", "o controlo: com o contexto de A ve-se a de A");
+      const alheias = await app.query<{ n: string }>(
+        "SELECT count(*)::text AS n FROM platform.media_assets WHERE asset_id = $1",
+        [deB.assetId],
+      );
+      assert.equal(alheias.rows[0]?.n, "0");
+      const escrita = await app.query(
+        "UPDATE platform.media_assets SET estado = 'falhou' WHERE asset_id = $1 RETURNING asset_id",
+        [deB.assetId],
+      );
+      assert.equal(escrita.rows.length, 0, "a sessao de A escreveu a foto de B");
+    });
+
+    it("uma linha pendente antiga (o STO falhou) retoma-se com a mesma foto, e uma nova nao", async () => {
+      const [tenant, conversa, contacto] = await tenantNovo("foto-painel-retoma");
+      const sto = criarStorageFake();
+      let falhar = true;
+      const armazenamento = new Proxy(sto.storage, {
+        get(alvo, nome, recetor) {
+          if (nome === "put" && falhar) {
+            return async () => {
+              falhar = false;
+              throw new Error("o STO nao respondeu");
+            };
+          }
+          const valor = Reflect.get(alvo, nome, recetor) as unknown;
+          return typeof valor === "function" ? (valor as (...a: unknown[]) => unknown).bind(alvo) : valor;
+        },
+      });
+      const foto = new FotoDoDono({
+        contexto: async () => ({
+          contactId: contacto,
+          conversationId: conversa,
+          channelId: "00000000-0000-4000-8000-000000000000",
+          vertical: "vendedor",
+          modo: "bot",
+        }),
+        receber: recepcaoDoPainel({ pool, armazenamento }),
+        invocar: async () => ({ estado: 200, desfecho: "executado" }),
+      });
+      await assert.rejects(foto.enviar(tenant, jpeg(4)));
+      const cedo = await foto.enviar(tenant, jpeg(4));
+      assert.deepEqual(cedo.enviada ? null : cedo.motivo, "a_tratar", "uma linha nova e de outro pedido");
+      // A linha envelhece (pelo administrador: o que se mede e a retoma).
+      await admin.query(
+        "UPDATE platform.media_assets SET criado_at = now() - make_interval(secs => $2) WHERE tenant_id = $1",
+        [tenant, PRAZO_DA_RETOMA_S + 5],
+      );
+      const depois = await foto.enviar(tenant, jpeg(4));
+      assert.ok(depois.enviada, JSON.stringify(depois));
+      await definirContexto(app, tenant);
+      const linhas = await app.query<{ estado: string; storage_ref: string }>(
+        "SELECT estado, storage_ref FROM platform.media_assets WHERE tenant_id = $1",
+        [tenant],
+      );
+      assert.equal(linhas.rows.length, 1);
+      assert.equal(linhas.rows[0]?.estado, "armazenado");
+      assert.ok(linhas.rows[0]?.storage_ref.startsWith(`t/${tenant}/media_imagem/`));
+    });
+
+    it("o que nao e imagem nao reserva linha", async () => {
+      const [tenant, conversa, contacto] = await tenantNovo("foto-painel-nao");
+      const r = await fotoDe(tenant, conversa, contacto).enviar(new TextEncoder().encode("%PDF-1.7 nao"));
+      assert.deepEqual(r, { enviada: false, motivo: "tipo" });
+      await definirContexto(app, tenant);
+      const n = await app.query<{ n: string }>(
+        "SELECT count(*)::text AS n FROM platform.media_assets WHERE tenant_id = $1",
+        [tenant],
+      );
+      assert.equal(n.rows[0]?.n, "0");
     });
   });
 });

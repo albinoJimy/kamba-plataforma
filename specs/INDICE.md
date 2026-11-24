@@ -3,7 +3,7 @@
 **Produto:** KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para o mercado angolano
 **Natureza:** Produto/plataforma standalone (sem cliente institucional)
 **Documentos-fonte:** conjunto técnico [`../docs/tecnica/`](../docs/tecnica/INDICE.md) e [`../docs/exploracao/14-tese-minima-e-plano-de-validacao.md`](../docs/exploracao/14-tese-minima-e-plano-de-validacao.md)
-**Versão do conjunto:** 1.105
+**Versão do conjunto:** 1.106
 **Data de emissão:** Outubro de 2026
 **Classificação:** Documento de Referência — Interno
 **Estado:** backlog **proposto** (nenhum ticket ratificado; ver `00_KAMBA_Carta.md` §6)
@@ -12,7 +12,7 @@
 
 ## 1. Propósito
 
-Este conjunto materializa o **backlog executável** da KAMBÁ para a **Fase 0 (Fundação / esqueleto andante)** e a **Fase 1 (Piloto)**. Decompõe o trabalho em **251 tickets atómicos (KAM-001 a KAM-251)** distribuídos por **11 epics** (KAM-111 a KAM-117 foram acrescentados na consolidação, e o KAM-128 a KAM-148, e o KAM-149 depois dela; todos pertencem aos epics indicados no §3.1), cada um com critérios de aceitação SMART, Definition of Done, testes requeridos e prompt de handoff para o **Claude Code (CLI)**.
+Este conjunto materializa o **backlog executável** da KAMBÁ para a **Fase 0 (Fundação / esqueleto andante)** e a **Fase 1 (Piloto)**. Decompõe o trabalho em **252 tickets atómicos (KAM-001 a KAM-252)** distribuídos por **11 epics** (KAM-111 a KAM-117 foram acrescentados na consolidação, e o KAM-128 a KAM-148, e o KAM-149 depois dela; todos pertencem aos epics indicados no §3.1), cada um com critérios de aceitação SMART, Definition of Done, testes requeridos e prompt de handoff para o **Claude Code (CLI)**.
 
 O que **não** está aqui: a Fase 2 (Clusters) e a Fase 3 (Escala). Esses epics (geo e logística, estafetas, analytics e Score, índice federado, AdsEngine, vitrine SEO, API pública, Fluxo B) só se escrevem quando o **Gate do Piloto (KAM-110)** for verde. Está declarado em §6.
 
@@ -59,8 +59,8 @@ O backlog é a interface entre o conjunto técnico (`../docs/tecnica/`) e a exec
 | EPIC-08 Topologia e Operação | KAM-075 – KAM-085, KAM-187, KAM-188, KAM-242, KAM-249 | 15 | 0–1 |
 | EPIC-09 Onboarding e Governação | KAM-086 – KAM-099, KAM-116, KAM-117, KAM-190 – KAM-192, KAM-195, KAM-196, KAM-198, KAM-200, KAM-201, KAM-203, KAM-206 – KAM-210, KAM-218 – KAM-219, KAM-225, KAM-233, KAM-236, KAM-239, KAM-240, KAM-248 | 38 | 1 |
 | EPIC-10 Spikes, Validação e Gates | KAM-100 – KAM-110 | 11 | 0–1 |
-| EPIC-11 Módulos de Entrada | KAM-118 – KAM-127, KAM-211, KAM-215 – KAM-217, KAM-220 – KAM-224, KAM-226 – KAM-228, KAM-230 – KAM-232, KAM-234, KAM-237, KAM-238, KAM-241, KAM-243 – KAM-246, KAM-251 | 34 | 1 |
-| **TOTAL** | **KAM-001 – KAM-251** | **251** | — |
+| EPIC-11 Módulos de Entrada | KAM-118 – KAM-127, KAM-211, KAM-215 – KAM-217, KAM-220 – KAM-224, KAM-226 – KAM-228, KAM-230 – KAM-232, KAM-234, KAM-237, KAM-238, KAM-241, KAM-243 – KAM-246, KAM-251, KAM-252 | 35 | 1 |
+| **TOTAL** | **KAM-001 – KAM-252** | **252** | — |
 
 ### 3.2 Fases
 
@@ -384,6 +384,7 @@ Itens com tempo de espera externo (arrancam na **semana 1**, em paralelo ao cód
 | KAM-245 | Catálogo do dono: a violação de um produto publicado que um `screen` posterior marca como `bloqueada`, e a re-análise que a emite | fix | S | P2 | 1 | KAM-119 |
 | KAM-246 | Social AI: a arte como imagem no WhatsApp e a página do painel com a ligação de descarga | feature | M | P1 | 1 | KAM-122, KAM-015 |
 | KAM-251 | Canal do dono: o `/metrics` do consumidor `dono` raspado pelo Prometheus em `prod` | fix | S | P2 | 1 | KAM-241 |
+| KAM-252 | STO no `onboarding-web`: a credencial do painel só de escrita na classe `media_imagem`, ou fora do painel | fix | M | P1 | 1 | KAM-243 |
 
 ---
 
@@ -529,3 +530,4 @@ Um defeito encontrado fora do escopo não é corrigido no meio de outro ticket: 
 | 1.103 | Novembro 2026 | **KAM-247** acrescentado ao **EPIC-03** e **KAM-248** ao **EPIC-09**, no PR do **KAM-233**, que os abre e não os implementa. O KAM-247 é o credor do LiteLLM de `prod` sem base, pela decisão do fundador de 2026-11-21 (Q1 = A): sem `DATABASE_URL`, a imagem fixada responde 500 ao `/key/generate` e ao `/key/list` (medido, `../docs/evidencia/KAM-233.md` §2), e a fase `revogacao` do off-boarding pára na chave até ele fechar; a escolha entre a base do proxy e as chaves sem base é do fundador. O KAM-248 é o credor único do que o off-boarding espera de fora, pela decisão da coordenação do lote 18 de 2026-11-22: as provas e a entrega ao titular (KAM-116 e KAM-115), a Medusa (D3), o *token* de cada WABA (KAM-078), o 404 da Graph, o resto da purga, as duas tabelas da `0084` sem caminho de eliminação e o simulacro. Escritos como KAM-241 e KAM-242, e renumerados na integração contra a `main` em `25babeca` (o maior era o KAM-246). **Superfícies:** as duas linhas do §4, a gama e a contagem do §1, as linhas do EPIC-03 (**21**) e do EPIC-09 (**38**) e o TOTAL do §3.1, as «Tabela Resumo» dos dois epics e o `../README.md`. **Arestas recíprocas:** o `Bloqueia` do KAM-233 ganha os dois, o do KAM-030 o KAM-247, e os do KAM-115, do KAM-116 e do KAM-078 o KAM-248. **248** tickets em 11 epics. | Equipa KAMBÁ |
 | 1.104 | Novembro 2026 | **KAM-249** acrescentado ao **EPIC-08** e **KAM-250** ao **EPIC-03**, no PR do **KAM-247**, que os abre e não os implementa, pelas decisões do fundador de 2026-11-23. O KAM-249 é o credor da fila sem credencial na rede `data` (o custo que a A1 do KAM-247 herda, e que os quinze serviços de aplicação já tinham), com o S3 do `seaweedfs` por medir. O KAM-250 é o credor do valor das chaves virtuais, que o proxy emite e nunca chega ao cofre (`ADR-L002` §6 sem escrita). Arestas: o `Bloqueia` do KAM-076, do KAM-010 e do KAM-247. | Equipa KAMBÁ |
 | 1.105 | Novembro 2026 | Escrita como 1.104 e renumerada na integração, depois do KAM-247: o ticket abriu como KAM-249, e o 249 e o 250 fundiram com o KAM-247. **KAM-251** acrescentado ao **EPIC-11**, no PR do **KAM-241**, que o abre e não o implementa, por decisão da coordenação do lote 20 de 2026-11-23: o credor do `/metrics` do `onboarding-provisionamento`, que entrou no *compose* de `prod` com o KAM-241 e que nenhum *job* do `prometheus.yml` raspa (achado da revisão adversarial do KAM-241). **Superfícies:** a linha do §4, a gama e a contagem do §1, a linha do EPIC-11 (**34**) e o TOTAL do §3.1, a «Tabela Resumo» do epic e o `../README.md`. **Aresta recíproca:** o `Bloqueia` do KAM-241 ganha-o. **251** tickets em 11 epics. Número **provisório**, o maior da `main` mais um: renumera-se na integração se outro fundir antes. | Equipa KAMBÁ |
+| 1.106 | Novembro 2026 | Escrita como 1.104 e renumerada na integração, depois do KAM-247 e do KAM-241: o credor abriu como KAM-249, o 249 e o 250 fundiram com o KAM-247 e o 251 com o KAM-241. **KAM-252** acrescentado ao **EPIC-11**, no PR do **KAM-243**, que o abre e não o implementa, por decisão do fundador de 2026-11-23 (opção A, com credor): o `onboarding-web` fica com o par de credenciais do STO, e o KAM-252 dá à credencial do painel um âmbito só de escrita na classe `media_imagem`, ou tira-a ao painel, quando a D6 fixar o armazenamento. **Superfícies:** a linha do §4, a gama e a contagem do §1, a linha do EPIC-11 (**35**) e o TOTAL do §3.1, a «Tabela Resumo» do epic, o `../README.md` e o EPIC-07. **Aresta recíproca:** o `Bloqueia` do KAM-243 ganha-o. **252** tickets em 11 epics. Número **provisório**, o maior da `main` mais um: renumera-se na integração se outro fundir antes. | Equipa KAMBÁ |

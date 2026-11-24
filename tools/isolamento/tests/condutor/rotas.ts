@@ -2758,6 +2758,12 @@ async function grupoDoGuia(relatorio: Relatorio): Promise<void> {
 //                           o canal do dono de A: o WhatsApp, guardado em A com o
 //                           canal activo. O de B e o painel, com o canal
 //                           desligado, pelo que uma leitura de B mostrava o painel
+//   foto=a                  (KAM-243) as tres fotos do POST /painel/foto, com o
+//                           tenant de B na consulta e no cabecalho, foram ao MED e
+//                           ao AGR no tenant e no thread de A, com o `type`
+//                           `image`, a persona `dono`, o `asset_id` de A e o
+//                           `wamid` `painel.{asset_id}.{envio}`, sem `message_id`
+//   sonda=viva (foto)       (KAM-243) a resposta das tres trouxe o `asset_id` de A
 
 const ITENS_DO_PAINEL = [
   "rota:onboarding-web:painel/rotas:actor:GET:/painel/entrar",
@@ -2785,6 +2791,8 @@ const ITENS_DO_PAINEL = [
   "rota:onboarding-web:painel/rotas:actor:GET:/painel/produtos/:id",
   // KAM-206: o contacto do cliente de uma encomenda, mascarado, pelo botao.
   "rota:onboarding-web:painel/rotas:actor:POST:/painel/encomendas/:id/contacto",
+  // KAM-243: a foto do dono para o catalogo.
+  "rota:onboarding-web:painel/rotas:actor:POST:/painel/foto",
 ] as const;
 
 /** Os telefones da reentrada (KAM-190). Ficticios, com 999. */
@@ -3070,6 +3078,34 @@ async function grupoDoPainel(relatorio: Relatorio): Promise<void> {
       },
     };
 
+    // KAM-243: a foto do dono, com a `FotoDoDono` **real** sobre portas de duplo.
+    // O MED de duplo guarda por tenant, e o `asset_id` de B leva o canario: uma
+    // rota que tirasse o tenant de outro sitio que nao a sessao devolvia-o.
+    const ASSET_DE_A_NO_PAINEL = `${MARCADOR_DE_A}-asset`;
+    const pedidosAoMed: string[] = [];
+    const invocacoesDaFoto: Record<string, unknown>[] = [];
+    const FotoDoDono = donoModulo["FotoDoDono"] as new (p: unknown) => unknown;
+    const foto = {
+      foto: new FotoDoDono({
+        contexto: async (tenant: string) => ({
+          contactId: `${tenant.slice(0, 8)}-0000-4000-8000-0000000000c9`,
+          conversationId: `${tenant.slice(0, 8)}-0000-4000-8000-0000000000ca`,
+          channelId: `${tenant.slice(0, 8)}-0000-4000-8000-0000000000cb`,
+          vertical: "vendedor",
+          modo: "bot",
+        }),
+        receber: async (pedido: { tenantId: string }) => {
+          pedidosAoMed.push(pedido.tenantId);
+          const assetId = pedido.tenantId === TENANT_DE_A_NO_PAINEL ? ASSET_DE_A_NO_PAINEL : canario;
+          return { estado: "armazenado", assetId, referencia: `media://${assetId}`, repetido: false };
+        },
+        invocar: async (invocacao: Record<string, unknown>) => {
+          invocacoesDaFoto.push(invocacao);
+          return { estado: 200, desfecho: "executado" };
+        },
+      }),
+    };
+
     const app = (rotas["rotasDoPainel"] as (o: unknown) => AppHono)({
       comercio,
       canal: canalEspiao,
@@ -3080,6 +3116,7 @@ async function grupoDoPainel(relatorio: Relatorio): Promise<void> {
       reentrada,
       troca,
       conversa,
+      foto,
       teste,
     });
     const cookieDeA = `kamba_painel=${cunharSessao(sessaoDeA, chave)}`;
@@ -3506,6 +3543,38 @@ async function grupoDoPainel(relatorio: Relatorio): Promise<void> {
         ? "sonda=viva"
         : "sonda=morta",
     );
+
+    // ---- POST /painel/foto (KAM-243): a sessao de A com o tenant de B na
+    // consulta e no cabecalho, e uma foto sintetica (so a assinatura de um JPEG).
+    // O MED e o AGR so veem A, e a resposta traz o `asset_id` de A (a sonda).
+    const fotoSintetica = new Uint8Array(64).fill(1);
+    fotoSintetica.set([0xff, 0xd8, 0xff, 0xe0]);
+    for (let vez = 0; vez < 3; vez += 1) {
+      const [c, headers] = comTenantDeB("/painel/foto", vez);
+      await empurrar(
+        ITENS_DO_PAINEL[20],
+        "POST",
+        c,
+        { method: "POST", headers: { ...headers, "content-type": "image/jpeg" }, body: fotoSintetica },
+        sonda,
+      );
+    }
+    const fotoDeA =
+      pedidosAoMed.length === 3 &&
+      pedidosAoMed.every((t) => t === TENANT_DE_A_NO_PAINEL) &&
+      invocacoesDaFoto.length === 3 &&
+      invocacoesDaFoto.every(
+        (i) =>
+          i["tenant_id"] === TENANT_DE_A_NO_PAINEL &&
+          String(i["thread_id"]).startsWith(`${TENANT_DE_A_NO_PAINEL}:`) &&
+          i["type"] === "image" &&
+          i["persona"] === "dono" &&
+          i["asset_id"] === ASSET_DE_A_NO_PAINEL &&
+          String(i["wamid"]).startsWith(`painel.${ASSET_DE_A_NO_PAINEL}.`) &&
+          !("message_id" in i) &&
+          !("botao" in i),
+      );
+    marcarEm(20, fotoDeA ? "foto=a" : "foto=alheia");
   } catch (erro) {
     falhar(`a montagem do painel levantou: ${razao(erro)}`);
   }
