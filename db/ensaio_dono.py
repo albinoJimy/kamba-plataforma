@@ -53,7 +53,8 @@ sao gerados nesta execucao e nao se imprimem; os telefones sao ficticios, com 99
 que monta o `prometheus.yml` de producao, antes da rajada: o pico mede-se com a
 raspagem do `/metrics` a correr no mesmo cgroup, e o relatorio leva o alvo do
 `job` `onboarding_provisionamento` (a `scrapeUrl`, a saude, o `up`), quantas
-raspagens cairam na drenagem e os nomes das series que o `job` trouxe. Um
+raspagens **bem sucedidas** (`up` a 1) cairam entre o arranque do publicador e
+a ultima amostra do cgroup, e os nomes das series que o `job` trouxe. Um
 veredicto a mais: o alvo `up`, e so ele.
 
 ## Porque *staging* e nao producao
@@ -316,6 +317,7 @@ def rajada(pilha: Pilha, runner: dict[str, str], casos: int, limite_s: float) ->
         for _ in range(20):
             amostras.append(_cgroup(pilha, c)["working_set_mib"])
             time.sleep(0.5)
+        amostras_ate = time.time()
     finally:
         subprocess.run(["docker", "rm", "-f", f"{PROJECTO}-publicador"], capture_output=True)
     dlq = int(pilha.sql(f"SELECT count(*) FROM platform.events_dlq WHERE consumer = '{CONSUMIDOR}'"))
@@ -327,6 +329,7 @@ def rajada(pilha: Pilha, runner: dict[str, str], casos: int, limite_s: float) ->
         "antes_da_rajada": antes,
         "drenagem_s": drenagem_s,
         "drenagem_desde_unix": round(drenagem_desde, 3),
+        "amostras_ate_unix": round(amostras_ate, 3),
         "donos": donos,
         "consumidos": consumidos,
         "dlq": dlq,
@@ -340,8 +343,16 @@ def _prometheus(pilha: Pilha, j: dict) -> dict:
     """O alvo do consumidor no Prometheus da pilha (KAM-251).
 
     A API so escuta em `127.0.0.1` dentro do contentor (`--web.listen-address`
-    do compose), e le-se por `docker exec` com o `wget` da imagem. Espera ate 90 s
-    pela primeira raspagem: o intervalo global e de 30 s.
+    do compose), e le-se por `docker exec` com o `wget` da imagem. Espera pela
+    primeira raspagem em ate 90 voltas (cada uma um `docker exec` e 1 s): o
+    intervalo global e de 30 s.
+
+    A janela da rajada vai do arranque do publicador a ultima amostra do cgroup,
+    medidas no relogio do anfitriao, e desloca-se para o do Prometheus pela
+    diferenca entre o `time()` dele e o do anfitriao no mesmo instante: no
+    Docker Desktop o contentor corre noutra VM, e os dois relogios podem nao
+    concordar. Contam-se as raspagens com `up` a 1 (`sum_over_time`), e nao as
+    tentativas (`count_over_time` contava tambem as falhadas).
     """
     c = pilha.contentor("prometheus")
 
@@ -364,17 +375,21 @@ def _prometheus(pilha: Pilha, j: dict) -> dict:
         if alvos:
             break
         time.sleep(1)
-    # As raspagens que cairam na drenagem e nos 10 s de amostras a seguir: o
-    # pico da rajada so inclui o `/metrics` se houver pelo menos uma.
-    janela = max(1, round(j["drenagem_s"] + 10))
-    fim = j["drenagem_desde_unix"] + janela
-    na_drenagem = consulta(f'count_over_time(up{{job="{JOB}"}}[{janela}s] @ {fim:.3f})')
+    # As raspagens bem sucedidas na rajada: o pico so inclui o `/metrics` se
+    # houver pelo menos uma.
+    agora_anfitriao = time.time()
+    desvio = float(consulta("time()")[1]) - agora_anfitriao
+    janela = max(1, round(j["amostras_ate_unix"] - j["drenagem_desde_unix"]))
+    fim = j["amostras_ate_unix"] + desvio
+    na_drenagem = consulta(f'sum_over_time(up{{job="{JOB}"}}[{janela}s] @ {fim:.3f})')
     return {
         "job": JOB,
         "alvos": [{"scrape_url": a["scrapeUrl"], "health": a["health"], "last_error": a["lastError"]}
                   for a in alvos],
         "up": [float(s["value"][1]) for s in consulta(f'up{{job="{JOB}"}}')],
-        "raspagens_na_drenagem": int(float(na_drenagem[0]["value"][1])) if na_drenagem else 0,
+        "janela_da_rajada_s": janela,
+        "desvio_do_relogio_s": round(desvio, 3),
+        "raspagens_bem_sucedidas_na_rajada": int(float(na_drenagem[0]["value"][1])) if na_drenagem else 0,
         "series": sorted({s["metric"]["__name__"] for s in consulta(f'{{job="{JOB}"}}')}
                          - {"up", "scrape_duration_seconds", "scrape_samples_scraped",
                             "scrape_samples_post_metric_relabeling", "scrape_series_added"}),

@@ -816,6 +816,33 @@ CASOS: tuple[Caso, ...] = (
         "o `onboarding-lote` passa a escutar na 3016 e o `job` continua na 3014",
         lambda c: c.trocar(lint.PROD, r'^      LOTE_PORT: "3014"$', '      LOTE_PORT: "3016"'),
     ),
+    Caso(
+        "onboarding-sem-alvo-porta-em-staging",
+        frozenset({"onboarding-sem-alvo"}),
+        "em *staging*, o consumidor `dono` passa a escutar na 3016",
+        lambda c: c.trocar(
+            lint.STAGING, r'^      PROVISIONAMENTO_PORT: "3015"$', '      PROVISIONAMENTO_PORT: "3016"'
+        ),
+    ),
+    Caso(
+        "onboarding-sem-alvo-atras-de-perfil",
+        frozenset({"onboarding-sem-alvo"}),
+        "o consumidor `dono` passa a arrancar so com um perfil: sem contentor, o `up` nao existe",
+        lambda c: c.trocar(
+            lint.PROD, r'^    command: \["node", "services/onboarding-web/dist/provisionamento\.js"\]$',
+            '    command: ["node", "services/onboarding-web/dist/provisionamento.js"]\n'
+            '    profiles: ["desligado"]',
+        ),
+    ),
+    Caso(
+        "onboarding-sem-alvo-outro-caminho",
+        frozenset({"onboarding-sem-alvo"}),
+        "o `job` do consumidor `dono` passa a raspar `/healthz`",
+        lambda c: c.trocar(
+            lint.PROMETHEUS, r"^  - job_name: onboarding_provisionamento$",
+            "  - job_name: onboarding_provisionamento\n    metrics_path: /healthz",
+        ),
+    ),
 )
 
 #: Toda a regra tem de ter canario. Um `lint.REGRAS` novo sem caso aqui falha o
