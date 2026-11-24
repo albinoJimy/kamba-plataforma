@@ -84,6 +84,7 @@ Fora deste epic (Clusters): estafetas, revendedores, rede de agentes de activaç
 | KAM-240 | A idempotência do `PATCH /painel/produtos/:id` na base: a deduplicação sobrevive a um reinício e vale entre réplicas | feature | S | P1 | KAM-236 |
 | KAM-248 | Off-boarding, o que depende de fora: as provas e a entrega ao titular, a Medusa, o simulacro, o *token* de cada WABA e o resto da purga | feature | L | P1 | KAM-233, KAM-115, KAM-116, KAM-078 |
 | KAM-253 | Re-análise do screening: o produto publicado que uma versão nova da política bloqueia continua visível ao cliente | fix | S | P2 | KAM-191, KAM-245 |
+| KAM-254 | Guia do ES pelo lote, o que ficou do KAM-239: os efeitos remotos sem atomicidade, o convite sem via e o X-01 sobre a base | fix | M | P2 | KAM-239 |
 
 ---
 
@@ -4869,7 +4870,7 @@ Regras: papéis mínimos por ligação; nenhum repositório em memória em prod.
 | Prioridade | P1 |
 | Estimativa | M |
 | Dependências | KAM-236 |
-| Bloqueia | — |
+| Bloqueia | KAM-254 |
 | Responsável sugerido | Engenheiro de Plataforma (TEN) |
 | Documentos de referência | `EPIC-09_Onboarding_Governanca.md` (blocos KAM-093, KAM-095, KAM-198 e KAM-236), `../services/onboarding-web/src/server.ts`, `../services/onboarding-web/src/lote/processo.ts` |
 
@@ -4972,17 +4973,19 @@ Entregue neste ramo:
 | Critérios satisfeitos; a linha do guia do critério 1 do KAM-236 revista | **parcial** | Dois de três (o 3 espera o agregador do KAM-116). A alínea (a) do critério 1 do KAM-236 foi revista com a evidência deste ticket, e o critério continua parcial pelas alíneas (b) e (c) |
 | Nenhum segredo no compose; `make up && make smoke` verde | **parcial** | Nenhum valor de segredo nos compose: a `onboarding_lote_token` chega pelo cofre (`KAMBA_SECRET_ONBOARDING_LOTE_TOKEN`, `:?`), e o `scan_secrets` sai limpo em cada *commit*. O `make up && make smoke` **não correu** nesta máquina (não há `make`); o compose de `dev` não monta o guia (não tem as variáveis da app da Meta) |
 
-**O que fica por fazer, dito:**
+**O que fica por fazer, dito**, com quem o fecha (decisão da coordenação do lote 19, 2026-11-24): o
+critério 3 espera o agregador de SMS do **KAM-116**; os três pontos abaixo são código, e o credor deles é o
+**KAM-254**, aberto neste PR.
 - *As rotas do guia na bateria X-01 sobre os adaptadores SQL* (Testes Requeridos): o grupo `guia` do condutor
   continua sobre o `GuiaEmMemoria`. O isolamento do estado na base mede-se no ensaio de esquema e no ensaio
-  contra a base, e não no X-01.
+  contra a base, e não no X-01. Credor: **KAM-254**.
 - *Os efeitos remotos sem atomicidade* (achado 3 da revisão adversarial, plausível): o `PassoGuiado` grava a
   transição na base e só depois chama o lote para o *gate* e a fila. Com o lote em baixo nesse instante, um
   guia preso por número divergente fica sem `review_case`. É latente: os sinais da Meta não têm consumidor
-  ligado, e quem o ligar tem de repetir o sinal que falhar.
+  ligado, e quem o ligar tem de repetir o sinal que falhar. Credor: **KAM-254**.
 - *O convite da lista sem via* (achado 6): o lote convida, e o aviso não chega a ninguém (o SMS é do KAM-116,
   o canal do KAM-115). Um dono que não volte à página em duas janelas de 48 h perde o caso. Hoje não morde: o
-  `onboarding-web` recusa `prod` pelo SMS, e a fila de `prod` está vazia.
+  `onboarding-web` recusa `prod` pelo SMS, e a fila de `prod` está vazia. Credor: **KAM-254**.
 
 **Medido nesta máquina:** o *typecheck* do `core-ts` (`tsconfig.json` e `tsconfig.tests.json`) e do
 `onboarding-web`; o `node --test` do guia e do lote no serviço (81) e do guia no `core-ts` (64); o *gate* 8
@@ -5283,6 +5286,86 @@ Regras: a decisão é do fundador; uma violação por conteúdo; isolamento de t
 
 ---
 
+## KAM-254 — Guia do ES pelo lote, o que ficou do KAM-239: os efeitos remotos sem atomicidade, o convite sem via e o X-01 sobre a base
+
+| Campo | Valor |
+|---|---|
+| Epic | EPIC-09 — Onboarding e Governação |
+| Fase | 1 |
+| Tipo | fix |
+| Prioridade | P2 |
+| Estimativa | M |
+| Dependências | KAM-239 |
+| Bloqueia | — |
+| Responsável sugerido | Engenheiro de Plataforma (TEN) |
+| Documentos de referência | `EPIC-09_Onboarding_Governanca.md` (blocos KAM-093, KAM-095 e KAM-239), `../services/onboarding-web/src/guia_pelo_lote.ts`, `../services/onboarding-web/src/lote/interno.ts`, `../tools/isolamento/baterias/x01_rotas.py` |
+
+### Contexto
+
+Credor do que o KAM-239 deixou por fazer, aberto no PR dele pela coordenação do lote 19 (2026-11-24): cada
+parcial aponta para quem o fecha. O KAM-239 pôs o estado do guia do ES na base e a lista, os *gates* e a fila
+de revisão no processo de lote, por uma rota interna. Ficaram três coisas, e as três são código:
+
+- **Os efeitos remotos não são atómicos** (achado 3 da revisão adversarial do KAM-239). O `PassoGuiado` grava
+  a transição na base e só depois pede ao lote o *gate* e a abertura na fila. Se o lote estiver em baixo nesse
+  instante, o guia fica preso por número divergente e não ganha `review_case`, e ninguém repete o pedido.
+  Hoje é latente, porque os sinais da Meta não têm consumidor ligado.
+- **O convite da lista não tem via** (achado 6). O lote convida o caso seguinte, e o aviso não chega a
+  ninguém: o SMS é do KAM-116 e o canal do KAM-115, e o `AvisoDaListaSemVia` só o regista. Um caso convidado
+  que não volte à página em duas janelas de 48 h é abandonado sem nunca ter sabido do convite.
+- **As rotas do guia não estão no X-01 sobre a base** (Testes Requeridos do KAM-239). O grupo `guia` do
+  condutor do *gate* 6 monta-as sobre o `GuiaEmMemoria`, e o isolamento do estado na base só se mede no ensaio
+  de esquema e no ensaio contra a base.
+
+O critério 3 do KAM-239 (o `server.ts` em `prod`) **não** é deste ticket: espera o agregador de SMS do
+KAM-116.
+
+### Objectivo
+
+Que um pedido do guia ao lote não se perca com o lote em baixo, que nenhum caso perca a vez por um convite que
+não saiu, e que as rotas do guia se meçam no X-01 sobre a base.
+
+### Critérios de Aceitação
+
+- [ ] Uma transição do guia que pede ao lote um *gate* ou a abertura na fila de revisão chega à base mesmo
+  que o lote esteja em baixo no instante: o pedido repete-se, de forma idempotente, ou o lote reconcilia a
+  partir do estado do guia. Há um ensaio com o lote em baixo.
+- [ ] Um convite da lista que não chegou ao dono, por não haver via ou por a via falhar, não conta para o
+  abandono, e cada convite por entregar vê-se numa métrica. Se isto mudar a regra das 48 h do KAM-095, a
+  mudança é decisão do fundador, registada no bloco com data e autor.
+- [ ] O grupo `guia` do condutor do X-01 monta as rotas do guia sobre os adaptadores SQL (`guiaNaBase`, e a
+  lista, os *gates* e a fila pelo lote), contra a base, com zero achados.
+
+### Detalhes Técnicos
+
+- Pode pedir esquema (por exemplo, a marca do convite entregue, ou os pedidos por repetir). O número da
+  revisão é da fila.
+- A rota interna do KAM-239 tem só as oito operações fechadas. Uma operação nova é uma alteração ao custo que
+  o fundador aceitou, e leva-se à coordenação antes de a escrever.
+
+### Testes Requeridos
+
+- Integração: contra a base, uma transição com o lote em baixo chega ao `review_case` e ao `onboarding_gate`
+  quando o lote volta; um convite sem via não abandona o caso.
+- Isolamento: as rotas do guia na bateria X-01, sobre os adaptadores SQL.
+
+### Definition of Done
+
+- [ ] Critérios de Aceitação satisfeitos; os três pendentes do bloco do KAM-239 revistos com a evidência.
+
+### Handoff para Claude Code
+
+```text
+És o executor do ticket KAM-254 da KAMBÁ (o que ficou do guia do ES pelo lote).
+Lê os blocos KAM-095 e KAM-239 de specs/EPIC-09_Onboarding_Governanca.md,
+services/onboarding-web/src/guia_pelo_lote.ts e services/onboarding-web/src/lote/interno.ts.
+Objectivo: nenhum pedido do guia ao lote se perde, nenhum caso perde a vez por um convite que não saiu,
+e as rotas do guia medem-se no X-01 sobre a base.
+Regras: o onboarding-web não ganha kamba_batch (D2-A do KAM-236); a rota interna só com operações fechadas.
+```
+
+---
+
 ## Riscos do Epic e itens NÃO VERIFICADOS
 
 | Risco / item | Estado | Impacto | Mitigação / critério de saída | Decisão |
@@ -5370,4 +5453,4 @@ Regras: a decisão é do fundador; uma violação por conteúdo; isolamento de t
 | 1.45 | Novembro 2026 | KAM-209 (o preço anómalo por categoria): as quatro decisões do fundador de 2026-11-21 (opção A em todas) e as duas de 2026-11-22 (um sinal por loja e por janela de 30 dias; referências de pelo menos três lojas), os três critérios e as duas caixas da DoD marcados, com a secção «Verificação dos Critérios de Aceitação»; e o critério 4 do KAM-200 revisto, de **não satisfeito** a **satisfeito**. Escrita como 1.41 e renumerada na integração, depois do KAM-236, do KAM-225, do KAM-233 e do KAM-208. | Equipa KAMBÁ |
 | 1.46 | Novembro 2026 | Escrita como 1.44 e renumerada na integração, depois do KAM-208 e do KAM-209; o credor abriu como KAM-249 e passou a KAM-253, porque o 249 a 252 fundiram com o KAM-247, o KAM-241 e o KAM-243. **KAM-253 acrescentado**, no PR do **KAM-245** (EPIC-11), que o abre e não o implementa, pela decisão A do fundador de 2026-11-23: o `/internal/screen` despublica o conteúdo que bloqueia, e a re-análise de uma mudança de política continua sem despublicar, pelo critério 4 do KAM-191. O KAM-253 é o credor dessa assimetria, com a decisão por tomar. **Aresta recíproca:** o `Bloqueia` do KAM-191 passa de «—» a **KAM-253**. Número provisório: o maior da `main` + 1. | Equipa KAMBÁ |
 | 1.47 | Novembro 2026 | **KAM-240** (escrita como 1.42 e renumerada na integração, depois do KAM-225, do KAM-233, do KAM-208, do KAM-209 e do KAM-245): a idempotência do `PATCH /painel/produtos/:id` na base (revisão `0089`). A forma da tranca (a linha, sem prazo) e a **decisão da coordenação do lote 19** de 2026-11-22 sobre a retenção (C1-A: 24 h, purga a 25 h como lote) no bloco, e as duas secções de verificação. A alínea (c) do critério 1 do KAM-236 revista com a evidência; a caixa dele continua vazia pelas alíneas (a) e (b). Número **provisório**: renumera-se na integração. | Equipa KAMBÁ |
-| 1.48 | Novembro 2026 | **KAM-239** (escrita como 1.42 e renumerada na integração, depois do KAM-225, do KAM-233, do KAM-208, do KAM-209, do KAM-245 e do KAM-240): a decisão do fundador de 2026-11-22 registada no bloco (A: a rota interna `/interno/guia/*` no `onboarding-lote`, com a credencial `onboarding_lote_token`; recusadas a tabela de pedidos e o evento) e a da coordenação do lote 19 (C1-A: o *alias* `onboarding-lote-interno` só na rede `app`, com o linter do compose a ler as redes em mapa), e as duas secções de verificação: critérios 1 e 2 satisfeitos, o 3 parcial pelo SMS do KAM-116. A alínea (a) do critério 1 do KAM-236 revista. | Equipa KAMBÁ |
+| 1.48 | Novembro 2026 | **KAM-239** (escrita como 1.42 e renumerada na integração, depois do KAM-225, do KAM-233, do KAM-208, do KAM-209, do KAM-245 e do KAM-240): a decisão do fundador de 2026-11-22 registada no bloco (A: a rota interna `/interno/guia/*` no `onboarding-lote`, com a credencial `onboarding_lote_token`; recusadas a tabela de pedidos e o evento) e a da coordenação do lote 19 (C1-A: o *alias* `onboarding-lote-interno` só na rede `app`, com o linter do compose a ler as redes em mapa), e as duas secções de verificação: critérios 1 e 2 satisfeitos, o 3 parcial pelo SMS do KAM-116. A alínea (a) do critério 1 do KAM-236 revista. **KAM-254 acrescentado**, no mesmo PR, que o abre e não o implementa, pela decisão da coordenação do lote 19 de 2026-11-24 (cada parcial aponta para quem o fecha): os efeitos remotos sem atomicidade, o convite da lista sem via e o X-01 das rotas do guia sobre a base; o critério 3 aponta ao KAM-116. | Equipa KAMBÁ |
