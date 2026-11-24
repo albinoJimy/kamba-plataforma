@@ -332,14 +332,21 @@ export class CicloDoGuia {
     }
     // Depois do abandono: um guia que acabou de passar a `abandonado` não escreve
     // o `meta_es`, e a reconciliação não lhe toca.
+    // Dois passos, cada um no seu `try`: uma falha do gate não salta a fila.
+    let reconciliacaoFalhou = false;
     try {
       gatesReconciliados = (await reconciliarMetaEsNaBase(this.#lote)).length;
+    } catch {
+      reconciliacaoFalhou = true;
+    }
+    try {
       const r = await abrirRevisoesEmFaltaNaBase(this.#lote, this.#revisao);
       revisoesAbertas = r.abertos.length;
-      if (r.falhados > 0) falhou.push("reconciliacao");
+      if (r.falhados > 0) reconciliacaoFalhou = true;
     } catch {
-      falhou.push("reconciliacao");
+      reconciliacaoFalhou = true;
     }
+    if (reconciliacaoFalhou) falhou.push("reconciliacao");
     return { abandonados, gatesReconciliados, revisoesAbertas, falhou };
   }
 

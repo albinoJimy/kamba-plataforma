@@ -2699,8 +2699,20 @@ async function grupoDoGuia(relatorio: Relatorio): Promise<void> {
       const idDeA = await criar("Loja de quem ataca", `+2440000${algarismos(5)}`);
       // B tem estado de guia na base, com pre-voo gravado: e o que uma fuga mostraria.
       await (guia as { preflight(id: string, a: unknown): Promise<unknown> }).preflight(idDeB, {});
-      // E entra na lista pela rota interna do lote: uma fuga da posicao seria dela.
-      await (portas.lista as { reserve(id: string): Promise<string> }).reserve(idDeB);
+      // **E B fica a espera na lista, com posicao** — a forma mais hostil, e a do
+      // limite a zero da montagem em memoria. A base do gate tem as vagas da
+      // `onboarding_capacity`, que este condutor nao muda: enchem-se com casos de
+      // ensaio pela mesma rota interna ate um deles ficar na lista, e so entao B
+      // pede (achado 6 da revisao adversarial do KAM-254). Uma fuga da posicao,
+      // do convite ou da desistencia seria dela.
+      const reservar = (id: string): Promise<string> =>
+        (portas.lista as { reserve(id: string): Promise<string> }).reserve(id);
+      let cheia = false;
+      for (let n = 0; n < 64 && !cheia; n += 1) {
+        cheia = (await reservar(await criar(`Loja de enchimento ${n}`, `+2440000${algarismos(5)}`))) === "lista_espera";
+      }
+      if (!cheia) throw new Error("a lista nao encheu: B nao ficaria a espera");
+      if ((await reservar(idDeB)) !== "lista_espera") throw new Error("B nao ficou na lista de espera");
       const temCanario = canario !== "" && canario !== "sem-canario-no-ambiente";
 
       const sessaoDeA = cunharReferencia("sessao" as never, idDeA as never, assinatura as never);

@@ -210,7 +210,8 @@ TESTES_OBRIGATORIOS = (
     # KAM-254: uma transicao com o lote em baixo chega ao gate e a fila na volta
     # seguinte, e a reconciliacao tranca o guia contra uma transicao concorrente.
     "KAM-254: uma transição feita com o lote em baixo chega ao onboarding_gate e ao review_case quando o lote volta",
-    "KAM-254: a reconciliação tranca o guia, e uma transição concorrente escreve o gate por último",
+    "KAM-254: a reconciliação espera por uma transição por confirmar, e escreve o gate do estado que ganhou",
+    "KAM-254: a reconciliação não reabre um caso decidido, não se deixa tapar pelo teste, apaga o verde velho e não toca nos mortos",
     "KAM-254: sem via, um convite que vence duas vezes no lote real não abandona o caso nem gasta tentativa",
 )
 

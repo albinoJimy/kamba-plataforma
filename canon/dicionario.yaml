@@ -19752,9 +19752,9 @@ entradas:
     nomes_nota:
       - "estado"
       - "aguardando"
+      - "por_entregar"
       - "desfecho"
       - "origem"
-      - "por_entregar"
     variantes_literais: []
   - seccao: "3.72"
     conceito: "Passo da régua"
@@ -23981,6 +23981,7 @@ entradas:
       - "pronto"
       - "falhado"
       - "desligado"
+      - "guia_nao_verificado"
       - "es_falhado"
     variantes_literais: []
   - seccao: "3.86"
