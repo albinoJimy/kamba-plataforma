@@ -470,6 +470,40 @@ class TestAsTabelas(_ComTransaccao):
         self.como("admin")
         self.erro("55000", f"DELETE FROM {EXCLUSOES} WHERE tenant_id = %s", (tenant,))
 
+    def test_a_exclusao_fica_no_seu_tenant(self) -> None:
+        """As perguntas do X-03/X-04 do gate 6, sem apagar nada.
+
+        A tabela esta em `SEM_RECEITA_COM_RAZAO` do `db/tests_isolamento`: os
+        gatilhos `ENABLE ALWAYS` recusam o `DELETE` com que aquelas receitas
+        limpam. Prova-se aqui. O `kamba_app` nem tem o privilegio; e a politica
+        `tenant_iso` mede-se dando-lho **dentro desta transaccao**, que nunca
+        confirma: o unico papel com privilegio, o `kamba_batch`, tem `BYPASSRLS`.
+        """
+        a, b = self.tenant(), self.tenant()
+        self.como("kamba_app")
+        self.erro(PRIVILEGIO_INSUFICIENTE, f"SELECT * FROM {EXCLUSOES}")
+        self.erro(PRIVILEGIO_INSUFICIENTE, f"INSERT INTO {EXCLUSOES} (tenant_id, motivo, registado_por) "
+                  "VALUES (%s, 'teste', 'x')", (a,))
+        self.como("kamba_batch")
+        self.cursor.execute(f"INSERT INTO {EXCLUSOES} (tenant_id, motivo, registado_por) VALUES (%s, 'equipa', 'x')",
+                            (a,))
+        self.como("admin")
+        self.cursor.execute(f"SELECT relrowsecurity, relforcerowsecurity FROM pg_class WHERE oid = %s::regclass",
+                            (EXCLUSOES,))
+        self.assertEqual(tuple(self.cursor.fetchone()), (True, True))
+        self.cursor.execute(f"GRANT SELECT, INSERT ON {EXCLUSOES} TO kamba_app")
+        self.como("kamba_app")
+        self.cursor.execute(f"SELECT count(*) FROM {EXCLUSOES} WHERE tenant_id = %s", (a,))
+        self.assertEqual(self.cursor.fetchone()[0], 0, "sem contexto, zero linhas")
+        factories.contexto(self.cursor, b)
+        self.cursor.execute(f"SELECT count(*) FROM {EXCLUSOES} WHERE tenant_id = %s", (a,))
+        self.assertEqual(self.cursor.fetchone()[0], 0, "o contexto de B nao ve a exclusao de A")
+        self.erro(PRIVILEGIO_INSUFICIENTE, f"INSERT INTO {EXCLUSOES} (tenant_id, motivo, registado_por) "
+                  "VALUES (%s, 'teste', 'x')", (self.tenants[0],), texto="row-level security")
+        factories.contexto(self.cursor, a)
+        self.cursor.execute(f"SELECT count(*) FROM {EXCLUSOES} WHERE tenant_id = %s", (a,))
+        self.assertEqual(self.cursor.fetchone()[0], 1, "o controlo: o contexto de A ve a sua")
+
 
 class TestAReproducao(_ComTransaccao):
     """Criterio 3: a metrica reproduzida por script da diferenca 0 em cinco tenants."""
