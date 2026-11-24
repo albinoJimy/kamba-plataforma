@@ -4,7 +4,7 @@
 |---|---|
 | Produto | KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para Angola |
 | Documento | Epic — Módulos de Entrada |
-| Versão | 1.39 |
+| Versão | 1.40 |
 | Data | Novembro de 2026 |
 | Classificação | Documento de Referência — Interno |
 | Documento-fonte | `../docs/tecnica/00_Arquitectura_Solucao.md` (ADR-020, §13.3 D13), `../docs/tecnica/02_Agent_Runtime_Verticais.md` (§21), `../docs/exploracao/14-tese-minima-e-plano-de-validacao.md` (H10–H12) |
@@ -365,7 +365,7 @@ Os ensaios:
 | Achado | Onde | Credor |
 |---|---|---|
 | A quantidade em stock que o dono deu fica na ingestão e no resumo, e não chega ao Registo: o `ProductDraft` da porta não tem campo para ela | [`tls/registo_com.py`](../services/agr/src/kamba_agr/tls/registo_com.py) | **KAM-231**. *Revisto pelo KAM-231:* a quantidade vai com a publicação, e o COM ajusta o stock na mesma transacção, com o `stock.adjusted`; a coluna `offer_terms.stock_quantidade` continua por escrever, como no KAM-043 e no KAM-049 |
-| Um `screen` do conteúdo exacto de um produto já publicado, com a decisão `bloqueada`, faz a re-análise saltá-lo, e o `screening.violation_detected` não sai: a re-análise é quem o emite | nota de [`screening/index.ts`](../services/com/src/screening/index.ts) do COM | **KAM-231**, que liga a foto e o screening por produto em produção. *Revisto pelo KAM-231:* **não coube nele**, que liga a foto e não o screening por produto em produção. Credor **KAM-245**, por decisão da coordenação de 2026-11-22 |
+| Um `screen` do conteúdo exacto de um produto já publicado, com a decisão `bloqueada`, faz a re-análise saltá-lo, e o `screening.violation_detected` não sai: a re-análise é quem o emite | nota de [`screening/index.ts`](../services/com/src/screening/index.ts) do COM | **KAM-231**, que liga a foto e o screening por produto em produção. *Revisto pelo KAM-231:* **não coube nele**, que liga a foto e não o screening por produto em produção. Credor **KAM-245**, por decisão da coordenação de 2026-11-22. *Revisto pelo KAM-245:* fechado. A violação sai do `/internal/screen`, na transacção da decisão, e o produto passa a `rascunho` com o `catalog.product_changed` (decisão A do fundador, 2026-11-23); a re-análise de política continua a não despublicar, com credor **KAM-253** |
 
 ---
 
@@ -3997,7 +3997,7 @@ Uma revisão, por um agente que recebeu o ticket e o código, e não o raciocín
 | Prioridade | P2 |
 | Estimativa | S |
 | Dependências | KAM-119 |
-| Bloqueia | — |
+| Bloqueia | KAM-253 |
 | Responsável sugerido | Engenheiro de Comércio (COM) |
 | Documentos de referência | `EPIC-11_Modulos_Entrada.md` (bloco KAM-119, «Achado fora de âmbito»), `EPIC-09_Onboarding_Governanca.md` (KAM-088 e KAM-191) |
 
@@ -4011,13 +4011,33 @@ Um produto publicado cujo conteúdo um `screen` posterior marca como `bloqueado`
 
 ### Critérios de Aceitação
 
-- [ ] Um `screen` com decisão `bloqueada` sobre o conteúdo exacto de um produto publicado faz o `screening.violation_detected` sair uma vez, com o `sku` e a regra, e o produto deixa de ser visível ao cliente.
-- [ ] Um `screen` de um rascunho, ou de outro conteúdo, não emite nada.
-- [ ] A repetição do mesmo `screen` não emite segunda violação.
+- [x] Um `screen` com decisão `bloqueada` sobre o conteúdo exacto de um produto publicado faz o `screening.violation_detected` sair uma vez, com o `sku` e a regra, e o produto deixa de ser visível ao cliente.
+- [x] Um `screen` de um rascunho, ou de outro conteúdo, não emite nada.
+- [x] A repetição do mesmo `screen` não emite segunda violação.
 
 ### Detalhes Técnicos
 
 - **Sem esquema novo** previsto: a `screening_decision` e o evento são do KAM-088 e do KAM-191.
+- **Onde se emite:** no `/internal/screen` do COM (`gravarComViolacao`, `../services/com/src/screening/index.ts`), na transacção em que o `screen` grava a decisão — e não na re-análise, que salta o produto por ele já ter decisão para a versão e o conteúdo. É a regra dos achados F11 e F12 do KAM-088: uma violação que falhasse depois de a decisão confirmar perdia-se para sempre.
+
+### Decisão do fundador
+
+**Data: 2026-11-23. Autor: o fundador** (decisão transmitida pela coordenação do lote 20). A pergunta foi a da segunda metade do critério 1: como é que o produto «deixa de ser visível ao cliente». Hoje nenhum caminho despublica numa `bloqueada`. A re-análise de uma mudança de política emite e não despublica (KAM-191, critério 4), pelo que a analogia do objectivo («como numa mudança de política») não tem esse efeito.
+
+- **Escolhida — A:** no `/internal/screen`, na mesma transacção, ficam a decisão, a violação, a oferta de `publicado` para `rascunho` e o `catalog.product_changed`, que o IDX lê para esconder o documento. É o que o *trigger* `offer_terms_publicacao_segura` da revisão `0080` já faz a um publicado cujo nome novo não tem decisão. Fica em `rascunho` e não em `arquivado` porque o arquivo é terminal; assim o recurso humano da T&S (uma `permitida` de `humano`) deixa o dono republicar. A re-análise de política não muda. A assimetria fica escrita como achado, com credor novo: o **KAM-253**.
+- **Recusada — B:** a re-análise também despublica. Emendava o critério 4 do KAM-191.
+- **Recusada — C:** só emitir, e deixar a visibilidade à sanção do KAM-097.
+
+### Decisões do fundador sobre a revisão adversarial
+
+**Data: 2026-11-23. Autor: o fundador** (decisões transmitidas pela coordenação do lote 20). A revisão adversarial deste PR levou-lhe dois achados de T&S.
+
+- **D1 — escolhida B, neste PR:** a chave do sinal `violacao_de_categoria` (a `ts_signal.ref_evento`) passa a ser o **conteúdo**: um uuid derivado do tenant, do `sku`, da versão da política e do `sha256` que vêm no payload (`refDaViolacao`, `../packages/core-ts/src/trust/efeito.ts`). Deixa de ser o id do envelope. O peso (35) e a escada ficam iguais. O achado: a re-análise não tranca a oferta, nem volta a ler o produto na transacção dele. Em corrida com o `/internal/screen` do mesmo `sku`, nas duas ordens, saíam duas violações do mesmo conteúdo. Com o id do envelope como chave, isso dava dois sinais altos (70) e a `limitacao` automática por um só produto. Recusadas: A (um credor novo) e C (só escrever).
+- **D2 — escolhida A:** o produto fica em `rascunho`, como na decisão anterior, e o caso fica escrito como achado (abaixo). Recusada: B (o `pausado`, que mudava a decisão A).
+
+### Achado: o `rascunho` sob `limitacao` não se republica só com o recurso do produto
+
+O *trigger* da `limitacao` da revisão `0067` (`../db/migrations/versions/0067_subscricoes_de_trust.py`) trata `rascunho → publicado` como uma **primeira publicação**, e recusa-a (`23514`) enquanto houver uma `limitacao`, `suspensao` ou `encerramento` em vigor. Deixa passar `pausado → publicado`. Por isso, se o tenant tiver uma `limitacao` por outros sinais, a `permitida` de `humano` que a T&S dá no recurso do produto não chega para o dono o republicar: também é preciso o recurso da sanção (`recurso_estado = 'provido'`). Uma violação sozinha pesa 35 e não dá `limitacao`. Com a D1, a corrida também não a dá. Decisão D2 do fundador: fica assim, escrito aqui, sem credor.
 
 ### Testes Requeridos
 
@@ -4026,7 +4046,7 @@ Um produto publicado cujo conteúdo um `screen` posterior marca como `bloqueado`
 
 ### Definition of Done
 
-- [ ] Critérios de Aceitação satisfeitos; o achado do bloco do KAM-119 revisto com a evidência.
+- [x] Critérios de Aceitação satisfeitos; o achado do bloco do KAM-119 revisto com a evidência.
 
 ### Handoff para Claude Code
 
@@ -4037,6 +4057,47 @@ Objectivo: o screening.violation_detected sai quando um screen posterior bloquei
 Regras: uma violação por conteúdo; isolamento de tenant.
 Testes: unit, idempotência e adversarial.
 ```
+
+### Decisões do executor
+
+- **A idempotência vem da transição, e não de uma marca nova.** Sem esquema, não há onde guardar «esta violação já saiu». O `gravarComViolacao` tranca a linha da oferta publicada (`FOR UPDATE`), lê o motivo do `assertPublishable` antes de gravar e volta a lê-lo depois. Só emite quando o motivo **passa** a `bloqueada`. Um segundo `screen` do mesmo conteúdo encontra-o já `bloqueada`, e não emite. O mesmo acontece a uma `bloqueada` que a re-análise já emitiu. A tranca serializa dois `screen` concorrentes do mesmo `sku`. **Não serializa a re-análise**, que não tranca a oferta, e a re-análise não muda: em corrida, as duas emitem a mesma violação. Quem as junta num sinal é o consumidor de T&S, pela chave do conteúdo (decisão D1).
+- **A saída de publicado não depende da transição.** Sempre que, depois de gravar, o conteúdo exacto do publicado está `bloqueada`, a oferta passa a `rascunho` e o `catalog.product_changed` sai. Isto apanha também o publicado que a re-análise deixou visível, quando o dono o volta a submeter.
+- **Uma `permitida` de `humano` continua a ganhar** (a regra do `assertPublishable`): uma `bloqueada` posterior das regras sobre um conteúdo que a T&S aprovou não emite nem despublica.
+- **O conteúdo exacto** é o `conteudoSha256` de `[categoria do tenant, [nome publicado]]`, a mesma forma que a re-análise lê (`SQL_POR_REANALISAR`). Um `screen` com outra categoria declarada no pedido, ou com outro texto, é outro conteúdo.
+- **Sem linha no `audit_log`:** as origens do registo são uma lista fechada do KAM-043, e a decisão, a violação e o `product_changed` ficam todos no *outbox* e na `screening_decision`, que são append-only.
+- **A recusa:** se a oferta trancada não sair de publicado, ou se um dos dois eventos falhar, a operação lança, a transacção desfaz-se toda (decisão incluída), e a rota responde `UPSTREAM_DOWN`, como já respondia a uma falha da escrita.
+
+### Verificação dos Critérios de Aceitação
+
+Três critérios, **três marcados**. A evidência está em `services/com/tests/screening.violacao.test.ts` (o ficheiro novo, **16/16**), que usa a política real e um duplo da base que **lê o texto da instrução**: cada predicado da tranca e da saída de publicado só filtra se estiver escrito. A suite inteira do COM dá **651/651**, o `trust.test.ts` do core-ts **51/51** e o `lote.test.ts` do `onboarding-web` **41/41** (o payload da violação do ensaio dele passou a ser o do contrato v1, com o `sha256`, de que a chave nova precisa). O duplo do `tests/publicacao.test.ts` (KAM-119) passou a ler o `estado = 'publicado'` da tranca e a contar a saída de publicado à parte. Sem isso, o ensaio do critério 5 do KAM-119 via uma oferta em rascunho como publicada.
+
+| Critério | Estado | Evidência nomeada |
+|---|---|---|
+| 1 | marcado | A violação sai uma vez, com o `sku`, a regra `alcool`, a versão e o sha em base32 (`criterio 1: a bloqueada do conteudo exacto de um publicado emite a violacao uma vez, com o sku e a regra`). O produto deixa de ser visível: a oferta fica `rascunho` e o `catalog.product_changed` sai **na mesma transacção** que a decisão e a violação (`decisao A: o publicado que o screen bloqueia fica rascunho e sai do indice na mesma transaccao`). Também sobre uma `permitida` anterior do motor (`tambem emite e despublica sobre uma permitida anterior do motor`). A falha de qualquer um dos dois eventos desfaz a decisão e a saída de publicado (`uma emissao que falha da UPSTREAM_DOWN e desfaz a decisao e a saida de publicado`) |
+| 2 | marcado | Um rascunho, um arquivado e um apagado não emitem, e a decisão grava-se na mesma (`criterio 2: o screen de um rascunho, de um arquivado ou de um apagado nao emite`). Outro nome, outra categoria no pedido, e uma `permitida` de um publicado também não (`criterio 2: o screen de outro conteudo nao emite`). Uma `bloqueada` de outro texto não tira o publicado que a re-análise já bloqueou (`criterio 2: a bloqueada de outro conteudo nao tira o publicado que a re-analise ja bloqueou`) |
+| 3 | marcado | A repetição do mesmo `screen` não emite segunda violação (`criterio 3: a repeticao do mesmo screen nao emite segunda violacao`). A `bloqueada` que a re-análise já emitiu também não, mas o `screen` despublica (`criterio 3: a bloqueada que a re-analise ja emitiu nao emite outra, e o screen despublica`). A tranca vem antes de ler as decisões e de gravar (`a tranca da oferta vem antes de ler as decisoes e de gravar`). **A corrida com a re-análise (decisão D1):** nas duas ordens (o `screen` confirma primeiro; a re-análise grava e emite, e o `screen` corre antes de ela confirmar), saem duas violações com o mesmo conteúdo, e as duas dão a mesma chave de sinal (`D1: a corrida do screen com a re-analise, nas duas ordens, emite duas vezes o mesmo conteudo, e o T&S le uma chave`). No consumidor, as duas ordens de chegada dão **um** sinal e só o `aviso`, sem `limitacao`; o controlo com a chave antiga dá a `limitacao` (`KAM-245, D1: a corrida do screen com a re-analise, nas duas ordens, da um sinal e nenhuma limitacao`, em `../packages/core-ts/tests/trust.test.ts`, com `D1: a chave da violacao e o conteudo, e cada parte dele a muda`) |
+
+**Os três pontos da decisão do fundador:**
+- o publicado sai do índice na mesma transacção (acima);
+- a re-análise continua a emitir sem despublicar, pelo `reanalisar` de produção sobre o mesmo duplo (`decisao A: a re-analise de uma mudanca de politica continua a emitir sem despublicar`);
+- o recurso humano republica: o `operacaoDePublicar` recusa com `VALIDATION_ERROR` e, depois de uma `permitida` de `humano`, publica (`decisao A: o recurso humano deixa o dono republicar o que o screen tirou`). Uma `permitida` humana anterior continua a ganhar (`uma permitida humana anterior continua a ganhar, sem violacao e sem despublicar`).
+
+**Testes Requeridos:**
+- **Adversarial:** o mesmo conteúdo noutro tenant (`adversarial: o mesmo conteudo noutro tenant`). Sem oferta no tenant do pedido, nada sai nem muda. Com oferta nos dois, só a do tenant do pedido muda, e o outro tenant tem a sua violação no `screen` dele.
+- **O canário do predicado:** tirar `estado = 'publicado'`, `deleted_at IS NULL` ou `sku = $2` só da tranca faz a operação recusar. Tirá-los da tranca e da saída de publicado faz a violação sair onde não devia. Tirar o `sku` da saída de publicado leva duas linhas, e a operação recusa e deixa a vizinha intacta (`canario do predicado: sem cada predicado da oferta, a violacao sai onde nao devia`).
+- **Contra o PostgreSQL:** a tranca e a saída de publicado, corridas como `kamba_app`, só tocam o publicado deste `sku` e deste tenant: rascunho, apagado e outro `sku` ficam de fora, a segunda saída não encontra nada, e com o contexto de outro tenant a RLS não deixa ver nem tirar (`TestPublicadoDoScreenDoCom`, em `../db/tests/test_screening_schema.py`; a suite dá **20/20** numa base descartável).
+- **Quatro mutações à mão no `gravarComViolacao`, todas vermelhas, com o controlo verde:**
+  - emitir sem a transição para `bloqueada` (1 ensaio vermelho);
+  - não comparar o sha do publicado (1 ensaio vermelho, o da `bloqueada` de outro conteúdo, escrito para esta mutação, que sobrevivia);
+  - não emitir o `catalog.product_changed` (5 ensaios vermelhos);
+  - não tirar de publicado (8 ensaios vermelhos).
+- **A mutação da D1:** pôr outra vez o id do envelope como chave do sinal deixa 2 ensaios vermelhos no `trust.test.ts` e 1 no COM, a corrida.
+
+### Verificação da Definition of Done
+
+| Caixa | Estado | Evidência nomeada |
+|---|---|---|
+| Critérios satisfeitos; o achado do KAM-119 revisto | marcado | Os três critérios acima. A linha do achado fora de âmbito no bloco do KAM-119 está revista: fechado por este ticket, com a assimetria da re-análise entregue ao **KAM-253** (EPIC-09), o credor que a decisão A do fundador pediu |
 
 
 ---
@@ -4174,3 +4235,4 @@ Testes: integração e adversarial.
 | 1.37 | Novembro 2026 | **KAM-242**, emenda de propagação: o achado fora do âmbito do bloco do KAM-238 (o *compose* de `prod` sem `memswap_limit`) passa a dizer que o KAM-242 o resolveu, e onde. Nenhuma caixa deste epic muda. Escrita como 1.36 e renumerada na integração, depois do KAM-244. Número **provisório**: renumera-se na integração. | Equipa KAMBÁ |
 | 1.38 | Novembro 2026 | Escrita como 1.36 e renumerada na integração, depois do KAM-244 e do KAM-242. **KAM-241 entregue: o consumidor `dono` no *compose* de `prod`, com 54 MiB medidos sob o próprio limite.** Sem migração, sem contrato e sem emenda do dicionário. Quatro alavancas medidas com o `db/ensaio_dono.py` e a rajada do KAM-238, sem *swap*: o ponto de entrada compilado (`services/onboarding-web/tsconfig.provisionamento.json`, um passo no `Dockerfile`, `dist/provisionamento.js`; apagar os tipos carregava o amaro, +8,5 MiB), a sonda em `bash` e o `NODE_OPTIONS=--max-semi-space-size=1 --max-old-space-size=24`. Sob 54m, `memory.peak` de 44–46 MiB e todos os veredictos verdes em três corridas (sem o `--max-old-space-size`, uma corrida em duas deu OOM); anexo `docs/evidencia/KAM-238.md` §6. O processo entra no *compose* de `prod` e no manifesto (`presente`, 54 MiB; soma 26 214 de 26 214,4), e o de `staging` passa a ter o mesmo serviço. O guião ganha `--node-options`, `--entrada` e a `--sonda compose`, mede por omissão o serviço como o *compose* o declara, confere o `NODE_OPTIONS` do contentor contra o pedido ou o do *compose*, e exige-o `healthy` depois da rajada. A suite do `tools/compose_prod` com as contagens novas e os dois marcadores do `egress-dez`. As linhas 2 e 3 do KAM-238 e a nota do KAM-215 revistas. O piso do `lint_bloco` sobe para 93 (186 medidos, com o KAM-247 e o KAM-242). **KAM-251** acrescentado, credor do `/metrics` do consumidor que nenhum *job* do Prometheus raspa (achado da revisão adversarial do KAM-241, por decisão da coordenação do lote 20); o KAM-241 passa a bloqueá-lo. Contagem: **34** tickets no epic. Número provisório, o maior da `main` mais um: renumera-se na integração. | Equipa KAMBÁ |
 | 1.39 | Novembro 2026 | **KAM-243 entregue: a foto do dono pelo painel.** Escrita como 1.36 e renumerada na integração, depois do KAM-244, do KAM-242 e do KAM-241. Sem migração. Emenda 1.142 do dicionário (§3.81 e §3.56). Bloco do KAM-243: as decisões em vigor (a P4-A do KAM-231, que a coordenação aplicou ao `onboarding-web`, e a decisão do fundador de 2026-11-23, que a substitui: o `onboarding-web` fica com o par do STO, opção A, com credor), as decisões do executor e a verificação dos critérios (quatro marcados), da DoD e da revisão adversarial (cinco achados: dois confirmados e dois plausíveis corrigidos, e um morto). No bloco do KAM-231, o critério 1 revisto com a evidência do painel, e a caixa fica vazia só pela descarga contra a Meta real; no do KAM-119, o critério 1 revisto da mesma forma. **KAM-252** acrescentado, credor do KAM-243 por decisão do fundador de 2026-11-23: a credencial do STO do painel só de escrita na classe `media_imagem`, ou fora do painel, quando a D6 fixar o armazenamento. Depende do KAM-243, cujo `Bloqueia` o ganha. Número **provisório**: renumera-se na integração. | Equipa KAMBÁ |
+| 1.40 | Novembro 2026 | **KAM-245 entregue: a violação de um publicado que o `screen` bloqueia, e a saída de publicado na mesma transacção.** Escrita como 1.36 e renumerada na integração, depois do KAM-244, do KAM-242, do KAM-241 e do KAM-243. Sem migração e sem contrato novo. Emenda 1.143 do dicionário (§3.5 e §3.58). A **decisão do fundador de 2026-11-23** (opção A; recusadas B e C) fica no bloco, com as **duas decisões do fundador sobre a revisão adversarial**, do mesmo dia: a D1 (opção B) faz da chave do sinal `violacao_de_categoria` o conteúdo e não o id do evento, contra a corrida com a re-análise, no consumidor de T&S (`packages/core-ts/src/trust/efeito.ts`) e no §3.68 do dicionário; a D2 (opção A) deixa o `rascunho` e escreve como achado o que o *trigger* da `0067` faz a ele sob `limitacao`. Também ficam as decisões do executor e as duas secções de verificação: três critérios de três e a caixa da DoD marcados. No bloco do KAM-119, a linha do achado fora de âmbito fica revista e fechada. A assimetria com a re-análise, que continua a não despublicar, vai para o **KAM-253**, aberto no EPIC-09 por este PR; o `Bloqueia` do KAM-245 ganha-o. O piso do `lint_bloco` sobe para 92 (184 medidos, na integração com o KAM-244). Medido contra a `main` em `b5529017`: a emenda escrita como 1.139 e renumerada na integração, depois do KAM-208. | Equipa KAMBÁ |
