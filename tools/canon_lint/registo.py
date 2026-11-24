@@ -1,8 +1,8 @@
 """Superficie 3 — `registry/*.yaml`: verticais, planos, gates, consumidores, entitlements e tools.
 
-## Quatro formas, e so quatro
+## Cinco formas, e so cinco
 
-Um ficheiro desta superficie e uma de quatro coisas, e a forma distingue-se por
+Um ficheiro desta superficie e uma de cinco coisas, e a forma distingue-se por
 uma **chave de topo propria**, nunca pelo nome do ficheiro:
 
 1. **vertical** — a chave `id`. A forma e a de `docs/tecnica/02` §5.1;
@@ -14,9 +14,12 @@ uma **chave de topo propria**, nunca pelo nome do ficheiro:
    um consumidor de eventos que **nao** e vertical (sem persona, grafo nem
    tools), com as suas `subscriptions`. As linhas de `platform.evt_subscricoes`
    que lhe correspondem vem por revisao de dados, e um ensaio do AGR
-   confronta-as com esta declaracao.
+   confronta-as com esta declaracao;
+5. **modulos de entrada** — a chave `modulos_entrada`. E o
+   `registry/modulos_entrada.yaml` do KAM-127: a regra de escopo do ADR-020
+   (**no maximo quatro modulos activos**) e o interruptor de cada modulo.
 
-Um ficheiro que nao tenha nenhuma das quatro **falha**, e um que tenha mais do
+Um ficheiro que nao tenha nenhuma das cinco **falha**, e um que tenha mais do
 que uma tambem: nao se adivinha qual das verificacoes se lhe aplica. Antes do
 KAM-009 havia uma so forma, a lista fechada de chaves de topo era a dela, e o
 `id` tinha de ser uma vertical — um `plans.yaml` falhava as duas coisas e nao
@@ -75,6 +78,26 @@ havia como o escrever.
   tem arranque que o faca, e e por isso que aqui se faz;
 * o mesmo `tipo` duas vezes falha: a chave de `evt_subscricoes` e
   `(consumer, tipo)`, e a segunda linha nao se escreve.
+
+## So nos modulos de entrada (KAM-127)
+
+* `modulos_entrada[]` com `modulo`, `activo` e `abatavel`, e mais nada. O
+  `modulo` e um dos modulos de entrada do dicionario §3.7 (**nao** as verticais:
+  um `vendedor` aqui nao e um modulo de entrada) ou uma extensao declarada, e o
+  mesmo modulo duas vezes falha;
+* **mais de quatro `activo: true` exige `emenda_adr_020`**, o caminho de um
+  ficheiro `docs/adr/ADR-020-emenda-<slug>.md` que exista e cite o `ADR-020`. E
+  o criterio 5 do KAM-127 e a regra 7 do EPIC-11: «maximo de 4 modulos; mais
+  exige emenda ao ADR-020». O quinto modulo falha **por esta regra** mesmo que o
+  dicionario o conheca — sao duas barreiras, e nenhuma faz as vezes da outra;
+* **o `catalogo` nunca se abate** (ADR-020: e pre-requisito do onboarding, e so
+  se ajusta): `activo: false` ou `abatavel: true` no `catalogo` falham, e um
+  ficheiro **sem** o `catalogo` tambem. E o criterio de abate (d) do KAM-127,
+  imposto pelo CI e nao pela memoria de quem decide;
+* **um ficheiro so**: o tecto conta-se dentro de um ficheiro, e dois ficheiros
+  com `modulos_entrada` (dois de tres e um quinto, por exemplo) passavam cada um
+  por si. `modulos_em_mais_de_um_ficheiro` recusa o segundo, sobre o conjunto do
+  registo, e e o `check` do CLI que a chama.
 
 ## So nos planos
 
@@ -145,7 +168,23 @@ CHAVE_DA_VERTICAL = "id"
 CHAVE_DOS_PLANOS = "plans"
 CHAVE_DOS_GATES = "gates"
 CHAVE_DO_CONSUMIDOR = "consumidor"
-CHAVES_DE_FORMA = (CHAVE_DA_VERTICAL, CHAVE_DOS_PLANOS, CHAVE_DOS_GATES, CHAVE_DO_CONSUMIDOR)
+CHAVE_DOS_MODULOS = "modulos_entrada"
+CHAVES_DE_FORMA = (
+    CHAVE_DA_VERTICAL, CHAVE_DOS_PLANOS, CHAVE_DOS_GATES, CHAVE_DO_CONSUMIDOR, CHAVE_DOS_MODULOS,
+)
+
+#: A quinta forma (`registry/modulos_entrada.yaml`, KAM-127). Listas fechadas.
+CHAVES_DE_TOPO_DE_MODULOS = {"version", "modulos_entrada", "emenda_adr_020"}
+CHAVES_DE_MODULO = {"modulo", "activo", "abatavel"}
+#: O tecto do ADR-020 (EPIC-11 §1, regra 7). Uma constante e nao configuracao:
+#: subi-lo e emendar o ADR, e e isso que a `emenda_adr_020` declara.
+MAXIMO_DE_MODULOS_ACTIVOS = 4
+#: O modulo que nunca se abate (ADR-020; KAM-127, criterio de abate (d)).
+MODULO_QUE_NAO_SE_ABATE = "catalogo"
+#: Onde vive uma emenda ao ADR-020. Os ADRs canonicos estao no `docs/tecnica/00`
+#: §8, que nao e um ficheiro por ADR; a emenda e um ficheiro proprio, ao lado dos
+#: ADRs locais, para que «existe» seja um teste de disco e nao de leitura.
+_FORMA_DA_EMENDA = re.compile(r"^docs/adr/ADR-020-emenda-[a-z0-9-]+\.md$")
 
 #: A quarta forma (`registry/idx.yaml`, KAM-194). Listas fechadas, como as das
 #: outras tres.
@@ -820,7 +859,93 @@ def verificar(ficheiro: str, fonte: str, saber: Saber) -> list[Achado]:
                            "entregava um envelope que nenhum contrato descreve")
                 )
 
-    # --- qual das quatro formas e esta -----------------------------------------------
+    # --- quinta forma: os modulos de entrada (KAM-127) -------------------------------
+
+    def forma_de_modulos() -> None:
+        """`version`, `modulos_entrada: [{modulo, activo, abatavel}]` e a emenda."""
+        chaves(documento, CHAVES_DE_TOPO_DE_MODULOS, "no topo do ficheiro de modulos de entrada")
+        versao_do_ficheiro = documento.get("version")
+        if not isinstance(versao_do_ficheiro, str) or not _SEMVER.match(versao_do_ficheiro):
+            achados.append(
+                Achado(ficheiro, _linha_de(fonte, "version"), REGRA,
+                       "os modulos de entrada nao declaram `version` em SemVer "
+                       "(`registry/README.md`, regra 1)")
+            )
+        modulos = documento.get(CHAVE_DOS_MODULOS)
+        if not isinstance(modulos, list) or not modulos:
+            achados.append(
+                Achado(ficheiro, _linha_de(fonte, CHAVE_DOS_MODULOS), ILEGIVEL,
+                       "`modulos_entrada` tem de ser uma lista com pelo menos um modulo")
+            )
+            return
+        de_entrada = dicionario.dominios.get("modulo", {}).get("valores", [])
+        vistos: set[str] = set()
+        activos: list[str] = []
+        for item in modulos:
+            if not isinstance(item, dict):
+                achados.append(Achado(ficheiro, 0, ILEGIVEL, f"modulo de forma desconhecida: {item!r}"))
+                continue
+            chaves(item, CHAVES_DE_MODULO, "num modulo de entrada")
+            nome = item.get("modulo")
+            if not isinstance(nome, str) or not nome:
+                achados.append(Achado(ficheiro, 0, ILEGIVEL, f"modulo sem `modulo`: {item!r}"))
+                continue
+            linha = _linha_de(fonte, nome)
+            if nome in vistos:
+                achados.append(
+                    Achado(ficheiro, linha, REGRA,
+                           f"`{nome}` declarado duas vezes: o segundo interruptor contradizia o "
+                           "primeiro, e ganhava o que o leitor lesse por ultimo")
+                )
+                continue
+            vistos.add(nome)
+            if nome not in de_entrada and not saber.extensoes.tem("modulo", nome):
+                achados.append(
+                    fora(ficheiro, linha, "modulo de entrada", nome,
+                         f"`modulo` ∈ {{{', '.join(de_entrada)}}}, dicionário §3.7")
+                )
+            activo, abatavel = item.get("activo"), item.get("abatavel")
+            for campo, valor in (("activo", activo), ("abatavel", abatavel)):
+                if not isinstance(valor, bool):
+                    achados.append(
+                        Achado(ficheiro, linha, REGRA,
+                               f"`{nome}` sem `{campo}` booleano (recebido: {valor!r}): um "
+                               "interruptor que nao e `true` nem `false` nao se le")
+                    )
+            if activo is True:
+                activos.append(nome)
+            if nome == MODULO_QUE_NAO_SE_ABATE and (activo is False or abatavel is True):
+                achados.append(
+                    Achado(ficheiro, linha, REGRA,
+                           f"`{nome}` com `activo: {activo}` e `abatavel: {abatavel}`: o Catalogo AI "
+                           "nunca se abate, so se ajusta (ADR-020, pre-requisito do onboarding; "
+                           "KAM-127, criterio de abate (d))")
+                )
+        if MODULO_QUE_NAO_SE_ABATE not in vistos:
+            achados.append(
+                Achado(ficheiro, _linha_de(fonte, CHAVE_DOS_MODULOS), REGRA,
+                       f"sem `{MODULO_QUE_NAO_SE_ABATE}`: o Catalogo AI e pre-requisito do onboarding e "
+                       "nunca se abate (ADR-020; KAM-127, criterio de abate (d)); tira-lo do ficheiro "
+                       "e abate-lo sem o dizer")
+            )
+        emenda = documento.get("emenda_adr_020")
+        if len(activos) > MAXIMO_DE_MODULOS_ACTIVOS:
+            valida = (
+                isinstance(emenda, str)
+                and _FORMA_DA_EMENDA.match(emenda) is not None
+                and "ADR-020" in (saber.carregar(emenda) or "")
+            )
+            if not valida:
+                achados.append(
+                    Achado(ficheiro, _linha_de(fonte, CHAVE_DOS_MODULOS), REGRA,
+                           f"{len(activos)} modulos de entrada activos ({', '.join(activos)}): o "
+                           f"ADR-020 admite no maximo {MAXIMO_DE_MODULOS_ACTIVOS}, e mais exige "
+                           "`emenda_adr_020` com o caminho de um "
+                           "`docs/adr/ADR-020-emenda-<slug>.md` que exista e cite o ADR-020 "
+                           f"(recebido: {emenda!r})")
+                )
+
+    # --- qual das cinco formas e esta ------------------------------------------------
     #
     # Pela chave de topo, e nunca pelo nome do ficheiro: um `planos.yaml`, um
     # `plans-piloto.yaml` ou um `tarifas.yaml` sao o mesmo ficheiro, e adivinhar
@@ -840,6 +965,8 @@ def verificar(ficheiro: str, fonte: str, saber: Saber) -> list[Achado]:
         forma_de_gates()
     elif declaradas == [CHAVE_DO_CONSUMIDOR]:
         forma_de_consumidor()
+    elif declaradas == [CHAVE_DOS_MODULOS]:
+        forma_de_modulos()
     elif declaradas == [CHAVE_DA_VERTICAL]:
         vertical = forma_de_vertical()
     else:
@@ -847,8 +974,9 @@ def verificar(ficheiro: str, fonte: str, saber: Saber) -> list[Achado]:
             Achado(ficheiro, 0, REGRA,
                    f"ficheiro do registo sem `{CHAVE_DA_VERTICAL}` (vertical, `docs/tecnica/02` §5.1), sem "
                    f"`{CHAVE_DOS_PLANOS}` (planos, `registry/plans.yaml`), sem `{CHAVE_DOS_GATES}` "
-                   f"(gates, `registry/gates.yaml`) e sem `{CHAVE_DO_CONSUMIDOR}` (consumidor, "
-                   "`registry/idx.yaml`): sao as quatro unicas formas desta superficie, e um "
+                   f"(gates, `registry/gates.yaml`), sem `{CHAVE_DO_CONSUMIDOR}` (consumidor, "
+                   f"`registry/idx.yaml`) e sem `{CHAVE_DOS_MODULOS}` (modulos de entrada, "
+                   "`registry/modulos_entrada.yaml`): sao as cinco unicas formas desta superficie, e um "
                    "ficheiro que nao e nenhuma delas nao passa por nao ter sido lido")
         )
 
@@ -877,6 +1005,30 @@ def verificar(ficheiro: str, fonte: str, saber: Saber) -> list[Achado]:
                          identificador, f"`{origem['canonico']}`, dicionário §{origem['seccao']}")
                 )
     return achados
+
+
+def modulos_em_mais_de_um_ficheiro(fontes: dict[str, str]) -> list[Achado]:
+    """O tecto do ADR-020 conta-se num ficheiro so (KAM-127).
+
+    `fontes` e `relativo -> texto` dos `registry/*.yaml`. Um segundo ficheiro com
+    `modulos_entrada` e recusado: o `verificar` conta os activos de cada um, e
+    dois ficheiros de tres passavam cada um por si. O AGR recusa-o tambem no
+    arranque (`modulos_desligados`), mas o arranque e depois da fusao.
+    """
+    com_modulos = []
+    for relativo, fonte in sorted(fontes.items()):
+        try:
+            documento = ler(fonte)
+        except YamlIlegivel:
+            continue  # o `verificar` ja o diz
+        if isinstance(documento, dict) and CHAVE_DOS_MODULOS in documento:
+            com_modulos.append(relativo)
+    return [
+        Achado(relativo, 0, REGRA,
+               f"segundo ficheiro com `{CHAVE_DOS_MODULOS}` (o primeiro e `{com_modulos[0]}`): o tecto "
+               f"de {MAXIMO_DE_MODULOS_ACTIVOS} modulos activos do ADR-020 conta-se num ficheiro so")
+        for relativo in com_modulos[1:]
+    ]
 
 
 # --- os precos de teste nao chegam ao cliente (KAM-124, criterio 3) -----------------

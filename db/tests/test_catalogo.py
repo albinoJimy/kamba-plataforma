@@ -61,6 +61,10 @@ COLUNAS_DE_TELEFONE_ACEITES = {
     # Meta e nao se traduz, e a lista fechada e o que impede que um telefone de
     # cliente entre num dia com este nome.
     ("channel_onboarding", "phone_number_id"),
+    # KAM-239 (revisao do guia na base): o mesmo identificador opaco da Meta, o
+    # do numero que o popup do ES ligou. O numero em si nunca entra: a
+    # comparacao do criterio 4 do KAM-093 e pelo HMAC do telefone do caso.
+    ("onboarding_guia", "phone_number_id"),
     # KAM-087, revisao `0043`: o telefone do caso de onboarding, nas duas formas
     # que a `contacts` e a `contact_endpoints` ja tinham — cifrado em aplicacao
     # e em HMAC para o indice. Nenhuma guarda o numero em claro.
@@ -291,6 +295,10 @@ class TestConvencoes(ComBase):
                 # custo a plataforma inteira regista. A ordem e a do
                 # `ocorrido_em`.
                 "module_cost_ledger",
+                # KAM-127: a decisao de um modulo de entrada. `uuid` aleatorio e
+                # **nao** o `bigserial` do bloco, pela regra geral do §2; a ordem
+                # e a do `registado_em` (`clock_timestamp()`).
+                "module_decisions",
                 # KAM-117: o episodio de churn. `uuid` aleatorio pela regra
                 # geral: a auditoria le-o sob a `tenant_iso`, e um sequencial
                 # dizia-lhe quantos sinais a plataforma inteira abre.
@@ -768,6 +776,11 @@ class TestConvencoes(ComBase):
                 # em cada plano, e e a chave que o `carregar-precos` substitui.
                 # Entre os modelos de mensagem e a oferta («me» < «mo» < «of»).
                 ("module_cost_ledger", "id", "uuid", "gen_random_uuid()"),
+                # KAM-127 (revisao do experimento dos modulos): a decisao, `uuid`
+                # gerada pela regra geral; e a exclusao, com chave **natural** —
+                # o `tenant_id` —, porque um tenant fica fora da coorte uma vez so.
+                ("module_decisions", "id", "uuid", "gen_random_uuid()"),
+                ("module_experiment_exclusions", "tenant_id", "uuid", None),
                 ("module_test_prices", "modulo", "text", None),
                 ("module_test_prices", "plano", "text", None),
                 # KAM-015: um `uuid` gerado, como a conversa, e pela mesma
@@ -808,6 +821,9 @@ class TestConvencoes(ComBase):
                 # o «ultimo valor» do bloco. Depois do caso («_c» < «_g»).
                 ("onboarding_gate", "gate", "text", None),
                 ("onboarding_gate", "onboarding_id", "uuid", None),
+                # KAM-239: o estado do guia, um por caso: a chave e o caso
+                # («_ga» < «_gu» < «_o»).
+                ("onboarding_guia", "onboarding_id", "uuid", None),
                 # KAM-236: o desafio do OTP, um por caso: a chave e o caso, e o
                 # `guardar` substitui pelo `ON CONFLICT (onboarding_id)`
                 # («_g» < «_o»).
@@ -861,6 +877,12 @@ class TestConvencoes(ComBase):
                 # negocio esta nos dois indices unicos parciais
                 # (`painel_revogacao_sid_uq`, `painel_revogacao_corte_uq`)
                 # («ow» < «pai» < «pay»).
+                # KAM-240: a idempotencia do painel tem chave **natural e
+                # composta**, `(tenant_id, chave)`, pela razao da
+                # `order_intents`: e o recibo, e o `ON CONFLICT` da reserva
+                # arbitra por ela («pai_i» < «pai_r»).
+                ("painel_idempotencia", "chave", "text", None),
+                ("painel_idempotencia", "tenant_id", "uuid", None),
                 ("painel_revogacao", "revogacao_id", "uuid", "gen_random_uuid()"),
                 # KAM-052: a chave e um `uuid` gerado, e a chave de negocio
                 # esta ao lado, no indice unico parcial
@@ -1495,6 +1517,10 @@ class TestConvencoes(ComBase):
              # um modulo, que a guarda de orcamento le). **Com** FK para
              # `tenants`.
              "module_cost_ledger",
+             # KAM-127 (revisao do experimento dos modulos). A exclusao comeca
+             # pelo `tenant_id` porque ele e a chave primaria. **Com** FK para
+             # `tenants`. A `module_decisions` nao tem tenant: e global.
+             "module_experiment_exclusions",
              # KAM-092 (revisao dos eventos do tenant). Os dois por indice
              # proprio: `onboarding_gate_tenant_idx (tenant_id)`, porque a chave
              # primaria comeca pelo `onboarding_id`; e
@@ -1565,7 +1591,13 @@ class TestConvencoes(ComBase):
              # KAM-208 (revisao da correlacao entre tenants). Pela chave
              # primaria `(tenant_id, contact_id)`. **Com** FK para `tenants` e
              # a composta para o contacto.
-             "contact_xtenant_pseudonym"},
+             "contact_xtenant_pseudonym",
+             # KAM-240: a idempotencia do painel, pela chave primaria
+             # `(tenant_id, chave)`, sem FK (a razao da `painel_revogacao`).
+             "painel_idempotencia",
+             # KAM-239 (revisao do guia na base). Pelo
+             # `onboarding_guia_tenant_idx (tenant_id)`, com a FK composta ao caso.
+             "onboarding_guia"},
         )
         for tabela, anulavel in com_tenant:
             with self.subTest(tabela=tabela):
@@ -2277,7 +2309,15 @@ class TestConvencoes(ComBase):
         # tenant de uma sessao do painel pode ainda nao ter linha em `tenants`.
         # **125** desde a revisao da correlacao entre tenants (KAM-208): a do
         # tenant e a composta do contacto da `contact_xtenant_pseudonym`.
-        self.assertEqual(len(linhas), 125)
+        #
+        # **126** desde a revisao do guia na base (KAM-239): a composta
+        # `onboarding_guia_caso_fk (onboarding_id, tenant_id)`, que prende o
+        # estado do guia ao caso e ao tenant dele.
+        #
+        # **127** desde a revisao do experimento dos modulos (KAM-127): a
+        # `module_experiment_exclusions_tenant_fk`. A `module_decisions` nao
+        # tem FK: e global, sem tenant.
+        self.assertEqual(len(linhas), 127)
         for nome, alvo in linhas:
             with self.subTest(fk=nome):
                 self.assertTrue(alvo.startswith("platform."), alvo)
@@ -2293,7 +2333,7 @@ class TestPapeis(ComBase):
         )
         return {linha[0]: linha[1:] for linha in linhas}
 
-    def test_existem_os_nove_e_so_os_nove(self) -> None:
+    def test_existem_os_dez_e_so_os_dez(self) -> None:
         """Os tres do KAM-003, o `kamba_resolver` do KAM-004, o `kamba_identity`
         do KAM-008, o `kamba_audit` do KAM-012, o `kamba_agr` do KAM-026 e o
         `kamba_pay_hooks` do KAM-053.
@@ -2322,12 +2362,20 @@ class TestPapeis(ComBase):
         que abre a `refund_cases`. Existe para que a tabela tenha um so dono
         **imposto pela base** — o COM corre como `kamba_app`, e uma porta
         concedida ao `kamba_app` deixava o COM abrir casos.
+
+        **O decimo e o `kamba_litellm` do KAM-247**, por decisao do fundador de
+        2026-11-23 (opcao A1), e e o unico **fora da plataforma**: o papel do
+        proxy de LLM, dono da base `kamba_litellm` e sem `CONNECT` na base da
+        plataforma. Nao esta no `ligacao.PAPEIS` e por isso nao entra na matriz
+        do `test_privilegios`; entra aqui porque esta consulta le o cluster, e
+        um papel `kamba_*` que ninguem declarou e o que ela existe para apanhar.
+        O que ele alcanca mede-se em `test_papel_do_litellm.py`.
         """
         self.assertEqual(
             set(self.atributos()),
             {"kamba_migrator", "kamba_app", "kamba_batch", "kamba_resolver",
              "kamba_identity", "kamba_audit", "kamba_agr", "kamba_pay_hooks",
-             "kamba_pay"},
+             "kamba_pay", "kamba_litellm"},
         )
 
     def test_nenhum_e_superutilizador_nem_cria_bases_ou_papeis(self) -> None:
@@ -2374,6 +2422,9 @@ class TestPapeis(ComBase):
                 # `app.tenant_id` do envelope, e a porta le a encomenda sob
                 # RLS. Com `BYPASSRLS` abria casos em qualquer tenant.
                 "kamba_pay": False,
+                # KAM-247: o proxy de LLM nao tem RLS a contornar na base dele,
+                # e na da plataforma nem entra.
+                "kamba_litellm": False,
             },
         )
 

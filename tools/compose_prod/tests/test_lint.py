@@ -12,7 +12,10 @@ corre-o. Aqui ficam as propriedades do conjunto e as recusas de configuracao.
 
 from __future__ import annotations
 
+import re
+import sys
 import tempfile
+import types
 import unittest
 from pathlib import Path
 
@@ -111,12 +114,17 @@ class TestArvoreReal(unittest.TestCase):
         # bloco, pela mesma razao. Da folga de 102 MiB ate aos 80% consome 48.
         do_kam_225 = dados.manifesto["registo-pg"].memoria_mib
         self.assertEqual(do_kam_225, 48)
+        # KAM-241: o consumidor `dono`, 54 MiB **medidos** sob o proprio limite
+        # (`docs/evidencia/KAM-238.md` §6), uma replica — a folga inteira que o
+        # KAM-225 deixou. Fica a 0,4 MiB do tecto.
+        do_kam_241 = dados.manifesto["onboarding-provisionamento"].memoria_mib
+        self.assertEqual(do_kam_241, 54)
         self.assertEqual(
             soma,
             do_bloco - do_worker_antes + do_worker_agora + do_kam_194 + do_kam_198 + do_kam_218
-            + do_kam_225,
+            + do_kam_225 + do_kam_241,
         )
-        self.assertEqual(soma, 26160)
+        self.assertEqual(soma, 26214)
 
     def test_a_soma_cabe_nos_80_por_cento_da_ram_do_host(self) -> None:
         """Criterio 4: «a soma dos `mem_limit` <= 80% da RAM (<= 25,6 GB)»."""
@@ -196,9 +204,12 @@ class TestArvoreReal(unittest.TestCase):
         # **KAM-225: de 23 para 24 presentes, e de 23 040 para 23 088 MiB.** O
         # recolector do registo do PostgreSQL (48 MiB medidos, uma replica).
         # Ficam 54 MiB de folga ate aos 80% no total do manifesto.
-        self.assertEqual(do_compose, 23088, "a reserva real dos 24 presentes, em MiB")
-        self.assertEqual(sum(s.memoria_mib for s in presentes.values()), 23088)
-        self.assertEqual(len(presentes), 24)
+        #
+        # **KAM-241: de 24 para 25 presentes, e de 23 088 para 23 142 MiB.** O
+        # consumidor `dono` (54 MiB medidos, uma replica). Ficam 0,4 MiB.
+        self.assertEqual(do_compose, 23142, "a reserva real dos 25 presentes, em MiB")
+        self.assertEqual(sum(s.memoria_mib for s in presentes.values()), 23142)
+        self.assertEqual(len(presentes), 25)
         self.assertLessEqual(do_compose, 26214.4)
 
     def test_cada_variavel_obrigatoria_tem_marcador(self) -> None:
@@ -242,6 +253,54 @@ class TestArvoreReal(unittest.TestCase):
         self.assertIn("access_log", texto, "sem registo, metade do criterio 3 falta")
         self.assertIn("%REQ(:AUTHORITY)%", texto)
         self.assertNotIn("%REQ(COOKIE)%", texto, "o registo nunca leva conteudo")
+
+
+class TestSemSwap(unittest.TestCase):
+    """KAM-242: cada `mem_limit` com um `memswap_limit` igual (zero de *swap*).
+
+    O canario prova que a regra `memoria-com-swap` morde (`swap-em-falta`,
+    `swap-maior-que-o-limite`, `swap-ilimitado`). Aqui prende-se a arvore real,
+    lida servico a servico e sem passar pela regra, e o que ela **nao** pode
+    recusar: o mesmo valor escrito noutra unidade.
+    """
+
+    def test_todos_os_servicos_de_prod_tem_memswap_igual_ao_limite(self) -> None:
+        """Lido do texto, linha a linha, sem o parser nem o `_memoria_mb` do lint.
+
+        Um oraculo importado do alvo nao e oraculo: se o `_memoria_mb` passasse
+        a devolver sempre `None`, comparar os dois valores lidos por ele dava
+        igual. Aqui cada `mem_limit` tem de ter, na linha seguinte, um
+        `memswap_limit` com o **mesmo texto** — a forma que o compose usa.
+        """
+        linhas = (RAIZ / lint.PROD).read_text(encoding="utf-8").splitlines()
+        limites = [i for i, l in enumerate(linhas) if l.startswith("    mem_limit: ")]
+        self.assertEqual(len(limites), len(lint.ler(RAIZ).prod.servicos))
+        for i in limites:
+            valor = linhas[i].split(": ", 1)[1]
+            with self.subTest(linha=i + 1):
+                self.assertEqual(linhas[i + 1], f"    memswap_limit: {valor}")
+
+    def test_o_mesmo_valor_noutra_unidade_nao_e_achado(self) -> None:
+        pasta, destino = _copia()
+        with pasta:
+            canario.Copia(destino).trocar(
+                lint.PROD, r"^    memswap_limit: 1024m$", "    memswap_limit: 1g"
+            )
+            achados, _ = lint.varrer(destino)
+            self.assertEqual([str(a) for a in achados], [])
+
+    def test_zero_nao_e_igual_ao_limite(self) -> None:
+        """`memswap_limit: 0` e o mesmo que nao o fixar: deixa usar swap.
+
+        Medido: `memory.swap.max` igual ao limite (`docs/evidencia/KAM-242.md` §2).
+        """
+        pasta, destino = _copia()
+        with pasta:
+            canario.Copia(destino).trocar(
+                lint.PROD, r"^    memswap_limit: 1024m$", "    memswap_limit: 0"
+            )
+            achados, _ = lint.varrer(destino)
+            self.assertEqual(sorted({a.regra for a in achados}), ["memoria-com-swap"])
 
 
 class TestGuiaoDosDezDestinos(unittest.TestCase):
@@ -385,6 +444,114 @@ class TestCli(unittest.TestCase):
             self.assertEqual(
                 cli.main(["--root", str(destino), "gerar", "--verificar"]), 1
             )
+
+
+
+#: As redes do `onboarding-lote` no compose de producao, em mapa (KAM-239).
+REDES_DO_LOTE_EM_MAPA = (
+    r"^    networks:\n      app:\n        aliases:\n          - onboarding-lote-interno\n      data: \{\}$"
+)
+
+
+def _regras(destino: Path) -> set[str]:
+    achados, _ = lint.varrer(destino)
+    return {achado.regra for achado in achados}
+
+
+class TestRedesEmMapa(unittest.TestCase):
+    """As redes de um servico em mapa (`aliases`), lidas como em lista (KAM-239).
+
+    A leitura mudou na decisao da coordenacao do lote 19 (2026-11-22); o
+    criterio, nao. Sem o ramo do mapa no `r_redes_por_servico`, o primeiro
+    ensaio dava «servico-sem-rede» ao `onboarding-lote` da arvore real e o
+    segundo dava verde a uma rede proibida — medido, com o ramo tirado.
+    """
+
+    def test_o_lote_em_mapa_esta_conforme_e_na_rede_app_com_o_alias(self) -> None:
+        pasta, destino = _copia()
+        with pasta:
+            self.assertEqual(_regras(destino), set())
+            texto = (destino / lint.PROD).read_text(encoding="utf-8")
+            self.assertRegex(texto, re.compile(REDES_DO_LOTE_EM_MAPA, re.M))
+
+    def test_uma_rede_proibida_escrita_em_mapa_e_apanhada(self) -> None:
+        pasta, destino = _copia()
+        with pasta:
+            canario.Copia(destino).trocar(
+                lint.PROD,
+                REDES_DO_LOTE_EM_MAPA,
+                "    networks:\n      app:\n        aliases:\n          - onboarding-lote-interno\n"
+                "      data: {}\n      edge: {}",
+            )
+            self.assertEqual(_regras(destino), {"servico-em-edge"})
+
+    def test_uma_rede_que_o_topo_nao_declara_escrita_em_mapa_e_apanhada(self) -> None:
+        pasta, destino = _copia()
+        with pasta:
+            canario.Copia(destino).trocar(
+                lint.PROD,
+                REDES_DO_LOTE_EM_MAPA,
+                "    networks:\n      app:\n        aliases:\n          - onboarding-lote-interno\n"
+                "      data: {}\n      outra: {}",
+            )
+            self.assertEqual(_regras(destino), {"rede-nao-declarada"})
+
+    def test_sem_a_chave_networks_continua_a_ser_um_servico_sem_rede(self) -> None:
+        pasta, destino = _copia()
+        with pasta:
+            canario.Copia(destino).trocar(lint.PROD, REDES_DO_LOTE_EM_MAPA, "")
+            self.assertIn("servico-sem-rede", _regras(destino))
+
+    def test_a_forma_de_lista_continua_igual(self) -> None:
+        pasta, destino = _copia()
+        with pasta:
+            copia = canario.Copia(destino)
+            copia.trocar(lint.PROD, REDES_DO_LOTE_EM_MAPA, "    networks:\n      - app\n      - data")
+            self.assertEqual(_regras(destino), set(), "a lista das mesmas redes, conforme")
+            copia.trocar(
+                lint.PROD,
+                r"^    networks:\n      - app\n      - data\n    # shortcut: 128m",
+                "    networks:\n      - app\n      - data\n      - edge\n    # shortcut: 128m",
+            )
+            self.assertEqual(_regras(destino), {"servico-em-edge"}, "e a lista com `edge`, recusada")
+
+
+#: O ramo do mapa no `r_redes_por_servico`, e a mutacao que o tira (KAM-239).
+RAMO_DO_MAPA = (
+    '        redes = set(_lista(dados.prod, chaves, "networks")) or set(\n'
+    '            _submapa(dados.prod, chaves, "networks")\n'
+    "        )"
+)
+SEM_O_RAMO = '        redes = set(_lista(dados.prod, chaves, "networks"))'
+
+
+class TestMutacaoDoRamoDoMapa(unittest.TestCase):
+    """Sem o ramo do mapa, a arvore real fica vermelha: o ramo e o que a conforma.
+
+    A mutacao aplica-se a uma copia do modulo, carregada a parte, e nao ao
+    `lint` importado: o texto tem de estar la (senao a mutacao nao se aplica e
+    o ensaio diz-o), e o `onboarding-lote` da arvore real, escrito em mapa, tem de
+    passar a «servico-sem-rede».
+    """
+
+    def test_tirar_o_ramo_do_mapa_avermelha_a_arvore_real(self) -> None:
+        fonte = Path(lint.__file__).read_text(encoding="utf-8")
+        self.assertEqual(fonte.count(RAMO_DO_MAPA), 1, "a mutacao ja nao se aplica: o ramo mudou de forma")
+        nome = "compose_prod.lint_mutado"
+        mutado = types.ModuleType(nome)
+        mutado.__dict__["__package__"] = "compose_prod"
+        # A `dataclass` procura o modulo em `sys.modules`: regista-se so durante o ensaio.
+        sys.modules[nome] = mutado
+        try:
+            exec(compile(fonte.replace(RAMO_DO_MAPA, SEM_O_RAMO), lint.__file__, "exec"), mutado.__dict__)
+            achados, _ = mutado.varrer(RAIZ)
+        finally:
+            del sys.modules[nome]
+        self.assertIn(
+            ("servico-sem-rede", "onboarding-lote"),
+            {(a.regra, "onboarding-lote" if "`onboarding-lote`" in a.mensagem else "") for a in achados},
+        )
+        self.assertEqual(lint.varrer(RAIZ)[0], [], "e com o ramo, conforme")
 
 
 if __name__ == "__main__":

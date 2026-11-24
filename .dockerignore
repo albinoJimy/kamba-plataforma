@@ -32,6 +32,9 @@ secrets/
 node_modules
 **/node_modules
 packages/*/dist
+# KAM-241: o consumidor `dono` compila-se dentro da imagem; um `dist/` local de
+# um `tsc` a mao nao entra no contexto (ficariam ficheiros velhos na imagem).
+services/onboarding-web/dist
 .venv
 **/.venv
 **/__pycache__

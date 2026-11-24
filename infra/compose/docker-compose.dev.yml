@@ -744,6 +744,15 @@ services:
       KAMBA_SECRET_KEK_DADOS_DO_CASO: ${KAMBA_SECRET_KEK_DADOS_DO_CASO:?defina-o no .env}
       KAMBA_AGR_URL: ${KAMBA_AGR_URL:-http://agr:8000}
       KAMBA_SECRET_AGR_PAINEL_TOKEN: ${KAMBA_SECRET_AGR_PAINEL_TOKEN:-}
+      # KAM-243: o STO da foto do dono pelo painel. Em `dev` e opcional: sem as
+      # duas chaves, o `POST /painel/foto` responde 503 e o arranque di-lo.
+      KAMBA_STORAGE_ENDPOINT: ${KAMBA_STORAGE_ENDPOINT:-http://seaweedfs:8333}
+      KAMBA_STORAGE_BUCKET: ${KAMBA_STORAGE_BUCKET:-kamba-dev}
+      KAMBA_STORAGE_REGION: ${KAMBA_STORAGE_REGION:-ao-luanda-1}
+      KAMBA_STORAGE_DESTINO_COUNTRY: ${KAMBA_STORAGE_DESTINO_COUNTRY:-AO}
+      KAMBA_STORAGE_DESTINO_PROVIDER: ${KAMBA_STORAGE_DESTINO_PROVIDER:-seaweedfs}
+      KAMBA_SECRET_STORAGE_ACCESS_KEY_ID: ${KAMBA_SECRET_STORAGE_ACCESS_KEY_ID:-}
+      KAMBA_SECRET_STORAGE_SECRET_ACCESS_KEY: ${KAMBA_SECRET_STORAGE_SECRET_ACCESS_KEY:-}
       # KAM-217: a troca de telefone do dono, como `kamba_identity` (o papel que
       # executa a `platform.definir_dono` e le o cofre de contacto). So se usa
       # com o painel montado (`ONBOARDING_COM_INTERNO_URL`); as chaves do

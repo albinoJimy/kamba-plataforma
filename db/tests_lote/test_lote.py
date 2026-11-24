@@ -64,6 +64,12 @@ FICHEIROS = (
     # KAM-236: o registo, o OTP, os contadores e as revogacoes do painel do
     # `onboarding-web` sobre a `0084`, como `kamba_app`, e o reinicio.
     "tests_bd/inscricao.bd.test.ts",
+    # KAM-240: a idempotencia do PATCH do painel sobre a `0089`, como
+    # `kamba_app`, entre dois processos e depois de um reinicio.
+    "tests_bd/idempotencia.bd.test.ts",
+    # KAM-239: o estado do guia na `onboarding_guia`, como `kamba_app`, e a
+    # lista, os gates e a fila pela rota interna do processo de lote real.
+    "tests_bd/guia.bd.test.ts",
 )
 
 #: Os `describe` do ficheiro: os dezanove cenarios do processo de lote partilham as
@@ -79,6 +85,10 @@ GRUPOS = (
     "adversarial (f) do KAM-096, os dois lados: a recusa da base e o alerta (KAM-219)",
     "a activação no lote contra a base",
     "a inscrição na base (KAM-236)",
+    # KAM-209: a varredura do preço anómalo, no ficheiro do T&S.
+    "o preço anómalo contra a base (KAM-209)",
+    "a idempotência do painel na base (KAM-240)",
+    "o guia na base (KAM-239)",
 )
 
 #: Os testes que **tem** de ter corrido e passado, pelo nome. Sao a letra dos
@@ -172,6 +182,31 @@ TESTES_OBRIGATORIOS = (
     "KAM-236: dois registos concorrentes do mesmo NIF dão um caso, e a mesma chave concorrente também",
     "KAM-236: vinte anotações de dois processos somam vinte, e o trocarUltimo concorrente devolve null uma vez",
     "KAM-236: uma sessão revogada continua revogada depois do reinício, e o corte de um tenant não toca o outro",
+    # KAM-209: o preço anómalo contra a base — as 19 e 20 referências e as
+    # fronteiras (Testes Requeridos), a `outra` e as sem categoria, e o
+    # isolamento: a mediana atravessa tenants só pelo `kamba_batch`.
+    "19 referências de outras lojas não avaliam; a 20.ª avalia, e o sinal diz só a contagem",
+    "1% e 100× da mediana ficam dentro; um cêntimo para fora sinaliza",
+    "as ofertas sem categoria e as da `outra` não se avaliam, e a volta conta as sem categoria",
+    "doze SKUs anómalos são um sinal, e não dão aviso nem limitação só por preço",
+    "uma loja com 20 ofertas a 1 Kz não fixa a mediana, e a volta conta a oferta que não avaliou",
+    "a mediana atravessa tenants só pelo kamba_batch: o kamba_app vê as ofertas do seu tenant e mais nenhuma",
+    "só as publicadas, não apagadas e de preço fixo são referência; o `a_partir_de` avalia-se",
+    # KAM-240: dois processos com a mesma chave gravam uma vez (e o controlo em
+    # memoria duas), a repeticao depois do reinicio, a mesma chave com outro
+    # conteudo e noutro tenant, o que nao se guarda, a chave vencida, e a ligacao
+    # de quem tem a tranca a cair.
+    "KAM-240: dez pedidos com a mesma chave de dois processos gravam uma vez; em memória, duas",
+    "KAM-240: a repetição depois de um reinício devolve a resposta guardada sem correr nada",
+    "KAM-240: a mesma chave com outro conteúdo dá reutilizada, e noutro tenant é outra chave",
+    "KAM-240: um 5xx e uma sessão revogada não ficam, o pedido que esperava corre ele, e o kamba_app não apaga",
+    "KAM-240: uma chave vencida e por purgar reaproveita-se com outro conteúdo",
+    "KAM-240: a ligação de quem tem a tranca cai a meio, e o outro corre; o PATCH do primeiro não é cancelado",
+    # KAM-239: o estado do guia sobrevive a um reinicio, a reserva e os gates
+    # chegam a base pelo lote, e a volta dos 30 minutos e do lote.
+    "KAM-239: o estado do guia escrito por um processo lê-se igual noutro processo, depois do reinício",
+    "KAM-239: a reserva, o meta_pagamento, o meta_es e o es_falhado chegam à base pela rota interna do lote",
+    "KAM-239: o abandono dos 30 minutos corre no lote em todos os tenants, e a aplicação recusa-o pelo nome",
 )
 
 
@@ -242,6 +277,12 @@ class TestProcessoDeLote(ComBase):
     def test_a_reserva_da_lista_imprime_a_medicao(self) -> None:
         """O controlo sem tranca do KAM-095: o numero que a seccao de verificacao cita."""
         medida = re.search(r"\[KAM-095\] reserva: com tranca (\d+) concedida\(s\), sem tranca (\d+)", self.escrito)
+        self.assertIsNotNone(medida, self.escrito[-2000:])
+        print(f"    {medida.group(0)}")
+
+    def test_a_idempotencia_imprime_a_medicao(self) -> None:
+        """O controlo em memoria do KAM-240: o numero que a seccao de verificacao cita."""
+        medida = re.search(r"\[KAM-240\] dois processos: na base (\d+) gravacao\(oes\), em memoria (\d+)", self.escrito)
         self.assertIsNotNone(medida, self.escrito[-2000:])
         print(f"    {medida.group(0)}")
 

@@ -288,7 +288,7 @@ python infra/storage/mutacoes.py                # todas, em cópia fora do repos
    *Revisto pelo KAM-246:* o AGR assina os URLs da página Social do painel com
    o `KAMBA_STORAGE_ENDPOINT_PUBLICO` (decisão do fundador de 2026-11-23,
    Q4 = A), e sem ele, fora de `dev`, a página fecha. O endereço em si é da
-   D6, com credor no **KAM-249**.
+   D6, com credor no **KAM-255**.
 
 ---
 
@@ -299,4 +299,4 @@ python infra/storage/mutacoes.py                # todas, em cópia fora do repos
 | 1.0 | Outubro 2026 | Emissão (KAM-011): porta, guarda de isolamento, motor S3 e *fake*; configuração com destino; prova contra SeaweedFS 4.48. | Equipa KAMBÁ |
 | 1.1 | Outubro 2026 | Depois da revisão adversarial ([`ANALISE-09`](analises/ANALISE-09-KAM-011-storage-provider.md)): ambiente fora do domínio recusado (§5); o que o país e a `apd_ref` **não** garantem (§5); memória do envio em partes dita como foi medida (§6). | Equipa KAMBÁ |
 | 1.2 | Novembro 2026 | **KAM-069**: as duas frases que diziam que o *gate* de transferência «ainda não existe» passam a dizer o que existe e o que falta. A tabela `platform.tenant_destinations` e a porta que a lê existem (revisão `0036`), e **não** estão ligadas a este módulo: o `storage/s3.ts` consta do inventário de clientes de saída do `../tools/lint_arch/destinos.py` como **não** consultando o *gate*, com credor KAM-011, e o que barra `prod` aqui continua a ser o `DestinoSemApdRefError`. Sem alteração ao comportamento. |
-| 1.3 | Novembro 2026 | **KAM-246**: a variável `KAMBA_STORAGE_ENDPOINT_PUBLICO` no §5, só para assinar os URLs que o navegador abre, e o ponto 6 do §8 revisto, pela decisão do fundador de 2026-11-23 (Q4 = A). O endereço público em si fica com a D6 e o KAM-249. | Equipa KAMBÁ |
+| 1.3 | Novembro 2026 | **KAM-246**: a variável `KAMBA_STORAGE_ENDPOINT_PUBLICO` no §5, só para assinar os URLs que o navegador abre, e o ponto 6 do §8 revisto, pela decisão do fundador de 2026-11-23 (Q4 = A). O endereço público em si fica com a D6 e o KAM-255. | Equipa KAMBÁ |

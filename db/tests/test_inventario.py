@@ -1303,6 +1303,15 @@ INVENTARIO = {
             "devolver `NULL` — que num `WHERE` nao e verdadeiro, pelo que "
             "**toda** a reserva era recusada, em silencio",
         ),
+        # KAM-209 (0088): a categoria da oferta, da lista fechada.
+        "categoria": (
+            "text",
+            SIM,
+            None,
+            "nao — um de oito `id` de `policy/categorias_de_produto.yaml`, por "
+            "`CHECK`. Nula nas ofertas publicadas antes da revisao `0088`; a base "
+            "nao publica sem ela",
+        ),
         "criado_at": ("timestamp with time zone", NAO, "now()", "nao"),
         "atualizado_at": (
             "timestamp with time zone",
@@ -2413,6 +2422,27 @@ INVENTARIO["onboarding_case"] = {
 #: O desafio do OTP do registo (KAM-236, revisao da inscricao na base): um por
 #: caso, **so o HMAC do codigo**, preso ao caso. Marca-se usado (`usado_at`) no
 #: acerto e no esgotamento; nao se apaga.
+INVENTARIO["onboarding_guia"] = {
+    # KAM-239 (revisao do guia na base): o estado do passo guiado do ES de um
+    # caso, um por caso, preso ao caso. Os identificadores da Meta sao do numero
+    # e da conta de negocio ligados, nao de uma pessoa; o numero em si nunca
+    # entra (a comparacao do criterio 4 do KAM-093 e pelo HMAC do caso).
+    "onboarding_id": ("uuid", NAO, None, "nao"),
+    "tenant_id": ("uuid", NAO, None, "nao"),
+    "estado": ("text", NAO, "'pre_voo'::text", "nao"),
+    "preflight_at": ("timestamp with time zone", SIM, None, "nao"),
+    "iniciado_at": ("timestamp with time zone", SIM, None, "nao"),
+    "motivo": ("text", SIM, None, "nao"),
+    "tentativa_id": ("text", SIM, None, "nao — identificador da tentativa do KAM-016"),
+    "phone_number_id": ("text", SIM, None, "nao — identificador da Meta do numero ligado, nunca o numero"),
+    "numero_ligado_at": ("timestamp with time zone", SIM, None, "nao"),
+    "waba_id": ("text", SIM, None, "nao — identificador da conta de negocio na Meta"),
+    "numero_confirmado": ("boolean", NAO, "false", "nao"),
+    "sincronizado": ("boolean", NAO, "false", "nao"),
+    "actualizado_at": ("timestamp with time zone", NAO, "now()", "nao"),
+    "criado_at": ("timestamp with time zone", NAO, "now()", "nao"),
+}
+
 INVENTARIO["onboarding_otp"] = {
     "onboarding_id": ("uuid", NAO, None, "nao"),
     "tenant_id": ("uuid", NAO, None, "nao"),
@@ -2441,6 +2471,19 @@ INVENTARIO["painel_revogacao"] = {
     "ate": ("bigint", SIM, None, "nao"),
     "expira_at": ("timestamp with time zone", NAO, None, "nao"),
     "criado_at": ("timestamp with time zone", NAO, "now()", "nao"),
+}
+
+#: A idempotencia do painel (KAM-240, revisao `0089`). A chave e escolhida pelo
+#: navegador, a impressao e um SHA-256 do pedido, e a resposta e a oferta do COM
+#: (sku, nome, preco, versao): nenhuma identifica uma pessoa.
+INVENTARIO["painel_idempotencia"] = {
+    "tenant_id": ("uuid", NAO, None, "nao"),
+    "chave": ("text", NAO, None, "nao — escolhida pelo navegador, aleatoria"),
+    "impressao": ("bytea", NAO, None, "nao — SHA-256 do pedido"),
+    "estado": ("smallint", SIM, None, "nao"),
+    "corpo": ("json", SIM, None, "nao — a oferta do COM, sem pessoa"),
+    "criado_at": ("timestamp with time zone", NAO, "now()", "nao"),
+    "expira_at": ("timestamp with time zone", NAO, None, "nao"),
 }
 
 #: A verificacao K1 de um documento (KAM-087, revisao `0043`). **O documento
@@ -2796,6 +2839,32 @@ INVENTARIO["module_test_prices"] = {
     ),
     "estado": ("text", NAO, None, "nao — so `hipotese_nao_validada`"),
     "carregado_em": ("timestamp with time zone", NAO, "now()", "nao"),
+}
+
+#: O experimento dos modulos de entrada (KAM-127, revisao do experimento dos
+#: modulos). **Nenhuma coluna e de cliente**: a decisao e global (modulo,
+#: numeros agregados com n/N e a decisao), e a exclusao e um tenant e um motivo
+#: de dominio fechado. O `responsavel` e o `registado_por` sao a **identidade
+#: de staff** de quem decide ou exclui (a do IdP, §3.65), e nao do titular —
+#: a resposta do `review_decision_log.revisor_id`.
+INVENTARIO["module_decisions"] = {
+    "id": ("uuid", NAO, "gen_random_uuid()", "nao"),
+    "modulo": ("text", NAO, None, "nao — codigo de lista fechada"),
+    "data_decisao": ("date", NAO, None, "nao"),
+    "metricas": ("jsonb", NAO, None, "nao — n/N, Wilson e racios agregados, sem tenant"),
+    "criterio": ("text", SIM, None, "nao — nomes dos criterios accionados"),
+    "decisao": ("text", NAO, None, "nao — codigo de lista fechada"),
+    "responsavel": ("text", NAO, None, "nao — identificador de staff, nao do titular"),
+    "justificacao": ("text", NAO, None, "nao — texto da equipa sobre o modulo, sem cliente"),
+    "revisao_em": ("date", SIM, None, "nao"),
+    "registado_em": ("timestamp with time zone", NAO, "clock_timestamp()", "nao"),
+}
+
+INVENTARIO["module_experiment_exclusions"] = {
+    "tenant_id": ("uuid", NAO, None, "nao"),
+    "motivo": ("text", NAO, None, "nao — `equipa` ou `teste`"),
+    "registado_por": ("text", NAO, None, "nao — identificador de staff, nao do titular"),
+    "registado_em": ("timestamp with time zone", NAO, "clock_timestamp()", "nao"),
 }
 
 #: A lista de espera do limite de onboarding (KAM-095, revisao da lista de
@@ -3250,6 +3319,37 @@ INVENTARIO["v_h12"] = {
     "preco_teste_minor": ("bigint", SIM, None, "nao — hipotese de preco do plano do tenant"),
     "racio": ("numeric", SIM, None, "nao"),
     "margem_minor": ("bigint", SIM, None, "nao"),
+}
+
+#: As tres vistas do experimento dos modulos (KAM-127). **Nenhuma coluna e de
+#: pessoa**: tenant, instantes, modulos e booleanos. O `contact_id` le-se por
+#: dentro da H11 e nao sai. Uma vista nao tem `NOT NULL` nem omissao.
+INVENTARIO["v_h10"] = {
+    "tenant_id": ("uuid", SIM, None, "nao"),
+    "provisionado_em": ("timestamp with time zone", SIM, None, "nao"),
+    "censurado": ("boolean", SIM, None, "nao"),
+    "catalogo": ("boolean", SIM, None, "nao"),
+    "foto": ("boolean", SIM, None, "nao"),
+    "social": ("boolean", SIM, None, "nao"),
+    "orcamento": ("boolean", SIM, None, "nao"),
+    "algum": ("boolean", SIM, None, "nao"),
+}
+
+INVENTARIO["v_h11"] = {
+    "tenant_id": ("uuid", SIM, None, "nao"),
+    "primeiro_valor_em": ("timestamp with time zone", SIM, None, "nao"),
+    "primeiro_modulo": ("text", SIM, None, "nao"),
+    "primeira_conversa_em": ("timestamp with time zone", SIM, None, "nao — o instante, sem o contacto"),
+    "entrou_por_modulo": ("boolean", SIM, None, "nao"),
+    "censurado": ("boolean", SIM, None, "nao"),
+    "activou": ("boolean", SIM, None, "nao"),
+}
+
+INVENTARIO["v_h12_pagantes"] = {
+    "tenant_id": ("uuid", SIM, None, "nao"),
+    "plano": ("text", SIM, None, "nao"),
+    "modulo": ("text", SIM, None, "nao"),
+    "ciclos_pagos": ("integer", SIM, None, "nao — uma contagem"),
 }
 
 #: **A sexta vista do esquema** (KAM-051, revisao `0037`): o contrato de leitura
@@ -3909,6 +4009,10 @@ class TestInventario(ComBase):
                         # custo aponta o tenant, sem cascata — e so de
                         # acrescentar, e um custo nao se apaga com o tenant.
                         "module_cost_ledger_tenant_fk",
+                        # KAM-127 (revisao do experimento dos modulos): a
+                        # exclusao aponta o tenant, sem cascata — e so de
+                        # acrescentar, e o registo do experimento fica.
+                        "module_experiment_exclusions_tenant_fk",
                         # KAM-059 (revisao do billing): as oito, todas sem
                         # cascata. Um ciclo nao se apaga com a subscricao, nem a
                         # cobranca com o ciclo (o ledger e *append-only*), nem a
@@ -3955,6 +4059,9 @@ class TestInventario(ComBase):
                         # KAM-236 (revisao da inscricao na base): o desafio do
                         # OTP aponta o caso pelo par, sem cascata.
                         "onboarding_otp_caso_fk",
+                        # KAM-239 (revisao do guia na base): o estado do guia
+                        # aponta o caso pelo par, sem cascata.
+                        "onboarding_guia_caso_fk",
                         # KAM-096 (revisao da confianca gradual): o nivel aponta
                         # o tenant, sem cascata. Um tenant com nivel nao se apaga
                         # por arrasto.
@@ -4522,6 +4629,13 @@ class TestInventario(ComBase):
             "dsar_requests_prazo_idx": False,
             # KAM-087: o NIF de um caso **vivo** e unico (o indice do bloco do
             # KAM-086). Unico e parcial: um caso rejeitado deixa o NIF voltar.
+            # KAM-239 (revisao do guia na base): os dois do guia, **nao unicos**.
+            # A volta dos 30 minutos so le os popups abertos, e a busca pelo
+            # numero so os guias que ja o ligaram. Unico no numero nao pode ser:
+            # dois guias com o mesmo numero e o caso que o criterio 4 do KAM-093
+            # prende, e a base tem de o deixar escrever para o prender.
+            "onboarding_guia_iniciado_idx": False,
+            "onboarding_guia_phone_number_idx": False,
             "onboarding_nif_vivo": True,
             # KAM-197: o pedido que abriu um caso de reembolso abre-o **uma**
             # vez. Unico, e e a idempotencia do criterio 1 imposta pela base;
@@ -4616,6 +4730,28 @@ class TestInventario(ComBase):
                     "painel_revogacao_alvo_ck",
                     "painel_revogacao_ate_ck",
                     "painel_revogacao_pkey",
+                    # --------------------------------------- KAM-240 (0089)
+                    #
+                    # **Seis.** A forma da chave, o tamanho da impressao, o
+                    # dominio do estado, a resposta inteira ou nenhuma, o
+                    # prazo depois da reserva, e a chave primaria composta.
+                    "painel_idempotencia_chave_ck",
+                    "painel_idempotencia_estado_ck",
+                    "painel_idempotencia_impressao_ck",
+                    "painel_idempotencia_pkey",
+                    "painel_idempotencia_prazo_ck",
+                    "painel_idempotencia_resposta_ck",
+                    # --------------------------------------- KAM-239 (0090)
+                    #
+                    # **Seis.** A chave primaria, os dominios do estado e do
+                    # motivo, e o tecto dos tres identificadores (a tentativa,
+                    # o numero e a conta da Meta).
+                    "onboarding_guia_estado_ck",
+                    "onboarding_guia_motivo_ck",
+                    "onboarding_guia_phone_number_ck",
+                    "onboarding_guia_pkey",
+                    "onboarding_guia_tentativa_ck",
+                    "onboarding_guia_waba_ck",
                     # A verificacao: os tres dominios, as formas, o
                     # prefixo do STO e a idempotencia por `sha256`.
                     "kyc_check_custo_micro_usd_ck",
@@ -4771,6 +4907,28 @@ class TestInventario(ComBase):
                     "module_cost_ledger_pkey",
                     "module_cost_ledger_ref_ck",
                     "module_cost_ledger_rubrica_ck",
+                    # ------- KAM-127 (revisao do experimento dos modulos)
+                    #
+                    # **Treze.** Dez na decisao — a chave primaria, os dominios
+                    # do `modulo` e da `decisao`, o objecto das `metricas`, os
+                    # comprimentos do `criterio`, do `responsavel` e da
+                    # `justificacao`, o `catalogo` que nao se abate, o
+                    # `ajustar` com data e a revisao depois da decisao — e
+                    # tres na exclusao: a chave `tenant_id`, o dominio do
+                    # `motivo` e o comprimento de quem a regista.
+                    "module_decisions_ajustar_ck",
+                    "module_decisions_catalogo_ck",
+                    "module_decisions_criterio_ck",
+                    "module_decisions_decisao_ck",
+                    "module_decisions_justificacao_ck",
+                    "module_decisions_metricas_ck",
+                    "module_decisions_modulo_ck",
+                    "module_decisions_pkey",
+                    "module_decisions_responsavel_ck",
+                    "module_decisions_revisao_ck",
+                    "module_experiment_exclusions_motivo_ck",
+                    "module_experiment_exclusions_pkey",
+                    "module_experiment_exclusions_registado_por_ck",
                     "module_test_prices_estado_ck",
                     "module_test_prices_modulo_ck",
                     "module_test_prices_pkey",
@@ -5267,6 +5425,9 @@ class TestInventario(ComBase):
                     "offer_terms_preco_ck",
                     "offer_terms_preco_nao_negativo_ck",
                     "offer_terms_categoria_restrita_ck",
+                    # KAM-209 (0088): a categoria da oferta, na lista fechada
+                    # de `policy/categorias_de_produto.yaml`.
+                    "offer_terms_categoria_ck",
                     # KAM-045 (0033): as **tres** que a reserva de stock
                     # acrescenta a tabela do KAM-043. Eram quatro: o
                     # `offer_terms_stock_garantido_exige_quantidade_ck` saiu

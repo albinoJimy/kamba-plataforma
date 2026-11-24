@@ -4,7 +4,7 @@
 |---|---|
 | Produto | KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para Angola |
 | Documento | Validação — registo das hipóteses críticas, com limiar, método, resultado e decisão |
-| Versão | 1.0 |
+| Versão | 1.1 |
 | Data | Novembro de 2026 |
 | Classificação | Documento de Referência — Interno |
 | Ticket | KAM-100 (EPIC-10), e usado por todos os tickets do epic |
@@ -113,6 +113,8 @@ Nenhum dos dois se decide aqui, e nenhum deles é trabalho de máquina.
 | 2 | **O `14` §6 não dá pivô a H7, H8 nem H9.** Medido: §6 tem seis linhas — H1, H3 e H4 (juntas), H5, H2, H6, e «nenhum canal de acesso funciona». H7, H8 e H9 não aparecem em nenhuma | Porque escrever um pivô que a fonte não dá é inventar a decisão de contingência de três hipóteses. A célula fica `—` com esta nota, e não com um pivô plausível — que é exactamente o que pareceria medido sem o ser | **Fundador** |
 | 3 | **As sete colunas de medição das nove linhas** | Porque medir H1, H2, H5, H6, H7, H8 e H9 é trabalho de outros tickets (KAM-103, KAM-106, KAM-109), e medir H3 exige três donos de número com consentimento escrito — acto do fundador. H4 depende de resposta da Meta (KAM-101, KAM-102) | **KAM-103**, **KAM-106**, **KAM-109**, **KAM-101**, **KAM-102** e o **fundador** para H3 |
 
+**Desde o KAM-127 (2026-11-23), o EPIC-11 tem a sua folha:** [`H10_H12_Modulos_Entrada.md`](H10_H12_Modulos_Entrada.md) pré-regista H10, H11 e H12, com os critérios de abate dos módulos. A pergunta da linha 1 — alargar esta folha a doze, ou manter as duas — continua do fundador, e esta folha continua com nove.
+
 ---
 
 ## 5. Tabela de aprovação
@@ -130,3 +132,4 @@ Nenhum dos dois se decide aqui, e nenhum deles é trabalho de máquina.
 | Versão | Data | Descrição | Autor |
 |---|---|---|---|
 | 1.0 | Novembro de 2026 | Emissão inicial, KAM-100. As **nove** linhas H1–H9 no esquema de doze colunas que os «Detalhes Técnicos» do KAM-100 fixam, pela ordem dele. Nascem com **limiar, método e pivô escritos** — 9, 9 e 6 de 9 — e com as **sete** colunas de medição vazias: **63 células de 108 por preencher**, 0 resultados medidos e 0 estados decididos. Os limiares são os de `14` §2 e são *propostas do fundador*, à letra do documento; fixam-se antes de medir. Os pivôs são os de `14` §6, transcritos e não interpretados. **Duas divergências medidas e devolvidas ao fundador, não resolvidas aqui:** (1) o `14` §2 tem **doze** hipóteses e o critério de saída do EPIC-10 §2 pede **nove** — as três dos módulos de entrada do EPIC-11 ficam fora da folha porque alargá-la mudava um critério de saída de epic; (2) o `14` §6 **não dá pivô** a H7, H8 nem H9, e as três células ficam `—` em vez de levarem um pivô inventado. O §2 fixa como se preenche uma linha, com a regra de que `amostra n` se escreve mesmo quando é menor do que o método pedia. Validável com `scripts/validar_evidencia.py --registo` (forma) e `--completo` (fim do spike). | Equipa KAMBÁ |
+| 1.1 | Novembro de 2026 | KAM-127: a nota do §4 aponta a folha do EPIC-11 (`H10_H12_Modulos_Entrada.md`). As nove linhas, o esquema e a linha 1 do §4 não mudam. | Equipa KAMBÁ |

@@ -382,11 +382,12 @@ class TestEsquema(ComOffboarding):
             "WHERE contype = 'f' AND confrelid = 'platform.onboarding_case'::regclass")
         fks = dict(self.cur.fetchall())
         # O conjunto **exacto**: uma FK nova ao caso muda o fundamento do certificado, e
-        # tem de o avermelhar. Foi assim que a `0084` (KAM-236) trouxe a quarta, o OTP.
-        # As tres de cima a purga apaga antes do caso (`0086`); as quatro de baixo ficam.
+        # tem de o avermelhar. Foi assim que a `0084` (KAM-236) trouxe a quarta, o OTP, e
+        # a `0090` (KAM-239) a quinta, o estado do guia do ES.
+        # As tres de cima a purga apaga antes do caso (`0086`); as cinco de baixo ficam.
         apagadas = {"platform.onboarding_gate", "platform.onboarding_smoke", "platform.waitlist_entry"}
         ficam = {"platform.kyc_check", "platform.screening_decision",
-                 "platform.review_case", "platform.onboarding_otp"}
+                 "platform.review_case", "platform.onboarding_otp", "platform.onboarding_guia"}
         self.assertEqual(set(fks), apagadas | ficam)
         caminhos = {t for c in CAMINHOS_DO_ENCERRAMENTO for t in c.tabelas}
         self.assertTrue(apagadas <= caminhos, "uma das tres deixou de sair antes do caso")
@@ -767,7 +768,8 @@ class TestCertificado(ComOffboarding):
             self.assertTrue(x["fundamento"])
         # KAM-233 (Q3b = A): o caso de onboarding fica, e o certificado nomeia as tres FK.
         caso = next(x for x in cert["retidas"] if x.get("tabela") == "platform.onboarding_case")
-        for fk in ("kyc_check", "screening_decision", "review_case", "onboarding_otp"):
+        for fk in ("kyc_check", "screening_decision", "review_case", "onboarding_otp",
+                   "onboarding_guia"):
             self.assertIn(fk, caso["fundamento"])
         # E o KYC e a fraude, retidos por parecer.
         for tabela in RETIDAS_POR_PARECER:

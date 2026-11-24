@@ -789,6 +789,18 @@ services:
       KAMBA_SECRET_KEK_DADOS_DO_CASO_ANTERIOR: ${KAMBA_SECRET_KEK_DADOS_DO_CASO_ANTERIOR:-}
       KAMBA_AGR_URL: ${ONBOARDING_AGR_URL:-}
       KAMBA_SECRET_AGR_PAINEL_TOKEN: ${KAMBA_SECRET_AGR_PAINEL_TOKEN:-}
+      # KAM-243 (pela forma da decisao do fundador de 2026-11-21, P4 opcao A): o
+      # STO da foto do dono pelo painel. O `server.ts` guarda-a pelo MED na
+      # classe `media_imagem` do tenant da sessao, e fora de `dev` nao arranca
+      # sem a configuracao e as duas chaves.
+      KAMBA_STORAGE_ENDPOINT: ${KAMBA_STORAGE_ENDPOINT:?o deploy diz onde e o armazenamento (D6 aberta)}
+      KAMBA_STORAGE_BUCKET: ${KAMBA_STORAGE_BUCKET:?o deploy nomeia o bucket}
+      KAMBA_STORAGE_REGION: ${KAMBA_STORAGE_REGION:?o deploy nomeia a regiao}
+      KAMBA_STORAGE_DESTINO_COUNTRY: ${KAMBA_STORAGE_DESTINO_COUNTRY:?o deploy diz o pais do armazenamento (ADR-008)}
+      KAMBA_STORAGE_DESTINO_PROVIDER: ${KAMBA_STORAGE_DESTINO_PROVIDER:?o deploy diz o fornecedor do armazenamento}
+      KAMBA_STORAGE_DESTINO_APD_REF: ${KAMBA_STORAGE_DESTINO_APD_REF:-}
+      KAMBA_SECRET_STORAGE_ACCESS_KEY_ID: ${KAMBA_SECRET_STORAGE_ACCESS_KEY_ID:?o cofre entrega a chave de acesso do armazenamento}
+      KAMBA_SECRET_STORAGE_SECRET_ACCESS_KEY: ${KAMBA_SECRET_STORAGE_SECRET_ACCESS_KEY:?o cofre entrega o segredo do armazenamento}
       # KAM-217: a troca de telefone do dono, como `kamba_identity`. **Opcional**:
       # o processo so a monta com o painel (`ONBOARDING_COM_INTERNO_URL`) e com
       # esta cadeia, e sem ela as duas rotas da troca respondem 503. O compose
@@ -872,9 +884,8 @@ services:
       # apaga a chave do tenant no LiteLLM pelo alias e suspende a conta dele no
       # Chatwoot, os dois na rede `app` e fora do `proxy-saida` (o `NO_PROXY`
       # do `*saida` ja os nomeia). As duas credenciais leem-se a cada chamada.
-      # Enquanto o LiteLLM de `staging` arrancar sem `DATABASE_URL`, o `/key/list` que
-      # confirma a revogacao responde 500 e a fase para na chave, com alerta
-      # (`docs/evidencia/KAM-233.md` §2; credor KAM-247).
+      # Desde o KAM-247 o LiteLLM tem base (a `kamba_litellm`), e o `/key/list`
+      # que confirma a revogacao responde: medido em `docs/evidencia/KAM-247.md`.
       KAMBA_LLM_PROXY_URL: http://litellm:4000
       KAMBA_CHATWOOT_URL: http://chatwoot:3000
       KAMBA_SECRET_LITELLM_MASTER_KEY: ${KAMBA_SECRET_LITELLM_MASTER_KEY:?do cofre (KAM-010), projecto staging}
@@ -924,19 +935,23 @@ services:
     # `onboarding-web`. `kamba_app` para o `consumir` e o telefone do caso,
     # `kamba_identity` para o contacto e a `platform.definir_dono`. A
     # `kek_telefone_do_caso` e so deste processo e do escritor do caso (decisao
-    # do fundador de 2026-11-20). **Fora do compose de `prod`** pelo orcamento
-    # de memoria do conjunto reduzido, e nao pelo arranque (bloco do KAM-215,
-    # decisoes do executor).
+    # do fundador de 2026-11-20).
+    #
+    # KAM-241: **o mesmo servico que o compose de `prod`** — o compilado, a sonda
+    # em `bash`, o `NODE_OPTIONS` e os 54 MiB sem *swap*. E o que o
+    # `db/ensaio_dono.py` mede por omissao: mudar um destes aqui e la e voltar a
+    # medir (`docs/evidencia/KAM-238.md` §6).
     <<: *node
     build:
       context: ../..
       dockerfile: services/onboarding-web/Dockerfile
       args:
         KAMBA_COMMIT_SHA: ${KAMBA_COMMIT_SHA:?o deploy passa o SHA da release}
-    command: ["node", "services/onboarding-web/src/provisionamento.ts"]
+    command: ["node", "services/onboarding-web/dist/provisionamento.js"]
     environment:
       <<: *node-env
       KAMBA_ENV: staging
+      NODE_OPTIONS: --max-semi-space-size=1 --max-old-space-size=24
       PROVISIONAMENTO_PORT: "3015"
       KAMBA_QUEUE_URL: redis://queue:6379
       KAMBA_PROVISIONAMENTO_APP_DB_URL: ${KAMBA_PROVISIONAMENTO_APP_DB_URL:?o deploy passa a cadeia de ligacao do kamba_app}
@@ -950,21 +965,20 @@ services:
     networks:
       - app
       - data
-    # 128m e acima do pico medido pelo KAM-238: 76,6 MiB de `memory.peak` sob uma
-    # rajada de 300 `tenant.provisioned`, com esta sonda e com `memswap_limit`
-    # igual ao limite (`docs/evidencia/KAM-238.md`). Este compose nao fixa o
-    # `memswap_limit`, pelo que o contentor pode usar *swap* (credor: KAM-242).
-    mem_limit: 128m
+    # 54m sem *swap*, medidos pelo KAM-241 sob este limite (o KAM-238 tinha
+    # medido 76,6 MiB de `memory.peak` com o `.ts` e a sonda `node`).
+    mem_limit: 54m
+    memswap_limit: 54m
     cpus: 0.25
     healthcheck:
       test:
         - CMD
-        - node
-        - -e
+        - bash
+        - -c
         - >-
-          fetch('http://127.0.0.1:3015/healthz')
-          .then(r => process.exit(r.ok ? 0 : 1))
-          .catch(() => process.exit(1))
+          { printf 'GET /healthz HTTP/1.0\r\n\r\n' >&3 &&
+          head -c 12 <&3; } 3<>/dev/tcp/127.0.0.1/3015 |
+          grep -q '^HTTP/1\.[01] 200'
       interval: 10s
       timeout: 5s
       retries: 6
@@ -1086,8 +1100,17 @@ services:
       KAMBA_SECRET_LLM_PROVIDER_KEY__openai: ${KAMBA_SECRET_LLM_PROVIDER_KEY__openai:?do cofre (KAM-010), projecto staging}
       KAMBA_SECRET_LLM_PROVIDER_KEY__google: ${KAMBA_SECRET_LLM_PROVIDER_KEY__google:?do cofre (KAM-010), projecto staging}
       LITELLM_LOCAL_MODEL_COST_MAP: "True"
+      # A base das chaves virtuais (KAM-247, decisao do fundador de 2026-11-23,
+      # opcao A1), como em `prod`: a `kamba_litellm` no cluster `postgres`, com o
+      # papel `kamba_litellm`, que nao liga a base da plataforma. Ver a nota do
+      # mesmo servico no `docker-compose.prod.yml`.
+      DATABASE_HOST: postgres
+      DATABASE_NAME: kamba_litellm
+      DATABASE_USERNAME: kamba_litellm
+      DATABASE_PASSWORD: ${KAMBA_SECRET_DB_LITELLM_PASSWORD:?do cofre (KAM-010), projecto staging}
     networks:
       - app
+      - data
     mem_limit: 2048m
     cpus: 1.5
     healthcheck:
@@ -1098,7 +1121,13 @@ services:
       interval: 15s
       timeout: 10s
       retries: 8
-      start_period: 60s
+      # 600 s, como em `prod` (KAM-247): com base, o proxy corre as migracoes
+      # dele em cada arranque, e mediram-se 167 s, 294 s e 458 s
+      # (`docs/evidencia/KAM-247.md`).
+      start_period: 600s
+    depends_on:
+      postgres:
+        condition: service_healthy
 
   # ================================================================== dados
   postgres:

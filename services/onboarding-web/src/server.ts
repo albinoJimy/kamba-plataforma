@@ -21,12 +21,19 @@
  * registo sobre memória. As buscas do registo que atravessam tenants passam
  * pelas funções `SECURITY DEFINER` da `0084`, que só devolvem o caso e o tenant
  * (decisão do fundador de 2026-11-21, D1-A); o resto lê-se pela RLS do tenant
- * do caso. Os contadores e as revogações são tabelas (D3-A).
+ * do caso. Os contadores e as revogações são tabelas (D3-A), e a
+ * `Idempotency-Key` do `PATCH /painel/produtos/:id` também (KAM-240), num *pool*
+ * só seu (`IdempotenciaNaBase`).
  *
- * **O guia do ES não se monta em `prod`** (D2-A): a reserva da lista de espera e
- * a fila de revisão correm como `kamba_batch`, que este processo não tem, e os
- * *gates* do guia só o lote os escreve. Passam ao processo de lote num credor
- * (KAM-239); até lá, o arranque di-lo numa linha (`es_guia_fora_de_prod`).
+ * **O guia do ES corre sobre a base e sobre o lote** (KAM-239). O estado dele
+ * vive na `onboarding_guia` (revisão do guia na base), pela mesma ligação
+ * `kamba_app`. A reserva da lista de espera, as quatro da lista, os dois *gates* e
+ * a abertura na fila de revisão correm como `kamba_batch` **no processo de lote**,
+ * que este processo chama pela rota interna dele (`ONBOARDING_LOTE_INTERNO_URL`,
+ * com a credencial `onboarding_lote_token`; decisão do fundador de 2026-11-22,
+ * A). Este processo continua sem ligação `kamba_batch` (D2-A do KAM-236). A volta
+ * dos 30 minutos e a da lista também passaram ao lote. Em `prod`, com o guia
+ * configurado e sem a rota interna, o arranque recusa (`LoteEmFaltaEmProducaoError`).
  *
  * **E o arranque em `prod` continua a recusar**, agora por outra razão
  * (`SmsFalsoEmProducaoError`): o SMS do OTP é o `FakeSmsProvider` em todos os
@@ -52,7 +59,9 @@ import { port } from "@kamba/core-ts";
 import {
   ConversaDoDono,
   conversaPeloPool,
+  FotoDoDono,
   invocadorPorHttp,
+  recepcaoDoPainel,
   trocaPeloPool,
   type DestinoDoAviso,
   type MomentoDoAviso,
@@ -65,6 +74,8 @@ import {
   GuiaEmMemoria,
   PassoGuiado,
   RevisaoEmMemoria,
+  guiaNaBase,
+  type RepositorioDoGuia,
 } from "@kamba/core-ts/guia";
 import {
   Actividade,
@@ -91,7 +102,13 @@ import {
 } from "@kamba/core-ts/inscricao";
 import { instalar } from "@kamba/core-ts/logger";
 import { versaoDaGraph } from "@kamba/core-ts/onboarding";
-import { EnvSecretProvider, Secrets, isAmbiente } from "@kamba/core-ts/secrets";
+import { ArranqueAbortadoError, EnvSecretProvider, Secrets, isAmbiente } from "@kamba/core-ts/secrets";
+import {
+  criarStorageS3,
+  lerConfig as lerConfigDoStorage,
+  type StorageConfig,
+  type StorageProvider,
+} from "@kamba/core-ts/storage";
 import {
   FakeSmsProvider,
   REF_PEPPER as REF_PEPPER_DO_SMS,
@@ -101,10 +118,19 @@ import {
 import { createApp } from "./app.ts";
 import { exigirComunicacaoLimpa } from "./comunicacao.ts";
 import type { OpcoesDoGuia } from "./guia.ts";
+import { ClienteDoLote, portasDoGuia } from "./guia_pelo_lote.ts";
+import { REF_DA_CREDENCIAL_DO_LOTE } from "./lote/interno.ts";
 import { LigadorPorHttp } from "./ligador.ts";
 import { CanalPeloCom } from "./painel/canal.ts";
 import { ComercioPorHttp } from "./painel/comercio.ts";
-import type { OpcoesDaConversa, OpcoesDaTroca, OpcoesDoPainel, TesteDoPainel } from "./painel/rotas.ts";
+import type {
+  OpcoesDaConversa,
+  OpcoesDaFoto,
+  OpcoesDaTroca,
+  OpcoesDoPainel,
+  TesteDoPainel,
+} from "./painel/rotas.ts";
+import { IdempotenciaNaBase } from "./painel/idempotencia_sql.ts";
 import { RevogacoesNaBase } from "./painel/revogacoes_sql.ts";
 import { socialPeloAgr } from "./painel/social.ts";
 import { RevogacoesEmMemoria, type Revogacoes } from "./painel/sessao.ts";
@@ -172,6 +198,17 @@ const SEGREDO_DO_AGR = "agr_painel_token";
 const VARIAVEL_DOS_PROXIES = "ONBOARDING_PROXIES_DE_CONFIANCA";
 
 /**
+ * As duas chaves do STO, para a foto do dono pelo painel (KAM-243). Pela forma
+ * da decisão do fundador de 2026-11-21 para o `worker-canal-entrada` e o AGR
+ * (P4, opção A): o processo recebe só os segredos de que precisa, e em
+ * `staging` e `prod` **não arranca** sem eles nem sem a configuração do STO
+ * (`KAMBA_STORAGE_*`). Em `dev`, sem eles, a foto fica desligada (503) e o
+ * arranque di-lo numa linha. Quem as tem lê e escreve os objectos de todos os
+ * tenants: o isolamento é o prefixo do tenant na porta (`ArmazenamentoPorTenant`).
+ */
+const SEGREDOS_DO_STO = ["storage_access_key_id", "storage_secret_access_key"] as const;
+
+/**
  * As quatro variáveis do passo guiado do ES (KAM-093). **Nenhuma é segredo**: o
  * `appId` e o `config_id` são identificadores públicos que a página entrega ao
  * SDK da Meta, a origem é o endereço público deste serviço, e o GWY interno é
@@ -183,6 +220,16 @@ const VARIAVEIS_DO_GUIA = {
   origem: "ONBOARDING_ORIGEM",
   gwy: "ONBOARDING_GWY_INTERNO_URL",
 } as const;
+
+/**
+ * A rota interna do processo de lote (KAM-239): a lista, os *gates* e a fila do
+ * guia, como `kamba_batch`. **Opcional fora de `prod`**: sem ela, o guia corre
+ * sobre os duplos em memória, como antes. Com ela, o estado do guia vai para a
+ * base, e a credencial do lote passa a obrigatória no arranque.
+ */
+const VARIAVEL_DO_LOTE = "ONBOARDING_LOTE_INTERNO_URL";
+const URL_DO_LOTE = (process.env[VARIAVEL_DO_LOTE] ?? "").trim().replace(/\/+$/, "");
+const GUIA_PELO_LOTE = URL_DO_LOTE !== "";
 
 /**
  * A KEK do NIF e do e-mail do caso (`nif_enc`, `email_enc`). Ver o
@@ -200,6 +247,15 @@ const CHAVES_DO_CASO = [REF_KEK_DO_TELEFONE, REF_KEK_DOS_DADOS] as const;
  * Calibra-se com a carga real (KAM-084).
  */
 const LIGACOES_DA_INSCRICAO = 6;
+
+/**
+ * Quantas ligações do `kamba_app` a idempotência do painel abre, no máximo
+ * (KAM-240). **À parte da inscrição**: cada uma fica presa durante o PATCH ao
+ * COM, que lê as revogações pelo *pool* da inscrição (ver `IdempotenciaNaBase`).
+ * ***Proposta***: quatro PATCH em curso ao mesmo tempo; o quinto espera pela
+ * ligação até ao `connectionTimeoutMillis`. Calibra-se com a carga real (KAM-084).
+ */
+const LIGACOES_DA_IDEMPOTENCIA = 4;
 
 /**
  * Levantado em `prod` enquanto o SMS for o `FakeSmsProvider` (KAM-236, achado 1
@@ -270,8 +326,15 @@ const env = ambiente();
 /** O registo corre sobre a base: sempre em `prod`, e em `dev` e `staging` com a ligação. */
 const NA_BASE = URL_DA_APP !== "";
 if (env === "prod" && !NA_BASE) throw new BaseEmFaltaEmProducaoError();
+// O guia pelo lote tem o estado na base: sem a ligação da aplicação, não há onde.
+if (GUIA_PELO_LOTE && !NA_BASE) {
+  throw new Error(`a ${VARIAVEL_DO_LOTE} pede a ${VARIAVEL_DA_APP}: o estado do guia vive na base`);
+}
 // O SMS é o falso em qualquer ambiente (ver o erro): em `prod`, recusa.
 if (env === "prod") throw new SmsFalsoEmProducaoError();
+
+/** O STO é obrigatório fora de `dev` (KAM-243). Ver `SEGREDOS_DO_STO`. */
+const STO_OBRIGATORIO = env !== "dev";
 
 const provider = new EnvSecretProvider({ ambiente: env });
 const secrets = await Secrets.arrancar({
@@ -288,8 +351,49 @@ const secrets = await Secrets.arrancar({
     ...(TROCA_MONTA ? CHAVES_DA_TROCA : []),
     ...(CONVERSA_MONTA ? [SEGREDO_DO_AGR] : []),
     ...(NA_BASE ? CHAVES_DO_CASO : []),
+    ...(GUIA_PELO_LOTE ? [REF_DA_CREDENCIAL_DO_LOTE] : []),
+    ...(STO_OBRIGATORIO ? SEGREDOS_DO_STO : []),
   ],
 });
+
+/**
+ * O STO da foto do dono (KAM-243), ou `undefined` em `dev` sem ele. Em `staging`
+ * e `prod`, a configuração em falta **aborta** o arranque — as chaves já
+ * abortaram no `Secrets.arrancar` acima. A mensagem do `lerConfig` nomeia as
+ * variáveis e nunca os valores.
+ */
+async function montarArmazenamento(): Promise<StorageProvider | undefined> {
+  let config: StorageConfig;
+  try {
+    config = lerConfigDoStorage({ ambiente: env, env: process.env });
+  } catch (erro) {
+    if (STO_OBRIGATORIO) {
+      const motivo = erro instanceof Error ? erro.message : "configuracao ilegivel";
+      throw new ArranqueAbortadoError(SERVICE, `armazenamento da foto do painel: ${motivo}`);
+    }
+    log.info({ outcome: "painel_foto_desligada" });
+    return undefined;
+  }
+  if (!STO_OBRIGATORIO) {
+    // Em `dev` nada disto é obrigatório no arranque, e por isso pergunta-se aqui:
+    // um processo que montasse a foto sem as chaves falhava a primeira foto do
+    // dono em vez de arrancar sem ela.
+    // Os nomes em literal, e não pelo `SEGREDOS_DO_STO`: o inventário (gate 9)
+    // lê os pedidos de segredo pelo nome escrito.
+    const presentes = await Promise.all(
+      [secrets.getRing("storage_access_key_id"), secrets.getRing("storage_secret_access_key")].map((leitura) =>
+        leitura.then(() => true, () => false),
+      ),
+    );
+    if (presentes.includes(false)) {
+      log.info({ outcome: "painel_foto_desligada" });
+      return undefined;
+    }
+  }
+  return criarStorageS3({ config, secrets });
+}
+
+const armazenamento = await montarArmazenamento();
 
 const [pepper, pepperAnterior] = await anelDoPepper(secrets);
 const [assinatura, assinaturaAnterior] = await anelDaAssinatura(secrets);
@@ -359,17 +463,25 @@ const actividade = new Actividade({ repositorio: casos, contadores });
  * Sem uma app da Meta não há popup a abrir, e o `dev` da maioria das máquinas
  * não tem uma. Montar a página sem ela era servir um botão que falha no
  * navegador; não a montar é a página dar 404, e o arranque di-lo numa linha.
- * As portas que ficam em memória são as das três tabelas que não existem — ver
- * a nota do `@kamba/core-ts/guia` — e o detector de pagamento responde
- * `desconhecido`, que deixa o `meta_pagamento` vermelho: **não há fonte
+ * Com a rota interna do lote, o estado vive na base e a lista, os *gates* e a
+ * fila correm no lote (KAM-239); sem ela, fora de `prod`, em memória. O aviso
+ * ao dono continua em memória (o canal é do KAM-115), e o detector de pagamento
+ * responde `desconhecido`, que deixa o `meta_pagamento` vermelho: **não há fonte
  * CONFIRMADA** de que a Graph diga se o WABA tem cartão antes do primeiro envio
  * (credor: KAM-023 / ext:KAM-102).
  */
 /**
  * O estado do guia, partilhado com a troca de telefone (KAM-216): o
- * `numeroConfirmado` é o que diz que o número da loja é o telefone do caso.
+ * `numeroConfirmado` é o que diz que o número da loja é o telefone do caso. **Na
+ * base com o lote** (KAM-239), pela ligação do registo; em memória sem ele.
  */
-const repositorioDoGuia = new GuiaEmMemoria();
+const repositorioDoGuia: RepositorioDoGuia =
+  GUIA_PELO_LOTE && poolDaInscricao !== null ? guiaNaBase({ pool: poolDaInscricao }) : new GuiaEmMemoria();
+
+/** O cliente da rota interna do lote, só com ela. A credencial lê-se a cada pedido: roda. */
+const clienteDoLote = GUIA_PELO_LOTE
+  ? new ClienteDoLote({ base: URL_DO_LOTE, credencial: () => secrets.get(REF_DA_CREDENCIAL_DO_LOTE) })
+  : null;
 
 function montarGuia(): OpcoesDoGuia | undefined {
   const valores = Object.fromEntries(
@@ -379,31 +491,34 @@ function montarGuia(): OpcoesDoGuia | undefined {
     log.info({ outcome: "es_guia_desligado" });
     return undefined;
   }
-  // **Fora de `prod`** (D2-A, decisão do fundador de 2026-11-21): a lista, a
-  // fila e os *gates* do guia são do lote, como `kamba_batch`, e o estado do
-  // guia é em memória. Credor: KAM-239. Ver a nota do módulo.
-  if (env === "prod") {
-    log.info({ outcome: "es_guia_fora_de_prod" });
-    return undefined;
-  }
-  // **A lista de espera (KAM-095) é o `CapacityGate`**, em memória como o
-  // resto do guia: o adaptador SQL (`ListaSql`) corre como `kamba_batch` e o
-  // processo onde vai ligar é o de lote (credor KAM-092). O limite em memória
-  // é o 10 CONFIRMADO; a origem dele está na `onboarding_capacity` da base.
-  const lista = new ListaDeEspera({
-    repositorio: new ListaEmMemoria(casos),
-    aviso: new AvisosDaListaEmMemoria(),
-    origem: valores.origem,
-    metricas: new MetricasDaLista(),
-    log,
+  // **A lista (KAM-095), os dois *gates* e a fila** correm como `kamba_batch`
+  // no processo de lote, pela rota interna dele (KAM-239). Sem a rota, em `dev`
+  // e `staging`, em memória: o limite em memória é o 10 CONFIRMADO, e a origem
+  // dele está na `onboarding_capacity` da base. Em `prod`, sem a rota, recusa.
+  const portas = portasDoGuia({
+    ambiente: env,
+    lote: clienteDoLote,
+    emMemoria: () => ({
+      lista: new ListaDeEspera({
+        repositorio: new ListaEmMemoria(casos),
+        aviso: new AvisosDaListaEmMemoria(),
+        origem: valores.origem,
+        metricas: new MetricasDaLista(),
+        log,
+      }),
+      gates: new GatesEmMemoria(),
+      revisao: new RevisaoEmMemoria(),
+    }),
   });
+  const lista = portas.lista;
+  log.info({ outcome: portas.voltaNoProcesso ? "es_guia_em_memoria" : "es_guia_pelo_lote" });
   const guia = new PassoGuiado({
     casos,
     repositorio: repositorioDoGuia,
     capacidade: lista,
     ligador: new LigadorPorHttp(valores.gwy),
-    gates: new GatesEmMemoria(),
-    revisao: new RevisaoEmMemoria(),
+    gates: portas.gates,
+    revisao: portas.revisao,
     pagamento: { verificar: async () => "desconhecido" },
     aviso: new AvisosEmMemoria(),
     anelDoPepper: [pepper, pepperAnterior],
@@ -412,18 +527,22 @@ function montarGuia(): OpcoesDoGuia | undefined {
     configId: valores.configId,
     log,
   });
-  // O temporizador dos 30 min (critério 5). Um por minuto basta: o prazo é de
-  // meia hora, e o erro máximo é um minuto a mais.
-  setInterval(() => {
-    guia.abandonarVencidos().catch((erro: unknown) => log.excepcao(erro, "abandono_falhou"));
-    // Os convites vencidos e a promocao (criterios 4 e 5). Um minuto de erro
-    // num prazo de 48 h.
-    lista
-      .expirarVencidos()
-      .then(() => lista.promover())
-      .then(() => lista.medir())
-      .catch((erro: unknown) => log.excepcao(erro, "lista_espera_falhou"));
-  }, 60_000).unref();
+  // O temporizador dos 30 min (critério 5), **só com as portas em memória**:
+  // pelo lote, a volta corre no `onboarding-lote`, uma vez e não uma por réplica
+  // (`CicloDoGuia`, KAM-239). Um por minuto basta: o prazo é de meia hora.
+  const listaDaVolta = portas.lista instanceof ListaDeEspera ? portas.lista : undefined;
+  if (portas.voltaNoProcesso && listaDaVolta !== undefined) {
+    setInterval(() => {
+      guia.abandonarVencidos().catch((erro: unknown) => log.excepcao(erro, "abandono_falhou"));
+      // Os convites vencidos e a promocao (criterios 4 e 5). Um minuto de erro
+      // num prazo de 48 h.
+      listaDaVolta
+        .expirarVencidos()
+        .then(() => listaDaVolta.promover())
+        .then(() => listaDaVolta.medir())
+        .catch((erro: unknown) => log.excepcao(erro, "lista_espera_falhou"));
+    }, 60_000).unref();
+  }
   return {
     guia,
     lista,
@@ -546,17 +665,30 @@ const LIGACOES_DA_APP = 4;
  * A conversa do dono com o Assistente (KAM-223), **só com a ligação `kamba_app`
  * e o endereço do AGR**. A credencial lê-se a cada pedido, porque roda.
  */
-async function montarConversa(): Promise<OpcoesDaConversa | undefined> {
+async function montarConversa(): Promise<{ conversa?: OpcoesDaConversa; foto?: OpcoesDaFoto }> {
   if (URL_DA_APP === "" || URL_DO_AGR === "") {
     log.info({ outcome: "painel_conversa_desligada" });
-    return undefined;
+    return {};
   }
   const pool = poolDe(URL_DA_APP, "app", LIGACOES_DA_APP);
+  const portas = conversaPeloPool(pool);
+  const invocar = invocadorPorHttp({ agr: URL_DO_AGR, credencial: () => secrets.get("agr_painel_token") });
+  // KAM-243: a foto do dono vai pelo mesmo *pool*, o mesmo contexto do dono e a
+  // mesma credencial do AGR, e precisa do STO. Sem ele (só em `dev`), a rota da
+  // foto responde 503 e a conversa serve igual.
+  const foto: OpcoesDaFoto | undefined =
+    armazenamento === undefined
+      ? undefined
+      : {
+          foto: new FotoDoDono({
+            contexto: portas.contexto,
+            receber: recepcaoDoPainel({ pool, armazenamento, log }),
+            invocar,
+          }),
+        };
   return {
-    conversa: new ConversaDoDono({
-      ...conversaPeloPool(pool),
-      invocar: invocadorPorHttp({ agr: URL_DO_AGR, credencial: () => secrets.get("agr_painel_token") }),
-    }),
+    conversa: { conversa: new ConversaDoDono({ ...portas, invocar }) },
+    ...(foto === undefined ? {} : { foto }),
   };
 }
 
@@ -586,12 +718,16 @@ async function montarPainel(guia: PassoGuiado | undefined): Promise<OpcoesDoPain
     return undefined;
   }
   const comercio = new ComercioPorHttp(com, await secrets.get("com_internal_token"));
+  const { conversa, foto } = await montarConversa();
   return {
     comercio,
     canal: new CanalPeloCom(comercio),
     revogacoes,
     casos,
     anelDaAssinatura: [assinatura, assinaturaAnterior],
+    // Sem base, a das rotas, em memória: só em `dev` e `staging` (em `prod` a
+    // base é obrigatória). Ver a nota do módulo.
+    idempotencia: NA_BASE ? new IdempotenciaNaBase(poolDe(URL_DA_APP, "idempotencia", LIGACOES_DA_IDEMPOTENCIA)) : undefined,
     precoMaximoKz: precoMaximoKz(process.env["PAINEL_PRECO_MAXIMO_KZ"]),
     reentrada: {
       otp,
@@ -603,7 +739,8 @@ async function montarPainel(guia: PassoGuiado | undefined): Promise<OpcoesDoPain
       religar: guia === undefined ? undefined : (id) => guia.religar(id),
     },
     troca: await montarTroca(guia !== undefined),
-    conversa: await montarConversa(),
+    conversa,
+    foto,
     // KAM-246: a página Social pede a lista e a ligação ao AGR, com a credencial
     // do painel, nas mesmas condições da conversa (Q2 = A: este serviço não lê o STO).
     social: CONVERSA_MONTA

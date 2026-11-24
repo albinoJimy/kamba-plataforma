@@ -1129,6 +1129,27 @@ def _revogacao_do_painel(cursor, tenant_id: str, canario: str) -> None:
     )
 
 
+def _idempotencia_do_painel(cursor, tenant_id: str, canario: str) -> None:
+    """Uma chave de idempotencia do painel (KAM-240, revisao `0089`).
+
+    O canario vai na `chave`, que e texto escolhido pelo navegador e cabe na
+    forma da `painel_idempotencia_chave_ck` (`canario_<rotulo>_<hex>`); o
+    `kamba_app` insere-a, pelo que o ataque do X-03 esbarra na RLS e nao num
+    privilegio de coluna. A coluna alteravel e o `expira_at`, uma das cinco do
+    `UPDATE` por coluna. A impressao e o SHA-256 do canario. **Sem FK**.
+
+    Semeia o administrador: o `kamba_batch` le e apaga, mas nao insere.
+    """
+    # So as colunas do `INSERT` do `kamba_app` (a reserva, sem resposta): o
+    # ataque do X-03 corre esta receita como `kamba_app`, e uma coluna fora do
+    # `GRANT` dava o 42501 do privilegio em vez do da politica.
+    cursor.execute(
+        "INSERT INTO platform.painel_idempotencia (tenant_id, chave, impressao, expira_at) "
+        "VALUES (%s, %s, sha256(convert_to(%s, 'UTF8')), now() + interval '1 day')",
+        (tenant_id, canario, canario),
+    )
+
+
 def _troca_do_dono(cursor, tenant_id: str, canario: str) -> None:
     """Uma troca de telefone do dono pedida (KAM-223). O canario vai no `pedido`.
 
@@ -2020,6 +2041,12 @@ RECEITAS: dict[tuple[str, str], Receita] = {
         _revogacao_do_painel, "sid", "expira_at", "2099-01-01T00:00:00+00:00",
         semeador="admin", guardado=_uuid,
     ),
+    # KAM-240: a idempotencia do painel. O canario vai na `chave`, e a coluna
+    # alteravel e o `expira_at`, uma das cinco do `GRANT UPDATE` por coluna.
+    ("platform", "painel_idempotencia"): Receita(
+        _idempotencia_do_painel, "chave", "expira_at", "2099-01-01T00:00:00+00:00",
+        semeador="admin",
+    ),
     ("platform", "events_outbox"): Receita(
         _evento_no_outbox, "agregado_id", None, None, semeador="admin"
     ),
@@ -2275,6 +2302,12 @@ SEM_RECEITA_COM_RAZAO = {
     # o contexto de A, le com o de A (uma linha), com o de B e sem contexto
     # (zero), e recusa a escrita no tenant de outro.
     ("platform", "onboarding_otp"),
+    # KAM-239: o estado do guia, pela mesma razao: aponta o caso do tenant (FK
+    # composta), que e unico por tenant. **A politica mede-se noutro sitio**: o
+    # `db/tests/test_guia_na_base_schema.py` escreve pela aplicacao com o
+    # contexto de A, le com o de A (uma linha), com o de B e sem contexto
+    # (zero), e recusa a escrita no tenant de outro.
+    ("platform", "onboarding_guia"),
     # KAM-097: os sinais e as sancoes de T&S, pela razao da
     # `screening_decision`: *append-only* por privilegio **e** por *trigger*
     # (`ts_imutavel`), que recusa tambem ao administrador o `DELETE` com que as
@@ -2506,6 +2539,22 @@ SEM_RECEITA_COM_RAZAO = {
     # (`test_o_ledger_de_a_e_invisivel_a_b`), e o `kamba_app` nao insere nem
     # executa a funcao de escrita (`test_a_aplicacao_nao_escreve`).
     ("platform", "module_cost_ledger"),
+    # KAM-127: as exclusoes do experimento dos modulos, pela razao da
+    # `audit_log` — e so por essa. Tem RLS `FORCE` e politica `tenant_iso`,
+    # mas os gatilhos `module_experiment_exclusions_imutavel` e
+    # `..._sem_truncate`, `ENABLE ALWAYS`, recusam o `DELETE` com que estas
+    # receitas limpam, a todos, incluindo ao administrador: a exclusao de um
+    # tenant da coorte e so de acrescentar. Semea-la aqui obrigava a desligar
+    # o gatilho na limpeza, que e o defeito que a nota da `audit_log` descreve.
+    #
+    # So o `kamba_batch` (`BYPASSRLS`) tem privilegio nela. O isolamento
+    # prova-se em `db/tests/test_experimento_modulos_schema.py`
+    # (`test_a_exclusao_fica_no_seu_tenant`): o `kamba_app` leva `42501` a ler e
+    # a escrever, e com o privilegio dado so dentro da transaccao do ensaio,
+    # sem contexto e com o de B nao ve a exclusao de A, e o `WITH CHECK` recusa
+    # escrever no tenant de outro. A `module_decisions` nao entra: e global,
+    # sem `tenant_id`.
+    ("platform", "module_experiment_exclusions"),
 }
 
 #: `tenants` primeiro: as outras referenciam-na. Depois, pela ordem das FK. As
@@ -2591,6 +2640,8 @@ ORDEM = (
     ("platform", "content_items"),
     # KAM-236: sem FK nenhuma, e ninguem a aponta.
     ("platform", "painel_revogacao"),
+    # KAM-240: sem FK nenhuma, e ninguem a aponta.
+    ("platform", "painel_idempotencia"),
     # KAM-009: as duas so tem FK para `tenants`, e por isso ficam no fim.
     ("platform", "tenant_usage"),
     ("platform", "usage_ledger"),

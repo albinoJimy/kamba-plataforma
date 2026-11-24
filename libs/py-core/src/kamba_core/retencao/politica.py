@@ -344,6 +344,19 @@ POLITICA: Final[tuple[Classe, ...]] = (
         fonte="packages/core-ts/src/inscricao/sql.ts (PARADA_MS)",
     ),
     Classe(
+        "idempotencia_do_painel",
+        APAGAR,
+        "painel_idempotencia.criado_at",
+        # KAM-240 (revisao da idempotencia do painel). A chave do PATCH dos
+        # produtos, a impressao do pedido e a resposta do COM, por tenant e sem
+        # pessoa. A chave vale 24 h; apaga-a o executor, como lote, uma hora
+        # depois. Decisao da coordenacao do lote 19 (2026-11-22), que o fundador
+        # pode reabrir: o `kamba_app` nao apaga linhas (dicionario §2).
+        (_t("platform.painel_idempotencia", ligada=True),),
+        prazo=Prazo(horas=25),
+        fonte="services/onboarding-web/src/painel/idempotencia.ts (VALIDADE_DA_CHAVE_MS)",
+    ),
+    Classe(
         "lg_checkpoints",
         DELEGADO,
         "ultima escrita da thread",
@@ -526,6 +539,10 @@ POLITICA: Final[tuple[Classe, ...]] = (
             # caso: so o HMAC do codigo, um por caso, marcado usado no acerto e
             # no esgotamento (nunca apagado pela aplicacao); sai com o caso.
             _t("platform.onboarding_otp", pendencia=_RELACAO + "; sai com o caso de onboarding"),
+            # KAM-239 (revisao do guia na base). O estado do guia do ES de um
+            # caso: um por caso, os identificadores da Meta do numero ligado e
+            # nunca o numero; nao se apaga pela aplicacao, e sai com o caso.
+            _t("platform.onboarding_guia", pendencia=_RELACAO + "; sai com o caso de onboarding"),
             # KAM-094 (revisao do catalogo minimo). As tentativas do teste
             # ponta a ponta vivem com o caso, que as aponta por FK composta, e
             # saem com ele. Nenhuma coluna de pessoa: o telefone de onde o dono
@@ -609,6 +626,13 @@ SEM_DADOS_PESSOAIS: Final[Mapping[str, str]] = {
     # KAM-117: os episodios de churn e de dormente. Um tenant, um sinal de
     # dominio fechado e instantes; recalculaveis pelo *job* a qualquer altura.
     "platform.churn_signal_episode": "sinais de churn do negocio: um sinal e instantes",
+    # KAM-127: o experimento dos modulos de entrada. A decisao de cada modulo e
+    # global (sem tenant) e a exclusao e um tenant e um motivo de dominio
+    # fechado; nenhuma leva titular nem conteudo — so a identidade de staff de
+    # quem decide ou exclui (como o `revisor_id`) —, e as duas sao o registo do
+    # experimento, so de acrescentar.
+    "platform.module_decisions": "decisao por modulo de entrada: sem tenant, com a identidade de staff",
+    "platform.module_experiment_exclusions": "tenant fora da coorte do experimento: um motivo e o staff",
     "servicos.services": "catalogo de servicos",
     "servicos.resources": "recursos do negocio",
     "servicos.availability_rules": "horarios do negocio",

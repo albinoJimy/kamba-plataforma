@@ -286,7 +286,8 @@ class TestOsPrivilegios(ComOfertas):
         `sku` ou o `valida_ate` de uma emitida era reescrever o que o dono cotou
         depois de o cliente o ter visto.
 
-        Na oferta sao dez, e ficam de fora a chave (`tenant_id`, `sku`), a
+        Na oferta sao doze (a `stock_reservada` do KAM-045 e a `categoria` do
+        KAM-209 depois das dez da `0028`), e ficam de fora a chave (`tenant_id`, `sku`), a
         `currency` (dominio de um valor), o `criado_at` (historia), o
         `categoria_restrita` (e do *screening* do KAM-049, e a aplicacao a
         escrever desbloqueava a publicacao que ele existe para travar) e o
@@ -317,6 +318,10 @@ class TestOsPrivilegios(ComOfertas):
                 # que nao existe — a mesma razao pela qual a `0030` nao deu
                 # `UPDATE` ao `kamba_batch` no `order_state_log`.
                 "stock_reservada",
+                # KAM-209: a revisao `0088` da `UPDATE (categoria)`. O
+                # `upsertProductDraft` escreve-a; num publicado a base nao a
+                # deixa voltar a nulo.
+                "categoria",
             },
         }
         todas = {
@@ -354,6 +359,8 @@ class TestOsPrivilegios(ComOfertas):
                 "criado_at",
                 "atualizado_at",
                 "deleted_at",
+                # KAM-209 (0088): a categoria da lista fechada.
+                "categoria",
             ),
         }
         for tabela, colunas in todas.items():
@@ -460,6 +467,8 @@ class TestOContratoComOModulo(ComOfertas):
                 None,
                 "indicativo",
                 agora,
+                # KAM-209: a categoria (`$9`), da lista fechada.
+                "mercearia",
             ),
             "SQL_PUBLICAR": (tenant, SKU_PARTILHADO),
             "SQL_AJUSTAR_STOCK": (tenant, SKU_PARTILHADO, "garantido"),

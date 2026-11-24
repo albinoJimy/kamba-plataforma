@@ -294,6 +294,9 @@ class TestCatalogoReal(ComBase):
                 # coluna ao lado dela.
                 # KAM-124: o ledger de custo por modulo («me» < «mo» < «of»).
                 ("platform", "module_cost_ledger", "tenant_id"),
+                # KAM-127: as exclusoes do experimento («module_c» < «module_e»).
+                # Sem receita de sementes (ver `sementes.SEM_RECEITA_COM_RAZAO`).
+                ("platform", "module_experiment_exclusions", "tenant_id"),
                 # KAM-098: as fases do off-boarding («me» < «offb» < «offe»).
                 # Sem receita de sementes (ver `sementes.SEM_RECEITA_COM_RAZAO`).
                 ("platform", "offboarding_run", "tenant_id"),
@@ -302,6 +305,9 @@ class TestCatalogoReal(ComBase):
                 ("platform", "onboarding_case", "tenant_id"),
                 # KAM-092: os gates de activacao («onboarding_c» < «_g»).
                 ("platform", "onboarding_gate", "tenant_id"),
+                # KAM-239: o estado do guia («_ga» < «_gu» < «_o»). **Sem
+                # receita de sementes**, pela razao do desafio do OTP.
+                ("platform", "onboarding_guia", "tenant_id"),
                 # KAM-236: o desafio do OTP («_g» < «_o» < «_s»). **Sem receita
                 # de sementes**, pela razao das tentativas.
                 ("platform", "onboarding_otp", "tenant_id"),
@@ -337,6 +343,8 @@ class TestCatalogoReal(ComBase):
                 ("platform", "owner_notices", "tenant_id"),
                 # KAM-223: a troca de telefone do dono («owner_n» < «owner_p»).
                 ("platform", "owner_phone_changes", "tenant_id"),
+                # KAM-240: a idempotencia do painel («ow» < «pai_i» < «pai_r»).
+                ("platform", "painel_idempotencia", "tenant_id"),
                 # KAM-236: as revogacoes do painel («ow» < «pai» < «pay»).
                 ("platform", "painel_revogacao", "tenant_id"),
                 # KAM-052: a conta de pagamento, **depois** das do aviso ao
@@ -644,6 +652,8 @@ class TestCatalogoReal(ComBase):
                 # KAM-124: o ledger de custo por modulo, uma politica so, a do
                 # `db/rls.py` («me» < «mo» < «of»).
                 ("module_cost_ledger", "tenant_iso", "ALL", "{public}"),
+                # KAM-127: as exclusoes do experimento, a do `db/rls.py`.
+                ("module_experiment_exclusions", "tenant_iso", "ALL", "{public}"),
                 # KAM-098: as fases do off-boarding, a do `db/rls.py`.
                 ("offboarding_run", "tenant_iso", "ALL", "{public}"),
                 ("offer_terms", "tenant_iso", "ALL", "{public}"),
@@ -658,6 +668,11 @@ class TestCatalogoReal(ComBase):
                 ("onboarding_case", "tenant_iso", "ALL", "{public}"),
                 # KAM-092: os gates de activacao.
                 ("onboarding_gate", "tenant_iso", "ALL", "{public}"),
+                # KAM-239: a da busca pelo numero ligado, so de leitura, so para
+                # o dono das tabelas e so com a variavel que a funcao
+                # `SECURITY DEFINER` da revisao do guia liga («g» < «t»).
+                ("onboarding_guia", "guia_busca", "SELECT", "{kamba_migrator}"),
+                ("onboarding_guia", "tenant_iso", "ALL", "{public}"),
                 # KAM-236: o desafio do OTP, uma politica so.
                 ("onboarding_otp", "tenant_iso", "ALL", "{public}"),
                 # KAM-094: as tentativas do teste ponta a ponta.
@@ -681,6 +696,8 @@ class TestCatalogoReal(ComBase):
                 ("owner_notices", "tenant_iso", "ALL", "{public}"),
                 # KAM-223: a troca de telefone do dono, uma politica so.
                 ("owner_phone_changes", "tenant_iso", "ALL", "{public}"),
+                # KAM-240: a idempotencia do painel, uma politica so.
+                ("painel_idempotencia", "tenant_iso", "ALL", "{public}"),
                 # KAM-236: as revogacoes do painel, uma politica so.
                 ("painel_revogacao", "tenant_iso", "ALL", "{public}"),
                 # KAM-052: **uma** politica e nao duas. O `docs/tecnica/04`
@@ -954,6 +971,8 @@ class TestCatalogoReal(ComBase):
              # KAM-124: o ledger de custo por modulo, entre os modelos de
              # mensagem e a oferta («me» < «mo» < «of»).
              "module_cost_ledger",
+             # KAM-127: as exclusoes do experimento («module_c» < «module_e»).
+             "module_experiment_exclusions",
              # KAM-098: as fases do off-boarding («offb» < «offe»).
              "offboarding_run",
              "offer_terms",
@@ -961,6 +980,8 @@ class TestCatalogoReal(ComBase):
              "onboarding_case",
              # KAM-092: os gates de activacao.
              "onboarding_gate",
+             # KAM-239: o estado do guia.
+             "onboarding_guia",
              # KAM-236: o desafio do OTP.
              "onboarding_otp",
              # KAM-094: as tentativas do teste ponta a ponta.
@@ -986,6 +1007,8 @@ class TestCatalogoReal(ComBase):
              "owner_contacts", "owner_notices",
              # KAM-223: a troca de telefone do dono («owner_n» < «owner_p»).
              "owner_phone_changes",
+             # KAM-240: a idempotencia do painel («ow» < «pai_i» < «pai_r»).
+             "painel_idempotencia",
              # KAM-236: as revogacoes do painel («ow» < «pai» < «pay»).
              "painel_revogacao",
              # KAM-052: a coluna de isolamento e `tenant_id` como nas outras
@@ -1556,6 +1579,10 @@ class TestFicheirosDePolitica(unittest.TestCase):
         "platform.ts_compradores_noutra_loja_do_dono(p_tenants uuid[])",
         "platform.contact_xtenant_purgar(p_tenants uuid[], p_antes timestamp with time zone)",
     )
+    #: A busca do guia pelo numero ligado (KAM-239), na forma da D1-A do
+    #: KAM-236: devolve so o caso e o tenant, e o `EXECUTE` e so do `kamba_app`.
+    #: `../tests/test_guia_na_base_schema.py` mede as colunas e o `42501`.
+    GUIA_NA_ALLOWLIST = "platform.guia_caso_por_phone_number_id(p_phone_number_id text)"
 
     def test_os_ficheiros_reais_leem_se_e_tem_o_que_esta_declarado(self) -> None:
         """Os dois nasceram vazios e deixaram de o estar no KAM-012.
@@ -1604,7 +1631,8 @@ class TestFicheirosDePolitica(unittest.TestCase):
             }
             | set(self.MANUAIS_NA_ALLOWLIST)
             | set(self.REGISTO_NA_ALLOWLIST)
-            | set(self.CORRELACAO_NA_ALLOWLIST),
+            | set(self.CORRELACAO_NA_ALLOWLIST)
+            | {self.GUIA_NA_ALLOWLIST},
         )
 
 

@@ -73,6 +73,7 @@ from ..idx.numeros import por_extenso
 from ..storage.port import Ctx, ObjectMeta, ObjectRef, StorageProvider
 from ..storage.chave import nova_chave
 from . import completude, estados
+from .categorias import categoria_de_produto
 from .exif import FormatoNaoSuportado, ImagemInvalida, limpar_metadados, tem_metadados
 from .extraccao import (
     CAMPOS_DA_VISAO,
@@ -407,7 +408,14 @@ def resumo(campos: Mapping[str, Campo]) -> str:
         partes.append(cabeca)
     for nome, rotulo in ROTULOS_DO_RESUMO:
         if valor(nome):
-            partes.append(f"{rotulo} {valor(nome)}")
+            texto = valor(nome)
+            if nome == "categoria":
+                # KAM-209: a categoria da lista fechada que a oferta vai levar,
+                # para que a confirmacao do dono a cubra (`categorias.py`).
+                fechada = categoria_de_produto(texto)
+                if fechada is not None and fechada != texto:
+                    texto = f"{texto} ({fechada})"
+            partes.append(f"{rotulo} {texto}")
     for nome in sorted(set(campos) - _FORA_DOS_ROTULOS):
         if valor(nome):
             partes.append(f"{nome} {valor(nome)}")
