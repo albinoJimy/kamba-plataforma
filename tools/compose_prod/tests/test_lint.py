@@ -12,7 +12,10 @@ corre-o. Aqui ficam as propriedades do conjunto e as recusas de configuracao.
 
 from __future__ import annotations
 
+import re
+import sys
 import tempfile
+import types
 import unittest
 from pathlib import Path
 
@@ -441,6 +444,114 @@ class TestCli(unittest.TestCase):
             self.assertEqual(
                 cli.main(["--root", str(destino), "gerar", "--verificar"]), 1
             )
+
+
+
+#: As redes do `onboarding-lote` no compose de producao, em mapa (KAM-239).
+REDES_DO_LOTE_EM_MAPA = (
+    r"^    networks:\n      app:\n        aliases:\n          - onboarding-lote-interno\n      data: \{\}$"
+)
+
+
+def _regras(destino: Path) -> set[str]:
+    achados, _ = lint.varrer(destino)
+    return {achado.regra for achado in achados}
+
+
+class TestRedesEmMapa(unittest.TestCase):
+    """As redes de um servico em mapa (`aliases`), lidas como em lista (KAM-239).
+
+    A leitura mudou na decisao da coordenacao do lote 19 (2026-11-22); o
+    criterio, nao. Sem o ramo do mapa no `r_redes_por_servico`, o primeiro
+    ensaio dava «servico-sem-rede» ao `onboarding-lote` da arvore real e o
+    segundo dava verde a uma rede proibida — medido, com o ramo tirado.
+    """
+
+    def test_o_lote_em_mapa_esta_conforme_e_na_rede_app_com_o_alias(self) -> None:
+        pasta, destino = _copia()
+        with pasta:
+            self.assertEqual(_regras(destino), set())
+            texto = (destino / lint.PROD).read_text(encoding="utf-8")
+            self.assertRegex(texto, re.compile(REDES_DO_LOTE_EM_MAPA, re.M))
+
+    def test_uma_rede_proibida_escrita_em_mapa_e_apanhada(self) -> None:
+        pasta, destino = _copia()
+        with pasta:
+            canario.Copia(destino).trocar(
+                lint.PROD,
+                REDES_DO_LOTE_EM_MAPA,
+                "    networks:\n      app:\n        aliases:\n          - onboarding-lote-interno\n"
+                "      data: {}\n      edge: {}",
+            )
+            self.assertEqual(_regras(destino), {"servico-em-edge"})
+
+    def test_uma_rede_que_o_topo_nao_declara_escrita_em_mapa_e_apanhada(self) -> None:
+        pasta, destino = _copia()
+        with pasta:
+            canario.Copia(destino).trocar(
+                lint.PROD,
+                REDES_DO_LOTE_EM_MAPA,
+                "    networks:\n      app:\n        aliases:\n          - onboarding-lote-interno\n"
+                "      data: {}\n      outra: {}",
+            )
+            self.assertEqual(_regras(destino), {"rede-nao-declarada"})
+
+    def test_sem_a_chave_networks_continua_a_ser_um_servico_sem_rede(self) -> None:
+        pasta, destino = _copia()
+        with pasta:
+            canario.Copia(destino).trocar(lint.PROD, REDES_DO_LOTE_EM_MAPA, "")
+            self.assertIn("servico-sem-rede", _regras(destino))
+
+    def test_a_forma_de_lista_continua_igual(self) -> None:
+        pasta, destino = _copia()
+        with pasta:
+            copia = canario.Copia(destino)
+            copia.trocar(lint.PROD, REDES_DO_LOTE_EM_MAPA, "    networks:\n      - app\n      - data")
+            self.assertEqual(_regras(destino), set(), "a lista das mesmas redes, conforme")
+            copia.trocar(
+                lint.PROD,
+                r"^    networks:\n      - app\n      - data\n    # shortcut: 128m",
+                "    networks:\n      - app\n      - data\n      - edge\n    # shortcut: 128m",
+            )
+            self.assertEqual(_regras(destino), {"servico-em-edge"}, "e a lista com `edge`, recusada")
+
+
+#: O ramo do mapa no `r_redes_por_servico`, e a mutacao que o tira (KAM-239).
+RAMO_DO_MAPA = (
+    '        redes = set(_lista(dados.prod, chaves, "networks")) or set(\n'
+    '            _submapa(dados.prod, chaves, "networks")\n'
+    "        )"
+)
+SEM_O_RAMO = '        redes = set(_lista(dados.prod, chaves, "networks"))'
+
+
+class TestMutacaoDoRamoDoMapa(unittest.TestCase):
+    """Sem o ramo do mapa, a arvore real fica vermelha: o ramo e o que a conforma.
+
+    A mutacao aplica-se a uma copia do modulo, carregada a parte, e nao ao
+    `lint` importado: o texto tem de estar la (senao a mutacao nao se aplica e
+    o ensaio diz-o), e o `onboarding-lote` da arvore real, escrito em mapa, tem de
+    passar a «servico-sem-rede».
+    """
+
+    def test_tirar_o_ramo_do_mapa_avermelha_a_arvore_real(self) -> None:
+        fonte = Path(lint.__file__).read_text(encoding="utf-8")
+        self.assertEqual(fonte.count(RAMO_DO_MAPA), 1, "a mutacao ja nao se aplica: o ramo mudou de forma")
+        nome = "compose_prod.lint_mutado"
+        mutado = types.ModuleType(nome)
+        mutado.__dict__["__package__"] = "compose_prod"
+        # A `dataclass` procura o modulo em `sys.modules`: regista-se so durante o ensaio.
+        sys.modules[nome] = mutado
+        try:
+            exec(compile(fonte.replace(RAMO_DO_MAPA, SEM_O_RAMO), lint.__file__, "exec"), mutado.__dict__)
+            achados, _ = mutado.varrer(RAIZ)
+        finally:
+            del sys.modules[nome]
+        self.assertIn(
+            ("servico-sem-rede", "onboarding-lote"),
+            {(a.regra, "onboarding-lote" if "`onboarding-lote`" in a.mensagem else "") for a in achados},
+        )
+        self.assertEqual(lint.varrer(RAIZ)[0], [], "e com o ramo, conforme")
 
 
 if __name__ == "__main__":

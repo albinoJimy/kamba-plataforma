@@ -43,6 +43,9 @@ const DIA_MS = 86_400_000;
 export class GuiaEmMemoria implements RepositorioDoGuia {
   readonly #linhas = new Map<string, EstadoGuardado>();
   readonly #relogio: Relogio;
+  /** A ordem em que cada guia ligou o seu número. Ver o `porPhoneNumberId`. */
+  readonly #ligacoes = new Map<string, number>();
+  #sequencia = 0;
 
   constructor(relogio: Relogio = () => new Date()) {
     this.#relogio = relogio;
@@ -92,6 +95,11 @@ export class GuiaEmMemoria implements RepositorioDoGuia {
     // Síncrono do `get` ao `set`: é o que faz isto ser *compare-and-set*.
     const linha = this.#linhas.get(onboardingId);
     if (linha === undefined || linha.estado !== de) return false;
+    // A ordem em que cada guia **ligou** o número, para o `porPhoneNumberId`:
+    // só quando o número passa a outro, como o `numero_ligado_at` da base.
+    if (campos.phoneNumberId != null && campos.phoneNumberId !== linha.phoneNumberId) {
+      this.#ligacoes.set(onboardingId, ++this.#sequencia);
+    }
     this.#linhas.set(onboardingId, {
       ...linha,
       ...campos,
@@ -113,11 +121,25 @@ export class GuiaEmMemoria implements RepositorioDoGuia {
       .map((l) => l.onboardingId);
   }
 
+  /**
+   * O guia que ligou este número **por último**, e nunca um já preso por número
+   * divergente: a regra da `guia_caso_por_phone_number_id` da base (KAM-239). O
+   * segundo a ligar um número é o que tem o número alheio, e é esse que se
+   * compara; preso ele, os sinais voltam ao outro.
+   */
   async porPhoneNumberId(phoneNumberId: string): Promise<string | null> {
+    let escolhido: string | null = null;
+    let ordem = -1;
     for (const linha of this.#linhas.values()) {
-      if (linha.phoneNumberId === phoneNumberId) return linha.onboardingId;
+      if (linha.phoneNumberId !== phoneNumberId) continue;
+      if (linha.estado === "falhado" && linha.motivo === "numero_divergente") continue;
+      const desta = this.#ligacoes.get(linha.onboardingId) ?? 0;
+      if (desta > ordem) {
+        ordem = desta;
+        escolhido = linha.onboardingId;
+      }
     }
-    return null;
+    return escolhido;
   }
 }
 

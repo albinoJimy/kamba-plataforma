@@ -769,6 +769,14 @@ TABELAS_CORRELACAO = ("contact_xtenant_pseudonym",)
 #: coluna, e so o `kamba_batch` apaga, pela retencao).
 TABELAS_IDEMPOTENCIA_DO_PAINEL = ("painel_idempotencia",)
 
+#: O que a revisao do guia na base (KAM-239) acrescenta, pelo nome.
+#:
+#: Uma tabela: o estado do passo guiado do ES de um caso (`onboarding_guia`, de
+#: tenant, RLS `FORCE` pela `tenant_iso`, FK composta ao caso; o `kamba_app` le,
+#: insere e muda por coluna, o `kamba_batch` le e muda so o `estado` e o
+#: `actualizado_at`, para o abandono dos 30 minutos; ninguem apaga).
+TABELAS_GUIA_NA_BASE = ("onboarding_guia",)
+
 TABELAS = tuple(
     sorted(
         TABELAS_0001 + TABELAS_0003 + TABELAS_0004 + TABELAS_0005
@@ -792,6 +800,7 @@ TABELAS = tuple(
         + TABELAS_INSCRICAO_NA_BASE
         + TABELAS_CORRELACAO
         + TABELAS_IDEMPOTENCIA_DO_PAINEL
+        + TABELAS_GUIA_NA_BASE
     )
 )
 
@@ -808,9 +817,15 @@ TABELAS = tuple(
 #: O que existe em `platform` antes da revisao do social do dono (KAM-121),
 #: que e o topo da cadeia desde ela. A `0078` do KAM-230, entre as duas, nao
 #: cria tabela nenhuma.
+#: O que existe em `platform` antes da revisao do guia na base (KAM-239), que e
+#: o topo da cadeia desde ela.
+TABELAS_ANTES_DO_GUIA_NA_BASE = tuple(sorted(set(TABELAS) - set(TABELAS_GUIA_NA_BASE)))
+
 #: O que existe em `platform` antes da revisao da idempotencia do painel
-#: (KAM-240), que e o topo da cadeia desde ela.
-TABELAS_ANTES_DA_IDEMPOTENCIA_DO_PAINEL = tuple(sorted(set(TABELAS) - set(TABELAS_IDEMPOTENCIA_DO_PAINEL)))
+#: (KAM-240). Deriva do de cima desde o KAM-239.
+TABELAS_ANTES_DA_IDEMPOTENCIA_DO_PAINEL = tuple(
+    sorted(set(TABELAS_ANTES_DO_GUIA_NA_BASE) - set(TABELAS_IDEMPOTENCIA_DO_PAINEL))
+)
 
 #: O que existe em `platform` antes da revisao da correlacao entre tenants
 #: (KAM-208). Deriva do de cima desde o KAM-240; a `0088`, entre as duas, nao

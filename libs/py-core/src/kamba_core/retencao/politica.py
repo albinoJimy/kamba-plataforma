@@ -539,6 +539,10 @@ POLITICA: Final[tuple[Classe, ...]] = (
             # caso: so o HMAC do codigo, um por caso, marcado usado no acerto e
             # no esgotamento (nunca apagado pela aplicacao); sai com o caso.
             _t("platform.onboarding_otp", pendencia=_RELACAO + "; sai com o caso de onboarding"),
+            # KAM-239 (revisao do guia na base). O estado do guia do ES de um
+            # caso: um por caso, os identificadores da Meta do numero ligado e
+            # nunca o numero; nao se apaga pela aplicacao, e sai com o caso.
+            _t("platform.onboarding_guia", pendencia=_RELACAO + "; sai com o caso de onboarding"),
             # KAM-094 (revisao do catalogo minimo). As tentativas do teste
             # ponta a ponta vivem com o caso, que as aponta por FK composta, e
             # saem com ele. Nenhuma coluna de pessoa: o telefone de onde o dono

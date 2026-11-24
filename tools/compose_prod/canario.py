@@ -433,6 +433,21 @@ CASOS: tuple[Caso, ...] = (
             "      # O `/health/liveliness` nao exige",
         ),
     ),
+    # KAM-239: as redes de um servico **em mapa** (`aliases`), que a regra so
+    # passou a ler na decisao da coordenacao do lote 19: uma rede proibida escrita
+    # em mapa e apanhada. Sem o ramo do mapa no `r_redes_por_servico`, dava verde.
+    # O resto dos dois lados (a forma de lista igual, e a falta da chave) esta no
+    # `tests/test_lint.py` (`TestRedesEmMapa`).
+    Caso(
+        "servico-em-edge-em-mapa",
+        frozenset({"servico-em-edge"}),
+        "o processo de lote do onboarding ganha `edge`, escrita em mapa ao lado do alias",
+        lambda c: c.trocar(
+            lint.PROD,
+            r"^      app:\n        aliases:\n          - onboarding-lote-interno\n      data: \{\}$",
+            "      app:\n        aliases:\n          - onboarding-lote-interno\n      data: {}\n      edge: {}",
+        ),
+    ),
     Caso(
         "dados-fora-de-data",
         frozenset({"dados-fora-de-data"}),

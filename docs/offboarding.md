@@ -131,7 +131,8 @@ marca e o conteúdo, as ingestões do catálogo e os trabalhos de foto (revisão
 `fraud_signals` ficam `retida`, com o motivo `branqueamento_sem_parecer`: a lei de prevenção do branqueamento pode
 pedir a retenção, e falta o parecer. O caso de onboarding fica `sem_caminho`, com o fundamento das três FK que lhe
 apontam (Q3b = A, 2026-11-22), e de uma quarta desde a `0084` do KAM-236: o `onboarding_otp`, que não tem caminho de
-eliminação para ninguém (o que isso faz ao prazo do caso é do fundador, KAM-248).
+eliminação para ninguém (o que isso faz ao prazo do caso é do fundador, KAM-248). A `0090` do KAM-239 trouxe a
+quinta, o `onboarding_guia` (o estado do guia do ES), no mesmo caso: sem cascata e sem caminho de eliminação.
 
 **O que falta** (credor **KAM-233**, com a razão de cada um no bloco dele): o OTP e a ligação ao e-mail do dono, e a
 entrega do certificado — não há agregador de SMS nem fornecedor de e-mail escolhidos (fundador, KAM-116 e KAM-115);

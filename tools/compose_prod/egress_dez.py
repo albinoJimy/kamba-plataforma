@@ -285,6 +285,10 @@ MARCADORES = {
     "KAMBA_SECRET_PEPPER_SMS_DESTINO": "marcador",
     "KAMBA_SECRET_KEK_TELEFONE_DO_CASO": "marcador",
     "KAMBA_SECRET_KEK_DADOS_DO_CASO": "marcador",
+    # KAM-239: o guia pela rota interna do lote. A credencial dos dois lados e a
+    # origem publica do convite da lista. Mesma razao e mesmo sintoma.
+    "KAMBA_SECRET_ONBOARDING_LOTE_TOKEN": "marcador",
+    "ONBOARDING_ORIGEM": "https://marcador.invalid",
     "KAMBA_STORAGE_ENDPOINT": "http://marcador.invalid:8333",
     "KAMBA_STORAGE_BUCKET": "marcador",
     "KAMBA_STORAGE_REGION": "marcador",

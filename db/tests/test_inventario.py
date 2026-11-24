@@ -2422,6 +2422,27 @@ INVENTARIO["onboarding_case"] = {
 #: O desafio do OTP do registo (KAM-236, revisao da inscricao na base): um por
 #: caso, **so o HMAC do codigo**, preso ao caso. Marca-se usado (`usado_at`) no
 #: acerto e no esgotamento; nao se apaga.
+INVENTARIO["onboarding_guia"] = {
+    # KAM-239 (revisao do guia na base): o estado do passo guiado do ES de um
+    # caso, um por caso, preso ao caso. Os identificadores da Meta sao do numero
+    # e da conta de negocio ligados, nao de uma pessoa; o numero em si nunca
+    # entra (a comparacao do criterio 4 do KAM-093 e pelo HMAC do caso).
+    "onboarding_id": ("uuid", NAO, None, "nao"),
+    "tenant_id": ("uuid", NAO, None, "nao"),
+    "estado": ("text", NAO, "'pre_voo'::text", "nao"),
+    "preflight_at": ("timestamp with time zone", SIM, None, "nao"),
+    "iniciado_at": ("timestamp with time zone", SIM, None, "nao"),
+    "motivo": ("text", SIM, None, "nao"),
+    "tentativa_id": ("text", SIM, None, "nao — identificador da tentativa do KAM-016"),
+    "phone_number_id": ("text", SIM, None, "nao — identificador da Meta do numero ligado, nunca o numero"),
+    "numero_ligado_at": ("timestamp with time zone", SIM, None, "nao"),
+    "waba_id": ("text", SIM, None, "nao — identificador da conta de negocio na Meta"),
+    "numero_confirmado": ("boolean", NAO, "false", "nao"),
+    "sincronizado": ("boolean", NAO, "false", "nao"),
+    "actualizado_at": ("timestamp with time zone", NAO, "now()", "nao"),
+    "criado_at": ("timestamp with time zone", NAO, "now()", "nao"),
+}
+
 INVENTARIO["onboarding_otp"] = {
     "onboarding_id": ("uuid", NAO, None, "nao"),
     "tenant_id": ("uuid", NAO, None, "nao"),
@@ -3973,6 +3994,9 @@ class TestInventario(ComBase):
                         # KAM-236 (revisao da inscricao na base): o desafio do
                         # OTP aponta o caso pelo par, sem cascata.
                         "onboarding_otp_caso_fk",
+                        # KAM-239 (revisao do guia na base): o estado do guia
+                        # aponta o caso pelo par, sem cascata.
+                        "onboarding_guia_caso_fk",
                         # KAM-096 (revisao da confianca gradual): o nivel aponta
                         # o tenant, sem cascata. Um tenant com nivel nao se apaga
                         # por arrasto.
@@ -4540,6 +4564,13 @@ class TestInventario(ComBase):
             "dsar_requests_prazo_idx": False,
             # KAM-087: o NIF de um caso **vivo** e unico (o indice do bloco do
             # KAM-086). Unico e parcial: um caso rejeitado deixa o NIF voltar.
+            # KAM-239 (revisao do guia na base): os dois do guia, **nao unicos**.
+            # A volta dos 30 minutos so le os popups abertos, e a busca pelo
+            # numero so os guias que ja o ligaram. Unico no numero nao pode ser:
+            # dois guias com o mesmo numero e o caso que o criterio 4 do KAM-093
+            # prende, e a base tem de o deixar escrever para o prender.
+            "onboarding_guia_iniciado_idx": False,
+            "onboarding_guia_phone_number_idx": False,
             "onboarding_nif_vivo": True,
             # KAM-197: o pedido que abriu um caso de reembolso abre-o **uma**
             # vez. Unico, e e a idempotencia do criterio 1 imposta pela base;
@@ -4645,6 +4676,17 @@ class TestInventario(ComBase):
                     "painel_idempotencia_pkey",
                     "painel_idempotencia_prazo_ck",
                     "painel_idempotencia_resposta_ck",
+                    # --------------------------------------- KAM-239 (0090)
+                    #
+                    # **Seis.** A chave primaria, os dominios do estado e do
+                    # motivo, e o tecto dos tres identificadores (a tentativa,
+                    # o numero e a conta da Meta).
+                    "onboarding_guia_estado_ck",
+                    "onboarding_guia_motivo_ck",
+                    "onboarding_guia_phone_number_ck",
+                    "onboarding_guia_pkey",
+                    "onboarding_guia_tentativa_ck",
+                    "onboarding_guia_waba_ck",
                     # A verificacao: os tres dominios, as formas, o
                     # prefixo do STO e a idempotencia por `sha256`.
                     "kyc_check_custo_micro_usd_ck",

@@ -67,6 +67,9 @@ FICHEIROS = (
     # KAM-240: a idempotencia do PATCH do painel sobre a `0089`, como
     # `kamba_app`, entre dois processos e depois de um reinicio.
     "tests_bd/idempotencia.bd.test.ts",
+    # KAM-239: o estado do guia na `onboarding_guia`, como `kamba_app`, e a
+    # lista, os gates e a fila pela rota interna do processo de lote real.
+    "tests_bd/guia.bd.test.ts",
 )
 
 #: Os `describe` do ficheiro: os dezanove cenarios do processo de lote partilham as
@@ -85,6 +88,7 @@ GRUPOS = (
     # KAM-209: a varredura do preço anómalo, no ficheiro do T&S.
     "o preço anómalo contra a base (KAM-209)",
     "a idempotência do painel na base (KAM-240)",
+    "o guia na base (KAM-239)",
 )
 
 #: Os testes que **tem** de ter corrido e passado, pelo nome. Sao a letra dos
@@ -198,6 +202,11 @@ TESTES_OBRIGATORIOS = (
     "KAM-240: um 5xx e uma sessão revogada não ficam, o pedido que esperava corre ele, e o kamba_app não apaga",
     "KAM-240: uma chave vencida e por purgar reaproveita-se com outro conteúdo",
     "KAM-240: a ligação de quem tem a tranca cai a meio, e o outro corre; o PATCH do primeiro não é cancelado",
+    # KAM-239: o estado do guia sobrevive a um reinicio, a reserva e os gates
+    # chegam a base pelo lote, e a volta dos 30 minutos e do lote.
+    "KAM-239: o estado do guia escrito por um processo lê-se igual noutro processo, depois do reinício",
+    "KAM-239: a reserva, o meta_pagamento, o meta_es e o es_falhado chegam à base pela rota interna do lote",
+    "KAM-239: o abandono dos 30 minutos corre no lote em todos os tenants, e a aplicação recusa-o pelo nome",
 )
 
 

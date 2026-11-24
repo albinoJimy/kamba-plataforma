@@ -76,3 +76,15 @@ export { avaliarPreflight, lerVersao, normalizarNome, versaoPeloMenos } from "./
 export type { Factos } from "./preflight.ts";
 export { aplicarWebhook, sinaisDoWebhook } from "./sinais.ts";
 export type { Aplicacao, Sinal } from "./sinais.ts";
+export {
+  CasoDoGuiaInexistenteError,
+  GateSemCasoError,
+  SQL_ABANDONAR_VENCIDOS,
+  SQL_CASO_POR_NUMERO,
+  VarreduraNoLoteError,
+  abandonarVencidosNaBase,
+  gatesDoGuiaNaBase,
+  guiaNaBase,
+  preflightDosItens,
+} from "./sql.ts";
+export type { OpcoesDoGuiaNaBase } from "./sql.ts";

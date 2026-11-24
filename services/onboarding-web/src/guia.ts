@@ -41,7 +41,7 @@ import { Hono } from "hono";
 import { randomBytes } from "node:crypto";
 
 import { type ListaDeEspera, ListaRecusadaError, type Posicao } from "@kamba/core-ts/capacidade";
-import { GuiaRecusadoError, type PassoGuiado } from "@kamba/core-ts/guia";
+import { type CapacityGate, GuiaRecusadoError, type PassoGuiado } from "@kamba/core-ts/guia";
 import {
   type Otp,
   type Registo,
@@ -54,11 +54,18 @@ import type { Logger } from "@kamba/core-ts/logger";
 
 import { cabecalhosDaLigacao, paginaDaLigacao, paginaDeRecusaDaLigacao } from "./pagina_guia.ts";
 
+/**
+ * A lista de espera que as rotas usam: o `CapacityGate` do guia e as quatro da
+ * lista. A `ListaDeEspera` sobre memória, em `dev`, ou a `ListaPeloLote` sobre a
+ * rota interna do processo de lote, com o guia na base (KAM-239).
+ */
+export type ListaDoGuia = CapacityGate & Pick<ListaDeEspera, "posicao" | "validarConvite" | "recusar" | "desistir">;
+
 /** O que as rotas do guia precisam. */
 export interface OpcoesDoGuia {
   readonly guia: PassoGuiado;
   /** A lista de espera (KAM-095), se o arranque a montou. */
-  readonly lista?: ListaDeEspera | undefined;
+  readonly lista?: ListaDoGuia | undefined;
   readonly registo: Registo;
   readonly otp: Otp;
   readonly anelDaAssinatura: readonly (Uint8Array | null)[];
@@ -117,7 +124,7 @@ function estadoDaLista(erro: ListaRecusadaError): 403 | 409 {
  * cada rota, como actor, a última função declarada antes dela — uma função
  * nova dentro do `rotasDoGuia` mudava o identificador das oito rotas do guia.
  */
-function exigirLista(lista: ListaDeEspera | undefined): ListaDeEspera {
+function exigirLista(lista: ListaDoGuia | undefined): ListaDoGuia {
   if (lista === undefined) throw new GuiaRecusadoError("sem_caso");
   return lista;
 }

@@ -4,7 +4,7 @@
 |---|---|
 | Produto | KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para Angola |
 | Documento | Epic — Onboarding e Governação |
-| Versão | 1.47 |
+| Versão | 1.48 |
 | Data | Outubro de 2026 |
 | Classificação | Documento de Referência — Interno |
 | Documento-fonte | `../docs/tecnica/10_Onboarding_Governanca.md`, `../docs/tecnica/00_Arquitectura_Solucao.md` (ADR-019) |
@@ -84,6 +84,7 @@ Fora deste epic (Clusters): estafetas, revendedores, rede de agentes de activaç
 | KAM-240 | A idempotência do `PATCH /painel/produtos/:id` na base: a deduplicação sobrevive a um reinício e vale entre réplicas | feature | S | P1 | KAM-236 |
 | KAM-248 | Off-boarding, o que depende de fora: as provas e a entrega ao titular, a Medusa, o simulacro, o *token* de cada WABA e o resto da purga | feature | L | P1 | KAM-233, KAM-115, KAM-116, KAM-078 |
 | KAM-253 | Re-análise do screening: o produto publicado que uma versão nova da política bloqueia continua visível ao cliente | fix | S | P2 | KAM-191, KAM-245 |
+| KAM-254 | Guia do ES pelo lote, o que ficou do KAM-239: os efeitos remotos sem atomicidade, o convite sem via e o X-01 sobre a base | fix | M | P2 | KAM-239 |
 
 ---
 
@@ -4804,7 +4805,7 @@ O fundador pode reabri-la.
 
 | Critério | Estado | Evidência |
 |---|---|---|
-| 1 — o caso, o registo e o guia em SQL com os papéis certos, e o `server.ts` arranca em `prod` sem repositório em memória | **parcial — caixa vazia** | **Feito:** o caso, o OTP, os contadores e as revogações sobre a base, como `kamba_app`, e o `server.ts` recusa `prod` sem a ligação (`BaseEmFaltaEmProducaoError`). Contra a base (`tests_lote`, `packages/core-ts/tests_bd/inscricao.bd.test.ts`, seis ensaios obrigatórios): o registo cria o caso num processo e outro processo acerta o código, conclui o OTP e reconhece a chave; as funções só devolvem o caso e o tenant e o `kamba_app` não lê o caso de outro tenant pela tabela; trinta verificações concorrentes comparam no máximo cinco; dois registos concorrentes do mesmo NIF, e a mesma chave, dão um caso; os contadores somam entre processos; as revogações sobrevivem. **Falta, três coisas:** (a) o guia não se monta em `prod` (D2-A), credor **KAM-239**; (b) o arranque em `prod` **continua a recusar**, agora pelo SMS (`SmsFalsoEmProducaoError`): o OTP é o `FakeSmsProvider` em todos os ambientes, porque não há adaptador de agregador real (achado 1 da revisão adversarial). **Bloqueado pelo agregador, o KAM-116** (decisão C1 da coordenação, 2026-11-22); (c) a idempotência do `PATCH /painel/produtos/:id` continua num `Map` do processo (achado 4), credor **KAM-240** (decisão C2) — **revista pelo KAM-240: feita**, a chave na `platform.painel_idempotencia` (revisão `0089`) e o `server.ts` a usá-la sempre que há base; a evidência está na secção de verificação do KAM-240. **O defeito, como estava:** um reinício ou uma segunda réplica perdem a deduplicação. A repetição da mesma chave já não recebe a resposta guardada e chega ao COM; como o pedido leva a versão, a segunda gravação recusa-se, e o dono recebe um `409` sobre um preço que ficou gravado, em vez do `200` da primeira |
+| 1 — o caso, o registo e o guia em SQL com os papéis certos, e o `server.ts` arranca em `prod` sem repositório em memória | **parcial — caixa vazia** | **Feito:** o caso, o OTP, os contadores e as revogações sobre a base, como `kamba_app`, e o `server.ts` recusa `prod` sem a ligação (`BaseEmFaltaEmProducaoError`). Contra a base (`tests_lote`, `packages/core-ts/tests_bd/inscricao.bd.test.ts`, seis ensaios obrigatórios): o registo cria o caso num processo e outro processo acerta o código, conclui o OTP e reconhece a chave; as funções só devolvem o caso e o tenant e o `kamba_app` não lê o caso de outro tenant pela tabela; trinta verificações concorrentes comparam no máximo cinco; dois registos concorrentes do mesmo NIF, e a mesma chave, dão um caso; os contadores somam entre processos; as revogações sobrevivem. **Falta, três coisas:** (a) o guia não se montava em `prod` (D2-A), credor **KAM-239** — **revista pelo KAM-239**: o estado do guia vive na base, e a lista, os *gates* e a fila correm no lote pela rota interna; o guia fica por montar em `prod` só pela alínea (b), que recusa o arranque antes dele; (b) o arranque em `prod` **continua a recusar**, agora pelo SMS (`SmsFalsoEmProducaoError`): o OTP é o `FakeSmsProvider` em todos os ambientes, porque não há adaptador de agregador real (achado 1 da revisão adversarial). **Bloqueado pelo agregador, o KAM-116** (decisão C1 da coordenação, 2026-11-22); (c) a idempotência do `PATCH /painel/produtos/:id` continua num `Map` do processo (achado 4), credor **KAM-240** (decisão C2) — **revista pelo KAM-240: feita**, a chave na `platform.painel_idempotencia` (revisão `0089`) e o `server.ts` a usá-la sempre que há base; a evidência está na secção de verificação do KAM-240. **O defeito, como estava:** um reinício ou uma segunda réplica perdem a deduplicação. A repetição da mesma chave já não recebe a resposta guardada e chega ao COM; como o pedido leva a versão, a segunda gravação recusa-se, e o dono recebe um `409` sobre um preço que ficou gravado, em vez do `200` da primeira |
 | 2 — o `POST /painel/teste` corre em `prod`, e um reinício não perde a tentativa aberta | **parcial — caixa vazia** | A tentativa vive na `onboarding_smoke` desde o KAM-202, e o caso que a sessão do painel lê vive agora na base: o reinício (`…outro processo acerta o código…`) lê o mesmo caso e o mesmo tenant. **Falta:** `prod` não arranca enquanto o SMS for o falso (critério 1, b; bloqueado pelo KAM-116) |
 | 3 — o compose de produção monta o `onboarding-web` na rede `data` só com as ligações de que ele precisa | **satisfeito** | `infra/compose/docker-compose.prod.yml`: redes `app` e `data`, uma ligação só (`ONBOARDING_APP_DB_URL`, `kamba_app`), sem `kamba_batch` nem `kamba_identity`; o COM interno pela rede `app`; os segredos pelo cofre (`${…:?}`); `mem_limit` sem mudança. `compose_prod lint`: 0 achados; `env_lint lint`: 0 achados; as suites das duas ferramentas verdes |
 
@@ -4869,7 +4870,7 @@ Regras: papéis mínimos por ligação; nenhum repositório em memória em prod.
 | Prioridade | P1 |
 | Estimativa | M |
 | Dependências | KAM-236 |
-| Bloqueia | — |
+| Bloqueia | KAM-254 |
 | Responsável sugerido | Engenheiro de Plataforma (TEN) |
 | Documentos de referência | `EPIC-09_Onboarding_Governanca.md` (blocos KAM-093, KAM-095, KAM-198 e KAM-236), `../services/onboarding-web/src/server.ts`, `../services/onboarding-web/src/lote/processo.ts` |
 
@@ -4890,9 +4891,9 @@ Que o guia do ES corra em `prod`: o estado na base, e o que pede `kamba_batch` n
 
 ### Critérios de Aceitação
 
-- [ ] O estado do guia vive na base, com o papel certo para cada operação, e as duas varreduras que
+- [x] O estado do guia vive na base, com o papel certo para cada operação, e as duas varreduras que
   atravessam tenants correm no processo de lote ou pela forma da D1-A do KAM-236 (só o caso e o tenant).
-- [ ] A reserva da lista de espera, a abertura do caso na fila de revisão e os dois *gates* do guia correm
+- [x] A reserva da lista de espera, a abertura do caso na fila de revisão e os dois *gates* do guia correm
   no `onboarding-lote` como `kamba_batch`; o `onboarding-web` não ganha ligação `kamba_batch`.
 - [ ] O `server.ts` monta o guia em `prod` (deixa de registar `es_guia_fora_de_prod`), e um reinício do
   processo não perde o estado do guia de um caso.
@@ -4902,6 +4903,38 @@ Que o guia do ES corra em `prod`: o estado na base, e o que pede `kamba_batch` n
 - Pode pedir esquema (o estado do guia): o número da revisão é da fila.
 - A decisão de como o `onboarding-web` pede ao lote a reserva e a abertura (evento, tabela de pedidos ou
   rota interna) é deste ticket, e leva-se à coordenação antes de escrever.
+
+### Decisões do fundador
+
+**Data: 2026-11-22. Autor: o fundador** (respondida no chat da coordenação do lote 19, e trazida por ela).
+
+| # | Pergunta | Escolha | Recusadas |
+|---|---|---|---|
+| D1 | Como o `onboarding-web` pede ao processo de lote a reserva da lista, as quatro operações da lista, os dois *gates* do guia e a abertura na fila de revisão | **A**: uma rota interna `/interno/guia/*` no `onboarding-lote`, numa porta própria na rede `app`, com uma credencial nova (`onboarding_lote_token`, no inventário dos segredos, só com o `onboarding-web` e o `onboarding-lote`). O lote corre a lista, os *gates* e a abertura na fila como `kamba_batch`; o `PassoGuiado` não muda | B, uma tabela de pedidos (a reserva ficava assíncrona e o popup passava a dois cliques; a posição e o convite deixavam de responder no pedido); C, um evento (os mesmos problemas, e contratos novos no `registry/`) |
+
+**O custo aceite**, escrito pelo fundador: uma superfície HTTP num processo que passa a RLS. Para que seja
+pequeno, quatro condições, e as quatro são critério deste ticket: a rota só aceita as operações fechadas do
+guia; recusa sem a credencial, com comparação em tempo constante; não escuta fora da rede `app`; e tem um
+caso X-01 no *gate* 6, como as rotas internas do COM.
+
+**E as duas varreduras que atravessam tenants**, que o critério 1 deixa ao ticket: o `iniciadosAntesDe` (o
+temporizador dos 30 minutos) e a volta da lista passam ao processo de lote, como `kamba_batch`; o
+`porPhoneNumberId` (os sinais da Meta) passa por uma função `SECURITY DEFINER` na forma da D1-A do KAM-236,
+que devolve só o caso e o tenant. Confirmadas pela coordenação no mesmo dia.
+
+**A revisão** é a `0090`, sobre a `0089` do KAM-240 (vaga dada pela coordenação do lote 19).
+
+### Decisões da coordenação
+
+**Data: 2026-11-22. Autor: a coordenação do lote 19.** É uma leitura e não um critério: o que o gate exige
+não muda. Se mudasse, era do fundador.
+
+| # | Pergunta | Escolha | Recusadas |
+|---|---|---|---|
+| C1 | Como a rota interna não escuta fora da rede `app`, com o lote nas redes `app` e `data` | **A**: a rota liga-se ao nome `onboarding-lote-interno`, um *alias* só da rede `app`; as redes do `onboarding-lote` passam a mapa no compose de `prod`, e o `r_redes_por_servico` do `tools/compose_prod/lint.py` passa a ler as duas formas (lista e mapa), como a outra leitura de redes do mesmo ficheiro (`_ligacao`) já lia | B, fixar a sub-rede da rede `app` e ligar ao IP dela (mexe na topologia); C, escutar também na `data` com a credencial só |
+
+**Uma regra que só lia a lista deixava escapar, calado, um serviço escrito em mapa.** O linter foi varrido
+inteiro: só as duas leituras de redes por serviço existiam, e só a do `r_redes_por_servico` lia uma forma.
 
 ### Testes Requeridos
 
@@ -4913,6 +4946,68 @@ Que o guia do ES corra em `prod`: o estado na base, e o que pede `kamba_batch` n
 
 - [ ] Critérios de Aceitação satisfeitos; a linha do guia do critério 1 do KAM-236 revista com a evidência.
 - [ ] Nenhum segredo no compose; `make up && make smoke` verde.
+
+### Verificação dos Critérios de Aceitação
+
+Entregue neste ramo:
+- a revisão [`0090`](../db/migrations/versions/0090_guia_na_base.py): o estado do guia (`onboarding_guia`, RLS
+  `FORCE`, FK composta ao caso), a busca pelo número em `SECURITY DEFINER` (`guia_caso_por_phone_number_id`,
+  só o caso e o tenant) com a política `guia_busca`, e os privilégios de cada papel;
+- os adaptadores ([`../packages/core-ts/src/guia/sql.ts`](../packages/core-ts/src/guia/sql.ts)), a rota interna
+  do lote ([`../services/onboarding-web/src/lote/interno.ts`](../services/onboarding-web/src/lote/interno.ts)) e
+  o cliente dela ([`../services/onboarding-web/src/guia_pelo_lote.ts`](../services/onboarding-web/src/guia_pelo_lote.ts));
+- o `server.ts` e o processo de lote sobre eles, o compose de `prod`, a credencial no inventário dos segredos,
+  a leitura das redes em mapa no `tools/compose_prod/lint.py`, o caso X-01/ts/guia-interno e a emenda 1.145
+  do dicionário (§3.85).
+
+| Critério | Estado | Evidência |
+|---|---|---|
+| 1 — o estado do guia na base, com o papel certo, e as duas varreduras pelo lote ou pela forma da D1-A | **satisfeito** | O estado vive na `onboarding_guia`, que o `kamba_app` lê e escreve pela RLS do tenant do caso (`guiaNaBase`). O `porPhoneNumberId` passa pela `guia_caso_por_phone_number_id` (D1-A: só o caso e o tenant, `EXECUTE` só para o `kamba_app`). O `iniciadosAntesDe` corre no lote, como `kamba_batch` (`abandonarVencidosNaBase`, na volta do `CicloDoGuia`), e no adaptador da aplicação recusa pelo nome (`VarreduraNoLoteError`). Contra a base: o `db/tests/test_guia_na_base_schema.py` (dez ensaios, verdes: o isolamento pelo tenant, a FK, o «não apaga», o lote que só muda o estado, a busca que vê outro tenant e só devolve o caso e o tenant, o último a ligar o número e nunca um preso, o `42501` dos outros papéis, a política só com a variável, a descida e a subida); e o `packages/core-ts/tests_bd/guia.bd.test.ts` (o reinício e o abandono em dois tenants) |
+| 2 — a reserva, a fila e os dois *gates* no `onboarding-lote` como `kamba_batch`; o `onboarding-web` sem ligação `kamba_batch` | **satisfeito** | As oito operações da rota interna (`criarAppInterna`), servidas pelo lote sobre a `ListaSql`, o `gatesDoGuiaNaBase` e o `filaDoGuia`, todos sobre a ligação `kamba_batch` do processo (`montarProcesso`). O `onboarding-web` chama-as por HTTP com a `onboarding_lote_token` (`ListaPeloLote`, `GatesPeloLote`, `RevisaoPeloLote`) e continua com as ligações `kamba_app` e `kamba_identity` só. Contra a base, pelo `arrancar` real do lote: a vaga e a lista de espera na `waitlist_entry`, o `meta_pagamento` e o `meta_es` na `onboarding_gate` e o `es_falhado` na `review_case` (`…chegam à base pela rota interna do lote`). As quatro condições do custo aceite: só as oito, e nenhuma lê um tenant (`services/onboarding-web/tests/guia_lote.test.ts`); a credencial antes de tudo, em tempo constante, com o 401 igual (idem, e o X-01/ts/guia-interno com quatro ataques por operação e zero chegadas às portas); não escuta na rede `data` (`db/tests_lote/test_rota_interna_rede.py`, com o controlo em `0.0.0.0`) |
+| 3 — o `server.ts` monta o guia em `prod`, e um reinício não perde o estado do guia | **parcial — caixa vazia** | **Feito:** o `es_guia_fora_de_prod` saiu; com a `ONBOARDING_LOTE_INTERNO_URL`, o guia monta-se sobre a base e o lote em qualquer ambiente (`portasDoGuia`), e em `prod` sem ela recusa (`LoteEmFaltaEmProducaoError`, ensaiado). O estado sobrevive a um reinício (`…lê-se igual noutro processo, depois do reinício`). **Falta:** o `onboarding-web` continua a recusar `prod` **antes** de chegar ao guia, pelo SMS (`SmsFalsoEmProducaoError`, decisão C1 do KAM-236, bloqueada pelo agregador do **KAM-116**); e as quatro variáveis da app da Meta que montam a página não estão no compose de `prod` — são do fundador, quando a app existir. O caminho de `prod` do guia está escrito e ensaiado por partes, e não corre de ponta a ponta |
+
+### Verificação da Definition of Done
+
+| DoD | Estado | Evidência |
+|---|---|---|
+| Critérios satisfeitos; a linha do guia do critério 1 do KAM-236 revista | **parcial** | Dois de três (o 3 espera o agregador do KAM-116). A alínea (a) do critério 1 do KAM-236 foi revista com a evidência deste ticket, e o critério continua parcial pelas alíneas (b) e (c) |
+| Nenhum segredo no compose; `make up && make smoke` verde | **parcial** | Nenhum valor de segredo nos compose: a `onboarding_lote_token` chega pelo cofre (`KAMBA_SECRET_ONBOARDING_LOTE_TOKEN`, `:?`), e o `scan_secrets` sai limpo em cada *commit*. O `make up && make smoke` **não correu** nesta máquina (não há `make`); o compose de `dev` não monta o guia (não tem as variáveis da app da Meta) |
+
+**O que fica por fazer, dito**, com quem o fecha (decisão da coordenação do lote 19, 2026-11-24): o
+critério 3 espera o agregador de SMS do **KAM-116**; os três pontos abaixo são código, e o credor deles é o
+**KAM-254**, aberto neste PR.
+- *As rotas do guia na bateria X-01 sobre os adaptadores SQL* (Testes Requeridos): o grupo `guia` do condutor
+  continua sobre o `GuiaEmMemoria`. O isolamento do estado na base mede-se no ensaio de esquema e no ensaio
+  contra a base, e não no X-01. Credor: **KAM-254**.
+- *Os efeitos remotos sem atomicidade* (achado 3 da revisão adversarial, plausível): o `PassoGuiado` grava a
+  transição na base e só depois chama o lote para o *gate* e a fila. Com o lote em baixo nesse instante, um
+  guia preso por número divergente fica sem `review_case`. É latente: os sinais da Meta não têm consumidor
+  ligado, e quem o ligar tem de repetir o sinal que falhar. Credor: **KAM-254**.
+- *O convite da lista sem via* (achado 6): o lote convida, e o aviso não chega a ninguém (o SMS é do KAM-116,
+  o canal do KAM-115). Um dono que não volte à página em duas janelas de 48 h perde o caso. Hoje não morde: o
+  `onboarding-web` recusa `prod` pelo SMS, e a fila de `prod` está vazia. Credor: **KAM-254**.
+
+**Medido nesta máquina:** o *typecheck* do `core-ts` (`tsconfig.json` e `tsconfig.tests.json`) e do
+`onboarding-web`; o `node --test` do guia e do lote no serviço (81) e do guia no `core-ts` (64); o *gate* 8
+focado (`test_guia_na_base_schema`, `test_inventario`, `test_privilegios`, `test_catalogo`,
+`test_retencao_bd`, `test_inscricao_na_base_schema`, o `test_x05_catalogo` do *gate* 6 e o
+`test_rota_interna_rede`: **147** verdes) e o `guia.bd.test.ts` contra a base; o caso X-01/ts/guia-interno
+pelo condutor de Node (32 entradas, zero achados); o `compose_prod` (a suite, o canário a 68 de 68, e a
+mutação que tira o ramo do mapa e avermelha a árvore real); as suites do `tools/isolamento`; os três comandos
+do *gate* 3b e o `lint_backlog`, o `lint_refs`, o `lint_handoff` e o `lint_contagens`. O `tests` inteiro, o
+`tests_lote` inteiro e as mutações ficam para o CI.
+
+**Na integração com a `main` em `a399191c`** (a `0089` do KAM-240 já fundida): o *build* do `contracts` e do
+`core-ts`, os dois *typecheck* e o `node --test` do `onboarding-web` inteiro (**307**, com os do KAM-240) e do guia
+no `core-ts` (64); o *gate* 8 nas 21 suites do `ci-8`, com a conferência das 1314 mutações: dezanove verdes à
+primeira. O `tests` deu um vermelho real da integração: o `test_offboarding` do KAM-233 fixa as FK ao caso, e a
+`0090` traz a quinta. Foi corrigido como o `onboarding_otp` do KAM-236: o fundamento do certificado nomeia-o, e
+a pergunta de retenção junta-se à do KAM-248. O `test_offboarding` e o `test_retencao_bd` ficaram verdes (60). O
+`tests_eventos_consumo` ficou verde à segunda. O `tests_eventos` deu três vermelhos em cada uma das duas corridas,
+e eram ensaios diferentes de uma corrida para a outra, todos à espera de `esperar_por(..., 30)` numa máquina
+carregada (a primeira corrida levou 2 h 26 min). O ramo não toca em nenhum caminho de eventos: fica para o CI.
+Verdes também as suites de `tools/` tocadas (`compose_prod` 48, `lint_bloco` 41, `isolamento` 121), os três
+comandos do *gate* 3b e os linters documentais.
 
 ### Handoff para Claude Code
 
@@ -5104,7 +5199,7 @@ com o simulacro em *staging* a prová-lo.
 - [ ] **O 404 da Graph, medido** (a metade do critério 8 do KAM-233 que ficou): o `DELETE` de uma subscrição que já não existe, com o registo de evidência. Pede um *token* real de um WABA (o fundador, ou *staging*).
 - [ ] **O resto da purga** (critério 4 do KAM-233): as conversas espelhadas no Chatwoot, os *traces* e as *caches* por tenant, cada um no `purge_log`; e o pedido de eliminação aos fornecedores de LLM e STT, que é contactar subprocessadores — **do fundador**, e não por código sem ele.
 - [ ] **O simulacro** (critério 6 do KAM-233) em *staging*, com um tenant sintético, como o critério 7 do KAM-210 o descreve: documentado e repetível. Pede o ambiente.
-- [ ] **As duas tabelas da `0084` sem caminho de eliminação** (achado do KAM-233 na integração): o `onboarding_otp` aponta ao caso de onboarding sem cascata e não se apaga para ninguém, pelo que o caso deixa de sair com as provas; e a `painel_revogacao` também fica `sem_caminho` na purga. Se o `kamba_batch` ganha `DELETE` nelas, ou se ficam pela expiração, é retenção — **do fundador**.
+- [ ] **As duas tabelas da `0084` sem caminho de eliminação** (achado do KAM-233 na integração): o `onboarding_otp` aponta ao caso de onboarding sem cascata e não se apaga para ninguém, pelo que o caso deixa de sair com as provas; e a `painel_revogacao` também fica `sem_caminho` na purga. Se o `kamba_batch` ganha `DELETE` nelas, ou se ficam pela expiração, é retenção — **do fundador**. **E a da `0090`** (KAM-239, na integração com a `main` em `a399191c`): o `onboarding_guia` aponta ao caso da mesma forma, sem cascata e sem `DELETE` para ninguém, e entra na mesma pergunta; o fundamento do certificado já o nomeia.
 
 ### Detalhes Técnicos
 
@@ -5203,6 +5298,86 @@ Regras: a decisão é do fundador; uma violação por conteúdo; isolamento de t
 
 ---
 
+## KAM-254 — Guia do ES pelo lote, o que ficou do KAM-239: os efeitos remotos sem atomicidade, o convite sem via e o X-01 sobre a base
+
+| Campo | Valor |
+|---|---|
+| Epic | EPIC-09 — Onboarding e Governação |
+| Fase | 1 |
+| Tipo | fix |
+| Prioridade | P2 |
+| Estimativa | M |
+| Dependências | KAM-239 |
+| Bloqueia | — |
+| Responsável sugerido | Engenheiro de Plataforma (TEN) |
+| Documentos de referência | `EPIC-09_Onboarding_Governanca.md` (blocos KAM-093, KAM-095 e KAM-239), `../services/onboarding-web/src/guia_pelo_lote.ts`, `../services/onboarding-web/src/lote/interno.ts`, `../tools/isolamento/baterias/x01_rotas.py` |
+
+### Contexto
+
+Credor do que o KAM-239 deixou por fazer, aberto no PR dele pela coordenação do lote 19 (2026-11-24): cada
+parcial aponta para quem o fecha. O KAM-239 pôs o estado do guia do ES na base e a lista, os *gates* e a fila
+de revisão no processo de lote, por uma rota interna. Ficaram três coisas, e as três são código:
+
+- **Os efeitos remotos não são atómicos** (achado 3 da revisão adversarial do KAM-239). O `PassoGuiado` grava
+  a transição na base e só depois pede ao lote o *gate* e a abertura na fila. Se o lote estiver em baixo nesse
+  instante, o guia fica preso por número divergente e não ganha `review_case`, e ninguém repete o pedido.
+  Hoje é latente, porque os sinais da Meta não têm consumidor ligado.
+- **O convite da lista não tem via** (achado 6). O lote convida o caso seguinte, e o aviso não chega a
+  ninguém: o SMS é do KAM-116 e o canal do KAM-115, e o `AvisoDaListaSemVia` só o regista. Um caso convidado
+  que não volte à página em duas janelas de 48 h é abandonado sem nunca ter sabido do convite.
+- **As rotas do guia não estão no X-01 sobre a base** (Testes Requeridos do KAM-239). O grupo `guia` do
+  condutor do *gate* 6 monta-as sobre o `GuiaEmMemoria`, e o isolamento do estado na base só se mede no ensaio
+  de esquema e no ensaio contra a base.
+
+O critério 3 do KAM-239 (o `server.ts` em `prod`) **não** é deste ticket: espera o agregador de SMS do
+KAM-116.
+
+### Objectivo
+
+Que um pedido do guia ao lote não se perca com o lote em baixo, que nenhum caso perca a vez por um convite que
+não saiu, e que as rotas do guia se meçam no X-01 sobre a base.
+
+### Critérios de Aceitação
+
+- [ ] Uma transição do guia que pede ao lote um *gate* ou a abertura na fila de revisão chega à base mesmo
+  que o lote esteja em baixo no instante: o pedido repete-se, de forma idempotente, ou o lote reconcilia a
+  partir do estado do guia. Há um ensaio com o lote em baixo.
+- [ ] Um convite da lista que não chegou ao dono, por não haver via ou por a via falhar, não conta para o
+  abandono, e cada convite por entregar vê-se numa métrica. Se isto mudar a regra das 48 h do KAM-095, a
+  mudança é decisão do fundador, registada no bloco com data e autor.
+- [ ] O grupo `guia` do condutor do X-01 monta as rotas do guia sobre os adaptadores SQL (`guiaNaBase`, e a
+  lista, os *gates* e a fila pelo lote), contra a base, com zero achados.
+
+### Detalhes Técnicos
+
+- Pode pedir esquema (por exemplo, a marca do convite entregue, ou os pedidos por repetir). O número da
+  revisão é da fila.
+- A rota interna do KAM-239 tem só as oito operações fechadas. Uma operação nova é uma alteração ao custo que
+  o fundador aceitou, e leva-se à coordenação antes de a escrever.
+
+### Testes Requeridos
+
+- Integração: contra a base, uma transição com o lote em baixo chega ao `review_case` e ao `onboarding_gate`
+  quando o lote volta; um convite sem via não abandona o caso.
+- Isolamento: as rotas do guia na bateria X-01, sobre os adaptadores SQL.
+
+### Definition of Done
+
+- [ ] Critérios de Aceitação satisfeitos; os três pendentes do bloco do KAM-239 revistos com a evidência.
+
+### Handoff para Claude Code
+
+```text
+És o executor do ticket KAM-254 da KAMBÁ (o que ficou do guia do ES pelo lote).
+Lê os blocos KAM-095 e KAM-239 de specs/EPIC-09_Onboarding_Governanca.md,
+services/onboarding-web/src/guia_pelo_lote.ts e services/onboarding-web/src/lote/interno.ts.
+Objectivo: nenhum pedido do guia ao lote se perde, nenhum caso perde a vez por um convite que não saiu,
+e as rotas do guia medem-se no X-01 sobre a base.
+Regras: o onboarding-web não ganha kamba_batch (D2-A do KAM-236); a rota interna só com operações fechadas.
+```
+
+---
+
 ## Riscos do Epic e itens NÃO VERIFICADOS
 
 | Risco / item | Estado | Impacto | Mitigação / critério de saída | Decisão |
@@ -5290,3 +5465,4 @@ Regras: a decisão é do fundador; uma violação por conteúdo; isolamento de t
 | 1.45 | Novembro 2026 | KAM-209 (o preço anómalo por categoria): as quatro decisões do fundador de 2026-11-21 (opção A em todas) e as duas de 2026-11-22 (um sinal por loja e por janela de 30 dias; referências de pelo menos três lojas), os três critérios e as duas caixas da DoD marcados, com a secção «Verificação dos Critérios de Aceitação»; e o critério 4 do KAM-200 revisto, de **não satisfeito** a **satisfeito**. Escrita como 1.41 e renumerada na integração, depois do KAM-236, do KAM-225, do KAM-233 e do KAM-208. | Equipa KAMBÁ |
 | 1.46 | Novembro 2026 | Escrita como 1.44 e renumerada na integração, depois do KAM-208 e do KAM-209; o credor abriu como KAM-249 e passou a KAM-253, porque o 249 a 252 fundiram com o KAM-247, o KAM-241 e o KAM-243. **KAM-253 acrescentado**, no PR do **KAM-245** (EPIC-11), que o abre e não o implementa, pela decisão A do fundador de 2026-11-23: o `/internal/screen` despublica o conteúdo que bloqueia, e a re-análise de uma mudança de política continua sem despublicar, pelo critério 4 do KAM-191. O KAM-253 é o credor dessa assimetria, com a decisão por tomar. **Aresta recíproca:** o `Bloqueia` do KAM-191 passa de «—» a **KAM-253**. Número provisório: o maior da `main` + 1. | Equipa KAMBÁ |
 | 1.47 | Novembro 2026 | **KAM-240** (escrita como 1.42 e renumerada na integração, depois do KAM-225, do KAM-233, do KAM-208, do KAM-209 e do KAM-245): a idempotência do `PATCH /painel/produtos/:id` na base (revisão `0089`). A forma da tranca (a linha, sem prazo) e a **decisão da coordenação do lote 19** de 2026-11-22 sobre a retenção (C1-A: 24 h, purga a 25 h como lote) no bloco, e as duas secções de verificação. A alínea (c) do critério 1 do KAM-236 revista com a evidência; a caixa dele continua vazia pelas alíneas (a) e (b). Número **provisório**: renumera-se na integração. | Equipa KAMBÁ |
+| 1.48 | Novembro 2026 | **KAM-239** (escrita como 1.42 e renumerada na integração, depois do KAM-225, do KAM-233, do KAM-208, do KAM-209, do KAM-245 e do KAM-240): a decisão do fundador de 2026-11-22 registada no bloco (A: a rota interna `/interno/guia/*` no `onboarding-lote`, com a credencial `onboarding_lote_token`; recusadas a tabela de pedidos e o evento) e a da coordenação do lote 19 (C1-A: o *alias* `onboarding-lote-interno` só na rede `app`, com o linter do compose a ler as redes em mapa), e as duas secções de verificação: critérios 1 e 2 satisfeitos, o 3 parcial pelo SMS do KAM-116. A alínea (a) do critério 1 do KAM-236 revista. **KAM-254 acrescentado**, no mesmo PR, que o abre e não o implementa, pela decisão da coordenação do lote 19 de 2026-11-24 (cada parcial aponta para quem o fecha): os efeitos remotos sem atomicidade, o convite da lista sem via e o X-01 das rotas do guia sobre a base; o critério 3 aponta ao KAM-116. | Equipa KAMBÁ |

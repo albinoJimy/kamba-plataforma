@@ -2302,6 +2302,12 @@ SEM_RECEITA_COM_RAZAO = {
     # o contexto de A, le com o de A (uma linha), com o de B e sem contexto
     # (zero), e recusa a escrita no tenant de outro.
     ("platform", "onboarding_otp"),
+    # KAM-239: o estado do guia, pela mesma razao: aponta o caso do tenant (FK
+    # composta), que e unico por tenant. **A politica mede-se noutro sitio**: o
+    # `db/tests/test_guia_na_base_schema.py` escreve pela aplicacao com o
+    # contexto de A, le com o de A (uma linha), com o de B e sem contexto
+    # (zero), e recusa a escrita no tenant de outro.
+    ("platform", "onboarding_guia"),
     # KAM-097: os sinais e as sancoes de T&S, pela razao da
     # `screening_decision`: *append-only* por privilegio **e** por *trigger*
     # (`ts_imutavel`), que recusa tambem ao administrador o `DELETE` com que as
