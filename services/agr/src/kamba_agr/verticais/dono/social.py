@@ -446,7 +446,11 @@ async def _entregar(deps: Dependencias, estado: Mapping[str, Any], referencia: s
     if not entregue.ok:
         return _resposta_estatica(_frase_do_erro(entregue.error))
     dados = entregue.data
-    partes = dados["entrega"]
+    partes = dados.get("entrega")
+    if not isinstance(partes, Mapping) or not partes.get("legenda"):
+        # Uma vista sem a legenda nao parte o turno (KAM-256): o dono recebe a
+        # frase de erro e pode pedir outra vez.
+        return _resposta_estatica(MSG_NAO_CONSEGUI)
     abertura = MSG_JA_ENTREGUE if dados.get("ja_entregue") else MSG_ENTREGA
     linhas = [abertura.format(referencia=referencia), "", str(partes["legenda"]), ""]
     if partes.get("nota"):

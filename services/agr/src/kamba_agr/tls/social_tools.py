@@ -847,7 +847,10 @@ def _executores_da_arte(portas: PortasDoSocial, agora: Callable[[], datetime.dat
         except ItemMudouError:
             relido = repositorio.item(tenant, item.content_item_id)
             if relido is not None and relido.estado == ENTREGUE:
-                return Resposta(data=vista_da_arte(relido, referencia, ja_entregue=True))
+                # A corrida: outra entrega gravou primeiro. A mesma vista do item
+                # que ja vem `entregue` — a legenda, sem os termos, que foram com
+                # a que ganhou (KAM-256).
+                return Resposta(data=vista_da_arte(relido, referencia, ja_entregue=True, entrega=_partes(relido, False)))
             raise ErroDeBackend(UPSTREAM_TIMEOUT, "item_mudou") from None
         return Resposta(data=vista_da_arte(entregue, referencia, ja_entregue=False, entrega=_partes(entregue, primeira)))
 
