@@ -58,6 +58,14 @@ A_COPIAR = (
     "ci",
 )
 
+#: O ensaio do inventario (KAM-258) **nao entra nas copias.** Ele exige que o
+#: `velho` de cada mutacao esteja no seu ficheiro — e numa copia mutada o
+#: `velho` daquela mutacao foi substituido, pelo que o ensaio mataria as vinte
+#: por construcao, e a varredura deixava de medir os ensaios de comportamento.
+#: Medido ao escreve-lo: as duas `SOBREVIVENTES_ESPERADAS` passaram a «morta».
+#: O inventario prova-se na arvore real, pelo gate 4; a varredura prova o resto.
+FORA_DAS_COPIAS = ("test_mutacao.py",)
+
 #: `(nome, ficheiro, velho, novo)`. O `velho` tem de existir **tal e qual**, e
 #: uma mutacao que nao aplique e reportada em vez de contada como morta — senao
 #: uma renomeacao fazia a varredura dizer «tudo apanhado» sem mutar nada.
@@ -168,8 +176,8 @@ MUTACOES: tuple[tuple[str, str, str, str], ...] = (
     #
     # **Quarta vez: 44 -> 45, com o KAM-060.** O corpus foi a 90 medidos quando o
     # KAM-184 fundiu, e quem integrou em segundo pagou. Quatro movimentos em
-    # quatro epics, e nenhum portao compara este literal com a constante que ele
-    # cita: quem o apanha e correr o `--aplicaveis`.
+    # quatro epics, e nenhum portao comparava este literal com a constante que
+    # ele cita: so o apanhava quem corresse esta varredura a mao.
     #
     # **Quinta vez: 47 -> 48, com o KAM-083** (96 medidos).
     #
@@ -221,8 +229,16 @@ MUTACOES: tuple[tuple[str, str, str, str], ...] = (
     # KAM-249).
     # O KAM-253 deixa-o em 98 (197 medidos, na arvore integrada com o
     # KAM-250).
+    # **E 98 -> 99 com o KAM-258** (198 medidos, na arvore integrada com o
+    # KAM-253).
+    #
+    # **Desde o KAM-258 ha um ensaio que o compara**, e o «NAO APLICOU» deixa
+    # de depender de alguem correr esta varredura: o `tests/test_mutacao.py`,
+    # que o gate 4 corre, fica vermelho se este literal divergir da constante
+    # do `lint.py` ou do §4 de `docs/lint-bloco.md`, e se o `velho` de qualquer
+    # entrada deste inventario deixar de estar no seu ficheiro.
     ("o piso de emparelhados a zero", "lint.py",
-     "MINIMO_DE_BLOCOS_MEDIDOS = 98", "MINIMO_DE_BLOCOS_MEDIDOS = 0"),
+     "MINIMO_DE_BLOCOS_MEDIDOS = 99", "MINIMO_DE_BLOCOS_MEDIDOS = 0"),
 )
 
 
@@ -249,7 +265,8 @@ def _copiar(destino: Path) -> None:
         if origem.is_dir():
             shutil.copytree(origem, alvo,
                             ignore=shutil.ignore_patterns("__pycache__",
-                                                          "node_modules"))
+                                                          "node_modules",
+                                                          *FORA_DAS_COPIAS))
         else:
             shutil.copy2(origem, alvo)
 
