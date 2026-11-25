@@ -57,9 +57,10 @@
  *
  * **E o produto sai do catálogo visível na mesma transacção** (decisão A do
  * fundador, 2026-11-23): a oferta passa a `rascunho` e sai o
- * `catalog.product_changed`, que o IDX lê para esconder o documento. A
- * re-análise de uma mudança de política **não** despublica (KAM-191, critério
- * 4); a assimetria está escrita no bloco do KAM-245, com credor.
+ * `catalog.product_changed`, que o IDX lê para esconder o documento. Desde o
+ * KAM-253 (decisão A do fundador de 2026-11-24) a re-análise de uma mudança de
+ * política despublica da mesma forma, pelo mesmo `despublicar` do
+ * `core-ts/screening`.
  *
  * O sujeito das condições entrou no `SUJEITOS` e no `CHECK` com a revisão
  * `0074` (decisão do fundador de 2026-11-19, bloco do KAM-222).
@@ -88,6 +89,7 @@
 import {
   assertPublishable,
   conteudoSha256,
+  despublicar,
   EmissorSql,
   EscritorSql,
   FINALIDADE_DAS_CONDICOES,
@@ -95,6 +97,8 @@ import {
   FINALIDADE_DO_CONTEUDO,
   LeitorSql,
   NaoPublicavelError,
+  SQL_CATEGORIA_DO_TENANT,
+  SQL_PUBLICADO_SOB_TRANCA,
   SUJEITOS,
   screen,
   type ClassificadorDeCategorias,
@@ -117,7 +121,6 @@ import {
   type Resultado,
   type ResultadoFinal,
 } from "../port/index.ts";
-import { emitirProdutoAlterado } from "../produtos/eventos.ts";
 import { confirmacaoValida } from "../produtos/index.ts";
 
 /** O sujeito das condições de um orçamento. Está no `CHECK` desde a revisão `0074`. */
@@ -185,13 +188,12 @@ export interface PedidoDeScreen {
 }
 
 /**
- * A categoria declarada do tenant: a da decisão de categoria mais recente.
- * A mesma ordem do `SQL_POR_REANALISAR`.
+ * A categoria declarada do tenant, a tranca do publicado e a saída de publicado
+ * moram no `core-ts/screening` desde o KAM-253: a re-análise usa as mesmas, e
+ * um só código escreve a saída de publicado pelos dois caminhos (decisão A do
+ * fundador de 2026-11-24). Reexportam-se para os ensaios do COM.
  */
-export const SQL_CATEGORIA_DO_TENANT = `
-SELECT sujeito_ref FROM platform.screening_decision
-WHERE tenant_id = $1 AND sujeito_tipo = 'categoria'
-ORDER BY criado_at DESC, id DESC LIMIT 1`;
+export { SQL_CATEGORIA_DO_TENANT, SQL_DESPUBLICAR, SQL_PUBLICADO_SOB_TRANCA } from "@kamba/core-ts/screening";
 
 export interface DependenciasDoScreenDoCom {
   readonly comTenant: ComTenant;
@@ -291,19 +293,6 @@ export function operacaoDeScreen(deps: DependenciasDoScreenDoCom): OperacaoDeScr
 // ------------------------------------- a violacao de um publicado (KAM-245)
 
 /**
- * O `nome` de uma oferta **publicada** do tenant, com a linha trancada.
- *
- * A tranca serializa dois `screen` do mesmo `sku`: o segundo espera que o
- * primeiro confirme, e a leitura das decisões que faz a seguir já vê a
- * `bloqueada` dele. Sem ela, os dois liam «ainda não bloqueada» e emitiam os
- * dois.
- */
-export const SQL_PUBLICADO_SOB_TRANCA = `
-SELECT nome FROM platform.offer_terms
-WHERE tenant_id = $1 AND sku = $2 AND estado = 'publicado' AND deleted_at IS NULL
-FOR UPDATE`;
-
-/**
  * Grava uma `bloqueada` de um produto e, se ela bloquear o conteúdo publicado,
  * emite a violação no mesmo cliente — logo na mesma transacção (KAM-245).
  *
@@ -316,9 +305,10 @@ FOR UPDATE`;
  * a emissao ou a escrita falha            lanca: a decisao desfaz-se com elas
  * ```
  *
- * Despublicar é o `SQL_DESPUBLICAR` e o `catalog.product_changed` com o
- * `estado` `rascunho`, que o IDX lê para esconder o documento (o
- * `efeito_do_produto` reescreve-o a partir da oferta viva). O rasto de **porquê**
+ * Despublicar é o `despublicar` do `core-ts/screening` (o `SQL_DESPUBLICAR` e o
+ * `catalog.product_changed` com o `estado` `rascunho`, que o IDX lê para
+ * esconder o documento: o `efeito_do_produto` reescreve-o a partir da oferta
+ * viva) — o mesmo que a re-análise chama desde o KAM-253. O rasto de **porquê**
  * fica na `screening_decision` e na violação; não há linha de `audit_log`,
  * cujas origens são uma lista fechada do KAM-043.
  *
@@ -357,27 +347,12 @@ export async function gravarComViolacao(
       conteudoSha256: sha,
     });
   }
-  const saiu = await cliente.query(SQL_DESPUBLICAR, [tenantId, linha.sujeitoRef]);
-  if (saiu.rows.length !== 1) {
+  if (!(await despublicar(sqlDe(cliente), tenantId, linha.sujeitoRef))) {
     // A linha está trancada desde o início: não sair é um defeito, e lançar
     // desfaz a decisão e a violação com ela.
     throw new Error("a oferta trancada nao saiu de publicado");
   }
-  await emitirProdutoAlterado(cliente, tenantId, linha.sujeitoRef, "rascunho");
 }
-
-/**
- * Tira de `publicado` a oferta cujo conteúdo o `screen` bloqueou (KAM-245,
- * decisão A do fundador de 2026-11-23). Para `rascunho`, e não `arquivado`, que
- * é terminal: o recurso humano da T&S (uma `permitida` de `humano`) deixa o
- * dono republicar. É o que o *trigger* `offer_terms_publicacao_segura` da
- * revisão `0080` faz a um publicado cujo nome novo não tem decisão.
- */
-export const SQL_DESPUBLICAR = `
-UPDATE platform.offer_terms
-   SET estado = 'rascunho', atualizado_at = clock_timestamp()
- WHERE tenant_id = $1 AND sku = $2 AND estado = 'publicado' AND deleted_at IS NULL
-RETURNING sku`;
 
 /** O motivo do `assertPublishable`, ou `null` se o conteúdo é publicável. */
 async function motivoDeNaoPublicar(

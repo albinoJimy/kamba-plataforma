@@ -29,8 +29,14 @@ import {
   politicaCorrente,
   sha256EmBase32,
   reanalisar,
+  SQL_CATEGORIA_DO_TENANT,
+  SQL_DECISOES,
+  SQL_DESPUBLICAR,
+  SQL_EMITIR_PRODUTO_ALTERADO,
   SQL_EMITIR_VIOLACAO,
   SQL_GRAVAR,
+  SQL_PUBLICADO_SOB_TRANCA,
+  TIPO_PRODUTO_ALTERADO,
   TIPO_VIOLACAO,
   VERSAO_VIOLACAO,
   type Violacao,
@@ -170,19 +176,44 @@ describe("EmissorSql", () => {
 
 describe("a re-analise montada pela dependenciasDaReanalise", () => {
   /**
-   * Um cliente que regista o que lhe chega e falha o `evt_emitir` quando se
-   * lhe pede. A transaccao **nao** e simulada: e o `comTenant` real, por
+   * Um cliente que regista o que lhe chega e falha o `evt_emitir` do tipo que
+   * se lhe pede. A transaccao **nao** e simulada: e o `comTenant` real, por
    * dentro do `porProdutoSql`, que escreve o `BEGIN`, o contexto, e o `COMMIT`
    * ou o `ROLLBACK`. O que so a base prova — que o `ROLLBACK` leva a decisao —
-   * esta no `TestViolacao` da suite de base de dados.
+   * esta no `TestViolacao` da suite de base de dados, e a saida de publicado no
+   * `TestRetiradaDaReanalise` da mesma suite (KAM-253).
+   *
+   * Responde a retirada (KAM-253) como a base responderia: a tranca devolve o
+   * nome publicado, a categoria do tenant e a `moda`, as decisoes sao as que
+   * este cliente gravou para o mesmo `sku` e o mesmo conteudo, e a saida de
+   * publicado toca uma linha.
    */
-  function montar(falharEmissao: boolean) {
+  function montar(falharTipo: string | null) {
     const consultas: Consulta[] = [];
+    const gravadas: { ref: string; decisao: unknown; origem: unknown; sha: Buffer }[] = [];
     const c: ClienteSql = {
       query: async <T,>(sql: string, valores: readonly unknown[] = []) => {
         consultas.push({ sql, valores });
-        if (sql === SQL_EMITIR_VIOLACAO && falharEmissao) throw new Error("evt_emitir recusou");
-        const linhas = sql === SQL_EMITIR_VIOLACAO ? [{ event_id: "e1" }] : [];
+        let linhas: unknown[] = [];
+        if (sql === SQL_EMITIR_VIOLACAO || sql === SQL_EMITIR_PRODUTO_ALTERADO) {
+          if (valores[0] === falharTipo) throw new Error("evt_emitir recusou");
+          linhas = [{ event_id: "e1" }];
+        } else if (sql === SQL_GRAVAR) {
+          gravadas.push({ ref: String(valores[3]), decisao: valores[4], origem: valores[7], sha: valores[8] as Buffer });
+        } else if (sql === SQL_PUBLICADO_SOB_TRANCA) {
+          // O tenant e o sku: uma tranca com o tenant errado nao encontra nada.
+          linhas = produtos
+            .filter((p) => p.tenantId === valores[0] && p.sku === valores[1])
+            .map((p) => ({ nome: p.textos[0] }));
+        } else if (sql === SQL_CATEGORIA_DO_TENANT) {
+          linhas = valores[0] === TENANT ? [{ sujeito_ref: "moda" }] : [];
+        } else if (sql === SQL_DECISOES) {
+          linhas = gravadas
+            .filter((g) => g.ref === valores[2] && g.sha.equals(valores[4] as Buffer))
+            .map((g) => ({ decisao: g.decisao, origem: g.origem }));
+        } else if (sql === SQL_DESPUBLICAR) {
+          linhas = produtos.filter((p) => p.tenantId === valores[0] && p.sku === valores[1]).map((p) => ({ sku: p.sku }));
+        }
         return { rows: linhas as T[] };
       },
     };
@@ -218,24 +249,41 @@ describe("a re-analise montada pela dependenciasDaReanalise", () => {
       consultas.map((q) =>
         q.sql === SQL_GRAVAR
           ? `gravar ${String(q.valores[3])} ${String(q.valores[4])}`
-          : q.sql === SQL_EMITIR_VIOLACAO
-            ? `emitir ${String(q.valores[4])}`
-            : q.sql.includes("set_config")
-              ? `contexto ${String(q.valores[0])}`
-              : q.sql,
+          : q.sql === SQL_EMITIR_VIOLACAO || q.sql === SQL_EMITIR_PRODUTO_ALTERADO
+            ? `emitir ${String(q.valores[0])} ${String(q.valores[4])}`
+            : q.sql === SQL_PUBLICADO_SOB_TRANCA
+              ? `tranca ${String(q.valores[1])}`
+              : q.sql === SQL_CATEGORIA_DO_TENANT
+                ? "categoria"
+                : q.sql === SQL_DECISOES
+                  ? `decisoes ${String(q.valores[2])}`
+                  : q.sql === SQL_DESPUBLICAR
+                    ? `despublicar ${String(q.valores[1])}`
+                    : q.sql.includes("set_config")
+                      ? `contexto ${String(q.valores[0])}`
+                      : q.sql,
       );
     return { deps, consultas, passos };
   }
 
   it("uma bloqueada grava e emite dentro da mesma transaccao do produto, e confirma", async () => {
-    const { deps, consultas, passos } = montar(false);
+    const { deps, consultas, passos } = montar(null);
     const r = await reanalisar(deps, { tamanhoDoLote: 5, maximoPorExecucao: 5 });
     assert.equal(r.violacoes, 1);
     assert.deepEqual(passos(), [
       "BEGIN",
       `contexto ${TENANT}`,
       "gravar SKU-1 bloqueada",
-      "emitir SKU-1",
+      // KAM-253: a retirada, pelo mesmo cliente e antes da violacao — a tranca
+      // da oferta vem antes do primeiro evt_emitir, como no COM (achado 1 da
+      // revisao adversarial) —, a releitura do conteudo publicado, a regra do
+      // assertPublishable, a saida e o evento do produto.
+      "tranca SKU-1",
+      "categoria",
+      "decisoes SKU-1",
+      "despublicar SKU-1",
+      `emitir ${TIPO_PRODUTO_ALTERADO} SKU-1`,
+      `emitir ${TIPO_VIOLACAO} SKU-1`,
       "COMMIT",
       // A camisola nao e bloqueada: grava e nao chega ao evt_emitir.
       "BEGIN",
@@ -244,7 +292,12 @@ describe("a re-analise montada pela dependenciasDaReanalise", () => {
       "COMMIT",
     ]);
     const gravar = consultas.find((q) => q.sql === SQL_GRAVAR)!;
-    const emitir = consultas.find((q) => q.sql === SQL_EMITIR_VIOLACAO)!;
+    const emitir = consultas.find((q) => q.sql === SQL_EMITIR_VIOLACAO && q.valores[0] === TIPO_VIOLACAO)!;
+    // O evento do produto: o sku e o estado, sem texto, e o agregado da violacao.
+    const alterado = consultas.find((q) => q.valores[0] === TIPO_PRODUTO_ALTERADO)!;
+    assert.deepEqual(JSON.parse(alterado.valores[5] as string), { sku: "SKU-1", estado: "rascunho" });
+    assert.deepEqual(alterado.valores.slice(1, 5), [1, TENANT, "product", "SKU-1"]);
+    assert.deepEqual(alterado.valores.slice(6), ["P0", ["transacao"]]);
     // O sha256 do evento e o da decisao gravada: o mesmo conteudo, a mesma prova
     // (a codificacao, verificada contra o RFC 4648 no seu proprio ensaio).
     const payload = JSON.parse(emitir.valores[5] as string) as Record<string, unknown>;
@@ -252,13 +305,34 @@ describe("a re-analise montada pela dependenciasDaReanalise", () => {
   });
 
   it("uma falha da escrita no outbox desfaz a transaccao com a decisao, e para a execucao", async () => {
-    const { deps, passos } = montar(true);
+    const { deps, passos } = montar(TIPO_VIOLACAO);
     await assert.rejects(reanalisar(deps, { tamanhoDoLote: 5, maximoPorExecucao: 5 }), /evt_emitir recusou/);
     assert.deepEqual(passos(), [
       "BEGIN",
       `contexto ${TENANT}`,
       "gravar SKU-1 bloqueada",
-      "emitir SKU-1",
+      "tranca SKU-1",
+      "categoria",
+      "decisoes SKU-1",
+      "despublicar SKU-1",
+      `emitir ${TIPO_PRODUTO_ALTERADO} SKU-1`,
+      `emitir ${TIPO_VIOLACAO} SKU-1`,
+      "ROLLBACK",
+    ]);
+  });
+
+  it("(KAM-253) uma falha do evento do produto desfaz a decisao, a violacao e a saida de publicado", async () => {
+    const { deps, passos } = montar(TIPO_PRODUTO_ALTERADO);
+    await assert.rejects(reanalisar(deps, { tamanhoDoLote: 5, maximoPorExecucao: 5 }), /evt_emitir recusou/);
+    assert.deepEqual(passos(), [
+      "BEGIN",
+      `contexto ${TENANT}`,
+      "gravar SKU-1 bloqueada",
+      "tranca SKU-1",
+      "categoria",
+      "decisoes SKU-1",
+      "despublicar SKU-1",
+      `emitir ${TIPO_PRODUTO_ALTERADO} SKU-1`,
       "ROLLBACK",
     ]);
   });
