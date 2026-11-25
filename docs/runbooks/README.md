@@ -3,7 +3,7 @@
 | Campo | Valor |
 |---|---|
 | Ticket | **KAM-083** — Runbooks operacionais (`specs/EPIC-08_Topologia_Operacao.md`) |
-| Versão | 1.9 |
+| Versão | 1.10 |
 | Fontes | [`../tecnica/09_Topologia_Operacao_Escala.md`](../tecnica/09_Topologia_Operacao_Escala.md) §9.2 (alertas), §12 (degradação N0–N6), §13 (os dez runbooks), §16 (*on-call*) |
 | Ensaios | [`folha-de-ensaio.md`](folha-de-ensaio.md) — o roteiro de cada ensaio, a folha de tempos e o calendário do *game day* |
 | Evidência | [`../evidencia/KAM-083.md`](../evidencia/KAM-083.md) |
@@ -32,13 +32,14 @@
 | RB-K09 | [`RB-K09-flood-e-denial-of-wallet.md`](RB-K09-flood-e-denial-of-wallet.md) | Pico de um contacto ou IP; custo de LLM anómalo | P3 → P1 | `llm_sem_budget` (via RB-K03); manual | N2 |
 | RB-K10 | [`RB-K10-incidente-de-seguranca.md`](RB-K10-incidente-de-seguranca.md) | Incidente de segurança | P1 | **manual**, por desenho | — |
 
-Fora da lista fechada do §13 há mais oito: quatro que alertas reais apontam,
+Fora da lista fechada do §13 há mais nove: quatro que alertas reais apontam,
 [`degradacao-do-agr.md`](degradacao-do-agr.md) (KAM-037),
 [`orcamento-de-erro.md`](orcamento-de-erro.md) (KAM-082),
 [`trust-e-safety.md`](trust-e-safety.md) (KAM-200) e
-[`offboarding.md`](offboarding.md) (KAM-210), três procedimentos sem
+[`offboarding.md`](offboarding.md) (KAM-210), quatro procedimentos sem
 alerta, [`rotacao-de-chaves-de-llm.md`](rotacao-de-chaves-de-llm.md) (KAM-030),
-[`simulacro-de-dr.md`](simulacro-de-dr.md) (KAM-085) e
+[`simulacro-de-dr.md`](simulacro-de-dr.md) (KAM-085),
+[`deploy-e-reversao.md`](deploy-e-reversao.md) (KAM-078) e
 [`../../ops/runbooks/secrets-export.md`](../../ops/runbooks/secrets-export.md)
 (KAM-010), e um cujo alerta é uma linha de uma vista e não uma regra Prometheus,
 [`churn.md`](churn.md) (KAM-117). **Não foram reescritos aqui:** o bloco do KAM-083 pede os dez do §13, e
@@ -227,9 +228,12 @@ O **RB-K09** fica entre as duas listas: nenhuma regra aponta para ele, e o
 `llm_sem_budget` nomeia-o num comentário da regra. O runbook declara os dois
 caminhos (a partir do RB-K03, e manual).
 
-E fora da lista do §13, três procedimentos sem alerta e sem pretensão de o ter:
+E fora da lista do §13, quatro procedimentos sem alerta:
 `rotacao-de-chaves-de-llm.md`, `simulacro-de-dr.md` e
-`../../ops/runbooks/secrets-export.md` — são calendário, não incidente. **Não
+`../../ops/runbooks/secrets-export.md` — são calendário, não incidente — e
+`deploy-e-reversao.md` (KAM-078), que é de *release*. Este último **devia** ter
+alerta para a reversão que falha (o `reversao_falhou` do `tools/release`), e
+não o tem: não há *pipeline* de deploy que o emita. **Não
 declaram gatilho manual** no formato deste modelo (medido), porque não o seguem;
 não se reescreveram aqui (§1).
 
@@ -275,3 +279,4 @@ procedimento.
 | 1.7 | Novembro 2026 | **KAM-219**: a regra `confianca_tecto_escrita_recusada` entra no `kamba-trust.yml` e na tabela do §5.1 (passam a quinze), com o §5 do [`trust-e-safety.md`](trust-e-safety.md). Nenhum runbook novo. | Equipa KAMBÁ |
 | 1.8 | Novembro 2026 | **KAM-225**: as regras `confianca_tecto_recusado_no_registo` e `registo_pg_registo_parado` entram no `kamba-trust.yml` e na tabela do §5.1 (passam a dezassete), com o §6 e o §7 do [`trust-e-safety.md`](trust-e-safety.md). Nenhum runbook novo. | Equipa KAMBÁ |
 | 1.9 | Novembro 2026 | **KAM-247**: sai a linha «O LiteLLM do compose não tem base de dados». Tem a `kamba_litellm` desde a decisão do fundador de 2026-11-23 (opção A1), e o RB-K03 §0, ponto 3, diz o que mudou. | Equipa KAMBÁ |
+| 1.10 | Novembro 2026 | **KAM-078 (preparação do lote 24)**: entra o [`deploy-e-reversao.md`](deploy-e-reversao.md) na lista dos que ficam fora do §13 (passam a nove) e nos procedimentos sem alerta do §5 (passam a quatro), com a nota de que a reversão que falha devia ter alerta e não tem. | Equipa KAMBÁ |
