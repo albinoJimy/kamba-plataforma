@@ -79,12 +79,17 @@ export type { Aplicacao, Sinal } from "./sinais.ts";
 export {
   CasoDoGuiaInexistenteError,
   GateSemCasoError,
+  RECONCILIADOS_POR_VOLTA,
   SQL_ABANDONAR_VENCIDOS,
   SQL_CASO_POR_NUMERO,
+  SQL_PRESOS_SEM_REVISAO,
+  SQL_RECONCILIAR_META_ES,
   VarreduraNoLoteError,
   abandonarVencidosNaBase,
+  abrirRevisoesEmFaltaNaBase,
   gatesDoGuiaNaBase,
   guiaNaBase,
   preflightDosItens,
+  reconciliarMetaEsNaBase,
 } from "./sql.ts";
 export type { OpcoesDoGuiaNaBase } from "./sql.ts";

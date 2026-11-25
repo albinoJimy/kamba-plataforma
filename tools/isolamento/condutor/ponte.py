@@ -78,8 +78,10 @@ GUIAO = "tools/isolamento/tests/condutor/rotas.ts"
 #: existir tenant, e o repositorio de casos e o duplo em memoria. O que elas
 #: isolam e o `onboarding_id` e nao o `tenant_id`.
 #: O `guia` sao as doze rotas do passo guiado do ES — as oito do KAM-093 e as
-#: quatro da lista de espera do KAM-095 —, no mesmo `onboarding-web` e tambem
-#: **sem base**: o estado do guia e a fila vivem nos duplos em memoria.
+#: quatro da lista de espera do KAM-095 —, no mesmo `onboarding-web`, e **com
+#: base** desde o KAM-254: o estado do guia na `onboarding_guia`, como
+#: `kamba_app`, e a lista, os gates e a fila pelo processo de lote real, como
+#: `kamba_batch` (a chave `lote` do `KAMBA_X01_PG`).
 #: O `equipa` sao as nove rotas da consola da fila de revisao (KAM-196), tambem
 #: **sem base**: a fila corre sobre os duplos em memoria do `@kamba/core-ts`, e o
 #: que se mede e quem entra, nao o que a base filtra.
