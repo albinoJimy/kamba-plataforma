@@ -45,7 +45,7 @@ A coluna «Gate» usa a numeração do [`../../ci.md`](../../ci.md).
 | 3 | *Callbacks* de pagamento forjados: HMAC, *replay*, valor e referência | [`../../../packages/core-ts/tests/pagamentos.proxypay.rps.test.ts`](../../../packages/core-ts/tests/pagamentos.proxypay.rps.test.ts); o *ledger* em [`../../../db/tests_pagamentos/`](../../../db/tests_pagamentos/) | 4, 8 | KAM-053, KAM-056, KAM-060 | tudo contra um servidor do facilitador falso; a *sandbox* é de outro ticket, e o bloco do KAM-056 di-lo |
 | 4 | *Webhook* da Meta: assinatura sobre o corpo bruto e SSRF no download de media | [`../../../services/gwy/tests/webhook.test.ts`](../../../services/gwy/tests/webhook.test.ts); a lista fechada de anfitriões em [`../../../packages/core-ts/src/med/graph.ts`](../../../packages/core-ts/src/med/graph.ts), com [`../../../packages/core-ts/tests/med.graph.test.ts`](../../../packages/core-ts/tests/med.graph.test.ts) | 4, 7, 8 | KAM-013, KAM-020, KAM-024, KAM-231 | o anfitrião da media é NÃO VERIFICADO no registo de decisões do bloco do KAM-231 (e no próprio código) |
 | 5 | Confirmação manual abusada, e comprovativo como prova | [`../../../db/tests_pagamentos/test_confirmacao_manual.py`](../../../db/tests_pagamentos/test_confirmacao_manual.py); [`../../../packages/core-ts/tests/pagamentos.manual.test.ts`](../../../packages/core-ts/tests/pagamentos.manual.test.ts) | 8, 4 | KAM-054, KAM-020 | no bloco do KAM-054, os limites M-3 nomeados mas não quantificados, e o segundo revisor por nomear |
-| 6 | Segredos e rotação; segredos no ambiente dos contentores | [`../../../packages/core-ts/tests/keyring.test.ts`](../../../packages/core-ts/tests/keyring.test.ts); [`../../../db/tests/test_rotacao_de_chaves.py`](../../../db/tests/test_rotacao_de_chaves.py); o varrimento do gate 9 ([`../../../tools/scan_secrets/`](../../../tools/scan_secrets/)); a forma de injecção em [`../../adr/ADR-L002-injeccao-de-segredos.md`](../../adr/ADR-L002-injeccao-de-segredos.md) | 4, 8, 9 | KAM-010, KAM-072, KAM-205 | o bloco do KAM-072 dá os runbooks de rotação como não ensaiados em `staging` |
+| 6 | Segredos e rotação; segredos no ambiente dos contentores | [`../../../packages/core-ts/tests/keyring.test.ts`](../../../packages/core-ts/tests/keyring.test.ts); [`../../../db/tests/test_rotacao_de_chaves.py`](../../../db/tests/test_rotacao_de_chaves.py); o varrimento do gate 9 ([`../../../tools/scan_secrets/`](../../../tools/scan_secrets/)); a forma de injecção em [`../../adr/ADR-L002-injeccao-de-segredos.md`](../../adr/ADR-L002-injeccao-de-segredos.md) | 4, 8, 9 | KAM-010, KAM-072, KAM-205, KAM-260 | o bloco do KAM-072 dá os runbooks de rotação como não ensaiados em `staging` |
 | 7 | Imagens e cadeia de abastecimento | [`../../../tools/supply_chain/`](../../../tools/supply_chain/) com [`../../../ci/supply-chain/imagens.yaml`](../../../ci/supply-chain/imagens.yaml) e [`../../../ci/supply-chain/licencas.yaml`](../../../ci/supply-chain/licencas.yaml); o SBOM do gate 11 (§3) | 11 | KAM-002, KAM-030, KAM-067 | o bloco do KAM-067: o `cosign` não correu nesse ticket (a verificação da imagem do LiteLLM é do KAM-030), e não há SBOM por imagem nem por *release* |
 | 8 | Chatwoot: *bot* global com `account_id` nulo, Platform API | [`../../../packages/core-ts/tests_bd/handoff.bd.test.ts`](../../../packages/core-ts/tests_bd/handoff.bd.test.ts); o *compose* com a *flag* de licença verificada por `compose_prod` | 4, 8, 2 | KAM-019, KAM-076 | o bloco do KAM-019 deixa o X-10 fora do *harness* |
 | 9 | Medusa: admin exposto, *flags* EE | [`../../../tools/lint_arch/medusa.py`](../../../tools/lint_arch/medusa.py) (as *flags* EE) | 2, 11 | KAM-041, KAM-042 | o Medusa **não está no *compose***: [`../../../infra/compose/conjunto-reduzido.yaml`](../../../infra/compose/conjunto-reduzido.yaml) dá-o como `pendente`. Sem serviço não há admin a rever; a área fica `não testado` até ele existir |
@@ -91,8 +91,8 @@ Responsável de Segurança fixa os que o revisor recebe.
 ambientes não o prevê para `staging`: o
 [`../../../infra/envs/staging/env.yaml`](../../../infra/envs/staging/env.yaml) tem
 `acesso.modo: equipa`, e o modo auditado é o de `prod`
-([`../../../infra/ENVIRONMENTS.md`](../../../infra/ENVIRONMENTS.md) §2). É pré-condição em §6,
-sem credor nesta preparação.
+([`../../../infra/ENVIRONMENTS.md`](../../../infra/ENVIRONMENTS.md) §2). É pré-condição em §6, e o
+KAM-259 é o credor.
 
 **Dados em `staging`.** Só sintéticos (`dados.classe: synthetic`). A matriz de ambientes prevê
 números reais em `staging` durante o *spike* de coexistência, e regista a tensão sem a resolver
@@ -118,7 +118,7 @@ Tudo isto é mundo real, e nada está feito.
 |---|---|---|
 | `staging` alojado e a correr as imagens de `prod` | não existe: há a definição em [`../../../infra/compose/docker-compose.staging.yml`](../../../infra/compose/docker-compose.staging.yml), não há máquina | KAM-077 |
 | Revisor independente, ou o risco aceite da substituição | não existe | [`relatorio.md`](relatorio.md) §2 e [`decisao.md`](decisao.md) §3 |
-| Registo no `audit_log` do acesso do revisor a `staging` | não previsto na matriz de ambientes (§4) | **sem credor** — a decidir pela coordenação |
+| Registo no `audit_log` do acesso do revisor a `staging` | não previsto na matriz de ambientes (§4) | KAM-259 |
 | Matriz, STRIDE e riscos residuais entregues ao revisor fora do repositório público | não feito | o fundador |
 | Medusa no *compose* (área 9) | pendente | KAM-042 |
 
@@ -143,3 +143,4 @@ Tudo isto é mundo real, e nada está feito.
 | Versão | Data | Alteração | Autor |
 |---|---|---|---|
 | 0.1 | 2026-11-25 | Pacote preparado sem o mundo real (KAM-074, lote 24): regras, as catorze áreas com a evidência automatizada e o que os blocos donos declaram por medir, entradas, acesso mínimo sem credenciais, fora do âmbito e pré-condições. Nada acordado com um revisor. | Coordenação do lote 24 |
+| 0.2 | 2026-11-25 | Os credores do KAM-074 abertos pela coordenação do lote 24: o KAM-259 para o registo do acesso (§4 e §6) e o KAM-260 na área 6. | Coordenação do lote 24 |
