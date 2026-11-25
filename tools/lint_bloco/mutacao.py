@@ -231,6 +231,8 @@ MUTACOES: tuple[tuple[str, str, str, str], ...] = (
     # KAM-250).
     # **E 98 -> 99 com o KAM-258** (198 medidos, na arvore integrada com o
     # KAM-253).
+    # **E 99 -> 100 com o KAM-254** (200 medidos, na arvore integrada com o
+    # KAM-256).
     #
     # **Desde o KAM-258 ha um ensaio que o compara**, e o «NAO APLICOU» deixa
     # de depender de alguem correr esta varredura: o `tests/test_mutacao.py`,
@@ -238,7 +240,7 @@ MUTACOES: tuple[tuple[str, str, str, str], ...] = (
     # do `lint.py` ou do §4 de `docs/lint-bloco.md`, e se o `velho` de qualquer
     # entrada deste inventario deixar de estar no seu ficheiro.
     ("o piso de emparelhados a zero", "lint.py",
-     "MINIMO_DE_BLOCOS_MEDIDOS = 99", "MINIMO_DE_BLOCOS_MEDIDOS = 0"),
+     "MINIMO_DE_BLOCOS_MEDIDOS = 100", "MINIMO_DE_BLOCOS_MEDIDOS = 0"),
 )
 
 

@@ -253,7 +253,11 @@ describe("o inventario deste repositorio", () => {
     // **179 em 47 ficheiros desde o KAM-208**: os quatro do ensaio do
     // pseudonimo do telefone sem tenant, ficticios do intervalo `+244 999`, e
     // medidos com `varrer` depois da ultima edicao.
-    assert.equal(totalDeclarado(), 179);
+    //
+    // **178 em 47 ficheiros desde o KAM-254**: o grupo `guia` do condutor de
+    // isolamento corre sobre a base e passou a telefones aleatorios por
+    // corrida, pelo que o `condutor/rotas.ts` desce de tres para dois.
+    assert.equal(totalDeclarado(), 178);
     assert.equal(INVENTARIO.length, 47);
   });
 
