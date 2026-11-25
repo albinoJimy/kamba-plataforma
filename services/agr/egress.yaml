@@ -28,6 +28,14 @@
 # `por_omissao: negar` e `destinos: []` nao ha caminho de saida nenhum — muito
 # menos para ele. A aplicacao na rede e o KAM-076.
 #
+# **Desde o KAM-250 ha uma saida, e e so uma:** `api.doppler.com`, pelo
+# `proxy-saida`. As chaves virtuais do LiteLLM (a de cada tenant e a do
+# screening) vivem num projecto Doppler so delas, e o AGR le-as pela API com um
+# *token* so de leitura desse projecto — decisao do fundador de 2026-11-24
+# (bloco do KAM-250, opcao 1). O Doppler esta no `docs/tecnica/08` §8.3 como
+# subprocessador «sem dados pessoais», e o que o AGR lhe pede e a descarga de
+# uma configuracao: nenhum dado de conversa sai por aqui.
+#
 # Cada destino: `fqdn`, `porta`, `protocolo`, `razao` e `ticket` (KAM-NNN).
 # Ligacoes a outros servicos da pilha (base de dados, fila) nao sao saidas: sao
 # redes do compose.
@@ -35,4 +43,13 @@
 version: 1
 servico: agr
 por_omissao: negar
-destinos: []
+destinos:
+  - fqdn: api.doppler.com
+    porta: 443
+    protocolo: https
+    razao: >-
+      A leitura das chaves virtuais do LiteLLM, do projecto Doppler delas, com o
+      token so de leitura desse projecto (KAM-250). A forma da API e NAO
+      VERIFICADO (nao ha conta); o adaptador e o `DopplerSecretProvider` do
+      `kamba_core.secrets`.
+    ticket: KAM-250

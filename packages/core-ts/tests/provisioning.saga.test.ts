@@ -35,6 +35,7 @@ import {
   codigoDoErro,
   montarPassos,
   ordemInversa,
+  resumoDaChave,
   type Desfecho,
   type LinhaDePasso,
   type Passo,
@@ -110,7 +111,7 @@ describe("criterio 1 — entregar `tenant.approved` 2x nao duplica nada", () => 
     assert.equal(primeira.estado, "concluida");
     assert.equal(segunda.estado, "concluida");
 
-    assert.equal(m.chaveDeLlm.inventario.criadas, 1, "criou duas chaves LiteLLM");
+    assert.equal(m.chaveDeLlm.criadas, 1, "criou duas chaves LiteLLM");
     assert.equal(m.comercio.inventario.criadas, 1, "criou dois canais de comercio");
     assert.equal(m.inbox.inventario.criadas, 1, "criou duas inboxes");
     // A conta de atendimento é caixa preta (KAM-019): o que se mede é que a
@@ -127,7 +128,7 @@ describe("criterio 1 — entregar `tenant.approved` 2x nao duplica nada", () => 
     await saga.correr(CASO);
     await saga.correr(CASO);
     await saga.correr(CASO);
-    assert.equal(m.chaveDeLlm.inventario.criadas, 1);
+    assert.equal(m.chaveDeLlm.criadas, 1);
     assert.equal(m.comercio.inventario.criadas, 1);
     assert.equal(m.handoff.chamadas, 1);
   });
@@ -147,7 +148,7 @@ describe("criterio 1 — entregar `tenant.approved` 2x nao duplica nada", () => 
       onboardingId: "88888888-8888-4888-8888-888888888888",
       tenantId: "22222222-2222-4222-8222-222222222222",
     });
-    assert.equal(m.chaveDeLlm.inventario.criadas, 2);
+    assert.equal(m.chaveDeLlm.criadas, 2);
     assert.equal(m.comercio.inventario.criadas, 2);
   });
 });
@@ -576,10 +577,14 @@ describe("as chaves naturais sao as do criterio 2", () => {
     await sagaDe(m).correr(CASO);
     // O `external_id` que ficou é o que o inventário emitiu para o alias; a
     // chave de procura é o alias, e é por isso que a segunda passagem o encontra.
-    assert.equal(m.chaveDeLlm.inventario.quantos, 1);
+    assert.equal(m.chaveDeLlm.quantos, 1);
     const consulta = m.sql.consultas.find((c) => c.texto.includes("litellm_key_id"));
     assert.ok(consulta !== undefined, "nao guardou o `litellm_key_id`");
-    assert.deepEqual(consulta.valores, [TENANT, "tenant-" + TENANT + "-1"]);
+    // Desde o KAM-250 o `litellm_key_id` e o `token` do proxy, que e o SHA-256
+    // do valor que ficou no cofre — e nunca o valor.
+    const valor = m.cofreDeChaves.segredos.get(`litellm_virtual_key/${TENANT}`);
+    assert.ok(valor !== undefined);
+    assert.deepEqual(consulta.valores, [TENANT, resumoDaChave(valor)]);
   });
 
   /**

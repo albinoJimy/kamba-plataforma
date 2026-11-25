@@ -88,3 +88,13 @@ destinos:
       Declarado por `litellm`. Fornecedor de `kamba-vision` (KAM-033) e
       `kamba-embed` (KAM-063).
     ticket: KAM-076
+
+  - fqdn: api.doppler.com
+    porta: 443
+    protocolo: https
+    razao: >-
+      Declarado por `agr` (KAM-250): a leitura das chaves virtuais do LiteLLM do
+      projecto Doppler delas, por decisao do fundador de 2026-11-24. O Doppler e
+      subprocessador «sem dados pessoais» (`docs/tecnica/08` §8.3); a forma da
+      API e NAO VERIFICADO.
+    ticket: KAM-250

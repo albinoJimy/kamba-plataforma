@@ -12,7 +12,7 @@
 
 version: 1
 fonte: "specs/02_Dicionario_de_Dados_Canonico.md"
-versao_dicionario: "1.148"
+versao_dicionario: "1.150"
 entradas:
   - seccao: "3.1"
     conceito: "Contacto"
@@ -2595,6 +2595,19 @@ entradas:
       - "kind"
       - "event_key"
       - "PRAZO_DO_CORPO_S"
+    variantes_literais: []
+  - seccao: "3.12"
+    conceito: "Credencial da fila"
+    canonico: "queue_password, lida como KAMBA_SECRET_QUEUE_PASSWORD"
+    literais:
+      - "queue_password"
+      - "KAMBA_SECRET_QUEUE_PASSWORD"
+    nomes:
+      - "queue_password"
+      - "KAMBA_SECRET_QUEUE_PASSWORD"
+    nomes_nota:
+      - "staging"
+      - "prod"
     variantes_literais: []
   - seccao: "3.12"
     conceito: "Métricas do GWY"
@@ -7641,6 +7654,64 @@ entradas:
       - "staging"
       - "prod"
       - "DATABASE_PASSWORD"
+    variantes_literais: []
+  - seccao: "3.29"
+    conceito: "Projecto das chaves virtuais"
+    canonico: "kamba-llm-chaves (proposta; KAMBA_LLM_CHAVES_PROJECTO), com as configurações staging e prod"
+    literais:
+      - "kamba-llm-chaves"
+      - "KAMBA_LLM_CHAVES_PROJECTO"
+      - "staging"
+      - "prod"
+    nomes:
+      - "kamba"
+      - "llm"
+      - "chaves"
+      - "KAMBA_LLM_CHAVES_PROJECTO"
+      - "staging"
+      - "prod"
+    nomes_nota:
+      - "litellm_screening_key"
+      - "tenant_id"
+      - "prod"
+      - "A_CONFIRMAR_ESCRITA"
+    variantes_literais: []
+  - seccao: "3.29"
+    conceito: "Tokens do projecto das chaves"
+    canonico: "doppler_llm_chaves_escrita (o provisionamento: o ../infra/llm/chaves.py e o passo chave_llm do KAM-091) e doppler_llm_chaves_leitura (o AGR)"
+    literais:
+      - "doppler_llm_chaves_escrita"
+      - "chave_llm"
+      - "doppler_llm_chaves_leitura"
+    nomes:
+      - "doppler_llm_chaves_escrita"
+      - "chave_llm"
+      - "doppler_llm_chaves_leitura"
+    nomes_nota:
+      - "staging"
+      - "prod"
+      - "obrigatorio_em"
+      - "provisionar"
+    variantes_literais: []
+  - seccao: "3.29"
+    conceito: "Escrita numa referência fixa"
+    canonico: "GravadorDeSegredo.gravar(ref, valor), implementado pelo DopplerGravador (kamba_core.secrets.escrita e secrets/gravacao.ts)"
+    literais:
+      - "GravadorDeSegredo.gravar(ref, valor)"
+      - "DopplerGravador"
+      - "kamba_core.secrets.escrita"
+    nomes:
+      - "GravadorDeSegredo.gravar"
+      - "ref"
+      - "valor"
+      - "DopplerGravador"
+      - "kamba_core.secrets.escrita"
+    nomes_nota:
+      - "cunhar"
+      - "SecretWriter"
+      - "sk"
+      - "key"
+      - "token"
     variantes_literais: []
   - seccao: "3.30"
     conceito: "Veredicto do validador"

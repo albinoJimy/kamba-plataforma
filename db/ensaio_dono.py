@@ -140,7 +140,12 @@ def _ambiente() -> tuple[dict[str, str], dict[str, str]]:
         "POSTGRES_USER": ADMIN,
         "POSTGRES_PASSWORD": env["POSTGRES_PASSWORD"],
         "KAMBA_PUBLICADOR_DB_URL": url("BATCH"),
-        "KAMBA_QUEUE_URL": "redis://queue:6379",
+        # Desde o KAM-249 a fila de *staging* exige credencial; o `_ambiente`
+        # gera-a como gera todas as `${X:?}` do compose. Montada por partes, pela
+        # razao das ligacoes a base.
+        "KAMBA_QUEUE_URL": "".join(
+            ("redis://:", env["KAMBA_SECRET_QUEUE_PASSWORD"], "@", "queue:6379")
+        ),
         **{f"KAMBA_SECRET_DB_{p}_PASSWORD": senhas[p] for p in ("APP", "BATCH", "IDENTITY", "RESOLVER")},
         **chaves,
     }

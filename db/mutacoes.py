@@ -634,6 +634,12 @@ AG_LLM_DESTINOS = "services/agr/src/kamba_agr/llm/destinos.py"
 AG_LLM_ERROS = "services/agr/src/kamba_agr/llm/erros.py"
 AG_LLM_PRECOS = "services/agr/src/kamba_agr/llm/precos.py"
 AG_LLM_REGISTO = "services/agr/src/kamba_agr/llm/registo.py"
+#: KAM-250: as chaves virtuais no cofre. O `chaves.py` e o leitor do AGR correm
+#: na `agr_unit` (o `test_llm_chaves` e o `test_llm_cofre_das_chaves`); o
+#: gravador do `py-core`, na `pycore_unit` (o `test_secrets_escrita`).
+INFRA_LLM_CHAVES = "infra/llm/chaves.py"
+AG_LLM_COFRE = "services/agr/src/kamba_agr/llm/cofre_das_chaves.py"
+PY_SEGREDOS_ESCRITA = "libs/py-core/src/kamba_core/secrets/escrita.py"
 #: O validador de citacao (KAM-032). As mutacoes correm na `agr_unit`
 #: (`services/agr/tests`, sem base de dados): nada do que elas alteram toca a
 #: base, e levantar um contentor por mutacao nao mediria nada a mais.
@@ -4809,6 +4815,47 @@ MUTACOES = [
     # Zero afirma que a chamada foi gratuita. Hoje **todas** as chamadas caem
     # aqui (o modelo e `por_decidir` ate o KAM-040 escolher), pelo que esta
     # mutacao poe o custo por tenant a zero e a parecer medido.
+    # KAM-250: oito, cada uma apaga uma propriedade que um criterio nomeia. As
+    # tres primeiras sao o criterio 3 (a repeticao nao reemite, e reemite quando
+    # o cofre nao autentica); a quarta e o criterio 5 (o 400 medido ecoa oito
+    # caracteres da chave); as quatro ultimas sao o criterio 4, e duas delas
+    # mutam a **ligacao** e nao a funcao.
+    ('llm: a repeticao reemite sem comparar o resumo', INFRA_LLM_CHAVES,
+     '        if valor is not None and existente.get("token") == resumo_da_chave(valor):',
+     "        if False:",
+     AGR_UNIT),
+    ('llm: uma chave que o cofre nao autentica fica', INFRA_LLM_CHAVES,
+     '        if valor is not None and existente.get("token") == resumo_da_chave(valor):',
+     "        if valor is not None:",
+     AGR_UNIT),
+    ('llm: o valor novo deixa de ir para o cofre', INFRA_LLM_CHAVES,
+     "        valor = gerar_valor()\n        cofre.gravar(ref, valor)\n",
+     "        valor = gerar_valor()\n",
+     AGR_UNIT),
+    ('llm: o erro do generate cita o corpo da resposta', INFRA_LLM_CHAVES,
+     '                else "corpo omitido, porque pode ecoar a chave"',
+     "                else str(resposta)",
+     AGR_UNIT),
+    ('llm: em prod sem token as chaves leem-se do ambiente', AG_LLM_COFRE,
+     "    if ambiente not in AMBIENTES_COM_PROJECTO:",
+     "    if True:",
+     AGR_UNIT),
+    ('llm: uma ausencia nao pede descarga nova', AG_LLM_COFRE,
+     "            self._provedor.descartar_descarga()\n",
+     "",
+     AGR_UNIT),
+    ('llm: a chave do tenant liga-se ao ambiente', AG_MAIN,
+     "        chave_virtual=lambda tenant_id: ler_chave(",
+     "        chave_virtual=lambda tenant_id: segredos.get(",
+     AGR_UNIT),
+    ('llm: a chave do screening liga-se ao ambiente', AG_MAIN,
+     "            chave_virtual=lambda _tenant_id: ler_chave(",
+     "            chave_virtual=lambda _tenant_id: segredos.get(",
+     AGR_UNIT),
+    ('llm: o gravador escreve qualquer familia', PY_SEGREDOS_ESCRITA,
+     "        if familia not in self._familias:",
+     "        if False:",
+     PYCORE_UNIT),
     ('llm: o fornecedor que serviu assume-se o primeiro', AG_LLM_CLIENTE,
      "        if prefixo in prefixos:",
      "        if False:",
@@ -9555,6 +9602,9 @@ MODULOS_DO_AGR_UNIT = (
     "test_llm_aliases",
     "test_llm_cliente",
     "test_llm_chaves",
+    # KAM-250: o leitor das chaves do AGR. Sem esta linha as quatro mutacoes do
+    # criterio 4 sobreviviam com a suite verde, que e a licao desta lista.
+    "test_llm_cofre_das_chaves",
     # KAM-032. **Sem esta linha as mutacoes `cit:` sobreviviam todas**, com a
     # suite verde: e a lista literal de que fala a nota acima, e o KAM-030
     # pagou-a com dez sobreviventes.
@@ -9651,6 +9701,8 @@ def _gate_do_agr(copia: Path) -> tuple[int, str]:
 #: o `MODULOS_DO_AGR_UNIT` acima pagou quatro vezes.
 MODULOS_DO_PYCORE_UNIT = (
     "test_tenant_guard",
+    # KAM-250: o gravador do projecto das chaves virtuais.
+    "test_secrets_escrita",
 )
 
 
