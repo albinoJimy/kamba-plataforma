@@ -401,6 +401,32 @@ class MundoDaArte(Mundo):
         )
 
 
+def com_corrida(repo: Any) -> list[Any]:
+    """KAM-256: outra entrega do mesmo item grava entre a leitura e a escrita desta.
+
+    O item foi lido `aprovado`. No primeiro `entregar`, a outra entrega corre com
+    a mesma leitura e ganha; a desta, com a versao lida, levanta `ItemMudouError`
+    pela guarda do repositorio, e a releitura encontra o item `entregue`. A
+    corrida e a ordem das duas chamadas, sem a base. Devolve os itens que cada
+    `entregar` gravou, para contar as entregas.
+    """
+    original = repo.entregar
+    gravadas: list[Any] = []
+
+    def contado(item: Any, instante: datetime.datetime) -> tuple[Any, bool]:
+        gravado = original(item, instante)
+        gravadas.append(gravado[0])
+        return gravado
+
+    def corrida(item: Any, instante: datetime.datetime) -> tuple[Any, bool]:
+        repo.entregar = contado
+        contado(item, instante)
+        return contado(item, instante)
+
+    repo.entregar = corrida
+    return gravadas
+
+
 class TestAsTools(unittest.TestCase):
     def setUp(self) -> None:
         self.mundo = MundoDaArte()
@@ -656,6 +682,29 @@ class TestAsTools(unittest.TestCase):
         self.assertEqual(dois["entrega"]["legenda"], "Vestidos novos para a semana.")
         self.assertIsNone(dois["entrega"]["termos"])
 
+    def _aprovado(self) -> None:
+        self.mundo.invocar("generate_art", {"referencia": self.ref})
+        action_id = self.mundo.invocar("request_approval", {"referencia": self.ref}).data["action_id"]
+        self.mundo.accoes.confirmar(action_id)
+        self.assertTrue(self.mundo.aprovar(action_id).ok)
+
+    def test_kam_256_a_corrida_devolve_a_vista_do_item_ja_entregue(self) -> None:
+        self._aprovado()
+        gravadas = com_corrida(self.mundo.repo)
+        r = self.mundo.invocar("deliver_content", {"referencia": self.ref})
+        self.assertTrue(r.ok, r.error)
+        self.assertTrue(r.data["ja_entregue"])
+        self.assertEqual(r.data["entrega"]["legenda"], "Vestidos novos para a semana.")
+        self.assertIn("rotulo de IA", r.data["entrega"]["nota"])
+        # Os termos foram com a entrega que ganhou, e nao se repetem nesta.
+        self.assertIsNone(r.data["entrega"]["termos"])
+        # A mesma vista que o caminho do item que ja vem `entregue` na leitura.
+        self.assertEqual(r.data, self.mundo.invocar("deliver_content", {"referencia": self.ref}).data)
+        # Uma entrega gravada: a que ganhou. A que perdeu nao escreveu nada.
+        self.assertEqual(len(gravadas), 1)
+        self.assertEqual(self._item().estado, ENTREGUE)
+        self.assertEqual(self._item().versao, gravadas[0].versao)
+
     def test_r7_dinheiro_no_nome_da_marca_nao_vai_a_arte(self) -> None:
         perfil = self.mundo.repo.perfis[A]
         self.mundo.repo.perfis[A] = type(perfil)(**{**vars(perfil), "nome": "Tudo a 2.500 Kz"})
@@ -779,6 +828,41 @@ class TestOGrafo(unittest.TestCase):
         texto, _ = self._turno(mundo, botao=f"enviar:{ref}")
         self.assertIn("ja lhe foi entregue", texto)
         self.assertIsNone(mundo.saida.medias[-1], "entregar duas vezes envia uma imagem")
+
+    def test_kam_256_a_corrida_de_duas_entregas_responde_ao_dono_com_a_legenda(self) -> None:
+        mundo = MundoDaArte()
+        ref = mundo.item_com_legenda()
+        _texto, botoes = self._turno(mundo, botao=f"arte:{ref}")
+        self._turno(mundo, botao=botoes[0])
+        gravadas = com_corrida(mundo.repo)
+        # Antes do KAM-256, a vista da corrida vinha sem a `entrega` e este turno
+        # partia com um `KeyError` no `_entregar`.
+        texto, _ = self._turno(mundo, f"ENVIAR {ref}")
+        self.assertIn("ja lhe foi entregue", texto)
+        self.assertIn("Vestidos novos para a semana.", texto)
+        self.assertIn("rotulo de IA", texto)
+        self.assertNotIn("nao sao exclusivas", texto)
+        # A imagem foi com a entrega que ganhou; a que perdeu nao a reenvia.
+        self.assertIsNone(mundo.saida.medias[-1])
+        self.assertEqual(len(gravadas), 1)
+        (item,) = mundo.repo.itens_por_prefixo(A, regras.prefixo_da_referencia(ref))
+        self.assertEqual(item.estado, ENTREGUE)
+
+    def test_kam_256_uma_vista_sem_entrega_da_a_frase_de_erro_e_nao_levanta(self) -> None:
+        from unittest import mock
+
+        from kamba_agr.verticais.dono import social as social_do_dono
+
+        ref = regras.referencia_do_item(str(uuid.uuid4()))
+        for dados in ({"ja_entregue": True}, {"ja_entregue": False, "entrega": None}, {"entrega": {"nota": "x"}}):
+
+            async def deliver(*_a: Any, dados: dict[str, Any] = dados, **_k: Any) -> Any:
+                return type("Lido", (), {"ok": True, "data": dados, "error": None})()
+
+            with mock.patch.object(social_do_dono, "_invocar", deliver):
+                resposta = asyncio.run(social_do_dono._entregar(None, {}, ref))  # type: ignore[arg-type]
+            self.assertEqual(resposta["draft"]["texto"], social_do_dono.MSG_NAO_CONSEGUI, dados)
+            self.assertNotIn("media", resposta["draft"], dados)
 
     def test_kam_246_uma_edicao_pede_outra_vez_a_aprovacao_com_a_mesma_imagem(self) -> None:
         mundo = MundoDaArte()
