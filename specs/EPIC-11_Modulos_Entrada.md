@@ -4434,7 +4434,7 @@ Quatro critérios, **quatro marcados**. Os ensaios estão no `../services/agr/te
 | 3 — o `_entregar` não parte com uma vista sem `entrega` | marcado | Uma vista sem `entrega`, com `entrega` a `None`, ou sem legenda dá o `MSG_NAO_CONSEGUI` do social, sem imagem, e o turno não levanta (`test_kam_256_uma_vista_sem_entrega_da_a_frase_de_erro_e_nao_levanta`). Pelo grafo, a corrida responde ao dono «já lhe foi entregue» com a legenda e a nota, sem os termos (`test_kam_256_a_corrida_de_duas_entregas_responde_ao_dono_com_a_legenda`) |
 | 4 — uma entrega gravada, e nenhuma segunda imagem | marcado | Na corrida, o `entregar` grava uma vez (a que ganhou), o item fica `entregue` com a versão dela, e a resposta da que perdeu sai sem média (`test_kam_256_a_corrida_devolve_a_vista_do_item_ja_entregue`, `test_kam_256_a_corrida_de_duas_entregas_responde_ao_dono_com_a_legenda`). Regressão da entrega do KAM-122 e do KAM-246 verde: `test_entregar_duas_vezes_da_uma_entrega_e_os_termos_so_na_primeira`, `test_r6_entregar_outra_vez_reenvia_a_legenda_sem_os_termos`, `test_da_arte_a_entrega` e `test_kam_246_a_arte_vai_como_imagem_na_pre_visualizacao_e_so_na_primeira_entrega` |
 
-**Suites:** o módulo `test_social_aprovacao` (56 ensaios) e a suite inteira do AGR (`unittest discover -s services/agr/tests`) correram em contentor, sobre a imagem do AGR com o `runtime.txt`.
+**Suites:** o módulo `test_social_aprovacao` (53 ensaios, OK) e a suite inteira do AGR (`unittest discover -s services/agr/tests`: 2527 ensaios, OK) correram em contentor, sobre a imagem do AGR com o `runtime.txt`.
 
 ### Verificação da Definition of Done
 
