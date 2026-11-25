@@ -96,7 +96,8 @@ export PYTHONPATH := $(PYTHONPATH_ALL)
         obs-lint obs-promtool \
         bloco-lint \
         subprocessadores \
-        ordem-dos-ensaios isolamento-a-seco ci-13-pesquisa
+        ordem-dos-ensaios isolamento-a-seco ci-13-pesquisa \
+        release-lock ci-14 ci-16 ci-17 ci-18 smoke-guarda
 
 ## help: lista os comandos disponiveis
 help:
@@ -1190,6 +1191,70 @@ TRANSPORTE ?= gh
 ruleset:
 	@echo "==> ruleset de main (KAM-137)"
 	@$(PYTHON) -c "import sys; sys.path.insert(0, 'tools'); from ruleset_check.cli import main; sys.exit(main(['--root', '$(ROOT)', '--transporte', '$(TRANSPORTE)', 'check']))"
+
+# --- Caminho de release: gates 14 a 18 (KAM-078) ----------------------------
+#
+# **Nenhum destes alvos esta no `ci:` nem no `.github/workflows/`, e e
+# deliberado.** Os gates 14 a 18 bloqueiam a publicacao, a promocao e o deploy,
+# e ligar um portao que bloqueia e alteracao de regra de bloqueio — do
+# fundador. A proposta de ligacao, com o texto exacto do *workflow*, esta em
+# `docs/runbooks/deploy-e-reversao.md` §6. As suites de `tools/release/`
+# correm no gate 4 como as outras de `tools/`, porque esse e sobre testes.
+#
+# Todos falham fechados: sem os artefactos, o alvo da 1 e nao 0. E nenhum lanca
+# contentor nenhum: o que se implanta e o `release.lock`, e o que o implanta e
+# o *pipeline* de deploy, que nao existe sem *host* (D1, KAM-077).
+#
+#   release-lock   o lock a partir do compose de producao e dos digests do build
+#   ci-14          digest, SBOM, cosign verify e criticas sem waiver, por imagem nossa
+#   ci-16          aprovacao: dois revisores se o PR e de dinheiro/seguranca/isolamento
+#   ci-17          a reconciliacao do ensaio de rolling sob carga (ids e acks)
+#   ci-18          o lint do pipeline: um gate saltado exige ADR, aprovacao ou waiver
+#   smoke-guarda   aborta se o alvo do smoke for, ou puder ser, producao
+
+RELEASE_DIR ?= $(ROOT)/ci/release
+RELEASE_CONSTRUIDOS ?= $(RELEASE_DIR)/construidos.json
+RELEASE_ARTEFACTOS ?= $(RELEASE_DIR)/artefactos
+COSIGN_IDENTIDADE ?=
+PR ?=
+ENSAIO ?= $(RELEASE_DIR)/ensaio.json
+SMOKE_AMBIENTE ?= staging
+SMOKE_NUMERO ?=
+SMOKE_PHONE_NUMBER_ID ?=
+SMOKE_PROJECTO ?=
+SMOKE_GRAPH_BASE ?=
+SMOKE_PRODUCAO ?=
+
+## release-lock: gera o release.lock do compose de producao (KAM-078)
+release-lock:
+	@echo "==> release.lock (KAM-078)"
+	@mkdir -p "$(RELEASE_DIR)"
+	@$(PYTHON) -c "import sys; sys.path.insert(0, 'tools'); from release.cli import main; sys.exit(main(['--root', '$(ROOT)', 'lock', 'gerar', '--construidos', '$(RELEASE_CONSTRUIDOS)', '--commit', '$(KAMBA_COMMIT_SHA)', '--saida', '$(RELEASE_DIR)/release.lock']))"
+
+## ci-14: gate 14 — imagem: digest, SBOM, cosign e criticas (KAM-078; nao ligado)
+ci-14:
+	@echo "==> gate 14: imagem (KAM-078)"
+	@$(PYTHON) -c "import sys; sys.path.insert(0, 'tools'); from release.cli import main; sys.exit(main(['--root', '$(ROOT)', 'imagem', '--lock', '$(RELEASE_DIR)/release.lock', '--artefactos', '$(RELEASE_ARTEFACTOS)', '--cosign-identidade', '$(COSIGN_IDENTIDADE)']))"
+
+## ci-16: gate 16 — aprovacao humana dos PRs da release (KAM-078; nao ligado)
+ci-16:
+	@echo "==> gate 16: aprovacao (KAM-078)"
+	@$(PYTHON) -c "import sys; sys.path.insert(0, 'tools'); from release.cli import main; sys.exit(main(['--root', '$(ROOT)', 'aprovacao', '--pr'] + '$(PR)'.split()))"
+
+## ci-17: gate 17 — reconciliacao do ensaio de rolling sob carga (KAM-078; nao ligado)
+ci-17:
+	@echo "==> gate 17: reconciliacao do rolling (KAM-078)"
+	@$(PYTHON) -c "import sys; sys.path.insert(0, 'tools'); from release.cli import main; sys.exit(main(['--root', '$(ROOT)', 'reconciliar', '--ensaio', '$(ENSAIO)']))"
+
+## ci-18: gate 18 — lint do pipeline: nenhum gate saltado sem registo (KAM-078; nao ligado)
+ci-18:
+	@echo "==> gate 18: lint do pipeline (KAM-078)"
+	@$(PYTHON) -c "import sys; sys.path.insert(0, 'tools'); from release.cli import main; sys.exit(main(['--root', '$(ROOT)', 'pipeline']))"
+
+## smoke-guarda: aborta se o alvo do smoke for producao (KAM-078)
+smoke-guarda:
+	@echo "==> guarda do smoke (KAM-078)"
+	@$(PYTHON) -c "import sys; sys.path.insert(0, 'tools'); from release.cli import main; sys.exit(main(['--root', '$(ROOT)', 'smoke-guarda', '--ambiente', '$(SMOKE_AMBIENTE)', '--numero', '$(SMOKE_NUMERO)', '--phone-number-id', '$(SMOKE_PHONE_NUMBER_ID)', '--projecto', '$(SMOKE_PROJECTO)', '--graph-base', '$(SMOKE_GRAPH_BASE)'] + (['--producao', '$(SMOKE_PRODUCAO)'] if '$(SMOKE_PRODUCAO)' else [])))"
 
 # --- Gates reservados, fail-closed ------------------------------------------
 #
