@@ -4,7 +4,7 @@
 |---|---|
 | Produto | KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para Angola |
 | Documento | Epic — Módulos de Entrada |
-| Versão | 1.44 |
+| Versão | 1.45 |
 | Data | Novembro de 2026 |
 | Classificação | Documento de Referência — Interno |
 | Documento-fonte | `../docs/tecnica/00_Arquitectura_Solucao.md` (ADR-020, §13.3 D13), `../docs/tecnica/02_Agent_Runtime_Verticais.md` (§21), `../docs/exploracao/14-tese-minima-e-plano-de-validacao.md` (H10–H12) |
@@ -4392,10 +4392,10 @@ Duas entregas concorrentes do mesmo item dão as duas uma resposta ao dono, com 
 
 ### Critérios de Aceitação
 
-- [ ] Um ensaio reproduz a corrida antes da correcção: o item lido `aprovado`, o `entregar` a levantar `ItemMudouError`, a releitura `entregue`. Contra o código de hoje, o ensaio falha com o `KeyError` no `_entregar`; é a prova de que mede o defeito.
-- [ ] Depois da correcção, o caminho da corrida devolve a mesma vista que o caminho do item já `entregue`: `ja_entregue=True` e a `entrega` sem os termos da primeira entrega, porque esses foram com a entrega que ganhou.
-- [ ] O `_entregar` não parte com uma vista sem `entrega`: responde com a frase de erro, e o turno não levanta.
-- [ ] A entrega continua a ser uma: o item grava-se uma vez `entregue`, e a imagem do KAM-246 não se reenvia pela entrega que perdeu.
+- [x] Um ensaio reproduz a corrida antes da correcção: o item lido `aprovado`, o `entregar` a levantar `ItemMudouError`, a releitura `entregue`. Contra o código de hoje, o ensaio falha com o `KeyError` no `_entregar`; é a prova de que mede o defeito.
+- [x] Depois da correcção, o caminho da corrida devolve a mesma vista que o caminho do item já `entregue`: `ja_entregue=True` e a `entrega` sem os termos da primeira entrega, porque esses foram com a entrega que ganhou.
+- [x] O `_entregar` não parte com uma vista sem `entrega`: responde com a frase de erro, e o turno não levanta.
+- [x] A entrega continua a ser uma: o item grava-se uma vez `entregue`, e a imagem do KAM-246 não se reenvia pela entrega que perdeu.
 
 ### Detalhes Técnicos
 
@@ -4410,7 +4410,7 @@ Duas entregas concorrentes do mesmo item dão as duas uma resposta ao dono, com 
 
 ### Definition of Done
 
-- [ ] Critérios de Aceitação satisfeitos, com o ensaio da corrida visto a falhar contra o código de hoje.
+- [x] Critérios de Aceitação satisfeitos, com o ensaio da corrida visto a falhar contra o código de hoje.
 
 ### Handoff para Claude Code
 
@@ -4422,6 +4422,42 @@ Objectivo: a corrida de duas entregas responde ao dono com a legenda, e grava um
 Regras: o ensaio da corrida falha primeiro contra o código de hoje; nenhuma segunda imagem.
 Testes: unitários da corrida e da vista sem entrega; regressão da entrega.
 ```
+
+### Verificação dos Critérios de Aceitação
+
+Quatro critérios, **quatro marcados**. Os ensaios estão no `../services/agr/tests/test_social_aprovacao.py`. A corrida é a do ajudante `com_corrida`: o item é lido `aprovado`, o primeiro `entregar` deixa a outra entrega gravar com a mesma leitura e corre a desta com a versão lida, que o `_exigir_versao` do repositório recusa com `ItemMudouError`; a releitura encontra o item `entregue`. Não precisa da base, porque a corrida é a ordem das duas chamadas (Detalhes Técnicos).
+
+| Critério | Estado | Evidência nomeada |
+|---|---|---|
+| 1 — o ensaio reproduz a corrida e falha contra o código de hoje | marcado | Os três ensaios do KAM-256 (`test_kam_256_a_corrida_devolve_a_vista_do_item_ja_entregue`, `test_kam_256_a_corrida_de_duas_entregas_responde_ao_dono_com_a_legenda`, `test_kam_256_uma_vista_sem_entrega_da_a_frase_de_erro_e_nao_levanta`) correram contra a `main` em `373d1367`, antes da correcção: os três dão `KeyError: 'entrega'`, e o do grafo parte no `_entregar` (`verticais/dono/social.py`, linha 449, `partes = dados["entrega"]`), dentro do turno do dono |
+| 2 — a corrida devolve a mesma vista do item já `entregue` | marcado | O `except ItemMudouError` do `deliver_content` passa a `entrega=_partes(relido, False)`. A vista da corrida tem `ja_entregue=True`, a legenda, a nota do rótulo de IA e `termos` a `None`, e é **igual** à que a chamada seguinte devolve pelo caminho do item que já vem `entregue` na leitura (`test_kam_256_a_corrida_devolve_a_vista_do_item_ja_entregue`) |
+| 3 — o `_entregar` não parte com uma vista sem `entrega` | marcado | Uma vista sem `entrega`, com `entrega` a `None`, ou sem legenda dá o `MSG_NAO_CONSEGUI` do social, sem imagem, e o turno não levanta (`test_kam_256_uma_vista_sem_entrega_da_a_frase_de_erro_e_nao_levanta`). Pelo grafo, a corrida responde ao dono «já lhe foi entregue» com a legenda e a nota, sem os termos (`test_kam_256_a_corrida_de_duas_entregas_responde_ao_dono_com_a_legenda`) |
+| 4 — uma entrega gravada, e nenhuma segunda imagem | marcado | Na corrida, o `entregar` grava uma vez (a que ganhou), o item fica `entregue` com a versão dela, e a resposta da que perdeu sai sem média (`test_kam_256_a_corrida_devolve_a_vista_do_item_ja_entregue`, `test_kam_256_a_corrida_de_duas_entregas_responde_ao_dono_com_a_legenda`). Regressão da entrega do KAM-122 e do KAM-246 verde: `test_entregar_duas_vezes_da_uma_entrega_e_os_termos_so_na_primeira`, `test_r6_entregar_outra_vez_reenvia_a_legenda_sem_os_termos`, `test_da_arte_a_entrega` e `test_kam_246_a_arte_vai_como_imagem_na_pre_visualizacao_e_so_na_primeira_entrega` |
+
+**Suites:** o módulo `test_social_aprovacao` (56 ensaios) e a suite inteira do AGR (`unittest discover -s services/agr/tests`) correram em contentor, sobre a imagem do AGR com o `runtime.txt`.
+
+### Verificação da Definition of Done
+
+| Critério | Estado | Evidência nomeada |
+|---|---|---|
+| Critérios de Aceitação satisfeitos, com o ensaio da corrida visto a falhar contra o código de hoje | marcado | A tabela acima; o vermelho contra `373d1367` é o da linha 1 |
+
+### Revisão adversarial
+
+Uma revisão, por um agente que recebeu o bloco e o diff e não o raciocínio do executor. Correu **sete mutações** em memória sobre os dois ficheiros de produção, e nenhuma sobreviveu: reverter só a edição do `deliver_content` deixa dois ensaios vermelhos, reverter só a guarda do `_entregar` deixa um, e reverter as duas dá os três com o `KeyError` do critério 1. Também ficam vermelhos: os termos repetidos na corrida, a guarda reduzida a «há `entrega`», a imagem com `ja_entregue` e a corrida com `ja_entregue=False`. Dez achados, **nenhum confirmado**:
+
+| # | Achado | Estado | Razão |
+|---|---|---|---|
+| 1 | O `com_corrida` não é a corrida da base | morto | O `UPDATE … WHERE versao = … AND estado = 'aprovado'` do repositório SQL, em *read committed*, espera pela linha da que ganhou, não acha linha, e levanta `ItemMudouError` antes dos termos: é o mesmo caminho que o duplo faz pelo `_exigir_versao`. O ensaio não corre contra o PostgreSQL, como os Detalhes Técnicos permitem |
+| 2 | A releitura `entregue` com a legenda a `None` | morto | O `CHECK` da `0085` exige a legenda num `aprovado` e num `entregue`, e a `ManualDelivery` já recusa uma legenda vazia |
+| 3 | A imagem reenviada pela entrega que perdeu | morto | A imagem só vai sem `ja_entregue`, e a que perdeu não grava nada |
+| 4 | Os termos perdem-se se o envio da que ganhou falhar | plausível, fora do âmbito | É o comportamento do caminho do item já `entregue` (achado 6 do KAM-122), que o critério 2 pede. Mudá-lo é decisão de produto |
+| 5 | A resposta da que perdeu pode chegar antes da imagem da que ganhou | plausível, cosmético | Só a serialização das entregas por item o evitava, e nenhum critério a pede |
+| 6 | A guarda do `_entregar` responde sem registo | plausível, baixo | Hoje nenhum caminho do `deliver_content` devolve a vista sem `entrega`. O critério 3 pede a frase, e um registo novo custa o inventário do `obs_lint` |
+| 7 | A frase `MSG_NAO_CONSEGUI` | morto | É a do `item_mudou`, e não tem dígitos |
+| 8 | Outro caminho sem `entrega` | morto | Os três retornos do `deliver_content` levam-na, e o `_entregar` não guarda resposta por chave de idempotência |
+| 9 | Linha comprida e importações do ensaio | morto | O serviço não tem limite de linha configurado, e há linhas maiores no mesmo ficheiro |
+| 10 | Uma correcção parcial passava os ensaios | morto | As mutações acima |
 
 
 ---
@@ -4509,3 +4545,4 @@ Testes: unitários da corrida e da vista sem entrega; regressão da entrega.
 | 1.42 | Novembro 2026 | **KAM-251 entregue: o `/metrics` do consumidor `dono` raspado pelo Prometheus.** Sem migração, sem contrato e sem emenda do dicionário. O *job* `onboarding_provisionamento` na 3015, o processo na `tenant_guard_tecto_recusado_total` do catálogo (as quatro `evt_*` que ele serve ficam fora, com a lacuna escrita), a prosa do egress e a nota do KAM-215 corrigidas, a regra `r_alvos_do_onboarding` no `tools/compose_prod` com seis casos de canário, o runbook de T&S e o `docs/observabilidade.md` com o quarto processo da `tenant_guard_tecto_recusado_total`, a linha 217 das dívidas documentais, e o `--prometheus` no `db/ensaio_dono.py`: o alvo `up` e o pico com a raspagem a correr (46,5, 48,9 e 47,3 MiB sob 54m, sem *swap*, em três corridas). O piso do `lint_bloco` fica em 96 (193 medidos). Número provisório: renumera-se na integração. | Equipa KAMBÁ |
 | 1.43 | Novembro 2026 | Escrita como 1.37 e renumerada na integração, depois do KAM-242, do KAM-241, do KAM-243, do KAM-245, do KAM-127 e do KAM-251. **KAM-246 entregue: a arte do módulo `social` como imagem no WhatsApp e a página Social do painel.** Revisão `0092` (sobre a `0091` do KAM-127): a `agent_replies.media_ref`, a chave do STO da arte, do tenant da linha e da classe `arte`, nunca com *template*. Emenda 1.147 do dicionário (escrita como 1.139 e renumerada na integração, depois do KAM-208, do KAM-247, do KAM-209, do KAM-243, do KAM-245, do KAM-240, do KAM-239 e do KAM-127; §3.80, §3.82). O corpo de imagem do Outbound, o carregamento na Meta e o consumidor `outbound` que lê o STO; a imagem na pré-visualização e na primeira entrega; as duas rotas internas do AGR e a página `GET /painel/social` com a ligação de 24 h. Bloco do KAM-246: as decisões do fundador de 2026-11-23 (Q2 = A e Q3 = A), as decisões do executor e a verificação dos critérios. A caixa do critério 8 do KAM-122 revista com a evidência. A decisão do fundador de 2026-11-23 sobre o endpoint público do STO (Q4 = A), a revisão adversarial, e o **KAM-255** acrescentado como credor dela. O **KAM-256** acrescentado como credor do KAM-122, a pedido da coordenação: a entrega concorrente do social devolve a vista sem a `entrega`, e o turno do dono parte com um `KeyError`. Escrita contra a `main` em `4e9909b9` e integrada com a `main` em `cf5a563f` e em `fd5e5d1a`; os credores abriram como KAM-249 e KAM-250, e o 249 a 254 fundiram com outros tickets | Equipa KAMBÁ |
 | 1.44 | Novembro 2026 | **KAM-253 (EPIC-09) revê a assimetria do KAM-245.** Escrita como 1.43 e renumerada na integração, depois do KAM-246. Pela decisão A do fundador de 2026-11-24, a re-análise de uma mudança de política também tira do catálogo visível o publicado que bloqueia. No bloco do KAM-245 ficam anotados «Revisto pelo KAM-253» a decisão A, a decisão do executor sobre a corrida com a re-análise, a linha 3 da verificação e o ponto da re-análise, com os nomes novos dos ensaios. A tranca e a saída de publicado do KAM-245 mudaram para o `packages/core-ts/src/screening/retirada.ts`. | Equipa KAMBÁ |
+| 1.45 | Novembro 2026 | **KAM-256 entregue: a entrega concorrente do social devolve a legenda ao dono, em vez de um `KeyError` no turno.** Sem migração, sem contrato e sem emenda do dicionário. O caminho da corrida do `deliver_content` devolve a mesma vista do item já `entregue` (a legenda e a nota, sem os termos), e o `_entregar` do vertical do dono responde com a frase de erro a uma vista sem legenda. Bloco do KAM-256: a verificação dos critérios (quatro marcados) e da DoD, com o ensaio da corrida visto a falhar contra a `main` em `373d1367`, e a revisão adversarial (sete mutações, nenhuma sobrevivente; dez achados, nenhum confirmado). Medido contra a `main` em `373d1367`. | Equipa KAMBÁ |
