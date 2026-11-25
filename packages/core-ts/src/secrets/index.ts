@@ -82,5 +82,21 @@ export type {
   Transporte,
 } from "./doppler.ts";
 
+export {
+  A_CONFIRMAR_ESCRITA,
+  DopplerGravador,
+  FAMILIAS_DAS_CHAVES_DO_LLM,
+  FamiliaNaoGravavelError,
+  PROJECTO_DAS_CHAVES_POR_OMISSAO,
+  VARIAVEL_DO_PROJECTO,
+  corpoDoPedido,
+} from "./gravacao.ts";
+export type {
+  DopplerGravadorOpcoes,
+  GravadorDeSegredo,
+  PedidoHttpDeEscrita,
+  TransporteDeEscrita,
+} from "./gravacao.ts";
+
 export { ArranqueAbortadoError, Secrets, TTL_ULTIMO_VALOR_MS } from "./arranque.ts";
 export type { SecretsOpcoes } from "./arranque.ts";

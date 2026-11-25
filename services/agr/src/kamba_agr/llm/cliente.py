@@ -109,6 +109,21 @@ TENTATIVAS_DO_PROXY: Final = 3
 #: saida estruturada e da temperatura zero, e mais nada.
 CAMPOS_EXTRA_PERMITIDOS: Final = frozenset({"response_format", "temperature"})
 
+
+class _ChaveIndisponivel(Exception):
+    """A chave virtual nao se leu do cofre (KAM-250). Leva so o nome da classe da causa.
+
+    Distinta da falha de rede de proposito: desde o KAM-250 a chave le-se pela API
+    do Doppler, e uma falha dele registada como «nao se alcancou o proxy» mandava
+    quem diagnostica para o sitio errado (achado da revisao adversarial).
+    """
+
+
+def _motivo_da_falha(excepcao: BaseException) -> str:
+    if isinstance(excepcao, _ChaveIndisponivel):
+        return "a chave virtual nao se leu do cofre"
+    return "nao se alcancou o proxy"
+
 #: O papel da visao, o unico que o `ver` chama (KAM-231).
 PAPEL_DA_VISAO: Final = "vision"
 
@@ -216,6 +231,16 @@ class ClienteDeLlm:
     def papeis(self) -> tuple[str, ...]:
         return tuple(sorted(self._aliases))
 
+    def _autorizacao(self, tenant_id: str) -> str:
+        """O cabecalho `Authorization`, com a chave do tenant lida do cofre."""
+        falhou: str | None = None
+        try:
+            return f"Bearer {self._chave_virtual(tenant_id)}"
+        except Exception as excepcao:  # noqa: BLE001 - so o nome da classe atravessa
+            falhou = type(excepcao).__name__
+        # Fora do `except`: o `__context__` nao leva a excepcao do cofre.
+        raise _ChaveIndisponivel(falhou)
+
     def chamar(
         self,
         papel: str,
@@ -302,7 +327,7 @@ class ClienteDeLlm:
             estado, corpo, cabecalhos = self._transporte(
                 f"{self._url}/chat/completions",
                 {
-                    "Authorization": f"Bearer {self._chave_virtual(ctx.tenant_id)}",
+                    "Authorization": self._autorizacao(ctx.tenant_id),
                     "Content-Type": "application/json",
                 },
                 {
@@ -328,7 +353,7 @@ class ClienteDeLlm:
             self._falhou(alias, ctx, erro, inicio)
             raise erro from excepcao
         except Exception as excepcao:  # noqa: BLE001 — a razao vai na mensagem
-            erro = FornecedorFalhou(f"nao se alcancou o proxy: {excepcao}", papel)
+            erro = FornecedorFalhou(f"{_motivo_da_falha(excepcao)}: {excepcao}", papel)
             self._falhou(alias, ctx, erro, inicio)
             raise erro from excepcao
 
@@ -391,7 +416,7 @@ class ClienteDeLlm:
             estado, corpo, cabecalhos = self._transporte(
                 f"{self._url}/embeddings",
                 {
-                    "Authorization": f"Bearer {self._chave_virtual(ctx.tenant_id)}",
+                    "Authorization": self._autorizacao(ctx.tenant_id),
                     "Content-Type": "application/json",
                 },
                 # `verificada()` e nao `.texto`, pela razao do `para_esquema`:
@@ -406,7 +431,7 @@ class ClienteDeLlm:
             self._falhou(alias, ctx, erro, inicio)
             raise erro from excepcao
         except Exception as excepcao:  # noqa: BLE001 — a razao vai na mensagem
-            erro = FornecedorFalhou(f"nao se alcancou o proxy: {excepcao}", papel)
+            erro = FornecedorFalhou(f"{_motivo_da_falha(excepcao)}: {excepcao}", papel)
             self._falhou(alias, ctx, erro, inicio)
             raise erro from excepcao
 
@@ -488,7 +513,7 @@ class ClienteDeLlm:
             estado, corpo, cabecalhos = self._transporte(
                 f"{self._url}/chat/completions",
                 {
-                    "Authorization": f"Bearer {self._chave_virtual(ctx.tenant_id)}",
+                    "Authorization": self._autorizacao(ctx.tenant_id),
                     "Content-Type": "application/json",
                 },
                 {
@@ -518,7 +543,7 @@ class ClienteDeLlm:
             self._falhou(alias, ctx, erro, inicio)
             raise erro from excepcao
         except Exception as excepcao:  # noqa: BLE001 — a razao vai na mensagem
-            erro = FornecedorFalhou(f"nao se alcancou o proxy: {excepcao}", papel)
+            erro = FornecedorFalhou(f"{_motivo_da_falha(excepcao)}: {excepcao}", papel)
             self._falhou(alias, ctx, erro, inicio)
             raise erro from excepcao
 

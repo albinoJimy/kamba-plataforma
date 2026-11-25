@@ -198,7 +198,7 @@ ocupar *workers* a dormir.
 | 1 — **e no processo, por módulo** | `egresso.exigir_biblioteca_mit()` no arranque: se `langgraph_api` estiver importável, sai com `3` |
 | 1 — **e no processo, pelo SBOM** | `egresso.exigir_sbom_mit()` (KAM-027): se uma distribuição da lista de bloqueio estiver **instalada**, o mesmo `3`. Não é a mesma pergunta — ver abaixo |
 | 2 — `LANGSMITH_TRACING=false` | `egresso.desligar_telemetria()`, que **impõe** e não verifica |
-| 2 — egresso por *allowlist* | [`services/agr/egress.yaml`](../services/agr/egress.yaml): `por_omissao: negar`, `destinos: []` |
+| 2 — egresso por *allowlist* | [`services/agr/egress.yaml`](../services/agr/egress.yaml): `por_omissao: negar`, e um destino só desde o KAM-250 — `api.doppler.com`, a leitura das chaves virtuais do projecto Doppler delas |
 | 3 — *traces* no Langfuse | KAM-069 |
 | 4 — serviço próprio, API interna mínima | `api_interna.py`: duas rotas |
 
@@ -2272,3 +2272,4 @@ contexto de quem chama o `ainvoke`; medido pela bateria).
 | 1.24 | 2026-11-19 | KAM-228 | §1: o `POST /internal/screening` tem o COM como chamador previsto, ligado nos *compose*; as condições só lhe chegam com finalidade própria (decisão do fundador de 2026-11-20, KAM-230). A tabela das variáveis da ToolLayer: o `KAMBA_TLS_TIMEOUT_ESCRITA_MS` fixa também o tecto do `screen` das condições. |
 | 1.25 | 2026-11-20 | KAM-230 | §1: o `POST /internal/screening` recebe a finalidade e o prazo de quem chama, e o COM chama-a com as condições de um orçamento, com a finalidade própria delas. A tabela das variáveis da ToolLayer: o tecto do `screen` das condições conta do início da ToolLayer, com 1 s de reserva. |
 | 1.26 | 2026-11-21 | KAM-121 | §1: o `POST /internal/screening` admite a `classificacao_de_conteudo`, a finalidade dos temas e das legendas do módulo `social`. |
+| 1.27 | 2026-11-24 | KAM-250 | §5 (a tabela das guardas do ADR-002): o egresso do AGR deixa de ser `destinos: []` — lê as chaves virtuais do LiteLLM do projecto Doppler delas, pelo `proxy-saida`, por decisão do fundador de 2026-11-24 (`adr/ADR-L002-injeccao-de-segredos.md` §7, *proposta*). |

@@ -12,7 +12,8 @@
  * publicado, conteudo exacto, bloqueada       uma violacao, rascunho e product_changed, numa transaccao
  * a repeticao do mesmo screen                 nenhuma segunda violacao
  * a bloqueada que a re-analise ja emitiu      nenhuma violacao, e despublica
- * a re-analise de uma mudanca de politica     emite, e nao despublica (KAM-191, criterio 4)
+ * a re-analise de uma mudanca de politica     emite e despublica, numa transaccao (KAM-253)
+ * a re-analise e uma permitida humana         a humana ganha: emite e nao despublica (KAM-253)
  * o recurso humano                            a permitida humana deixa republicar
  * uma permitida humana anterior               nenhuma violacao, e fica publicado
  * rascunho, outro nome, outra categoria       nada
@@ -32,13 +33,21 @@ import {
   EscritorSql,
   FINALIDADE_DO_CATALOGO,
   politicaCorrente,
+  AGREGADO_PRODUTO_ALTERADO,
+  CLASSE_PII_PRODUTO_ALTERADO,
+  FINALIDADES_PRODUTO_ALTERADO,
   reanalisar,
+  RetiradaSql,
+  SQL_EMITIR_PRODUTO_ALTERADO,
+  TIPO_PRODUTO_ALTERADO,
+  VERSAO_PRODUTO_ALTERADO,
   sha256EmBase32,
   SQL_DECISOES,
   SQL_POR_REANALISAR,
   TIPO_VIOLACAO,
   type LinhaDeDecisao,
   type PorProduto,
+  type ResultadoDaReanalise,
 } from "@kamba/core-ts/screening";
 import { refDaViolacao, sinaisDoEvento } from "@kamba/core-ts/trust";
 
@@ -51,6 +60,14 @@ import {
   SUJEITO_DO_PRODUTO,
 } from "../src/screening/index.ts";
 import { ok, type ClienteSql, type ComTenant, type Ctx } from "../src/port/index.ts";
+import { SQL_EMITIR } from "../src/produtos/consultas.ts";
+import {
+  AGREGADO_PRODUTO,
+  CLASSE_PII_CATALOGO,
+  FINALIDADES_CATALOGO,
+  TIPO_PRODUCT_CHANGED,
+  VERSAO_PRODUCT_CHANGED,
+} from "../src/produtos/contrato.ts";
 
 const TENANT = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const OUTRO = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
@@ -391,35 +408,209 @@ test("KAM-245, criterio 3: a bloqueada que a re-analise ja emitiu nao emite outr
   assert.equal(b.estado.ofertas[0]!.estado, "rascunho");
 });
 
-test("KAM-245, decisao A: a re-analise de uma mudanca de politica continua a emitir sem despublicar", async () => {
-  // A mesma base e as mesmas peças de produção do `reanalisar` (o escritor e o
-  // emissor sobre o cliente da transacção do produto): a re-análise não toca
-  // na oferta, e a assimetria com o `/internal/screen` é a do bloco.
-  const b = base({ ofertas: [publicado()], categorias: { [TENANT]: "moda" } });
-  const resultado = await reanalisar(
+/**
+ * O `reanalisar` com as peças de produção — o escritor, o emissor e a retirada
+ * sobre o cliente da transacção do produto, como na `dependenciasDaReanalise` —
+ * e o catálogo sobre a mesma base.
+ */
+function reanalisarSobre(b: Base, porProduto?: PorProduto): Promise<ResultadoDaReanalise> {
+  return reanalisar(
     {
       politica: politicaCorrente(),
       classificador: null,
       escritor: new EscritorSql(b.cliente as never),
       emissor: new EmissorSql(b.cliente as never),
+      retirada: new RetiradaSql(b.cliente as never),
       catalogo: new CatalogoSql(b.cliente as never),
-      porProduto: (tenantId, trabalho) => b.comTenant(tenantId, () => trabalho()),
+      porProduto: porProduto ?? ((tenantId, trabalho) => b.comTenant(tenantId, () => trabalho())),
     },
     { tamanhoDoLote: 10, maximoPorExecucao: 10 },
   );
+}
+
+test("KAM-253, decisao A: a re-analise de uma mudanca de politica emite e despublica, na mesma transaccao", async () => {
+  // Emenda o critério 4 do KAM-191 na metade «nem despublicar» (decisão A do
+  // fundador de 2026-11-24): a decisão, a violação, a saída de publicado e o
+  // `catalog.product_changed`, como no `/internal/screen` do KAM-245.
+  const b = base({ ofertas: [publicado()], categorias: { [TENANT]: "moda" } });
+  const resultado = await reanalisarSobre(b);
   assert.equal(resultado.violacoes, 1);
+  // O evento do produto sai antes da violacao: a oferta tranca-se antes do
+  // primeiro `evt_emitir`, pela ordem do COM (achado 1 da revisao adversarial).
+  assert.deepEqual(tipos(b), [PRODUCT_CHANGED, TIPO_VIOLACAO]);
+  assert.equal(b.estado.ofertas[0]!.estado, "rascunho");
+  assert.deepEqual(b.estado.eventos[0]!.payload, { sku: SKU, estado: "rascunho" });
+  assert.equal(b.estado.eventos[0]!.agregadoId, SKU);
+  assert.equal(b.estado.eventos[0]!.agregadoTipo, "product");
+  const transaccoes = new Set([
+    ...b.estado.decisoes.map((d) => d.transaccao),
+    ...b.estado.eventos.map((e) => e.transaccao),
+    ...b.estado.despublicacoes,
+  ]);
+  assert.equal(transaccoes.size, 1, [...transaccoes].join(","));
+  // A ordem: a decisão, a tranca e a releitura, a saída, e só então os dois
+  // `evt_emitir`. A tranca da oferta antes do primeiro é a ordem das trancas do
+  // `/internal/screen` e do rascunho do dono, e sem ela havia `40P01`.
+  const emissoes = b.consultas.flatMap((c, i) => (c.includes("platform.evt_emitir(") ? [i] : []));
+  assert.equal(emissoes.length, 2);
+  const ordem = [
+    b.consultas.findIndex((c) => c.includes("INSERT INTO platform.screening_decision")),
+    b.consultas.indexOf(SQL_PUBLICADO_SOB_TRANCA),
+    b.consultas.lastIndexOf(SQL_DECISOES),
+    b.consultas.indexOf(SQL_DESPUBLICAR),
+    ...emissoes,
+  ];
+  assert.ok(ordem.every((i) => i >= 0), ordem.join(","));
+  assert.deepEqual([...ordem].sort((x, y) => x - y), ordem, ordem.join(","));
+  // A execução seguinte já não vê o produto: saiu de publicado.
+  assert.deepEqual(await reanalisarSobre(b), { analisados: 0, violacoes: 0, terminou: true });
+});
+
+test("KAM-253, criterio 2: a falha de qualquer dos quatro desfaz os quatro", async () => {
+  for (const tipo of [TIPO_VIOLACAO, PRODUCT_CHANGED]) {
+    const b = base({ ofertas: [publicado()], categorias: { [TENANT]: "moda" }, falhaAEmitir: tipo });
+    await assert.rejects(reanalisarSobre(b), /evt_emitir recusou/, tipo);
+    assert.equal(b.estado.decisoes.length, 0, tipo);
+    assert.deepEqual(tipos(b), [], tipo);
+    assert.equal(b.estado.ofertas[0]!.estado, "publicado", tipo);
+    assert.equal(b.estado.despublicacoes.length, 0, tipo);
+  }
+  // A saída de publicado que toca mais do que uma oferta também desfaz tudo.
+  const vizinha: Oferta = { tenantId: TENANT, sku: "vizinha-02", nome: "Pao", estado: "publicado" };
+  const partida = base({
+    ofertas: [publicado(), vizinha],
+    categorias: { [TENANT]: "moda" },
+    mutar: (sql) => (sql === SQL_DESPUBLICAR ? sql.replace("sku = $2", "true") : sql),
+  });
+  await assert.rejects(reanalisarSobre(partida), /mais do que uma oferta/);
+  assert.deepEqual(
+    partida.estado.ofertas.map((o) => o.estado),
+    ["publicado", "publicado"],
+  );
+  assert.deepEqual(tipos(partida), []);
+  assert.equal(partida.estado.decisoes.length, 0);
+});
+
+test("KAM-253: uma permitida humana que chega antes da transaccao ganha, e o produto fica publicado", async () => {
+  // A T&S grava a `permitida` humana do conteúdo publicado, nesta versão,
+  // depois de a re-análise ler o lote e antes da transacção do produto. A
+  // re-análise grava e emite (KAM-191, sem mudança), mas não despublica: a
+  // regra do `assertPublishable` dá a última humana.
+  const b = base({ ofertas: [publicado()], categorias: { [TENANT]: "moda" } });
+  const r = await reanalisarSobre(b, (tenantId, trabalho) => {
+    b.estado.decisoes.push({ ...decisao("permitida", "humano"), transaccao: 0 });
+    return b.comTenant(tenantId, () => trabalho());
+  });
+  assert.equal(r.violacoes, 1);
   assert.deepEqual(tipos(b), [TIPO_VIOLACAO]);
   assert.equal(b.estado.ofertas[0]!.estado, "publicado");
   assert.equal(b.estado.despublicacoes.length, 0);
-  assert.ok(!b.consultas.some((c) => c.includes("UPDATE platform.offer_terms")));
 });
 
-test("KAM-245, D1: a corrida do screen com a re-analise, nas duas ordens, emite duas vezes o mesmo conteudo, e o T&S le uma chave", async () => {
-  // A re-análise não tranca a oferta, e a decisão D1 do fundador (2026-11-23)
-  // não a muda: as duas violações saem, e é o consumidor que as junta pela
-  // chave do conteúdo. As duas ordens da corrida:
-  //   - o screen confirma depois de a re-análise ler o lote e antes de ela decidir;
-  //   - a re-análise grava e emite, e o screen corre antes de ela confirmar.
+test("KAM-253: o produto que mudou depois da leitura nao sai — outro nome, outra categoria, ou ja nao publicado", async () => {
+  // O leitor corre noutra ligação e antes da transacção: a retirada tranca e
+  // volta a ler o conteúdo publicado, e um conteúdo diferente do lido é outro.
+  const mudancas: Record<string, (o: Oferta) => void> = {
+    "o dono mudou o nome": (o) => void (o.nome = "Sumo de laranja"),
+    "o dono tirou-o de publicado": (o) => void (o.estado = "rascunho"),
+    "o dono apagou-o": (o) => void (o.apagada = true),
+  };
+  for (const [caso, mudar] of Object.entries(mudancas)) {
+    const b = base({ ofertas: [publicado()], categorias: { [TENANT]: "moda" } });
+    await reanalisarSobre(b, (tenantId, trabalho) => {
+      mudar(b.estado.ofertas[0]!);
+      return b.comTenant(tenantId, () => trabalho());
+    });
+    assert.deepEqual(tipos(b), [TIPO_VIOLACAO], caso);
+    assert.equal(b.estado.despublicacoes.length, 0, caso);
+  }
+  // A categoria do tenant mudou entretanto: o conteúdo publicado é outro.
+  const categorias: Record<string, string> = { [TENANT]: "moda" };
+  const b = base({ ofertas: [publicado()], categorias });
+  await reanalisarSobre(b, (tenantId, trabalho) => {
+    categorias[TENANT] = "mercearia";
+    return b.comTenant(tenantId, () => trabalho());
+  });
+  assert.deepEqual(tipos(b), [TIPO_VIOLACAO]);
+  assert.equal(b.estado.ofertas[0]!.estado, "publicado");
+});
+
+test("KAM-253, criterio 3: o recurso humano deixa o dono republicar o que a re-analise tirou", async () => {
+  const b = base({ ofertas: [publicado()], categorias: { [TENANT]: "moda" } });
+  await reanalisarSobre(b);
+  assert.equal(b.estado.ofertas[0]!.estado, "rascunho");
+  const publicadas: string[] = [];
+  const publicar = operacaoDePublicar({
+    comTenant: b.comTenant,
+    politica: politicaCorrente(),
+    publicar: async (_ctx, ref) => {
+      publicadas.push(ref.sku);
+      b.estado.ofertas[0]!.estado = "publicado";
+      return ok(undefined);
+    },
+  });
+  // Sem recurso, a `bloqueada` da re-análise recusa a republicação.
+  assert.deepEqual(await publicar(ctx(TENANT), { sku: SKU, confirmacao: CONFIRMACAO }), {
+    tipo: "erro",
+    erro: "VALIDATION_ERROR",
+  });
+  assert.equal(publicadas.length, 0);
+  b.estado.decisoes.push({ ...decisao("permitida", "humano"), transaccao: 0 });
+  assert.deepEqual(await publicar(ctx(TENANT), { sku: SKU, confirmacao: CONFIRMACAO }), ok(undefined));
+  assert.deepEqual(publicadas, [SKU]);
+  // E a re-análise seguinte não o volta a tirar: há decisão para a versão e o conteúdo.
+  assert.deepEqual(await reanalisarSobre(b), { analisados: 0, violacoes: 0, terminou: true });
+  assert.equal(b.estado.ofertas[0]!.estado, "publicado");
+});
+
+test("KAM-253: o catalog.product_changed da retirada e o do COM dizem o mesmo", async () => {
+  // Duas fontes do mesmo evento (achado 5 da revisao adversarial): o
+  // `despublicar` do `core-ts` e o `emitirProdutoAlterado` do COM, que serve o
+  // resto do catalogo. Cruzam-se aqui, constante a constante.
+  assert.equal(TIPO_PRODUTO_ALTERADO, TIPO_PRODUCT_CHANGED);
+  assert.equal(VERSAO_PRODUTO_ALTERADO, VERSAO_PRODUCT_CHANGED);
+  assert.equal(AGREGADO_PRODUTO_ALTERADO, AGREGADO_PRODUTO);
+  assert.equal(CLASSE_PII_PRODUTO_ALTERADO, CLASSE_PII_CATALOGO);
+  assert.deepEqual([...FINALIDADES_PRODUTO_ALTERADO], [...FINALIDADES_CATALOGO]);
+  assert.equal(SQL_EMITIR_PRODUTO_ALTERADO, SQL_EMITIR);
+});
+
+test("KAM-253, adversarial: o mesmo sku e o mesmo conteudo noutro tenant ficam intactos", async () => {
+  // O outro tenant tem o mesmo sku, o mesmo nome e a mesma categoria, e uma
+  // `permitida` humana deste conteúdo nesta versão — por isso a re-análise não
+  // o lê. A retirada do primeiro não o toca.
+  const humanaDoOutro = { ...decisao("permitida", "humano"), tenantId: OUTRO };
+  const b = base({
+    ofertas: [publicado(OUTRO), publicado(TENANT)],
+    categorias: { [TENANT]: "moda", [OUTRO]: "moda" },
+    decisoes: [humanaDoOutro],
+  });
+  const r = await reanalisarSobre(b);
+  assert.deepEqual(r, { analisados: 1, violacoes: 1, terminou: true });
+  assert.deepEqual(
+    b.estado.ofertas.map((o) => [o.tenantId, o.estado]),
+    [
+      [OUTRO, "publicado"],
+      [TENANT, "rascunho"],
+    ],
+  );
+  assert.ok(b.estado.eventos.every((e) => e.tenantId === TENANT));
+  assert.equal(b.estado.decisoes.filter((d) => d.tenantId === OUTRO).length, 1);
+});
+
+test("KAM-245, D1: a corrida do screen com a re-analise, nas duas ordens, da uma chave de sinal e uma saida de publicado", async () => {
+  // A decisão D1 do fundador (2026-11-23): quando as duas violações saem, é o
+  // consumidor que as junta pela chave do conteúdo. As duas ordens da corrida:
+  //   - o screen confirma depois de a re-análise ler o lote e antes de ela
+  //     decidir: saem as duas violações, e só o screen despublica;
+  //   - a re-análise grava, despublica e emite (KAM-253), e o screen corre antes
+  //     de ela confirmar: no PostgreSQL a tranca dele espera pela confirmação e
+  //     já não encontra o publicado, e o duplo, que não bloqueia, lê o mesmo
+  //     estado. Sai uma violação.
+  const violacoesPorOrdem: Record<string, number> = {
+    "o screen confirma primeiro": 2,
+    "a re-analise grava primeiro, sem confirmar": 1,
+  };
   const ordens: Record<string, (b: Base) => PorProduto> = {
     "o screen confirma primeiro": (b) => async (tenantId, trabalho) => {
       await operar(b)(ctx(TENANT), pedido());
@@ -437,22 +628,15 @@ test("KAM-245, D1: a corrida do screen com a re-analise, nas duas ordens, emite 
   };
   for (const [ordem, porProduto] of Object.entries(ordens)) {
     const b = base({ ofertas: [publicado()], categorias: { [TENANT]: "moda" } });
-    const r = await reanalisar(
-      {
-        politica: politicaCorrente(),
-        classificador: null,
-        escritor: new EscritorSql(b.cliente as never),
-        emissor: new EmissorSql(b.cliente as never),
-        catalogo: new CatalogoSql(b.cliente as never),
-        porProduto: porProduto(b),
-      },
-      { tamanhoDoLote: 10, maximoPorExecucao: 10 },
-    );
+    const r = await reanalisarSobre(b, porProduto(b));
     assert.equal(r.violacoes, 1, ordem);
     const violacoes = b.estado.eventos.filter((e) => e.tipo === TIPO_VIOLACAO);
-    assert.equal(violacoes.length, 2, `${ordem}: a corrida existe, e emite duas`);
-    assert.equal(new Set(violacoes.map((e) => e.transaccao)).size, 2, ordem);
+    assert.equal(violacoes.length, violacoesPorOrdem[ordem], ordem);
+    assert.equal(new Set(violacoes.map((e) => e.transaccao)).size, violacoes.length, ordem);
     assert.equal(b.estado.ofertas[0]!.estado, "rascunho", ordem);
+    // Uma só saída de publicado, e um só `catalog.product_changed`, nas duas ordens.
+    assert.equal(b.estado.despublicacoes.length, 1, ordem);
+    assert.equal(tipos(b).filter((t) => t === PRODUCT_CHANGED).length, 1, ordem);
     // As duas dão o mesmo sinal: a chave é o conteúdo, e não o envelope.
     const semBase = { query: () => Promise.reject(new Error("a violacao nao le a base")) };
     const refs = await Promise.all(
@@ -465,7 +649,7 @@ test("KAM-245, D1: a corrida do screen com a re-analise, nas duas ordens, emite 
         return sinal!.refEvento;
       }),
     );
-    assert.equal(refs[0], refs[1], ordem);
+    assert.equal(new Set(refs).size, 1, ordem);
     assert.equal(refs[0], refDaViolacao(TENANT, SKU, VERSAO, sha256EmBase32(conteudoSha256({ categoria_declarada: "moda", textos: [NOME] }))), ordem);
   }
 });
@@ -551,8 +735,9 @@ test("KAM-245, criterio 2: o screen de outro conteudo nao emite — outro nome, 
 });
 
 test("KAM-245, criterio 2: a bloqueada de outro conteudo nao tira o publicado que a re-analise ja bloqueou", async () => {
-  // O publicado já tem uma `bloqueada` da re-análise, que não o despublicou.
-  // Um `screen` de outro texto, também bloqueado, decide sobre esse texto: não
+  // O publicado já tem uma `bloqueada` da re-análise que não o despublicou
+  // (antes do KAM-253, ou porque o conteúdo mudou durante a re-análise). Um
+  // `screen` de outro texto, também bloqueado, decide sobre esse texto: não
   // é a decisão do publicado, e não o tira nem emite por ele.
   const b = base({
     ofertas: [publicado()],

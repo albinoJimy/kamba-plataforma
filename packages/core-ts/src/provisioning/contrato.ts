@@ -440,9 +440,41 @@ export interface RefExterna {
 /** A etiqueta que a saga põe em tudo o que cria, para a reconciliação a reconhecer. */
 export const ETIQUETA_DA_SAGA = "kamba_provisioning";
 
-/** A chave virtual do LiteLLM. Chave natural: o alias (critério 2, passo 2). */
-export interface ChaveDeLlm extends Inventario<{ alias: string; orcamento: number }, RefExterna> {
+/** O que identifica uma chave virtual: o alias e o orçamento do plano. */
+export interface PedidoDeChave {
+  readonly alias: string;
+  readonly orcamento: number;
+}
+
+/**
+ * A chave virtual do LiteLLM. Chave natural: o alias (critério 2, passo 2).
+ *
+ * **O `id` é o `token` do proxy**, que é o SHA-256 do valor da chave (medido no
+ * KAM-250, `docs/evidencia/KAM-250.md`). É o que vai para `tenants.litellm_key_id`
+ * e o que deixa o passo confirmar que o valor do cofre autentica a chave sem o
+ * mandar a lado nenhum.
+ *
+ * **O `criar` recebe o valor e não o devolve** (KAM-250): o valor gera-se no
+ * passo e vai para o cofre **antes** de ir para o proxy, pelo que nada do que o
+ * proxy responde precisa de sair do adaptador.
+ */
+export interface ChaveDeLlm {
+  procurar(chave: PedidoDeChave): Promise<RefExterna | null>;
+  criar(chave: PedidoDeChave & { readonly valor: string }): Promise<RefExterna>;
   revogar(id: string): Promise<void>;
+}
+
+/**
+ * O cofre das chaves virtuais (KAM-250): ler e gravar numa referência fixa.
+ *
+ * Junta, no sítio de uso, a `SecretProvider` do projecto das chaves e a
+ * `GravadorDeSegredo` (`secrets/gravacao.ts`), pela razão que o `Cofre` do
+ * onboarding junta a leitura ao `cunhar`. O `ler` devolve `null` quando o segredo
+ * não existe — e levanta quando o cofre não responde, que é outra coisa.
+ */
+export interface CofreDeChaves {
+  ler(ref: string): Promise<string | null>;
+  gravar(ref: string, valor: string): Promise<void>;
 }
 
 /**

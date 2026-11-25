@@ -571,12 +571,19 @@ describe("reanalisar", () => {
     const produtos = Array.from({ length: 7 }, (_, i) => ({ sku: `s${i}`, nome: i === 3 ? "vinho tinto" : "camisola" }));
     const cat = catalogo(produtos, b.linhas);
     const violacoes: unknown[] = [];
+    const retirados: string[] = [];
     const deps = {
       politica: politicaCorrente(),
       classificador: classificador("permitida"),
       escritor: b.escritor,
       catalogo: cat,
       emissor: { emitir: async (v: unknown) => void violacoes.push(v) },
+      retirada: {
+        retirar: async (p: { sku: string }) => {
+          retirados.push(p.sku);
+          return true;
+        },
+      },
     };
     const r1 = await reanalisar(deps, { tamanhoDoLote: 2, maximoPorExecucao: 5 });
     assert.deepEqual(r1, { analisados: 5, violacoes: 1, terminou: false });
@@ -594,6 +601,72 @@ describe("reanalisar", () => {
         conteudoSha256: b.linhas.find((l) => l.sujeitoRef === "s3")!.conteudoSha256,
       },
     ]);
+    // KAM-253: so a bloqueada pede a retirada, e uma vez.
+    assert.deepEqual(retirados, ["s3"]);
+  });
+  it("(KAM-253) a retirada corre na transaccao do produto, antes da violacao, e uma falha dela desfaz a decisao", async () => {
+    const confirmadas: LinhaDeDecisao[] = [];
+    let pendentes: LinhaDeDecisao[] = [];
+    const passos: string[] = [];
+    const porProduto = async <T,>(_tenant: string, trabalho: () => Promise<T>): Promise<T> => {
+      pendentes = [];
+      passos.push("BEGIN");
+      try {
+        const resultado = await trabalho();
+        confirmadas.push(...pendentes);
+        passos.push("COMMIT");
+        return resultado;
+      } catch (excepcao) {
+        passos.push("ROLLBACK");
+        throw excepcao;
+      }
+    };
+    let falhar = true;
+    const deps = {
+      politica: politicaCorrente(),
+      classificador: null,
+      escritor: {
+        gravar: async (l: LinhaDeDecisao) => {
+          passos.push(`gravar ${l.sujeitoRef} ${l.decisao}`);
+          pendentes.push(l);
+        },
+      },
+      catalogo: catalogo([{ sku: "s1", nome: "vinho tinto" }], confirmadas),
+      emissor: { emitir: async (v: { sku: string }) => void passos.push(`emitir ${v.sku}`) },
+      retirada: {
+        retirar: async (p: { sku: string }) => {
+          passos.push(`retirar ${p.sku}`);
+          if (falhar) throw new Error("offer_terms");
+          return true;
+        },
+      },
+      porProduto,
+    };
+    await assert.rejects(reanalisar(deps, { tamanhoDoLote: 5, maximoPorExecucao: 5 }), /offer_terms/);
+    assert.deepEqual(passos, ["BEGIN", "gravar s1 bloqueada", "retirar s1", "ROLLBACK"]);
+    assert.equal(confirmadas.length, 0);
+    // A execucao seguinte volta ao produto, e desta vez confirma os tres.
+    falhar = false;
+    passos.length = 0;
+    assert.deepEqual(await reanalisar(deps, { tamanhoDoLote: 5, maximoPorExecucao: 5 }), { analisados: 1, violacoes: 1, terminou: true });
+    assert.deepEqual(passos, ["BEGIN", "gravar s1 bloqueada", "retirar s1", "emitir s1", "COMMIT"]);
+  });
+  it("(KAM-253) uma retirada que nao tira nada nao muda o resultado nem desfaz a violacao", async () => {
+    const b = base();
+    const emitidas: unknown[] = [];
+    const r = await reanalisar(
+      {
+        politica: politicaCorrente(),
+        classificador: null,
+        escritor: b.escritor,
+        catalogo: catalogo([{ sku: "s1", nome: "vinho tinto" }], b.linhas),
+        emissor: { emitir: async (v: unknown) => void emitidas.push(v) },
+        retirada: { retirar: async () => false },
+      },
+      { tamanhoDoLote: 5, maximoPorExecucao: 5 },
+    );
+    assert.deepEqual(r, { analisados: 1, violacoes: 1, terminou: true });
+    assert.equal(emitidas.length, 1);
   });
   it("(F11/F12) um emissor que falha desfaz a decisao do produto, e a execucao seguinte emite", async () => {
     const confirmadas: LinhaDeDecisao[] = [];
@@ -622,6 +695,7 @@ describe("reanalisar", () => {
           emitidas.push(v);
         },
       },
+      retirada: { retirar: async () => true },
       porProduto,
     };
     await assert.rejects(reanalisar(deps, { tamanhoDoLote: 5, maximoPorExecucao: 5 }), /outbox/);
@@ -635,7 +709,14 @@ describe("reanalisar", () => {
     const b = base();
     await assert.rejects(
       reanalisar(
-        { politica: politicaCorrente(), classificador: null, escritor: b.escritor, catalogo: catalogo([], []), emissor: { emitir: async () => {} } },
+        {
+          politica: politicaCorrente(),
+          classificador: null,
+          escritor: b.escritor,
+          catalogo: catalogo([], []),
+          emissor: { emitir: async () => {} },
+          retirada: { retirar: async () => true },
+        },
         { tamanhoDoLote: 0, maximoPorExecucao: 1 },
       ),
       RangeError,

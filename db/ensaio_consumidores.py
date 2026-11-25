@@ -260,7 +260,10 @@ def _corpo_de_webhook() -> str:
 def _por_job(pilha: Pilha, fila: str, nome: str, dados: dict, job_id: str) -> None:
     codigo = (
         "import { FilasBullmq } from '@kamba/core-ts/eventos/filas_bullmq';"
-        "const f = new FilasBullmq({ url: 'redis://queue:6379' });"
+        # O URL do servico, e nao um literal: desde o KAM-249 a fila de
+        # *staging* exige credencial, e o `KAMBA_QUEUE_URL` do `entrada.ts`
+        # leva-a.
+        "const f = new FilasBullmq({ url: process.env.KAMBA_QUEUE_URL });"
         f"await f.addLote({json.dumps(fila)}, [{{ jobId: {json.dumps(job_id)}, "
         f"nome: {json.dumps(nome)}, dados: {json.dumps(dados)} }}]);"
         "await f.fechar();"

@@ -73,12 +73,17 @@ confundi-las é a armadilha desta página:
 | Quer-se | Faz-se |
 |---|---|
 | **Cortar o acesso** de um *tenant* | `POST /key/update` com `max_budget: 0` — o proxy passa a responder **422** `budget_exceeded` e o cliente devolve `OrcamentoEsgotado`. A chave continua a existir e o histórico de `dat.llm_call_log` fica intacto |
-| **Rodar o valor** da chave | `POST /key/delete` e novo `/key/generate`; escrever o valor novo no cofre em `litellm_virtual_key/<tenant_id>` |
+| **Rodar o valor** da chave | **Apagar o segredo** `litellm_virtual_key/<tenant_id>` no projecto Doppler das chaves e correr o `provisionar` abaixo: com o cofre vazio, ele apaga a chave no proxy, grava um valor novo no cofre e cria a chave com ele (desfecho `reemitida`). **Não basta o `/key/delete`**: com o valor ainda no cofre, o `provisionar` seguinte recria a chave **com o mesmo valor**, e uma chave comprometida continua válida |
 
 O `provisionar` do `infra/llm/chaves.py` **não** reemite a chave numa segunda
-corrida: usa `/key/update`, de propósito. Reemitir a cada corrida obrigava a
-reescrever o segredo de todos os *tenants* por causa de um — e a escrita no
-cofre não está na porta do KAM-010 (`ADR-L002` §6, lacuna que o KAM-016 nomeia).
+corrida: se o valor que está no cofre autentica a chave (o SHA-256 dele é o
+`token` que o proxy lista), usa `/key/update`, de propósito. Desde o KAM-250 o
+valor vive num projecto Doppler só das chaves virtuais, e o `chaves.py` grava-o
+lá **antes** de criar a chave (`ADR-L002` §7, *proposta*); o AGR lê-o de lá, sem
+reiniciar, até 10 s depois da escrita. Precisa do `KAMBA_ENV` e do
+`doppler_llm_chaves_escrita` no ambiente, e recusa sem eles antes de falar com o
+proxy. O `revogar` **não** apaga o segredo do cofre: para cortar um tenant de vez,
+apaga-se também o segredo.
 
 ```bash
 python infra/llm/chaves.py provisionar <tenant_id> <plano>

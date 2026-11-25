@@ -135,6 +135,11 @@ e nada no código dos consumidores. É o valor de ter a porta.
   que o **KAM-016** vai precisar na troca do *code* do Embedded Signup v4. Ficou
   deliberadamente fora: nenhum serviço do Piloto escreve no cofre hoje, e uma
   porta de escrita sem consumidor é desenho especulativo. O KAM-016 acrescenta-a.
+  *(Actualização, KAM-250.)* O KAM-016 acrescentou a `SecretWriter` com o
+  `cunhar` (`packages/core-ts/src/secrets/escrita.ts`), só com o `OpenBaoFakeProvider`
+  a implementá-la. O KAM-250 acrescenta a escrita numa referência **fixa**
+  (`gravar`) e a primeira implementação sobre o Doppler, só para as chaves
+  virtuais do LiteLLM — ver o §7.
 - **A porta é assíncrona em TypeScript e síncrona em Python.** Do lado Node não
   há alternativa; do lado Python, torná-la assíncrona obrigava a arrastar um
   cliente HTTP para dentro de `libs/py-core`, que não tem dependências por
@@ -148,3 +153,49 @@ e nada no código dos consumidores. É o valor de ter a porta.
   do cliente.** O provedor recusa-se a construir quando a configuração não bate
   com o ambiente. A metade que importa — o servidor recusar — exige três
   projectos reais e fica por satisfazer.
+
+## §7 — Emenda *proposta* (KAM-250): as chaves virtuais do LiteLLM vivem num projecto Doppler próprio, e o AGR lê-as pela API
+
+**Estado: proposta**, até o fundador a ratificar, como as outras emendas. A
+escolha que ela regista já foi feita por ele, a 2026-11-24, no bloco do KAM-250
+(`specs/EPIC-03_Agent_Runtime_Verticais.md`, «Decisões do fundador»): a opção 1;
+recusadas a 2 (só o operador grava, e a saga do KAM-091 falha fechada em `prod`)
+e a 3 (um *token* de escrita na configuração do ambiente).
+
+**O que a (A) não consegue servir.** A chave virtual de um tenant lê-se como
+`litellm_virtual_key/<tenant_id>`, que o §2 desta decisão transforma na variável
+`KAMBA_SECRET_LITELLM_VIRTUAL_KEY__<tenant_id>`. Em `staging` e `prod` os
+segredos chegam por interpolação do *compose*, que declara uma lista fixa de nomes
+por serviço: **um nome que depende do tenant não se declara**. Até ao KAM-250 o
+AGR não lia a chave de tenant nenhum, nem depois de reiniciar. E o valor não
+chegava ao cofre: ninguém o escrevia.
+
+**A excepção, e o seu tamanho.**
+
+1. As duas famílias que o proxy emite — `litellm_virtual_key` (por tenant) e
+   `litellm_screening_key` — vivem num **projecto Doppler só delas**
+   (`kamba-llm-chaves`, *proposta*, com as configurações `staging` e `prod`), e não
+   na configuração do ambiente.
+2. Escreve-as o provisionamento (`infra/llm/chaves.py` e o passo `chave_llm` da
+   saga do KAM-091), pela porta `GravadorDeSegredo.gravar(ref, valor)`, com o
+   `doppler_llm_chaves_escrita`: um *token* limitado a esse projecto. Quem o
+   roubar reescreve chaves de LLM, e mais nada. O gravador recusa, do lado do
+   cliente, qualquer família fora das duas.
+3. Lê-as o AGR **pela API**, pelo `DopplerSecretProvider`, com o
+   `doppler_llm_chaves_leitura`: só leitura, só esse projecto. É o **único** sítio
+   onde um serviço lê um segredo pela API e não do ambiente. Um tenant novo não
+   pede reinício; o AGR não ganha acesso a mais nenhum segredo; e a saída para
+   `api.doppler.com` passa pelo `proxy-saida`, declarada em `services/agr/egress.yaml`.
+4. Em `staging` e `prod`, sem o *token* de leitura, as chaves **não** se lêem do
+   ambiente: o `chamar` falha e o turno degrada. Fecha, e não abre.
+
+**O que a emenda não muda.** Todos os outros segredos continuam na (A). A regra 5
+continua: o AGR lê pela porta, e o que muda é a implementação que serve estas duas
+famílias. A janela de último valor conhecido (`TTL_ULTIMO_VALOR_S`) cobre o Doppler
+em baixo e não uma chave apagada. A rotação das chaves virtuais continua fora
+(o *runbook* de rotação).
+
+**O que fica NÃO VERIFICADO.** A forma da API de escrita do Doppler
+(`A_CONFIRMAR_ESCRITA`, nos dois lados) e que um *service token* fica limitado ao
+projecto e à configuração para que foi emitido (`E4` §2.14, em resumo). A medição
+do KAM-250 usou um Doppler falso com essa forma (`docs/evidencia/KAM-250.md`).

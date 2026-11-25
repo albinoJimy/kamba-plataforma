@@ -90,6 +90,7 @@ export {
   type PorProduto,
   type ProdutoPublicado,
   type ResultadoDaReanalise,
+  type RetiradaDoCatalogo,
   type Violacao,
 } from "./reanalise.ts";
 export {
@@ -106,4 +107,25 @@ export {
   VERSAO_VIOLACAO,
   type LigacoesDaReanalise,
 } from "./emissor.ts";
-export { CatalogoSql, EscritorSql, LeitorSql, SQL_DECISOES, SQL_GRAVAR, SQL_POR_REANALISAR, type ClienteSql } from "./sql.ts";
+export {
+  AGREGADO_PRODUTO_ALTERADO,
+  CLASSE_PII_PRODUTO_ALTERADO,
+  despublicar,
+  FINALIDADES_PRODUTO_ALTERADO,
+  RetiradaSql,
+  SQL_DESPUBLICAR,
+  SQL_EMITIR_PRODUTO_ALTERADO,
+  SQL_PUBLICADO_SOB_TRANCA,
+  TIPO_PRODUTO_ALTERADO,
+  VERSAO_PRODUTO_ALTERADO,
+} from "./retirada.ts";
+export {
+  CatalogoSql,
+  EscritorSql,
+  LeitorSql,
+  SQL_CATEGORIA_DO_TENANT,
+  SQL_DECISOES,
+  SQL_GRAVAR,
+  SQL_POR_REANALISAR,
+  type ClienteSql,
+} from "./sql.ts";

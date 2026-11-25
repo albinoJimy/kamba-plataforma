@@ -4,7 +4,7 @@
 |---|---|
 | Produto | KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para Angola |
 | Documento | Epic — Onboarding e Governação |
-| Versão | 1.49 |
+| Versão | 1.50 |
 | Data | Outubro de 2026 |
 | Classificação | Documento de Referência — Interno |
 | Documento-fonte | `../docs/tecnica/10_Onboarding_Governanca.md`, `../docs/tecnica/00_Arquitectura_Solucao.md` (ADR-019) |
@@ -2572,7 +2572,7 @@ re-análise ao *outbox*, sem suspender ninguém: quem decide a sanção é o KAM
 - [x] O tipo `screening.violation_detected` entra no §3.5 do dicionário por emenda, com o envelope comum e um corpo sem texto do produto: tenant, `sku`, regras, `versao_politica` e o `sha256` do conteúdo decidido.
 - [x] O contrato `v1` entra em `../contratos/eventos/`, com exemplo, e passa o *gate* 7 (compatibilidade, PII, exemplos); os tipos gerados e todas as contagens do catálogo acompanham.
 - [x] A porta `EmissorDeViolacoes` do `../packages/core-ts/src/screening/reanalise.ts` ganha um adaptador que escreve no *outbox* na mesma transacção da decisão, e uma falha de escrita desfaz a decisão.
-- [x] A re-análise continua a não suspender tenants nem despublicar produtos; o consumidor é o KAM-097.
+- [x] A re-análise continua a não suspender tenants nem despublicar produtos; o consumidor é o KAM-097. *Emendado a 2026-11-24. Autor: o fundador (decisão A do KAM-253, trazida pela coordenação). A metade «nem despublicar» sai: a re-análise tira de `publicado` o produto que bloqueia, como o `/internal/screen` do KAM-245. Continua a não suspender tenants, e a sanção continua a ser do KAM-097.*
 
 ### Detalhes Técnicos
 
@@ -2638,8 +2638,8 @@ têm.
 |---|---|---|
 | 1 — o tipo no §3.5 por emenda, envelope comum, corpo sem texto do produto | **satisfeito** | Emenda 1.84: `screening.violation_detected` na lista fechada do §3.5, que passa a **quarenta e um** (os quarenta da `main`, com os dois do KAM-050); agregado `product` com o `sku` como `id` (a linhagem do `catalog.product_changed`), classe P0, payload `sku`, `regras`, `versao_politica` e `sha256`, `additionalProperties: false`. Leitura: **o tenant vai no envelope, como nos outros quarenta** — nenhum deles o repete no payload, e um campo que só este evento tivesse partia a convenção; a caixa dá-se por cumprida nessa leitura, confirmada pelo orquestrador do lote. Gate 3b: `dict_export --check` conforme, `canon_lint check` conforme (`dicionario v1.84`, `eventos: 82 ficheiro(s)`), canário 10/10. Sem texto: `nao leva o texto do produto em campo nenhum` (`../packages/core-ts/tests/screening.emissor.test.ts`) |
 | 2 — contrato `v1` com exemplo, *gate* 7, tipos gerados e contagens | **satisfeito** | `contract_diff check` contra a `publico/main`: **82** contratos, 80 na base, **2 novos, 0 quebrantes**; PII **0** nomes proibidos; exemplos **0** inválidos; domínios **0** divergências; gerados **0** desactualizados; canário 11 negativas e 4 positivas, **0** falhas. Os exemplos validam contra o esquema no `exemplos` e o payload real no `validarPayload` das duas versões (`passa no validador do contrato, nas duas versoes publicadas`). Contagens: o `ESPERADOS` passa a 41 em três baterias (`../tools/contract_diff/tests/test_catalogo_e_cli.py`, `../libs/py-core/tests/test_eventos_contratos.py`, `../packages/contracts/tests/eventos.test.ts`) e o `../packages/core-ts/tests/eventos.contratos.test.ts` a 41 e 82; o tipo entra no `FORA_DO_CINCO`, porque o `../docs/tecnica/06` §5 não o lista; a prosa que dizia «trinta e oito» no presente deixa de fixar o número (`../docs/contratos.md` 1.3, `../docs/eventos.md`, o `contract_diff` e quatro comentários do COM). Suites: `contract_diff` **117** OK, `py-core` **97** OK, `@kamba/contracts` **12** OK, e os `screening*` e `eventos.*` do `@kamba/core-ts` **307** OK, com o *typecheck* dos dois pacotes a zero |
-| 3 — o adaptador escreve no *outbox* na transacção da decisão; uma falha desfaz a decisão | **satisfeito** | `EmissorSql` valida o payload contra o contrato e chama o `evt_emitir` pelo cliente que recebe; `porProdutoSql` é o `comTenant` sobre esse **mesmo** cliente, e a `dependenciasDaReanalise` é o único sítio onde a ligação da aplicação entra (achado F3: deixar a composição a quem monta o *job* era deixá-la a uma linha sem ensaio). **A prova é composta, e diz-se:** nenhum ensaio corre o `reanalisar` em TypeScript contra PostgreSQL. A metade TypeScript mede, pelo `comTenant` real e pela fábrica, a sequência: `BEGIN`, contexto, `gravar`, `emitir`, `COMMIT`; com o `evt_emitir` a falhar, `BEGIN`, contexto, `gravar`, `emitir`, `ROLLBACK` e a execução pára (`uma bloqueada grava e emite dentro da mesma transaccao do produto, e confirma`, `uma falha da escrita no outbox desfaz a transaccao com a decisao, e para a execucao`), e a ordem dos argumentos do `evt_emitir` (`chama o evt_emitir com o tipo, a versao, o tenant, o produto e o payload`). A metade da base corre o `SQL_EMITIR_VIOLACAO` e o `SQL_GRAVAR` do módulo tal como estão escritos, com os argumentos nessa ordem: a decisão e a linha do *outbox* estão na mesma transacção, o envelope **real** valida contra o `v1.schema.json`, e um `ROLLBACK` não deixa nem uma nem outra (`test_a_bloqueada_e_o_evento_ficam_na_mesma_transaccao`); uma escrita recusada pela RLS do *outbox* (`42501`) aborta a transacção com a decisão dentro (`test_uma_escrita_recusada_desfaz_a_decisao`) — **13** ensaios do ficheiro OK numa base descartável do `../db/gate_bd.py` |
-| 4 — a re-análise não suspende nem despublica; o consumidor é o KAM-097 | **satisfeito** | A sequência do critério 3 é **exaustiva**: além do contexto e da transacção, o único SQL que a re-análise corre é o `gravar` e o `emitir` — nenhum `UPDATE` de `tenants` nem de `offer_terms`. O `EmissorSql` só chama o `evt_emitir`. Consumidor: o KAM-097, que consome o tipo no seu critério 1 |
+| 3 — o adaptador escreve no *outbox* na transacção da decisão; uma falha desfaz a decisão | **satisfeito** | `EmissorSql` valida o payload contra o contrato e chama o `evt_emitir` pelo cliente que recebe; `porProdutoSql` é o `comTenant` sobre esse **mesmo** cliente, e a `dependenciasDaReanalise` é o único sítio onde a ligação da aplicação entra (achado F3: deixar a composição a quem monta o *job* era deixá-la a uma linha sem ensaio). **A prova é composta, e diz-se:** nenhum ensaio corre o `reanalisar` em TypeScript contra PostgreSQL. A metade TypeScript mede, pelo `comTenant` real e pela fábrica, a sequência: `BEGIN`, contexto, `gravar`, `emitir`, `COMMIT`; com o `evt_emitir` a falhar, `BEGIN`, contexto, `gravar`, `emitir`, `ROLLBACK` e a execução pára (`uma bloqueada grava e emite dentro da mesma transaccao do produto, e confirma`, `uma falha da escrita no outbox desfaz a transaccao com a decisao, e para a execucao`), e a ordem dos argumentos do `evt_emitir` (`chama o evt_emitir com o tipo, a versao, o tenant, o produto e o payload`). *Alargada pelo KAM-253 (2026-11-24):* entre o `gravar` e o `emitir` entra agora a retirada, e o mesmo ensaio fixa-a; ver o critério 4. A metade da base corre o `SQL_EMITIR_VIOLACAO` e o `SQL_GRAVAR` do módulo tal como estão escritos, com os argumentos nessa ordem: a decisão e a linha do *outbox* estão na mesma transacção, o envelope **real** valida contra o `v1.schema.json`, e um `ROLLBACK` não deixa nem uma nem outra (`test_a_bloqueada_e_o_evento_ficam_na_mesma_transaccao`); uma escrita recusada pela RLS do *outbox* (`42501`) aborta a transacção com a decisão dentro (`test_uma_escrita_recusada_desfaz_a_decisao`) — **13** ensaios do ficheiro OK numa base descartável do `../db/gate_bd.py` |
+| 4 — a re-análise não suspende nem despublica; o consumidor é o KAM-097 | **satisfeito** | A sequência do critério 3 é **exaustiva**: além do contexto e da transacção, o único SQL que a re-análise corre é o `gravar` e o `emitir` — nenhum `UPDATE` de `tenants` nem de `offer_terms`. O `EmissorSql` só chama o `evt_emitir`. Consumidor: o KAM-097, que consome o tipo no seu critério 1. **Emenda de 2026-11-24 (autor: o fundador; decisão A do KAM-253):** a metade «nem despublicar» deixou de valer. A sequência exaustiva é agora a do bloco do KAM-253: depois do `gravar` e **antes** do `emitir` da violação, a retirada tranca a oferta, relê a categoria e as decisões, tira de `publicado` e emite o `catalog.product_changed`, pelo mesmo cliente. A violação sai a seguir, na mesma transacção. Continua sem `UPDATE` de `tenants` |
 
 | DoD | Estado | Evidência |
 |---|---|---|
@@ -5268,18 +5268,38 @@ Decidir, e depois cumprir, o que acontece à visibilidade de um publicado que a 
 
 ### Critérios de Aceitação
 
-- [ ] A decisão está registada no bloco, com data e autor: despublicar na re-análise (emenda ao critério 4
+- [x] A decisão está registada no bloco, com data e autor: despublicar na re-análise (emenda ao critério 4
   do KAM-191), ou deixar a visibilidade à sanção do KAM-097, ou outra.
-- [ ] Se a re-análise despublicar: na transacção por produto que ela já abre, a decisão, a violação, a saída
+- [x] Se a re-análise despublicar: na transacção por produto que ela já abre, a decisão, a violação, a saída
   de `publicado` para `rascunho` e o `catalog.product_changed`, como no `/internal/screen` do KAM-245; uma
   falha de qualquer um desfaz os quatro.
-- [ ] O recurso humano da T&S (uma `permitida` de `humano`) continua a deixar o dono republicar.
+- [x] O recurso humano da T&S (uma `permitida` de `humano`) continua a deixar o dono republicar.
 
 ### Detalhes Técnicos
 
 - **Sem esquema novo** previsto: o `kamba_app` já escreve o `estado` da `offer_terms` (revisão `0028`).
 - A re-análise lê o catálogo como `kamba_batch` e escreve como `kamba_app`, na transacção por produto
   (`porProdutoSql`); a saída de `publicado` vai nessa transacção.
+
+### Decisão do fundador
+
+**Data: 2026-11-24. Autor: o fundador** (respondida no chat da coordenação, e trazida por ela). A pergunta foi a
+do critério 1: o que acontece à visibilidade de um publicado que a re-análise de uma versão nova da política
+bloqueia.
+
+- **Escolhida — A: despublica, como o `screen`.** Na transacção por produto que a re-análise já abre ficam a
+  decisão, a violação, a passagem de `publicado` a `rascunho` e o `catalog.product_changed`, e só quando o
+  `assertPublishable` diz `bloqueada` (uma `permitida` de `humano` ganha). A saída de publicado passa do COM
+  para o `../packages/core-ts/src/screening/`, com um só escritor para os dois caminhos. Emenda o critério 4 do
+  KAM-191 só na metade «nem despublicar»: a re-análise continua a não suspender tenants, e a sanção continua a
+  ser do KAM-097.
+- **Recusada — B:** fica como está, e a visibilidade é da sanção do KAM-097. Uma violação sozinha pesa 35 e dá
+  só `aviso`, pelo que o produto ficava visível.
+- **Recusada — C:** esconder do cliente sem mudar o `estado`, com o IDX e a pesquisa a filtrar pelo
+  `platform.oferta_publicavel`.
+
+A emenda está escrita no critério 4 do KAM-191 e na linha 4 da verificação dele, com a mesma data e o mesmo
+autor.
 
 ### Testes Requeridos
 
@@ -5289,7 +5309,7 @@ Decidir, e depois cumprir, o que acontece à visibilidade de um publicado que a 
 
 ### Definition of Done
 
-- [ ] Critérios de Aceitação satisfeitos; a assimetria do bloco do KAM-245 revista com a evidência.
+- [x] Critérios de Aceitação satisfeitos; a assimetria do bloco do KAM-245 revista com a evidência.
 
 ### Handoff para Claude Code
 
@@ -5300,6 +5320,105 @@ specs/EPIC-11_Modulos_Entrada.md (bloco KAM-245) e packages/core-ts/src/screenin
 Objectivo: que a visibilidade de um publicado bloqueado pela re-análise siga a decisão do fundador.
 Regras: a decisão é do fundador; uma violação por conteúdo; isolamento de tenant.
 ```
+
+### Decisões do executor
+
+- **Um só escritor, em `../packages/core-ts/src/screening/retirada.ts`.** A tranca (`SQL_PUBLICADO_SOB_TRANCA`), a
+  saída de publicado (`SQL_DESPUBLICAR` e o `catalog.product_changed`, na função `despublicar`) e a categoria do
+  tenant (`SQL_CATEGORIA_DO_TENANT`, em `sql.ts`) mudaram do `../services/com/src/screening/index.ts` para o
+  `core-ts`, com o mesmo texto. O COM importa-as e reexporta-as para os seus ensaios, e o `gravarComViolacao`
+  chama o `despublicar`; o `emitirProdutoAlterado` do COM deixou de servir este caminho. Tinha de ser assim: a
+  re-análise vive no `core-ts`, e o `core-ts` não importa serviços.
+- **A porta `RetiradaDoCatalogo` é obrigatória no `reanalisar`.** Uma porta opcional deixava um chamador
+  esquecer-se dela, e o publicado bloqueado ficava visível sem erro nenhum. O adaptador de produção é a
+  `RetiradaSql`, montada pela `dependenciasDaReanalise` sobre a **mesma** ligação do escritor e do emissor.
+- **A ordem é decisão, retirada, violação, e é a das trancas** (achado 1 da revisão adversarial). O
+  `evt_emitir` tranca a linha da sequência do agregado (`evt_agregado_seq`, o par `product`/`sku`) até à
+  confirmação, e o `/internal/screen` e o rascunho do dono trancam a oferta **antes** de emitir. A primeira versão
+  emitia a violação e só depois trancava a oferta, pela ordem contrária, e uma corrida com qualquer dos dois dava
+  `40P01`. A retirada vem agora antes do primeiro `evt_emitir`: tranca a oferta e relê o conteúdo publicado (o
+  `nome` e a categoria do tenant), porque o leitor do lote corre noutra ligação e antes da transacção. Depois pergunta ao `assertPublishable` **por esse** conteúdo. Se o dono mudou o nome ou a categoria
+  entretanto, o conteúdo de agora não tem a decisão que acabou de se gravar, dá `sem_decisao`, e o produto fica:
+  a re-análise seguinte analisa-o. Uma `permitida` humana que tenha chegado antes também ganha.
+- **A violação continua a sair sempre que a decisão é `bloqueada`**, como no KAM-191. A retirada só decide a
+  visibilidade; uma retirada que não tira nada não desfaz a violação. A `politica` que a retirada usa é a do
+  próprio `reanalisar`, passada a cada chamada, e não uma segunda cópia no adaptador (achado 6).
+- **O `catalog.product_changed` tem duas fontes, e cruzam-se por ensaio** (achado 5). O `despublicar` do
+  `core-ts` emite-o para a saída de publicado, e o `emitirProdutoAlterado` do COM continua a servir o resto do
+  catálogo. O tipo, a versão, o agregado, a classe, as finalidades e o texto do `evt_emitir` comparam-se
+  constante a constante no ensaio do COM.
+- **A corrida com o `/internal/screen`, revista.** A retirada tranca a oferta **antes** de emitir. Se a re-análise
+  tranca primeiro, o `screen` concorrente espera pela confirmação dela, já não encontra o publicado e sai uma
+  violação só. Se o `screen` confirma primeiro, saem duas, e a D1 do KAM-245 junta-as num sinal. Nas duas
+  ordens há uma saída de publicado e um `catalog.product_changed`.
+- **A `limitacao` da `0067` não colide** (a pergunta da coordenação sobre a D2 do KAM-245): o *trigger* só
+  pergunta na transição `rascunho → publicado`, e a saída de publicado passa com a `limitacao` em vigor. A
+  republicação sob `limitacao` é o achado que a D2 deixou escrito, sem credor, e vale igual para o que a
+  re-análise tira.
+- **Sem chamador de produção, e isso não é deste ticket:** nada agenda o `reanalisar` na mudança de versão, e o
+  credor é o KAM-078. Até lá, a decisão mede-se nos ensaios e contra a base.
+- **Achado: o recurso humano vale por versão da política** (achado 2 da revisão adversarial, sem credor). O
+  `assertPublishable` lê só as decisões da versão corrente, e a re-análise só lê produtos sem decisão nessa
+  versão. Por isso uma `permitida` humana de uma versão anterior não ganha. Se a versão seguinte voltar a
+  bloquear o mesmo conteúdo, o produto volta a `rascunho` com uma violação nova, e a T&S tem de decidir o recurso
+  outra vez. Antes do KAM-253 ficava visível, só com a violação. É a letra da decisão A («só quando o
+  `assertPublishable` diz `bloqueada`») e a regra do `/internal/screen` desde o KAM-245. Fica escrito aqui e foi
+  levado à coordenação.
+- **Sem esquema novo, sem contrato novo e sem nome novo.** O dicionário leva a emenda 1.150 só porque o §3.58
+  dizia que a re-análise não despublica.
+
+### Verificação dos Critérios de Aceitação
+
+Três critérios, **três marcados**. O que corre o `reanalisar` com as peças de produção (o `EscritorSql`, o
+`EmissorSql`, a `RetiradaSql` e o `CatalogoSql`) sobre um duplo da base que **lê o texto da instrução** é o
+`../services/com/tests/screening.violacao.test.ts` (o do KAM-245, alargado: **22** ensaios, eram 16). A sequência exaustiva de
+instruções está no `../packages/core-ts/tests/screening.emissor.test.ts`, pelo `comTenant` real. A base está no
+`../db/tests/test_screening_schema.py`, classe `TestRetiradaDaReanalise`.
+
+| Critério | Estado | Evidência nomeada |
+|---|---|---|
+| 1 — a decisão registada, com data e autor | marcado | A secção «Decisão do fundador» deste bloco: A, de 2026-11-24, com as recusadas. A emenda ao critério 4 do KAM-191 está escrita lá, com a mesma data e o mesmo autor |
+| 2 — a re-análise despublica na transacção por produto, e uma falha desfaz os quatro | marcado | A decisão, a violação, a oferta em `rascunho` e o `catalog.product_changed` (`{sku, estado: rascunho}`, agregado `product`) numa só transacção, e a execução seguinte já não vê o produto (`KAM-253, decisao A: a re-analise de uma mudanca de politica emite e despublica, na mesma transaccao`). A sequência exaustiva: `BEGIN`, contexto, `gravar`, a tranca, a categoria, as decisões, a saída, o evento do produto e a violação, `COMMIT`, com a tranca da oferta antes do primeiro `evt_emitir`, que é a ordem das trancas do COM (`uma bloqueada grava e emite dentro da mesma transaccao do produto, e confirma`; no duplo do COM, `KAM-253, decisao A: …`). A falha do evento do produto dá `ROLLBACK` a seguir a ele (`(KAM-253) uma falha do evento do produto desfaz a decisao, a violacao e a saida de publicado`). A falha da violação, a do evento do produto e a de uma saída que tocasse duas ofertas desfazem as quatro coisas (`KAM-253, criterio 2: a falha de qualquer dos quatro desfaz os quatro`), e uma retirada que lança desfaz a decisão, a violação já não sai, e a execução seguinte confirma (`(KAM-253) a retirada corre na transaccao do produto, antes da violacao, e uma falha dela desfaz a decisao`). Uma retirada que não tira nada não desfaz a violação (`(KAM-253) uma retirada que nao tira nada nao muda o resultado nem desfaz a violacao`). O evento do produto da retirada e o do COM dizem o mesmo (`KAM-253: o catalog.product_changed da retirada e o do COM dizem o mesmo`). **Contra o PostgreSQL**, como `kamba_app` e pelas instruções do módulo: a `bloqueada` de uma versão nova tira o publicado, o *outbox* escreve o `catalog.product_changed`, o `efeito_do_produto` do IDX lê esse envelope e o documento fica invisível, e a re-análise seguinte já não vê o produto (`test_a_bloqueada_por_versao_nova_tira_o_produto_e_o_indice_esconde_o`) |
+| 3 — o recurso humano continua a deixar o dono republicar | marcado | Depois da saída pela re-análise, o `operacaoDePublicar` recusa com `VALIDATION_ERROR`; com uma `permitida` de `humano`, publica, e a re-análise seguinte não o volta a tirar (`KAM-253, criterio 3: o recurso humano deixa o dono republicar o que a re-analise tirou`). Uma `permitida` humana que chega antes da transacção ganha: emite e não despublica (`KAM-253: uma permitida humana que chega antes da transaccao ganha, e o produto fica publicado`). A saída passa com uma `limitacao` em vigor, e o controlo na mesma transacção (um produto novo) recusa com `23514` (`test_a_saida_de_publicado_passa_com_limitacao_em_vigor`) |
+
+**Testes Requeridos:**
+- **Adversarial:** o mesmo `sku` e o mesmo conteúdo noutro tenant ficam intactos: a oferta e o documento do IDX
+  dele continuam publicados e visíveis, contra a base (o mesmo ensaio do critério 2) e no duplo
+  (`KAM-253, adversarial: o mesmo sku e o mesmo conteudo noutro tenant ficam intactos`).
+- **O produto que mudou depois da leitura do lote** (outro nome, outra categoria, já não publicado, apagado)
+  não sai (`KAM-253: o produto que mudou depois da leitura nao sai — outro nome, outra categoria, ou ja nao publicado`).
+- **A corrida com o `/internal/screen`**, nas duas ordens: uma saída de publicado, um `catalog.product_changed`
+  e uma chave de sinal (`KAM-245, D1: a corrida do screen com a re-analise, nas duas ordens, da uma chave de sinal e uma saida de publicado`).
+- **Cinco mutações à mão** no `reanalise.ts` e no `retirada.ts`, compiladas e corridas contra as três suites
+  (`screening.test.ts` e `screening.emissor.test.ts` do `core-ts`, e `screening.violacao.test.ts` do COM).
+  Todas ficam vermelhas, e o controlo antes e depois fica verde:
+  - sem a retirada: 5 e 5 vermelhos;
+  - a violação antes da retirada (a ordem do achado 1): 4 e 1;
+  - despublicar sem perguntar ao `assertPublishable`: 0 e 1, o da `permitida` humana;
+  - despublicar sem o `catalog.product_changed`: 3 e 8;
+  - decidir pelo conteúdo lido e não pelo publicado: 0 e 1, o do produto que mudou depois da leitura.
+
+**Correu localmente, sobre a árvore final:**
+- o *typecheck* do `core-ts` e do COM;
+- o `core-ts` (`screening`, `screening.emissor` e `trust`), **127/127**;
+- o COM inteiro, **663/663**;
+- o gate 8 focado no `test_screening_schema`, **22/22** numa base descartável (eram 20);
+- o gate 6 inteiro, **82/83**. O que falha é o `TestCasosDeNode`, e só por tempo esgotado: os casos X-01 de Node
+  `lote` e `sondas` passaram os 150 s, e na segunda corrida também o `canais`. Nenhum dos três toca no screening,
+  o conjunto mudou de uma corrida para a outra, e o grupo que monta o `/internal/screen` do COM (`com-interna`)
+  passou nas duas. Fica ao CI;
+- o 3b com os três comandos, o `lint_bloco` (197 emparelhados na integração com o KAM-250, piso 98), o `lint_contagens`, o `lint_backlog`, o
+  `lint_refs`, o `lint_handoff` e o `log_policy` (`lint` e `canario`);
+- a suite do `lint_bloco` (41/41) e as mutações dele, 18 mortas e 2 esperadas, com a do piso a casar outra vez.
+
+**Ficam ao CI:** o `core-ts` inteiro (aqui correram só as três suites que o ticket
+toca), o gate 8 completo e as mutações nocturnas.
+
+### Verificação da Definition of Done
+
+| Caixa | Estado | Evidência nomeada |
+|---|---|---|
+| Critérios satisfeitos; a assimetria do bloco do KAM-245 revista | marcado | Os três critérios acima. No bloco do KAM-245, a decisão A, a decisão do executor sobre a corrida, a linha 3 da verificação e o ponto da re-análise estão anotados «Revisto pelo KAM-253», com os nomes novos dos ensaios. A assimetria está fechada |
 
 ---
 
@@ -5400,7 +5519,7 @@ Entregue neste ramo, sem esquema:
   a porta `AvisoDaLista.entrega` e o desfecho `por_entregar` das métricas da lista);
 - o grupo `guia` do condutor do X-01 sobre a base ([`../tools/isolamento/tests/condutor/rotas.ts`](../tools/isolamento/tests/condutor/rotas.ts)),
   com a credencial do lote só para esse grupo;
-- a emenda 1.148 do dicionário.
+- a emenda 1.151 do dicionário.
 
 | Critério | Estado | Evidência |
 |---|---|---|
@@ -5540,4 +5659,5 @@ Regras: o onboarding-web não ganha kamba_batch (D2-A do KAM-236); a rota intern
 | 1.46 | Novembro 2026 | Escrita como 1.44 e renumerada na integração, depois do KAM-208 e do KAM-209; o credor abriu como KAM-249 e passou a KAM-253, porque o 249 a 252 fundiram com o KAM-247, o KAM-241 e o KAM-243. **KAM-253 acrescentado**, no PR do **KAM-245** (EPIC-11), que o abre e não o implementa, pela decisão A do fundador de 2026-11-23: o `/internal/screen` despublica o conteúdo que bloqueia, e a re-análise de uma mudança de política continua sem despublicar, pelo critério 4 do KAM-191. O KAM-253 é o credor dessa assimetria, com a decisão por tomar. **Aresta recíproca:** o `Bloqueia` do KAM-191 passa de «—» a **KAM-253**. Número provisório: o maior da `main` + 1. | Equipa KAMBÁ |
 | 1.47 | Novembro 2026 | **KAM-240** (escrita como 1.42 e renumerada na integração, depois do KAM-225, do KAM-233, do KAM-208, do KAM-209 e do KAM-245): a idempotência do `PATCH /painel/produtos/:id` na base (revisão `0089`). A forma da tranca (a linha, sem prazo) e a **decisão da coordenação do lote 19** de 2026-11-22 sobre a retenção (C1-A: 24 h, purga a 25 h como lote) no bloco, e as duas secções de verificação. A alínea (c) do critério 1 do KAM-236 revista com a evidência; a caixa dele continua vazia pelas alíneas (a) e (b). Número **provisório**: renumera-se na integração. | Equipa KAMBÁ |
 | 1.48 | Novembro 2026 | **KAM-239** (escrita como 1.42 e renumerada na integração, depois do KAM-225, do KAM-233, do KAM-208, do KAM-209, do KAM-245 e do KAM-240): a decisão do fundador de 2026-11-22 registada no bloco (A: a rota interna `/interno/guia/*` no `onboarding-lote`, com a credencial `onboarding_lote_token`; recusadas a tabela de pedidos e o evento) e a da coordenação do lote 19 (C1-A: o *alias* `onboarding-lote-interno` só na rede `app`, com o linter do compose a ler as redes em mapa), e as duas secções de verificação: critérios 1 e 2 satisfeitos, o 3 parcial pelo SMS do KAM-116. A alínea (a) do critério 1 do KAM-236 revista. **KAM-254 acrescentado**, no mesmo PR, que o abre e não o implementa, pela decisão da coordenação do lote 19 de 2026-11-24 (cada parcial aponta para quem o fecha): os efeitos remotos sem atomicidade, o convite da lista sem via e o X-01 das rotas do guia sobre a base; o critério 3 aponta ao KAM-116. | Equipa KAMBÁ |
-| 1.49 | Novembro 2026 | **KAM-254**: a decisão do fundador de 2026-11-24 registada no bloco (D1-A: um convite por entregar vence às 48 h sem gastar tentativa e manda o caso para o fim da fila; recusadas o mesmo lugar e o convite sem prazo) e a da coordenação do lote 22 do mesmo dia (C1-A: a marca «por entregar» é do processo, com o desfecho `por_entregar` na métrica, e o limite escrito à letra), e as duas secções de verificação: os três critérios satisfeitos. Os três pendentes do bloco do KAM-239 revistos com a evidência. Número **provisório**: renumera-se na integração. | Equipa KAMBÁ |
+| 1.49 | Novembro 2026 | **KAM-253 entregue: a re-análise que bloqueia um publicado tira-o do catálogo visível.** Número provisório: renumera-se na integração. Sem migração e sem contrato novo. A **decisão do fundador de 2026-11-24** (A: despublica, como o `screen`; recusadas B e C) fica no bloco, com as decisões do executor e as duas secções de verificação: três critérios de três e a caixa da DoD marcados. O critério 4 do KAM-191 e a linha 4 da verificação dele ficam emendados na metade «nem despublicar», com a mesma data e o mesmo autor. A tranca, a saída de publicado e a categoria do tenant mudam do COM para o `packages/core-ts/src/screening/`, e servem os dois caminhos. Emenda 1.150 do dicionário (§3.58); no EPIC-11, a assimetria do bloco do KAM-245 fica revista. | Equipa KAMBÁ |
+| 1.50 | Novembro 2026 | **KAM-254**: a decisão do fundador de 2026-11-24 registada no bloco (D1-A: um convite por entregar vence às 48 h sem gastar tentativa e manda o caso para o fim da fila; recusadas o mesmo lugar e o convite sem prazo) e a da coordenação do lote 22 do mesmo dia (C1-A: a marca «por entregar» é do processo, com o desfecho `por_entregar` na métrica, e o limite escrito à letra), e as duas secções de verificação: os três critérios satisfeitos. Os três pendentes do bloco do KAM-239 revistos com a evidência. Escrita como 1.49 e renumerada na integração, depois do KAM-253. | Equipa KAMBÁ |

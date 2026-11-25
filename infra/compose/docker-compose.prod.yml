@@ -317,7 +317,7 @@ services:
       # ou sem a KEK abaixo, o `Identidade.arrancar` recusa em `prod`.
       KAMBA_ENV: prod
       KAMBA_FASE: piloto
-      KAMBA_QUEUE_URL: redis://queue:6379
+      KAMBA_QUEUE_URL: redis://:${KAMBA_SECRET_QUEUE_PASSWORD:?o cofre entrega a credencial da fila}@queue:6379
       # Tres papeis, tres ligacoes (cabecalho do `entrada.ts`): `kamba_app`,
       # `kamba_resolver` e `kamba_identity`.
       KAMBA_ENTRADA_DB_URL: ${KAMBA_ENTRADA_DB_URL:?o deploy passa a cadeia de ligacao do kamba_app}
@@ -388,7 +388,7 @@ services:
       KAMBA_ENV: prod
       # O shim le `KAMBA_REDIS_URL`, e nao `KAMBA_QUEUE_URL` como os outros
       # tres. E a mesma fila.
-      KAMBA_REDIS_URL: redis://queue:6379
+      KAMBA_REDIS_URL: redis://:${KAMBA_SECRET_QUEUE_PASSWORD:?o cofre entrega a credencial da fila}@queue:6379
       KAMBA_AGR_URL: http://agr:8000
       KAMBA_SECRET_AGR_INTERNAL_TOKEN: ${KAMBA_SECRET_AGR_INTERNAL_TOKEN:?o cofre entrega a credencial da API interna do AGR}
     # Escala com replicas; nao abre ligacao a base (cabecalho do `agr_shim.ts`).
@@ -428,7 +428,7 @@ services:
     environment:
       <<: *node-env
       PUBLICADOR_PORT: "3011"
-      KAMBA_QUEUE_URL: redis://queue:6379
+      KAMBA_QUEUE_URL: redis://:${KAMBA_SECRET_QUEUE_PASSWORD:?o cofre entrega a credencial da fila}@queue:6379
       KAMBA_PUBLICADOR_DB_URL: ${KAMBA_PUBLICADOR_DB_URL:?o deploy passa a cadeia de ligacao do kamba_batch}
     # **Duas replicas, e so uma publica.** Quem ganha `pg_try_advisory_lock(7101)`
     # publica; a outra fica em espera e assume quando a primeira larga o lock.
@@ -477,7 +477,7 @@ services:
       # no KAM-227, `node:24.21.0`: sem ela o pedido vai directo e expira; com
       # ela, vai ao proxy). Sem ela o `*saida` nao fazia nada.
       NODE_USE_ENV_PROXY: "1"
-      KAMBA_QUEUE_URL: redis://queue:6379
+      KAMBA_QUEUE_URL: redis://:${KAMBA_SECRET_QUEUE_PASSWORD:?o cofre entrega a credencial da fila}@queue:6379
       # KAM-227: o consumidor e o `outbound`, a resposta do AGR ao WhatsApp.
       # Tres papeis, tres ligacoes: `kamba_app` (o consumo e o `Saida`),
       # `kamba_batch` (o reconciliador) e `kamba_identity` (o destinatario, pelo
@@ -552,7 +552,7 @@ services:
       <<: *node-env
       PONTE_PORT: "3194"
       KAMBA_ENV: prod
-      KAMBA_REDIS_URL: redis://queue:6379
+      KAMBA_REDIS_URL: redis://:${KAMBA_SECRET_QUEUE_PASSWORD:?o cofre entrega a credencial da fila}@queue:6379
       KAMBA_PONTE_CONSUMERS: idx
       KAMBA_PONTE_ALVO: http://idx:8061
       # O **id** do segredo, e nao o valor: o `Secrets` le-o de
@@ -601,7 +601,7 @@ services:
       <<: *node-env
       PONTE_PORT: "3194"
       KAMBA_ENV: prod
-      KAMBA_REDIS_URL: redis://queue:6379
+      KAMBA_REDIS_URL: redis://:${KAMBA_SECRET_QUEUE_PASSWORD:?o cofre entrega a credencial da fila}@queue:6379
       KAMBA_PONTE_CONSUMERS: agr_vendedor,agr_servicos
       KAMBA_PONTE_ALVO: http://agr:8000
       KAMBA_PONTE_SEGREDO: agr_internal_token
@@ -681,11 +681,16 @@ services:
       # KAM-228. O AGR verifica a credencial do `POST /internal/screening`, que o
       # classificador do `screen` do COM apresenta. Tem de ser o mesmo valor.
       KAMBA_SECRET_AGR_SCREENING_TOKEN: ${KAMBA_SECRET_AGR_SCREENING_TOKEN:?o cofre entrega a credencial da rota do classificador do AGR}
-      # A chave virtual da plataforma para o `screening-nano` (KAM-195), com que o
-      # AGR chama o LiteLLM do classificador. **Opcional**, como o inventario a
-      # declara: sem ela o `chamar` falha, o COM le `condicional`, e as condicoes
-      # recusam. Fecha, e nao abre.
-      KAMBA_SECRET_LITELLM_SCREENING_KEY: ${KAMBA_SECRET_LITELLM_SCREENING_KEY:-}
+      # KAM-250 (decisao do fundador de 2026-11-24, opcao 1). As chaves virtuais
+      # do LiteLLM — a de cada tenant e a do screening (KAM-195) — **nao** chegam
+      # por aqui: vivem num projecto Doppler so delas, e o AGR le-as pela API
+      # (`api.doppler.com`, pelo `proxy-saida`), com este *token* so de leitura
+      # desse projecto. A do tenant nem podia chegar por aqui: o nome dela leva o
+      # `tenant_id`, e nenhum compose o declara. **Opcional**: sem ele o `chamar`
+      # falha, o turno degrada, o COM le `condicional` e as condicoes recusam.
+      # Fecha, e nao abre (`services/agr/src/kamba_agr/llm/cofre_das_chaves.py`).
+      KAMBA_SECRET_DOPPLER_LLM_CHAVES_LEITURA: ${KAMBA_SECRET_DOPPLER_LLM_CHAVES_LEITURA:-}
+      KAMBA_LLM_CHAVES_PROJECTO: ${KAMBA_LLM_CHAVES_PROJECTO:-kamba-llm-chaves}
     # Duas replicas, criterio 5.
     deploy:
       replicas: 2
@@ -1028,7 +1033,7 @@ services:
       # tenant do caso, e o consumidor de T&S, KAM-200).
       KAMBA_LOTE_DB_URL: ${KAMBA_LOTE_DB_URL:?o deploy passa a cadeia de ligacao do kamba_batch}
       KAMBA_LOTE_APP_DB_URL: ${KAMBA_LOTE_APP_DB_URL:?o deploy passa a cadeia de ligacao do kamba_app}
-      KAMBA_QUEUE_URL: redis://queue:6379
+      KAMBA_QUEUE_URL: redis://:${KAMBA_SECRET_QUEUE_PASSWORD:?o cofre entrega a credencial da fila}@queue:6379
       # KAM-218: a KEK dos *tokens* de cliente, para o leitor do *token* de cada
       # WABA na fase `canal`. Os *tokens* (as instancias de `meta_client_token`,
       # uma por `token_ref`) nao se nomeiam aqui: sao por tenant, e chegam pelo
@@ -1131,7 +1136,7 @@ services:
       KAMBA_ENV: prod
       NODE_OPTIONS: --max-semi-space-size=1 --max-old-space-size=24
       PROVISIONAMENTO_PORT: "3015"
-      KAMBA_QUEUE_URL: redis://queue:6379
+      KAMBA_QUEUE_URL: redis://:${KAMBA_SECRET_QUEUE_PASSWORD:?o cofre entrega a credencial da fila}@queue:6379
       KAMBA_PROVISIONAMENTO_APP_DB_URL: ${KAMBA_PROVISIONAMENTO_APP_DB_URL:?o deploy passa a cadeia de ligacao do kamba_app}
       KAMBA_PROVISIONAMENTO_IDENTITY_DB_URL: ${KAMBA_PROVISIONAMENTO_IDENTITY_DB_URL:?o deploy passa a cadeia de ligacao do kamba_identity}
       KAMBA_SECRET_KEK_TELEFONE_DO_CASO: ${KAMBA_SECRET_KEK_TELEFONE_DO_CASO:?o cofre entrega a KEK do telefone do caso}
@@ -1197,7 +1202,7 @@ services:
       POSTGRES_DATABASE: ${CHATWOOT_DB:-kamba_chatwoot}
       POSTGRES_USERNAME: ${CHATWOOT_DB_USER:?do cofre (KAM-010)}
       POSTGRES_PASSWORD: ${CHATWOOT_DB_PASSWORD:?do cofre (KAM-010)}
-      REDIS_URL: redis://queue:6379/1
+      REDIS_URL: redis://:${KAMBA_SECRET_QUEUE_PASSWORD:?o cofre entrega a credencial da fila}@queue:6379/1
       SECRET_KEY_BASE: ${CHATWOOT_SECRET_KEY_BASE:?do cofre (KAM-010)}
       FRONTEND_URL: ${CHATWOOT_FRONTEND_URL:?o FQDN publico do painel}
     command: ["bundle", "exec", "rails", "server", "-b", "0.0.0.0", "-p", "3000"]
@@ -1243,7 +1248,7 @@ services:
       POSTGRES_DATABASE: ${CHATWOOT_DB:-kamba_chatwoot}
       POSTGRES_USERNAME: ${CHATWOOT_DB_USER:?do cofre (KAM-010)}
       POSTGRES_PASSWORD: ${CHATWOOT_DB_PASSWORD:?do cofre (KAM-010)}
-      REDIS_URL: redis://queue:6379/1
+      REDIS_URL: redis://:${KAMBA_SECRET_QUEUE_PASSWORD:?o cofre entrega a credencial da fila}@queue:6379/1
       SECRET_KEY_BASE: ${CHATWOOT_SECRET_KEY_BASE:?do cofre (KAM-010)}
       FRONTEND_URL: ${CHATWOOT_FRONTEND_URL:?o FQDN publico do painel}
     command: ["bundle", "exec", "sidekiq", "-C", "config/sidekiq.yml"]
@@ -1291,7 +1296,8 @@ services:
     #   * o `postgres`: separado da plataforma pelo papel, e nao pela rede; o
     #     PUBLIC ainda tem CONNECT nas bases `postgres`, `kamba_chatwoot` e
     #     `kamba_medusa` (divida 95 de `docs/dividas-documentais.md`);
-    #   * a `queue`, que nao pede credencial nenhuma (sem `requirepass`);
+    #   * a `queue`, que desde o KAM-249 exige credencial: o `litellm` nao a
+    #     recebe, e leva `NOAUTH`;
     #   * o `seaweedfs`, quando o perfil `sto-proprio` o levanta.
     # A A1 foi confirmada com este custo por inteiro (fundador, 2026-11-23); a
     # fila e o S3 tem credor no KAM-249.
@@ -1474,24 +1480,49 @@ services:
     image: ${KAMBA_QUEUE_IMAGE:-valkey/valkey:9.1.2-trixie@sha256:418652cfb58ef879d4978c33553735d7147016032d5aefaa14c828e611eb9dfd}
     <<: *endurecido
     user: "999:1000"
+    # **A fila exige credencial** (KAM-249). Ate aqui o comando nao tinha
+    # `requirepass` nem ACL, e qualquer membro de `data` — os quinze servicos de
+    # aplicacao e, desde o KAM-247, o `litellm` — lia e injectava trabalhos
+    # BullMQ, a entrada e a saida de WhatsApp incluidas. Com a credencial, um
+    # cliente sem ela recebe `NOAUTH` (`docs/evidencia/KAM-249.md` §2).
+    #
+    # **A senha chega pelo stdin, e nunca como argumento.** `--requirepass` na
+    # linha de comando ficava legivel no `cmdline` do `tini`, que e o PID 1 do
+    # contentor e que o `ps` do *host* mostra a qualquer utilizador (medido no
+    # KAM-249). O `-` faz o servidor ler a configuracao do stdin, e o
+    # *here-doc* expande a variavel dentro da *shell*, sem processo filho com
+    # ela nos argumentos. **Here-doc, e nao `printf | ...`:** com o *pipe*, a
+    # *shell* fica entre o `tini` e o servidor, o `SIGTERM` nao chega a ele e o
+    # `docker stop` mata-o sem fechar o AOF (medido: saida 143 contra 0).
+    #
+    # O `docker-entrypoint.sh` e o das duas imagens oficiais, no mesmo caminho
+    # (`command -v` da `/usr/local/bin/` nas duas), e e por ele que o
+    # servidor se chama: `valkey-server` numa, `redis-server` na outra. Trocar a
+    # imagem (D12) continua a ser mudar as duas variaveis de ambiente.
+    #
+    # Os argumentos:
+    #   * AOF, exigido pelo BullMQ: sem persistencia, uma reinicializacao perde
+    #     trabalhos aceites (E4 §2.10).
+    #   * `maxmemory` com `noeviction`: a fila nao e fonte de verdade (ADR-009)
+    #     e o que ela perde volta pelo *outbox*, mas um `maxmemory` ausente
+    #     deixa-a crescer ate ao `mem_limit` e morrer por OOM, o que e pior do
+    #     que recusar escrita.
     command:
-      # AOF, exigido pelo BullMQ: sem persistencia, uma reinicializacao perde
-      # trabalhos aceites (E4 §2.10).
-      - "--appendonly"
-      - "yes"
-      - "--appendfsync"
-      - "everysec"
-      - "--dir"
-      - "/data"
-      - "--save"
-      - ""
-      # A fila nao e fonte de verdade (ADR-009): o que ela perde volta pelo
-      # *outbox*. Mas um `maxmemory` ausente deixa-a crescer ate ao
-      # `mem_limit` e morrer por OOM, o que e pior do que recusar escrita.
-      - "--maxmemory"
-      - "600mb"
-      - "--maxmemory-policy"
-      - "noeviction"
+      - sh
+      - -c
+      - |
+        exec /usr/local/bin/docker-entrypoint.sh - --appendonly yes --appendfsync everysec --dir /data --save "" --maxmemory 600mb --maxmemory-policy noeviction <<FIM
+        requirepass "$${KAMBA_SECRET_QUEUE_PASSWORD}"
+        FIM
+    environment:
+      # Do cofre (ADR-L002), e o mesmo valor que os clientes levam no URL. A
+      # forma e hexadecimal (`ops/secrets-inventory.yaml`, `queue_password`):
+      # vai dentro de um URL e de uma linha de configuracao entre aspas, e nenhum
+      # dos dois a escapa.
+      KAMBA_SECRET_QUEUE_PASSWORD: ${KAMBA_SECRET_QUEUE_PASSWORD:?o cofre entrega a credencial da fila}
+      # A sonda: o `valkey-cli` e o `redis-cli` leem a credencial desta variavel,
+      # e nao de um argumento (que, outra vez, ficava no `cmdline`).
+      REDISCLI_AUTH: ${KAMBA_SECRET_QUEUE_PASSWORD:?o cofre entrega a credencial da fila}
     volumes:
       - queue-data:/data
     networks:
@@ -1522,7 +1553,42 @@ services:
       - sto-proprio
     tmpfs:
       - /tmp:size=64m,mode=1777
-    command: ["server", "-dir=/data", "-s3", "-s3.port=8333", "-master.volumeSizeLimitMB=256"]
+    # **O S3 exige assinatura, e so o S3 se alcanca** (KAM-249). Sem identidades,
+    # a 4.48 aceitava tudo anonimo: ListBuckets, CreateBucket, PutObject e
+    # GetObject davam 200 a qualquer membro de `data`; e o *filer* HTTP da 8888
+    # aceitava `PUT` e `GET` anonimos em `/buckets/...`, por baixo do S3
+    # (`docs/evidencia/KAM-249.md` §3). Por isso duas coisas, e nao uma:
+    #
+    #   * o par do `StorageProvider` no ambiente: com `AWS_ACCESS_KEY_ID` e
+    #     `AWS_SECRET_ACCESS_KEY`, e sem ficheiro de configuracao, a 4.48 cria a
+    #     identidade de administracao e recusa o anonimo (403 `AccessDenied`) —
+    #     a forma que a suite de contrato do KAM-011 ja usa;
+    #   * o *master*, o *volume* e o *filer* no *loopback* (`-ip.bind`), e so o
+    #     S3 em todas as interfaces (`-s3.ip.bind`). O Iceberg (8181) e o Lance
+    #     (9101) desligam-se: nenhum consumidor os usa.
+    #
+    # **O que fica aberto, CONFIRMADO:** a 18333, o gRPC do S3, segue o
+    # `-s3.ip.bind` e a 4.48 nao tem *flag* que a feche ou a prenda ao
+    # *loopback*. Um `PutIdentity` sem credencial nela reabre o S3 ao anonimo
+    # (medido: 403 -> 200). Esta no anexo, e o credor e o KAM-257 (decisao
+    # do fundador de 2026-11-24, opcao A): mTLS no gRPC, ou a D6 a escolher S3
+    # gerido. **Nao leia «S3 fechado» sem esta ressalva.**
+    command:
+      - "server"
+      - "-dir=/data"
+      - "-s3"
+      - "-s3.port=8333"
+      - "-master.volumeSizeLimitMB=256"
+      - "-ip=127.0.0.1"
+      - "-ip.bind=127.0.0.1"
+      - "-s3.ip.bind=0.0.0.0"
+      - "-s3.port.iceberg=0"
+      - "-s3.port.lance=0"
+    environment:
+      # O mesmo par com que o `StorageProvider` assina (ADR-L002): o servidor
+      # passa a ser o outro lado da assinatura.
+      AWS_ACCESS_KEY_ID: ${KAMBA_SECRET_STORAGE_ACCESS_KEY_ID:?o cofre entrega a chave de acesso do armazenamento}
+      AWS_SECRET_ACCESS_KEY: ${KAMBA_SECRET_STORAGE_SECRET_ACCESS_KEY:?o cofre entrega o segredo do armazenamento}
     volumes:
       - seaweedfs-data:/data
     networks:
@@ -1535,7 +1601,10 @@ services:
       # so o `9333` (master) e o gateway S3 do `8333` podia estar morto com o
       # contentor `healthy` — e o S3 e a unica coisa que o `StorageProvider`
       # usa. Achado da revisao adversarial.
-      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:9333/cluster/status && wget -q -O /dev/null http://127.0.0.1:8333/ || exit 1"]
+      #
+      # O S3 pelo `/healthz`, e nao pela raiz: com identidades, um `GET /`
+      # anonimo e 403 e a sonda caia (medido no KAM-249).
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:9333/cluster/status && wget -q -O /dev/null http://127.0.0.1:8333/healthz || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 12
