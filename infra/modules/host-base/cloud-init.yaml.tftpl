@@ -25,6 +25,8 @@ packages:
   - docker-compose-v2
   - wireguard
   - wireguard-tools
+  # As regras do host (KAM-077): ver `/etc/kamba/firewall.nft` abaixo.
+  - nftables
   # `jq` e `curl` sao para o passo que vai buscar a chave ao cofre.
   - jq
   - curl
@@ -37,8 +39,10 @@ packages:
 # O `default` fica na lista, e isso tem uma consequencia que se diz em vez de se
 # esconder: nas imagens dos fornecedores o utilizador por omissao traz a **chave
 # que o fornecedor injecta**. Logo o acesso ao host nao e so o que este ficheiro
-# declara. Fechar a porta 22 ao mundo e deixar so a do WireGuard e o *scan*
-# externo que o prova sao do **KAM-077** — ver `infra/PORTABILIDADE.md` classe 3.
+# declara. O que fecha a porta 22 ao mundo sao as regras de `/etc/kamba/firewall.nft`
+# (preparacao do KAM-077, abaixo): a chave do fornecedor continua no `default`,
+# mas so se usa por dentro do tunel. O *scan* externo que o prova precisa de um
+# host, e e do KAM-077 depois da D1 — ver `infra/PORTABILIDADE.md` classe 3.
 users:
   - default
   - name: ${utilizador}
@@ -99,6 +103,81 @@ write_files:
       PostUp = sysctl -w net.ipv4.ip_forward=1
       SaveConfig = false
 
+  # --- Regras do host (preparacao do KAM-077, criterio 4) -----------------
+  #
+  # A forma portatil da classe 3 de `infra/PORTABILIDADE.md`: `nftables`
+  # aplicado pelo proprio host, para que um grupo de seguranca do fornecedor
+  # seja reforco e nunca a unica barreira. Quem verifica as propriedades destas
+  # regras e o `tools/borda/firewall.py` (suite `tools/borda/tests`); a sintaxe
+  # verifica-a o `nft -c`. NUNCA CORRERAM NUM HOST: o *scan* externo que as
+  # prova e do KAM-077 depois da D1.
+  #
+  # TRES ESCOLHAS QUE NAO SAO OBVIAS:
+  #
+  # (a) SEM `flush ruleset`. O Docker escreve as tabelas dele (`iptables-nft`);
+  #     um `flush ruleset` apagava-as ao recarregar e os contentores perdiam a
+  #     rede sem erro nenhum. Apaga-se e recria-se **so** a `inet kamba_host`.
+  # (b) SEM CADEIA NO `forward`. O 443 do `proxy-tls` chega aos contentores
+  #     pelo `forward`, e o *forward* e do Docker. A outra metade do criterio
+  #     («so 443») e a regra `porta-publicada` do `compose_prod`.
+  # (c) UM SERVICO PROPRIO, e nao o `nftables.service` da distribuicao, porque
+  #     o desta faz `nft flush ruleset` no `stop` — o mesmo defeito de (a), no
+  #     dia em que alguem reiniciasse a firewall.
+  - path: /etc/kamba/firewall.nft
+    permissions: "0600"
+    owner: root:root
+    content: |
+      #!/usr/sbin/nft -f
+      # KAMBA - regras do host (KAM-077). Gerado pelo host-base; nao editar
+      # no host. Sem `flush ruleset`: as tabelas do Docker ficam intactas.
+      table inet kamba_host
+      delete table inet kamba_host
+
+      table inet kamba_host {
+        chain input {
+          type filter hook input priority filter; policy drop;
+
+          ct state invalid drop
+          ct state { established, related } accept
+          iifname "lo" accept
+
+          # ICMP: diagnostico e descoberta do MTU; no IPv6, sem os `nd-*` nao
+          # ha vizinhos nem rota por omissao.
+          ip protocol icmp icmp type { echo-request, destination-unreachable, time-exceeded } accept
+          ip6 nexthdr icmpv6 icmpv6 type { echo-request, destination-unreachable, packet-too-big, time-exceeded, parameter-problem, nd-router-advert, nd-neighbor-solicit, nd-neighbor-advert } accept
+
+          # Respostas do DHCP do fornecedor (v4 e v6).
+          udp sport 67 udp dport 68 accept
+          udp sport 547 udp dport 546 accept
+
+          # A unica porta de servico aberta ao mundo neste host.
+          udp dport ${porta_wireguard} accept
+
+          # SSH so por dentro do tunel.
+          iifname "wg0" tcp dport 22 accept
+        }
+      }
+
+  - path: /etc/systemd/system/kamba-firewall.service
+    permissions: "0644"
+    owner: root:root
+    content: |
+      [Unit]
+      Description=KAMBA - regras do host (nftables, KAM-077)
+      DefaultDependencies=no
+      Wants=network-pre.target
+      Before=network-pre.target docker.service shutdown.target
+      Conflicts=shutdown.target
+
+      [Service]
+      Type=oneshot
+      RemainAfterExit=yes
+      ExecStart=/usr/sbin/nft -f /etc/kamba/firewall.nft
+      ExecStop=/usr/sbin/nft delete table inet kamba_host
+
+      [Install]
+      WantedBy=sysinit.target
+
   # O que este host e, para quem chegar a ele as 3 da manha. O ficheiro e lido
   # pelo runbook RB-K08 e pela sonda.
   - path: /etc/kamba/ambiente
@@ -122,13 +201,30 @@ write_files:
       Acesso PREVISTO: pelo tunel WireGuard, no utilizador `admin`. O
       ${utilizador} corre os servicos e nao tem chave nem sudo.
 
+      Regras do host: /etc/kamba/firewall.nft, carregadas pelo servico
+      kamba-firewall. Abertas ao mundo so a porta UDP ${porta_wireguard} do
+      WireGuard e as respostas de DHCP; o SSH so entra pelo wg0. O 443 nao
+      esta nestas regras: e publicado pelo Docker, pelo forward.
+
       O QUE ESTE HOST NAO FAZ, e convem saber antes de o tratar como fechado:
-      nada aqui fecha a porta 22 nem toca no sshd, e o utilizador por omissao
-      da imagem do fornecedor traz a chave que ele injecta. As regras de
-      firewall (nftables) e o scan externo que prova que so 443 e a porta UDP
-      do WireGuard estao abertas sao do KAM-077.
+      nao toca no sshd, e o utilizador por omissao da imagem do fornecedor
+      traz a chave que ele injecta (so alcancavel pelo tunel). Se o WireGuard
+      nao subir, nao ha SSH: a entrada e a consola do fornecedor (break-glass).
+      O scan externo que prova as regras ainda nao correu (KAM-077, D1).
 
 runcmd:
+  # --- Regras do host, ANTES de tudo o resto --------------------------------
+  #
+  # Primeiro passo do `runcmd`, para que o resto do arranque ja corra com o
+  # host fechado. **Fica uma janela, e diz-se:** no primeiro arranque o
+  # `runcmd` corre no fim do cloud-init, e ate la a porta 22 esta como a
+  # imagem do fornecedor a deixou. Do segundo arranque em diante o servico
+  # sobe antes da rede (`network-pre.target`). Fechar a janela do primeiro
+  # arranque pede o grupo de seguranca do fornecedor, que e do modulo
+  # `provider-<nome>` depois da D1. NAO VERIFICADO: nunca arrancou um host.
+  - [systemctl, daemon-reload]
+  - [systemctl, enable, --now, kamba-firewall.service]
+
   # --- 1. Docker ------------------------------------------------------------
   - [systemctl, enable, --now, docker]
 
