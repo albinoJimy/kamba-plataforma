@@ -87,7 +87,9 @@ ROTAS_DA_INSCRICAO = (
 #: nenhuma aceita um `onboarding_id` no corpo nem na consulta. O `comSessao` no
 #: identificador e o nome do auxiliar que a enumeracao encontra antes de cada
 #: `app.<verbo>` do `services/onboarding-web/src/guia.ts`, e nao o de uma funcao
-#: que monte as rotas.
+#: que monte as rotas. Desde o KAM-254 o condutor monta-as sobre a base — o
+#: estado do guia como `kamba_app`, e a lista, os gates e a fila pelo processo de
+#: lote real —, e sem base as doze saem `executado: false`, como as dos `canais`.
 ROTAS_DO_GUIA = (
     "rota:onboarding-web:guia:comSessao:GET:/ligar",
     "rota:onboarding-web:guia:comSessao:GET:/api/es/estado",

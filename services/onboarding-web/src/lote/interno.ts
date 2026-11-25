@@ -52,6 +52,8 @@ import {
   MOTIVOS_DE_FALHA,
   PRAZO_DE_ABANDONO_MIN,
   abandonarVencidosNaBase,
+  abrirRevisoesEmFaltaNaBase,
+  reconciliarMetaEsNaBase,
   type FilaDeRevisao,
   type GatesDoOnboarding,
   type MotivoDeFalha,
@@ -250,12 +252,19 @@ export function criarAppInterna(o: OpcoesDaRotaInterna): Hono {
   return app;
 }
 
+/** Os passos de uma volta do guia, pelo nome com que a falha se regista. */
+export type PassoDaVoltaDoGuia = "abandono" | "lista" | "reconciliacao";
+
 /** O que uma volta do guia fez. */
 export interface ResultadoDoCicloDoGuia {
   /** Os popups abertos há mais de 30 minutos, passados a `abandonado`. */
   readonly abandonados: number;
+  /** Os `meta_es` que a reconciliação mudou (KAM-254). */
+  readonly gatesReconciliados: number;
+  /** Os `es_falhado` que a reconciliação abriu (KAM-254). */
+  readonly revisoesAbertas: number;
   /** O passo que falhou, se algum: os outros correm na mesma. */
-  readonly falhou: readonly ("abandono" | "lista")[];
+  readonly falhou: readonly PassoDaVoltaDoGuia[];
 }
 
 /** A lista na volta: as três operações que o temporizador do `server.ts` corria. */
@@ -267,29 +276,47 @@ export type ListaDaVolta = Pick<ListaDeEspera, "expirarVencidos" | "promover" | 
  * `kamba_batch`, sobre todos os tenants) e a volta da lista de espera (os
  * convites vencidos, a promoção e a medição). Uma por processo de lote, e não
  * uma por réplica do `onboarding-web`.
+ *
+ * ## A reconciliação (KAM-254, critério 1)
+ *
+ * O `PassoGuiado` grava a transição na base e só depois pede ao lote, por esta
+ * rota, o `meta_es` e a abertura do `es_falhado`. Os dois pedidos não são
+ * atómicos com a transição: com o lote em baixo nesse instante, a transição fica
+ * e o efeito perde-se, e os sinais da Meta não se repetem. Por isso cada volta
+ * **reconcilia a partir do estado do guia**, que é a fonte: põe o `meta_es` igual
+ * ao que o estado manda, e abre o `es_falhado` a um guia preso que não o tenha.
+ * Um efeito que falhou chega à base na volta seguinte em que o lote esteja de pé.
+ * O `meta_pagamento` fica fora: escreve-se **antes** de qualquer transição, e o
+ * dono que vê o erro repete o pedido.
  */
 export class CicloDoGuia {
   readonly #lote: ClienteSql;
   readonly #lista: ListaDaVolta;
+  readonly #revisao: FilaDeRevisao;
   readonly #agora: () => Date;
   readonly #prazoMin: number;
 
   constructor(o: {
     readonly lote: ClienteSql;
     readonly lista: ListaDaVolta;
+    /** A fila de revisão do lote: a mesma porta que a rota interna serve. */
+    readonly revisao: FilaDeRevisao;
     readonly relogio?: () => Date;
     /** O prazo do popup, em minutos. Por omissão, o `PRAZO_DE_ABANDONO_MIN` do KAM-016. */
     readonly prazoMin?: number;
   }) {
     this.#lote = o.lote;
     this.#lista = o.lista;
+    this.#revisao = o.revisao;
     this.#agora = o.relogio ?? ((): Date => new Date());
     this.#prazoMin = o.prazoMin ?? PRAZO_DE_ABANDONO_MIN;
   }
 
   async correr(): Promise<ResultadoDoCicloDoGuia> {
-    const falhou: ("abandono" | "lista")[] = [];
+    const falhou: PassoDaVoltaDoGuia[] = [];
     let abandonados = 0;
+    let gatesReconciliados = 0;
+    let revisoesAbertas = 0;
     try {
       const antes = new Date(this.#agora().getTime() - this.#prazoMin * 60_000);
       abandonados = (await abandonarVencidosNaBase(this.#lote, antes)).length;
@@ -303,7 +330,24 @@ export class CicloDoGuia {
     } catch {
       falhou.push("lista");
     }
-    return { abandonados, falhou };
+    // Depois do abandono: um guia que acabou de passar a `abandonado` não escreve
+    // o `meta_es`, e a reconciliação não lhe toca.
+    // Dois passos, cada um no seu `try`: uma falha do gate não salta a fila.
+    let reconciliacaoFalhou = false;
+    try {
+      gatesReconciliados = (await reconciliarMetaEsNaBase(this.#lote)).length;
+    } catch {
+      reconciliacaoFalhou = true;
+    }
+    try {
+      const r = await abrirRevisoesEmFaltaNaBase(this.#lote, this.#revisao);
+      revisoesAbertas = r.abertos.length;
+      if (r.falhados > 0) reconciliacaoFalhou = true;
+    } catch {
+      reconciliacaoFalhou = true;
+    }
+    if (reconciliacaoFalhou) falhou.push("reconciliacao");
+    return { abandonados, gatesReconciliados, revisoesAbertas, falhou };
   }
 
   /** Agenda a volta; devolve como a parar. Uma volta não começa sem a anterior acabar. */

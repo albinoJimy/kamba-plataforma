@@ -11,6 +11,12 @@
  *             (`arrancar`), como kamba_batch
  * abandono    a volta dos 30 minutos corre no lote, em todos os tenants, e o
  *             adaptador da aplicação recusa-a pelo nome
+ * em baixo    (KAM-254) uma transição feita com o lote em baixo perde o gate e
+ *             a fila no instante, e a volta seguinte do lote reconcilia-os a
+ *             partir do estado do guia; uma transição concorrente espera pela
+ *             tranca e escreve por último
+ * sem via     (KAM-254) com o aviso sem via do lote real, um convite que vence
+ *             duas vezes não abandona o caso nem gasta tentativa
  * ```
  *
  * Os casos semeiam-se pelo administrador, com o telefone em octetos aleatórios: o
@@ -28,6 +34,7 @@ import { BASE_DESCARTAVEL } from "./apoio.ts";
 import {
   PassoGuiado,
   AvisosEmMemoria,
+  SQL_RECONCILIAR_META_ES,
   VarreduraNoLoteError,
   guiaNaBase,
   type Atestados,
@@ -36,7 +43,7 @@ import { casosNaBase, type CifraDoCaso, type PoolDaInscricao } from "../src/insc
 import type { RepositorioDeCasos } from "../src/inscricao/contrato.ts";
 import type { ConjuntoSql } from "../src/revisao/index.ts";
 import { comTenant } from "../src/tenant_guard/index.ts";
-import { ClienteDoLote, portasDoGuia } from "../../../services/onboarding-web/src/guia_pelo_lote.ts";
+import { ClienteDoLote, LoteIndisponivelError, portasDoGuia } from "../../../services/onboarding-web/src/guia_pelo_lote.ts";
 import { CicloDoGuia } from "../../../services/onboarding-web/src/lote/interno.ts";
 import { arrancar } from "../../../services/onboarding-web/src/lote/processo.ts";
 
@@ -80,6 +87,8 @@ function configuracao(papel: "app" | "batch" | "admin"): pg.ClientConfig {
 let admin: pg.Client;
 const pools: pg.Pool[] = [];
 const casosCriados: string[] = [];
+/** Os tenants que o ensaio do encerramento cria (KAM-254). */
+const tenantsCriados: string[] = [];
 /** A capacidade da lista antes deste ficheiro: repõe-se no fim, para os que correm depois. */
 let capacidadeAntes: number | null = null;
 
@@ -89,14 +98,14 @@ function novoPool(papel: "app" | "batch"): pg.Pool {
   return pool;
 }
 
-/** Um caso em `aguarda_es`, semeado pelo administrador. */
-async function caso(): Promise<{ readonly id: string; readonly tenant: string }> {
+/** Um caso em `fase` (por omissão `aguarda_es`), semeado pelo administrador. */
+async function caso(fase = "aguarda_es"): Promise<{ readonly id: string; readonly tenant: string }> {
   const r = await admin.query<{ id: string; tenant_id: string }>(
     `INSERT INTO platform.onboarding_case
        (fase, origem, nome_negocio, categoria_declarada, nif_enc, nif_hmac, phone_enc, phone_hmac)
-     VALUES ('aguarda_es', 'convite', 'Loja de ensaio', 'mercearia', $1, $2, $1, $3)
+     VALUES ($4, 'convite', 'Loja de ensaio', 'mercearia', $1, $2, $1, $3)
      RETURNING id::text AS id, tenant_id::text AS tenant_id`,
-    [randomBytes(40), randomBytes(32), randomBytes(32)],
+    [randomBytes(40), randomBytes(32), randomBytes(32), fase],
   );
   const l = r.rows[0]!;
   casosCriados.push(l.id);
@@ -132,6 +141,9 @@ after(async () => {
     await admin.query("DELETE FROM platform.waitlist_entry WHERE onboarding_id = ANY ($1::uuid[])", [casosCriados]);
     await admin.query("DELETE FROM platform.review_case WHERE onboarding_id = ANY ($1::uuid[])", [casosCriados]);
     await admin.query("DELETE FROM platform.onboarding_case WHERE id = ANY ($1::uuid[])", [casosCriados]);
+  }
+  if (tenantsCriados.length > 0) {
+    await admin.query("DELETE FROM platform.tenants WHERE id = ANY ($1::uuid[])", [tenantsCriados]);
   }
   // A capacidade que este ficheiro pôs a uma vaga volta ao que estava (achado 7 da revisão adversarial).
   if (capacidadeAntes !== null) {
@@ -300,6 +312,7 @@ describe("o guia na base (KAM-239)", () => {
     const parados: string[] = [];
     const ciclo = new CicloDoGuia({
       lote: novoPool("batch"),
+      revisao: { abrir: async () => {} },
       lista: {
         expirarVencidos: async () => 0,
         promover: async () => 0,
@@ -315,5 +328,300 @@ describe("o guia na base (KAM-239)", () => {
     for (const c of vencidos) assert.equal((await app.ler(c.id))?.estado, "abandonado");
     assert.equal((await app.ler(recente.id))?.estado, "iniciado", "o de cinco minutos fica");
     assert.deepEqual(parados, ["medir"]);
+  });
+
+  it("KAM-254: uma transição feita com o lote em baixo chega ao onboarding_gate e ao review_case quando o lote volta", async () => {
+    const lote = novoPool("batch");
+    const app = novoPool("app");
+    const { processo, interna } = await arrancar({
+      lote: lote as unknown as ConjuntoSql,
+      app: app as unknown as ConjuntoSql,
+      log: { warn: () => {} },
+      inicioDaAmostragem: null,
+      guia: { origem: ORIGEM, credencial: CREDENCIAL },
+    });
+    assert.ok(interna && processo.guia, "o lote serve a rota interna com o guia configurado");
+    const voltaDoLote = processo.guia.ciclo;
+    // **O lote em baixo** é o `fetch` a falhar como falha com a porta fechada.
+    let emBaixo = false;
+    const cliente = new ClienteDoLote({
+      base: "http://lote.invalid",
+      credencial: async () => CREDENCIAL,
+      buscar: (async (url: string | URL | Request, init?: RequestInit) => {
+        if (emBaixo) throw new TypeError("fetch failed");
+        return interna.request(new URL(String(url)).pathname, init);
+      }) as typeof fetch,
+    });
+    const portas = portasDoGuia<never>({ ambiente: "prod", lote: cliente, emMemoria: () => assert.fail("nada em memória em prod") });
+    const repositorio = guiaNaBase({ pool: app as unknown as PoolDaInscricao });
+    const guia = new PassoGuiado({
+      casos: casosDoEnsaio(app),
+      repositorio,
+      capacidade: portas.lista,
+      ligador: { ligar: async () => assert.fail("o ensaio não liga") },
+      gates: portas.gates,
+      revisao: portas.revisao,
+      pagamento: { verificar: async () => "desconhecido" },
+      aviso: new AvisosEmMemoria(),
+      anelDoPepper: [randomBytes(32), null],
+      chaveDaAssinatura: randomBytes(32),
+      origem: ORIGEM,
+      configId: "config-de-ensaio",
+    });
+    /** Um guia em `subscrito` com um número ligado, pela aplicação. */
+    const subscrito = async (): Promise<{ readonly id: string; readonly numero: string }> => {
+      const { id } = await caso();
+      const numero = numeroDaMeta();
+      await repositorio.abrir(id);
+      assert.equal(await repositorio.transitar(id, "pre_voo", "iniciado", { iniciadoEm: new Date() }), true);
+      assert.equal(await repositorio.transitar(id, "iniciado", "es_concluido", { phoneNumberId: numero, wabaId: "waba-ensaio" }), true);
+      assert.equal(await repositorio.transitar(id, "es_concluido", "subscrito", {}), true);
+      return { id, numero };
+    };
+    const gateDe = async (id: string): Promise<readonly { ok: boolean; evidencia_ref: string }[]> =>
+      (
+        await admin.query<{ ok: boolean; evidencia_ref: string }>(
+          "SELECT ok, evidencia_ref FROM platform.onboarding_gate WHERE onboarding_id = $1 AND gate = 'meta_es'",
+          [id],
+        )
+      ).rows;
+    const revisoesDe = async (id: string): Promise<number> =>
+      (
+        await admin.query<{ n: number }>(
+          "SELECT count(*)::int AS n FROM platform.review_case WHERE onboarding_id = $1 AND tipo = 'es_falhado'",
+          [id],
+        )
+      ).rows[0]?.n ?? -1;
+
+    const divergente = await subscrito();
+    const desligado = await subscrito();
+    const verificado = await subscrito();
+    emBaixo = true;
+    // O número que não é o do OTP: o guia prende-se na base, e o gate e a fila perdem-se.
+    await assert.rejects(guia.confirmarNumero(divergente.numero, "+0 000"), LoteIndisponivelError);
+    // O canal desligado: o mesmo.
+    await assert.rejects(guia.desligado(desligado.numero), LoteIndisponivelError);
+    // O verificado sem o gate verde: a forma do `#talvezVerificar` com o lote em baixo.
+    assert.equal(await repositorio.transitar(verificado.id, "subscrito", "verificado", {}), true);
+    assert.equal((await repositorio.ler(divergente.id))?.estado, "falhado");
+    assert.equal((await repositorio.ler(desligado.id))?.estado, "desligado");
+    for (const c of [divergente, desligado, verificado]) assert.deepEqual(await gateDe(c.id), [], "nada chegou ao gate");
+    assert.equal(await revisoesDe(divergente.id), 0, "nada chegou à fila");
+
+    // **O lote volta**, e a volta seguinte reconcilia.
+    emBaixo = false;
+    const r = await voltaDoLote.correr();
+    assert.deepEqual(r.falhou, []);
+    assert.ok(r.gatesReconciliados >= 3, "os três gates");
+    assert.ok(r.revisoesAbertas >= 1, "o es_falhado do preso");
+    assert.deepEqual(await gateDe(divergente.id), [{ ok: false, evidencia_ref: "numero_divergente" }]);
+    assert.deepEqual(await gateDe(desligado.id), [{ ok: false, evidencia_ref: "desligado" }]);
+    assert.deepEqual(await gateDe(verificado.id), [{ ok: true, evidencia_ref: "sincronizado_e_verificado" }]);
+    assert.equal(await revisoesDe(divergente.id), 1);
+
+    // **Idempotente**: a volta seguinte não abre outro caso.
+    const segunda = await voltaDoLote.correr();
+    assert.deepEqual(segunda.falhou, []);
+    assert.equal(segunda.revisoesAbertas, 0, "a segunda volta não pede abertura nenhuma");
+    assert.equal(await revisoesDe(divergente.id), 1);
+
+    // **E o caso aberto pelo próprio guia conta**: um preso que a rota já levou à
+    // fila não ganha segundo caso.
+    const comFila = await subscrito();
+    assert.equal(await guia.confirmarNumero(comFila.numero, "+0 000"), false);
+    assert.equal(await revisoesDe(comFila.id), 1);
+    await voltaDoLote.correr();
+    assert.equal(await revisoesDe(comFila.id), 1);
+  });
+
+  it("KAM-254: a reconciliação espera por uma transição por confirmar, e escreve o gate do estado que ganhou", async () => {
+    const repositorio = guiaNaBase({ pool: novoPool("app") as unknown as PoolDaInscricao });
+    const { id } = await caso();
+    await repositorio.abrir(id);
+    await repositorio.transitar(id, "pre_voo", "iniciado", { iniciadoEm: new Date() });
+    await repositorio.transitar(id, "iniciado", "es_concluido", { phoneNumberId: numeroDaMeta(), wabaId: "waba-ensaio" });
+    await repositorio.transitar(id, "es_concluido", "subscrito", {});
+    await repositorio.transitar(id, "subscrito", "verificado", {});
+
+    // A transição do `onboarding-web` a meio: o guia passa a `desligado` numa
+    // transacção que ainda não confirmou.
+    const web = new pg.Client(configuracao("admin"));
+    await web.connect();
+    try {
+      await web.query("BEGIN");
+      await web.query("UPDATE platform.onboarding_guia SET estado = 'desligado' WHERE onboarding_id = $1", [id]);
+      let acabou = false;
+      const reconciliacao = novoPool("batch")
+        .query(SQL_RECONCILIAR_META_ES, [1000])
+        .then((r) => {
+          acabou = true;
+          return r;
+        });
+      await new Promise((feito) => setTimeout(feito, 300));
+      assert.equal(acabou, false, "a reconciliação espera pela transição");
+      await web.query("COMMIT");
+      await reconciliacao;
+    } finally {
+      await web.end();
+    }
+    const gate = await admin.query<{ ok: boolean; evidencia_ref: string }>(
+      "SELECT ok, evidencia_ref FROM platform.onboarding_gate WHERE onboarding_id = $1 AND gate = 'meta_es'",
+      [id],
+    );
+    // Sem a tranca, a leitura de antes escrevia verde por cima do `desligado`.
+    assert.deepEqual(gate.rows, [{ ok: false, evidencia_ref: "desligado" }]);
+  });
+
+  it("KAM-254: sem via, um convite que vence duas vezes no lote real não abandona o caso nem gasta tentativa", async () => {
+    await admin.query("DELETE FROM platform.waitlist_entry");
+    await admin.query("UPDATE platform.onboarding_capacity SET es_max_por_7d = 1");
+    const { processo } = await arrancar({
+      lote: novoPool("batch") as unknown as ConjuntoSql,
+      app: novoPool("app") as unknown as ConjuntoSql,
+      log: { warn: () => {} },
+      inicioDaAmostragem: null,
+      guia: { origem: ORIGEM, credencial: CREDENCIAL },
+    });
+    assert.ok(processo.guia, "o lote monta a lista com o aviso sem via");
+    const { lista, ciclo } = processo.guia;
+    const primeiro = await caso();
+    const segundo = await caso();
+    assert.equal(await lista.reserve(primeiro.id), "granted");
+    assert.equal(await lista.reserve(segundo.id), "lista_espera");
+    // A vaga do primeiro sai da janela: a volta do lote convida o segundo, sem via.
+    await admin.query(
+      "UPDATE platform.waitlist_entry SET concluido_em = now() - interval '8 days' WHERE onboarding_id = $1",
+      [primeiro.id],
+    );
+    const ler = async () =>
+      (
+        await admin.query<{ estado: string; tentativas: number; fase: string }>(
+          `SELECT w.estado, w.tentativas, c.fase FROM platform.waitlist_entry w
+             JOIN platform.onboarding_case c ON c.id = w.onboarding_id WHERE w.onboarding_id = $1`,
+          [segundo.id],
+        )
+      ).rows[0];
+    assert.deepEqual((await ciclo.correr()).falhou, []);
+    assert.equal((await ler())?.estado, "convidado");
+    // Vence duas vezes, que era o que abandonava o caso (critério 5 do KAM-095).
+    for (let vez = 0; vez < 2; vez += 1) {
+      await admin.query(
+        `UPDATE platform.waitlist_entry SET convidado_em = now() - interval '3 days',
+           convite_expira_em = now() - interval '1 hour' WHERE onboarding_id = $1`,
+        [segundo.id],
+      );
+      assert.deepEqual((await ciclo.correr()).falhou, []);
+    }
+    assert.deepEqual(await ler(), { estado: "convidado", tentativas: 0, fase: "aguarda_es" });
+  });
+
+  it("KAM-254: a reconciliação não reabre um caso decidido, não se deixa tapar pelo teste, apaga o verde velho e não toca nos mortos", async () => {
+    const lote = novoPool("batch");
+    const app = novoPool("app");
+    const { processo } = await arrancar({
+      lote: lote as unknown as ConjuntoSql,
+      app: app as unknown as ConjuntoSql,
+      log: { warn: () => {} },
+      inicioDaAmostragem: null,
+      guia: { origem: ORIGEM, credencial: CREDENCIAL },
+    });
+    assert.ok(processo.guia);
+    const volta = processo.guia.ciclo;
+    const repositorio = guiaNaBase({ pool: app as unknown as PoolDaInscricao });
+    /** Um guia levado até `estado` pela aplicação, **sem** gate nem fila: o efeito perdido. */
+    const guiaEm = async (
+      estado: "iniciado" | "subscrito" | "pronto" | "falhado",
+      o: { readonly fase?: string; readonly motivo?: "numero_divergente" | "sincronizacao_vencida" } = {},
+    ): Promise<{ readonly id: string; readonly tenant: string }> => {
+      const c = await caso(o.fase);
+      await repositorio.abrir(c.id);
+      await repositorio.transitar(c.id, "pre_voo", "iniciado", { iniciadoEm: new Date() });
+      if (estado === "iniciado") return c;
+      await repositorio.transitar(c.id, "iniciado", "es_concluido", { phoneNumberId: numeroDaMeta(), wabaId: "waba-ensaio" });
+      await repositorio.transitar(c.id, "es_concluido", "subscrito", {});
+      if (estado === "subscrito") return c;
+      if (estado === "falhado") {
+        assert.equal(await repositorio.transitar(c.id, "subscrito", "falhado", { motivo: o.motivo ?? "numero_divergente" }), true);
+        return c;
+      }
+      await repositorio.transitar(c.id, "subscrito", "verificado", {});
+      assert.equal(await repositorio.transitar(c.id, "verificado", "pronto", {}), true);
+      return c;
+    };
+    const gateDe = async (id: string) =>
+      (
+        await admin.query<{ ok: boolean; evidencia_ref: string }>(
+          "SELECT ok, evidencia_ref FROM platform.onboarding_gate WHERE onboarding_id = $1 AND gate = 'meta_es'",
+          [id],
+        )
+      ).rows;
+    const casosDe = async (id: string) =>
+      (
+        await admin.query<{ motivo_codigo: string; estado: string }>(
+          "SELECT motivo_codigo, estado FROM platform.review_case WHERE onboarding_id = $1 AND tipo = 'es_falhado' ORDER BY criado_at",
+          [id],
+        )
+      ).rows;
+
+    // (a) O decidido não se reabre: sem o filtro, a fila do guia encadeava um `es_falhado:<8>`.
+    const decidido = await guiaEm("falhado");
+    // (b) O `es_falhado` do teste ponta a ponta não conta como o do guia.
+    const doTeste = await guiaEm("falhado");
+    await admin.query(
+      `INSERT INTO platform.review_case (tipo, onboarding_id, tenant_id, motivo_codigo, motivo_interno, motivo_publico,
+         sla_alerta_at, sla_due_at)
+       VALUES ('es_falhado', $1, $2, 'smoke:sem_inbound', 'ensaio KAM-254', 'nao_foi_possivel_validar',
+         now() + interval '1 hour', now() + interval '2 hours')`,
+      [doTeste.id, doTeste.tenant],
+    );
+    // (c) Falhado por outro motivo não vai à fila.
+    const vencido = await guiaEm("falhado", { motivo: "sincronizacao_vencida" });
+    // (d) O verde velho fora de verificado/pronto passa a vermelho; sem gate, fica sem gate.
+    const verdeVelho = await guiaEm("subscrito");
+    await admin.query(
+      `INSERT INTO platform.onboarding_gate (onboarding_id, tenant_id, gate, ok, evidencia_ref)
+       VALUES ($1, $2, 'meta_es', true, 'sincronizado_e_verificado')`,
+      [verdeVelho.id, verdeVelho.tenant],
+    );
+    const semGate = await guiaEm("iniciado");
+    // (e) Os mortos: um caso cancelado e um tenant encerrado (a purga apagou o gate).
+    const cancelado = await guiaEm("pronto", { fase: "cancelado" });
+    const encerrado = await guiaEm("pronto");
+    await admin.query("INSERT INTO platform.tenants (id, tipo, nome, estado) VALUES ($1, 'pme', 'Loja encerrada', 'encerrado')", [
+      encerrado.tenant,
+    ]);
+    tenantsCriados.push(encerrado.tenant);
+    // (f) Um preso cujo caso a fila recusa (rejeitado) não se tenta: falhava em todas as voltas.
+    const rejeitado = await guiaEm("falhado", { fase: "rejeitado" });
+
+    const primeira = await volta.correr();
+    assert.deepEqual(primeira.falhou, [], "nenhum passo falha: o rejeitado não se tenta");
+    assert.deepEqual(
+      (await casosDe(decidido.id)).map((r) => r.motivo_codigo),
+      ["es_falhado"],
+    );
+    await admin.query("UPDATE platform.review_case SET estado = 'decidido' WHERE onboarding_id = $1", [decidido.id]);
+    assert.deepEqual(
+      (await casosDe(doTeste.id)).map((r) => r.motivo_codigo),
+      ["smoke:sem_inbound", "es_falhado"],
+      "o caso do teste não tapa a prisão",
+    );
+    assert.deepEqual(await casosDe(vencido.id), []);
+    assert.deepEqual(await casosDe(rejeitado.id), []);
+    assert.deepEqual(await gateDe(vencido.id), [{ ok: false, evidencia_ref: "sincronizacao_vencida" }]);
+    assert.deepEqual(await gateDe(verdeVelho.id), [{ ok: false, evidencia_ref: "guia_nao_verificado" }]);
+    assert.deepEqual(await gateDe(semGate.id), []);
+    assert.deepEqual(await gateDe(cancelado.id), [], "o caso cancelado não ganha gate");
+    assert.deepEqual(await gateDe(encerrado.id), [], "a purga do encerramento não se desfaz");
+
+    const segunda = await volta.correr();
+    assert.deepEqual(segunda.falhou, []);
+    assert.equal(segunda.revisoesAbertas, 0, "nenhum caso aberto na segunda volta");
+    assert.equal(segunda.gatesReconciliados, 0, "nenhum gate mudado na segunda volta");
+    assert.deepEqual(
+      (await casosDe(decidido.id)).map((r) => [r.motivo_codigo, r.estado]),
+      [["es_falhado", "decidido"]],
+      "o decidido não se reabre",
+    );
   });
 });

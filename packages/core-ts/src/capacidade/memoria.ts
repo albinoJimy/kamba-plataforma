@@ -192,11 +192,13 @@ export class ListaEmMemoria implements RepositorioDaLista {
 
 /**
  * O fornecedor falso dos avisos: guarda o que se mandou. Um `falhar` posto a
- * `true` faz o próximo aviso lançar, para medir a devolução do convite.
+ * `true` faz o próximo aviso lançar, para medir a devolução do convite; um
+ * `entrega` a `false` faz dele uma porta sem via (KAM-254).
  */
 export class AvisosDaListaEmMemoria implements AvisoDaLista {
   readonly enviados: { readonly onboardingId: string; readonly ligacao: string; readonly expiraEm: Date }[] = [];
   falhar = false;
+  entrega = true;
 
   async convidar(onboardingId: string, ligacao: string, expiraEm: Date): Promise<void> {
     if (this.falhar) {

@@ -30,10 +30,12 @@
  *     KAMBA_X01_CANARIOS   JSON `{rotulo: valor}` com as cadeias proibidas (B)
  *     KAMBA_X01_TENANT_A   UUID do tenant que ataca
  *     KAMBA_X01_TENANT_B   UUID do tenant atacado
- *     KAMBA_X01_PG         JSON `{host, port, user, password, database}`
+ *     KAMBA_X01_PG         JSON `{host, port, user, password, database, lote}`
  *     KAMBA_X01_CONTACTOS  JSON `{x: {id, canarios}, y: {id, canarios}}`
  *
- * Os dois ultimos so fazem falta aos grupos `canais` e `contacto`. Sem eles as
+ * Os dois ultimos so fazem falta aos grupos `canais`, `contacto` e `guia`; a
+ * chave `lote` do `KAMBA_X01_PG` (`{user, password}` do `kamba_batch`) so ao
+ * `guia`, que monta o processo de lote real (KAM-254). Sem eles as
  * entradas saem com `executado: false` e a nota a dizer o que faltou — nunca a
  * faltar, porque uma entrada em falta e, para o lado Python, uma rota enumerada
  * sem caso, que e precisamente o que o criterio 2 existe para apanhar.
@@ -55,7 +57,7 @@
  * com `executado: false` e a nota, nao com uma excepcao sem relatorio.
  */
 
-import { createHash, createHmac } from "node:crypto";
+import { createHash, createHmac, randomUUID } from "node:crypto";
 import { mkdirSync, writeFileSync, writeSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, join, resolve } from "node:path";
@@ -2419,7 +2421,8 @@ async function grupoDaInscricao(relatorio: Relatorio): Promise<void> {
 // As doze rotas do passo guiado do Embedded Signup — as oito do KAM-093 e as
 // quatro da lista de espera do KAM-095 —, no mesmo
 // `onboarding-web`. A lista e **literal** e a ordem e a do `ROTAS_DO_GUIA` do
-// caso.
+// caso. **Sobre a base desde o KAM-254**: o estado do guia na `onboarding_guia`, e
+// a lista, os *gates* e a fila pela rota interna do processo de lote.
 //
 // ## O caso sai so da sessao, e e isso que se ataca
 //
@@ -2452,16 +2455,71 @@ const ITENS_DO_GUIA = [
   "rota:onboarding-web:guia:comSessao:POST:/api/lista/desistir",
 ] as const;
 
-/** O telefone de A no guia. `+244 0…`, que nenhum E.164 nacional e. */
-const TELEFONE_DE_A_NO_GUIA = "+244000000003";
+/** Um *pool* do `pg`, como o grupo do guia o usa: o `PoolDaInscricao` e o `ConjuntoSql`. */
+interface PoolDePg {
+  query(sql: string, parametros?: readonly unknown[]): Promise<{ rows: Record<string, unknown>[] }>;
+  connect(): Promise<unknown>;
+  end(): Promise<void>;
+}
 
 /**
- * Monta o `onboarding-web` com o guia, cria os casos de A e de B em
- * `aguarda_es` — o de B com o canario no nome do negocio — e ataca as oito.
+ * Os dois *pools* do guia (KAM-254): o `kamba_app` do `onboarding-web`, que e o
+ * papel das rotas atacadas, e o `kamba_batch` do processo de lote, que serve a
+ * lista, os *gates* e a fila pela rota interna. O segundo vem na chave `lote` do
+ * `KAMBA_X01_PG`, e so este grupo o le.
+ */
+function poolsDoGuia(): { readonly app: PoolDePg; readonly lote: PoolDePg } | string {
+  const configuracao = configuracaoDoPg();
+  if (configuracao === null) {
+    return (
+      "KAMBA_X01_PG nao veio no ambiente: o guia corre sobre a base (KAM-254), " +
+      "com o estado na onboarding_guia e a lista, os gates e a fila pelo lote. " +
+      "`db/gate_bd.py` e quem levanta a base do gate."
+    );
+  }
+  const lote = jsonDoAmbiente("KAMBA_X01_PG")?.["lote"] as Record<string, unknown> | undefined;
+  if (typeof lote?.["user"] !== "string" || typeof lote["password"] !== "string") {
+    return (
+      "KAMBA_X01_PG sem a chave `lote`: o processo de lote corre como kamba_batch, " +
+      "e sem essa credencial a lista, os gates e a fila do guia nao se montam."
+    );
+  }
+  const exigir = createRequire(join(RAIZ, "packages", "core-ts", "package.json"));
+  const pg = exigir("pg") as { Pool: new (opcoes: unknown) => PoolDePg };
+  return {
+    app: new pg.Pool({ ...configuracao, max: 4, application_name: "kamba-x01-guia:app" }),
+    lote: new pg.Pool({
+      ...configuracao,
+      user: lote["user"],
+      password: lote["password"],
+      max: 4,
+      application_name: "kamba-x01-guia:lote",
+    }),
+  };
+}
+
+/** Algarismos aleatorios, para que duas corridas na mesma base nao colidam no NIF nem na chave. */
+function algarismos(n: number): string {
+  let s = "";
+  for (let i = 0; i < n; i += 1) s += String(Math.floor(Math.random() * 10));
+  return s;
+}
+
+/**
+ * Monta o `onboarding-web` com o guia **sobre a base** (KAM-254): os casos e o
+ * estado do guia pelo `kamba_app` (`casosNaBase`, `guiaNaBase`), e a lista, os
+ * *gates* e a fila pela rota interna do processo de lote **real** (`arrancar`),
+ * como `kamba_batch` — a montagem de `prod`. Cria os casos de A e de B em
+ * `aguarda_es` na base — o de B com o canario no nome do negocio — e ataca as
+ * doze.
  *
  * **Do `dist`, pela razao do grupo da inscricao**: o `src/guia.ts` do servico
  * importa `@kamba/core-ts/guia`, e um `PassoGuiado` do `src` era outra classe —
  * o `instanceof GuiaRecusadoError` da rota deixava de casar.
+ *
+ * A rota interna responde pelo `app.request()`, sem porta: o `ClienteDoLote` do
+ * servico recebe um `fetch` que a chama. O que se ataca sao as rotas do dono; a
+ * rota interna tem o seu grupo (`guia-interno`).
  */
 async function grupoDoGuia(relatorio: Relatorio): Promise<void> {
   const falhar = (nota: string): void => {
@@ -2479,222 +2537,264 @@ async function grupoDoGuia(relatorio: Relatorio): Promise<void> {
     }
   };
 
-  let insc: Record<string, unknown>;
-  let sms: Record<string, unknown>;
-  let guiaModulo: Record<string, unknown>;
-  let capacidadeModulo: Record<string, unknown>;
-  let appModulo: Record<string, unknown>;
-  try {
-    insc = await importarDoRepo("packages/core-ts/dist/inscricao/index.js");
-    sms = await importarDoRepo("packages/core-ts/dist/sms/index.js");
-    guiaModulo = await importarDoRepo("packages/core-ts/dist/guia/index.js");
-    capacidadeModulo = await importarDoRepo("packages/core-ts/dist/capacidade/index.js");
-    appModulo = await importarDoRepo("services/onboarding-web/src/app.ts");
-  } catch (erro) {
-    falhar(`nao se conseguiu importar o onboarding-web: ${razao(erro)}`);
+  const pools = poolsDoGuia();
+  if (typeof pools === "string") {
+    falhar(pools);
     return;
   }
 
-  const obter = <T>(modulo: Record<string, unknown>, nome: string): T => {
-    const valor = modulo[nome];
-    if (valor === undefined) throw new Error(`o modulo nao exporta ${nome}`);
-    return valor as T;
-  };
-  type Novo = new (...argumentos: never[]) => unknown;
-  const novo = <T>(modulo: Record<string, unknown>, nome: string, ...args: unknown[]): T =>
-    new (obter<Novo>(modulo, nome) as new (...a: unknown[]) => unknown)(...args) as T;
-
   try {
-    const pepper = Buffer.alloc(32, OCTETO_DE_A);
-    const assinatura = Buffer.alloc(32, OCTETO_DE_ASSINATURA);
-    const destino = Buffer.alloc(32, OCTETO_DO_DESTINO);
-    const outra = Buffer.alloc(32, 0x11);
-    const agora = Date.parse("2026-11-10T10:00:00.000Z");
-    const relogio = (): Date => new Date(agora);
-    const cunharReferencia = obter<(...a: never[]) => string>(insc, "cunharReferencia");
-    const criarApp = obter<(...a: never[]) => AppHono>(appModulo, "createApp");
-
-    const casos = novo<{
-      criar(n: unknown, chave: string): Promise<{ caso: { id: string; nomeNegocio: string } }>;
-      marcarFase(id: string, fase: string): Promise<boolean>;
-    }>(insc, "CasosEmMemoria", relogio);
-    const contadores = novo<object>(insc, "ContadoresEmMemoria");
-    const antiabuso = novo<object>(insc, "AntiAbuso", { contadores, chave: pepper, relogio });
-    const otp = novo<object>(insc, "Otp", {
-      repositorio: novo<object>(insc, "OtpEmMemoria"),
-      contadores,
-      provedor: novo<object>(insc, "OtpPorSmsLocal", {
-        sms: novo<object>(sms, "FakeSmsProvider", { relogio }),
-        pepperDoDestino: destino,
-      }),
-      chave: pepper,
-      relogio,
-    });
-    const registo = novo<object>(insc, "Registo", {
-      repositorio: casos,
-      antiabuso,
-      otp,
-      anelDoPepper: [pepper, null],
-      anelDoToken: [assinatura, null],
-      anelDaSessao: [assinatura, null],
-      relogio,
-    });
-    // A lista de espera (KAM-095) como `CapacityGate`, como no arranque: as
-    // quatro rotas `/api/lista/*` leem dela, e sem ela respondiam 404.
-    const lista = novo<{ reserve(id: string): Promise<string> }>(capacidadeModulo, "ListaDeEspera", {
-      repositorio: novo<object>(capacidadeModulo, "ListaEmMemoria", casos, relogio, {
-        maximo: 0,
-        origem: "confirmado",
-        fundamento: "ensaio X-01",
-      }),
-      aviso: novo<object>(capacidadeModulo, "AvisosDaListaEmMemoria"),
-      origem: "https://onboarding.exemplo.test",
-      relogio,
-    });
-    const guia = novo<object>(guiaModulo, "PassoGuiado", {
-      casos,
-      repositorio: novo<object>(guiaModulo, "GuiaEmMemoria", relogio),
-      capacidade: lista,
-      ligador: { ligar: async () => ({ desfecho: "criado", tentativaId: null }) },
-      gates: novo<object>(guiaModulo, "GatesEmMemoria"),
-      revisao: novo<object>(guiaModulo, "RevisaoEmMemoria"),
-      pagamento: { verificar: async () => "desconhecido" },
-      aviso: novo<object>(guiaModulo, "AvisosEmMemoria"),
-      anelDoPepper: [pepper, null],
-      chaveDaAssinatura: assinatura,
-      origem: "https://onboarding.exemplo.test",
-      configId: "config-de-ensaio",
-      relogio,
-    });
-
-    const app = criarApp(
-      undefined,
-      {
-        registo,
-        otp,
-        actividade: novo<object>(insc, "Actividade", { repositorio: casos, contadores, relogio }),
-        antiabuso,
-        anelDaAssinatura: [assinatura, null],
-        anelDoToken: [assinatura, null],
-        relogio,
-        proxiesDeConfianca: 0,
-      } as never,
-      {
-        guia,
-        lista,
-        registo,
-        otp,
-        anelDaAssinatura: [assinatura, null],
-        appIdDaMeta: "app-de-ensaio",
-        versaoDaGraph: "v21.0",
-        relogio,
-      } as never,
-    );
-
-    const criar = async (n: number, nome: string, telefone: string): Promise<string> => {
-      const { caso } = await casos.criar(
-        {
-          tenantId: `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`,
-          origem: "anuncio",
-          nomeNegocio: nome,
-          categoriaDeclarada: "mercearia",
-          nif: novo<object>(insc, "Nif", n === 1 ? NIF_DE_B : NIF_INEXISTENTE, pepper),
-          telefone: novo<object>(insc, "Telefone", telefone, pepper),
-          email: novo<object>(insc, "Email", "dono@exemplo.test"),
-          dispositivoHmac: null,
-          redeHmac: null,
-          flags: [],
-        },
-        `chave-x01-guia-${n}`,
-      );
-      await casos.marcarFase(caso.id, "aguarda_es");
-      return caso.id;
-    };
-
-    const canario = canarioOuSubstituto();
-    const idDeB = await criar(1, canario, TELEFONE_DE_B);
-    const idDeA = await criar(2, "Loja de quem ataca", TELEFONE_DE_A_NO_GUIA);
-    // B tem estado de guia, com pre-voo gravado: e o que uma fuga mostraria.
-    await (guia as { preflight(id: string, a: unknown): Promise<unknown> }).preflight(idDeB, {});
-    // E esta na lista de espera (o limite e zero): uma fuga da posicao seria dela.
-    await lista.reserve(idDeB);
-    const temCanario = canario !== "" && canario !== "sem-canario-no-ambiente";
-
-    const sessaoDeA = cunharReferencia("sessao" as never, idDeA as never, assinatura as never, relogio as never);
-    const [, segundos, assinaturaDeA] = sessaoDeA.split(".");
-    const trocada = `${idDeB}.${segundos ?? ""}.${assinaturaDeA ?? ""}`;
-    const bilheteDeB = cunharReferencia("ticket" as never, idDeB as never, assinatura as never, relogio as never);
-    const ataques: readonly (readonly [string, string])[] = [
-      ["sessao-de-a-com-id-de-b", `kamba_onboarding=${trocada}`],
-      ["bilhete-como-sessao", `kamba_onboarding=${bilheteDeB}`],
-      ["id-de-b-no-corpo", `kamba_onboarding=${idDeB}`],
-    ];
-    const corpoComB = JSON.stringify({
-      onboarding_id: idDeB,
-      code: "c",
-      waba_id: "w",
-      phone_number_id: "p",
-      c: "convite-de-b",
-    });
-
-    // ---- GET /ligar: os tres, mais a retoma de B com a sessao valida de A.
-    const retomaDeB = encodeURIComponent(
-      cunharReferencia("retoma" as never, idDeB as never, assinatura as never, relogio as never),
-    );
-    for (const [, cookie] of [
-      ...ataques,
-      ["retoma-de-b-com-sessao-de-a", `kamba_onboarding=${sessaoDeA}`] as const,
-    ]) {
-      const caminho = cookie.endsWith(sessaoDeA) ? `/ligar?r=${retomaDeB}` : `/ligar?onboarding_id=${idDeB}`;
-      relatorio.rotas.push({
-        ...(await medir(ITENS_DO_GUIA[0], "GET", caminho, app, { headers: { cookie } })),
-        nota: temCanario ? "canario-no-caso-de-b" : "sem-canario-no-caso-de-b",
-      });
+    let insc: Record<string, unknown>;
+    let sms: Record<string, unknown>;
+    let guiaModulo: Record<string, unknown>;
+    let appModulo: Record<string, unknown>;
+    let loteModulo: Record<string, unknown>;
+    let clienteModulo: Record<string, unknown>;
+    try {
+      insc = await importarDoRepo("packages/core-ts/dist/inscricao/index.js");
+      sms = await importarDoRepo("packages/core-ts/dist/sms/index.js");
+      guiaModulo = await importarDoRepo("packages/core-ts/dist/guia/index.js");
+      appModulo = await importarDoRepo("services/onboarding-web/src/app.ts");
+      loteModulo = await importarDoRepo("services/onboarding-web/src/lote/processo.ts");
+      clienteModulo = await importarDoRepo("services/onboarding-web/src/guia_pelo_lote.ts");
+    } catch (erro) {
+      falhar(`nao se conseguiu importar o onboarding-web: ${razao(erro)}`);
+      return;
     }
 
-    // ---- As dez rotas de sessao: os tres ataques a cada uma.
-    const deSessao = [
-      ["GET", "/api/es/estado", ITENS_DO_GUIA[1]],
-      ["POST", "/api/es/preflight", ITENS_DO_GUIA[2]],
-      ["POST", "/api/es/iniciar", ITENS_DO_GUIA[3]],
-      ["POST", "/api/es/cancelar", ITENS_DO_GUIA[4]],
-      ["POST", "/api/es/concluir", ITENS_DO_GUIA[5]],
-      ["POST", "/api/es/pagamento", ITENS_DO_GUIA[6]],
-      ["GET", "/api/lista/posicao", ITENS_DO_GUIA[8]],
-      ["POST", "/api/lista/convite", ITENS_DO_GUIA[9]],
-      ["POST", "/api/lista/recusar", ITENS_DO_GUIA[10]],
-      ["POST", "/api/lista/desistir", ITENS_DO_GUIA[11]],
-    ] as const;
-    for (const [verbo, caminho, item] of deSessao) {
-      for (const [rotulo, cookie] of ataques) {
+    const obter = <T>(modulo: Record<string, unknown>, nome: string): T => {
+      const valor = modulo[nome];
+      if (valor === undefined) throw new Error(`o modulo nao exporta ${nome}`);
+      return valor as T;
+    };
+    type Novo = new (...argumentos: never[]) => unknown;
+    const novo = <T>(modulo: Record<string, unknown>, nome: string, ...args: unknown[]): T =>
+      new (obter<Novo>(modulo, nome) as new (...a: unknown[]) => unknown)(...args) as T;
+
+    try {
+      const pepper = Buffer.alloc(32, OCTETO_DE_A);
+      const assinatura = Buffer.alloc(32, OCTETO_DE_ASSINATURA);
+      const destino = Buffer.alloc(32, OCTETO_DO_DESTINO);
+      const outra = Buffer.alloc(32, 0x11);
+      const credencialDoLote = "x01-guia-credencial-do-lote";
+      const origem = "https://onboarding.exemplo.test";
+      const cunharReferencia = obter<(...a: never[]) => string>(insc, "cunharReferencia");
+      const criarApp = obter<(...a: never[]) => AppHono>(appModulo, "createApp");
+
+      // ---- O lado do lote: o processo real, como kamba_batch, e a rota interna dele.
+      const arrancar = obter<(o: unknown) => Promise<{ interna: AppHono | null }>>(loteModulo, "arrancar");
+      const { interna } = await arrancar({
+        lote: pools.lote,
+        app: pools.app,
+        log: { warn: () => {} },
+        inicioDaAmostragem: null,
+        guia: { origem, credencial: credencialDoLote },
+      });
+      if (interna === null) throw new Error("o lote nao montou a rota interna do guia");
+      const cliente = novo<object>(clienteModulo, "ClienteDoLote", {
+        base: "http://lote.invalid",
+        credencial: async () => credencialDoLote,
+        buscar: async (url: string, init?: RequestInit) =>
+          interna.request(new URL(String(url)).pathname, init as never),
+      });
+      const portas = obter<(o: unknown) => { lista: object; gates: object; revisao: object }>(
+        clienteModulo,
+        "portasDoGuia",
+      )({
+        ambiente: "prod",
+        lote: cliente,
+        emMemoria: () => {
+          throw new Error("nada em memoria: o guia do X-01 corre sobre a base");
+        },
+      });
+
+      // ---- O lado do onboarding-web: os casos e o guia na base, como kamba_app.
+      const chaveDe = (octeto: number): string => `x01-1:${Buffer.alloc(32, octeto).toString("base64")}`;
+      const cifra = obter<(...a: unknown[]) => unknown>(insc, "cifraDoCaso")(
+        obter<(...a: unknown[]) => unknown>(insc, "anelDoTelefone")([chaveDe(0x21), null]),
+        obter<(...a: unknown[]) => unknown>(insc, "anelDosDados")("kek_dados_do_caso", [chaveDe(0x22), null]),
+      );
+      const casos = obter<(o: unknown) => {
+        criar(n: unknown, chave: string): Promise<{ caso: { id: string } }>;
+        marcarFase(id: string, fase: string): Promise<boolean>;
+      }>(insc, "casosNaBase")({ pool: pools.app, cifra, anelDoPepper: [pepper, null] });
+      const contadores = novo<object>(insc, "ContadoresEmMemoria");
+      const antiabuso = novo<object>(insc, "AntiAbuso", { contadores, chave: pepper });
+      const otp = novo<object>(insc, "Otp", {
+        repositorio: novo<object>(insc, "OtpEmMemoria"),
+        contadores,
+        provedor: novo<object>(insc, "OtpPorSmsLocal", {
+          sms: novo<object>(sms, "FakeSmsProvider", {}),
+          pepperDoDestino: destino,
+        }),
+        chave: pepper,
+      });
+      const registo = novo<object>(insc, "Registo", {
+        repositorio: casos,
+        antiabuso,
+        otp,
+        anelDoPepper: [pepper, null],
+        anelDoToken: [assinatura, null],
+        anelDaSessao: [assinatura, null],
+      });
+      const guia = novo<object>(guiaModulo, "PassoGuiado", {
+        casos,
+        repositorio: obter<(o: unknown) => object>(guiaModulo, "guiaNaBase")({ pool: pools.app }),
+        capacidade: portas.lista,
+        ligador: { ligar: async () => ({ desfecho: "criado", tentativaId: null }) },
+        gates: portas.gates,
+        revisao: portas.revisao,
+        pagamento: { verificar: async () => "desconhecido" },
+        aviso: novo<object>(guiaModulo, "AvisosEmMemoria"),
+        anelDoPepper: [pepper, null],
+        chaveDaAssinatura: assinatura,
+        origem,
+        configId: "config-de-ensaio",
+      });
+
+      const app = criarApp(
+        undefined,
+        {
+          registo,
+          otp,
+          actividade: novo<object>(insc, "Actividade", { repositorio: casos, contadores }),
+          antiabuso,
+          anelDaAssinatura: [assinatura, null],
+          anelDoToken: [assinatura, null],
+          proxiesDeConfianca: 0,
+        } as never,
+        {
+          guia,
+          lista: portas.lista,
+          registo,
+          otp,
+          anelDaAssinatura: [assinatura, null],
+          appIdDaMeta: "app-de-ensaio",
+          versaoDaGraph: "v21.0",
+        } as never,
+      );
+
+      const criar = async (nome: string, telefone: string): Promise<string> => {
+        const { caso } = await casos.criar(
+          {
+            tenantId: randomUUID(),
+            origem: "anuncio",
+            nomeNegocio: nome,
+            categoriaDeclarada: "mercearia",
+            nif: novo<object>(insc, "Nif", `541${algarismos(7)}AB`, pepper),
+            telefone: novo<object>(insc, "Telefone", telefone, pepper),
+            email: novo<object>(insc, "Email", "dono@exemplo.test"),
+            dispositivoHmac: null,
+            redeHmac: null,
+            flags: [],
+          },
+          `chave-x01-guia-${algarismos(12)}`,
+        );
+        if (!(await casos.marcarFase(caso.id, "aguarda_es"))) throw new Error("o caso nao passou a aguarda_es");
+        return caso.id;
+      };
+
+      const canario = canarioOuSubstituto();
+      const idDeB = await criar(canario, `+2440000${algarismos(5)}`);
+      const idDeA = await criar("Loja de quem ataca", `+2440000${algarismos(5)}`);
+      // B tem estado de guia na base, com pre-voo gravado: e o que uma fuga mostraria.
+      await (guia as { preflight(id: string, a: unknown): Promise<unknown> }).preflight(idDeB, {});
+      // **E B fica a espera na lista, com posicao** — a forma mais hostil, e a do
+      // limite a zero da montagem em memoria. A base do gate tem as vagas da
+      // `onboarding_capacity`, que este condutor nao muda: enchem-se com casos de
+      // ensaio pela mesma rota interna ate um deles ficar na lista, e so entao B
+      // pede (achado 6 da revisao adversarial do KAM-254). Uma fuga da posicao,
+      // do convite ou da desistencia seria dela.
+      const reservar = (id: string): Promise<string> =>
+        (portas.lista as { reserve(id: string): Promise<string> }).reserve(id);
+      let cheia = false;
+      for (let n = 0; n < 64 && !cheia; n += 1) {
+        cheia = (await reservar(await criar(`Loja de enchimento ${n}`, `+2440000${algarismos(5)}`))) === "lista_espera";
+      }
+      if (!cheia) throw new Error("a lista nao encheu: B nao ficaria a espera");
+      if ((await reservar(idDeB)) !== "lista_espera") throw new Error("B nao ficou na lista de espera");
+      const temCanario = canario !== "" && canario !== "sem-canario-no-ambiente";
+
+      const sessaoDeA = cunharReferencia("sessao" as never, idDeA as never, assinatura as never);
+      const [, segundos, assinaturaDeA] = sessaoDeA.split(".");
+      const trocada = `${idDeB}.${segundos ?? ""}.${assinaturaDeA ?? ""}`;
+      const bilheteDeB = cunharReferencia("ticket" as never, idDeB as never, assinatura as never);
+      const ataques: readonly (readonly [string, string])[] = [
+        ["sessao-de-a-com-id-de-b", `kamba_onboarding=${trocada}`],
+        ["bilhete-como-sessao", `kamba_onboarding=${bilheteDeB}`],
+        ["id-de-b-no-corpo", `kamba_onboarding=${idDeB}`],
+      ];
+      const corpoComB = JSON.stringify({
+        onboarding_id: idDeB,
+        code: "c",
+        waba_id: "w",
+        phone_number_id: "p",
+        c: "convite-de-b",
+      });
+
+      // ---- GET /ligar: os tres, mais a retoma de B com a sessao valida de A.
+      const retomaDeB = encodeURIComponent(cunharReferencia("retoma" as never, idDeB as never, assinatura as never));
+      for (const [, cookie] of [
+        ...ataques,
+        ["retoma-de-b-com-sessao-de-a", `kamba_onboarding=${sessaoDeA}`] as const,
+      ]) {
+        const caminho = cookie.endsWith(sessaoDeA) ? `/ligar?r=${retomaDeB}` : `/ligar?onboarding_id=${idDeB}`;
         relatorio.rotas.push({
-          ...(await medir(item, verbo, `${caminho}?onboarding_id=${idDeB}`, app, {
-            method: verbo,
-            headers: { "content-type": "application/json", cookie },
-            ...(verbo === "POST" ? { body: corpoComB } : {}),
+          ...(await medir(ITENS_DO_GUIA[0], "GET", caminho, app, { headers: { cookie } })),
+          nota: temCanario ? "canario-no-caso-de-b" : "sem-canario-no-caso-de-b",
+        });
+      }
+
+      // ---- As dez rotas de sessao: os tres ataques a cada uma.
+      const deSessao = [
+        ["GET", "/api/es/estado", ITENS_DO_GUIA[1]],
+        ["POST", "/api/es/preflight", ITENS_DO_GUIA[2]],
+        ["POST", "/api/es/iniciar", ITENS_DO_GUIA[3]],
+        ["POST", "/api/es/cancelar", ITENS_DO_GUIA[4]],
+        ["POST", "/api/es/concluir", ITENS_DO_GUIA[5]],
+        ["POST", "/api/es/pagamento", ITENS_DO_GUIA[6]],
+        ["GET", "/api/lista/posicao", ITENS_DO_GUIA[8]],
+        ["POST", "/api/lista/convite", ITENS_DO_GUIA[9]],
+        ["POST", "/api/lista/recusar", ITENS_DO_GUIA[10]],
+        ["POST", "/api/lista/desistir", ITENS_DO_GUIA[11]],
+      ] as const;
+      for (const [verbo, caminho, item] of deSessao) {
+        for (const [rotulo, cookie] of ataques) {
+          relatorio.rotas.push({
+            ...(await medir(item, verbo, `${caminho}?onboarding_id=${idDeB}`, app, {
+              method: verbo,
+              headers: { "content-type": "application/json", cookie },
+              ...(verbo === "POST" ? { body: corpoComB } : {}),
+            })),
+            nota: rotulo,
+          });
+        }
+      }
+
+      // ---- POST /api/es/retoma: sem sessao, por desenho.
+      const retomaForjada = cunharReferencia("retoma" as never, idDeB as never, outra as never);
+      for (const [rotulo, r] of [
+        ["retoma-de-b-de-outra-chave", retomaForjada],
+        ["id-de-b-nu", idDeB],
+      ] as const) {
+        relatorio.rotas.push({
+          ...(await medir(ITENS_DO_GUIA[7], "POST", "/api/es/retoma", app, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ r }),
           })),
           nota: rotulo,
         });
       }
+    } catch (erro) {
+      falhar(`a montagem do guia levantou: ${razao(erro)}`);
     }
-
-    // ---- POST /api/es/retoma: sem sessao, por desenho.
-    const retomaForjada = cunharReferencia("retoma" as never, idDeB as never, outra as never, relogio as never);
-    for (const [rotulo, r] of [
-      ["retoma-de-b-de-outra-chave", retomaForjada],
-      ["id-de-b-nu", idDeB],
-    ] as const) {
-      relatorio.rotas.push({
-        ...(await medir(ITENS_DO_GUIA[7], "POST", "/api/es/retoma", app, {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ r }),
-        })),
-        nota: rotulo,
-      });
-    }
-  } catch (erro) {
-    falhar(`a montagem do guia levantou: ${razao(erro)}`);
+  } finally {
+    // **Sem `await`**: o `end()` de um *pool* espera pelos clientes emprestados,
+    // e o processo de lote real pode segurar um. Esperar aqui pendurava o grupo
+    // ate ao tecto da ponte, sem relatorio; o condutor sai pelo `process.exit()`.
+    void pools.app.end().catch(() => undefined);
+    void pools.lote.end().catch(() => undefined);
   }
 }
 
