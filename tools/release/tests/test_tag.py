@@ -40,6 +40,8 @@ class TestVerificacao(unittest.TestCase):
             "fila": tag.VerificacaoPosDeploy(True, 0.0, 120.0, True),
             "sonda": tag.VerificacaoPosDeploy(True, 0.0, 10.0, False),
             "nan": tag.VerificacaoPosDeploy(True, float("nan"), 10.0, True),
+            "taxa negativa": tag.VerificacaoPosDeploy(True, -1.0, 10.0, True),
+            "fila negativa": tag.VerificacaoPosDeploy(True, 0.0, -50.0, True),
         }
         for nome, verificacao in casos.items():
             with self.subTest(nome=nome):

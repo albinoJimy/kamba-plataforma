@@ -50,29 +50,56 @@ class TestCli(unittest.TestCase):
 
     def test_aprovacao_por_ficheiro(self) -> None:
         pr = {"author": {"login": "a"}, "headRefOid": "c" * 40, "labels": [{"name": "dinheiro"}],
-              "reviews": [{"author": {"login": "b"}, "state": "APPROVED", "commit": {"oid": "c" * 40}}],
+              "reviews": [{"author": {"login": "b"}, "state": "APPROVED", "commit": {"oid": "c" * 40},
+                           "authorAssociation": "MEMBER"}],
               "files": [], "changedFiles": 0}
         codigo, texto = _correr("aprovacao", "--pr-json", self._escrever("pr.json", pr))
         self.assertEqual(codigo, 1)
         self.assertIn("1 de 2", texto)
 
-    def test_smoke_guarda_aborta_com_1(self) -> None:
-        producao = self._escrever("prod.json", {"numeros": ["999200000002"]})
-        codigo, texto = _correr(
+    def _guarda(self, producao) -> tuple[int, str]:
+        return _correr(
             "smoke-guarda", "--ambiente", "staging", "--numero", "999200000002",
-            "--projecto", "staging", "--graph-base", "https://graph.facebook.com",
-            "--producao", producao,
+            "--phone-number-id", "pn-teste", "--projecto", "staging",
+            "--graph-base", "https://graph.facebook.com",
+            "--producao", self._escrever("prod.json", producao),
         )
+
+    def test_smoke_guarda_aborta_com_1(self) -> None:
+        codigo, texto = self._guarda({"numeros": ["999200000002"], "phone_number_ids": ["pn-prod"]})
         self.assertEqual(codigo, 1)
         self.assertIn("ABORTADO", texto)
 
-    def test_reconciliar(self) -> None:
-        ids = [f"m{i}" for i in range(3)]
-        ensaio = self._escrever("ensaio.json", {
-            "enviados": ids, "processados": ids, "respostas": ids, "acks_ms": {i: 10 for i in ids},
-        })
-        self.assertEqual(_correr("reconciliar", "--ensaio", ensaio, "--esperadas", "3")[0], 0)
-        self.assertEqual(_correr("reconciliar", "--ensaio", ensaio)[0], 1)
+    def test_smoke_guarda_com_ficheiro_malformado_aborta(self) -> None:
+        # A chave errada, um texto no lugar da lista, e uma lista vazia: nenhum
+        # conta como lista presente (achado da revisao).
+        for producao in ({"numbers": ["999200000002"]}, {"numeros": "+999200000002"}, [],
+                         {"numeros": [], "phone_number_ids": ["pn-prod"]}):
+            with self.subTest(producao=producao):
+                codigo, texto = self._guarda(producao)
+                self.assertEqual(codigo, 1, texto)
+                self.assertIn("ABORTADO", texto)
+
+    def test_reconciliar_so_aceita_o_ensaio_do_criterio(self) -> None:
+        def ensaio(n: int) -> str:
+            ids = [f"m{i}" for i in range(n)]
+            return self._escrever(f"ensaio{n}.json", {
+                "enviados": ids, "processados": ids, "respostas": ids, "acks_ms": {i: 10 for i in ids},
+            })
+        self.assertEqual(_correr("reconciliar", "--ensaio", ensaio(1500))[0], 0)
+        self.assertEqual(_correr("reconciliar", "--ensaio", ensaio(10))[0], 1)
+
+    def test_o_total_do_ensaio_nao_se_baixa_pela_linha_de_comandos(self) -> None:
+        # Achado da revisao: `--esperadas 10` dava VERDE com dez mensagens.
+        with self.assertRaises(SystemExit) as saida, contextlib.redirect_stderr(io.StringIO()):
+            cli.main(["--root", str(RAIZ), "reconciliar", "--ensaio", "x.json", "--esperadas", "10"])
+        self.assertEqual(saida.exception.code, 2)
+
+    def test_tag_exige_anterior_ou_primeira(self) -> None:
+        lock = self._escrever("release.lock", lock_com(gwy=("a", "build")).como_json())
+        codigo, _ = _correr("tag", "--tipo", "menor", "--lock", lock, "--sboms", str(self.pasta),
+                            "--verificacao", lock, "--destino", str(self.pasta / "arq"))
+        self.assertEqual(codigo, 2)
 
     def test_tag_com_verificacao_vermelha_recusa(self) -> None:
         lock = self._escrever("release.lock", lock_com(gwy=("a", "build")).como_json())

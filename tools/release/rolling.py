@@ -8,9 +8,11 @@ Tres criterios do bloco, e as tres decisoes que eles pedem vivem aqui:
    **por construcao**: nao ha paralelismo para desligar.
 2. **A reversao.** «Uma release deliberadamente invalida (`/healthz` falha) e
    revertida para o `release.lock` anterior sem intervencao humana em ≤ 5 min
-   (*proposta*)». Quando uma replica nao fica saudavel no prazo, `rolar` repoe a
-   imagem do lock anterior em **todas** as replicas que ja tinha mudado,
-   incluindo a que falhou, pela ordem inversa — e mede quanto demorou.
+   (*proposta*)». Quando uma replica nao fica saudavel no prazo, ou a
+   plataforma levanta a meio, `rolar` repoe a imagem do lock anterior nas
+   replicas que ja tinha mudado, incluindo a que falhou, pela ordem inversa — e
+   para na primeira que nao volta, em vez de esvaziar as que servem. Mede quanto
+   demorou.
 3. **A reconciliacao.** «Sob trafego sintetico de 5 msg/s durante 5 min (1.500
    mensagens): 0 perdidas, 0 duplicadas, ack < 500 ms em ≥ 99,9%». `reconciliar`
    e a conta, sobre os ids enviados, processados e respondidos.
@@ -73,17 +75,36 @@ class Desfecho:
         return self.segundos_de_reversao <= PRAZO_DE_REVERSAO_S
 
 
+def _tentar(accao: Callable[[], object], registo: list[str], nome: str) -> bool:
+    """Uma excepcao da plataforma e uma falha, e nao um fim sem desfecho.
+
+    A primeira versao deixava-a subir: um `pull` que falhasse na segunda replica
+    saia com a primeira na imagem nova, a segunda esvaziada, e nenhuma reversao
+    (achado da revisao adversarial). Contra «revertida sem intervencao humana».
+    """
+    try:
+        accao()
+    except Exception as excepcao:  # noqa: BLE001 — a plataforma e de terceiros
+        registo.append(f"excepcao {nome}: {type(excepcao).__name__}: {excepcao}")
+        return False
+    return True
+
+
 def _esperar_saude(
     plataforma: Plataforma,
     replica: str,
     relogio: Callable[[], float],
     dormir: Callable[[float], None],
     prazo: float,
+    registo: list[str],
 ) -> bool:
     limite = relogio() + prazo
     while True:
-        if plataforma.saudavel(replica):
-            return True
+        try:
+            if plataforma.saudavel(replica):
+                return True
+        except Exception as excepcao:  # noqa: BLE001 — uma sonda que rebenta nao e saude
+            registo.append(f"excepcao saudavel {replica}: {type(excepcao).__name__}")
         if relogio() >= limite:
             return False
         dormir(INTERVALO_DE_SONDA_S)
@@ -100,10 +121,17 @@ def rolar(
 ) -> Desfecho:
     """Implanta `novo` replica a replica; reverte para `anterior` se falhar.
 
-    So os servicos de `servicos` cuja imagem mudou entre os dois locks. Um
-    servico em `servicos` que nao esta no lock novo e erro de quem chama, e
-    levanta antes de tocar em qualquer replica.
+    So os servicos de `servicos` cuja imagem mudou entre os dois locks. Levanta
+    `ValueError` **antes de tocar em qualquer replica** quando um servico nao
+    esta no lock novo, aparece duas vezes, ou nao tem replicas: as tres sao
+    erro de quem chama, e um *rolling* que nao implanta nada nao e `implantado`.
+
+    O tempo de reversao conta-se **do momento em que se esvaziou a replica que
+    falhou**, e nao da deteccao: a espera pela saude e parte do que o cliente
+    sente, e o criterio dos 5 min e sobre a release invalida no ar.
     """
+    if len(set(servicos)) != len(servicos):
+        raise ValueError(f"servicos repetidos: {servicos}")
     for servico in servicos:
         if servico not in novo.servicos:
             raise ValueError(f"{servico}: nao esta no lock novo")
@@ -112,29 +140,52 @@ def rolar(
         if anterior.servicos.get(s) is None
         or anterior.servicos[s].imagem != novo.servicos[s].imagem
     ]
+    replicas = {s: list(plataforma.replicas(s)) for s in mudam}
+    for servico, lista in replicas.items():
+        if not lista or len(set(lista)) != len(lista):
+            raise ValueError(f"{servico}: replicas vazias ou repetidas ({lista})")
+
     registo: list[str] = []
     feitas: list[tuple[str, str]] = []
-
     for servico in mudam:
-        for replica in plataforma.replicas(servico):
+        for replica in replicas[servico]:
+            inicio = relogio()
             registo.append(f"esvaziar {replica}")
-            plataforma.esvaziar(replica)
+            if not _tentar(lambda: plataforma.esvaziar(replica), registo, f"esvaziar {replica}"):
+                # Pode ter ficado meio esvaziada: entra nas que se repoem.
+                feitas.append((servico, replica))
+                return _falhar(anterior, feitas, plataforma, relogio, dormir, prazo_de_saude, registo, replica, inicio)
             feitas.append((servico, replica))
-            registo.append(f"implantar {replica} {novo.servicos[servico].imagem}")
-            plataforma.implantar(replica, novo.servicos[servico].imagem)
-            if not _esperar_saude(plataforma, replica, relogio, dormir, prazo_de_saude):
-                registo.append(f"falhou {replica}")
-                inicio = relogio()
-                ok = _reverter(anterior, feitas, plataforma, relogio, dormir, prazo_de_saude, registo)
-                return Desfecho(
-                    estado="revertido" if ok else "reversao_falhou",
-                    registo=registo,
-                    segundos_de_reversao=relogio() - inicio,
-                    falhou_em=replica,
-                )
+            imagem = novo.servicos[servico].imagem
+            registo.append(f"implantar {replica} {imagem}")
+            ok = _tentar(lambda: plataforma.implantar(replica, imagem), registo, f"implantar {replica}")
+            if not ok or not _esperar_saude(plataforma, replica, relogio, dormir, prazo_de_saude, registo):
+                return _falhar(anterior, feitas, plataforma, relogio, dormir, prazo_de_saude, registo, replica, inicio)
             registo.append(f"retomar {replica}")
-            plataforma.retomar(replica)
+            if not _tentar(lambda: plataforma.retomar(replica), registo, f"retomar {replica}"):
+                return _falhar(anterior, feitas, plataforma, relogio, dormir, prazo_de_saude, registo, replica, inicio)
     return Desfecho(estado="implantado", registo=registo)
+
+
+def _falhar(
+    anterior: Lock,
+    feitas: list[tuple[str, str]],
+    plataforma: Plataforma,
+    relogio: Callable[[], float],
+    dormir: Callable[[float], None],
+    prazo_de_saude: float,
+    registo: list[str],
+    replica: str,
+    inicio: float,
+) -> Desfecho:
+    registo.append(f"falhou {replica}")
+    ok = _reverter(anterior, feitas, plataforma, relogio, dormir, prazo_de_saude, registo)
+    return Desfecho(
+        estado="revertido" if ok else "reversao_falhou",
+        registo=registo,
+        segundos_de_reversao=relogio() - inicio,
+        falhou_em=replica,
+    )
 
 
 def _reverter(
@@ -148,32 +199,36 @@ def _reverter(
 ) -> bool:
     """Repoe o lock anterior, pela ordem inversa, uma replica de cada vez.
 
-    **Continua depois de uma falha**, e devolve `False` no fim: parar a meio
-    deixava as replicas que faltam na imagem que acabou de falhar, e e melhor
-    ter mais replicas na imagem antiga do que menos. Uma replica cujo servico
-    nao existe no lock anterior (um servico novo) nao tem para onde voltar:
-    fica esvaziada, e a reversao conta como falhada — e humano.
+    **Para na primeira replica que nao volta**, e devolve `False`. A primeira
+    versao continuava, e a revisao adversarial mostrou o custo: com a segunda
+    replica do `gwy` fora e sem voltar, ia esvaziar a primeira — a unica
+    saudavel, na imagem nova — e deixava o servico com zero replicas a servir.
+    Parar deixa as que faltam na imagem nova **e a servir**, que e o estado que
+    um humano consegue ler e corrigir (`docs/runbooks/deploy-e-reversao.md`
+    §4.2). Uma replica cujo servico nao existe no lock anterior (um servico novo)
+    nao tem para onde voltar: fica esvaziada, e a reversao para ai.
     """
-    tudo_bem = True
     for indice, (servico, replica) in enumerate(reversed(feitas)):
         if indice > 0:
             # A que falhou ja esta esvaziada; as outras estavam a servir.
             registo.append(f"esvaziar {replica}")
-            plataforma.esvaziar(replica)
+            if not _tentar(lambda: plataforma.esvaziar(replica), registo, f"esvaziar {replica}"):
+                return False
         entrada = anterior.servicos.get(servico)
         if entrada is None:
             registo.append(f"sem-anterior {replica}")
-            tudo_bem = False
-            continue
+            return False
         registo.append(f"repor {replica} {entrada.imagem}")
-        plataforma.implantar(replica, entrada.imagem)
-        if not _esperar_saude(plataforma, replica, relogio, dormir, prazo_de_saude):
+        if not _tentar(lambda: plataforma.implantar(replica, entrada.imagem), registo, f"repor {replica}"):
             registo.append(f"reposicao-falhou {replica}")
-            tudo_bem = False
-            continue
+            return False
+        if not _esperar_saude(plataforma, replica, relogio, dormir, prazo_de_saude, registo):
+            registo.append(f"reposicao-falhou {replica}")
+            return False
         registo.append(f"retomar {replica}")
-        plataforma.retomar(replica)
-    return tudo_bem
+        if not _tentar(lambda: plataforma.retomar(replica), registo, f"retomar {replica}"):
+            return False
+    return True
 
 
 # --------------------------------------------------------------------------
@@ -245,12 +300,13 @@ def reconciliar(
     * **estranha**: processada ou respondida sem ter sido enviada — um id que
       nao e deste ensaio contamina a conta, e nao se ignora;
     * o ack conta-se **por enviado**: um enviado sem ack medido conta contra a
-      fraccao, em vez de sair do denominador.
+      fraccao, em vez de sair do denominador; e um ack negativo ou NaN nao e
+      um ack medido, e conta contra.
     """
     conjunto = set(enviados)
     processado = set(processados)
     respondido = set(respostas)
-    ok = sum(1 for i in conjunto if acks_ms.get(i) is not None and acks_ms[i] < ACK_LIMIAR_MS)
+    ok = sum(1 for i in conjunto if acks_ms.get(i) is not None and 0 <= acks_ms[i] < ACK_LIMIAR_MS)
     em_falta = sum(1 for i in conjunto if acks_ms.get(i) is None)
     fraccao = ok / len(conjunto) if conjunto else 0.0
     return Reconciliacao(

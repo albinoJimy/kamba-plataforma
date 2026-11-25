@@ -30,9 +30,10 @@ nao confirmado contra a saida de nenhum *scanner* concreto. Quem escolher o
 |---|---|
 | `sem-digest` | a referencia no lock nao e `@sha256:<64>` |
 | `sem-sbom` | o ficheiro do SBOM nao existe ou nao e CycloneDX |
-| `sbom-vazio` | CycloneDX sem `components` — um SBOM que nao lista nada nao descreve a imagem |
-| `sem-varrimento` | o ficheiro do varrimento nao existe, nao e CycloneDX, ou nao tem a chave `vulnerabilities` (use `[]` para «nenhuma»: a ausencia e ambigua) |
-| `critica-sem-excepcao` | uma vulnerabilidade com `severity: critical` sem *waiver* do gate 14 com `alvo` igual ao `id` |
+| `sbom-vazio` | CycloneDX sem `components` (ou nao lista) — um SBOM que nao lista nada nao descreve a imagem |
+| `artefacto-de-outra-imagem` | o `metadata.component` do SBOM ou do varrimento nao nomeia o *digest* do lock |
+| `sem-varrimento` | o ficheiro do varrimento nao existe, nao e CycloneDX, nao tem a chave `vulnerabilities` (use `[]` para «nenhuma»: a ausencia e ambigua), ou tem uma entrada malformada |
+| `critica-sem-excepcao` | uma vulnerabilidade com `severity: critical` ou `score` >= 9,0 sem *waiver* do gate 14 com `alvo` igual ao `id` |
 | `cosign-sem-binario` | ha imagem a verificar e o `cosign` nao esta no `PATH` — nao se salta |
 | `cosign-recusou` | o `cosign verify` saiu com codigo diferente de zero |
 
@@ -117,20 +118,50 @@ def _cyclonedx(caminho: Path) -> dict | None:
     return dados
 
 
+#: O limiar de `score` que torna um *rating* sem `severity` critico: a banda
+#: "Critical" da escala qualitativa do CVSS v3 (9,0 a 10,0).
+SCORE_CRITICO = 9.0
+
+
+class VarrimentoMalformado(ValueError):
+    """Uma entrada de `vulnerabilities` que nao se le. Conta como sem varrimento."""
+
+
 def criticas(varrimento: dict) -> list[str]:
-    """Os `id` das vulnerabilidades com alguma `severity` critica."""
+    """Os `id` das vulnerabilidades criticas. Levanta `VarrimentoMalformado`.
+
+    Critica e uma `severity: critical` em qualquer *rating*, **ou** um `score`
+    de 9,0 para cima. **Uma entrada malformada nao se salta**: um `ratings` que
+    e um mapa e nao uma lista, ou uma vulnerabilidade sem `id`, faziam a
+    primeira versao passar ao lado de uma critica (achado da revisao).
+    """
     saida: list[str] = []
     for vuln in varrimento.get("vulnerabilities") or []:
-        if not isinstance(vuln, dict):
-            continue
-        severidades = {
-            str(r.get("severity", "")).lower()
-            for r in vuln.get("ratings") or []
-            if isinstance(r, dict)
-        }
-        if "critical" in severidades:
-            saida.append(str(vuln.get("id") or "<sem id>"))
+        if not isinstance(vuln, dict) or not isinstance(vuln.get("id"), str) or not vuln["id"]:
+            raise VarrimentoMalformado(f"vulnerabilidade sem id: {vuln!r}"[:200])
+        ratings = vuln.get("ratings", [])
+        if not isinstance(ratings, list) or not all(isinstance(r, dict) for r in ratings):
+            raise VarrimentoMalformado(f"{vuln['id']}: ratings nao e uma lista de mapas")
+        for rating in ratings:
+            severidade = str(rating.get("severity", "")).lower()
+            score = rating.get("score")
+            if severidade == "critical" or (
+                isinstance(score, (int, float)) and not isinstance(score, bool) and score >= SCORE_CRITICO
+            ):
+                saida.append(vuln["id"])
     return sorted(set(saida))
+
+
+def _nomeia_o_digest(documento: dict, digest_hex: str) -> bool:
+    """O `metadata.component` do CycloneDX nomeia este *digest*?
+
+    Sem isto, o SBOM e o varrimento de **outra** imagem passavam pelos desta
+    (achado da revisao). Procura-se o hexadecimal em qualquer campo do
+    componente — `version`, `bom-ref`, `purl` — porque o campo exacto varia
+    com o *scanner*: **INDICIO**, como o resto do formato.
+    """
+    componente = (documento.get("metadata") or {}).get("component")
+    return isinstance(componente, dict) and digest_hex in json.dumps(componente)
 
 
 def verificar(
@@ -165,20 +196,33 @@ def verificar(
             # Sem digest nao ha o que assinar nem o que varrer: o resto mentia.
             continue
 
+        digest_hex = entrada.imagem.rsplit("sha256:", 1)[1]
         sbom = _cyclonedx(artefactos / f"{servico}.sbom.json")
         if sbom is None:
             achados.append(Achado(servico, "sem-sbom", "SBOM CycloneDX em falta ou ilegivel"))
-        elif not sbom.get("components"):
+        elif not isinstance(sbom.get("components"), list) or not sbom["components"]:
             achados.append(Achado(servico, "sbom-vazio", "o SBOM nao lista componente nenhum"))
+        elif not _nomeia_o_digest(sbom, digest_hex):
+            achados.append(Achado(servico, "artefacto-de-outra-imagem", "o SBOM nao nomeia o digest do lock"))
 
         varrimento = _cyclonedx(artefactos / f"{servico}.vulns.json")
-        if varrimento is None or not isinstance(varrimento.get("vulnerabilities"), list):
+        encontradas: list[str] | None = None
+        if varrimento is not None and isinstance(varrimento.get("vulnerabilities"), list):
+            try:
+                encontradas = criticas(varrimento)
+            except VarrimentoMalformado:
+                encontradas = None
+        if encontradas is None:
             achados.append(Achado(
                 servico, "sem-varrimento",
-                "varrimento CycloneDX em falta, ilegivel ou sem a chave `vulnerabilities`",
+                "varrimento CycloneDX em falta, ilegivel, malformado ou sem a chave `vulnerabilities`",
+            ))
+        elif not _nomeia_o_digest(varrimento, digest_hex):
+            achados.append(Achado(
+                servico, "artefacto-de-outra-imagem", "o varrimento nao nomeia o digest do lock",
             ))
         else:
-            for vid in criticas(varrimento):
+            for vid in encontradas:
                 if vid not in dispensadas:
                     achados.append(Achado(
                         servico, "critica-sem-excepcao",

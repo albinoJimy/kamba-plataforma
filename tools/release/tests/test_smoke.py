@@ -22,6 +22,10 @@ def _alvo(ambiente: str = "staging", numero: str = TESTE, projecto: str = "stagi
     return smoke.Alvo(ambiente, numero, pnid, projecto, base)
 
 
+def _dev(**kw) -> smoke.Alvo:
+    return _alvo(**{"ambiente": "dev", "projecto": "local", "base": SIMULADOR, **kw})
+
+
 def _producao(numeros=(PRODUCAO_FICTICIA,), ids=("pn-prod",)) -> smoke.Producao:
     return smoke.producao_declarada(RAIZ, numeros, ids)
 
@@ -37,25 +41,57 @@ class TestGuarda(unittest.TestCase):
     def test_negativo_aborta_perante_o_numero_de_producao(self) -> None:
         self.assertAborta(_alvo(numero=PRODUCAO_FICTICIA), _producao(), "numero de producao")
 
-    def test_negativo_aborta_com_o_numero_de_producao_noutra_forma(self) -> None:
-        self.assertAborta(_alvo(numero="+999 200 000 002"), _producao(), "numero de producao")
+    def test_negativo_o_mesmo_numero_noutras_formas(self) -> None:
+        for forma in ("+999 200 000 002", "00999200000002", "200000002"):
+            with self.subTest(forma=forma):
+                self.assertAborta(_alvo(numero=forma), _producao(), "numero de producao")
+
+    def test_negativo_a_lista_noutra_forma(self) -> None:
+        for lista in (("+999 200 000 002",), ("200000002",), ("00999200000002",)):
+            with self.subTest(lista=lista):
+                self.assertAborta(_alvo(numero="+999200000002"), _producao(numeros=lista),
+                                  "numero de producao")
 
     def test_negativo_aborta_perante_o_phone_number_id_de_producao(self) -> None:
         self.assertAborta(_alvo(pnid="pn-prod"), _producao(), "phone_number_id")
 
     def test_negativo_aborta_com_as_chaves_de_producao(self) -> None:
-        self.assertAborta(_alvo(projecto="prod"), _producao(), "chaves do smoke")
+        for projecto in ("prod", "Prod", " prod "):
+            with self.subTest(projecto=projecto):
+                self.assertAborta(_alvo(projecto=projecto), _producao(), "chaves do smoke")
 
     # --- fail-closed ---------------------------------------------------------
 
     def test_sem_a_lista_de_producao_aborta_em_staging(self) -> None:
         self.assertAborta(_alvo(), _producao(numeros=None), "sem a lista")
 
+    def test_lista_vazia_ou_malformada_aborta(self) -> None:
+        for numeros in ((), "999200000002", ("123",), (999200000002,)):
+            with self.subTest(numeros=numeros), self.assertRaises(smoke.SmokeAbortado):
+                _producao(numeros=numeros)
+
+    def test_sem_os_ids_de_producao_aborta_em_staging(self) -> None:
+        self.assertAborta(_alvo(), _producao(ids=()), "phone_number_id de producao")
+
+    def test_ids_malformados_abortam(self) -> None:
+        for ids in ("pn-prod", ("",), (7,)):
+            with self.subTest(ids=ids), self.assertRaises(smoke.SmokeAbortado):
+                _producao(ids=ids)
+
+    def test_alvo_sem_phone_number_id_aborta_em_staging(self) -> None:
+        self.assertAborta(_alvo(pnid=""), _producao(), "dizer o seu phone_number_id")
+
+    def test_projecto_de_outro_ambiente_aborta(self) -> None:
+        self.assertAborta(_alvo(projecto="local"), _producao(), "o de staging")
+
     def test_prod_aborta_sempre(self) -> None:
         self.assertAborta(_alvo(ambiente="prod", projecto="outro"), _producao(), "nunca corre em producao")
 
     def test_ambiente_nao_declarado_aborta(self) -> None:
         self.assertAborta(_alvo(ambiente="qa"), _producao(), "nao declarado")
+
+    def test_numero_incompleto_aborta(self) -> None:
+        self.assertAborta(_alvo(numero="12345"), _producao(), "incompleto")
 
     def test_o_projecto_de_producao_vem_do_env_yaml(self) -> None:
         self.assertEqual(_producao().projecto, "prod")
@@ -66,16 +102,19 @@ class TestGuarda(unittest.TestCase):
         smoke.guardar(_alvo(), _producao(), RAIZ)
 
     def test_dev_contra_o_simulador_passa(self) -> None:
-        smoke.guardar(_alvo(ambiente="dev", projecto="dev", base=SIMULADOR), _producao(numeros=None), RAIZ)
+        smoke.guardar(_dev(), _producao(numeros=None, ids=()), RAIZ)
 
     def test_dev_fora_do_intervalo_ficticio_aborta(self) -> None:
-        self.assertAborta(
-            _alvo(ambiente="dev", projecto="dev", base=SIMULADOR, numero="12025550100"),
-            _producao(), "intervalo ficticio",
-        )
+        self.assertAborta(_dev(numero="12025550100"), _producao(numeros=None), "intervalo ficticio")
 
     def test_dev_com_a_graph_da_meta_aborta(self) -> None:
-        self.assertAborta(_alvo(ambiente="dev", projecto="dev"), _producao(), "base da Graph")
+        for base in ("https://graph.facebook.com", "https://GRAPH.FACEBOOK.COM/v21.0",
+                     "https://graph.facebook.com./", "https://facebook.com", ""):
+            with self.subTest(base=base):
+                self.assertAborta(_dev(base=base), _producao(numeros=None), "simulador")
+
+    def test_dev_com_o_id_de_producao_aborta(self) -> None:
+        self.assertAborta(_dev(pnid="pn-prod"), _producao(numeros=None), "phone_number_id")
 
 
 class TestCorrer(unittest.TestCase):
@@ -132,11 +171,21 @@ class TestClassificacao(unittest.TestCase):
         with self.assertRaises(ValueError):
             smoke.Execucao("ok")
 
+    def test_tempo_impossivel_e_erro_de_quem_mede(self) -> None:
+        for segundos in (float("nan"), -100.0, float("inf")):
+            with self.subTest(segundos=segundos), self.assertRaises(ValueError):
+                smoke.Execucao("ok", segundos)
+
     def test_pagamento(self) -> None:
         self.assertEqual(smoke.classificar_pagamento("paga", 30.0, True).estado, smoke.VERDE)
         self.assertEqual(smoke.classificar_pagamento("paga", 61.0, True).estado, smoke.VERMELHO)
         self.assertEqual(smoke.classificar_pagamento("pendente", 10.0, True).estado, smoke.VERMELHO)
         self.assertEqual(smoke.classificar_pagamento(None, None, False).estado, smoke.INCONCLUSIVO)
+
+    def test_pagamento_com_tempo_impossivel_e_vermelho(self) -> None:
+        for segundos in (float("nan"), -5.0):
+            with self.subTest(segundos=segundos):
+                self.assertEqual(smoke.classificar_pagamento("paga", segundos, True).estado, smoke.VERMELHO)
 
 
 if __name__ == "__main__":

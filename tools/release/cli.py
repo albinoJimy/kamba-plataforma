@@ -4,11 +4,11 @@
     python -m release lock verificar F
     python -m release lock diferencas NOVO ANTERIOR
     python -m release imagem --lock F --artefactos DIR (--cosign-chave K | --cosign-identidade I)
-    python -m release aprovacao (--pr-json F | --pr N)
+    python -m release aprovacao (--pr-json F | --pr N [N ...])
     python -m release pipeline
     python -m release smoke-guarda --ambiente A --numero N --projecto P --graph-base U [--producao F]
     python -m release reconciliar --ensaio F
-    python -m release tag --tipo T [--anterior vX.Y.Z] --lock F --sboms DIR --verificacao F --destino DIR
+    python -m release tag --tipo T (--anterior vX.Y.Z | --primeira) --lock F --sboms DIR --verificacao F --destino DIR
 
 Codigo de saida 0 = passa, 1 = recusado ou com achados, 2 = erro de utilizacao
 ou de configuracao. **Um 2 nunca e verde**: uma configuracao que nao se le nao
@@ -75,21 +75,26 @@ def _imagem(args: argparse.Namespace, raiz: Path) -> int:
 
 
 def _aprovacao(args: argparse.Namespace, raiz: Path) -> int:
+    prs: list[dict] = []
     if args.pr_json:
-        pr = _json(args.pr_json)
+        prs.append(_json(args.pr_json))
     else:
+        # Todos os PRs que a release leva: um de dinheiro fundido antes do
+        # ultimo tambem vai para prod (achado da revisao).
         campos = "author,headRefOid,labels,reviews,files,changedFiles"
-        saida = subprocess.run(
-            ["gh", "pr", "view", str(args.pr), "--repo", args.repo, "--json", campos],
-            capture_output=True, text=True, check=False,
-        )
-        if saida.returncode != 0:
-            print(f"gh pr view falhou: {saida.stderr.strip()}", file=sys.stderr)
-            return 2
-        pr = json.loads(saida.stdout)
-    decisao = aprovacao.decidir_com_raiz(pr, raiz)
-    print(decisao)
-    return 0 if decisao.passa else 1
+        for numero in args.pr:
+            saida = subprocess.run(
+                ["gh", "pr", "view", str(numero), "--repo", args.repo, "--json", campos],
+                capture_output=True, text=True, check=False,
+            )
+            if saida.returncode != 0:
+                print(f"gh pr view {numero} falhou: {saida.stderr.strip()}", file=sys.stderr)
+                return 2
+            prs.append(json.loads(saida.stdout))
+    decisoes = aprovacao.decidir_varios(prs, raiz)
+    for decisao in decisoes:
+        print(decisao)
+    return 0 if all(d.passa for d in decisoes) else 1
 
 
 def _pipeline(_args: argparse.Namespace, raiz: Path) -> int:
@@ -102,13 +107,19 @@ def _pipeline(_args: argparse.Namespace, raiz: Path) -> int:
 
 def _smoke_guarda(args: argparse.Namespace, raiz: Path) -> int:
     numeros = ids = None
-    if args.producao:
-        dados = _json(args.producao)
-        numeros = [str(n) for n in dados.get("numeros", [])]
-        ids = [str(i) for i in dados.get("phone_number_ids", [])]
     alvo = smoke.Alvo(args.ambiente, args.numero, args.phone_number_id, args.projecto, args.graph_base)
     try:
-        smoke.guardar(alvo, smoke.producao_declarada(raiz, numeros, ids or ()), raiz)
+        if args.producao:
+            # Sem conversoes: um ficheiro com a chave errada, um texto no lugar
+            # da lista ou uma lista vazia aborta, e nao conta como presente.
+            dados = _json(args.producao)
+            if not isinstance(dados, dict) or "numeros" not in dados:
+                raise smoke.SmokeAbortado(f"{args.producao}: falta a chave `numeros`")
+            numeros = dados["numeros"]
+            ids = dados.get("phone_number_ids")
+            if not isinstance(numeros, list) or (ids is not None and not isinstance(ids, list)):
+                raise smoke.SmokeAbortado(f"{args.producao}: `numeros` e `phone_number_ids` sao listas")
+        smoke.guardar(alvo, smoke.producao_declarada(raiz, numeros, ids), raiz)
     except smoke.SmokeAbortado as excepcao:
         print(f"ABORTADO: {excepcao}")
         return 1
@@ -123,13 +134,15 @@ def _reconciliar(args: argparse.Namespace, _raiz: Path) -> int:
         [str(i) for i in dados.get("processados", [])],
         [str(i) for i in dados.get("respostas", [])],
         {str(k): float(v) for k, v in (dados.get("acks_ms") or {}).items()},
-        esperadas=int(args.esperadas),
     )
     print(resultado.resumo())
     return 0 if resultado.verde else 1
 
 
 def _tag(args: argparse.Namespace, _raiz: Path) -> int:
+    if bool(args.anterior) == bool(args.primeira):
+        print("tag: exactamente um de --anterior ou --primeira", file=sys.stderr)
+        return 2
     lido = lock.ler(Path(args.lock))
     versao = tag.proxima_versao(args.anterior, args.tipo)
     verificacao = tag.VerificacaoPosDeploy.de_json(_json(args.verificacao))
@@ -160,7 +173,7 @@ def _parser() -> argparse.ArgumentParser:
     s = sub.add_parser("aprovacao")
     grupo = s.add_mutually_exclusive_group(required=True)
     grupo.add_argument("--pr-json")
-    grupo.add_argument("--pr", type=int)
+    grupo.add_argument("--pr", type=int, nargs="+")
     s.add_argument("--repo", default="albinoJimy/kamba-plataforma")
 
     sub.add_parser("pipeline")
@@ -175,11 +188,11 @@ def _parser() -> argparse.ArgumentParser:
 
     s = sub.add_parser("reconciliar")
     s.add_argument("--ensaio", required=True)
-    s.add_argument("--esperadas", default=rolling.MENSAGENS_ESPERADAS)
 
     s = sub.add_parser("tag")
     s.add_argument("--tipo", required=True, choices=tag.TIPOS)
     s.add_argument("--anterior")
+    s.add_argument("--primeira", action="store_true")
     s.add_argument("--lock", required=True)
     s.add_argument("--sboms", required=True)
     s.add_argument("--verificacao", required=True)

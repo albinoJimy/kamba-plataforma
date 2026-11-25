@@ -9,17 +9,30 @@ from pathlib import Path
 
 from release import imagem
 from release.lock import Entrada, Lock
-from release.tests.apoio import COMMIT, lock_com
+from release.tests.apoio import COMMIT, digest, lock_com
 
 CHAVE = imagem.Assinatura(chave="cosign.pub")
+GWY = "registo.exemplo/gwy@" + digest("a")
+DIGEST_GWY = "a" * 64
+
+
+def _comando_certo(comando: list[str]) -> bool:
+    """O duplo le o comando: verificar com a chave, e o digest do lock.
+
+    A primeira versao dos duplos decidia sem ler o argumento, e a revisao
+    adversarial trocou o comando por um `cosign verify <imagem>` sem chave sem
+    nenhum ensaio ficar vermelho.
+    """
+    return comando == ["cosign", "verify", "--key", "cosign.pub", GWY]
 
 
 def _cosign_aceita(comando: list[str]) -> tuple[int, str]:
-    return 0, "ok"
+    return (0, "ok") if _comando_certo(comando) else (99, f"comando inesperado: {comando}")
 
 
 def _cosign_recusa(comando: list[str]) -> tuple[int, str]:
-    return 1, "no matching signatures"
+    # Com o comando errado aceita: assim o negativo so fica vermelho pela razao certa.
+    return (1, "no matching signatures") if _comando_certo(comando) else (0, "")
 
 
 def _cosign_ausente(comando: list[str]) -> tuple[int, str]:
@@ -31,12 +44,15 @@ class _Artefactos:
         self._tmp = tempfile.TemporaryDirectory()
         self.pasta = Path(self._tmp.name)
 
-    def sbom(self, servico: str, componentes: int = 1, formato: str = "CycloneDX") -> None:
-        corpo = {"bomFormat": formato, "components": [{"name": f"c{i}"} for i in range(componentes)]}
+    def sbom(self, servico: str, componentes: int = 1, formato: str = "CycloneDX",
+             de: str = DIGEST_GWY) -> None:
+        corpo = {"bomFormat": formato, "components": [{"name": f"c{i}"} for i in range(componentes)],
+                 "metadata": {"component": {"version": "sha256:" + de}}}
         (self.pasta / f"{servico}.sbom.json").write_text(json.dumps(corpo), encoding="utf-8")
 
-    def vulns(self, servico: str, *vulns: tuple[str, str], sem_chave: bool = False) -> None:
-        corpo: dict = {"bomFormat": "CycloneDX"}
+    def vulns(self, servico: str, *vulns: tuple[str, str], sem_chave: bool = False,
+              de: str = DIGEST_GWY) -> None:
+        corpo: dict = {"bomFormat": "CycloneDX", "metadata": {"component": {"bom-ref": de}}}
         if not sem_chave:
             corpo["vulnerabilities"] = [
                 {"id": vid, "ratings": [{"severity": sev}]} for vid, sev in vulns
@@ -150,6 +166,40 @@ class TestGate14(unittest.TestCase):
         imagem.verificar(self.lock, self.art.pasta, CHAVE, set(), regista)
         self.assertEqual(len(chamadas), 1)
         self.assertIn("/gwy@", chamadas[0])
+
+
+    # --- achados da revisao adversarial ------------------------------------
+
+    def _bruto(self, nome: str, corpo: dict) -> None:
+        corpo = {"bomFormat": "CycloneDX", "metadata": {"component": {"version": DIGEST_GWY}}, **corpo}
+        (self.art.pasta / nome).write_text(json.dumps(corpo), encoding="utf-8")
+
+    def _so(self) -> list[str]:
+        return self.regras(imagem.verificar(self.lock, self.art.pasta, CHAVE, set(), _cosign_aceita))
+
+    def test_sbom_de_outra_imagem_falha(self) -> None:
+        self.art.sbom("gwy", de="b" * 64)
+        self.assertEqual(self._so(), ["artefacto-de-outra-imagem"])
+
+    def test_varrimento_de_outra_imagem_falha(self) -> None:
+        self.art.vulns("gwy", de="b" * 64)
+        self.assertEqual(self._so(), ["artefacto-de-outra-imagem"])
+
+    def test_ratings_que_e_um_mapa_e_malformado(self) -> None:
+        self._bruto("gwy.vulns.json", {"vulnerabilities": [{"id": "X", "ratings": {"severity": "critical"}}]})
+        self.assertEqual(self._so(), ["sem-varrimento"])
+
+    def test_vulnerabilidade_sem_id_e_malformada(self) -> None:
+        self._bruto("gwy.vulns.json", {"vulnerabilities": [{"ratings": []}]})
+        self.assertEqual(self._so(), ["sem-varrimento"])
+
+    def test_score_critico_sem_severidade_e_critica(self) -> None:
+        self._bruto("gwy.vulns.json", {"vulnerabilities": [{"id": "X", "ratings": [{"score": 9.8}]}]})
+        self.assertEqual(self._so(), ["critica-sem-excepcao"])
+
+    def test_components_que_nao_e_lista_e_vazio(self) -> None:
+        self._bruto("gwy.sbom.json", {"components": "x"})
+        self.assertEqual(self._so(), ["sbom-vazio"])
 
 
 class TestAssinatura(unittest.TestCase):

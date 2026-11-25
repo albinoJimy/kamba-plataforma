@@ -11,8 +11,9 @@ CABECA = "c" * 40
 ANTIGA = "d" * 40
 
 
-def _revisao(quem: str, estado: str = "APPROVED", oid: str = CABECA) -> dict:
-    return {"author": {"login": quem}, "state": estado, "commit": {"oid": oid}}
+def _revisao(quem: str, estado: str = "APPROVED", oid: str = CABECA, assoc: str = "MEMBER") -> dict:
+    return {"author": {"login": quem}, "state": estado, "commit": {"oid": oid},
+            "authorAssociation": assoc}
 
 
 def _pr(*revisoes: dict, etiquetas: tuple[str, ...] = (), ficheiros: tuple[str, ...] = ("README.md",)) -> dict:
@@ -40,7 +41,7 @@ class TestGate16(unittest.TestCase):
         self.assertTrue(decisao.passa)
 
     def test_as_tres_etiquetas_pedem_duas(self) -> None:
-        for etiqueta in ("dinheiro", "seguranca", "isolamento", "Seguranca"):
+        for etiqueta in ("dinheiro", "seguranca", "isolamento", "Seguranca", "Segurança", " ISOLAMENTO "):
             with self.subTest(etiqueta=etiqueta):
                 decisao = aprovacao.decidir_com_raiz(_pr(_revisao("ana"), etiquetas=(etiqueta,)), RAIZ)
                 self.assertFalse(decisao.passa)
@@ -71,7 +72,36 @@ class TestGate16(unittest.TestCase):
         self.assertFalse(aprovacao.decidir_com_raiz(_pr(), RAIZ).passa)
 
 
+class TestVariosPrs(unittest.TestCase):
+    def test_a_release_so_passa_se_todos_os_prs_passarem(self) -> None:
+        decisoes = aprovacao.decidir_varios(
+            [_pr(_revisao("ana")), _pr(_revisao("ana"), etiquetas=("dinheiro",))], RAIZ
+        )
+        self.assertEqual([d.passa for d in decisoes], [True, False])
+
+    def test_release_sem_pr_levanta(self) -> None:
+        with self.assertRaises(ValueError):
+            aprovacao.decidir_varios([], RAIZ)
+
+
 class TestQuemAprovou(unittest.TestCase):
+    def test_negativo_contas_sem_escrita_nao_contam(self) -> None:
+        # Repositorio publico: qualquer conta pode carregar em «Approve».
+        pr = _pr(_revisao("estranho1", assoc="NONE"), _revisao("estranho2", assoc="CONTRIBUTOR"),
+                 etiquetas=("dinheiro",))
+        self.assertFalse(aprovacao.decidir(pr, []).passa)
+
+    def test_sem_associacao_nao_conta(self) -> None:
+        revisao = _revisao("ana")
+        del revisao["authorAssociation"]
+        self.assertEqual(aprovacao.aprovadores(_pr(revisao)), ())
+
+    def test_negativo_bots_nao_contam(self) -> None:
+        bot = _revisao("outro")
+        bot["author"]["is_bot"] = True
+        pr = _pr(_revisao("dependabot[bot]", assoc="OWNER"), bot, etiquetas=("dinheiro",))
+        self.assertEqual(aprovacao.aprovadores(pr), ())
+
     def test_a_autora_nao_conta(self) -> None:
         self.assertEqual(aprovacao.aprovadores(_pr(_revisao("autora"))), ())
 

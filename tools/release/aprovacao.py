@@ -25,7 +25,20 @@ copia: a lista nao pode divergir da que o gate 4 aplica.
 * sobre a **cabeca** do PR: uma aprovacao a um *commit* anterior nao aprovou o
   que vai para `prod`;
 * de quem **nao e o autor** — o GitHub ja o impede, e aqui repete-se porque
-  este modulo tambem le um JSON que nao veio do GitHub.
+  este modulo tambem le um JSON que nao veio do GitHub;
+* de quem **tem escrita no repositorio** (`authorAssociation` `OWNER`, `MEMBER`
+  ou `COLLABORATOR`) e **nao e um *bot***. O repositorio e publico: qualquer
+  conta do GitHub pode submeter um «Approve», e sem este filtro duas contas
+  descartaveis faziam passar um PR de dinheiro (achado da revisao adversarial).
+  Sem o campo, a revisao nao conta.
+
+**As etiquetas comparam-se sem acentos nem maiusculas**: `Segurança` e
+`seguranca` sao a mesma marca. As tres ainda nao existem, e num repositorio em
+portugues e provavel que nascam com acento.
+
+**Uma release leva varios PRs.** `decidir_varios` exige que **cada** PR do
+intervalo que vai para `prod` passe: um PR de dinheiro fundido antes do que se
+avalia nao fica de fora por nao ser o ultimo.
 
 A forma do JSON e a do `gh pr view --json author,headRefOid,labels,reviews,files`.
 Os campos `author.login`, `headRefOid`, `labels[].name` e o `reviews: []` vazio
@@ -38,6 +51,7 @@ producao.
 from __future__ import annotations
 
 import dataclasses
+import unicodedata
 from pathlib import Path
 
 #: As etiquetas que o criterio nomeia, sem acentos (nomes de etiqueta).
@@ -45,6 +59,11 @@ ETIQUETAS_SENSIVEIS = frozenset({"dinheiro", "seguranca", "isolamento"})
 
 #: O estrato do `ci/thresholds.yaml` que torna um caminho sensivel.
 ESTRATO_SENSIVEL = "critico"
+
+#: Quem pode aprovar: as associacoes com escrita no repositorio. **INDICIO**: e
+#: o campo `authorAssociation` da API do GitHub; nenhum PR deste repositorio tem
+#: revisoes com que o confirmar.
+ASSOCIACOES_QUE_APROVAM = frozenset({"OWNER", "MEMBER", "COLLABORATOR"})
 
 MINIMO_SENSIVEL = 2
 MINIMO_RESTANTE = 1
@@ -83,6 +102,11 @@ def caminhos_sensiveis(caminhos: list[str], raiz: Path) -> list[str]:
     return saida
 
 
+def _sem_acentos(texto: str) -> str:
+    decomposto = unicodedata.normalize("NFKD", texto)
+    return "".join(c for c in decomposto if not unicodedata.combining(c)).strip().lower()
+
+
 def aprovadores(pr: dict) -> tuple[str, ...]:
     """Quem aprovou a cabeca do PR, pelo ultimo parecer de cada um."""
     autor = str((pr.get("author") or {}).get("login") or "")
@@ -90,7 +114,11 @@ def aprovadores(pr: dict) -> tuple[str, ...]:
     ultimo: dict[str, dict] = {}
     for revisao in pr.get("reviews") or []:
         quem = str((revisao.get("author") or {}).get("login") or "")
-        if not quem or quem == autor:
+        if not quem or quem == autor or quem.endswith("[bot]"):
+            continue
+        if (revisao.get("author") or {}).get("is_bot") is True:
+            continue
+        if revisao.get("authorAssociation") not in ASSOCIACOES_QUE_APROVAM:
             continue
         # COMMENTED nao muda o parecer de ninguem: so APPROVED, CHANGES_REQUESTED
         # e DISMISSED o fazem.
@@ -105,7 +133,7 @@ def aprovadores(pr: dict) -> tuple[str, ...]:
 
 
 def decidir(pr: dict, sensiveis_por_caminho: list[str]) -> Decisao:
-    etiquetas = {str(e.get("name", "")).lower() for e in pr.get("labels") or []}
+    etiquetas = {_sem_acentos(str(e.get("name", ""))) for e in pr.get("labels") or []}
     razoes = [f"etiqueta {e}" for e in sorted(etiquetas & ETIQUETAS_SENSIVEIS)]
     razoes += [f"caminho {c}" for c in sorted(sensiveis_por_caminho)]
     sensivel = bool(razoes)
@@ -132,3 +160,10 @@ def decidir_com_raiz(pr: dict, raiz: Path) -> Decisao:
     if not isinstance(total, int) or total > len(ficheiros):
         sensiveis.append(f"<lista de ficheiros incompleta: {len(ficheiros)} de {total}>")
     return decidir(pr, sensiveis)
+
+
+def decidir_varios(prs: list[dict], raiz: Path) -> list[Decisao]:
+    """Uma decisao por PR da release; a release so passa se todas passarem."""
+    if not prs:
+        raise ValueError("uma release sem PR nenhum nao tem quem a aprove")
+    return [decidir_com_raiz(pr, raiz) for pr in prs]

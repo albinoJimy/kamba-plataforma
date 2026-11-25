@@ -22,7 +22,10 @@ existe**: arquivar duas vezes a mesma versao com conteudo diferente e reescrever
 historia.
 
 O `git tag` e o `git push` da *tag* ficam ao *pipeline*: este modulo decide se
-se pode e qual e o nome, e nao fala com o remoto.
+se pode e qual e o nome, e nao fala com o remoto. **A unicidade que ele garante e
+a da pasta de destino**; num *runner* efemero e o `git tag` (que recusa uma
+*tag* que ja existe) quem a garante entre execucoes. Por isso a linha de comandos
+exige `--anterior` (ou `--primeira`): sem ela, toda a release seria a 0.1.0.
 """
 
 from __future__ import annotations
@@ -95,9 +98,9 @@ class VerificacaoPosDeploy:
         saida = []
         if not self.healthz:
             saida.append("/healthz")
-        if not self.taxa_de_erro_do_ingress <= TAXA_DE_ERRO_MAXIMA:
+        if not 0 <= self.taxa_de_erro_do_ingress <= TAXA_DE_ERRO_MAXIMA:
             saida.append(f"taxa de erro {self.taxa_de_erro_do_ingress:.2%} > {TAXA_DE_ERRO_MAXIMA:.0%}")
-        if not self.idade_da_fila_s < IDADE_DA_FILA_MAXIMA_S:
+        if not 0 <= self.idade_da_fila_s < IDADE_DA_FILA_MAXIMA_S:
             saida.append(f"idade da fila {self.idade_da_fila_s:g} s >= {IDADE_DA_FILA_MAXIMA_S:g} s")
         if not self.sonda_externa:
             saida.append("sonda externa")

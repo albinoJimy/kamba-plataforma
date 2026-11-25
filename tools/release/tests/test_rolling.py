@@ -14,7 +14,10 @@ NOVO = lock_com(gwy=("c", "build"), worker=("d", "build"), postgres=("e", "terce
 class _Plataforma:
     """Duplo: duas replicas por servico, um relogio, e a concorrencia medida."""
 
-    def __init__(self, doentes: set[str] = frozenset(), imagens_doentes: set[str] = frozenset()) -> None:
+    def __init__(self, doentes: set[str] = frozenset(), imagens_doentes: set[str] = frozenset(),
+                 rebenta: str | None = None, sem_replicas: bool = False) -> None:
+        self.rebenta = rebenta
+        self.sem_replicas = sem_replicas
         self.agora = 0.0
         self.doentes = set(doentes)
         self.imagens_doentes = set(imagens_doentes)
@@ -32,7 +35,7 @@ class _Plataforma:
 
     # porta
     def replicas(self, servico: str) -> list[str]:
-        return [f"{servico}-1", f"{servico}-2"]
+        return [] if self.sem_replicas else [f"{servico}-1", f"{servico}-2"]
 
     def esvaziar(self, replica: str) -> None:
         self.fora.add(replica)
@@ -43,6 +46,8 @@ class _Plataforma:
         # Implantar numa replica que esta a servir e cortar turnos a meio.
         if replica not in self.fora:
             raise AssertionError(f"implantar {replica} sem a esvaziar")
+        if replica == self.rebenta and imagem in {e.imagem for e in NOVO.servicos.values()}:
+            raise RuntimeError("pull falhou")
         self.imagem[replica] = imagem
         self.agora += self.custo_de_implantar
 
@@ -98,12 +103,43 @@ class TestRolling(unittest.TestCase):
         self.assertGreater(desfecho.segundos_de_reversao, rolling.PRAZO_DE_REVERSAO_S)
         self.assertFalse(desfecho.dentro_do_prazo_de_reversao)
 
-    def test_reversao_que_falha_e_humana_e_continua_as_outras(self) -> None:
+    def test_reversao_que_falha_e_humana(self) -> None:
         # A replica gwy-1 nao fica saudavel nem com a imagem antiga.
         p = _Plataforma(doentes={"gwy-1"})
         desfecho = _rolar(p)
         self.assertEqual(desfecho.estado, "reversao_falhou")
         self.assertIn("reposicao-falhou gwy-1", desfecho.registo)
+        self.assertEqual(p.maximo_fora, 1)
+
+    def test_negativo_a_reversao_nao_esvazia_a_unica_saudavel(self) -> None:
+        # gwy-1 fica bem na nova; gwy-2 falha na nova e na antiga. A primeira
+        # versao ia esvaziar gwy-1 a seguir e deixava o gwy a zero (revisao).
+        p = _Plataforma(doentes={"gwy-2"})
+        desfecho = _rolar(p, servicos=("gwy",))
+        self.assertEqual(desfecho.estado, "reversao_falhou")
+        self.assertEqual(p.maximo_fora, 1)
+        self.assertNotIn("gwy-1", p.fora)
+        self.assertEqual(p.imagem["gwy-1"], NOVO.servicos["gwy"].imagem)
+
+    def test_negativo_excepcao_da_plataforma_reverte(self) -> None:
+        p = _Plataforma(rebenta="gwy-2")
+        desfecho = _rolar(p, servicos=("gwy",))
+        self.assertEqual(desfecho.estado, "revertido")
+        self.assertEqual(desfecho.falhou_em, "gwy-2")
+        self.assertTrue(any(l.startswith("excepcao implantar gwy-2") for l in desfecho.registo))
+        antiga = ANTERIOR.servicos["gwy"].imagem
+        self.assertEqual(p.imagem, {"gwy-1": antiga, "gwy-2": antiga})
+        self.assertEqual(p.fora, set())
+
+    def test_servico_sem_replicas_levanta_antes_de_tocar(self) -> None:
+        p = _Plataforma(sem_replicas=True)
+        with self.assertRaises(ValueError):
+            _rolar(p)
+        self.assertEqual(p.imagem, {})
+
+    def test_servico_repetido_levanta(self) -> None:
+        with self.assertRaises(ValueError):
+            _rolar(_Plataforma(), servicos=("gwy", "gwy"))
 
     def test_servico_novo_nao_tem_para_onde_voltar(self) -> None:
         sem = lock_com(gwy=("a", "build"))
@@ -170,6 +206,10 @@ class TestReconciliacao(unittest.TestCase):
         r = rolling.reconciliar(self.ids, self.ids, self.ids, acks)
         self.assertEqual(r.acks_em_falta, 1)
         self.assertFalse(r.verde)
+
+    def test_ack_negativo_conta_contra(self) -> None:
+        acks = dict(self.acks, m0001=-1.0, m0002=-1.0)
+        self.assertFalse(rolling.reconciliar(self.ids, self.ids, self.ids, acks).verde)
 
     def test_menos_mensagens_do_que_o_ensaio_pede_nao_e_verde(self) -> None:
         curto = self.ids[:100]

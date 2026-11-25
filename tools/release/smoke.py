@@ -20,12 +20,17 @@ publico nao pode listar. Por isso a guarda **nao confia so na lista**:
 |---|---|
 | `prod`, ou um cujo `meta.modo` seja `producao` | aborta sempre |
 | sem `infra/envs/<ambiente>/env.yaml` | aborta: ambiente que ninguem declarou |
-| `meta.modo: mock` (o `dev`) | numero no intervalo ficticio do `tools/meta-sim` (`999…`) e base da Graph que **nao** seja a da Meta |
-| `meta.modo: numero-de-teste` (o `staging`) | a lista de producao **presente** — sem ela aborta, porque nao se prova que o alvo nao e producao —, o numero e o `phone_number_id` fora dela, e o projecto de segredos diferente do de `prod` |
+| `meta.modo: mock` (o `dev`) | numero no intervalo ficticio do `tools/meta-sim` (`999…`) e base da Graph cujo anfitriao **nao** seja da Meta |
+| `meta.modo: numero-de-teste` (o `staging`) | as duas listas de producao **presentes e bem formadas** — numeros e `phone_number_id`; sem elas aborta, porque nao se prova que o alvo nao e producao —, o alvo a dizer o seu `phone_number_id`, e os dois fora das listas |
 
-Em qualquer modo, o projecto de segredos igual ao de `prod` aborta: e a outra
-metade do criterio («chaves distintas»), e o `env_lint` ja a prende do lado da
-configuracao.
+Em qualquer modo, o projecto de segredos igual ao de `prod` aborta, e diferente
+do que o proprio ambiente declara tambem (comparados sem maiusculas nem espacos):
+e a outra metade do criterio («chaves distintas»), e o `env_lint` ja a prende do
+lado da configuracao. E em qualquer modo um numero ou `phone_number_id` que
+esteja nas listas, quando as ha, aborta.
+
+**Os numeros comparam-se pelos ultimos nove algarismos**, para que a mesma linha
+em E.164, com `00` ou em formato nacional seja a mesma linha.
 
 **De onde vem a lista de producao, quando houver producao:** do projecto `prod`
 do cofre, lida pelo *job* de *release* com um *token* so de leitura, e passada
@@ -37,6 +42,7 @@ from __future__ import annotations
 import dataclasses
 import math
 from pathlib import Path
+from urllib.parse import urlsplit
 from typing import Callable, Iterable
 
 #: O anfitriao da Graph real. Num *smoke* contra o simulador, uma base que o
@@ -82,21 +88,53 @@ def _env_yaml(raiz: Path, ambiente: str) -> dict | None:
     return load_file(caminho)
 
 
-def producao_declarada(raiz: Path, numeros: Iterable[str] | None, ids: Iterable[str] = ()) -> Producao:
-    """O projecto de `prod` lido do `env.yaml`; a lista vem de fora."""
+#: Quantos algarismos finais identificam um numero. Nove e o numero de assinante
+#: angolano (o `algarismos: 9` do `tools/meta-sim/fake_numbers.yaml`): comparar
+#: pelos ultimos nove apanha a mesma linha escrita em E.164, com `00` ou em
+#: formato nacional. Junta numeros diferentes com o mesmo final, e isso e a
+#: direccao segura — aborta a mais, nunca a menos.
+ALGARISMOS_DO_ASSINANTE = 9
+
+
+def _normal(texto: str) -> str:
+    return texto.strip().lower()
+
+
+def producao_declarada(raiz: Path, numeros: Iterable[str] | None, ids: Iterable[str] | None = ()) -> Producao:
+    """O projecto de `prod` lido do `env.yaml`; a lista vem de fora.
+
+    **Uma lista dada tem de servir.** Vazia, com um elemento que nao e texto, ou
+    com um numero de menos de nove algarismos levanta `SmokeAbortado`: uma lista
+    malformada nao prova nada, e trata-la como «presente» deixava passar o
+    numero que ela devia conter (achado da revisao adversarial).
+    """
     prod = _env_yaml(raiz, "prod") or {}
-    projecto = str((prod.get("segredos") or {}).get("projecto") or "")
+    projecto = _normal(str((prod.get("segredos") or {}).get("projecto") or ""))
     if not projecto:
         raise SmokeAbortado("infra/envs/prod/env.yaml sem `segredos.projecto`: nao se sabe o que evitar")
+    lista: frozenset[str] | None = None
+    if numeros is not None:
+        if isinstance(numeros, str) or not all(isinstance(n, str) for n in numeros):
+            raise SmokeAbortado("a lista de producao tem de ser uma lista de textos")
+        lista = frozenset(_assinante(n) for n in numeros)
+        if not lista or any(len(n) < ALGARISMOS_DO_ASSINANTE for n in lista):
+            raise SmokeAbortado("a lista de producao esta vazia ou tem numeros incompletos")
+    identificadores = list(ids or ())
+    if isinstance(ids, str) or not all(isinstance(i, str) and i.strip() for i in identificadores):
+        raise SmokeAbortado("os phone_number_id de producao tem de ser textos nao vazios")
     return Producao(
         projecto=projecto,
-        numeros=None if numeros is None else frozenset(_digitos(n) for n in numeros),
-        phone_number_ids=frozenset(str(i) for i in ids),
+        numeros=lista,
+        phone_number_ids=frozenset(i.strip() for i in identificadores),
     )
 
 
 def _digitos(numero: str) -> str:
     return "".join(c for c in numero if c.isdigit())
+
+
+def _assinante(numero: str) -> str:
+    return _digitos(numero)[-ALGARISMOS_DO_ASSINANTE:]
 
 
 def intervalo_ficticio(raiz: Path) -> tuple[int, int]:
@@ -117,32 +155,47 @@ def guardar(alvo: Alvo, producao: Producao, raiz: Path) -> None:
     modo = str((declarado.get("meta") or {}).get("modo") or "")
     if modo not in ("mock", "numero-de-teste"):
         raise SmokeAbortado(f"`meta.modo` de {alvo.ambiente} e {modo!r}: so `mock` e `numero-de-teste`")
-    if alvo.projecto_de_segredos == producao.projecto:
+    projecto = _normal(alvo.projecto_de_segredos)
+    if projecto == producao.projecto:
         raise SmokeAbortado(
             f"o projecto de segredos e {producao.projecto!r}, o de producao: as chaves "
             "do smoke tem de ser distintas"
         )
+    # E o do proprio ambiente, quando ele o declara: um projecto que nao e nem o
+    # de prod nem o do alvo e um segredo de outro sitio.
+    proprio = _normal(str((declarado.get("segredos") or {}).get("projecto") or ""))
+    if proprio and projecto != proprio:
+        raise SmokeAbortado(
+            f"o projecto de segredos e {projecto!r} e o de {alvo.ambiente} e {proprio!r}"
+        )
 
     numero = _digitos(alvo.numero)
-    if not numero:
-        raise SmokeAbortado("numero alvo vazio")
+    if len(numero) < ALGARISMOS_DO_ASSINANTE:
+        raise SmokeAbortado("numero alvo vazio ou incompleto")
+    pnid = alvo.phone_number_id.strip()
+    if pnid and pnid in producao.phone_number_ids:
+        raise SmokeAbortado("o phone_number_id alvo e de producao")
+    if producao.numeros is not None and _assinante(numero) in producao.numeros:
+        raise SmokeAbortado("o numero alvo e um numero de producao")
+
     if modo == "mock":
         primeiro, ultimo = intervalo_ficticio(raiz)
         if not (len(numero) == len(str(primeiro)) and primeiro <= int(numero) <= ultimo):
             raise SmokeAbortado("em `mock` o numero tem de estar no intervalo ficticio do meta-sim")
-        if ANFITRIAO_DA_META in alvo.graph_base:
-            raise SmokeAbortado("em `mock` a base da Graph nao pode ser a da Meta")
+        anfitriao = (urlsplit(alvo.graph_base.strip()).hostname or "").lower().rstrip(".")
+        if not anfitriao or anfitriao == "facebook.com" or anfitriao.endswith(".facebook.com"):
+            raise SmokeAbortado("em `mock` a base da Graph tem de ser o simulador, e nao a Meta")
         return
 
-    # numero-de-teste
+    # numero-de-teste: as duas listas tem de existir, e o alvo tem de se nomear.
     if producao.numeros is None:
         raise SmokeAbortado(
             "sem a lista de numeros de producao nao se prova que o alvo nao e producao"
         )
-    if numero in producao.numeros:
-        raise SmokeAbortado("o numero alvo e um numero de producao")
-    if alvo.phone_number_id in producao.phone_number_ids:
-        raise SmokeAbortado("o phone_number_id alvo e de producao")
+    if not producao.phone_number_ids:
+        raise SmokeAbortado("sem os phone_number_id de producao nao se prova o alvo")
+    if not pnid:
+        raise SmokeAbortado("em `numero-de-teste` o alvo tem de dizer o seu phone_number_id")
 
 
 # --------------------------------------------------------------------------
@@ -164,6 +217,10 @@ class Execucao:
             raise ValueError(f"desfecho {self.desfecho!r}")
         if self.desfecho == "ok" and self.segundos is None:
             raise ValueError("uma execucao `ok` tem tempo medido")
+        if self.segundos is not None and not (0 <= self.segundos < math.inf):
+            # NaN e negativos davam verde no p95 (achado da revisao): um tempo
+            # que nao e um tempo e erro de quem mede, e nao um smoke rapido.
+            raise ValueError(f"tempo invalido: {self.segundos!r}")
 
 
 def p95(valores: list[float]) -> float:
@@ -207,7 +264,7 @@ def classificar_pagamento(estado_final: str | None, segundos: float | None, faci
         return Veredicto(INCONCLUSIVO, "o facilitador (ou o sandbox) nao respondeu")
     if estado_final != "paga":
         return Veredicto(VERMELHO, f"o pedido acabou em {estado_final!r} e nao em `paga`")
-    if segundos is None or segundos > LIMITE_DO_PAGAMENTO_S:
+    if segundos is None or not (0 <= segundos <= LIMITE_DO_PAGAMENTO_S):
         return Veredicto(VERMELHO, f"`paga` em {segundos} s; o limite e {LIMITE_DO_PAGAMENTO_S:g} s")
     return Veredicto(VERDE, f"`paga` em {segundos:.1f} s")
 
