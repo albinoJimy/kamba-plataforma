@@ -4,7 +4,7 @@
 |---|---|
 | Produto | KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para Angola |
 | Documento | Epic — Topologia e Operação |
-| Versão | 1.35 |
+| Versão | 1.37 |
 | Data | Novembro de 2026 |
 | Classificação | Documento de Referência — Interno |
 | Documento-fonte | `../docs/tecnica/09_Topologia_Operacao_Escala.md` |
@@ -56,6 +56,8 @@ O epic concretiza **ADR-008** (alojamento, *backups*, CDN e observabilidade são
 | KAM-242 | O compose de produção sem *swap*: o `memswap_limit` igual ao `mem_limit` em todos os serviços, exigido pelo `compose_prod`, e o *swap* do *host* registado | chore | S | P1 | KAM-076, KAM-238 |
 | KAM-249 | A fila sem credencial na rede `data`: o Valkey com autenticação, e o S3 do `seaweedfs` medido | fix | M | P1 | KAM-076, KAM-247 |
 | KAM-257 | O gRPC do S3 do `seaweedfs` sem credencial: a 18333 reabre o S3 ao anónimo, fechada por mTLS ou pela D6 | fix | M | P2 | KAM-249 |
+| KAM-259 | O caminho de abertura do *break-glass* escreve `breakglass.open` no `audit_log`, em `staging` e `prod` | feature | M | P0 | KAM-012, KAM-075, KAM-080 |
+| KAM-260 | O `docker inspect` dos serviços de `prod` ensaiado: o que ele mostra do ambiente, e a correcção do que o ensaio apanhar | feature | M | P0 | KAM-010, KAM-076 |
 
 ---
 
@@ -69,7 +71,7 @@ O epic concretiza **ADR-008** (alojamento, *backups*, CDN e observabilidade são
 | Prioridade | P0 |
 | Estimativa | M |
 | Dependências | KAM-001 |
-| Bloqueia | KAM-076, KAM-077 |
+| Bloqueia | KAM-076, KAM-077, KAM-259 |
 | Responsável sugerido | Plataforma/SRE |
 | Documentos de referência | `../docs/tecnica/09_Topologia_Operacao_Escala.md` (§5.3, §6, §8.2), `../docs/tecnica/08_Seguranca_Conformidade.md` (§5), ADR-008, ADR-014, `../docs/tecnica/evidencia/E3_Regulatorio_Dados.md` (requisito 24) |
 
@@ -177,7 +179,7 @@ do fundador. Os comandos e os números estão em
 | Prioridade | P0 |
 | Estimativa | L |
 | Dependências | KAM-075 |
-| Bloqueia | KAM-078, KAM-079, KAM-080, KAM-084, KAM-187, KAM-242, KAM-249 |
+| Bloqueia | KAM-078, KAM-079, KAM-080, KAM-084, KAM-187, KAM-242, KAM-249, KAM-260 |
 | Responsável sugerido | Plataforma/SRE |
 | Documentos de referência | `../docs/tecnica/09_Topologia_Operacao_Escala.md` (§3, §4, §20), `../docs/tecnica/08_Seguranca_Conformidade.md` (§4.4, §4.8), ADR-002, ADR-005, ADR-006, ADR-009, ADR-014, ADR-018, ADR-019 |
 
@@ -404,6 +406,34 @@ Objectivo: gates 14-18, deploy rolling por release.lock e smoke ponta a ponta co
 Não expandas escopo: backups (KAM-079), alertas (KAM-080). Testes: negativos, rolling sob carga, reversão. PR com o template da §7.
 ```
 
+### Preparação (sem o mundo real)
+
+| Campo | Valor |
+|---|---|
+| Data | 2026-11-25 |
+| Autor | Coordenação do lote 24 |
+| Âmbito | A parte de código e documentação que não depende do número de teste da app Meta de *staging*, do sandbox ProxyPay, de um *host* nem de um registo de contentores |
+| Estado do ticket | **Aberto.** Nenhuma caixa acima foi marcada; esta secção não é a de verificação |
+
+**O que ficou feito, com a evidência de cada coisa.** O pacote `../tools/release/` (Python, só biblioteca padrão) tem uma decisão por gate, cada uma com a execução numa porta injectável, e **157 ensaios** em `../tools/release/tests/` (`cd tools && python -m unittest discover -s release/tests -t .` → `Ran 157 tests`, OK), que correm no gate 4 pela descoberta das suites de `tools/`. Os alvos do `../Makefile` (`release-lock`, `ci-14`, `ci-16`, `ci-17`, `ci-18`, `smoke-guarda`) **não estão no `ci:` nem em *workflow* nenhum**; o procedimento, a reversão manual e a proposta de ligação estão em `../docs/runbooks/deploy-e-reversao.md`.
+
+**Revisão adversarial, uma, com os achados corrigidos.** Um revisor sem acesso ao raciocínio do autor devolveu 17 achados, cada um com pelo menos uma parte CONFIRMADA por execução. As partes confirmadas foram todas corrigidas neste ramo, cada uma com ensaio. Os que mais pesavam falhavam abertos: o gate 16 contava aprovações de qualquer conta, *bots* incluídos, e uma etiqueta `Segurança` com acento não marcava o PR; o *lint* do *pipeline* aceitava uma `aprovacao:` solta e permanente, e deixava escapar `if: 'false'`, *jobs* a quatro espaços e *jobs* em fluxo; a guarda do *smoke* tratava como «presente» uma lista de produção vazia ou com a chave errada, e não via o mesmo número escrito com `00` ou em formato nacional; a reversão podia esvaziar a única réplica saudável, e uma excepção da plataforma saía sem reversão; o duplo do `cosign` decidia sem ler o comando, e por isso um `cosign verify` sem chave passava os ensaios. Uma prova por mutação feita à mão sobre as decisões, incluindo a mutação do revisor ao comando do `cosign`, deu **35 de 35 mordidas**. Ficam por fechar duas partes PLAUSÍVEIS, ditas no runbook: o *lint* não lê as acções compostas nem os *workflows* reutilizáveis, e a unicidade da versão entre execuções é do `git tag`.
+
+| Critério | O que está preparado | Evidência | O que falta, e de quem |
+|---|---|---|---|
+| Gate 14 | `imagem.verificar`: *digest*, SBOM CycloneDX com componentes, varrimento CycloneDX bem formado, os dois a nomear o *digest* do lock no `metadata.component`, `cosign verify` com o material declarado (binário ausente falha, não salta), crítica (`severity` ou `score` ≥ 9,0) sem *waiver* do gate 14 no `../ci/waivers.yaml` | os **2 testes negativos** do critério: `test_imagem.py::test_negativo_imagem_sem_assinatura_verificada_falha` e `::test_negativo_critica_sem_excepcao_registada_falha` | registo de contentores, *scanner* escolhido e licenciado, `cosign` no *runner*; o formato `vulnerabilities[]` e o campo do `metadata.component` são **INDÍCIO** até um *scanner* real os confirmar |
+| Gate 15 | a guarda e a classificação: `smoke.guardar` corre antes de qualquer envio; p95 por posição de 20 execuções ≤ 15 s; Meta em baixo é `inconclusivo`; `paga` ≤ 60 s; um tempo negativo ou NaN é erro de medição, e nunca verde | `test_smoke.py` (32 ensaios) | o número de teste (KAM-102), o sandbox (KAM-056) e o fio contra o `meta-sim`: o `worker-canal` monta o cliente da Graph sem base configurável, e abri-la é eixo de segurança |
+| Gate 16 | `aprovacao.decidir_varios`: cada PR da release; dois revisores se o PR tem etiqueta `dinheiro`/`seguranca`/`isolamento` (sem acentos nem maiúsculas) **ou** toca no estrato `critico` do `../ci/thresholds.yaml`; só contam revisores com escrita (`authorAssociation`) e que não sejam *bots*, a última opinião de cada um e sobre a cabeça; uma lista de ficheiros truncada conta como sensível | o teste negativo com 1: `test_aprovacao.py::test_negativo_dinheiro_com_uma_aprovacao_nao_chega_a_prod`; contra o PR #275 real, `python -m release aprovacao --pr 275` → recusa, 0 de 1 | as três etiquetas **não existem** no repositório (medido, `gh label list`); a forma JSON de uma revisão preenchida, `authorAssociation` incluído, é **INDÍCIO** (nenhum PR tem revisões) |
+| Gate 17 | `rolling.rolar`: uma réplica de cada vez por construção; reversão pela ordem inversa para o lock anterior, que **pára na primeira réplica que não volta** em vez de esvaziar as que servem; uma excepção da plataforma conta como falha e reverte; `rolling.reconciliar` (perdidas, duplicadas, sem resposta, estranhas, ack em [0, 500[ ms em ≥ 99,9% contado por enviado, e as 1.500 do critério, que a linha de comandos não deixa baixar) | `test_rolling.py` (23 ensaios; o duplo mede a concorrência e recusa implantar sem esvaziar) | o adaptador de *host* e o ensaio das 1.500 mensagens (KAM-077) |
+| Reversão ≤ 5 min | o `rolar` mede os segundos desde que se esvaziou a réplica que falhou até ao fim da reversão, e diz se passou o tecto | `test_rolling.py::test_release_invalida_e_revertida_sem_intervencao` e `::test_a_reversao_mede_o_tempo_e_diz_se_passou_os_cinco_minutos` | a medição num *host* |
+| Gate 18 | `tag.arquivar`: SemVer, lock, SBOM e manifesto com `sha256`, só com a verificação pós-deploy verde e com valores possíveis, e uma vez por versão na pasta de destino (o `git tag` garante-o entre execuções); `pipeline.verificar`: `continue-on-error`, `allow_failure`, qualquer `if:` que não corra sempre, ou uma forma que não se lê, num *job* de gate, exige um ADR existente num comentário de linha inteira ou um *waiver* válido | `test_tag.py`, `test_pipeline.py`; contra os *workflows* reais, `make ci-18` → **1 achado**, `ci.yaml:339` (o gate 5 reservado); o gate 13 passa pelo ADR-L012 | a ligação ao CI e a decisão sobre o gate 5 são do fundador (`../docs/runbooks/deploy-e-reversao.md` §6) |
+| Migrações expand/contract e N-1 | **não tocado** nesta preparação | — | o *smoke* N-1 precisa do *smoke* |
+| Chaves distintas e aborto por número de produção | a guarda aborta com o projecto de segredos de `prod` ou diferente do do ambiente, com o número (pelos últimos nove algarismos) ou o `phone_number_id` nas listas de produção, **e sem as listas** em `staging` — uma lista vazia ou malformada conta como ausente | o teste negativo: `test_smoke.py::test_negativo_aborta_perante_o_numero_de_producao`, mais o mesmo número em três formas | as listas vêm do projecto `prod` do cofre, que só existe com produção |
+
+**O `release.lock` medido contra o compose de produção:** 25 serviços, 10 de terceiros já por `@sha256` e **15 `build:` sem *digest*** — `make release-lock` recusa e nomeia os quinze. É a inversão KAM-078 → KAM-076 do critério 2 do KAM-076, agora com instrumento.
+
+**Proposta ao fundador, não aplicada:** o texto do *job* `gate-18-pipeline` e o esqueleto do *workflow* de *release* estão no §6 do runbook. O gate 18 fica vermelho até se decidir o gate 5 (duas opções no §6.2).
+
 ---
 
 ## KAM-079 — Backups pgBackRest fora do host, PITR e restauro mensal automático
@@ -598,7 +628,7 @@ filtro. A razão está na célula dele.) Os comandos e os números estão em
 | Prioridade | P0 |
 | Estimativa | L |
 | Dependências | KAM-076 |
-| Bloqueia | KAM-081, KAM-082, KAM-083, KAM-187 |
+| Bloqueia | KAM-081, KAM-082, KAM-083, KAM-187, KAM-259 |
 | Responsável sugerido | Plataforma/SRE |
 | Documentos de referência | `../docs/tecnica/09_Topologia_Operacao_Escala.md` (§9, §13), `../docs/tecnica/08_Seguranca_Conformidade.md` (§7.3), `../docs/tecnica/evidencia/E1_Meta_WhatsApp.md` (§1, §5), ADR-010, ADR-018 |
 
@@ -2163,6 +2193,129 @@ Testes: o PutIdentity antes e depois, o S3 assinado, e o canário da regra nova.
 
 ---
 
+## KAM-259 — O caminho de abertura do *break-glass* escreve `breakglass.open` no `audit_log`, em `staging` e `prod`
+
+| Campo | Valor |
+|---|---|
+| Epic | EPIC-08 — Topologia e Operação |
+| Fase | 1 |
+| Tipo | feature |
+| Prioridade | P0 |
+| Estimativa | M |
+| Dependências | KAM-012, KAM-075, KAM-080 |
+| Bloqueia | KAM-074 |
+| Responsável sugerido | Plataforma/SRE |
+| Documentos de referência | `../infra/ENVIRONMENTS.md` (§2, linha «Acesso»), `../infra/envs/prod/env.yaml`, `../infra/envs/staging/env.yaml`, `../infra/modules/host-base/cloud-init.yaml.tftpl`, `../db/migrations/versions/0006_audit_log.py`, `../docs/seguranca/revisao_independente/escopo.md` (§4) |
+
+### Contexto
+
+Credor do KAM-074, aberto por decisão da coordenação do lote 24 a 2026-11-25 (**reversível**): o KAM-074 passa a depender deste ticket, para que o revisor independente o encontre feito. Corresponde à L-33 do espelho privado.
+
+A matriz de ambientes dá a `prod` o acesso `break-glass-auditado`, com registo no `audit_log`, e o domínio de `audit_log.action` já tem a acção `breakglass.open` desde a revisão `0006`. O pacote do revisor do KAM-074 pede que o acesso dele a `staging` fique registado da mesma forma, com prazo, e revogado no fim.
+
+### Objectivo
+
+Que cada abertura de acesso de excepção a um *host* de `staging` ou de `prod` deixe uma linha `breakglass.open` no `audit_log`, com quem, quando, onde e até quando, escrita pelo próprio caminho de abertura e com ensaio.
+
+### Critérios de Aceitação
+
+- [ ] O caminho de abertura do *break-glass* (o procedimento e o código que ele corre) escreve uma linha `breakglass.open` no `audit_log` antes de o acesso ficar utilizável, com o actor, o ambiente, o *host*, a razão e o prazo.
+- [ ] Vale em `staging` e em `prod`; o acesso da equipa em `staging` continua como a matriz de ambientes o define, e o acesso de quem não é da equipa (o revisor do KAM-074) passa pelo caminho auditado. Se isso mudar o `acesso.modo` de `staging`, a mudança fica em `../infra/envs/staging/env.yaml` e na matriz, com o `env_lint` verde.
+- [ ] Um ensaio prova que a abertura sem a linha no `audit_log` não completa (falha fechada), e outro que a linha fica encadeada como as outras do `audit_log`.
+- [ ] O fecho do acesso também fica registado, e o KAM-074 tem o comando que mostra as duas linhas do revisor.
+- [ ] Nenhum segredo, chave ou endereço de máquina em ficheiro versionado.
+
+### Detalhes Técnicos
+
+- **Componentes:** o *host* (`../infra/modules/host-base/`), o `audit_log`, a matriz de ambientes.
+- **Esquema:** nenhum — a acção já está no domínio. Se o fecho precisar de acção própria, é esquema novo e pára-se para pedir vaga de migração.
+- **Fora do âmbito:** a auditoria contínua dos acessos (alertas, revisão periódica), que é do KAM-080.
+
+### Testes Requeridos
+
+- A abertura com e sem a escrita no `audit_log`, contra um PostgreSQL real.
+- O encadeamento da linha nova.
+
+### Definition of Done
+
+- [ ] Critérios satisfeitos, com o comando de cada medição registado.
+- [ ] A matriz de ambientes e o `env_lint` coerentes com o que mudar.
+
+### Handoff para Claude Code
+
+```text
+És o executor do ticket KAM-259 da KAMBÁ (o caminho de abertura do break-glass escreve breakglass.open no audit_log).
+Lê specs/EPIC-08_Topologia_Operacao.md (blocos KAM-075, KAM-080 e KAM-259), infra/ENVIRONMENTS.md,
+infra/envs/staging/env.yaml, infra/envs/prod/env.yaml, infra/modules/host-base/ e db/migrations/versions/0006_audit_log.py.
+Objectivo: cada abertura de acesso de excepção em staging e prod deixa breakglass.open no audit_log, antes de o acesso valer.
+Regras: falha fechada; sem esquema novo sem vaga; nada de segredos nem endereços em ficheiro versionado.
+Testes: abertura com e sem a escrita, contra PostgreSQL real; o encadeamento da linha.
+```
+
+---
+
+## KAM-260 — O `docker inspect` dos serviços de `prod` ensaiado: o que ele mostra do ambiente, e a correcção do que o ensaio apanhar
+
+| Campo | Valor |
+|---|---|
+| Epic | EPIC-08 — Topologia e Operação |
+| Fase | 1 |
+| Tipo | feature |
+| Prioridade | P0 |
+| Estimativa | M |
+| Dependências | KAM-010, KAM-076 |
+| Bloqueia | KAM-074 |
+| Responsável sugerido | Plataforma/SRE |
+| Documentos de referência | `../docs/adr/ADR-L002-injeccao-de-segredos.md` (Consequências), `../infra/compose/docker-compose.prod.yml`, `../ops/secrets-inventory.yaml`, `../docs/seguranca/revisao_independente/escopo.md` (§2, área 6) |
+
+### Contexto
+
+Credor do KAM-074, aberto por decisão da coordenação do lote 24 a 2026-11-25 (**reversível**): o KAM-074 passa a depender deste ticket, para que o revisor independente o encontre feito. Corresponde à L-34 do espelho privado.
+
+O `ADR-L002` fixa como os segredos chegam aos serviços e o que o `docker inspect` de um contentor de `prod` pode mostrar. O pacote do revisor do KAM-074 inclui a extracção de segredos do ambiente de contentores entre os testes de exploração. Este ticket faz desse limite um ensaio que corre.
+
+### Objectivo
+
+Um ensaio que levanta os serviços do *compose* de `prod` com segredos de teste e compara o que o `docker inspect` de cada um mostra com o que o `ADR-L002` admite; e a correcção, no mesmo ticket, de tudo o que o ensaio apanhar.
+
+### Critérios de Aceitação
+
+- [ ] Um ensaio levanta o *compose* de `prod` com valores de teste (nunca de `staging` nem de `prod`), corre o `docker inspect` de cada serviço, e falha se algum valor de segredo do `../ops/secrets-inventory.yaml` aparecer na saída.
+- [ ] O ensaio morde: com um valor de teste posto de propósito onde o `ADR-L002` não o admite, fica vermelho.
+- [ ] O que o ensaio apanhar corrige-se aqui, mantendo o que o `ADR-L002` decidiu; se a correcção pedir mudar a decisão, pára-se e devolve-se ao fundador.
+- [ ] O ensaio fica ligado a um alvo que um *gate* existente já corre, sem *job* novo.
+- [ ] Nenhum valor real em ficheiro versionado; os valores de teste são gerados pelo ensaio.
+
+### Detalhes Técnicos
+
+- **Componentes:** o *compose* de `prod`, o lançador dos serviços, o inventário de segredos.
+- **Esquema:** nenhum.
+- **Nota sobre o KAM-078:** o `ADR-L002` dá ao deploy do KAM-078 a receita do lançador aos serviços. Se o ensaio precisar do que o KAM-078 prepara, aproveita-o onde já estiver na `main` e regista o que faltar; não espera por ele.
+- **Fora do âmbito:** as imagens publicadas e o registo, que são do KAM-078; e a rotação, que é do KAM-072.
+
+### Testes Requeridos
+
+- O ensaio do `docker inspect` sobre os serviços do *compose* de `prod`.
+- O canário que prova que o ensaio morde.
+
+### Definition of Done
+
+- [ ] Critérios satisfeitos, com o comando de cada medição registado.
+- [ ] O `compose_prod lint` e o `supply_chain` verdes, se o *compose* mudar.
+
+### Handoff para Claude Code
+
+```text
+És o executor do ticket KAM-260 da KAMBÁ (o docker inspect dos serviços de prod ensaiado).
+Lê specs/EPIC-08_Topologia_Operacao.md (blocos KAM-076 e KAM-260), docs/adr/ADR-L002-injeccao-de-segredos.md,
+infra/compose/docker-compose.prod.yml e ops/secrets-inventory.yaml.
+Objectivo: um ensaio compara o docker inspect de cada serviço de prod com o que o ADR-L002 admite, e corrige-se o que ele apanhar.
+Regras: valores de teste gerados pelo ensaio; sem job novo; mudar a decisão do ADR-L002 é do fundador.
+Testes: o ensaio e o canário que prova que ele morde.
+```
+
+---
+
 ## Riscos do Epic e itens NÃO VERIFICADOS
 
 | Risco / item | Estado | Decisão | Tratamento no epic |
@@ -2238,3 +2391,5 @@ Testes: o PutIdentity antes e depois, o S3 assinado, e o canário da regra nova.
 | 1.33 | Novembro 2026 | **KAM-249** acrescentado, no PR do **KAM-247** (EPIC-03), que o abre e não o implementa, por decisão do fundador de 2026-11-23: a A1 do KAM-247 mantém-se, com um credor para a fila sem credencial na rede `data` e o S3 do `seaweedfs` por medir. Aresta recíproca: o `Bloqueia` do KAM-076 ganha o KAM-249. | Equipa KAMBÁ |
 | 1.34 | Novembro 2026 | **KAM-242 entregue.** O `memswap_limit` igual ao `mem_limit` nos 24 serviços do *compose* de `prod`, a regra `memoria-com-swap` do `compose_prod` com três casos de canário, e o *swap* do *host* registado como NÃO VERIFICADO, com o que o mede (uma linha nova nos «Riscos do Epic e itens NÃO VERIFICADOS»). Quatro caixas de cinco marcadas; a linha 2 do DoD fica parcial (o `make smoke` não correu). Anexo `../docs/evidencia/KAM-242.md`. Número **provisório**: renumera-se na integração. | Equipa KAMBÁ |
 | 1.35 | Novembro 2026 | **KAM-249 entregue.** A `queue` de `prod` e de `staging` exige credencial (`queue_password`, pelo cofre, lida pelo servidor do stdin e apresentada por todos os clientes no URL), e o S3 do `seaweedfs` mediu-se aceitando anónimos e fechou-se com identidades e com o *filer* no *loopback*. Duas regras novas no `compose_prod`, com canário. Os seis itens marcados com evidência; a 18333 do S3, que o reabre, fica como achado **CONFIRMADO** pela decisão do fundador de 2026-11-24 (opção A, registada no bloco). **KAM-257** acrescentado, o credor dela (mTLS no gRPC, ou a D6 a escolher S3 gerido): aberto com um número provisório e com o máximo da `main` + 1 na integração; aresta recíproca no `Bloqueia` do KAM-249, e uma linha nos riscos do epic. Anexo `../docs/evidencia/KAM-249.md`. | Equipa KAMBÁ |
+| 1.36 | Novembro 2026 | **KAM-078, preparação do lote 24** (o ticket continua aberto): o bloco ganha a secção «Preparação (sem o mundo real)», com o que ficou feito em `../tools/release/` para os gates 14 a 18 sem o número de teste, o sandbox, um *host* ou um registo, a evidência de cada critério, e o que falta com o credor. Nenhuma caixa marcada, nenhum critério alterado. | Equipa KAMBÁ |
+| 1.37 | Novembro 2026 | **KAM-259 e KAM-260** acrescentados, credores do KAM-074, por decisão da coordenação do lote 24 a 2026-11-25 (reversível): o KAM-074 passa a depender dos dois, para que o revisor independente os encontre feitos. Só com dependências fechadas, para arrancarem já. O `Bloqueia` do KAM-075, do KAM-076 e do KAM-080 ganha a aresta recíproca. Números provisórios: renumeram-se na integração. | Equipa KAMBÁ |

@@ -4,7 +4,7 @@
 |---|---|
 | Produto | KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para Angola |
 | Documento | Epic — Segurança e Conformidade |
-| Versão | 1.66 |
+| Versão | 1.68 |
 | Data | Outubro de 2026 |
 | Classificação | Documento de Referência — Interno |
 | Documento-fonte | `../docs/tecnica/08_Seguranca_Conformidade.md` |
@@ -52,7 +52,7 @@ Concretiza os ADRs **ADR-015** (isolamento), **ADR-008** (residência e transfer
 | KAM-071 | Retenção e purga por classe de dados | feature | M | P1 | KAM-026, KAM-011, KAM-020, KAM-070 |
 | KAM-072 | Rotação de chaves Meta, facilitador e HMAC | feature | M | P1 | KAM-010, KAM-013, KAM-056, KAM-008 |
 | KAM-073 | Red-team do AGR: injecção directa e indirecta, exfiltração | chore | M | P0 | KAM-033 |
-| KAM-074 | Revisão de segurança independente pré-Piloto | chore | M | P0 | KAM-066, KAM-073, KAM-065 |
+| KAM-074 | Revisão de segurança independente pré-Piloto | chore | M | P0 | KAM-066, KAM-073, KAM-065, KAM-259, KAM-260 |
 | KAM-112 | Minimização de PII antes do LLM | feature | M | P0 | KAM-030, KAM-008, KAM-068 |
 | KAM-113 | Resposta a incidentes e notificação de violação de dados | chore | S | P0 | KAM-065, KAM-068 |
 | KAM-149 | `docs/seguranca/validar.py` aborta com a contagem do canon fixada | fix | S | P1 | KAM-065 |
@@ -1685,7 +1685,7 @@ Uma revisão, por um subagente que não viu o raciocínio do autor, sobre `5e6a3
 | Tipo | chore |
 | Prioridade | P0 |
 | Estimativa | M |
-| Dependências | KAM-066, KAM-073, KAM-065 |
+| Dependências | KAM-066, KAM-073, KAM-065, KAM-259, KAM-260 |
 | Bloqueia | KAM-109, KAM-110 |
 | Responsável sugerido | Responsável de Segurança |
 | Documentos de referência | `../docs/tecnica/08_Seguranca_Conformidade.md` (§3, §4, §8.5 requisito 11, §10, §15), `../docs/tecnica/evidencia/E3_Regulatorio_Dados.md` (requisito 11), `../docs/tecnica/evidencia/E4_Stack_Licencas.md` (§5), `specs/01_Engineering_Standards_e_Handoff.md` (§3) |
@@ -1739,6 +1739,32 @@ abrir tickets 'fix' e anexar o re-teste e a decisão pronto/não pronto.
 Não corrijas achados dentro deste ticket: cada um vira 'fix' com DoR/DoD próprios.
 Entrega: pacote, relatório, re-teste, decisão. PR com o template (§7).
 ```
+
+### Preparação (sem o mundo real)
+
+**2026-11-25, coordenação do lote 24.** Adianta-se a parte que o *handoff* entrega ao Claude Code e que não precisa de revisor, de `staging` alojado nem de assinaturas. **O ticket não fecha com isto, e nenhuma caixa acima foi marcada:** todas dependem de um revisor, de um relatório, de um re-teste ou de uma assinatura. Medido sobre a `publico/main` em `ee545cc9`.
+
+| O que ficou feito | Evidência |
+|---|---|
+| O pacote do revisor: as regras do bloco, as catorze áreas do âmbito (as do primeiro critério, o red-team como entrada e a rede de entrada, que o objectivo nomeia), cada uma com a evidência automatizada que já existe, o *gate* que a corre, o ticket dono e o que o bloco dele já declara não medido; as entradas (matriz, STRIDE e riscos residuais entregues fora do repositório público, suite do KAM-066, relatório do KAM-073, SBOM do gate 11, inventários do KAM-067 e do KAM-069); o acesso mínimo a `staging` descrito por papel e prazo, sem credenciais; o fora do âmbito (D3, D1, D9; KAM-069, KAM-105 e KAM-104 não substituídos); e as pré-condições do mundo real | [`../docs/seguranca/revisao_independente/escopo.md`](../docs/seguranca/revisao_independente/escopo.md) |
+| O sítio e o formato do relatório: o que é público e o que não é (a regra do relatório do KAM-073), o registo do revisor, a tabela de achados com o controlo violado pela linha da matriz e o sítio da reprodução, os seis testes de exploração do bloco com resultado obrigatório e um sétimo de privacidade proposto para a DoD, e o procedimento dos achados aos tickets `fix` | [`../docs/seguranca/revisao_independente/relatorio.md`](../docs/seguranca/revisao_independente/relatorio.md) §1–§7 |
+| O formato do re-teste e da decisão (as três decisões, condições, risco aceite, fecho do acesso, assinaturas) | [`../docs/seguranca/revisao_independente/reteste.md`](../docs/seguranca/revisao_independente/reteste.md), [`../docs/seguranca/revisao_independente/decisao.md`](../docs/seguranca/revisao_independente/decisao.md) |
+| Os quatro ficheiros passam a família de documentos do validador de segurança (caminhos, KAM, ADR, telefones, controlo de versões) | `python docs/seguranca/validar.py`: o mesmo **1** erro de conteúdo da base (`mapa_tratamentos.md`, que não é deste ticket) e as mesmas **5** fontes privadas por conferir |
+
+**O que fica para o mundo real:** o revisor, o `staging` alojado (KAM-077), o relatório, os tickets `fix`, o re-teste, a decisão assinada, a revogação do acesso e a actualização da matriz e dos riscos residuais do KAM-065, que vivem fora deste repositório.
+
+**O que esta preparação encontrou e não decide** — devolvido à coordenação:
+
+1. **O registo do acesso do revisor no `audit_log` não está previsto para `staging`**: o `infra/envs/staging/env.yaml` tem `acesso.modo: equipa`. O bloco pede-o; fica como pré-condição sem credor (`escopo.md` §6). **Credor desde 2026-11-25: KAM-259**, e o KAM-260 junta-se pela área 6 (decisão reversível da coordenação do lote 24; o KAM-074 depende dos dois). O que se mediu além disto foi entregue à coordenação fora do repositório.
+2. **Onde ficam a identidade e as qualificações do revisor**, que são dados pessoais de um terceiro num repositório público: a proposta é uma referência (`R1`) aqui e a identidade com o fundador (`relatorio.md` §2).
+3. **A correspondência entre as quatro severidades do bloco e as classes P1–P4 do `../docs/tecnica/08` §10:** a letra só fixa P1 → crítico; as outras três ficam como proposta (`relatorio.md` §3).
+4. **A reprodução dos achados abertos fica fora do repositório público**, pela regra do KAM-073, cuja decisão continua aberta com o fundador; esta preparação não a toma.
+5. **A ligação dos tickets `fix` ao KAM-074** (crítico e alto bloqueiam-no; médio e baixo dependem dele) é proposta (`relatorio.md` §7, passo 5).
+6. **O `escopo.md` §2 junta numa tabela o que vários blocos públicos já declaram não medido.** Cada linha já é pública; se a junção deve viver fora do repositório, como a matriz, é do fundador.
+7. **O Medusa não está no *compose***, pelo que a área 9 (admin exposto, *flags* EE em execução) não tem o que rever até o KAM-042 o pôr lá.
+8. **Três propostas de processo, marcadas como tal no texto:** o sétimo teste de exploração, de privacidade, porque a DoD pede a Privacidade confirmada por exploração e nenhum dos seis do bloco a cobre (`relatorio.md` §4); o re-teste de médios e baixos pela equipa, que o bloco não exige ao revisor (§7, passo 7); e a reprodução por quem abre o `fix`, que nunca descarta um achado — só o revisor o retira (§7, passo 1).
+
+**A revisão adversarial**, por um subagente que não viu o raciocínio do autor, sobre a primeira versão deste ramo (que não foi empurrada): **15 achados, 12 `CONFIRMADO` (em dois deles só o defeito, e o efeito `PLAUSÍVEL`) e 3 `PLAUSÍVEL`**, todos tratados neste PR. Os de maior peso: o comando do SBOM escrevia fora do repositório (o `--out` resolve-se contra a raiz); a área 7 atribuía ao KAM-067 um `cosign` que é do KAM-030; o pacote acrescentava duas lacunas que nenhum bloco público declarava, contra a sua própria regra — saíram daqui e foram à coordenação; a tabela de achados não tinha onde apontar a reprodução que o critério de classificação pede; um estado `aceite` para médios decidia um risco que o bloco não prevê; o passo «credor existente» contrariava o «cada um vira `fix`» do *handoff*, e as dependências dos `fix` críticos podiam inverter a prioridade (P0 sobre P1); a verificação de independência não via os co-autores; e o validador de segurança estava descrito como protecção que não é (não está em *gate* e não apanha números com espaços). Também a reprodução pela equipa, que filtrava os achados do revisor. Os três `PLAUSÍVEL` — a rede de entrada, os médios presos sem re-teste e a lista de superfícies do `fix` — foram acolhidos.
 
 ---
 
@@ -2066,7 +2092,7 @@ O `../docs/seguranca/validar.py` é a **única verificação por máquina** dos 
 assert len(KAM) == 138 and len(ADR) == 20 and len(DEC) == 13, (len(KAM), len(ADR), len(DEC))
 ```
 
-O *backlog* tem 258 tickets, pelo que, da raiz do repositório, o `assert` aborta. A saída abaixo foi capturada quando ele ainda batia com a contagem da época — o primeiro elemento do tuplo **é** a contagem viva, pelo que cresce a cada entrada nova, e é por isso que o defeito é estrutural e não uma gralha:
+O *backlog* tem 260 tickets, pelo que, da raiz do repositório, o `assert` aborta. A saída abaixo foi capturada quando ele ainda batia com a contagem da época — o primeiro elemento do tuplo **é** a contagem viva, pelo que cresce a cada entrada nova, e é por isso que o defeito é estrutural e não uma gralha:
 
 ```text
 AssertionError: (143, 20, 13)
@@ -2531,3 +2557,5 @@ Testes: unitários, integração contra a base, privacidade.
 | 1.64 | Novembro 2026 | KAM-241 (EPIC-11) e KAM-242 (EPIC-08), abertos no PR do KAM-238: a contagem viva do backlog na nota do `assert` passa a **242**. Nenhuma caixa deste epic muda. Números provisórios: renumeram-se na integração. | Equipa KAMBÁ |
 | 1.65 | Novembro 2026 | KAM-246 (EPIC-11), aberto no PR do KAM-122: a contagem viva do backlog na nota do `assert` passa a **246**. Nenhuma caixa deste epic muda. Escrito como 1.62 (com o número 237) e renumerado na integração, depois do KAM-125, do KAM-236, do KAM-238, do KAM-231 e do #254. | Equipa KAMBÁ |
 | 1.66 | Novembro 2026 | KAM-251 (EPIC-11), aberto no PR do KAM-241: a contagem viva do backlog na nota do `assert` passa a **251** (escrito como KAM-249 e renumerado na integração, depois do KAM-247, que trouxe o 249 e o 250). Nenhuma caixa deste epic muda. Número provisório: renumera-se na integração. | Equipa KAMBÁ |
+| 1.67 | Novembro 2026 | KAM-074, preparação sem o mundo real (lote 24): secção «Preparação (sem o mundo real)» no bloco e o pacote do revisor em `docs/seguranca/revisao_independente/` (âmbito, formato do relatório, do re-teste e da decisão, procedimento dos achados aos tickets `fix`). Nenhuma caixa muda e o ticket continua aberto. | Coordenação do lote 24 |
+| 1.68 | Novembro 2026 | **KAM-259 e KAM-260** (EPIC-08), credores do KAM-074, abertos por decisão da coordenação do lote 24 a 2026-11-25 (reversível): as `Dependências` do KAM-074 ganham os dois, aqui e no §4 do INDICE, e a contagem viva do backlog na nota do `assert` passa a **260**. Nenhuma caixa muda. Números provisórios: renumeram-se na integração. | Coordenação do lote 24 |

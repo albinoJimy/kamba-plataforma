@@ -60,6 +60,10 @@ ci/sbom/
 ci/coverage/
 # Copia temporaria do canario, criada e apagada pelo `make ci-9`.
 ci/prova-canario/
+# O `release.lock`, os digests do build, os SBOM por imagem e o ensaio do
+# rolling (KAM-078). O lock arquiva-se com a tag (gate 18), nao no git: um lock
+# committado afirmava uma release que o commit seguinte ja nao implanta.
+ci/release/
 # Fixtures e logs do X-11, gerados pelo `make x11` (gate 6). As fixtures tem
 # mil valores com forma de telefone, de IBAN e de token: geram-se, nao se guardam.
 ci/x11/
