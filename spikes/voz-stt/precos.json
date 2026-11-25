@@ -1,0 +1,20 @@
+{
+  "lido_em": "2026-10-08",
+  "fonte": "docs/tecnica/evidencia/E4_Stack_Licencas.md §3.2 (OpenAI) e §3.4 (Groq); a reler nas páginas dos fornecedores, com data, antes de fixar (critério 6 do KAM-107)",
+  "fornecedores": {
+    "groq": {
+      "modelo": "whisper-large-v3-turbo",
+      "usd_por_hora": "0.04",
+      "estado": "INDÍCIO-forte (E4 §3.4)",
+      "minimo_s": "10",
+      "minimo_estado": "INDÍCIO-forte (E4 §3.4: faturação mínima 10 s)"
+    },
+    "openai": {
+      "modelo": "gpt-4o-mini-transcribe",
+      "usd_por_minuto": "0.003",
+      "estado": "CONFIRMADO (E4 §3.2)",
+      "minimo_s": "0",
+      "minimo_estado": "NÃO VERIFICADO (E4 não regista mínimo nem granularidade)"
+    }
+  }
+}
