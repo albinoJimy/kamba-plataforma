@@ -28,22 +28,27 @@
 ## 1. Hipóteses H1–H9 (critério A)
 
 O **estado efectivo** é o declarado no Registo **só** se a linha tiver dados:
-amostra n positiva, resultado medido, ficheiro de evidência na coluna fonte e,
-em H6 e H9, a amostra mínima que a fonte escreve. Sem isso é `inconclusiva` —
-também quando o declarado é `refutada`, porque uma refutação sem dados
-accionava um pivô por nada.
+amostra n positiva, um resultado com número, uma coluna fonte que nomeie um
+ficheiro que exista na árvore, a amostra mínima que um critério escreve (H6 e
+H9) e, em H1, H6, H8 e H9, a exportação congelada do KAM-109. Sem isso é
+`inconclusiva` — também quando o declarado é `refutada`, porque uma refutação
+sem dados accionava um pivô por nada.
+
+**O gerador não confronta o resultado com o limiar.** O resultado é texto no
+Registo, com unidades que variam por hipótese; que cada `confirmada` cumpre o
+seu limiar confere-o a verificação cruzada do memorando (§9).
 
 | H | limiar | amostra n | resultado | declarado | **efectivo** | evidência | porque difere |
 |---|---|---|---|---|---|---|---|
-| H1 | ≥ 5 pagam após 30 dias de piloto | — | — | — | **inconclusiva** | — | sem exportação congelada do KAM-109 no resumo; amostra n vazia ou zero; resultado não medido; sem ficheiro de evidência na coluna fonte; estado por decidir |
-| H2 | ≥ 50% aceitam para ≥ 70% do catálogo | — | — | — | **inconclusiva** | — | amostra n vazia ou zero; resultado não medido; sem ficheiro de evidência na coluna fonte; estado por decidir |
-| H3 | 3/3 ligados sem perda de histórico, operacionalizado em [`H3_Coexistencia_244.md`](H3_Coexistencia_244.md) §3 | — | — | — | **inconclusiva** | — | amostra n vazia ou zero; resultado não medido; sem ficheiro de evidência na coluna fonte; estado por decidir |
-| H4 | Resposta escrita da Meta ou aprovação de Tech Provider | — | — | — | **inconclusiva** | — | amostra n vazia ou zero; resultado não medido; sem ficheiro de evidência na coluna fonte; estado por decidir |
-| H5 | Prazo e custo por PME conhecidos e ≤ 6 semanas | — | — | — | **inconclusiva** | — | amostra n vazia ou zero; resultado não medido; sem ficheiro de evidência na coluna fonte; estado por decidir |
-| H6 | Custo ≤ 15% da mensalidade | — | — | — | **inconclusiva** | — | sem exportação congelada do KAM-109 no resumo; amostra n vazia ou zero; resultado não medido; sem ficheiro de evidência na coluna fonte; estado por decidir |
-| H7 | ≥ 85% resolvidas sem *handoff* errado | — | — | — | **inconclusiva** | — | amostra n vazia ou zero; resultado não medido; sem ficheiro de evidência na coluna fonte; estado por decidir |
-| H8 | ≥ 60% de catálogos correctos em auditoria | — | — | — | **inconclusiva** | — | sem exportação congelada do KAM-109 no resumo; amostra n vazia ou zero; resultado não medido; sem ficheiro de evidência na coluna fonte; estado por decidir |
-| H9 | ≥ 70% activos ao dia 60, das PMEs activadas até à semana 4 | — | — | — | **inconclusiva** | — | sem exportação congelada do KAM-109 no resumo; amostra n vazia ou zero; resultado não medido; sem ficheiro de evidência na coluna fonte; estado por decidir |
+| H1 | ≥ 5 pagam após 30 dias de piloto | — | — | — | **inconclusiva** | — | sem exportação congelada do KAM-109 no resumo; amostra n vazia ou zero; resultado sem número medido; a coluna fonte não nomeia um ficheiro que exista; estado por decidir |
+| H2 | ≥ 50% aceitam para ≥ 70% do catálogo | — | — | — | **inconclusiva** | — | amostra n vazia ou zero; resultado sem número medido; a coluna fonte não nomeia um ficheiro que exista; estado por decidir |
+| H3 | 3/3 ligados sem perda de histórico, operacionalizado em [`H3_Coexistencia_244.md`](H3_Coexistencia_244.md) §3 | — | — | — | **inconclusiva** | — | amostra n vazia ou zero; resultado sem número medido; a coluna fonte não nomeia um ficheiro que exista; estado por decidir |
+| H4 | Resposta escrita da Meta ou aprovação de Tech Provider | — | — | — | **inconclusiva** | — | amostra n vazia ou zero; resultado sem número medido; a coluna fonte não nomeia um ficheiro que exista; estado por decidir |
+| H5 | Prazo e custo por PME conhecidos e ≤ 6 semanas | — | — | — | **inconclusiva** | — | amostra n vazia ou zero; resultado sem número medido; a coluna fonte não nomeia um ficheiro que exista; estado por decidir |
+| H6 | Custo ≤ 15% da mensalidade | — | — | — | **inconclusiva** | — | sem exportação congelada do KAM-109 no resumo; amostra n vazia ou zero; resultado sem número medido; a coluna fonte não nomeia um ficheiro que exista; estado por decidir |
+| H7 | ≥ 85% resolvidas sem *handoff* errado | — | — | — | **inconclusiva** | — | amostra n vazia ou zero; resultado sem número medido; a coluna fonte não nomeia um ficheiro que exista; estado por decidir |
+| H8 | ≥ 60% de catálogos correctos em auditoria | — | — | — | **inconclusiva** | — | sem exportação congelada do KAM-109 no resumo; amostra n vazia ou zero; resultado sem número medido; a coluna fonte não nomeia um ficheiro que exista; estado por decidir |
+| H9 | ≥ 70% activos ao dia 60, das PMEs activadas até à semana 4 | — | — | — | **inconclusiva** | — | sem exportação congelada do KAM-109 no resumo; amostra n vazia ou zero; resultado sem número medido; a coluna fonte não nomeia um ficheiro que exista; estado por decidir |
 
 | Contagem | |
 |---|---|
@@ -72,7 +77,7 @@ todas as hipóteses deles `confirmada`. Os outros declaram-se no resumo, e
 | P2 | H1: ≥ 5 PMEs convertem a pago no fim do piloto gratuito de 30 dias. H9: ≥ 70% activas ao dia 60, das PMEs activadas até à semana 4 | KAM-109 | por verificar | §1 deste pacote | H1 inconclusiva; H9 inconclusiva |
 | P3 | H6: custo de IA por conversa ≤ 15% da mensalidade, medido em ≥ 500 conversas reais. H8: ≥ 60% de catálogos correctos em auditoria | KAM-109 | por verificar | §1 deste pacote | H6 inconclusiva; H8 inconclusiva |
 | F1 | Esqueleto andante provado: uma conversa real cria um pedido, o evento de pagamento é consumido pela outra vertical, sem excepções no core | KAM-108 | por verificar | — | não declarado |
-| F2 | 0 fugas entre tenants ou contactos, 0 pedidos duplicados e 0 números divergentes no conjunto adversarial | KAM-073 | por verificar | — | não declarado |
+| F2 | 0 fugas entre tenants ou contactos, 0 pedidos duplicados e 0 números divergentes no conjunto adversarial | KAM-040, KAM-073 | por verificar | — | não declarado |
 | F3 | H7 ≥ 85% de handoff correcto | KAM-040 | por verificar | §1 deste pacote | H7 inconclusiva |
 | F4 | 100% das confirmações de pagamento por evento autenticado (facilitador ou `ManualProvider` auditado e limitado) | KAM-103, KAM-109 | por verificar | — | não declarado |
 | F5 | Gates de CI fail-closed verdes e revisão de segurança independente concluída | KAM-074 | por verificar | — | não declarado |
@@ -81,8 +86,8 @@ todas as hipóteses deles `confirmada`. Os outros declaram-se no resumo, e
 | C3 | Parecer jurídico recebido sobre D8 | KAM-104 | por verificar | — | não declarado |
 | C4 | Resposta escrita da Meta (ou decisão registada de operar sem ela) sobre D2 | KAM-101 | por verificar | — | não declarado |
 | C5 | Tech Provider activo (D5) | KAM-102 | por verificar | — | não declarado |
-| C6 | Backups com restauro testado e RTO/RPO medidos | KAM-085 | por verificar | — | não declarado |
-| C7 | Runbooks e SLOs em vigor, com o relatório de SLO de 30 dias | KAM-082, KAM-083 | por verificar | — | não declarado |
+| C6 | Backups com restauro testado e RTO medido (critério B: e RPO medido) | KAM-085 | por verificar | — | não declarado |
+| C7 | Runbooks e SLOs em vigor (EPIC-08) (critério B: com o relatório de SLO de 30 dias) | KAM-082, KAM-083 | por verificar | — | não declarado |
 | N1 | Nenhuma PME do piloto onboardada à mão pela equipa | KAM-109 | por verificar | — | não declarado |
 | N2 | Nenhum pagamento confirmado por comprovativo em imagem | KAM-109 | por verificar | — | não declarado |
 | N3 | Nenhum dado pessoal enviado a subprocessador fora de Angola sem registo | KAM-069, KAM-105 | por verificar | — | não declarado |
@@ -94,11 +99,11 @@ desta tabela.
 
 ## 3. Matriz de `14` §6 (critério C)
 
-Nenhuma hipótese está `refutada` no estado efectivo, e nenhum canal de
-acesso está medido a zero: a matriz **não acciona** linha nenhuma. Isto
+Nenhuma hipótese está `refutada` no estado efectivo, e nenhum canal está
+medido como não repetível: a matriz **não acciona** linha nenhuma. Isto
 **não é** um verde — as inconclusivas do §1.1 continuam por fechar.
 
-Canais de acesso mantidos (KAM-106): por medir.
+Há canal repetível (KAM-106, «≥ 6 PMEs-alvo em ≥ 2 rondas»): por medir.
 
 **Paragem total** — «se ao fim de 12 semanas não houver ≥ 3 pagantes recorrentes e nenhum canal comercial repetível» (`14` §6): não avaliável (falta semana_do_gate, pagantes_recorrentes, canal_comercial_repetivel).
 

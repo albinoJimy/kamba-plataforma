@@ -32,6 +32,13 @@ def _celula(texto: str) -> str:
     return texto.replace("|", "\\|").replace("\n", " ") or "—"
 
 
+def _ligacao(evidencia: str) -> str:
+    """Um caminho relativo à raiz, ligado a partir de `docs/tecnica/evidencia/validacao/`."""
+    if not evidencia or evidencia.startswith("§"):
+        return _celula(evidencia)
+    return f"[`{evidencia}`](../../../../{evidencia})"
+
+
 def _dinheiro(minor: int, moeda: str) -> str:
     """Unidade menor inteira para apresentação. Assume dois decimais (USD, AOA)."""
     return f"{minor // 100},{minor % 100:02d} {moeda}"
@@ -47,6 +54,7 @@ def escrever(
     origem_registo: str,
     origem_resumo: str | None,
     data: str,
+    hash_conferido: bool = False,
 ) -> str:
     r = resumo
     saida: list[str] = []
@@ -89,10 +97,15 @@ def escrever(
     add("## 1. Hipóteses H1–H9 (critério A)")
     add("")
     add("O **estado efectivo** é o declarado no Registo **só** se a linha tiver dados:")
-    add("amostra n positiva, resultado medido, ficheiro de evidência na coluna fonte e,")
-    add("em H6 e H9, a amostra mínima que a fonte escreve. Sem isso é `inconclusiva` —")
-    add("também quando o declarado é `refutada`, porque uma refutação sem dados")
-    add("accionava um pivô por nada.")
+    add("amostra n positiva, um resultado com número, uma coluna fonte que nomeie um")
+    add("ficheiro que exista na árvore, a amostra mínima que um critério escreve (H6 e")
+    add("H9) e, em H1, H6, H8 e H9, a exportação congelada do KAM-109. Sem isso é")
+    add("`inconclusiva` — também quando o declarado é `refutada`, porque uma refutação")
+    add("sem dados accionava um pivô por nada.")
+    add("")
+    add("**O gerador não confronta o resultado com o limiar.** O resultado é texto no")
+    add("Registo, com unidades que variam por hipótese; que cada `confirmada` cumpre o")
+    add("seu limiar confere-o a verificação cruzada do memorando (§9).")
     add("")
     add("| H | limiar | amostra n | resultado | declarado | **efectivo** | evidência | porque difere |")
     add("|---|---|---|---|---|---|---|---|")
@@ -138,7 +151,7 @@ def escrever(
     for a in avaliacoes:
         add(
             f"| {a.item.id} | {_celula(a.item.texto)} | {a.item.credor} | {_ROTULO[a.estado]} "
-            f"| {_celula(a.evidencia)} | {_celula(a.nota)} |"
+            f"| {_ligacao(a.evidencia)} | {_celula(a.nota)} |"
         )
     add("")
     satisfeitos = sum(1 for a in avaliacoes if a.estado == "satisfeito")
@@ -157,12 +170,12 @@ def escrever(
         for a in accionadas:
             add(f"| {a.gatilho} | {_celula(a.linha)} |")
     else:
-        add("Nenhuma hipótese está `refutada` no estado efectivo, e nenhum canal de")
-        add("acesso está medido a zero: a matriz **não acciona** linha nenhuma. Isto")
+        add("Nenhuma hipótese está `refutada` no estado efectivo, e nenhum canal está")
+        add("medido como não repetível: a matriz **não acciona** linha nenhuma. Isto")
         add("**não é** um verde — as inconclusivas do §1.1 continuam por fechar.")
     add("")
-    canais = "por medir" if r is None or r.canais_de_acesso_mantidos is None else str(r.canais_de_acesso_mantidos)
-    add(f"Canais de acesso mantidos (KAM-106): {canais}.")
+    canal = "por medir" if r is None or r.canal_comercial_repetivel is None else ("sim" if r.canal_comercial_repetivel else "não")
+    add(f"Há canal repetível (KAM-106, «≥ 6 PMEs-alvo em ≥ 2 rondas»): {canal}.")
     add("")
     estado_paragem, porque_paragem = paragem
     rotulo_paragem = {
@@ -203,6 +216,7 @@ def escrever(
     if r is not None and r.exportacao:
         add(f"| Exportação congelada | `{r.exportacao}` |")
         add(f"| SHA-256 da exportação | `{r.exportacao_sha256}` |")
+        add(f"| SHA-256 conferido contra o ficheiro | {'sim' if hash_conferido else '**não** — o ficheiro não está na árvore; confere-se à mão'} |")
     else:
         add("| Exportação congelada | nenhuma — sem ela nenhuma hipótese do KAM-109 se dá por medida |")
     add(f"| Resumo sintético | {'sim' if r is not None and r.sintetico else 'não'} |")

@@ -15,14 +15,17 @@ CONTINUAR, PIVÔ e PARAR é do fundador.
 from __future__ import annotations
 
 import re
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
 from .entradas import Resumo
 from .registo import HIPOTESES, POR_MEDIR, Linha
 
-#: Amostras mínimas que as fontes escrevem por extenso. **Só estas duas**: onde
-#: a fonte não escreve um mínimo, o gerador não o inventa.
+#: Amostras mínimas que um **critério** escreve por extenso — a Carta §5 para H6,
+#: o KAM-109 para H6 e H9. **Só estas duas**: os métodos de `14` §2 nomeiam
+#: tamanhos para H1, H2 e H7, e nenhum critério os fixa como mínimo; impô-los era
+#: decidir um critério (devolvido na secção de preparação do bloco).
 AMOSTRA_MINIMA = {
     "H6": (500, "conversas reais (Carta §5; KAM-109, critério H6)"),
     "H9": (8, "PMEs com 60 dias de exposição (KAM-109, critério H9)"),
@@ -49,7 +52,42 @@ def _amostra(celula: str) -> int | None:
 DO_KAM_109 = ("H1", "H6", "H8", "H9")
 
 
-def estado_efectivo(linha: Linha, congelada: bool = False) -> Estado:
+def resolvedor(base: Path, raiz: Path) -> Callable[[str], bool]:
+    """Diz se a célula `fonte` nomeia um ficheiro que exista.
+
+    O Registo manda que a fonte nomeie «o artefacto, com caminho» (§2, regra 3).
+    Lêem-se os alvos das ligações Markdown e os caminhos entre crases; sem
+    nenhum, a célula inteira. Cada candidato resolve-se a partir da pasta do
+    Registo e da raiz do repositório, sem âncora nem secção.
+    """
+
+    topo = raiz.resolve()
+
+    def existe(celula: str) -> bool:
+        candidatos = re.findall(r"\]\(([^)\s]+)\)", celula) + re.findall(r"`([^`]+)`", celula)
+        for candidato in candidatos or [celula.strip()]:
+            caminho = candidato.split("#", 1)[0].split(" ", 1)[0]
+            if not caminho:
+                continue
+            for origem in (base, raiz):
+                alvo = (origem / caminho).resolve()
+                # Só conta o que fica dentro da árvore: uma fonte fora dela não
+                # é evidência que o pacote possa ligar.
+                if alvo.is_relative_to(topo) and alvo.is_file():
+                    return True
+        return False
+
+    return existe
+
+
+def _sem_resultado(resultado: str) -> bool:
+    """Registo §2, regra 2: «`resultado` é um número, não uma frase»."""
+    return POR_MEDIR in resultado.upper() or not re.search(r"\d", resultado)
+
+
+def estado_efectivo(
+    linha: Linha, congelada: bool, fonte_existe: Callable[[str], bool]
+) -> Estado:
     """`confirmada` e `refutada` só sobrevivem com dados; o resto é `inconclusiva`.
 
     Critério A: «uma hipótese sem dados é `inconclusiva`, nunca `confirmada`».
@@ -62,10 +100,10 @@ def estado_efectivo(linha: Linha, congelada: bool = False) -> Estado:
     n = _amostra(linha.amostra)
     if not n:
         razoes.append("amostra n vazia ou zero")
-    if not linha.resultado or linha.resultado.upper() == POR_MEDIR:
-        razoes.append("resultado não medido")
-    if not linha.fonte:
-        razoes.append("sem ficheiro de evidência na coluna fonte")
+    if _sem_resultado(linha.resultado):
+        razoes.append("resultado sem número medido")
+    if not linha.fonte or not fonte_existe(linha.fonte):
+        razoes.append("a coluna fonte não nomeia um ficheiro que exista")
     if n and linha.h in AMOSTRA_MINIMA:
         minimo, de_que = AMOSTRA_MINIMA[linha.h]
         if n < minimo:
@@ -77,9 +115,11 @@ def estado_efectivo(linha: Linha, congelada: bool = False) -> Estado:
     return Estado(linha.h, linha.estado, efectivo, tuple(razoes))
 
 
-def estados(linhas: dict[str, Linha], resumo: Resumo) -> dict[str, Estado]:
+def estados(
+    linhas: dict[str, Linha], resumo: Resumo, fonte_existe: Callable[[str], bool]
+) -> dict[str, Estado]:
     congelada = resumo.exportacao_sha256 is not None
-    return {h: estado_efectivo(linhas[h], congelada) for h in HIPOTESES}
+    return {h: estado_efectivo(linhas[h], congelada, fonte_existe) for h in HIPOTESES}
 
 
 # --- a matriz de `14` §6 ---------------------------------------------------
@@ -122,8 +162,11 @@ def matriz(efectivos: dict[str, Estado], resumo: Resumo) -> list[Accionada]:
             sem_linha.append(h)
         else:
             por_chave.setdefault(chave, []).append(h)
-    if resumo.canais_de_acesso_mantidos == 0:
-        por_chave["canal"] = ["nenhum canal de acesso mantido (KAM-106)"]
+    # O KAM-106 liga esta linha a «Se nenhum canal for repetível à semana 6:
+    # decisão escrita de resolver a distribuição». `None` é «por medir», e não
+    # acciona nada.
+    if resumo.canal_comercial_repetivel is False:
+        por_chave["canal"] = ["nenhum canal repetível (KAM-106)"]
     accionadas = [
         Accionada(", ".join(por_chave[chave]), texto)
         for chave, texto in LINHAS_14_6.items()
@@ -190,7 +233,7 @@ CARTA_5 = (
     ItemCarta("P2", "H1: ≥ 5 PMEs convertem a pago no fim do piloto gratuito de 30 dias. H9: ≥ 70% activas ao dia 60, das PMEs activadas até à semana 4", "KAM-109", ("H1", "H9")),
     ItemCarta("P3", "H6: custo de IA por conversa ≤ 15% da mensalidade, medido em ≥ 500 conversas reais. H8: ≥ 60% de catálogos correctos em auditoria", "KAM-109", ("H6", "H8")),
     ItemCarta("F1", "Esqueleto andante provado: uma conversa real cria um pedido, o evento de pagamento é consumido pela outra vertical, sem excepções no core", "KAM-108"),
-    ItemCarta("F2", "0 fugas entre tenants ou contactos, 0 pedidos duplicados e 0 números divergentes no conjunto adversarial", "KAM-073"),
+    ItemCarta("F2", "0 fugas entre tenants ou contactos, 0 pedidos duplicados e 0 números divergentes no conjunto adversarial", "KAM-040, KAM-073"),
     ItemCarta("F3", "H7 ≥ 85% de handoff correcto", "KAM-040", ("H7",)),
     ItemCarta("F4", "100% das confirmações de pagamento por evento autenticado (facilitador ou `ManualProvider` auditado e limitado)", "KAM-103, KAM-109"),
     ItemCarta("F5", "Gates de CI fail-closed verdes e revisão de segurança independente concluída", "KAM-074"),
@@ -199,8 +242,10 @@ CARTA_5 = (
     ItemCarta("C3", "Parecer jurídico recebido sobre D8", "KAM-104"),
     ItemCarta("C4", "Resposta escrita da Meta (ou decisão registada de operar sem ela) sobre D2", "KAM-101"),
     ItemCarta("C5", "Tech Provider activo (D5)", "KAM-102"),
-    ItemCarta("C6", "Backups com restauro testado e RTO/RPO medidos", "KAM-085"),
-    ItemCarta("C7", "Runbooks e SLOs em vigor, com o relatório de SLO de 30 dias", "KAM-082, KAM-083"),
+    # C6 e C7: o texto é o da Carta; o que vem entre parênteses é o que o
+    # critério B do KAM-110 acrescenta, marcado como tal.
+    ItemCarta("C6", "Backups com restauro testado e RTO medido (critério B: e RPO medido)", "KAM-085"),
+    ItemCarta("C7", "Runbooks e SLOs em vigor (EPIC-08) (critério B: com o relatório de SLO de 30 dias)", "KAM-082, KAM-083"),
     ItemCarta("N1", "Nenhuma PME do piloto onboardada à mão pela equipa", "KAM-109"),
     ItemCarta("N2", "Nenhum pagamento confirmado por comprovativo em imagem", "KAM-109"),
     ItemCarta("N3", "Nenhum dado pessoal enviado a subprocessador fora de Angola sem registo", "KAM-069, KAM-105"),

@@ -26,7 +26,8 @@ class TestPontaAPonta(unittest.TestCase):
         self._tmp = TemporaryDirectory()
         self.raiz = Path(self._tmp.name)
         (self.raiz / "ev").mkdir()
-        (self.raiz / "ev/f1.md").write_text("sintético", encoding="utf-8")
+        for nome in ("f1", "h1", "h6", "h7"):
+            (self.raiz / f"ev/{nome}.md").write_text("sintético", encoding="utf-8")
         self.registo = self.raiz / "registo.md"
         self.registo.write_text(
             sintetico.registo(
@@ -45,7 +46,6 @@ class TestPontaAPonta(unittest.TestCase):
                     semana_do_gate=12,
                     pagantes_recorrentes=2,
                     canal_comercial_repetivel=False,
-                    canais_de_acesso_mantidos=0,
                     custo_por_pme_minor=6105,
                     moeda="USD",
                     exportacao="ev/exportacao.csv",
@@ -73,13 +73,14 @@ class TestPontaAPonta(unittest.TestCase):
         self.assertRegex(texto, r"\| H6 \|.*\| confirmada \| \*\*inconclusiva\*\* \|.*amostra 120 < 500")
         self.assertRegex(texto, r"\| H1 \|.*\| refutada \| \*\*refutada\*\* \|")
         self.assertIn("| H1 | Voltar às entrevistas", texto)
-        self.assertIn("nenhum canal de acesso mantido (KAM-106) | Antes de construir mais", texto)
+        self.assertIn("nenhum canal repetível (KAM-106) | Antes de construir mais", texto)
         self.assertIn("**Paragem total**", texto)
         self.assertIn("**VERIFICADA**", texto)
         self.assertIn("61,05 USD", texto)
         self.assertIn("`ev/exportacao.csv`", texto)
+        self.assertIn("| SHA-256 conferido contra o ficheiro | **não**", texto)
         self.assertIn("| F1 |", texto)
-        self.assertRegex(texto, r"\| F1 \|.*\| satisfeito \| ev/f1.md \|")
+        self.assertIn("| satisfeito | [`ev/f1.md`](../../../../ev/f1.md) |", texto)
         self.assertRegex(texto, r"\| P2 \|.*\| \*\*não satisfeito\*\* \|")
         self.assertIn("| Meses de pista restantes | *por preencher pelo fundador* |", texto)
         self.assertIn("| Data | 1 de Janeiro de 2000 |", texto)
@@ -112,7 +113,9 @@ class TestPontaAPonta(unittest.TestCase):
         dados = json.loads(self.resumo.read_text(encoding="utf-8"))
         dados["exportacao_sha256"] = hashlib.sha256(exportacao.read_bytes()).hexdigest()
         self.resumo.write_text(json.dumps(dados), encoding="utf-8")
-        self.assertEqual(self._pacote()[0], cli.SAIDA_CONFORME)
+        codigo, texto, _ = self._pacote()
+        self.assertEqual(codigo, cli.SAIDA_CONFORME)
+        self.assertIn("| SHA-256 conferido contra o ficheiro | sim |", texto)
 
     def test_entradas_que_nao_servem_saem_com_2(self) -> None:
         self.resumo.write_text(json.dumps(sintetico.resumo(meses_de_pista=9)), encoding="utf-8")

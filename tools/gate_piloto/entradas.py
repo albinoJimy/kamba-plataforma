@@ -43,7 +43,7 @@ _MOEDA = re.compile(r"[A-Z]{3}")
 
 _CHAVES = {
     "forma", "sintetico", "exportacao", "exportacao_sha256", "semana_do_gate",
-    "pagantes_recorrentes", "canais_de_acesso_mantidos",
+    "pagantes_recorrentes",
     "canal_comercial_repetivel", "custo_por_pme_minor", "moeda", "carta5",
 }
 
@@ -65,7 +65,6 @@ class Resumo:
     exportacao_sha256: str | None = None
     semana_do_gate: int | None = None
     pagantes_recorrentes: int | None = None
-    canais_de_acesso_mantidos: int | None = None
     canal_comercial_repetivel: bool | None = None
     custo_por_pme_minor: int | None = None
     moeda: str | None = None
@@ -165,7 +164,6 @@ def validar(dados: object) -> Resumo:
         exportacao_sha256=sha,
         semana_do_gate=_inteiro(dados, "semana_do_gate"),
         pagantes_recorrentes=_inteiro(dados, "pagantes_recorrentes"),
-        canais_de_acesso_mantidos=_inteiro(dados, "canais_de_acesso_mantidos"),
         canal_comercial_repetivel=canal,
         custo_por_pme_minor=custo,
         moeda=moeda,

@@ -31,13 +31,13 @@
 
 ## 0. Como se preenche
 
-Pela ordem, e nenhum passo se salta:
+Uma ordem proposta:
 
 1. **Gerar o pacote** sobre o Registo actualizado e o resumo do piloto, com a exportação congelada e o seu SHA-256 (o comando está no `tools/gate_piloto/README.md`).
 2. **Ler o pacote inteiro**: o estado **efectivo** de H1–H9 (§1 do pacote), a Carta §5 item a item (§2), as linhas de `14` §6 accionadas e a paragem total (§3), a economia (§4).
-3. **Preencher o §3 deste memorando**, a economia e a pista, antes da decisão — a pergunta de `14` §5 responde-se antes de se escolher, e não depois.
+3. **Preencher o §3 deste memorando**, a economia e a pista (a pergunta de `14` §5).
 4. **Escrever o plano datado** de cada hipótese inconclusiva no §2.
-5. **Escolher a decisão no §1**, e preencher a secção que ela obriga (§4, §5 ou §6).
+5. **Escolher a decisão no §1**, registar a acção de cada H7, H8 ou H9 `refutada` (§1.2), e preencher a secção que a decisão obriga (§4, §5 ou §6).
 6. **Listar os NÃO VERIFICADOS** que ficam, no §7.
 7. **Assinar** no §8, e fazer a verificação cruzada do §9 por pessoa distinta do autor.
 8. **Registar a decisão**, com dono e data, no `Registo_Hipoteses.md` e no registo de decisões da Carta (Definition of Done do bloco KAM-110).
@@ -74,6 +74,21 @@ uma regra diferente.
 `14` §6 que cada falha **acciona** — é o que o critério C manda aplicar. Não é uma
 recomendação: duas falhas podem accionar duas linhas, e escolher entre elas, ou
 decidir que a paragem total se aplica, é desta secção.
+
+### 1.2 A acção para H7, H8 e H9, quando falham
+
+`14` §6 não tem linha para estas três, e o critério C diz que nelas «o gate decide
+e regista a acção». Regista-se aqui, **seja qual for a decisão do §1** — uma
+`CONTINUAR` com H8 `refutada` também tem de dizer o que muda. O bloco KAM-109
+acrescenta duas regras, transcritas: para H8, «o gate propõe uma acção de produto
+(…) e regista-a»; para H9, «aplica-se a regra de paragem total e o gate decide o
+pivô sobre retenção».
+
+| H | Estado efectivo (do pacote) | Acção decidida | Dono (papel) | Data |
+|---|---|---|---|---|
+| H7 | | | | |
+| H8 | | | | |
+| H9 | | | | |
 
 ---
 
@@ -190,9 +205,8 @@ Partem do registo de riscos do EPIC-10 e do §2 do pacote.
 
 ## 8. Assinaturas
 
-**Quatro assinaturas, e nenhuma assina pela outra.** A decisão é do fundador; o
-bloco nomeia os três papéis que a assinam com ele. Uma assinatura sem data não é
-uma assinatura.
+**Quatro assinaturas.** A decisão é do fundador; o critério E nomeia as
+assinaturas do Arquitecto, de Segurança e de Produto.
 
 | Papel | Nome (papel, não pessoa) | Data | Observação |
 |---|---|---|---|
@@ -212,11 +226,11 @@ autor, de que cada item da Carta §5 tem evidência ligada».
 |---|---|
 | Quem verificou | |
 | Data | |
-| Itens da Carta §5 com evidência ligada e aberta (de 18, a contagem do §2 do pacote) | |
+| Itens da Carta §5 com evidência ligada e aberta (de 18, a contagem do §2 do pacote) |
+| Hipóteses `confirmada` cujo resultado cumpre o limiar de `14` §2 (o gerador não o confere) | | |
 | Resultado | |
 
-Quem verifica **não pode ser quem escreveu** este memorando nem quem gerou o
-pacote.
+Quem verifica é «pessoa distinta do autor» (Testes Requeridos do bloco).
 
 ---
 
@@ -224,4 +238,4 @@ pacote.
 
 | Versão | Data | Alteração | Autor |
 |---|---|---|---|
-| 1.0 | Novembro 2026 | Emissão inicial (KAM-110, preparação): o memorando, **em branco**. Entrega a forma — a ordem de preenchimento, as regras de decisão transcritas de `14` §2 e §6 e do bloco, o plano datado das inconclusivas, a economia com a pista por preencher pelo fundador, as três secções que cada decisão obriga (epics da Fase 2 e os gatilhos D2, D7, D8 e D11; pivô com plano de duas semanas e tickets; encerramento), os NÃO VERIFICADOS com dono, as quatro assinaturas e a verificação cruzada. Nenhum campo de decisão nem de pista preenchido. | Equipa KAMBÁ |
+| 1.0 | Novembro 2026 | Emissão inicial (KAM-110, preparação): o memorando, **em branco**. Entrega a forma — a ordem de preenchimento, as regras de decisão transcritas de `14` §2 e §6 e do bloco, o plano datado das inconclusivas, a economia com a pista por preencher pelo fundador, a acção para H7, H8 e H9 quando falham, as três secções que cada decisão obriga (epics da Fase 2 e os gatilhos D2, D7, D8 e D11; pivô com plano de duas semanas e tickets; encerramento), os NÃO VERIFICADOS com dono, as quatro assinaturas e a verificação cruzada. Nenhum campo de decisão nem de pista preenchido. | Equipa KAMBÁ |

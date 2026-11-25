@@ -3,8 +3,9 @@
 1. «Registo de Hipóteses sintético (9 estados misturados): nenhuma linha sem
    dados sai `confirmada`» — `TestEstadoEfectivo`.
 2. «a matriz de `14` §6 devolve a linha correcta para cada falha simulada» —
-   `TestMatriz`, e o oráculo dela é o **texto do `14` §6**, lido do disco, e não
-   a constante do gerador: trocar uma palavra da constante tem de avermelhar.
+   `TestMatriz`. O oráculo é a **tabela do `14` §6 lida do disco**, coluna
+   «Se acontecer…» ligada à coluna «Então…», e não a constante do gerador:
+   trocar duas linhas da constante entre si tem de avermelhar.
 """
 
 from __future__ import annotations
@@ -21,12 +22,18 @@ from gate_piloto.tests import sintetico
 RAIZ = Path(__file__).resolve().parents[3]
 DOC_14 = RAIZ / "docs/exploracao/14-tese-minima-e-plano-de-validacao.md"
 
-
 CONGELADA = entradas.validar(sintetico.resumo(exportacao="x.csv", exportacao_sha256="ab" * 32))
+
+#: As fontes sintéticas que «existem». Uma fonte fora deste conjunto não existe.
+EXISTEM = {"a.md", "b.md", "c.md", "d.md", "e.md", "f.md", "g.md", "x.md"}
+
+
+def _existe(celula: str) -> bool:
+    return celula in EXISTEM
 
 
 def _estados(linhas: dict, resumo: entradas.Resumo = CONGELADA) -> dict[str, regras.Estado]:
-    return regras.estados(registo.ler_texto(sintetico.registo(linhas)), resumo)
+    return regras.estados(registo.ler_texto(sintetico.registo(linhas)), resumo, _existe)
 
 
 class TestEstadoEfectivo(unittest.TestCase):
@@ -36,9 +43,9 @@ class TestEstadoEfectivo(unittest.TestCase):
             "H1": ("10", "6", "confirmada", "a.md"),  # com dados: fica
             "H2": ("", "", "confirmada", ""),  # sem nada
             "H3": ("3", "NÃO MEDIDO", "confirmada", "b.md"),  # resultado por medir
-            "H4": ("1", "1", "confirmada", ""),  # sem fonte
+            "H4": ("1", "1", "confirmada", "nao-existe.md"),  # a fonte não existe
             "H5": ("0", "0", "refutada", "c.md"),  # amostra zero
-            "H6": ("499", "9", "confirmada", "d.md"),  # abaixo do mínimo da fonte
+            "H6": ("499", "9", "confirmada", "d.md"),  # abaixo do mínimo do critério
             "H7": ("100", "70", "refutada", "e.md"),  # com dados: fica
             "H8": ("10", "5", "", "f.md"),  # estado por decidir
             "H9": ("7", "6", "confirmada", "g.md"),  # < 8 PMEs com 60 dias
@@ -52,12 +59,18 @@ class TestEstadoEfectivo(unittest.TestCase):
 
     def test_toda_a_combinacao_de_dados_em_falta(self) -> None:
         # Exaustivo sobre as três peças de dados, nos dois estados que decidem.
-        pecas = {"amostra": ("", "12"), "resultado": ("", "NÃO MEDIDO", "não medido", "12"), "fonte": ("", "x.md")}
+        # Os resultados sem número são os que o Registo §2 dá como inválidos.
+        sem_numero = ("", "—", "correu bem", "NÃO MEDIDO", "não medido", "NÃO MEDIDO (sem resposta 12)")
+        pecas = {
+            "amostra": ("", "0", "12"),
+            "resultado": (*sem_numero, "12"),
+            "fonte": ("", "Reunião de 12 de Novembro", "x.md"),
+        }
         for amostra, resultado, fonte in itertools.product(*pecas.values()):
-            completa = amostra and resultado not in ("", "NÃO MEDIDO", "não medido") and fonte
+            completa = amostra == "12" and resultado == "12" and fonte == "x.md"
             for declarado in ("confirmada", "refutada"):
                 linha = registo.Linha("H2", "", "", "", amostra, resultado, declarado, fonte, "", "", "", "")
-                efectivo = regras.estado_efectivo(linha).efectivo
+                efectivo = regras.estado_efectivo(linha, False, _existe).efectivo
                 with self.subTest(amostra=amostra, resultado=resultado, fonte=fonte, declarado=declarado):
                     self.assertEqual(efectivo, declarado if completa else "inconclusiva")
 
@@ -86,25 +99,56 @@ class TestEstadoEfectivo(unittest.TestCase):
         self.assertEqual(_estados({"H6": ("cerca de 600", "9", "confirmada", "x.md")})["H6"].efectivo, "inconclusiva")
 
     def test_o_registo_real_de_hoje_da_nove_inconclusivas(self) -> None:
+        caminho = RAIZ / "docs/tecnica/evidencia/validacao/Registo_Hipoteses.md"
         reais = regras.estados(
-            registo.ler(RAIZ / "docs/tecnica/evidencia/validacao/Registo_Hipoteses.md"), entradas.VAZIO
+            registo.ler(caminho), entradas.VAZIO, regras.resolvedor(caminho.parent, RAIZ)
         )
         if any(e.declarado for e in reais.values()):
             self.skipTest("o Registo já tem estados declarados; este ensaio era para o Registo vazio")
         self.assertEqual({e.efectivo for e in reais.values()}, {"inconclusiva"})
 
 
-def _texto_do_14_6() -> list[str]:
-    """A coluna «Então…» da tabela do §6, lida do documento."""
+class TestResolvedor(unittest.TestCase):
+    def test_ligacoes_crases_e_caminho_nu(self) -> None:
+        with TemporaryDirectory() as d:
+            raiz = Path(d) / "repo"
+            pasta = raiz / "docs/validacao"
+            pasta.mkdir(parents=True)
+            (pasta / "H3.md").write_text("sintético", encoding="utf-8")
+            (raiz / "docs/outro.md").write_text("sintético", encoding="utf-8")
+            (Path(d) / "fora-da-arvore.md").write_text("sintético", encoding="utf-8")
+            existe = regras.resolvedor(pasta, raiz)
+            self.assertTrue(existe("[`H3.md`](H3.md) §3"))
+            self.assertTrue(existe("`docs/outro.md`"))
+            self.assertTrue(existe("H3.md#tabela"))
+            self.assertTrue(existe("[x](../outro.md)"))
+            self.assertFalse(existe("Reunião de 12 de Novembro"))
+            self.assertFalse(existe("[x](nao.md)"))
+            self.assertFalse(existe("—"))
+            self.assertFalse(existe("[x](../../../fora-da-arvore.md)"))
+
+
+def _tabela_14_6() -> dict[str, str]:
+    """A tabela do §6, lida do documento: gatilho → «Então…».
+
+    O gatilho é a hipótese nomeada na coluna «Se acontecer…» (H3 e H4 partilham
+    linha), ou `canal` para a linha da distribuição.
+    """
     texto = DOC_14.read_text(encoding="utf-8")
     seccao = texto.split("## 6. Critérios de pivô e de paragem", 1)[1].split("\n## ", 1)[0]
     linhas = [l for l in seccao.splitlines() if l.startswith("|") and not re.match(r"\|\s*-", l)]
-    return [l.split("|")[2].strip() for l in linhas[1:]]
+    tabela: dict[str, str] = {}
+    for linha in linhas[1:]:
+        se, entao = (c.strip() for c in linha.split("|")[1:3])
+        nomeadas = re.findall(r"\bH\d\b", se)
+        for h in nomeadas or ["canal"]:
+            tabela[h] = entao
+    return tabela
 
 
 class TestMatriz(unittest.TestCase):
-    def test_cada_linha_do_gerador_e_uma_linha_do_14_palavra_a_palavra(self) -> None:
-        self.assertEqual(sorted(regras.LINHAS_14_6.values()), sorted(_texto_do_14_6()))
+    def test_a_fonte_tem_as_linhas_que_o_ensaio_espera(self) -> None:
+        self.assertEqual(sorted(_tabela_14_6()), ["H1", "H2", "H3", "H4", "H5", "H6", "canal"])
 
     def test_paragem_transcrita(self) -> None:
         texto = DOC_14.read_text(encoding="utf-8")
@@ -115,35 +159,26 @@ class TestMatriz(unittest.TestCase):
         r = entradas.validar(sintetico.resumo(exportacao="x.csv", exportacao_sha256="ab" * 32, **resumo))
         return regras.matriz(_estados(linhas, r), r)
 
-    def test_cada_falha_simulada_da_a_sua_linha(self) -> None:
-        esperado = {
-            "H1": regras.LINHAS_14_6["H1"],
-            "H2": regras.LINHAS_14_6["H2"],
-            "H3": regras.LINHAS_14_6["H3/H4"],
-            "H4": regras.LINHAS_14_6["H3/H4"],
-            "H5": regras.LINHAS_14_6["H5"],
-            "H6": regras.LINHAS_14_6["H6"],
-            "H7": regras.SEM_LINHA,
-            "H8": regras.SEM_LINHA,
-            "H9": regras.SEM_LINHA,
-        }
-        for h, linha in esperado.items():
+    def test_cada_falha_simulada_da_a_linha_que_a_fonte_lhe_da(self) -> None:
+        fonte = _tabela_14_6()
+        for h in registo.HIPOTESES:
+            esperado = fonte.get(h, regras.SEM_LINHA)
             with self.subTest(h=h):
-                self.assertEqual(self._accionadas((h,)), [regras.Accionada(h, linha)])
+                self.assertEqual(self._accionadas((h,)), [regras.Accionada(h, esperado)])
 
     def test_h3_e_h4_juntas_dao_uma_linha(self) -> None:
         self.assertEqual(
             self._accionadas(("H3", "H4")),
-            [regras.Accionada("H3, H4", regras.LINHAS_14_6["H3/H4"])],
+            [regras.Accionada("H3, H4", _tabela_14_6()["H3"])],
         )
 
-    def test_canal_a_zero_acciona_e_por_medir_nao(self) -> None:
+    def test_nenhum_canal_repetivel_acciona_e_por_medir_nao(self) -> None:
         self.assertEqual(
-            [a.linha for a in self._accionadas((), canais_de_acesso_mantidos=0)],
-            [regras.LINHAS_14_6["canal"]],
+            [a.linha for a in self._accionadas((), canal_comercial_repetivel=False)],
+            [_tabela_14_6()["canal"]],
         )
         self.assertEqual(self._accionadas(()), [])
-        self.assertEqual(self._accionadas((), canais_de_acesso_mantidos=2), [])
+        self.assertEqual(self._accionadas((), canal_comercial_repetivel=True), [])
 
     def test_ordem_da_fonte_e_sem_linha_no_fim(self) -> None:
         gatilhos = [a.gatilho for a in self._accionadas(("H9", "H6", "H1", "H2"))]
@@ -161,12 +196,18 @@ class TestParagem(unittest.TestCase):
     def test_casos(self) -> None:
         completo = {"semana_do_gate": 12, "canal_comercial_repetivel": False}
         self.assertEqual(self._p(), "nao_avaliavel")
-        self.assertEqual(self._p(pagantes_recorrentes=2, canal_comercial_repetivel=False), "nao_avaliavel")
         self.assertEqual(self._p(pagantes_recorrentes=2, semana_do_gate=11, canal_comercial_repetivel=False), "nao_avaliavel")
         self.assertEqual(self._p(pagantes_recorrentes=2, **completo), "verificada")
         self.assertEqual(self._p(pagantes_recorrentes=0, **completo), "verificada")
         self.assertEqual(self._p(pagantes_recorrentes=3, **completo), "nao_verificada")
         self.assertEqual(self._p(pagantes_recorrentes=2, semana_do_gate=12, canal_comercial_repetivel=True), "nao_verificada")
+
+    def test_cada_dado_em_falta_sozinho_da_nao_avaliavel(self) -> None:
+        completo = {"semana_do_gate": 12, "pagantes_recorrentes": 2, "canal_comercial_repetivel": False}
+        for falta in completo:
+            campos = {k: v for k, v in completo.items() if k != falta}
+            with self.subTest(falta=falta):
+                self.assertEqual(self._p(**campos), "nao_avaliavel")
 
 
 class TestCarta(unittest.TestCase):

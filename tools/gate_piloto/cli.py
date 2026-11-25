@@ -72,6 +72,7 @@ def principal(argv: list[str] | None = None) -> int:
         return SAIDA_ERRO
 
     efectivo = resumo or entradas.VAZIO
+    conferido = False
     # A exportação pode estar arquivada fora da árvore; quando está dentro, o
     # *hash* confere-se, porque um *hash* que não é o do ficheiro não congela nada.
     if efectivo.exportacao is not None:
@@ -85,7 +86,9 @@ def principal(argv: list[str] | None = None) -> int:
                     file=sys.stderr,
                 )
                 return SAIDA_ERRO
-    estados = regras.estados(linhas, efectivo)
+            conferido = True
+    existe = regras.resolvedor(args.registo.resolve().parent, raiz)
+    estados = regras.estados(linhas, efectivo, existe)
     texto = pacote.escrever(
         linhas,
         estados,
@@ -96,6 +99,7 @@ def principal(argv: list[str] | None = None) -> int:
         _relativo(args.registo, raiz),
         _relativo(args.resumo, raiz) if args.resumo else None,
         args.data,
+        conferido,
     )
 
     if args.check is not None:

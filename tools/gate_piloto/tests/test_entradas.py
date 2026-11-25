@@ -26,7 +26,6 @@ class TestAceita(unittest.TestCase):
                 exportacao_sha256=SHA,
                 semana_do_gate=12,
                 pagantes_recorrentes=4,
-                canais_de_acesso_mantidos=2,
                 canal_comercial_repetivel=True,
                 custo_por_pme_minor=5150,
                 moeda="USD",
@@ -48,9 +47,9 @@ class TestRecusa(unittest.TestCase):
                 self._recusa(sintetico.resumo(**{chave: 6}), "fora do esquema")
 
     def test_texto_livre_nao_entra(self) -> None:
-        self._recusa(sintetico.resumo(nota="a PME 999 000 000 pagou"), "fora do esquema")
+        self._recusa(sintetico.resumo(nota="texto livre sobre uma PME"), "fora do esquema")
         self._recusa(
-            sintetico.resumo(carta5={"F1": {"estado": "satisfeito", "evidencia": "ligar ao 999 000 000"}}),
+            sintetico.resumo(carta5={"F1": {"estado": "satisfeito", "evidencia": "texto livre com espaços"}}),
             "caminho",
         )
         self._recusa(sintetico.resumo(carta5={"F1": {"estado": "satisfeito", "nota": "x"}}), "só")
