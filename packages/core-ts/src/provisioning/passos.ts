@@ -38,6 +38,8 @@ import {
   type Caso,
   type ChaveDeLlm,
   type ClienteSql,
+  type CofreDeChaves,
+  type RefExterna,
   type Entitlements,
   type InboxDeAtendimento,
   type Passo,
@@ -45,6 +47,8 @@ import {
   type RotaDoCanal,
   type TesteDeCanal,
 } from "./contrato.ts";
+import { createHash, randomBytes } from "node:crypto";
+
 import { accoesDoCanalDoCliente } from "./compensacao.ts";
 import { comTenant } from "../tenant_guard/index.ts";
 import type { HandoffProvider } from "../hnd/contrato.ts";
@@ -142,6 +146,8 @@ export interface DefinicaoDePasso {
 export interface Dependencias {
   readonly sql: ClienteSql;
   readonly chaveDeLlm: ChaveDeLlm;
+  /** Onde vive o valor da chave virtual (KAM-250): o projecto Doppler das chaves. */
+  readonly cofreDeChaves: CofreDeChaves;
   readonly comercio: RegistoDeCanalDeComercio;
   readonly handoff: HandoffProvider;
   readonly entitlements: Entitlements;
@@ -173,6 +179,21 @@ export interface Dependencias {
 /** O alias da chave virtual do tenant. A mesma regra do `infra/llm/chaves.py:96`. */
 export function aliasDoTenant(tenantId: string): string {
   return `tenant-${tenantId}`;
+}
+
+/** A referência da chave do tenant no cofre: `litellm_virtual_key/<tenant_id>` (inventário). */
+export function refDaChaveDoTenant(tenantId: string): string {
+  return `litellm_virtual_key/${tenantId}`;
+}
+
+/** Um valor novo de chave virtual. O prefixo `sk-` é o que o proxy exige (medido, KAM-250). */
+export function gerarValorDeChave(): string {
+  return `sk-${randomBytes(32).toString("base64url")}`;
+}
+
+/** O `token` que o proxy guarda para uma chave: o SHA-256 dela (medido, KAM-250). */
+export function resumoDaChave(valor: string): string {
+  return createHash("sha256").update(valor, "utf8").digest("hex");
 }
 
 /**
@@ -244,12 +265,40 @@ export function montarPassos(d: Dependencias): ReadonlyMap<Passo, DefinicaoDePas
       chaveDe: (caso) => aliasDoTenant(caso.tenantId),
       async ensure(caso) {
         const alias = aliasDoTenant(caso.tenantId);
+        const ref = refDaChaveDoTenant(caso.tenantId);
         const orcamento = d.orcamentoDoPlano(caso.plano);
         // **A procura é esta linha, e é o critério 4.** Sem ela, a repetição
         // depois de um `crash` na janela entre o `criar` e o `markDone` emitia
         // uma segunda chave com o mesmo alias.
         const existente = await d.chaveDeLlm.procurar({ alias, orcamento });
-        const chave = existente ?? (await d.chaveDeLlm.criar({ alias, orcamento }));
+        let valor = await d.cofreDeChaves.ler(ref);
+        let chave: RefExterna;
+        if (existente !== null && valor !== null && existente.id === resumoDaChave(valor)) {
+          // O critério 3 do KAM-250: o valor do cofre autentica a chave, e ela
+          // não se reemite.
+          chave = existente;
+        } else {
+          // O proxy tem uma chave que o cofre não autentica: ninguém a usa pelo
+          // procedimento escrito, e reemite-se — com o valor do cofre, se o houver.
+          //
+          // **Também com `nosso: false`, e é de propósito.** A regra do critério 8
+          // do KAM-091 («só se compensa o que a saga criou») é sobre **desfazer**
+          // um recurso; isto é o passo a **garantir** o recurso que o alias
+          // `tenant-<uuid>` diz ser deste tenant. A chave feita à mão na Fase 0
+          // pelo `infra/llm/chaves.py` não leva a etiqueta da saga e não tem o
+          // valor no cofre: deixá-la ficar era deixar o tenant sem chave que o
+          // AGR consiga ler. O `chaves.py` faz o mesmo.
+          if (existente !== null) await d.chaveDeLlm.revogar(existente.id);
+          // **O cofre antes do proxy** (KAM-250): uma queda entre os dois deixa
+          // um valor no cofre sem chave, e a repetição cria a chave com esse
+          // valor, sem reemitir. Na ordem inversa, a queda deixava uma chave cujo
+          // valor não estava em lado nenhum.
+          if (valor === null) {
+            valor = gerarValorDeChave();
+            await d.cofreDeChaves.gravar(ref, valor);
+          }
+          chave = await d.chaveDeLlm.criar({ alias, orcamento, valor });
+        }
         // **Guarda-se o `litellm_key_id`, nunca a chave** (detalhes técnicos do
         // ticket, e a DoD sobre segredos). O `external_id` que vai para o
         // `provisioning_step` é o mesmo identificador por referência.

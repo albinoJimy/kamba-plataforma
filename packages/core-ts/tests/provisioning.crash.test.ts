@@ -54,7 +54,7 @@ const PASSOS_COM_ENSURE_NOSSO: readonly {
   passo: Passo;
   criadas: (m: Montagem) => number;
 }[] = [
-  { passo: "chave_llm", criadas: (m) => m.chaveDeLlm.inventario.criadas },
+  { passo: "chave_llm", criadas: (m) => m.chaveDeLlm.criadas },
   { passo: "canal_comercio", criadas: (m) => m.comercio.inventario.criadas },
   { passo: "inbox_e_rota", criadas: (m) => m.inbox.inventario.criadas },
 ];
@@ -216,7 +216,7 @@ describe("criterio 4 — a reconciliacao fecha o caso que a procura nao fecha", 
     // O recurso do passo 2 existe no inventário (foi criado), e a sua linha
     // ficou `concluido` só na retoma — que é o que a saga faz sozinha. O que a
     // reconciliação tem de ver é o inventário, e ele tem o recurso.
-    assert.equal(m.chaveDeLlm.inventario.quantos, 1);
-    assert.equal(m.chaveDeLlm.inventario.criadas, 1);
+    assert.equal(m.chaveDeLlm.quantos, 1);
+    assert.equal(m.chaveDeLlm.criadas, 1);
   });
 });

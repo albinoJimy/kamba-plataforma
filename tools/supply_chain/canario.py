@@ -160,9 +160,16 @@ def _litellm_sem_cosign(copia: Copia) -> None:
 
 
 def _destino_sem_nome(copia: Copia) -> None:
+    # Casa a chave `destinos:` **nas duas formas** — a lista vazia (`[]`) e a
+    # lista com entradas —, e poe o `*` a cabeca da lista. A primeira versao so
+    # casava `destinos: []` e deixou de se aplicar quando o KAM-250 deu ao AGR
+    # o primeiro destino (`api.doppler.com`): o canario do gate 11 ficou
+    # vermelho por «a mutacao ja nao se aplica», e nao por o verificador ter
+    # deixado de morder. O alvo continua a ser o AGR, o servico que nao pode
+    # sair para qualquer lado.
     copia.trocar(
         "services/agr/egress.yaml",
-        r"^destinos: \[\]$",
+        r"^destinos:(?: \[\])?$",
         "destinos:\n"
         "  - fqdn: \"*\"\n"
         "    porta: 443\n"

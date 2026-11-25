@@ -27,6 +27,18 @@ from .doppler import (
     Transporte,
     interpretar_descarga_plana,
 )
+from .escrita import (
+    A_CONFIRMAR_ESCRITA,
+    FAMILIAS_DAS_CHAVES_DO_LLM,
+    PROJECTO_DAS_CHAVES_POR_OMISSAO,
+    VARIAVEL_DO_PROJECTO,
+    DopplerGravador,
+    FamiliaNaoGravavelError,
+    GravadorDeSegredo,
+    TransporteDeEscrita,
+    transporte_http_de_escrita,
+    transporte_http_de_leitura,
+)
 from .env import (
     PREFIXO,
     SUFIXO_ANTERIOR,
@@ -58,6 +70,10 @@ from .port import (
 __all__ = [
     "AMBIENTES",
     "A_CONFIRMAR",
+    "A_CONFIRMAR_ESCRITA",
+    "FAMILIAS_DAS_CHAVES_DO_LLM",
+    "PROJECTO_DAS_CHAVES_POR_OMISSAO",
+    "VARIAVEL_DO_PROJECTO",
     "PREFIXO",
     "ROTULOS_POSICIONAIS",
     "SUFIXO_ANTERIOR",
@@ -66,8 +82,11 @@ __all__ = [
     "AmbienteErradoError",
     "ArranqueAbortadoError",
     "CofreInacessivelError",
+    "DopplerGravador",
     "DopplerSecretProvider",
     "EnvSecretProvider",
+    "FamiliaNaoGravavelError",
+    "GravadorDeSegredo",
     "Interpretar",
     "KidRepetidoNoCofreError",
     "OpenBaoFakeProvider",
@@ -78,6 +97,7 @@ __all__ = [
     "SecretRefInvalidaError",
     "Secrets",
     "Transporte",
+    "TransporteDeEscrita",
     "e_ambiente",
     "familia_da_ref",
     "interpretar_descarga_plana",
@@ -85,5 +105,7 @@ __all__ = [
     "kids_das_versoes",
     "nome_da_variavel",
     "separar_kid",
+    "transporte_http_de_escrita",
+    "transporte_http_de_leitura",
     "validar_ref",
 ]

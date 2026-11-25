@@ -41,7 +41,7 @@ depende dela, ou porque contradiz um ADR em vigor. Nesse caso entra em
 | ADR | Decisão | Ticket | Estado |
 |---|---|---|---|
 | [ADR-L001](ADR-L001-toolchain.md) | Toolchain do monorepo: `make` como fachada, `node --test`, TypeScript 5.x, Starlette no AGR | KAM-001 | Aceite |
-| [ADR-L002](ADR-L002-injeccao-de-segredos.md) | Injecção de segredos por variáveis de ambiente no arranque do contentor, e não por ficheiros em `tmpfs` | KAM-010 | Aceite |
+| [ADR-L002](ADR-L002-injeccao-de-segredos.md) | Injecção de segredos por variáveis de ambiente no arranque do contentor, e não por ficheiros em `tmpfs`. Emenda *proposta* no §7 (KAM-250): as chaves virtuais do LiteLLM vivem num projecto Doppler próprio e o AGR lê-as pela API, por decisão do fundador de 2026-11-24 | KAM-010 | Aceite |
 | [ADR-L003](ADR-L003-verificacao-do-ruleset.md) | O *ruleset* de `main` verifica-se com um *token* de **leitura** (`administration: read`), que compara e nunca aplica, fora do CI deste repositório | KAM-137 | Aceite |
 | [ADR-L004](ADR-L004-fila-e-tranca-do-agr.md) | A fila `agr-inbound` consome-se em **TypeScript**, por um *shim* que chama `/internal/turn`; e um turno por conversa serializa-se por *advisory lock* de **sessão** | KAM-025 | Aceite |
 | [ADR-L005](ADR-L005-degradacao-e-concierge.md) | Com a política `concierge` activa, a resposta do **modo determinístico também vai a aprovação humana**: os dois mecanismos somam-se e não se substituem | KAM-037 | Aceite |

@@ -185,7 +185,11 @@ class TestRepositorioReal(unittest.TestCase):
         # decisao do fundador de 2026-11-22). O proxy passa a abrir o
         # `lookaside.fbsbx.com` tambem, e este e o unico FQDN novo: os outros
         # dois sao declarantes novos de destinos que ja existiam.
-        self.assertEqual(resumo["destinos"], 13)
+        # **KAM-250: de 13 para 15.** O `agr` declara `api.doppler.com` (a
+        # leitura das chaves virtuais do projecto Doppler delas, decisao do
+        # fundador de 2026-11-24), e o proxy passa a abri-lo: um FQDN novo,
+        # contado dos dois lados.
+        self.assertEqual(resumo["destinos"], 15)
 
         _, resumo = licencas.verificar(ROOT)
         self.assertEqual(resumo["estados"]["pendente_de_decisao"], 2)  # redis e valkey: D12
