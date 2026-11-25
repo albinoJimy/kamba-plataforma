@@ -55,7 +55,7 @@ def _rtt_relatorio(argumentos) -> int:
             janela_minima_s=argumentos.janela_minima,
             lacuna_maxima_s=argumentos.lacuna_maxima,
         )
-    except (rtt.AmostraInvalida, OSError) as erro:
+    except (rtt.AmostraInvalida, OSError, UnicodeDecodeError) as erro:
         print(f"borda: {erro}", file=sys.stderr)
         return 2
     except rtt.Recusa as recusa:
@@ -73,7 +73,7 @@ def _rtt_verificar(argumentos) -> int:
     try:
         texto = Path(argumentos.relatorio).read_text(encoding="utf-8")
         problemas = rtt.verificar(texto, [Path(caminho) for caminho in argumentos.amostras])
-    except (rtt.AmostraInvalida, OSError) as erro:
+    except (rtt.AmostraInvalida, OSError, UnicodeDecodeError) as erro:
         print(f"borda: {erro}", file=sys.stderr)
         return 2
     for problema in problemas:

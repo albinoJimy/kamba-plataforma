@@ -38,12 +38,16 @@ class TestArvoreReal(unittest.TestCase):
     def test_o_servico_nao_e_o_da_distribuicao(self) -> None:
         texto = (RAIZ / firewall.MODELO).read_text(encoding="utf-8")
         self.assertIn("ExecStop=/usr/sbin/nft delete table inet kamba_host", texto)
-        self.assertIn("[systemctl, enable, --now, kamba-firewall.service]", texto)
         self.assertNotIn("enable, --now, nftables", texto)
-        # E o primeiro passo do `runcmd`: o resto do arranque corre ja fechado.
+        # E o primeiro passo do `runcmd`, e falha fechado: com `set -e` e a
+        # confirmacao de que a tabela ficou carregada, ou o arranque para.
         runcmd = texto.split("\nruncmd:\n", 1)[1]
-        passos = [l.strip() for l in runcmd.splitlines() if l.strip().startswith("- ")]
-        self.assertEqual(passos[:2], ["- [systemctl, daemon-reload]", "- [systemctl, enable, --now, kamba-firewall.service]"])
+        passos = runcmd.split("\n  - ")
+        primeiro = next(p for p in passos if not p.lstrip().startswith("#"))
+        self.assertIn("set -euo pipefail", primeiro)
+        self.assertIn("systemctl enable --now kamba-firewall.service", primeiro)
+        self.assertIn("if ! nft list table inet kamba_host", primeiro)
+        self.assertIn("exit 1", primeiro)
 
 
 class TestMorde(unittest.TestCase):
@@ -66,7 +70,33 @@ class TestMorde(unittest.TestCase):
         self.assertIn("ssh-fora-do-tunel", self._achados(self._trocar('iifname "wg0" tcp dport 22 accept', "tcp dport { 22, 2222 } accept")))
 
     def test_porta_nova_ao_mundo(self) -> None:
-        self.assertIn("porta-aberta", self._achados(self._trocar("udp dport 51820 accept", "udp dport 51820 accept\n    tcp dport 3000 accept")))
+        self.assertIn("regra-nao-reconhecida", self._achados(self._trocar("udp dport 51820 accept", "udp dport 51820 accept\n    tcp dport 3000 accept")))
+
+    def test_aberturas_que_a_primeira_versao_deixava_passar(self) -> None:
+        # Sete dos oito casos da revisao adversarial (o oitavo, `add rule` fora do
+        # bloco, tem ensaio proprio): nenhum tem `dport` sem `iifname`,
+        # e todos abrem o host. A lista fechada apanha-os todos.
+        casos = {
+            "accept-sozinho": "accept",
+            "ct-new": "ct state new accept",
+            "toda-a-internet": "ip saddr 0.0.0.0/0 accept",
+            "todo-o-tcp": "meta l4proto tcp accept",
+            "outra-interface": 'iifname "eth0" tcp dport 3306 accept',
+            "jump": "jump abre",
+            "duas-numa-linha": "udp dport 51820 accept; tcp dport 3306 accept",
+        }
+        for nome, regra in casos.items():
+            with self.subTest(caso=nome):
+                regras = self._trocar("udp dport 51820 accept", "udp dport 51820 accept\n    " + regra)
+                self.assertIn("regra-nao-reconhecida", self._achados(regras))
+
+    def test_add_rule_fora_do_bloco(self) -> None:
+        regras = self.regras + "add rule inet kamba_host input tcp dport 3306 accept\n"
+        self.assertIn("fora-da-tabela", self._achados(regras))
+
+    def test_cadeia_auxiliar_que_aceita(self) -> None:
+        regras = self._trocar("  chain input {", "  chain abre {\n    accept\n  }\n  chain input {")
+        self.assertIn("regra-nao-reconhecida", self._achados(regras))
 
     def test_flush_ruleset(self) -> None:
         self.assertIn("flush-ruleset", self._achados("flush ruleset\n" + self.regras))
@@ -85,7 +115,7 @@ class TestMorde(unittest.TestCase):
         self.assertIn("sem-wireguard", self._achados(self._trocar("udp dport 51820 accept", "")))
 
     def test_sem_tabela(self) -> None:
-        self.assertEqual(self._achados("table ip outra {\n}\n"), {"sem-tabela"})
+        self.assertIn("sem-tabela", self._achados("table ip outra {\n}\n"))
 
     def test_comentario_nao_conta(self) -> None:
         self.assertEqual(self._achados(self.regras + "# tcp dport 22 accept\n"), set())

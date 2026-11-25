@@ -355,11 +355,11 @@ entrou nenhum serviço no compose; nenhuma lista de saídas mudou.
 
 | # | O quê | Para que critério | Evidência |
 |---|---|---|---|
-| 1 | **Sonda de RTT e relatório que recusa sair sem números medidos** — `../tools/borda/` (`rtt-medir`, `rtt-relatorio`, `rtt-verificar`). Mede o *handshake* TCP para a porta 443, resolve o nome antes do cronómetro, guarda as falhas como amostras; o relatório recusa uma série que não cubra 24 h, que tenha uma lacuna > 600 s (*proposta*) ou que não tenha nenhum sucesso, e sai sem o endereço do *host*; o `rtt-verificar` recalcula a tabela das amostras cujo `sha256` o relatório declara | 5, e o 3.º Teste Requerido | Suite `tools/borda/tests`: **49 testes**, cobertura de ramos **99%** do pacote, medida com `coverage run --branch`; o caso `test_um_numero_mexido_a_mao_nao_sobrevive` escreve o «52» do doc 09 §5.2 por cima de um p95 medido e o `rtt-verificar` recusa-o |
-| 2 | **Regras `nftables` do *host*** no cloud-init do `host-base` (`/etc/kamba/firewall.nft` e o serviço `kamba-firewall`): `input` em `policy drop`, aberta ao mundo só na porta UDP do WireGuard e às respostas de DHCP, SSH só pelo `wg0`, sem `flush ruleset` e sem cadeia no `forward` (o 443 é do Docker, e a metade «só 443» é a regra `porta-publicada` do `compose_prod`). É a classe 3 de `../infra/PORTABILIDADE.md`, que o KAM-075 deixou a este ticket | 4 (a parte que não precisa de *host*) | `tools/borda/firewall.py` e a classe `TestMorde`, um caso por propriedade partida; `nft -c -f` do `nftables` 1.1.3 em `debian:trixie-slim` aceita as regras, duas cargas seguidas funcionam e uma tabela alheia sobrevive às duas e ao `ExecStop` |
+| 1 | **Sonda de RTT e relatório que recusa sair sem números medidos** — `../tools/borda/` (`rtt-medir`, `rtt-relatorio`, `rtt-verificar`). Mede o *handshake* TCP para a porta 443, resolve o nome antes do cronómetro, guarda as falhas como amostras; o relatório recusa uma série que não cubra 24 h **com medições com sucesso**, que tenha entre duas delas uma lacuna > 600 s (*proposta*), ou um conjunto a que falte uma das duas medições do critério (um alvo `graph.facebook.com` e outro), e sai sem o endereço do *host*; o `rtt-verificar` recalcula a tabela das amostras cujo `sha256` o relatório declara **e volta a aplicar as recusas com as 24 h do critério**. **O que não prova:** que as amostras foram medidas — amostras inventadas com a forma certa passam; a garantia dessa metade é a cadeia de custódia no repositório de provas | 5, e o 3.º Teste Requerido | Suite `tools/borda/tests`: **57 testes**, cobertura de ramos **99%** do pacote, medida com `coverage run --branch`; o caso `test_um_numero_mexido_a_mao_nao_sobrevive` escreve o «52» do doc 09 §5.2 por cima de um p95 medido e o `rtt-verificar` recusa-o, e o `test_verificar_reaplica_a_janela_do_criterio` recusa um relatório feito com a janela baixada a 1 h |
+| 2 | **Regras `nftables` do *host*** no cloud-init do `host-base` (`/etc/kamba/firewall.nft` e o serviço `kamba-firewall`): `input` em `policy drop`, aberta ao mundo só na porta UDP do WireGuard e às respostas DHCPv6 da ligação local, SSH só pelo `wg0`, sem `flush ruleset` e sem cadeia no `forward` (o 443 é do Docker, e a metade «só 443» é a regra `porta-publicada` do `compose_prod`); o passo que as carrega é o primeiro do `runcmd` e **pára o arranque** se a tabela não ficar carregada. É a classe 3 de `../infra/PORTABILIDADE.md`, que o KAM-075 deixou a este ticket | 4 (a parte que não precisa de *host*) | `tools/borda/firewall.py` verifica as regras contra uma **lista fechada** das que aceitam, e a classe `TestMorde` tem um caso por propriedade partida e os oito que a primeira versão deixava passar; `nft -c -f` aceita as regras no `nftables` 1.1.3 (Debian 13) e 1.0.9 (Ubuntu 24.04), duas cargas seguidas funcionam e uma tabela alheia sobrevive às duas e ao `ExecStop` |
 | 3 | **O caminho do *webhook* na borda estava errado, e foi corrigido.** O `../infra/compose/caddy/Caddyfile` encaminhava `/webhooks/*`, que o GWY não serve — o caminho dele é `/wa/webhook` (`../services/gwy/src/webhook.ts`) | 2, e a opção (b) da D12 | Medido com o Caddy fixado no compose (2.10.2) à frente de um GWY simulado: com o Caddyfile da `main`, `GET /wa/webhook?hub.challenge=4242` dá **404**; com a correcção, **200** e o *challenge* entregue. `caddy validate` aceita o ficheiro |
 | 4 | **Registo da D12 (metade CDN/WAF), opção (b), como proposta sem dono nem data** — `../docs/tecnica/evidencia/validacao/D12_CDN_WAF.md`, e o apontador na Carta §4.2 **sem mudar o estado** | 3 (não se marca: pede dono e data) | O documento, §3 e §4. **A (b) está incompleta**: a limitação de débito na origem não existe — **0** módulos de limitação em `caddy list-modules` na imagem fixada, e o GWY não limita por origem |
-| 5 | **Índice de provas** — `../provas/alojamento/README.md`: dezassete provas em seis critérios, cada uma com o comando que a produz, todas **por provar**. Os documentos ficam no repositório de provas **privado** (o conjunto já o fixou: `../docs/runbooks/RB-K10-incidente-de-seguranca.md` passo 5); aqui só o índice, com `sha256` e data | 1, 2, 4, 5, 6 | O ficheiro |
+| 5 | **Índice de provas** — `../provas/alojamento/README.md`: dezassete provas em seis critérios, cada uma com o comando que a produz, todas **por provar**. Os documentos ficam no repositório de provas **privado** (o conjunto já o fixou: `../docs/runbooks/RB-K10-incidente-de-seguranca.md` passo 5); aqui só o índice, com `sha256` e data | 1 a 6 | O ficheiro |
 | 6 | **Os candidatos da D1 na costura** — `../infra/modules/README.md`: Raxio, Paratus, Angola Cables, Cloud Nacional e um hiperescalador em JNB/CPT, com o módulo que nasceria e a pergunta que mais custa tarde (há *provider* OpenTofu ou API?), **sem preços** | Detalhes Técnicos («este ticket não escolhe fornecedor») | O ficheiro |
 
 **O que ficou por fazer, e de quem é:**
@@ -376,6 +376,29 @@ entrou nenhum serviço no compose; nenhuma lista de saídas mudou.
 - **O TLS com ACME** não se ligou: o `auto_https off` do Caddyfile fica, porque
   ligá-lo pede um domínio (D1) e um destino novo na lista de saídas do
   `proxy-tls`.
+- **Hoje as regras deixam o *host* sem SSH nenhum**: o SSH só entra pelo `wg0`,
+  e o `wg0` do `host-base` não tem nenhum `[Peer]` nem sobe sem a CLI do cofre
+  (KAM-010). A única entrada fica a consola do fornecedor. É a letra do critério
+  4 («SSH por chave só via VPN»), e quem abre o caminho certo são os pares do
+  WireGuard e a CLI do cofre — escolha devolvida à coordenação, com a
+  alternativa (deixar a 22 aberta até o túnel existir) por escrito.
+- **NÃO VERIFICADO, e pode morder:** com o `userland-proxy` do Docker, um
+  contentor que chame o FQDN público da própria pilha chega à 443 pela `input`
+  e é descartado. Mede-se no primeiro *host*.
+
+**O que a revisão adversarial mudou** (uma passagem, read-only, sem ver o
+raciocínio do autor: **dez achados** — sete confirmados, dos quais seis
+corrigidos e um, o SSH, registado e devolvido; dois plausíveis, um aplicado às
+regras e outro registado acima; um de âmbito, devolvido): o
+`rtt-verificar` dava verde a relatórios com 1 h, sem a série da Meta ou com um só
+sucesso em 1441 amostras; o verificador da *firewall* deixava passar oito formas
+de abrir o *host* e passou a lista fechada; o passo da *firewall* falhava aberto;
+o índice de provas tinha o caminho errado do *webhook* e um `nmap -sU` que não
+distingue a porta do WireGuard de uma porta descartada; o DHCPv4 aceitava de
+qualquer origem e saiu; o ICMPv6 passou a aceitar o MLD; e três afirmações dos
+documentos ficaram ao nível da evidência. **O de âmbito:** o apontador na Carta
+§4.2 (canon nível 1), com o precedente da emenda 1.4 do KAM-105 — devolvido à
+coordenação.
 
 ---
 ## KAM-078 — CI/CD completo: deploy rolling e smoke ponta a ponta com número de teste

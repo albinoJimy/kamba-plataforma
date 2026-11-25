@@ -42,7 +42,7 @@ parecer)*.
 | Opção | O que é | Precisa de parecer? |
 |---|---|---|
 | **(a)** | O CDN fica à frente de tudo, e é **assumido como subprocessador**: entra no inventário, no mapa de tratamentos e na notificação à APD | Sim — a E-04 diz se basta a notificação |
-| **(b)** | O caminho do *webhook* vai **directo à origem**, sem CDN; a assinatura `X-Hub-Signature-256` sobre o corpo bruto já autentica o pedido, e a origem protege-se com **limitação de débito** própria | Não — tira conteúdo do perímetro em vez de o justificar (`GoLive_Gate.md` §5) |
+| **(b)** | O caminho do *webhook* vai **directo à origem**, sem CDN; a assinatura `X-Hub-Signature-256` sobre o corpo bruto já autentica o pedido, e a origem protege-se com **limitação de débito** própria | Por hipótese, não — tira conteúdo do perímetro em vez de o justificar (`GoLive_Gate.md` §5). É **INDÍCIO** *(a confirmar por parecer)*: a E-04 pode dizer o contrário (ver §5) |
 
 ## 3. O registo
 
@@ -62,7 +62,7 @@ parecer)*.
 | 1 | O *webhook* entra pelo proxy da própria origem, sem CDN | **Construído**, e corrigido nesta preparação | `../../../../infra/compose/caddy/Caddyfile`: `handle /wa/webhook` para o `gwy`. **A versão da `main` encaminhava `/webhooks/*`, que o GWY não serve** (o caminho dele é `/wa/webhook`, `services/gwy/src/webhook.ts`): medido num Caddy 2.10.2 com o Caddyfile da `main` à frente de um GWY simulado, o GET de verificação dava **404**; com a correcção, **200** e o *challenge* entregue. Nenhum serviço de CDN no compose |
 | 2 | A assinatura autentica o pedido, sobre o corpo bruto | **Construído** (KAM-013) | `assinaturaValida` no GWY; o Caddyfile não reescreve o corpo |
 | 3 | **Limitação de débito na origem** | **Não existe** | Medido: a imagem fixada do Caddy (`caddy:2.10.2-alpine`) tem **0** módulos de limitação de débito em `caddy list-modules`; o GWY não limita por origem. O descarte por profundidade da fila do GWY (critério 7 do KAM-013) protege o *worker*, não a origem, e não distingue quem envia. **Sem isto, (b) está incompleta** |
-| 4 | Nenhum CDN declarado no inventário | **Coerente com (b)** | `GoLive_Gate.md` linha E8 e `Mapa_Tratamentos_v1.md` destino 8: «não declarado» |
+| 4 | Nenhum CDN à frente da origem | **Coerente com (b), não provado** | Nada no compose nem no Caddyfile põe um CDN à frente da origem. **Os documentos não o provam:** o `Mapa_Tratamentos_v1.md` mantém o CDN como **destino 8**, com a qualificação por confirmar (E-04), e o «não declarado» dele está na coluna das saídas declaradas — *egress* —, onde um proxy à frente da origem nunca apareceria. A `GoLive_Gate.md` linha E8 diz o mesmo. Que não há CDN só o prova o contrato da D1 (prova 1.1) |
 | 5 | **Nenhum outro caminho com conteúdo atrás de um CDN** | **Por decidir com (b)** | A (b) escrita no `../../08` §15 só fala do *webhook*. Mas o `/app/*` do Chatwoot leva conversas, e o `/onboarding/*` leva dados da PME: um CDN à frente desses torna-se subprocessador pela mesma razão. Na prática, (b) só é (b) se **nenhum** caminho com conteúdo passar por um CDN — e então não há CDN nenhum |
 
 **A parte 3 é a que falta, e a forma dela não se escolhe aqui.** Há pelo menos
@@ -98,4 +98,4 @@ pergunta devolvida à coordenação, não trabalho desta preparação.
 
 | Versão | Data | Descrição | Autor |
 |---|---|---|---|
-| 1.0 | Novembro de 2026 | Emissão inicial, preparação do KAM-077 sem a D1. Regista a opção **(b)** da metade CDN/WAF da D12 como **proposta**, com dono e data **em branco** — a D12 continua ABERTA. Cinco partes da (b) com o estado de cada uma: duas construídas, uma coerente, uma por decidir e **uma em falta** (a limitação de débito na origem, medida como inexistente). E o defeito que a preparação apanhou e corrigiu: o Caddyfile encaminhava `/webhooks/*`, que o GWY não serve, e o GET de verificação dava 404 pela borda. | Coordenação do lote 24 |
+| 1.0 | Novembro de 2026 | Emissão inicial, preparação do KAM-077 sem a D1. Regista a opção **(b)** da metade CDN/WAF da D12 como **proposta**, com dono e data **em branco** — a D12 continua ABERTA. Cinco partes da (b) com o estado de cada uma: duas construídas, uma coerente e não provada, uma por decidir e **uma em falta** (a limitação de débito na origem, medida como inexistente). E o defeito que a preparação apanhou e corrigiu: o Caddyfile encaminhava `/webhooks/*`, que o GWY não serve, e o GET de verificação dava 404 pela borda. | Coordenação do lote 24 |

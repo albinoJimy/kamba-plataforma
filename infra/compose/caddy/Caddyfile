@@ -70,7 +70,8 @@
 #
 # **O CAMINHO E `/wa/webhook`, O DO GWY** (`services/gwy/src/webhook.ts`,
 # `CAMINHO`; `docs/tecnica/01`). A primeira versao deste ficheiro encaminhava
-# `/webhooks/*` — a forma generica do `docs/tecnica/08` §15 —, que o GWY nao
+# `/webhooks/*` — o literal do bloco do KAM-077 (criterio 3 e *handoff*); o
+# `docs/tecnica/08` §15 diz so «excluir o *path* de webhooks» —, que o GWY nao
 # serve: pela borda, o GET de verificacao e cada POST da Meta caiam no 404 do
 # fim do ficheiro. Corrigido na preparacao do KAM-077. Casa-se o caminho
 # exacto, e nao um prefixo: o GWY nao serve mais nada debaixo dele, e um

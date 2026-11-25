@@ -22,9 +22,10 @@ AS PROPRIEDADES, e a razao de cada uma:
    `accept` nao abria nada que o Docker nao abra. Por isso o 443 **nao** aparece
    nestas regras, e a outra metade do criterio e a regra `porta-publicada` do
    `compose_prod` (so o `proxy-tls` publica, e so 443).
-4. **Aberto ao mundo, so o que esta em `ABERTURAS_SEM_INTERFACE`.** Uma regra
-   de `accept` com `dport` e sem `iifname` e uma porta aberta a quem chegar: so
-   a do WireGuard e as respostas de DHCP do fornecedor.
+4. **So aceita o que esta em `regras_permitidas`, e nada fora da tabela.** Toda
+   a instrucao que aceite, salte ou va para outra cadeia tem de ser uma das da
+   lista fechada; uma `add rule` fora do bloco tambem conta. Aberto ao mundo fica
+   so a porta UDP do WireGuard (e as respostas DHCPv6 da ligacao local).
 5. **SSH so pela interface do tunel.** Toda a regra que aceite `tcp dport 22`
    tem de dizer `iifname "wg0"`.
 """
@@ -45,14 +46,34 @@ TABELA = "inet kamba_host"
 INTERFACE_DO_TUNEL = "wg0"
 
 
-def aberturas_sem_interface(porta_wireguard: int) -> set[str]:
-    """As unicas regras de `accept` com `dport` que podem nao nomear interface."""
+#: As linhas fora da tabela que se aceitam: o cabecalho do ficheiro.
+CABECALHO = {f"table {TABELA}", f"delete table {TABELA}"}
+
+
+def regras_permitidas(porta_wireguard: int) -> set[str]:
+    """A LISTA FECHADA das instrucoes que aceitam na cadeia `input`.
+
+    Fechada de proposito: a primeira versao deste verificador procurava as
+    formas perigosas que conhecia (`dport` sem `iifname`) e deixava passar as que
+    nao conhecia — `accept` sozinho, `ct state new accept`, `ip saddr 0.0.0.0/0
+    accept`, `iifname "eth0" tcp dport 3306 accept`, um `jump` para uma cadeia
+    que aceita. Uma regra nova que aceite tem de entrar aqui **e** no cloud-init,
+    e as duas edicoes leem-se juntas na revisao.
+    """
     return {
+        "ct state { established, related } accept",
+        'iifname "lo" accept',
+        "ip protocol icmp icmp type { echo-request, destination-unreachable, time-exceeded } accept",
+        "meta l4proto ipv6-icmp icmpv6 type { echo-request, destination-unreachable, packet-too-big, "
+        "time-exceeded, parameter-problem, nd-router-advert, nd-neighbor-solicit, nd-neighbor-advert, "
+        "mld-listener-query } accept",
+        # As respostas do servidor DHCPv6, so da ligacao local: o pedido vai para
+        # um endereco *multicast* e a resposta vem *unicast*, pelo que o
+        # `conntrack` nao as liga. No DHCPv4 nao e preciso regra: o cliente
+        # recebe a oferta por *socket* cru e a renovacao e `established`.
+        "ip6 saddr fe80::/10 udp sport 547 udp dport 546 accept",
         f"udp dport {porta_wireguard} accept",
-        # As respostas do DHCP do fornecedor (v4 e v6). Sao `sport` do servidor
-        # para o `dport` do cliente: nao abrem servico nenhum do *host*.
-        "udp sport 67 udp dport 68 accept",
-        "udp sport 547 udp dport 546 accept",
+        f'iifname "{INTERFACE_DO_TUNEL}" tcp dport 22 accept',
     }
 
 
@@ -98,16 +119,23 @@ def _sem_comentarios(regras: str) -> list[str]:
     return [l.split("#", 1)[0].strip() for l in regras.splitlines() if l.split("#", 1)[0].strip()]
 
 
-def _cadeias(linhas: list[str]) -> dict[str, list[str]]:
-    """Cadeia -> linhas dela, dentro de `table inet kamba_host { ... }`."""
+def _cadeias(linhas: list[str]) -> tuple[dict[str, list[str]], list[str]]:
+    """Cadeia -> instrucoes dela, dentro de `table inet kamba_host { ... }`; e o que fica fora.
+
+    Uma linha com varias instrucoes separadas por `;` parte-se em instrucoes:
+    `tcp dport 22 accept; tcp dport 3306 accept` sao duas regras, e a segunda
+    nao pode esconder-se atras da primeira.
+    """
     cadeias: dict[str, list[str]] = {}
+    fora: list[str] = []
     actual = None
     dentro_da_tabela = False
     for linha in linhas:
-        if re.fullmatch(rf"table {TABELA} \{{", linha):
-            dentro_da_tabela = True
-            continue
         if not dentro_da_tabela:
+            if re.fullmatch(rf"table {TABELA} \{{", linha):
+                dentro_da_tabela = True
+            elif linha not in CABECALHO:
+                fora.append(linha)
             continue
         casado = re.fullmatch(r"chain (\S+) \{", linha)
         if casado:
@@ -118,34 +146,42 @@ def _cadeias(linhas: list[str]) -> dict[str, list[str]]:
                 dentro_da_tabela = False
             actual = None
         elif actual is not None:
-            cadeias[actual].append(linha)
-    return cadeias
+            cadeias[actual].extend(i.strip() for i in linha.split(";") if i.strip())
+        else:
+            fora.append(linha)
+    return cadeias, fora
 
 
 def verificar(regras: str, porta_wireguard: int) -> list[Achado]:
-    """Os achados das cinco propriedades do docstring do modulo. Vazia = conforme."""
+    """Os achados das propriedades do docstring do modulo. Vazia = conforme."""
     achados = []
     linhas = _sem_comentarios(regras)
     if any(re.match(r"flush\s+ruleset\b", l) for l in linhas):
         achados.append(Achado("flush-ruleset", "apagaria as tabelas do Docker ao recarregar"))
-    cadeias = _cadeias(linhas)
+    cadeias, fora = _cadeias(linhas)
+    for linha in fora:
+        if not re.match(r"flush\s+ruleset\b", linha):
+            achados.append(Achado("fora-da-tabela", f"`{linha}` nao esta dentro de `table {TABELA} {{`"))
     if not cadeias:
         achados.append(Achado("sem-tabela", f"nenhuma cadeia dentro de `table {TABELA} {{`"))
         return achados
     entrada = cadeias.get("input", [])
-    if not any(re.fullmatch(r"type filter hook input priority \S+; policy drop;", l) for l in entrada):
+    if not ("type filter hook input priority filter" in entrada and "policy drop" in entrada):
         achados.append(Achado("input-sem-drop", "a cadeia `input` nao existe ou nao tem `policy drop`"))
+    permitidas = regras_permitidas(porta_wireguard)
     for nome, corpo in cadeias.items():
-        if any("hook forward" in l for l in corpo):
+        if any("hook forward" in i for i in corpo):
             achados.append(Achado("forward", f"a cadeia `{nome}` pendura no `forward`, que e do Docker"))
-        for linha in corpo:
-            if not linha.endswith("accept") or "dport" not in linha:
+        for instrucao in corpo:
+            if not re.search(r"\b(accept|jump|goto)\b", instrucao) or instrucao.startswith("policy "):
                 continue
-            if re.search(r"\btcp dport (22|\{[^}]*\b22\b[^}]*\})", linha) and f'iifname "{INTERFACE_DO_TUNEL}"' not in linha:
-                achados.append(Achado("ssh-fora-do-tunel", f"`{linha}` aceita SSH sem ser pelo {INTERFACE_DO_TUNEL}"))
-            elif "iifname" not in linha and linha not in aberturas_sem_interface(porta_wireguard):
-                achados.append(Achado("porta-aberta", f"`{linha}` abre uma porta a qualquer origem"))
-    if not any(l == f"udp dport {porta_wireguard} accept" for l in entrada):
+            if nome == "input" and instrucao in permitidas:
+                continue
+            if re.search(r"\btcp dport (22\b|\{[^}]*\b22\b[^}]*\})", instrucao):
+                achados.append(Achado("ssh-fora-do-tunel", f"`{instrucao}` aceita SSH sem ser so pelo {INTERFACE_DO_TUNEL}"))
+            else:
+                achados.append(Achado("regra-nao-reconhecida", f"`{instrucao}` (cadeia `{nome}`) aceita ou salta e nao e uma das conhecidas"))
+    if f"udp dport {porta_wireguard} accept" not in entrada:
         achados.append(Achado("sem-wireguard", f"a porta UDP {porta_wireguard} do WireGuard nao abre"))
     return achados
 

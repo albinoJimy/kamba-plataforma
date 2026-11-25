@@ -67,21 +67,28 @@ A coluna «forma portátil» da classe 3 diz `nftables` no próprio *host*.
 **Desde a preparação do KAM-077 (2026-11-25) as regras existem**, no
 `modules/host-base/cloud-init.yaml.tftpl`: `/etc/kamba/firewall.nft`, uma
 tabela `inet kamba_host` com a cadeia `input` em `policy drop`, aberta ao mundo
-só na porta UDP do WireGuard (e às respostas de DHCP), com o SSH só pelo `wg0`
-— carregada por um serviço próprio, `kamba-firewall`, no primeiro passo do
-`runcmd`. O 443 não está nelas: chega aos contentores pelo `forward`, que é do
+só na porta UDP do WireGuard (e às respostas DHCPv6 da ligação local), com o
+SSH só pelo `wg0` — carregada por um serviço próprio, `kamba-firewall`, no
+primeiro passo do `runcmd`, que pára o arranque se a tabela não ficar
+carregada. O 443 não está nelas: chega aos contentores pelo `forward`, que é do
 Docker, e a metade «só 443» é a regra `porta-publicada` do `compose_prod`. As
-propriedades verifica-as o `tools/borda/firewall.py` (suite
-`tools/borda/tests`, com um caso por propriedade partida); a sintaxe aceitou-a
-o `nft -c` do `nftables` 1.1.3, num contentor, e duas cargas seguidas deixaram
-intacta uma tabela alheia — a forma das do Docker.
+propriedades verifica-as o `tools/borda/firewall.py` contra uma **lista
+fechada** das regras que aceitam (suite `tools/borda/tests`, com um caso por
+propriedade partida e os oito casos da revisão adversarial que a primeira
+versão deixava passar); a sintaxe aceitou-a o `nft -c` do `nftables` 1.1.3
+(Debian 13) e 1.0.9 (Ubuntu 24.04), em contentor, e duas cargas seguidas
+deixaram intacta uma tabela alheia — a forma das do Docker.
 
-**Continua a não fechar**, e por três razões que não são de escrita: (1) nunca
+**Continua a não fechar**, e por quatro razões que não são de escrita: (1) nunca
 correu num *host*, e o ***scan* externo que as prova** é critério do KAM-077
 depois da D1; (2) no **primeiro** arranque a porta 22 fica como a imagem a
 deixou até o cloud-init chegar ao `runcmd`, e fechar essa janela é do grupo de
 segurança do `provider-<nome>` (`modules/README.md`); (3) nada aqui toca no
-`sshd`.
+`sshd`; (4) **hoje o *host* fica sem SSH nenhum** — o SSH só entra pelo `wg0`,
+e o `wg0` desta árvore não tem nenhum `[Peer]` e não sobe sem a CLI do cofre
+(KAM-010), pelo que a única entrada é a consola do fornecedor. Antes destas
+regras respondia na 22 à chave que o fornecedor injecta, que é o que o critério
+4 do KAM-077 proíbe; quem abre o caminho certo são os pares e a CLI do cofre.
 
 **O registo de antes, que ficou verdadeiro até essa data:** «não há uma linha de
 `nftables` em `infra/`» — a revisão adversarial do KAM-075 mediu-o, com
@@ -133,4 +140,4 @@ a D1 escolher.
 | Versão | Data | Alteração | Autor |
 |---|---|---|---|
 | 1.0 | Novembro de 2026 | Emissão inicial, KAM-075. Oito classes de recurso com forma portátil e equivalente documentado; contagem de recursos geridos proprietários a **0**, com a distinção escrita entre o zero de um conjunto vazio e o zero mantido pela regra verificada por máquina (§1). A linha 5 (identidade federada para o CI) fica **sem** equivalente portátil e é devolvida como critério de aceitação da D1 (§3.2). O que esta página não prova, com estado, em §4. **Depois da revisão adversarial:** a §3.1 passa a registar que a forma portátil da classe 3 (`nftables`) está escrita e **não implementada** — é do KAM-077 —, e que o `users: default` do cloud-init mantém o utilizador por omissão da imagem do fornecedor, com a chave que ele injecta. A afirmação «Acesso: só por WireGuard» que o *host* escrevia era afirmação sem mecanismo, e foi corrigida no próprio `LEIA-ME`. | Equipa KAMBÁ |
-| 1.1 | Novembro de 2026 | Preparação do KAM-077 (lote 24): a classe 3 passa de «escrita e não implementada» a «escrita e **nunca medida num *host***». As regras `nftables` vivem no cloud-init do `host-base`, verificadas pelo `tools/borda/firewall.py` e aceites pelo `nft -c`; a §3.1 diz o que continua a não fechar — o *scan* externo, a janela do primeiro arranque e o `sshd` — e guarda o registo de antes. A contagem de recursos geridos proprietários não muda: **0**. | Coordenação do lote 24 |
+| 1.1 | Novembro de 2026 | Preparação do KAM-077 (lote 24): a classe 3 passa de «escrita e não implementada» a «escrita e **nunca medida num *host***». As regras `nftables` vivem no cloud-init do `host-base`, verificadas pelo `tools/borda/firewall.py` e aceites pelo `nft -c`; a §3.1 diz o que continua a não fechar — o *scan* externo, a janela do primeiro arranque, o `sshd` e o SSH que hoje não existe — e guarda o registo de antes. Depois da revisão adversarial: a verificação passa a lista fechada, o passo da *firewall* falha fechado, o DHCPv4 sai e o DHCPv6 fica só na ligação local, e a §3.1 ganha a quarta razão — hoje o *host* fica sem SSH. A contagem de recursos geridos proprietários não muda: **0**. | Coordenação do lote 24 |

@@ -9,11 +9,21 @@ partes deste modulo respondem a essas tres frases:
 ``medir``      corre na sonda (e no *host*), uma amostra por alvo a cada
                ``intervalo`` segundos, e escreve-as em JSON Lines;
 ``relatorio``  le as amostras e **recusa** a tabela se uma serie nao cobrir a
-               janela, tiver uma lacuna maior do que a permitida ou nao tiver
-               nenhuma medicao com sucesso;
+               janela com medicoes com sucesso, ou tiver entre duas delas uma
+               lacuna maior do que a permitida;
 ``verificar``  recalcula a tabela a partir das amostras cujo ``sha256`` o
-               relatorio declara, e falha se um numero nao bater. E o 3.o Teste
-               Requerido: um numero escrito a mao ou estimado nao sobrevive.
+               relatorio declara, falha se um numero nao bater, e **volta a
+               aplicar as recusas com os valores do criterio** (24 h, nao os que
+               o relatorio diga) e a exigencia das duas medicoes do criterio:
+               um alvo `graph.facebook.com` e pelo menos um outro (o *host*).
+
+O QUE O ``verificar`` PROVA, E O QUE NAO PROVA. Prova que a tabela e a que os
+ficheiros de amostras dao, e que esses ficheiros sao os declarados: um numero
+escrito a mao **na tabela** nao sobrevive. **Nao prova que as amostras foram
+medidas** — amostras inventadas com a forma certa passam, como passariam por
+qualquer ferramenta. A garantia dessa metade e a cadeia de custodia: o ficheiro
+fica no repositorio de provas privado, com o ``sha256`` e a data no indice
+(`provas/alojamento/README.md`), escrito pela sonda e nao editado.
 
 O QUE SE MEDE, E PORQUE NAO E ICMP. O RTT e o tempo do *handshake* TCP
 (`connect` ate a ligacao ficar estabelecida) para a porta do alvo — 443 nos dois
@@ -158,7 +168,7 @@ def medir(
 
     As rondas marcam-se a partir do inicio (``inicio + k * intervalo``) e nao do
     fim da anterior: um `connect` lento nao empurra a ronda seguinte, e 24 h dao
-    as mesmas 1440 rondas em qualquer rede.
+    as mesmas rondas em qualquer rede (1442 em 24 h com 60 s, contando a extra).
     """
     alvos = list(alvos)
     if not alvos:
@@ -214,7 +224,7 @@ def ler(caminho: Path) -> list[dict]:
         # linha que alguem escreveu a mao ou que a sonda nao escreveu.
         if (rtt is None) == (erro is None):
             raise AmostraInvalida(f"{caminho.name}:{numero}: tem de ter rtt_ms ou erro, e so um")
-        if rtt is not None and (isinstance(rtt, bool) or not isinstance(rtt, (int, float)) or rtt <= 0 or math.isinf(rtt)):
+        if rtt is not None and (isinstance(rtt, bool) or not isinstance(rtt, (int, float)) or rtt <= 0 or not math.isfinite(rtt)):
             raise AmostraInvalida(f"{caminho.name}:{numero}: rtt_ms {rtt!r} nao e uma medicao")
         try:
             linha["_momento"] = _ler_instante(linha["instante"])
@@ -259,9 +269,16 @@ def resumir(amostras: list[dict]) -> list[Serie]:
     series = []
     for (origem, alvo), linhas in sorted(grupos.items()):
         linhas.sort(key=lambda linha: linha["_momento"])
-        momentos = [linha["_momento"] for linha in linhas]
+        # A COBERTURA E AS LACUNAS CONTAM-SE ENTRE MEDICOES COM SUCESSO, nao
+        # entre amostras. Uma falha e uma amostra mas nao e uma medicao: uma
+        # serie com um sucesso e 1440 *timeouts* cobria 24 h de amostras e dava
+        # p50 = p95 = o unico valor, que e o contrario de «p50/p95 em 24 h».
+        # Assim, uma sequencia de falhas mais longa do que a lacuna maxima
+        # recusa a serie, como uma sonda parada.
+        medidas = [linha for linha in linhas if linha["rtt_ms"] is not None]
+        momentos = [linha["_momento"] for linha in (medidas or linhas[:1])]
         lacunas = [(b - a).total_seconds() for a, b in zip(momentos, momentos[1:])]
-        sucessos = [float(linha["rtt_ms"]) for linha in linhas if linha["rtt_ms"] is not None]
+        sucessos = [float(linha["rtt_ms"]) for linha in medidas]
         series.append(
             Serie(
                 origem=origem,
@@ -292,12 +309,35 @@ def recusas(series: list[Serie], janela_minima_s: int, lacuna_maxima_s: int) -> 
             )
         if serie.maior_lacuna_s > lacuna_maxima_s:
             razoes.append(
-                f"{nome}: lacuna de {serie.maior_lacuna_s:.0f} s entre duas amostras "
+                f"{nome}: lacuna de {serie.maior_lacuna_s:.0f} s entre duas medicoes com sucesso "
                 f"(maximo {lacuna_maxima_s} s)"
             )
         if serie.p50 is None:
             razoes.append(f"{nome}: {serie.amostras} amostras e nenhuma com sucesso")
     return razoes
+
+
+#: O alvo do *host* para a Meta que o criterio 5 nomeia.
+ALVO_DA_META = "graph.facebook.com"
+
+
+def faltas_do_criterio(amostras: list[dict]) -> list[str]:
+    """As duas medicoes que o criterio 5 pede, pelo endereco e nao pela etiqueta.
+
+    A etiqueta escolhe-a quem corre a sonda; o endereco e o que foi medido. Um
+    relatorio so com a sonda -> *host*, ou so com o *host* -> Meta, e metade do
+    criterio, e nao sai.
+    """
+    if not amostras:
+        return []
+    para_a_meta = {(l["origem"], l["alvo"]) for l in amostras if l["endereco"].rsplit(":", 1)[0] == ALVO_DA_META}
+    outras = {(l["origem"], l["alvo"]) for l in amostras} - para_a_meta
+    faltas = []
+    if not para_a_meta:
+        faltas.append(f"nenhuma serie mede {ALVO_DA_META} (o host -> Meta do criterio 5)")
+    if not outras:
+        faltas.append("nenhuma serie mede outro alvo alem da Meta (a sonda -> host do criterio 5)")
+    return faltas
 
 
 def _ms(valor: float | None) -> str:
@@ -307,7 +347,7 @@ def _ms(valor: float | None) -> str:
 def tabela(series: list[Serie]) -> str:
     """A tabela do relatorio. E o texto que o ``verificar`` recalcula e compara."""
     linhas = [
-        "| Origem | Alvo | Amostras | Falhas | Inicio (UTC) | Fim (UTC) | Maior lacuna (s) | p50 (ms) | p95 (ms) | Max. (ms) |",
+        "| Origem | Alvo | Amostras | Falhas | 1.a medicao (UTC) | Ultima medicao (UTC) | Maior lacuna (s) | p50 (ms) | p95 (ms) | Max. (ms) |",
         "|---|---|---|---|---|---|---|---|---|---|",
     ]
     for serie in series:
@@ -335,7 +375,7 @@ def relatorio(
     """O relatorio em Markdown, ou `Recusa` com todas as razoes."""
     amostras = [linha for caminho in ficheiros for linha in ler(caminho)]
     series = resumir(amostras)
-    razoes = recusas(series, janela_minima_s, lacuna_maxima_s)
+    razoes = recusas(series, janela_minima_s, lacuna_maxima_s) + faltas_do_criterio(amostras)
     if razoes:
         raise Recusa("; ".join(razoes))
     fontes = "\n".join(f"- `{caminho.name}` — sha256 `{_sha256(caminho)}`" for caminho in ficheiros)
@@ -343,15 +383,16 @@ def relatorio(
         "Gerado por `python -m borda rtt-relatorio` (KAM-077, criterio 5). Metodo: *handshake* TCP\n"
         "para a porta do alvo, percentis por posto mais proximo, falhas fora dos percentis e\n"
         f"contadas a parte. Janela minima {janela_minima_s} s; lacuna maxima {lacuna_maxima_s} s.\n"
-        "**Nenhum numero desta tabela foi escrito a mao**: `python -m borda rtt-verificar` recalcula-a\n"
-        "a partir dos ficheiros abaixo e falha se um so valor divergir.\n\n"
+        "`python -m borda rtt-verificar` recalcula esta tabela a partir dos ficheiros abaixo, falha se\n"
+        "um so valor divergir e volta a aplicar as recusas com a janela de 24 h. Isso prova que a\n"
+        "tabela e a das amostras; que as amostras foram medidas prova-o a cadeia de custodia delas.\n\n"
         f"{INICIO_TABELA}\n{tabela(series)}\n{FIM_TABELA}\n\n"
         f"Amostras (no repositorio de provas, privado):\n\n{fontes}\n"
     )
 
 
 def verificar(texto_do_relatorio: str, ficheiros: list[Path]) -> list[str]:
-    """Os desacordos entre o relatorio e as amostras. Vazia = numeros medidos."""
+    """Os desacordos entre o relatorio, as amostras e o criterio 5. Vazia = conforme."""
     problemas = []
     declarados = set(re.findall(r"sha256 `([0-9a-f]{64})`", texto_do_relatorio))
     presentes = {_sha256(caminho) for caminho in ficheiros}
@@ -363,7 +404,13 @@ def verificar(texto_do_relatorio: str, ficheiros: list[Path]) -> list[str]:
     if not casado:
         problemas.append("o relatorio nao tem a tabela entre os marcadores")
         return problemas
-    esperada = tabela(resumir([linha for caminho in ficheiros for linha in ler(caminho)]))
-    if casado.group(1).strip() != esperada.strip():
+    amostras = [linha for caminho in ficheiros for linha in ler(caminho)]
+    series = resumir(amostras)
+    if casado.group(1).strip() != tabela(series).strip():
         problemas.append("a tabela do relatorio nao e a que as amostras dao")
+    # As recusas outra vez, com os valores do CRITERIO e nao com os que o
+    # `rtt-relatorio` tenha recebido: um relatorio gerado com
+    # `--janela-minima 3600` bate com as amostras e nao e o criterio 5.
+    problemas.extend(recusas(series, JANELA_MINIMA_S, LACUNA_MAXIMA_S))
+    problemas.extend(faltas_do_criterio(amostras))
     return problemas

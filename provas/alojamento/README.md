@@ -55,11 +55,11 @@ critério 5 pede.
 | 1.2 | 1 | SLA do fornecedor | Anexo do contrato | `alojamento/sla.pdf` | | | por provar |
 | 1.3 | 1 | Jurisdição do centro de dados | Declaração escrita do fornecedor | `alojamento/jurisdicao-dc.pdf` | | | por provar |
 | 1.4 | 1 | 2.º local para *backups* (com o KAM-079) | Contrato ou declaração do 2.º local | `alojamento/segundo-local.pdf` | | | por provar |
-| 2.1 | 2 | O GET de verificação devolve o *challenge* por HTTPS | `curl -sS "https://<dominio>/webhooks/whatsapp?hub.mode=subscribe&hub.challenge=<aleatorio>&hub.verify_token=<do cofre>"` a partir do exterior, com a saída a ser igual ao *challenge* | `alojamento/webhook-get.txt` | | | por provar |
+| 2.1 | 2 | O GET de verificação devolve o *challenge* por HTTPS | `curl -sS "https://<dominio>/wa/webhook?hub.mode=subscribe&hub.challenge=<aleatorio>&hub.verify_token=<do cofre>"` a partir do exterior, com a saída a ser igual ao *challenge* | `alojamento/webhook-get.txt` | | | por provar |
 | 2.2 | 2 | A cadeia valida e o TLS é ≥ 1.2 | `openssl s_client -connect <dominio>:443 -servername <dominio> -verify_return_error </dev/null` (código 0) **e** `openssl s_client ... -tls1_1` a falhar | `alojamento/tls-cadeia.txt` | | | por provar |
 | 2.3 | 2 | Renovação automática testada | Em *staging*, um certificado de validade encurtada renovado sem intervenção; registo antes e depois (`notAfter`) | `alojamento/tls-renovacao.txt` | | | por provar |
 | 3.1 | 3 | D12 registada com dono e data | [`../../docs/tecnica/evidencia/validacao/D12_CDN_WAF.md`](../../docs/tecnica/evidencia/validacao/D12_CDN_WAF.md) §3, com as duas células preenchidas | (público) | — | | por provar |
-| 4.1 | 4 | *Scan* externo: só 443/tcp e a porta UDP do WireGuard | `nmap -Pn -sS -p- <host>` e `nmap -Pn -sU -p 1-1024,51820 <host>` a partir de uma rede fora do fornecedor | `alojamento/scan-externo.txt` | | | por provar |
+| 4.1 | 4 | *Scan* externo: só 443/tcp e a porta UDP do WireGuard | **TCP, de fora:** `nmap -Pn -sS -p- <host>` a partir de uma rede fora do fornecedor, só 443 `open`. **UDP, de dentro e de fora**, porque de fora não se distingue: um `nmap -sU` dá `open\|filtered` tanto à porta descartada como ao WireGuard, que não responde a sondas (simulado na revisão adversarial). Junta-se, no *host*, `nft list ruleset` e `ss -ulpn` (só o WireGuard a escutar em UDP fora do *loopback*) | `alojamento/scan-externo.txt` | | | por provar |
 | 4.2 | 4 | SSH por chave só via VPN | `ssh -o PasswordAuthentication=no admin@<host>` de fora (falha por *timeout*) e pelo túnel (entra) | `alojamento/ssh-so-por-vpn.txt` | | | por provar |
 | 4.3 | 4 | MFA no painel do fornecedor | Captura da configuração da conta, sem dados pessoais | `alojamento/mfa-painel.png` | | | por provar |
 | 4.4 | 4 | Acesso *break-glass* auditado | Um acesso de ensaio e a sua linha no registo (KAM-080) | `alojamento/break-glass.txt` | | | por provar |
@@ -69,7 +69,7 @@ critério 5 pede.
 | 6.1 | 6 | `prod` continua `kamba_data_class=synthetic` | `infra/envs/prod/env.yaml` e as etiquetas do recurso no painel do fornecedor | `alojamento/etiquetas-prod.txt` | | | por provar |
 | 6.2 | 6 | Gate de go-live com estado e data da última verificação | [`../../docs/tecnica/evidencia/validacao/GoLive_Gate.md`](../../docs/tecnica/evidencia/validacao/GoLive_Gate.md) | (público) | — | | por provar |
 
-**O que as linhas 2.2, 4.1 e 5.x já não precisam de inventar** quando o *host*
+**O que as linhas 4.1, 4.2 e 5.x já não precisam de inventar** quando o *host*
 existir: as regras `nftables` que o *scan* 4.1 vai medir estão escritas e
 verificadas (`../../infra/modules/host-base/cloud-init.yaml.tftpl`;
 `python -m borda firewall`), e a sonda e o relatório da 5.x estão escritos e
@@ -85,9 +85,13 @@ testados (`../../tools/borda/`). Nenhum dos dois correu contra um *host*.
 - **Que o RTT medido por *handshake* TCP é o que a Meta vê.** É o caminho do
   HTTPS, mas é uma ida e volta da sonda escolhida, num dia; o doc 09 §5.2 fica
   substituído para esse percurso e essa data, e não para todos.
-- **Que o comando 2.1 serve tal como está.** O caminho exacto do *webhook* e o
-  nome do segredo do `verify_token` vêm do GWY no dia da medição; aqui estão
-  como forma, não como contrato.
+- **Que o comando 2.1 serve tal como está.** O caminho é o que o GWY serve hoje
+  (`/wa/webhook`, `CAMINHO` em `../../services/gwy/src/webhook.ts`) e o que a
+  borda encaminha desde esta preparação; o valor do `verify_token` vem do cofre
+  no dia da medição, e nunca se escreve aqui.
+- **Que o 4.2 se pode fazer hoje.** O SSH só entra pelo túnel, e o túnel desta
+  árvore não tem pares nem a CLI do cofre (KAM-010): até lá o *host* só se
+  alcança pela consola do fornecedor.
 
 ---
 

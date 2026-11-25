@@ -11,7 +11,7 @@ from pathlib import Path
 from unittest import mock
 
 from borda import cli, rtt
-from borda.tests.test_rtt import _serie
+from borda.tests.test_rtt import _da_meta, _serie
 
 
 def _correr(*argumentos: str) -> tuple[int, str, str]:
@@ -30,8 +30,10 @@ class TestCli(unittest.TestCase):
         self._pasta.cleanup()
 
     def _amostras(self, nome="a.jsonl", **kw) -> Path:
+        """Um ficheiro com as duas series do criterio: sonda -> host e host -> Meta."""
         caminho = self.pasta / nome
-        caminho.write_text("".join(json.dumps(l) + "\n" for l in _serie(**kw)), encoding="utf-8")
+        linhas = _serie(**kw) + _da_meta(**kw)
+        caminho.write_text("".join(json.dumps(l) + "\n" for l in linhas), encoding="utf-8")
         return caminho
 
     def test_relatorio_e_verificar(self) -> None:
@@ -59,6 +61,9 @@ class TestCli(unittest.TestCase):
         self.assertEqual(_correr("rtt-relatorio", str(mau))[0], 2)
         self.assertEqual(_correr("rtt-relatorio", str(self.pasta / "nao-existe"))[0], 2)
         self.assertEqual(_correr("rtt-verificar", str(self.pasta / "nao-existe"), str(mau))[0], 2)
+        latin = self.pasta / "latin.md"
+        latin.write_bytes("relatório".encode("latin-1"))
+        self.assertEqual(_correr("rtt-verificar", str(latin), str(self._amostras()))[0], 2)
 
     def test_medir_valida_e_delega(self) -> None:
         self.assertEqual(_correr("rtt-medir", "--origem", "l", "--alvo", "mau", "--saida", "x")[0], 2)

@@ -14,12 +14,12 @@ from borda import rtt
 T0 = datetime(2026, 11, 25, 0, 0, tzinfo=timezone.utc)
 
 
-def _linha(origem="luanda-1", alvo="host", segundos=0, rtt_ms=42.0, erro=None, intervalo=60):
+def _linha(origem="luanda-1", alvo="host", segundos=0, rtt_ms=42.0, erro=None, intervalo=60, endereco="192.0.2.10:443"):
     return {
         "v": 1,
         "origem": origem,
         "alvo": alvo,
-        "endereco": "192.0.2.10:443",
+        "endereco": endereco,
         "instante": rtt._instante(T0 + timedelta(seconds=segundos)),
         "intervalo_s": intervalo,
         "rtt_ms": rtt_ms,
@@ -27,10 +27,19 @@ def _linha(origem="luanda-1", alvo="host", segundos=0, rtt_ms=42.0, erro=None, i
     }
 
 
-def _serie(alvo="host", horas=24, passo=60, valores=None, origem="luanda-1"):
+def _serie(alvo="host", horas=24, passo=60, valores=None, origem="luanda-1", endereco="192.0.2.10:443"):
     passos = horas * 3600 // passo + 1
     valores = valores or [10.0 + (i % 100) for i in range(passos)]
-    return [_linha(origem=origem, alvo=alvo, segundos=i * passo, rtt_ms=valores[i % len(valores)]) for i in range(passos)]
+    return [
+        _linha(origem=origem, alvo=alvo, segundos=i * passo, rtt_ms=valores[i % len(valores)], endereco=endereco)
+        for i in range(passos)
+    ]
+
+
+def _da_meta(**kw):
+    """A serie host -> graph.facebook.com que o criterio 5 tambem pede."""
+    kw.setdefault("valores", [150.0, 160.0, 400.0])
+    return _serie(alvo="graph", origem="host-staging", endereco="graph.facebook.com:443", **kw)
 
 
 class _ComPasta(unittest.TestCase):
@@ -172,6 +181,7 @@ class TestLer(_ComPasta):
             "rtt-zero": json.dumps({**_linha(), "rtt_ms": 0}) + "\n",
             "rtt-texto": json.dumps({**_linha(), "rtt_ms": "40"}) + "\n",
             "rtt-booleano": json.dumps({**_linha(), "rtt_ms": True}) + "\n",
+            "rtt-nan": json.dumps({**_linha(), "rtt_ms": float("nan")}) + "\n",
             "instante": json.dumps({**_linha(), "instante": "ontem"}) + "\n",
             "alvo-com-barra": json.dumps({**_linha(), "alvo": "a|b"}) + "\n",
             "lista": "[1, 2]\n",
@@ -208,6 +218,19 @@ class TestRecusas(_ComPasta):
     def test_nada_recusa(self) -> None:
         self.assertEqual(rtt.recusas([], 1, 1), ["nenhuma amostra"])
 
+    def test_um_sucesso_e_o_resto_falhas_recusa(self) -> None:
+        linhas = [_linha(segundos=i * 60, rtt_ms=None, erro="TimeoutError") for i in range(1441)]
+        linhas[0] = _linha(segundos=0, rtt_ms=12.0)
+        razoes = rtt.recusas(rtt.resumir(rtt.ler(self.escrever(linhas))), rtt.JANELA_MINIMA_S, rtt.LACUNA_MAXIMA_S)
+        self.assertTrue(any("janela pedida" in r for r in razoes), razoes)
+
+    def test_falhas_seguidas_alem_da_lacuna_recusam(self) -> None:
+        linhas = _serie()
+        for i in range(100, 120):  # vinte minutos de *timeouts*
+            linhas[i] = {**linhas[i], "rtt_ms": None, "erro": "TimeoutError"}
+        razoes = rtt.recusas(rtt.resumir(rtt.ler(self.escrever(linhas))), rtt.JANELA_MINIMA_S, rtt.LACUNA_MAXIMA_S)
+        self.assertTrue(any("medicoes com sucesso" in r for r in razoes), razoes)
+
     def test_falhas_contam_e_ficam_fora_dos_percentis(self) -> None:
         linhas = _serie(valores=[10.0])
         linhas[5] = {**linhas[5], "rtt_ms": None, "erro": "TimeoutError"}
@@ -220,7 +243,7 @@ class TestRelatorioEVerificar(_ComPasta):
     def _ficheiros(self):
         return [
             self.escrever(_serie(alvo="host", origem="luanda-1"), "sonda.jsonl"),
-            self.escrever(_serie(alvo="graph", origem="host-staging", valores=[150.0, 160.0, 400.0]), "host.jsonl"),
+            self.escrever(_da_meta(), "host.jsonl"),
         ]
 
     def test_o_relatorio_bate_com_as_amostras(self) -> None:
@@ -254,6 +277,33 @@ class TestRelatorioEVerificar(_ComPasta):
         outro = self.escrever(_serie(alvo="host", valores=[1.0]), "outro.jsonl")
         problemas = rtt.verificar(texto, ficheiros + [outro])
         self.assertTrue(any("nao esta declarado" in p for p in problemas), problemas)
+
+    def test_metade_do_criterio_recusa(self) -> None:
+        so_host = self.escrever(_serie(), "so-host.jsonl")
+        with self.assertRaises(rtt.Recusa) as contexto:
+            rtt.relatorio([so_host])
+        self.assertIn("nenhuma serie mede graph.facebook.com", str(contexto.exception))
+        so_meta = self.escrever(_da_meta(), "so-meta.jsonl")
+        with self.assertRaises(rtt.Recusa) as contexto:
+            rtt.relatorio([so_meta])
+        self.assertIn("outro alvo", str(contexto.exception))
+
+    def test_verificar_reaplica_a_janela_do_criterio(self) -> None:
+        # Um relatorio feito com a janela baixada bate com as amostras e nao e o criterio 5.
+        ficheiros = [self.escrever(_serie(horas=1), "h.jsonl"), self.escrever(_da_meta(horas=1), "m.jsonl")]
+        texto = rtt.relatorio(ficheiros, janela_minima_s=3600)
+        problemas = rtt.verificar(texto, ficheiros)
+        self.assertNotIn("a tabela do relatorio nao e a que as amostras dao", problemas)
+        self.assertTrue(any("janela pedida e 86400" in p for p in problemas), problemas)
+
+    def test_verificar_recusa_amostras_vazias(self) -> None:
+        vazio = self.pasta / "vazio.jsonl"
+        vazio.write_text("", encoding="utf-8")
+        texto = (
+            f"{rtt.INICIO_TABELA}\n{rtt.tabela([])}\n{rtt.FIM_TABELA}\n"
+            f"- `vazio.jsonl` — sha256 `{rtt._sha256(vazio)}`\n"
+        )
+        self.assertIn("nenhuma amostra", rtt.verificar(texto, [vazio]))
 
     def test_sem_marcadores(self) -> None:
         ficheiros = self._ficheiros()

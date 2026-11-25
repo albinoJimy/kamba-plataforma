@@ -39,13 +39,16 @@ falta saber para o escrever. **Sem preços**, porque não há nenhum: o KAM-105
 pediu **0** cotações
 ([`../../docs/tecnica/evidencia/validacao/Alojamento_Cotacoes.md`](../../docs/tecnica/evidencia/validacao/Alojamento_Cotacoes.md)).
 
-| Candidato | Região | Módulo que nasceria | *Provider* OpenTofu, API ou só consola? | Modelo |
+| Candidato | Região | Existência (doc 09 §5.2, com o estado de lá) | Módulo que nasceria | *Provider* OpenTofu, API ou só consola? |
 |---|---|---|---|---|
-| Raxio | Luanda | `provider-raxio/` | **NÃO VERIFICADO** | *Colocation* e IaaS (doc 09 §5.2) |
-| Paratus | Luanda | `provider-paratus/` | **NÃO VERIFICADO** | *Colocation* e IaaS (doc 09 §5.2) |
-| Angola Cables | Luanda | `provider-angola-cables/` | **NÃO VERIFICADO** | *Colocation* e IaaS (doc 09 §5.2) |
-| Cloud Nacional | Luanda (Camama) | `provider-cloud-nacional/` | **NÃO VERIFICADO** | IaaS, serviços a privados (doc 09 §5.2) |
-| Hiperescalador em JNB/CPT | Joanesburgo ou Cidade do Cabo | `provider-<nome>/` | Existe para os hiperescaladores — **INDÍCIO**, por versão e *hash* a fixar no dia | IaaS e serviços geridos |
+| Raxio | Luanda | Tier III inaugurado 2025-10-02 — **CONFIRMADO** | `provider-raxio/` | **NÃO VERIFICADO** |
+| Paratus | Luanda | **INDÍCIO** | `provider-paratus/` | **NÃO VERIFICADO** |
+| Angola Cables | Luanda (Luanda-02) | **INDÍCIO** | `provider-angola-cables/` | **NÃO VERIFICADO** |
+| Cloud Nacional | Luanda (Camama) | 2026-04-28, dados do Estado, serviços a privados — **CONFIRMADO/INDÍCIO** | `provider-cloud-nacional/` | **NÃO VERIFICADO** |
+| Hiperescalador em JNB/CPT | Joanesburgo ou Cidade do Cabo | Maduro | `provider-<nome>/` | Existe para os hiperescaladores — **INDÍCIO**, por versão e *hash* a fixar no dia |
+
+O modelo de Luanda é *colocation* e IaaS, com Postgres e objectos geridos
+**NÃO VERIFICADO** (doc 09 §5.2); o de JNB/CPT é IaaS com serviços geridos.
 
 **A coluna do meio é a pergunta que mais custa se ficar para o fim.** Um
 fornecedor de Luanda sem API nem *provider* deixa a costura com um módulo que
