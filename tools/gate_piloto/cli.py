@@ -8,7 +8,7 @@ Sem `--saida` nem `--check`, escreve o pacote no `stdout`.
 
     0   escrito, ou `--check` conforme
     1   `--check`: o ficheiro versionado já não é o que o gerador escreve
-    2   o Registo ou o resumo não servem
+    2   o Registo, o resumo ou o manifesto não servem
 
 O 2 separa-se do 1 pela lição do KAM-134: uma entrada que não se lê não pode
 sair indistinguível de um pacote desactualizado.
@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import json
 import sys
 from pathlib import Path
 
@@ -26,6 +27,22 @@ from . import entradas, pacote, registo, regras
 SAIDA_CONFORME = 0
 SAIDA_DIVERGE = 1
 SAIDA_ERRO = 2
+
+#: A forma do manifesto do KAM-109 (`tools/piloto/exportacao.py`), e o ficheiro
+#: que ele tem de congelar para que H1, H6, H8 e H9 se possam ler.
+FORMATO_DO_MANIFESTO = "kamba-piloto-congelado/1"
+EXPORTACAO_DO_PILOTO = "piloto_export.json"
+
+
+def _manifesto_nao_serve(dados: object) -> str | None:
+    """O que falta a um manifesto que está na árvore; `None` se serve."""
+    if not isinstance(dados, dict) or dados.get("formato") != FORMATO_DO_MANIFESTO:
+        return f"não tem o formato {FORMATO_DO_MANIFESTO}"
+    ficheiros = dados.get("ficheiros")
+    nomes = {f.get("nome") for f in ficheiros if isinstance(f, dict)} if isinstance(ficheiros, list) else set()
+    if EXPORTACAO_DO_PILOTO not in nomes:
+        return f"não congela o {EXPORTACAO_DO_PILOTO}"
+    return None
 
 
 def _raiz_por_omissao() -> Path:
@@ -73,18 +90,27 @@ def principal(argv: list[str] | None = None) -> int:
 
     efectivo = resumo or entradas.VAZIO
     conferido = False
-    # A exportação pode estar arquivada fora da árvore; quando está dentro, o
-    # *hash* confere-se, porque um *hash* que não é o do ficheiro não congela nada.
-    if efectivo.exportacao is not None:
-        ficheiro = raiz / efectivo.exportacao
+    # O protocolo do Piloto (§10) arquiva o conjunto fora do repositório, e então
+    # o *hash* confere-se à mão. Quando o manifesto está na árvore, confere-se
+    # aqui: o *hash*, a forma, e que congela a exportação do Piloto.
+    if efectivo.manifesto is not None:
+        ficheiro = raiz / efectivo.manifesto
         if ficheiro.is_file():
-            real = hashlib.sha256(ficheiro.read_bytes()).hexdigest()
-            if real != efectivo.exportacao_sha256:
+            bruto = ficheiro.read_bytes()
+            real = hashlib.sha256(bruto).hexdigest()
+            if real != efectivo.manifesto_sha256:
                 print(
-                    f"ERRO: {efectivo.exportacao}: o SHA-256 é {real}, e o resumo diz "
-                    f"{efectivo.exportacao_sha256}",
+                    f"ERRO: {efectivo.manifesto}: o SHA-256 é {real}, e o resumo diz "
+                    f"{efectivo.manifesto_sha256}",
                     file=sys.stderr,
                 )
+                return SAIDA_ERRO
+            try:
+                defeito = _manifesto_nao_serve(json.loads(bruto.decode("utf-8")))
+            except (UnicodeDecodeError, json.JSONDecodeError) as erro:
+                defeito = f"não é JSON ({erro})"
+            if defeito:
+                print(f"ERRO: {efectivo.manifesto}: {defeito}", file=sys.stderr)
                 return SAIDA_ERRO
             conferido = True
     existe = regras.resolvedor(args.registo.resolve().parent, raiz)

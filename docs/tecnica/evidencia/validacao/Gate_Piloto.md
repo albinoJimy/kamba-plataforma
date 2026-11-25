@@ -4,7 +4,7 @@
 |---|---|
 | Produto | KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para Angola |
 | Documento | Validação — pacote de evidência do gate do Piloto (checklist) |
-| Versão | 1.0 |
+| Versão | 1.1 |
 | Data | Novembro de 2026 |
 | Estado | NÃO VERIFICADO — pacote gerado; a verificação cruzada e a decisão são humanas |
 | Fonte | `../../../exploracao/14-tese-minima-e-plano-de-validacao.md` §2 e §6; `../../../../specs/00_KAMBA_Carta.md` §5; `../../../../specs/EPIC-10_Spikes_Validacao_Gates.md` (bloco KAM-110) |
@@ -16,7 +16,7 @@
 > **Pré-visualização sem resumo do piloto.** Gerado só sobre o Registo de
 > Hipóteses; os itens da Carta §5 que se declaram por evidência ficam todos
 > `por verificar`, e a paragem total não é avaliável. O pacote do gate
-> gera-se no dia do gate, sobre a exportação congelada do KAM-109.
+> gera-se no dia do gate, sobre o manifesto congelado do KAM-109.
 
 > **Este pacote não decide.** Aplica as regras do bloco KAM-110 e mostra o
 > que elas dão; a decisão — `CONTINUAR`, `PIVÔ` ou `PARAR` — escreve-se no
@@ -29,8 +29,9 @@
 
 O **estado efectivo** é o declarado no Registo **só** se a linha tiver dados:
 amostra n positiva, um resultado com número, uma coluna fonte que nomeie um
-ficheiro que exista na árvore, a amostra mínima que um critério escreve (H6 e
-H9) e, em H1, H6, H8 e H9, a exportação congelada do KAM-109. Sem isso é
+ficheiro que exista na árvore — ou, em H1, H6, H8 e H9, o SHA-256 do manifesto
+congelado do KAM-109 —, a amostra mínima que um critério escreve (H6 e H9) e,
+nessas quatro, o manifesto nomeado no resumo. Sem isso é
 `inconclusiva` — também quando o declarado é `refutada`, porque uma refutação
 sem dados accionava um pivô por nada.
 
@@ -40,15 +41,15 @@ seu limiar confere-o a verificação cruzada do memorando (§9).
 
 | H | limiar | amostra n | resultado | declarado | **efectivo** | evidência | porque difere |
 |---|---|---|---|---|---|---|---|
-| H1 | ≥ 5 pagam após 30 dias de piloto | — | — | — | **inconclusiva** | — | sem exportação congelada do KAM-109 no resumo; amostra n vazia ou zero; resultado sem número medido; a coluna fonte não nomeia um ficheiro que exista; estado por decidir |
+| H1 | ≥ 5 pagam após 30 dias de piloto | — | — | — | **inconclusiva** | — | sem o manifesto congelado do KAM-109 no resumo; amostra n vazia ou zero; resultado sem número medido; a coluna fonte não nomeia um ficheiro que exista nem o SHA-256 do manifesto; estado por decidir |
 | H2 | ≥ 50% aceitam para ≥ 70% do catálogo | — | — | — | **inconclusiva** | — | amostra n vazia ou zero; resultado sem número medido; a coluna fonte não nomeia um ficheiro que exista; estado por decidir |
 | H3 | 3/3 ligados sem perda de histórico, operacionalizado em [`H3_Coexistencia_244.md`](H3_Coexistencia_244.md) §3 | — | — | — | **inconclusiva** | — | amostra n vazia ou zero; resultado sem número medido; a coluna fonte não nomeia um ficheiro que exista; estado por decidir |
 | H4 | Resposta escrita da Meta ou aprovação de Tech Provider | — | — | — | **inconclusiva** | — | amostra n vazia ou zero; resultado sem número medido; a coluna fonte não nomeia um ficheiro que exista; estado por decidir |
 | H5 | Prazo e custo por PME conhecidos e ≤ 6 semanas | — | — | — | **inconclusiva** | — | amostra n vazia ou zero; resultado sem número medido; a coluna fonte não nomeia um ficheiro que exista; estado por decidir |
-| H6 | Custo ≤ 15% da mensalidade | — | — | — | **inconclusiva** | — | sem exportação congelada do KAM-109 no resumo; amostra n vazia ou zero; resultado sem número medido; a coluna fonte não nomeia um ficheiro que exista; estado por decidir |
+| H6 | Custo ≤ 15% da mensalidade | — | — | — | **inconclusiva** | — | sem o manifesto congelado do KAM-109 no resumo; amostra n vazia ou zero; resultado sem número medido; a coluna fonte não nomeia um ficheiro que exista nem o SHA-256 do manifesto; estado por decidir |
 | H7 | ≥ 85% resolvidas sem *handoff* errado | — | — | — | **inconclusiva** | — | amostra n vazia ou zero; resultado sem número medido; a coluna fonte não nomeia um ficheiro que exista; estado por decidir |
-| H8 | ≥ 60% de catálogos correctos em auditoria | — | — | — | **inconclusiva** | — | sem exportação congelada do KAM-109 no resumo; amostra n vazia ou zero; resultado sem número medido; a coluna fonte não nomeia um ficheiro que exista; estado por decidir |
-| H9 | ≥ 70% activos ao dia 60, das PMEs activadas até à semana 4 | — | — | — | **inconclusiva** | — | sem exportação congelada do KAM-109 no resumo; amostra n vazia ou zero; resultado sem número medido; a coluna fonte não nomeia um ficheiro que exista; estado por decidir |
+| H8 | ≥ 60% de catálogos correctos em auditoria | — | — | — | **inconclusiva** | — | sem o manifesto congelado do KAM-109 no resumo; amostra n vazia ou zero; resultado sem número medido; a coluna fonte não nomeia um ficheiro que exista nem o SHA-256 do manifesto; estado por decidir |
+| H9 | ≥ 70% activos ao dia 60, das PMEs activadas até à semana 4 | — | — | — | **inconclusiva** | — | sem o manifesto congelado do KAM-109 no resumo; amostra n vazia ou zero; resultado sem número medido; a coluna fonte não nomeia um ficheiro que exista nem o SHA-256 do manifesto; estado por decidir |
 
 | Contagem | |
 |---|---|
@@ -128,7 +129,7 @@ memorando, pelo fundador, e nunca é estimada pelo executor (critério D).
 |---|---|
 | Registo de Hipóteses | `docs/tecnica/evidencia/validacao/Registo_Hipoteses.md` |
 | Resumo do piloto | nenhum |
-| Exportação congelada | nenhuma — sem ela nenhuma hipótese do KAM-109 se dá por medida |
+| Manifesto congelado do KAM-109 | nenhum — sem ele nenhuma hipótese do KAM-109 se dá por medida |
 | Resumo sintético | não |
 
 ---
@@ -138,3 +139,4 @@ memorando, pelo fundador, e nunca é estimada pelo executor (critério D).
 | Versão | Data | Descrição | Autor |
 |---|---|---|---|
 | 1.0 | Novembro de 2026 | Forma do pacote, KAM-110 (preparação): hipóteses com estado efectivo, Carta §5 item a item, matriz de `14` §6, paragem total, economia sem números de pista, e origem. O texto é do gerador `tools/gate_piloto`; uma alteração de forma é uma alteração do gerador e acrescenta linha aqui. | Equipa KAMBÁ |
+| 1.1 | Novembro de 2026 | KAM-110, interface com o KAM-109 fundido: o resumo nomeia o manifesto `piloto_congelado.json` em vez da exportação, e a coluna fonte de H1, H6, H8 e H9 aceita o SHA-256 dele, como manda o protocolo do Piloto (§10). | Equipa KAMBÁ |

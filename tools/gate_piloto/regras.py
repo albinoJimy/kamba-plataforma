@@ -47,9 +47,24 @@ def _amostra(celula: str) -> int | None:
 
 
 #: As quatro que o KAM-109 mede. O *handoff* dele: «Não declares nenhuma hipótese
-#: confirmada sem dados exportados e congelados» — e o gate não as aceita sem a
-#: exportação congelada nomeada no resumo, com o seu *hash*.
+#: confirmada sem dados exportados e congelados» — e o gate não as aceita sem o
+#: manifesto `piloto_congelado.json` nomeado no resumo, com o seu *hash*.
 DO_KAM_109 = ("H1", "H6", "H8", "H9")
+
+_SHA256 = re.compile(r"(?<![0-9A-Fa-f])[0-9A-Fa-f]{64}(?![0-9A-Fa-f])")
+
+
+def _cita_o_manifesto(linha: Linha, manifesto_sha256: str | None) -> bool:
+    """A fonte de H1, H6, H8 e H9 pode ser o SHA-256 do manifesto, e não um ficheiro.
+
+    O protocolo do Piloto (§10): «O `sha256` do manifesto entra na coluna
+    `fonte` do Registo de Hipóteses, e o conjunto arquiva-se em armazenamento
+    controlado, fora do repositório.» Só vale nas quatro do KAM-109, e só o
+    *hash* do manifesto que o resumo nomeia: outro *hash* não diz de que dados é.
+    """
+    if linha.h not in DO_KAM_109 or manifesto_sha256 is None:
+        return False
+    return manifesto_sha256 in {h.lower() for h in _SHA256.findall(linha.fonte)}
 
 
 def resolvedor(base: Path, raiz: Path) -> Callable[[str], bool]:
@@ -81,12 +96,20 @@ def resolvedor(base: Path, raiz: Path) -> Callable[[str], bool]:
 
 
 def _sem_resultado(resultado: str) -> bool:
-    """Registo §2, regra 2: «`resultado` é um número, não uma frase»."""
-    return POR_MEDIR in resultado.upper() or not re.search(r"\d", resultado)
+    """Registo §2, regra 2: «`resultado` é um número, não uma frase».
+
+    O `medir` do KAM-109 escreve «NAO MEDIDO», sem til; conta como o do Registo.
+    """
+    maiusculas = resultado.upper()
+    return (
+        POR_MEDIR in maiusculas
+        or "NAO MEDIDO" in maiusculas
+        or not re.search(r"\d", resultado)
+    )
 
 
 def estado_efectivo(
-    linha: Linha, congelada: bool, fonte_existe: Callable[[str], bool]
+    linha: Linha, manifesto_sha256: str | None, fonte_existe: Callable[[str], bool]
 ) -> Estado:
     """`confirmada` e `refutada` só sobrevivem com dados; o resto é `inconclusiva`.
 
@@ -95,15 +118,22 @@ def estado_efectivo(
     conclusão tirada da falta de dados, e accionava um pivô por nada.
     """
     razoes: list[str] = []
-    if linha.h in DO_KAM_109 and not congelada:
-        razoes.append("sem exportação congelada do KAM-109 no resumo")
+    if linha.h in DO_KAM_109 and manifesto_sha256 is None:
+        razoes.append("sem o manifesto congelado do KAM-109 no resumo")
     n = _amostra(linha.amostra)
     if not n:
         razoes.append("amostra n vazia ou zero")
     if _sem_resultado(linha.resultado):
         razoes.append("resultado sem número medido")
-    if not linha.fonte or not fonte_existe(linha.fonte):
-        razoes.append("a coluna fonte não nomeia um ficheiro que exista")
+    if not linha.fonte or not (
+        _cita_o_manifesto(linha, manifesto_sha256) or fonte_existe(linha.fonte)
+    ):
+        if linha.h in DO_KAM_109:
+            razoes.append(
+                "a coluna fonte não nomeia um ficheiro que exista nem o SHA-256 do manifesto"
+            )
+        else:
+            razoes.append("a coluna fonte não nomeia um ficheiro que exista")
     if n and linha.h in AMOSTRA_MINIMA:
         minimo, de_que = AMOSTRA_MINIMA[linha.h]
         if n < minimo:
@@ -118,8 +148,8 @@ def estado_efectivo(
 def estados(
     linhas: dict[str, Linha], resumo: Resumo, fonte_existe: Callable[[str], bool]
 ) -> dict[str, Estado]:
-    congelada = resumo.exportacao_sha256 is not None
-    return {h: estado_efectivo(linhas[h], congelada, fonte_existe) for h in HIPOTESES}
+    sha = resumo.manifesto_sha256
+    return {h: estado_efectivo(linhas[h], sha, fonte_existe) for h in HIPOTESES}
 
 
 # --- a matriz de `14` §6 ---------------------------------------------------

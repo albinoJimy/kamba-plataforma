@@ -22,7 +22,7 @@ from gate_piloto.tests import sintetico
 RAIZ = Path(__file__).resolve().parents[3]
 DOC_14 = RAIZ / "docs/exploracao/14-tese-minima-e-plano-de-validacao.md"
 
-CONGELADA = entradas.validar(sintetico.resumo(exportacao="x.csv", exportacao_sha256="ab" * 32))
+CONGELADA = entradas.validar(sintetico.resumo(manifesto="piloto_congelado.json", manifesto_sha256="ab" * 32))
 
 #: As fontes sintéticas que «existem». Uma fonte fora deste conjunto não existe.
 EXISTEM = {"a.md", "b.md", "c.md", "d.md", "e.md", "f.md", "g.md", "x.md"}
@@ -60,7 +60,11 @@ class TestEstadoEfectivo(unittest.TestCase):
     def test_toda_a_combinacao_de_dados_em_falta(self) -> None:
         # Exaustivo sobre as três peças de dados, nos dois estados que decidem.
         # Os resultados sem número são os que o Registo §2 dá como inválidos.
-        sem_numero = ("", "—", "correu bem", "NÃO MEDIDO", "não medido", "NÃO MEDIDO (sem resposta 12)")
+        sem_numero = (
+            "", "—", "correu bem", "NÃO MEDIDO", "não medido", "NÃO MEDIDO (sem resposta 12)",
+            # O `medir` do KAM-109 escreve-o sem til.
+            "NAO MEDIDO", "NAO MEDIDO (sem resposta 12)",
+        )
         pecas = {
             "amostra": ("", "0", "12"),
             "resultado": (*sem_numero, "12"),
@@ -70,7 +74,7 @@ class TestEstadoEfectivo(unittest.TestCase):
             completa = amostra == "12" and resultado == "12" and fonte == "x.md"
             for declarado in ("confirmada", "refutada"):
                 linha = registo.Linha("H2", "", "", "", amostra, resultado, declarado, fonte, "", "", "", "")
-                efectivo = regras.estado_efectivo(linha, False, _existe).efectivo
+                efectivo = regras.estado_efectivo(linha, None, _existe).efectivo
                 with self.subTest(amostra=amostra, resultado=resultado, fonte=fonte, declarado=declarado):
                     self.assertEqual(efectivo, declarado if completa else "inconclusiva")
 
@@ -81,15 +85,49 @@ class TestEstadoEfectivo(unittest.TestCase):
             self.assertEqual(abaixo.efectivo, "inconclusiva", h)
             self.assertEqual(no_limite.efectivo, "confirmada", h)
 
-    def test_as_do_kam_109_exigem_a_exportacao_congelada(self) -> None:
+    def test_as_do_kam_109_exigem_o_manifesto_congelado(self) -> None:
         com = ("600", "9", "confirmada", "x.md")
         linhas = {h: com for h in ("H1", "H2", "H6", "H8", "H9")}
         sem = _estados(linhas, entradas.VAZIO)
         for h in regras.DO_KAM_109:
             self.assertEqual(sem[h].efectivo, "inconclusiva", h)
-            self.assertIn("sem exportação congelada do KAM-109 no resumo", sem[h].razoes)
+            self.assertIn("sem o manifesto congelado do KAM-109 no resumo", sem[h].razoes)
         self.assertEqual(sem["H2"].efectivo, "confirmada")
         self.assertEqual(_estados(linhas)["H1"].efectivo, "confirmada")
+
+    def test_a_fonte_pode_ser_o_sha256_do_manifesto(self) -> None:
+        # Protocolo do Piloto §10: o sha256 do manifesto entra na coluna fonte, e o
+        # conjunto arquiva-se fora do repositório — a fonte não é um ficheiro.
+        manifesto = "ab" * 32
+        outro = "cd" * 32
+        for h in regras.DO_KAM_109:
+            dados = ("600", "9", "confirmada", f"piloto_congelado.json `{manifesto}`")
+            with self.subTest(h=h):
+                self.assertEqual(_estados({h: dados})[h].efectivo, "confirmada")
+                # Em maiúsculas é o mesmo hash.
+                maiusc = ("600", "9", "confirmada", manifesto.upper())
+                self.assertEqual(_estados({h: maiusc})[h].efectivo, "confirmada")
+                # Outro hash não diz de que dados é.
+                errado = _estados({h: ("600", "9", "confirmada", outro)})[h]
+                self.assertEqual(errado.efectivo, "inconclusiva")
+                self.assertIn(
+                    "a coluna fonte não nomeia um ficheiro que exista nem o SHA-256 do manifesto",
+                    errado.razoes,
+                )
+                # Um hash mais comprido que o contém não é o hash.
+                colado = _estados({h: ("600", "9", "confirmada", manifesto + "0")})[h]
+                self.assertEqual(colado.efectivo, "inconclusiva")
+        # Fora das quatro do KAM-109 o hash não é fonte: essas medem-se noutro lado.
+        h2 = _estados({"H2": ("600", "9", "confirmada", manifesto)})["H2"]
+        self.assertEqual(h2.efectivo, "inconclusiva")
+        self.assertIn("a coluna fonte não nomeia um ficheiro que exista", h2.razoes)
+        # Sem manifesto no resumo, o hash na fonte não conta.
+        sem = _estados({"H1": ("600", "9", "confirmada", manifesto)}, entradas.VAZIO)["H1"]
+        self.assertEqual(sem.efectivo, "inconclusiva")
+        self.assertIn(
+            "a coluna fonte não nomeia um ficheiro que exista nem o SHA-256 do manifesto",
+            sem.razoes,
+        )
 
     def test_amostra_minima_vale_tambem_para_refutada(self) -> None:
         self.assertEqual(_estados({"H9": ("5", "2", "refutada", "x.md")})["H9"].efectivo, "inconclusiva")
@@ -156,7 +194,7 @@ class TestMatriz(unittest.TestCase):
 
     def _accionadas(self, refutadas: tuple[str, ...], **resumo) -> list[regras.Accionada]:
         linhas = {h: ("600", "1", "refutada", "x.md") for h in refutadas}
-        r = entradas.validar(sintetico.resumo(exportacao="x.csv", exportacao_sha256="ab" * 32, **resumo))
+        r = entradas.validar(sintetico.resumo(manifesto="piloto_congelado.json", manifesto_sha256="ab" * 32, **resumo))
         return regras.matriz(_estados(linhas, r), r)
 
     def test_cada_falha_simulada_da_a_linha_que_a_fonte_lhe_da(self) -> None:
@@ -218,7 +256,7 @@ class TestCarta(unittest.TestCase):
         self.assertEqual(ids - derivados, set(entradas.ITENS_DECLARAVEIS))
 
     def _avaliar(self, linhas: dict, raiz: Path, **resumo) -> dict[str, regras.Avaliacao]:
-        r = entradas.validar(sintetico.resumo(exportacao="x.csv", exportacao_sha256="ab" * 32, **resumo))
+        r = entradas.validar(sintetico.resumo(manifesto="piloto_congelado.json", manifesto_sha256="ab" * 32, **resumo))
         return {a.item.id: a for a in regras.carta(_estados(linhas, r), r, raiz)}
 
     def test_derivados(self) -> None:

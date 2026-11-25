@@ -4,7 +4,7 @@
 |---|---|
 | Produto | KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para Angola |
 | Documento | Validação — memorando de decisão do gate do Piloto: continuar, pivô ou parar |
-| Versão | 1.0 |
+| Versão | 1.1 |
 | Data | Novembro de 2026 |
 | Estado | NÃO VERIFICADO |
 | Fonte | `../../../exploracao/14-tese-minima-e-plano-de-validacao.md` §2, §5 e §6; `../../../../specs/00_KAMBA_Carta.md` §5 e §6; `../../00_Arquitectura_Solucao.md` §13.2 e §13.3; `../../../../specs/INDICE.md` §1 e §6 |
@@ -24,7 +24,7 @@
 > número nenhum neste ficheiro que não esteja numa fonte citada.
 >
 > **Não se assina este memorando sem o [`Gate_Piloto.md`](Gate_Piloto.md) ao
-> lado**, gerado no dia do gate sobre a exportação congelada do KAM-109 — e não
+> lado**, gerado no dia do gate sobre o manifesto congelado do KAM-109 — e não
 > sobre a pré-visualização versionada hoje.
 
 ---
@@ -33,7 +33,7 @@
 
 Uma ordem proposta:
 
-1. **Gerar o pacote** sobre o Registo actualizado e o resumo do piloto, com a exportação congelada e o seu SHA-256 (o comando está no `tools/gate_piloto/README.md`).
+1. **Gerar o pacote** sobre o Registo actualizado e o resumo do piloto, com o manifesto congelado do KAM-109 (`piloto_congelado.json`) e o seu SHA-256 (o comando está no `tools/gate_piloto/README.md`).
 2. **Ler o pacote inteiro**: o estado **efectivo** de H1–H9 (§1 do pacote), a Carta §5 item a item (§2), as linhas de `14` §6 accionadas e a paragem total (§3), a economia (§4).
 3. **Preencher o §3 deste memorando**, a economia e a pista (a pergunta de `14` §5).
 4. **Escrever o plano datado** de cada hipótese inconclusiva no §2.
@@ -53,7 +53,7 @@ Uma ordem proposta:
 | Dono da decisão | |
 | Data da decisão | |
 | Pacote que a sustenta (caminho e ponta `sha`) | |
-| SHA-256 da exportação congelada do KAM-109 | |
+| SHA-256 do manifesto congelado do KAM-109 (`piloto_congelado.json`) | |
 
 ### 1.1 As regras, transcritas
 
@@ -239,3 +239,4 @@ Quem verifica é «pessoa distinta do autor» (Testes Requeridos do bloco).
 | Versão | Data | Alteração | Autor |
 |---|---|---|---|
 | 1.0 | Novembro 2026 | Emissão inicial (KAM-110, preparação): o memorando, **em branco**. Entrega a forma — a ordem de preenchimento, as regras de decisão transcritas de `14` §2 e §6 e do bloco, o plano datado das inconclusivas, a economia com a pista por preencher pelo fundador, a acção para H7, H8 e H9 quando falham, as três secções que cada decisão obriga (epics da Fase 2 e os gatilhos D2, D7, D8 e D11; pivô com plano de duas semanas e tickets; encerramento), os NÃO VERIFICADOS com dono, as quatro assinaturas e a verificação cruzada. Nenhum campo de decisão nem de pista preenchido. | Equipa KAMBÁ |
+| 1.1 | Novembro 2026 | KAM-110, interface com o KAM-109 fundido (#283): o pacote sustenta-se no manifesto congelado `piloto_congelado.json` e no SHA-256 dele, e não na exportação — é o manifesto que o protocolo do Piloto (§10) manda citar na coluna `fonte` do Registo. Três menções mudam (o aviso de cima, o passo 1 do §0 e a linha do §1); a decisão e as assinaturas continuam em branco. | Equipa KAMBÁ |
