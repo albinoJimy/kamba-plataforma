@@ -12,23 +12,33 @@ Regras da versão 1, por ordem:
    e «esta»/«está» é um erro de transcrição. A consequência — uma grafia PT-BR
    («fato», «ação») conta como erro contra uma referência PT-AO — está escrita no
    `H7_Voz_STT.md` §2 como limitação, e não se resolve aqui.
-2. Milhares com ponto («1.500», «15.000») perdem o ponto. A vírgula decimal
-   («2,5») fica dentro do *token*.
-3. Horas: «14:30» e «14h30» passam a «14 h 30»; «hora» e «horas» passam a «h».
-4. Moeda: «kz», «kwanza(s)», «kuanza(s)», «akz» e «aoa» passam a «kz».
-5. Pontuação fora: o texto parte-se em *tokens* de algarismos ou de letras.
+2. Milhares com ponto («1.500», «15.000», «1.500,50») perdem o ponto. A vírgula
+   decimal («2,5») fica dentro do *token*.
+3. Horas: «14:30» e «14h30» passam a «14 h 30», e «19h00» a «19 h», como
+   «19h»; «hora» e «horas» passam a «h».
+4. Moeda: «kz», «kwanza(s)», «kuanza(s)», «akz» e «aoa» passam a «kz»; «%»
+   passa a «por cento».
+5. Pontuação fora: o texto parte-se em *tokens* de algarismos ou de letras, e
+   um sinal de pontuação **separa** dois números — «custa mil. Dois sacos» são
+   1000 e 2, não 1002.
 6. Numerais por extenso passam a algarismos, com as duas grafias que um STT
    treinado sobretudo em PT-BR pode devolver («dezasseis»/«dezesseis»,
-   «catorze»/«quatorze»). «um»/«uma» passam a «1» também quando são artigo: é
-   simétrico, porque a referência passa pela mesma função.
+   «catorze»/«quatorze»). **«um», «uma» e «cento» só são numerais dentro de um
+   número composto** («vinte e um», «um milhão», «cento e vinte»): sozinhos são o
+   artigo e o «por cento», e contá-los punha na precisão numérica números que
+   ninguém disse.
 
 A regra do «e» é a que decide se «X e Y» é um número ou dois: compõe-se se Y for
 menor do que a ordem dos zeros finais de X — «vinte e cinco» (25), «cento e
 vinte» (120), «mil e quinhentos» (1500), «dois mil e cinco» (2005) —, e não se
 compõe em «catorze e trinta», que fica `14 e 30`. **Isto é uma limitação
 conhecida e escrita**: a hora dita «catorze e trinta» não iguala «14h30»
-(`14 h 30`), e conta uma substituição. O ensaio que o fixa é
-`tests/test_normalizar.py::TestLimitacoes`.
+(`14 h 30`), e conta uma substituição. As outras limitações conhecidas — «nove e
+meia» contra «9h30», «dez e um quarto» (dá 11 e «quarto»), «2,5 mil», milhares
+com espaço («12 500») ou com vírgula à inglesa («7,200»), algarismos sem
+multiplicador («1000 500»), «1 saco» contra «um saco», e grafias PT-BR — estão
+fixadas em `tests/test_normalizar.py::TestLimitacoes` e declaradas no
+`H7_Voz_STT.md` §2.
 """
 
 from __future__ import annotations
@@ -104,9 +114,22 @@ HORA: Final = frozenset({"h", "hora", "horas"})
 #: Um *token* numérico, como o WER o conta para a precisão numérica.
 NUMERICO: Final = re.compile(r"\d+(?:,\d+)?")
 
-_MILHARES: Final = re.compile(r"(?<![\d,])(\d{1,3})((?:\.\d{3})+)(?![\d.,]\d)")
+#: O decimal com vírgula pode seguir-se («1.500,50»); outro ponto com algarismo não.
+_MILHARES: Final = re.compile(r"(?<![\d,.])(\d{1,3})((?:\.\d{3})+)(?![\d]|\.\d)")
 _HORAS: Final = re.compile(r"(?<!\d)(\d{1,2})\s*[:h]\s*(\d{2})(?!\d)")
-_TOKEN: Final = re.compile(r"\d+(?:,\d+)?|[^\W\d_]+")
+#: A pontuação é um *token* de fronteira: separa dois números («custa mil. Dois
+#: sacos») e sai antes de comparar.
+_TOKEN: Final = re.compile(r"\d+(?:,\d+)?|[^\W\d_]+|[.,;:!?…]")
+_FRONTEIRA: Final = "\x00"
+#: «um»/«uma» e «cento» só são numerais dentro de um número composto: sozinhos são
+#: o artigo («um saco») e o «por cento» de uma percentagem, e contá-los punha na
+#: precisão numérica números que ninguém disse (achado 2 da revisão).
+_SO_COMPOSTOS: Final = frozenset({"um", "uma", "cento"})
+
+
+def _horas(m: re.Match[str]) -> str:
+    """«14:30» e «14h30» passam a «14 h 30»; «19h00» passa a «19 h», como «19h»."""
+    return f"{m.group(1)} h" if m.group(2) == "00" else f"{m.group(1)} h {m.group(2)}"
 
 
 def _sem_acentos(texto: str) -> str:
@@ -137,11 +160,14 @@ def tokens_brutos(texto: str) -> list[str]:
     """Regras 1 a 5: o texto em *tokens*, ainda com os numerais por extenso."""
     t = unicodedata.normalize("NFKC", texto).lower()
     t = _MILHARES.sub(lambda m: m.group(1) + m.group(2).replace(".", ""), t)
-    t = _HORAS.sub(r"\1 h \2", t)
+    t = _HORAS.sub(_horas, t)
+    t = t.replace("%", " por cento ")
     saida: list[str] = []
     for tok in _TOKEN.findall(t):
         chave = _sem_acentos(tok)
-        if chave in MOEDA:
+        if not tok[0].isalnum():
+            saida.append(_FRONTEIRA)
+        elif chave in MOEDA:
             saida.append("kz")
         elif chave in HORA:
             saida.append("h")
@@ -158,6 +184,12 @@ def _compor(tokens: list[str]) -> list[str]:
     while i < n:
         v = _valor(tokens[i])
         m = _multiplicador(tokens[i])
+        if v is not None and _sem_acentos(tokens[i]) in _SO_COMPOSTOS:
+            seguinte = tokens[i + 1] if i + 1 < n else ""
+            # «um milhão», «uma mil», «cento e vinte»: abrem número. Sozinhos, não.
+            abre = _multiplicador(seguinte) is not None if tokens[i] != "cento" else seguinte == "e"
+            if not abre:
+                v = None
         if v is None and m is None:
             saida.append(tokens[i])
             i += 1
@@ -202,7 +234,7 @@ def _compor(tokens: list[str]) -> list[str]:
 
 def normalizar(texto: str) -> list[str]:
     """O texto como o WER o compara: a mesma função na referência e na hipótese."""
-    return _compor(tokens_brutos(texto))
+    return [t for t in _compor(tokens_brutos(texto)) if t != _FRONTEIRA]
 
 
 def numerico(token: str) -> bool:

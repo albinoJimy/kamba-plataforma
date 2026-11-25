@@ -30,8 +30,8 @@ foi feito.** Os prazos que o bloco fixa estão à letra; os que o bloco não fix
 
 | # | Pré-condição | Fonte | Antes de |
 |---|---|---|---|
-| P1 | Consentimento escrito de cada falante, com o envio a fornecedores nos EUA (`consentimento.md`) | Critério 2 | Gravar esse falante |
-| P2 | A pergunta **X1** do KAM-104 respondida por parecer escrito **ou** o risco aceite por escrito pelo fundador | Critério 2; F-01 do pacote | **Enviar** áudio (à letra); ver §9, item 1, sobre gravar |
+| P1 | Consentimento escrito de cada falante, com o envio a **cada um** dos dois fornecedores nos EUA (`consentimento.md`) | Critério 2 | Gravar esse falante |
+| P2 | A pergunta **X1** do KAM-104 respondida por parecer escrito **ou** o risco aceite por escrito pelo fundador, **e** dita como permitindo o envio (`permite_envio`) | Critério 2; F-01 do pacote | **Enviar** áudio (à letra); ver §9, item 1, sobre gravar |
 | P3 | Retenção zero e não-treino de cada fornecedor verificados, com data e fonte | Critério 2; `E3` req. 8 | Enviar áudio a esse fornecedor |
 | P4 | `limiares.json` com o limiar de confiança fixado e datado (`registado_em`), **num dia anterior** ao primeiro envio | Critério 4; «Testes Requeridos» | Enviar áudio |
 | P5 | Preços relidos nas páginas dos fornecedores, com data, no `precos.json` | Critério 6 | Gerar o relatório |
@@ -86,7 +86,10 @@ cabeçalho do `autorizacao.py`) **por uma pessoa**, fora do repositório; o
 - **Aparelho do operador, não do falante**, com uma aplicação de gravação de som
   (WAV ou M4A). Assim não fica cópia no telemóvel de quem falou. **Não se grava
   nem se envia pelo WhatsApp**: uma nota de voz enviada passa pela plataforma, e
-  áudio que passa pela plataforma é dado dela (`E1` §4, ADR-018).
+  áudio que passa pela plataforma é dado dela (`E1` §4, ADR-018). **A
+  sincronização automática do aparelho com a nuvem desliga-se antes de gravar**
+  (gravador, galeria, cópia de segurança do telemóvel): uma cópia que sobe
+  sozinha é um envio a um terceiro que o consentimento não cobre.
 - **Silêncio:** uma sala fechada. **Ruído** (6 de 22): ruído real de ambiente —
   trânsito, gerador, ventoinha, rádio ou música, cozinha. **Sem conversa
   inteligível de terceiros perto do microfone**: a voz de quem não consentiu não
@@ -119,8 +122,11 @@ operador**, com a contagem registada no §9 do relatório.
   `ref_b` do manifesto.
 - **Convenções:** grafia do conjunto documental (PT-AO, sem o Acordo de 1990:
   «factura», «acção»); números como foram ditos, por extenso ou em algarismos — o
-  normalizador iguala as duas formas; sem marcas de pontuação obrigatórias; uma
+  normalizador iguala as formas mais comuns; sem marcas de pontuação obrigatórias; uma
   palavra que não se perceba escreve-se como se ouviu, sem marcas tipo `[?]`.
+  **O normalizador não iguala todas as formas** — as limitações estão no
+  `H7_Voz_STT.md` §2 —, e por isso os dois anotadores escrevem as horas e os
+  milhares da mesma maneira: «14h30» e «12.500», nunca «12 500».
 - `python manifesto.py manifesto.csv` calcula a divergência entre A e B **antes
   de reconciliar** (WER micro de A contra B). O critério pede **≤ 3%**; acima disso
   não se reconcilia por cima — reveem-se as convenções com os dois e anota-se de
@@ -167,7 +173,8 @@ critério 3 é «N» para esse fornecedor e o *harness* continua — não é fal
 - `apagamento.py apagar` apaga os ficheiros que o manifesto nomeia; `verificar`
   confirma que nenhum sobra. O que o *script* não vê apaga-se à mão e regista-se:
   o original no aparelho do operador (§4), qualquer cópia feita para os
-  anotadores, e qualquer cópia de segurança automática do computador do operador.
+  anotadores, e qualquer cópia de segurança automática do computador **e do
+  telemóvel** do operador, incluindo a que tenha subido para a nuvem.
 - **Os consentimentos assinados** vão para um arquivo controlado escolhido pelo
   fundador, fora do repositório; o relatório diz quantos são e onde estão
   **pelo papel**, nunca por nome.
@@ -185,3 +192,4 @@ critério 3 é «N» para esse fornecedor e o *harness* continua — não é fal
 | 4 | Quem são os anotadores e o reconciliador, e se os falantes são compensados | Recrutamento e orçamento | Responsável do spike, com o fundador |
 | 5 | O limiar de confiança por fornecedor (P4) | O bloco fixa a fracção (≥ 70%) e o corte de WER (> 40%), não o valor de confiança abaixo do qual um enunciado se dá por assinalado | Responsável do spike, **antes** de medir |
 | 6 | A forma jurídica do consentimento | É a alínea (iii) da X1 | Parecer do KAM-104, ou o fundador |
+| 7 | **Um STT cuja API não devolve sinal de confiança: o limiar de confiança «falha» ou «não se mede»?** O instrumento lê «não medido», e com isso a regra de decisão fica «não aplicável» aos dois STT | A letra põe o sinal como limiar e diz que a confiança é «NÃO VERIFICADO até testar»; ler a ausência como falha ou como não medição muda o ramo da regra | **Fundador**, antes de medir |

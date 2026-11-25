@@ -46,8 +46,28 @@ class TestNumerais(unittest.TestCase):
     def test_e_acentuado_e_verbo_e_nao_compoe(self):
         self.assertEqual(normalizar("dez é cinco"), ["10", "é", "5"])
 
-    def test_um_artigo_tambem_passa_a_1(self):
-        self.assertEqual(normalizar("um saco"), ["1", "saco"])
+    def test_um_e_cento_sozinhos_nao_sao_numeros(self):
+        self.assertEqual(normalizar("um saco"), ["um", "saco"])
+        self.assertEqual(normalizar("uma caixa"), ["uma", "caixa"])
+        self.assertEqual(normalizar("dez por cento"), ["10", "por", "cento"])
+        self.assertEqual(normalizar("10%"), normalizar("dez por cento"))
+
+    def test_um_e_cento_compostos_sao_numeros(self):
+        self.assertEqual(normalizar("vinte e um"), ["21"])
+        self.assertEqual(normalizar("um milhão"), ["1000000"])
+        self.assertEqual(normalizar("cento e um"), ["101"])
+        self.assertEqual(normalizar("mil cento e vinte"), ["1120"])
+
+    def test_pontuacao_separa_numeros(self):
+        self.assertEqual(normalizar("custa mil. Dois sacos"), ["custa", "1000", "2", "sacos"])
+        self.assertEqual(normalizar("mil, dois mil, três mil"), ["1000", "2000", "3000"])
+
+    def test_milhares_com_decimal(self):
+        self.assertEqual(normalizar("1.500,50"), ["1500,50"])
+
+    def test_hora_certa(self):
+        self.assertEqual(normalizar("às 19h00"), normalizar("às dezanove horas"))
+        self.assertEqual(normalizar("às 19h00"), normalizar("às 19h"))
 
 
 class TestTexto(unittest.TestCase):
@@ -85,6 +105,20 @@ class TestLimitacoes(unittest.TestCase):
 
     def test_grafia_brasileira_conta_como_diferente(self):
         self.assertNotEqual(normalizar("factura"), normalizar("fatura"))
+
+    def test_outras_formas_que_a_v1_nao_iguala(self):
+        pares = (
+            ("nove e meia", "9h30"),
+            ("dois mil e quinhentos", "2,5 mil"),
+            ("doze mil e quinhentos", "12 500"),
+            ("sete mil e duzentos", "7,200"),
+            ("um saco", "1 saco"),
+        )
+        for a, b in pares:
+            with self.subTest(a=a, b=b):
+                self.assertNotEqual(normalizar(a), normalizar(b))
+        self.assertEqual(normalizar("dez e um quarto"), ["11", "quarto"])
+        self.assertEqual(normalizar("1000 500"), ["1000", "500"])
 
 
 if __name__ == "__main__":

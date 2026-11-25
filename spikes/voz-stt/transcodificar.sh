@@ -23,10 +23,16 @@
 # por vezes localizacao). Nao ha normalizacao de volume de proposito: o WhatsApp
 # nao a faz, e o spike mede o que o STT vai receber.
 #
-# Correr sem ffmpeg no anfitriao (o que esta maquina nao tem):
+# A saida tem de ficar FORA de qualquer repositorio git: o script recusa
+# escrever numa pasta com um `.git` acima (codigo 3), porque o audio e a voz de
+# pessoas e este repositorio e publico.
 #
-#   MSYS_NO_PATHCONV=1 docker run --rm -v "$PWD:/w" -w /w --entrypoint sh \
-#     jrottenberg/ffmpeg:7.1-alpine spikes/voz-stt/transcodificar.sh opus in.wav out.ogg
+# Correr sem ffmpeg no anfitriao (o que esta maquina nao tem), com o audio numa
+# pasta fora do repositorio montada em /a e o script so de leitura em /s:
+#
+#   MSYS_NO_PATHCONV=1 docker run --rm -v "/c/fora/audio:/a" \
+#     -v "$PWD/spikes/voz-stt:/s:ro" -w /a --entrypoint sh \
+#     jrottenberg/ffmpeg:7.1-alpine /s/transcodificar.sh opus in.wav F01/C0001.ogg
 set -eu
 
 FFMPEG=${FFMPEG:-ffmpeg}
@@ -39,11 +45,29 @@ uso() {
   exit 2
 }
 
+fora_do_repositorio() {
+  # Sobe ate a primeira pasta que ja existe, verifica dali para cima, e so
+  # depois cria a pasta da saida: recusar nao deixa pastas vazias para tras.
+  d=$(dirname -- "$1")
+  while [ ! -d "$d" ]; do d=$(dirname -- "$d"); done
+  d=$(cd -- "$d" && pwd)
+  while :; do
+    if [ -e "$d/.git" ]; then
+      echo "recusado: $1 fica dentro de um repositorio git ($d)" >&2
+      exit 3
+    fi
+    [ "$d" = "/" ] && break
+    d=$(dirname -- "$d")
+  done
+  mkdir -p -- "$(dirname -- "$1")"
+}
+
 duracao() {
   "$FFPROBE" -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "$1"
 }
 
 opus() {
+  fora_do_repositorio "$2"
   "$FFMPEG" -nostdin -hide_banner -loglevel error -y -i "$1" \
     -map_metadata -1 -vn -ac 1 -ar "$TAXA" \
     -c:a libopus -b:a "$BITRATE" -application voip -f ogg "$2"
@@ -53,6 +77,7 @@ juntar() {
   saida=$1
   alvo=$2
   shift 2
+  fora_do_repositorio "$saida"
   [ "$#" -ge 1 ] || uso
   case $alvo in
     5|15|30) ;;

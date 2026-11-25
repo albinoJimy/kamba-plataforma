@@ -188,6 +188,8 @@ def verificar(clips: Iterable[Clip], roteiro: dict[str, Enunciado]) -> list[str]
         p = PurePosixPath(c.ficheiro)
         if p.is_absolute() or ".." in p.parts or "\\" in c.ficheiro or ":" in c.ficheiro:
             achados.append(f"{onde}: ficheiro tem de ser relativo à pasta do áudio, sem «..»")
+        elif not p.parts or p.parts[0] != c.falante_id:
+            achados.append(f"{onde}: ficheiro tem de estar na pasta do seu falante ({c.falante_id}/...)")
         if p.suffix != ".ogg":
             achados.append(f"{onde}: ficheiro tem de ser .ogg (Opus/OGG, como no WhatsApp)")
         if c.ambiente not in AMBIENTES:

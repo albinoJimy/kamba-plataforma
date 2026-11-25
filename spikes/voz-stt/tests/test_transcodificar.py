@@ -38,6 +38,9 @@ class TestTranscodificar(unittest.TestCase):
             self.assertLessEqual(abs(dur - 15), Decimal("0.5"))
             self.assertEqual(self.sh("juntar", "k.ogg", "30", "a.ogg", "b.ogg", cwd=d).returncode, 1)
             self.assertEqual(self.sh("juntar", "k.ogg", "7", "a.ogg", cwd=d).returncode, 2)
+            (Path(d) / "repo" / ".git").mkdir(parents=True)
+            self.assertEqual(self.sh("opus", "a.wav", "repo/F01/x.ogg", cwd=d).returncode, 3)
+            self.assertFalse((Path(d) / "repo" / "F01").exists())
 
 
 if __name__ == "__main__":

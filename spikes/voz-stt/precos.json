@@ -12,7 +12,7 @@
     "openai": {
       "modelo": "gpt-4o-mini-transcribe",
       "usd_por_minuto": "0.003",
-      "estado": "CONFIRMADO (E4 §3.2)",
+      "estado": "CONFIRMADO (E4 §3.2, que escreve «~$0,003/min»)",
       "minimo_s": "0",
       "minimo_estado": "NÃO VERIFICADO (E4 não regista mínimo nem granularidade)"
     }

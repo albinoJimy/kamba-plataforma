@@ -1,6 +1,7 @@
 """Latência, custo, relatório e apagamento, sobre medições fabricadas."""
 
 import copy
+import dataclasses
 import json
 import unittest
 from datetime import datetime, timedelta, timezone
@@ -11,6 +12,7 @@ import custo
 import latencia
 from apagamento import apagar, atrasados
 from manifesto import ler_roteiro
+from normalizar import normalizar, numerico
 from relatorio import (
     LIMIARES,
     RelatorioRecusado,
@@ -192,7 +194,7 @@ class TestRelatorio(unittest.TestCase):
         self.assertIn("handoff", ramo_da_regra({"groq": falha, "openai": falha}, custo_h))
         self.assertIn("não aplicável", ramo_da_regra({"groq": dict(passa, latencia="não medido"), "openai": passa}, custo_h))
 
-    def test_numeros_estragados_falham_a_precisao(self):
+    def test_numero_inventado_nao_tira_acertos(self):
         lim = copy.deepcopy(self.limiares)
         texto = gerar(self.clips, self.resultados("groq", estragar_numeros=True), lim, self.precos, self.roteiro)
         linha = next(l for l in texto.splitlines() if l.startswith("| Precisão numérica ≥"))
@@ -218,6 +220,74 @@ class TestRelatorio(unittest.TestCase):
         self.assertIn("falha", linha)
 
 
+class TestRelatorioLigado(unittest.TestCase):
+    """O `gerar` chama as guardas e as comparações mordem — não só as funções soltas."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.roteiro = ler_roteiro()
+        cls.clips = corpus()
+        cls.limiares = json.loads(Path(LIMIARES).read_text(encoding="utf-8"))
+        cls.precos = custo.ler_precos()
+
+    def enunciados(self, fornecedor, hip=lambda c: c.ref, quando=None):
+        return [
+            execucao(c.clip_id, fornecedor, "enunciado", c.duracao_s, quando or DIA + timedelta(hours=8, seconds=i), 900.0, hipotese=hip(c))
+            for i, c in enumerate(self.clips)
+        ]
+
+    def estados(self, texto):
+        linhas = {}
+        for l in texto.splitlines():
+            for rotulo in ("WER global", "Precisão numérica ≥", "Latência p95", "Sinal assinala"):
+                if l.startswith("| " + rotulo):
+                    linhas[rotulo] = [x.strip() for x in l.strip("|").split("|")[1:]]
+        return linhas
+
+    def gerar(self, rs, limiares=None):
+        return gerar(self.clips, rs, limiares or self.limiares, self.precos, self.roteiro)
+
+    def test_gerar_recusa_limiares_datados_no_dia_da_medicao(self):
+        lim = dict(self.limiares, registado_em="2026-12-10")
+        with self.assertRaises(RelatorioRecusado):
+            self.gerar(self.enunciados("groq") + execucoes_de_latencia("groq", [1000.0]), lim)
+
+    def test_gerar_recusa_texto_com_pseudonimo(self):
+        # um nome de fornecedor com forma de pseudónimo chega ao título da secção
+        with self.assertRaises(RelatorioRecusado):
+            self.gerar(self.enunciados("F01") + execucoes_de_latencia("F01", [1000.0]))
+
+    def test_cada_limiar_da_falha(self):
+        def sem_numeros(c):
+            return " ".join("999" if numerico(x) else x for x in normalizar(c.ref))
+
+        casos = {
+            # só os números: o WER sobe e a precisão numérica fica intacta
+            "WER global": (self.enunciados("groq", hip=lambda c: " ".join(x for x in normalizar(c.ref) if numerico(x))), [1000.0]),
+            "Precisão numérica ≥": (self.enunciados("groq", hip=sem_numeros), [1000.0]),
+            "Latência p95": (self.enunciados("groq"), [5000.0]),
+        }
+        for rotulo, (rs, lat) in casos.items():
+            with self.subTest(limiar=rotulo):
+                est = self.estados(self.gerar(rs + execucoes_de_latencia("groq", lat)))
+                self.assertEqual(est[rotulo], ["falha"])
+                outros = [v[0] for k, v in est.items() if k not in (rotulo, "Sinal assinala")]
+                self.assertEqual(outros, ["passa"] * len(outros), est)
+
+    def test_enunciado_sem_execucao_deixa_o_wer_nao_medido(self):
+        rs = self.enunciados("groq")[5:] + execucoes_de_latencia("groq", [1000.0])
+        texto = self.gerar(rs)
+        self.assertIn("Enunciados sem execução: **5**", texto)
+        self.assertEqual(self.estados(texto)["WER global"], ["não medido"])
+
+    def test_conta_a_primeira_execucao_de_cada_clip(self):
+        certas = self.enunciados("groq")
+        erradas = self.enunciados("groq", hip=lambda c: "nada", quando=DIA + timedelta(hours=20))
+        texto = self.gerar(erradas + certas + execucoes_de_latencia("groq", [1000.0]))
+        self.assertIn("| global | 220 | ", texto)
+        self.assertRegex(texto, r"\| global \| 220 \| \d+ \| 0,0% \|")
+
+
 class TestApagamento(unittest.TestCase):
     def test_atrasados_e_apagar(self):
         clips = corpus()[:4]
@@ -238,6 +308,11 @@ class TestApagamento(unittest.TestCase):
             self.assertEqual(apagar(clips, pasta), (4, 0))
             self.assertTrue(estranho.exists())
             self.assertEqual(apagar(clips, pasta), (0, 4))
+            fuga = dataclasses.replace(clips[0], ficheiro="../fora.ogg")
+            (Path(d) / "fora.ogg").write_bytes(b"x")
+            with self.assertRaises(PermissionError):
+                apagar([fuga], pasta)
+            self.assertTrue((Path(d) / "fora.ogg").exists())
             self.assertEqual(atrasados(clips, pasta, rs, DIA), [])
 
 

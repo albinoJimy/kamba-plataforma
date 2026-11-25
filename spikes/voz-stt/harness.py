@@ -48,11 +48,32 @@ class DentroDoRepositorio(PermissionError):
 
 
 def exigir_fora_do_repositorio(caminho: Path, raiz: Path = RAIZ_DO_REPOSITORIO) -> None:
+    """Recusa este repositório **e qualquer outro**: um caminho com um `.git` acima.
+
+    Só a raiz deste *worktree* deixava passar o *checkout* principal e os
+    *worktrees* irmãos, que são o mesmo repositório público noutra pasta.
+    """
     resolvido = caminho.resolve()
-    if resolvido == raiz or raiz in resolvido.parents:
+    if resolvido == raiz or raiz in resolvido.parents or any(
+        (p / ".git").exists() for p in (resolvido, *resolvido.parents)
+    ):
         raise DentroDoRepositorio(
-            f"{caminho} está dentro do repositório: áudio e transcrições de pessoas ficam fora dele"
+            f"{caminho} está dentro de um repositório git: áudio, transcrições e autorizações ficam fora dele"
         )
+
+
+def exigir_ficheiros_do_falante(clips: Iterable[Clip], pasta_audio: Path) -> None:
+    """Antes do primeiro envio: cada ficheiro fica na pasta, e na pasta do seu falante.
+
+    A autorização confere os pseudónimos da coluna `falante_id`; sem isto, um
+    `ficheiro` com `..` ou apontado para a pasta de outro falante enviava a voz
+    de quem a autorização nunca viu.
+    """
+    raiz = pasta_audio.resolve()
+    for c in clips:
+        alvo = (pasta_audio / c.ficheiro).resolve()
+        if (raiz / c.falante_id) not in alvo.parents or ".." in Path(c.ficheiro).parts or Path(c.ficheiro).is_absolute():
+            raise ManifestoInvalido(f"{c.clip_id}: o ficheiro tem de estar em <audio>/{c.falante_id}/")
 
 
 def agora_utc() -> datetime:
@@ -71,8 +92,10 @@ def correr(
     agora: Callable[[], datetime] = agora_utc,
 ) -> int:
     """Corre e acrescenta ao destino. Devolve o número de execuções escritas."""
+    clips = list(clips)
     exigir_fora_do_repositorio(pasta_audio)
     exigir_fora_do_repositorio(destino)
+    exigir_ficheiros_do_falante(clips, pasta_audio)
     if repeticoes < 1:
         raise ValueError("repeticoes >= 1")
     escritas = 0
@@ -127,6 +150,8 @@ def main(argv: list[str] | None = None) -> int:
     from fornecedores import construir
 
     try:
+        for caminho in (a.manifesto, a.autorizacao):
+            exigir_fora_do_repositorio(caminho)
         clips = [x for x in ler(a.manifesto) if x.tipo == a.tipo]
         stt = construir(a.fornecedor, Autorizacao.ler(a.autorizacao), {x.falante_id for x in clips})
         n = correr(clips, a.audio, stt, a.destino, repeticoes=a.repeticoes, tecto_s=a.tecto_s)

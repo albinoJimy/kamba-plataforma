@@ -18,7 +18,7 @@
 **KAMBÁ — Pedido de consentimento para gravar a sua voz**
 
 **Quem pede.** [Nome da entidade], [contacto do responsável pelo estudo, pelo
-papel]. 
+papel].
 
 **Para que é.** Estamos a testar dois serviços que transformam voz em texto
 («transcrição automática»), para saber se percebem bem o português falado em
@@ -39,8 +39,8 @@ nome, o seu número de telefone nem nenhum dado seu durante a gravação.**
 - Duas pessoas da nossa equipa ouvem a gravação para escrever o que disse.
 - **Apagamos a sua gravação no máximo 24 horas depois de a enviarmos para
   transcrição, e em qualquer caso no fim do estudo**, previsto para [data].
-- O texto do que disse (não a voz) fica guardado até [prazo — a fixar pelo
-  responsável antes de começar].
+- O texto do que disse (não a voz) fica guardado até [prazo — regra de
+  retenção, a fixar pelo fundador antes de começar].
 - O relatório final só tem números (percentagens de erro, tempos, custos). Não
   tem a sua voz, o seu nome, nem o seu código.
 

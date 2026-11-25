@@ -34,8 +34,8 @@ enviar áudio sem as três primeiras (`spikes/voz-stt/autorizacao.py`).
 
 | # | Pré-condição | Estado | Evidência a preencher |
 |---|---|---|---|
-| 1 | Consentimento escrito de cada falante, com o envio aos EUA | **por obter** — 0 falantes | Número de consentimentos e onde estão arquivados, pelo papel |
-| 2 | X1 do KAM-104 respondida, **ou** risco aceite por escrito | **aberta** — o registo de respostas está vazio | Referência do parecer, ou do registo de aceitação, com data |
+| 1 | Consentimento escrito de cada falante, com o envio a **cada um** dos dois fornecedores | **por obter** — 0 falantes | Número de consentimentos e onde estão arquivados, pelo papel |
+| 2 | X1 do KAM-104 respondida, **ou** risco aceite por escrito | **aberta** — o registo de respostas está vazio | Referência do parecer, ou do registo de aceitação, com data, e se o envio fica **permitido**: um parecer desfavorável também responde à X1, e o *harness* só abre com `permite_envio: true` |
 | 3 | Retenção e não-treino de cada fornecedor verificados e registados (`E3` req. 8) | **por verificar** — `retencao_zero: false` e `sem_treino: false` nas duas linhas do `gov/subprocessadores.yaml` | Por fornecedor: o que garante, fonte, data |
 | 4 | Limiar de confiança fixado antes da primeira medição | **por fixar** — `null` no `limiares.json` | Valor por fornecedor e `registado_em` |
 | 5 | Preços relidos nas páginas dos fornecedores, com data (critério 6) | **por reler** — o `precos.json` tem os de E4, de 2026-10-08 | Data e URL da releitura |
@@ -67,19 +67,33 @@ de ver o resultado. Quem discordar muda-as **antes** do primeiro envio.
 | Execução falhada no WER | Conta como **hipótese vazia** (todas as palavras omitidas): um STT que não responde não transcreveu bem | `relatorio.py` |
 | Repetições do mesmo clip no WER | Conta a **primeira** execução de cada clip por fornecedor | `relatorio.py` |
 | Precisão numérica | Dos *tokens* numéricos da referência, os que o alinhamento dá como acerto. Um número **inventado** pela hipótese não entra no denominador e conta-se à parte | `wer.py` |
-| Normalização | Regras **versão 1**: minúsculas, sem pontuação, numerais e moeda iguais nas duas formas («mil e quinhentos kwanzas» = «1.500 Kz»), horas «14:30» = «14h30». **Os acentos ficam** | `normalizar.py` |
+| Normalização | Regras **versão 1**: minúsculas, sem pontuação, numerais e moeda iguais nas duas formas («mil e quinhentos kwanzas» = «1.500 Kz»), horas «14:30» = «14h30» e «19h00» = «19h», «%» = «por cento», e a pontuação separa dois números. **Os acentos ficam** | `normalizar.py` |
+| «um», «uma», «cento» | Só são números **dentro** de um número composto («vinte e um», «um milhão», «cento e vinte»); sozinhos são o artigo e o «por cento», e não entram na precisão numérica | `normalizar.py` |
+| Enunciado sem execução | O WER e a precisão numérica desse fornecedor ficam **não medidos**, em vez de calculados sobre os que correram | `relatorio.py` |
+| API sem sinal de confiança | O limiar de confiança fica **não medido**, e com ele a regra de decisão fica **não aplicável** aos dois STT. É uma leitura que muda o ramo da regra, e está **devolvida** (§10, item 11) | `relatorio.py` |
 | Percentil | **Posto mais próximo**: o p95 de 30 valores é o 29.º | `latencia.py` |
 | *Timeout* na latência | **Entra**, com o tempo que demorou; um erro HTTP não entra e conta só na taxa | `latencia.py` |
 | Três momentos do dia | Manhã 06h–12h, tarde 12h–18h, noite 18h–24h, **hora de Luanda** (UTC+1); ≥ 30 execuções por tamanho e por fornecedor, com execuções nos três | `latencia.py` |
 | Divergência entre anotadores | WER micro de A contra B **antes** de reconciliar, ≤ 3%; depois disso, todos os clips com referência reconciliada | `manifesto.py` |
 | Custo por PME/mês | 300 min (doc 09 §14.3) com a distribuição de durações **do corpus** e o mínimo facturado por clip | `custo.py` |
 
-**Duas limitações da normalização v1, escritas para não se descobrirem no
-resultado:** uma hora dita «catorze e trinta» não iguala «14h30» e conta uma
-substituição; e uma grafia PT-BR («fato», «fatura») conta como erro contra uma
-referência PT-AO — o que pesa contra um STT treinado sobretudo em português do
-Brasil. Tratar a segunda seria uma tabela de equivalências ortográficas, e isso
-muda a pergunta que o WER responde: fica para o dono, antes de medir.
+**Limitações da normalização v1, escritas para não se descobrirem no
+resultado** (fixadas em `tests/test_normalizar.py::TestLimitacoes`):
+
+- uma hora dita «catorze e trinta» não iguala «14h30», nem «nove e meia» iguala
+  «9h30»; «dez e um quarto» dá `11 quarto`;
+- milhares com espaço («12 500») ou com vírgula à inglesa («7,200»), e «2,5 mil»,
+  não igualam a forma com ponto ou por extenso;
+- algarismos seguidos não se compõem («1000 500» são dois números);
+- «1 saco» não iguala «um saco», porque o artigo sozinho fica palavra;
+- uma grafia PT-BR («fato», «fatura») conta como erro contra uma referência PT-AO
+  — o que pesa contra um STT treinado sobretudo em português do Brasil. Tratá-la
+  seria uma tabela de equivalências ortográficas, e isso muda a pergunta que o
+  WER responde: fica para o dono, antes de medir.
+
+As referências não sofrem com as quatro primeiras se os dois anotadores
+escreverem horas e milhares da mesma maneira (`protocolo_gravacao.md` §5); as
+hipóteses do STT sofrem, e é isso que o WER mede.
 
 ---
 
@@ -147,7 +161,7 @@ pela ordem do critério 3:
 
 **O mínimo de 10 s pesa**, e já se vê sem medir: com clips de 8 s o Groq paga 10
 s por clip, e a hora de áudio sai a $0,05 em vez de $0,04 — o ensaio
-`test_gera_sem_identificacao` fixa-o. A estimativa do doc 09 não tem mínimo
+`TestRelatorio::test_gera_sem_identificacao` fixa-o. A estimativa do doc 09 não tem mínimo
 nenhum, e fica **abaixo** do que um corpus de notas curtas vai custar.
 
 ---
@@ -218,6 +232,7 @@ de base64, e não escreve hipóteses nem referências.
 | 8 | Confirmar a lista de palavras de línguas nacionais com um anotador falante | Responsável do spike |
 | 9 | Equivalências ortográficas PT-BR/PT-AO no WER — sim ou não, antes de medir | Responsável do spike |
 | 10 | Recrutar, gravar, anotar, medir, decidir e apagar | Responsável do spike e **fundador** |
+| 11 | Uma API **sem sinal de confiança**: o limiar de confiança «falha» ou «não se mede»? O instrumento lê «não medido», e a regra fica «não aplicável» (§2) | **Fundador**, antes de medir |
 
 ---
 

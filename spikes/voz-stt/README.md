@@ -31,7 +31,7 @@ gerado em memória.
 | `limiares.json` | Os limiares pré-registados, com data |
 | `relatorio.py` | As tabelas do `H7_Voz_STT.md`, com as guardas de privacidade e de data |
 | `apagamento.py` | Verifica o prazo de 24 h e apaga o áudio do manifesto |
-| `tests/` | **78** ensaios (1 salta sem `ffmpeg` no caminho). **Nenhum portão os corre** |
+| `tests/` | **91** ensaios (1 salta sem `ffmpeg` no caminho). **Nenhum portão os corre** |
 
 O relatório vive em
 [`docs/tecnica/evidencia/validacao/H7_Voz_STT.md`](../../docs/tecnica/evidencia/validacao/H7_Voz_STT.md).
@@ -57,10 +57,12 @@ Cada passo tem o seu dono no `protocolo_gravacao.md`. Os comandos:
 
 ```bash
 python spikes/voz-stt/roteiro.py folha 1                       # imprimir a folha do falante 1
-sh spikes/voz-stt/transcodificar.sh opus gravacao.wav F01/C0001.ogg
-sh spikes/voz-stt/transcodificar.sh duracao F01/C0001.ogg      # para a coluna duracao_s
-sh spikes/voz-stt/transcodificar.sh juntar L/C9001.ogg 15 F01/C0001.ogg F01/C0002.ogg F01/C0003.ogg
-python spikes/voz-stt/manifesto.py /fora/do/repo/manifesto.csv # 0 achados antes de enviar
+S=$PWD/spikes/voz-stt; cd /fora/audio                          # o áudio nunca na árvore
+sh $S/transcodificar.sh opus gravacao.wav F01/C0001.ogg        # recusa (código 3) dentro de um repositório
+sh $S/transcodificar.sh duracao F01/C0001.ogg                  # para a coluna duracao_s
+sh $S/transcodificar.sh juntar F01/C9001.ogg 15 F01/C0001.ogg F01/C0002.ogg F01/C0003.ogg
+cd -
+python spikes/voz-stt/manifesto.py /fora/manifesto.csv         # 0 achados antes de enviar
 
 export KAMBA_VOZ_CHAVE_GROQ='<do cofre>'
 python spikes/voz-stt/harness.py correr --manifesto /fora/manifesto.csv --audio /fora/audio \
@@ -72,8 +74,13 @@ python spikes/voz-stt/relatorio.py --manifesto /fora/manifesto.csv /fora/resulta
 python spikes/voz-stt/apagamento.py apagar --manifesto /fora/manifesto.csv --audio /fora/audio --confirmo
 ```
 
-`/fora` é qualquer pasta **fora do repositório**: o *harness*, o apagamento e o
-relatório recusam caminhos dentro dele.
+`/fora` é qualquer pasta **fora de um repositório git**. Recusam caminhos com um
+`.git` acima — deste repositório, do *checkout* principal, de um *worktree* irmão
+ou de outro qualquer —: o `transcodificar.sh` para a saída; o *harness* para a
+pasta do áudio, o destino, o manifesto e a autorização; o apagamento para a pasta
+e o manifesto; e o relatório para o manifesto e os resultados. O *harness* recusa
+também, antes do primeiro envio, um `ficheiro` do manifesto que não esteja em
+`<audio>/<falante_id>/`.
 
 ---
 
@@ -83,11 +90,15 @@ relatório recusam caminhos dentro dele.
 
 O `fornecedores.construir` chama a `Autorizacao.exigir` **antes** de ler a chave,
 e a autorização falha fechada: sem consentimento datado de **cada** falante do
-manifesto, sem a X1 respondida ou o risco aceite por escrito, e sem retenção zero
-e não-treino verificados para **aquele** fornecedor, não há STT real para
-construir. A recusa diz tudo o que falta de uma vez.
-`tests/test_harness.py::TestAutorizacao::test_cada_condicao_morde` estraga nove
-condições, uma de cada vez. **O ficheiro de autorização escreve-o uma pessoa** e
+manifesto **para aquele fornecedor** (o papel tem uma caixa por envio), sem a X1
+respondida ou o risco aceite por escrito **com `permite_envio: true`** — um parecer
+que responda «exige autorização do Art. 34.º» também é uma resposta, e não abre a
+porta —, e sem retenção zero e não-treino verificados para **aquele** fornecedor,
+não há STT real para construir. A recusa diz tudo o que falta de uma vez.
+`tests/test_harness.py::TestAutorizacao::test_cada_condicao_morde` estraga
+**dezassete** condições, uma de cada vez. O adaptador **não segue
+redireccionamentos**: o `urllib` refazia o POST noutro *host* com o cabeçalho
+`Authorization`. **O ficheiro de autorização escreve-o uma pessoa** e
 vive fora do repositório; nenhuma sessão o deve escrever.
 
 ### 2. O áudio, as transcrições e os falantes ficam fora do repositório
@@ -108,9 +119,11 @@ A prova forte é o histórico do `git` deste ficheiro.
 ### 4. O WER de números escritos e ditos compara-se
 
 «mil e quinhentos kwanzas» e «1.500 Kz» dão o mesmo — `1500 kz` — pela regra 6 do
-`normalizar.py`. As limitações da versão 1 estão fixadas em
-`tests/test_normalizar.py::TestLimitacoes`: «catorze e trinta» não iguala «14h30»,
-e uma grafia PT-BR conta como erro contra uma referência PT-AO.
+`normalizar.py`; «um», «uma» e «cento» sozinhos ficam palavras, para que o artigo
+e o «por cento» não entrem na precisão numérica. As limitações da versão 1 estão
+fixadas em `tests/test_normalizar.py::TestLimitacoes` e no `H7_Voz_STT.md` §2 —
+entre elas «catorze e trinta» contra «14h30», «nove e meia» contra «9h30»,
+milhares com espaço, «1 saco» contra «um saco», e grafias PT-BR.
 
 ---
 

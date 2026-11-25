@@ -39,6 +39,7 @@ from typing import Iterable, Mapping
 
 import custo
 import latencia
+from harness import DentroDoRepositorio, exigir_fora_do_repositorio
 from manifesto import Clip, Enunciado, grupos, ler, ler_roteiro, verificar
 from wer import Agregado, agregar, alinhar
 
@@ -144,7 +145,8 @@ def avaliar_confianca(
     altos = [r for r in ok if r["clip_id"] in wer_clip and Decimal(str(wer_clip[r["clip_id"]])) > alto]
     if not altos:
         return sinal, None, "não medido (nenhum enunciado com WER acima do corte)"
-    assinalados = sum(1 for r in altos if r.get("confianca") is not None and r["confianca"] < limiar)
+    corte = Decimal(str(limiar))  # o limiares.json escreve números como texto
+    assinalados = sum(1 for r in altos if r.get("confianca") is not None and Decimal(str(r["confianca"])) < corte)
     frac = Decimal(assinalados) / Decimal(len(altos))
     return sinal, frac, f"{pct(float(frac))} ({assinalados} de {len(altos)})"
 
@@ -274,6 +276,8 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("resultados", nargs="+", type=Path)
     a = p.parse_args(argv)
     try:
+        for caminho in (a.manifesto, *a.resultados):
+            exigir_fora_do_repositorio(caminho)
         texto = gerar(
             ler(a.manifesto),
             latencia.ler_resultados(a.resultados),
@@ -281,7 +285,7 @@ def main(argv: list[str] | None = None) -> int:
             custo.ler_precos(a.precos),
             ler_roteiro(),
         )
-    except RelatorioRecusado as exc:
+    except (RelatorioRecusado, DentroDoRepositorio) as exc:
         print(f"recusado: {exc}", file=sys.stderr)
         return 1
     sys.stdout.write(texto)

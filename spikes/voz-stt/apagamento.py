@@ -86,6 +86,7 @@ def main(argv: list[str] | None = None) -> int:
     a.add_argument("--audio", required=True, type=Path)
     a.add_argument("--confirmo", action="store_true")
     args = p.parse_args(argv)
+    exigir_fora_do_repositorio(args.manifesto)
     clips = ler(args.manifesto)
     if args.comando == "verificar":
         achados = atrasados(clips, args.audio, ler_resultados(args.resultados), datetime.now(timezone.utc))

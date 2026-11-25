@@ -1,3 +1,4 @@
+import dataclasses
 import json
 import unittest
 import urllib.request
@@ -8,6 +9,7 @@ from autorizacao import Autorizacao, EnvioRecusado
 from falso import RelogioFalso, SttFalso, resumo
 from fornecedores import VAR_CHAVE, construir, ler_groq, ler_openai, multipart
 from harness import RAIZ_DO_REPOSITORIO, DentroDoRepositorio, correr
+from manifesto import ManifestoInvalido
 from porta import ErroStt
 
 from tests.apoio import corpus, escrever_audio, pasta_temporaria
@@ -17,8 +19,13 @@ HOJE = date(2026, 12, 10)
 
 def autorizacao_completa(falantes, fornecedores=("groq", "openai")) -> dict:
     return {
-        "consentimentos": {f: "2026-12-01" for f in falantes},
-        "x1": {"via": "risco_aceite", "referencia": "registo de aceitação n.º 1 (fictício)", "data": "2026-12-02"},
+        "consentimentos": {f: {"data": "2026-12-01", **{x: True for x in fornecedores}} for f in falantes},
+        "x1": {
+            "via": "risco_aceite",
+            "referencia": "registo de aceitação n.º 1 (fictício)",
+            "data": "2026-12-02",
+            "permite_envio": True,
+        },
         "fornecedores": {
             f: {"retencao_zero": True, "sem_treino": True, "verificado_em": "2026-12-03", "fonte": "página do fornecedor (fictício)"}
             for f in fornecedores
@@ -91,6 +98,20 @@ class TestHarnessComDuplo(unittest.TestCase):
         self.assertEqual(len(self.stt.chamadas), 36)
         self.assertEqual({c[1:] for c in self.stt.chamadas}, {("audio/ogg", "pt")})
 
+    def test_recusa_outro_repositorio_git(self):
+        outro = self.d / "outro-checkout"
+        (outro / ".git").mkdir(parents=True)
+        with self.assertRaises(DentroDoRepositorio):
+            correr(self.clips, self.d / "audio", self.stt, outro / "r.jsonl")
+        self.assertEqual(self.stt.chamadas, [])
+
+    def test_ficheiro_fora_da_pasta_do_falante_nao_se_envia(self):
+        for ficheiro in ("F02/C0001.ogg", "../fora.ogg", "F01/../F02/x.ogg"):
+            clips = [dataclasses.replace(self.clips[0], ficheiro=ficheiro)] + self.clips[1:]
+            with self.subTest(ficheiro=ficheiro), self.assertRaises(ManifestoInvalido):
+                correr(clips, self.d / "audio", self.stt, self.d / "r.jsonl", relogio=self.relogio)
+        self.assertEqual(self.stt.chamadas, [])
+
     def test_recusa_destino_e_audio_dentro_do_repositorio(self):
         dentro = RAIZ_DO_REPOSITORIO / "spikes" / "voz-stt" / "nao-criar.jsonl"
         with self.assertRaises(DentroDoRepositorio):
@@ -118,7 +139,15 @@ class TestAutorizacao(unittest.TestCase):
     def test_cada_condicao_morde(self):
         casos = {
             "consentimento em falta": lambda d: d["consentimentos"].pop("F02"),
-            "consentimento futuro": lambda d: d["consentimentos"].update(F01="2027-01-01"),
+            "consentimento futuro": lambda d: d["consentimentos"]["F01"].update(data="2027-01-01"),
+            "consentimento só para outro fornecedor": lambda d: d["consentimentos"]["F02"].update(groq=False),
+            "consentimento na forma antiga": lambda d: d["consentimentos"].update(F01="2026-12-01"),
+            "X1 com data futura": lambda d: d["x1"].update(data="2027-01-01"),
+            "X1 com data ilegível": lambda d: d["x1"].update(data="ontem"),
+            "X1 que não permite o envio": lambda d: d["x1"].update(permite_envio=False),
+            "X1 sem sentido escrito": lambda d: d["x1"].pop("permite_envio"),
+            "verificação futura": lambda d: d["fornecedores"]["groq"].update(verificado_em="2027-01-01"),
+            "verificação sem data": lambda d: d["fornecedores"]["groq"].pop("verificado_em"),
             "X1 por responder": lambda d: d.pop("x1"),
             "X1 com via inventada": lambda d: d["x1"].update(via="conversa"),
             "X1 sem referência": lambda d: d["x1"].update(referencia=" "),
@@ -215,6 +244,12 @@ class TestFornecedores(unittest.TestCase):
         self.assertIsNone(ler_openai({"text": "a", "logprobs": []}).confianca)
         with self.assertRaises(ErroStt):
             ler_groq({"segments": []})
+
+    def test_redireccionamento_nao_se_segue(self):
+        import fornecedores
+
+        self.assertTrue(any(isinstance(h, fornecedores._SemRedireccionar) for h in fornecedores._ABRIDOR.handlers))
+        self.assertIsNone(fornecedores._SemRedireccionar().redirect_request(None, None, 302, "", {}, "https://outro/"))
 
     def test_multipart_bem_formado(self):
         tipo, corpo = multipart([("model", "m")], "clip.ogg", "audio/ogg", b"\x00\x01")

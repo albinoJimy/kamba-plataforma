@@ -23,6 +23,7 @@ preços e o modelo vêm de `../../docs/tecnica/evidencia/E4_Stack_Licencas.md` �
 
 from __future__ import annotations
 
+import http.client
 import json
 import math
 import os
@@ -69,14 +70,25 @@ def multipart(campos: Iterable[tuple[str, str]], nome_ficheiro: str, mime: str, 
     return f"multipart/form-data; boundary={fronteira}", b"".join(partes)
 
 
+class _SemRedireccionar(urllib.request.HTTPRedirectHandler):
+    """Um 3xx é erro, e não se segue: o `urllib` refazia o POST noutro *host*
+    levando o `Authorization`, e a chave saía para quem respondeu com o 3xx."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):  # noqa: ANN001
+        return None
+
+
+_ABRIDOR = urllib.request.build_opener(_SemRedireccionar)
+
+
 def abrir_http(pedido: urllib.request.Request, tecto_s: float) -> tuple[int, bytes]:
-    """O `urlopen` de verdade. O corpo de um erro HTTP descarta-se sem ser lido.
+    """O `urlopen` de verdade, sem redireccionar. O corpo de um erro descarta-se.
 
     O `timeout` do `urllib` é por operação de *socket* e não total; o *harness*
     mede o tempo de relógio de fora e é esse que entra na latência.
     """
     try:
-        with urllib.request.urlopen(pedido, timeout=tecto_s) as resposta:  # noqa: S310 (URL fixa acima)
+        with _ABRIDOR.open(pedido, timeout=tecto_s) as resposta:  # noqa: S310 (URL fixa acima)
             return resposta.status, resposta.read()
     except urllib.error.HTTPError as exc:
         return exc.code, b""
@@ -86,6 +98,10 @@ def abrir_http(pedido: urllib.request.Request, tecto_s: float) -> tuple[int, byt
         if isinstance(exc.reason, (socket.timeout, TimeoutError)):
             raise ErroStt(TIMEOUT, f"sem resposta em {tecto_s} s") from None
         raise ErroStt(ERRO, f"ligação falhou ({type(exc.reason).__name__})") from None
+    except (OSError, http.client.HTTPException) as exc:
+        # A ligação caiu a meio da leitura: é uma execução com erro, e o *harness*
+        # escreve-a e segue, em vez de abortar e reenviar tudo na repetição.
+        raise ErroStt(ERRO, f"ligação interrompida ({type(exc).__name__})") from None
 
 
 def ler_groq(obj: Mapping[str, Any]) -> Transcricao:

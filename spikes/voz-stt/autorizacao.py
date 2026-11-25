@@ -19,14 +19,21 @@ que ele existe para exigir.
 Forma (JSON)::
 
     {
-      "consentimentos": {"F01": "2026-12-01", ...},
-      "x1": {"via": "parecer" | "risco_aceite", "referencia": "...", "data": "AAAA-MM-DD"},
+      "consentimentos": {"F01": {"data": "2026-12-01", "groq": true, "openai": true}, ...},
+      "x1": {"via": "parecer" | "risco_aceite", "referencia": "...", "data": "AAAA-MM-DD",
+             "permite_envio": true},
       "fornecedores": {
         "groq": {"retencao_zero": true, "sem_treino": true,
                  "verificado_em": "AAAA-MM-DD", "fonte": "..."},
         ...
       }
     }
+
+O consentimento é **por fornecedor**, como no papel (`consentimento.md` tem uma
+caixa para cada envio): um falante que só assinalou a Groq não segue para a
+OpenAI. E a X1 leva `permite_envio`, escrito por quem leu o parecer ou aceitou
+o risco: um parecer que responda «exige autorização do Art. 34.º» também é uma
+X1 respondida, e não abre a porta.
 """
 
 from __future__ import annotations
@@ -81,11 +88,14 @@ class Autorizacao:
             if not _FALANTE.fullmatch(falante):
                 faltas.append(f"falante com identificador que não é pseudónimo: {falante!r}")
                 continue
-            quando = _data(consentimentos.get(falante))
+            ficha = consentimentos.get(falante)
+            quando = _data(ficha.get("data")) if isinstance(ficha, dict) else None
             if quando is None:
                 faltas.append(f"sem consentimento escrito datado para {falante}")
             elif quando > hoje:
                 faltas.append(f"consentimento de {falante} com data futura")
+            elif ficha.get(fornecedor) is not True:
+                faltas.append(f"{falante} não consentiu o envio a {fornecedor}")
         x1 = self.bruto.get("x1")
         if not isinstance(x1, dict):
             faltas.append("X1 do KAM-104 sem resposta nem risco aceite por escrito")
@@ -97,6 +107,8 @@ class Autorizacao:
             quando = _data(x1.get("data"))
             if quando is None or quando > hoje:
                 faltas.append("X1: sem data válida")
+            if x1.get("permite_envio") is not True:
+                faltas.append("X1: a resposta ou a aceitação não diz que o envio é permitido")
         fornecedores = self.bruto.get("fornecedores")
         ficha = fornecedores.get(fornecedor) if isinstance(fornecedores, dict) else None
         if not isinstance(ficha, dict):
