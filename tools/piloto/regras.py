@@ -49,9 +49,12 @@ H1_ALVO: Final = 5
 COORTE: Final = 10
 #: H1: o dia da conversao (Regra 4: 30 dias gratuitos).
 H1_DIA_DA_CONVERSAO: Final = 30
-#: H1: os dias depois do dia 30 em que o pagamento ainda conta como conversao.
-#: *Proposta*: o ultimo passo da regua de cobranca do KAM-058 (D+10).
-H1_PRAZO_DE_PAGAMENTO_DIAS: Final = 10
+#: H1: os dias depois do dia 30 em que um pagamento ainda conta como conversao.
+#: *Proposta*: um periodo mensal (31 dias) e a regua de cobranca do KAM-058
+#: (D+10). O periodo e porque os ciclos **nao** alinham pela activacao: abrem no
+#: `periodo_dia` da subscricao (1 a 28, `0055`), pelo que o primeiro ciclo
+#: depois do dia 30 pode comecar ate um mes depois dele.
+H1_JANELA_DE_PAGAMENTO_DIAS: Final = 41
 
 #: H6: o tecto do custo sobre a mensalidade (`14` §2).
 H6_TECTO: Final = Fraction(15, 100)
@@ -118,6 +121,16 @@ def estado_por_contagem(sucessos: int, pendentes: int, alvo: int) -> str:
     return INCONCLUSIVA
 
 
+def _coorte(exportacao: Exportacao) -> tuple[Pme, ...]:
+    """A coorte final, recusada se tiver mais de 10: o limiar e «de 10»."""
+    if len(exportacao.coorte) > COORTE:
+        raise ValueError(
+            f"a coorte tem {len(exportacao.coorte)} PMEs e o protocolo fixa {COORTE}: "
+            "uma PME a mais tem de sair (substituida) antes de medir"
+        )
+    return exportacao.coorte
+
+
 def _dia(pme: Pme, n: int) -> dt.date:
     assert pme.activada_em is not None
     return pme.activada_em + dt.timedelta(days=n)
@@ -161,37 +174,40 @@ def usou_na_semana_2(pme: Pme) -> bool | None:
 def h1(exportacao: Exportacao, mensalidade_minor: int) -> Resultado:
     """Pagantes depois de 30 dias, ao preco real, pela coorte final.
 
-    Pagante: um ciclo pago com `valor_minor` igual a mensalidade do protocolo e
-    inicio no dia 30 ou depois. Pendente: sem esse ciclo e com o prazo ainda
-    aberto (dia 30 + 10). Um ciclo pago a outro preco **nao conta** e sai no
-    detalhe — um desconto nao e o preco real.
+    Pagante: um ciclo pago com `valor_minor` igual a mensalidade do protocolo,
+    que cubra tempo **depois** do dia 30 (o `fim`, exclusivo, depois do dia 30)
+    e pago **ate ao fecho da janela** (dia 30 + 41). Pendente: sem esse ciclo e
+    com a janela ainda aberta. Um pagamento depois do fecho nao conta, e e isso
+    que faz de uma `refutada` uma conclusao que ja nao muda. Um ciclo pago a
+    outro preco **nao conta** e sai no detalhe — um desconto nao e o preco real.
     """
     if mensalidade_minor <= 0:
         raise ValueError("a mensalidade do protocolo tem de ser positiva")
     pagantes, pendentes, nao_pagantes, outro_preco, sem_activacao = [], [], [], [], []
-    for pme in exportacao.coorte:
+    coorte = _coorte(exportacao)
+    for pme in coorte:
         if pme.activada_em is None:
             sem_activacao.append(pme.pme)
             pendentes.append(pme.pme)
             continue
         conversao = _dia(pme, H1_DIA_DA_CONVERSAO)
-        depois = [c for c in pme.ciclos_pagos if c.inicio >= conversao]
-        if any(c.valor_minor == mensalidade_minor for c in depois):
+        fecho = conversao + dt.timedelta(days=H1_JANELA_DE_PAGAMENTO_DIAS)
+        validos = [c for c in pme.ciclos_pagos if c.fim > conversao and c.pago_em <= fecho]
+        if any(c.valor_minor == mensalidade_minor for c in validos):
             pagantes.append(pme.pme)
             continue
-        if depois:
+        if validos:
             outro_preco.append(pme.pme)
-        prazo = conversao + dt.timedelta(days=H1_PRAZO_DE_PAGAMENTO_DIAS)
-        (pendentes if exportacao.ultimo_dia < prazo else nao_pagantes).append(pme.pme)
+        (pendentes if exportacao.ultimo_dia < fecho else nao_pagantes).append(pme.pme)
     # Uma coorte com menos de 10 nao «tem» as que faltam como pendentes: elas
     # ainda nao existem. Contam como pendentes, porque podem entrar e pagar.
-    vagas = max(0, COORTE - len(exportacao.coorte))
+    vagas = COORTE - len(coorte)
     estado = estado_por_contagem(len(pagantes), len(pendentes) + vagas, H1_ALVO)
     return Resultado(
         hipotese="H1",
         limiar=f">= {H1_ALVO} de {COORTE} pagam apos {H1_DIA_DA_CONVERSAO} dias",
-        amostra_n=len(exportacao.coorte),
-        resultado=f"{len(pagantes)} de {len(exportacao.coorte)}",
+        amostra_n=len(coorte),
+        resultado=f"{len(pagantes)} de {len(coorte)}",
         estado=estado,
         detalhe={
             "pagantes": pagantes,
@@ -204,7 +220,7 @@ def h1(exportacao: Exportacao, mensalidade_minor: int) -> Resultado:
                 {"pme": p.pme, "motivo": p.saida.motivo if p.saida else None}
                 for p in exportacao.substituidas
             ],
-            "uso_semana_2": {p.pme: usou_na_semana_2(p) for p in exportacao.coorte},
+            "uso_semana_2": {p.pme: usou_na_semana_2(p) for p in coorte},
         },
     )
 
@@ -229,54 +245,75 @@ def _pct(valor: Fraction | None) -> str | None:
     return None if valor is None else f"{float(valor) * 100:.2f}%"
 
 
-def h6(h6_export: dict[str, Any], exportacao: Exportacao, mensalidade_minor: int) -> Resultado:
+def _meses_completos(pme: Pme, ultimo_dia: dt.date) -> list[tuple[dt.date, dt.date]]:
+    """Os meses de calendario inteiros entre a activacao e o ultimo dia exportado."""
+    if pme.activada_em is None:
+        return []
+    meses = []
+    inicio = pme.activada_em.replace(day=1)
+    if inicio < pme.activada_em:
+        inicio = _mes_seguinte(inicio)
+    while True:
+        seguinte = _mes_seguinte(inicio)
+        fim = seguinte - dt.timedelta(days=1)
+        if fim > ultimo_dia:
+            return meses
+        meses.append((inicio, fim))
+        inicio = seguinte
+
+
+def _mes_seguinte(dia_1: dt.date) -> dt.date:
+    return (dia_1.replace(day=28) + dt.timedelta(days=4)).replace(day=1)
+
+
+def h6(exportacao: Exportacao, mensalidade_minor: int, h6_export: dict[str, Any]) -> Resultado:
     """Custo sobre a mensalidade, pela regra de contagem pre-registada.
 
-    **A regra por omissao e a de `14` (LLM + voz + Meta).** O `h6-export` nao tem
-    rubrica de STT (nao ha registo de transcricao, KAM-036): o racio que ele da
-    e LLM + Meta. Logo:
+    **Os meses e as conversas sao os da coorte**, lidos da exportacao do Piloto
+    — a mesma vista do custo que o `h6-export` le (`v_tenant_cost_daily`), mas
+    so dos tenants da coorte e so dos meses de calendario **inteiros** depois da
+    activacao. A amostra do `h6-export` nao serve para decidir: sao as ultimas N
+    conversas **da plataforma**, sem filtro de tenant, e o racio dele so leva os
+    meses que essa amostra toca. Do `h6-export` vem o cambio, que tem de ser o
+    da vista, os percentis por conversa (reportados) e a mensalidade, conferida.
 
-    * LLM + Meta **acima** do tecto -> `refutada`: o STT so soma.
-    * LLM + Meta **no** tecto ou abaixo -> `inconclusiva`, com o motivo
-      `stt_nao_medido`. Nao e `confirmada`: faltava medir uma rubrica.
-    * Menos de 500 conversas na amostra -> `inconclusiva`, seja qual for o racio.
+    **A regra por omissao e a de `14` (LLM + voz + Meta).** Nao ha registo de
+    STT (KAM-036), logo:
+
+    * menos de 500 conversas nos meses contados -> `inconclusiva`;
+    * LLM + Meta **acima** do tecto -> `refutada`: o STT so soma;
+    * LLM + Meta **no** tecto ou abaixo -> `inconclusiva`, `stt_nao_medido`.
 
     A estatistica que decide e o **racio agregado**: o custo de todos os
-    meses-PME completos sobre as mensalidades desses meses. O p50 e o p90 por
-    mes-PME sao reportados ao lado, e nao decidem. *Proposta*.
-
-    O LLM isolado (o «LLM + STT» do bloco, com o STT em falta) sai da
-    exportacao do Piloto, pela vista do custo, convertido ao mesmo cambio.
+    meses-PME contados sobre as mensalidades desses meses (*proposta*). O p50 e o
+    p90 por mes-PME e o LLM isolado reportam-se ao lado.
     """
     if mensalidade_minor <= 0:
         raise ValueError("a mensalidade do protocolo tem de ser positiva")
-    if Fraction(int(h6_export["mensalidade_aoa_minor"])) != mensalidade_minor:
+    if int(h6_export["mensalidade_aoa_minor"]) != mensalidade_minor:
         raise ValueError(
             "o h6-export correu com outra mensalidade: "
-            f"{h6_export['mensalidade_aoa_minor']} contra {mensalidade_minor}"
+            f"{h6_export['mensalidade_aoa_minor']} contra {mensalidade_minor} "
+            "(o --mensalidade-kz dele e o --mensalidade-minor a dividir por 100)"
         )
-    amostra = int(h6_export["amostra"])
     fx = _fraccao(h6_export["fx_aoa_per_usd"])
-    coorte = {p.tenant_id: p for p in exportacao.coorte}
-    meses = [
-        m for m in h6_export["racio_por_tenant_e_mes"]
-        if m["mes_completo"] and m["tenant_id"] in coorte
-    ]
-    racios = [_fraccao(m["racio_custo_mensalidade"]) for m in meses]
-    custo_total_minor = sum(int(m["custo_aoa_minor"]) for m in meses)
-    agregado = (
-        Fraction(custo_total_minor, mensalidade_minor * len(meses)) if meses else None
-    )
+    meses: list[tuple[Pme, dt.date, Fraction, Fraction]] = []
+    conversas = 0
+    for pme in sorted(_coorte(exportacao), key=lambda p: p.pme):
+        for inicio, fim in _meses_completos(pme, exportacao.ultimo_dia):
+            llm = Fraction(pme.soma(inicio, fim, "custo_llm_usd"))
+            meta = Fraction(pme.soma(inicio, fim, "custo_meta_usd"))
+            conversas += pme.soma(inicio, fim, "conversas")
+            meses.append((pme, inicio, llm, meta))
 
-    llm_isolado = []
-    for m in meses:
-        pme = coorte[m["tenant_id"]]
-        inicio = dt.date.fromisoformat(f"{m['mes']}-01")
-        fim = (inicio.replace(day=28) + dt.timedelta(days=4)).replace(day=1) - dt.timedelta(days=1)
-        llm_usd = Fraction(pme.soma(inicio, fim, "custo_llm_usd"))
-        llm_isolado.append(llm_usd * fx * 100 / mensalidade_minor)
+    def minor(usd: Fraction) -> Fraction:
+        return usd * fx * 100
 
-    if amostra < H6_AMOSTRA_MINIMA:
+    racios = [minor(llm + meta) / mensalidade_minor for _, _, llm, meta in meses]
+    llm_isolado = [minor(llm) / mensalidade_minor for _, _, llm, _ in meses]
+    agregado = sum(racios, Fraction(0)) / len(meses) if meses else None
+
+    if conversas < H6_AMOSTRA_MINIMA:
         estado, motivo = INCONCLUSIVA, "amostra_abaixo_de_500"
     elif agregado is None:
         estado, motivo = INCONCLUSIVA, "sem_meses_completos"
@@ -285,19 +322,10 @@ def h6(h6_export: dict[str, Any], exportacao: Exportacao, mensalidade_minor: int
     else:
         estado, motivo = INCONCLUSIVA, "stt_nao_medido"
 
-    por_pme_mes = [
-        {
-            "pme": coorte[m["tenant_id"]].pme,
-            "mes": m["mes"],
-            "custo_aoa_minor": int(m["custo_aoa_minor"]),
-            "racio": _pct(_fraccao(m["racio_custo_mensalidade"])),
-        }
-        for m in sorted(meses, key=lambda m: (coorte[m["tenant_id"]].pme, m["mes"]))
-    ]
     return Resultado(
         hipotese="H6",
         limiar=f"custo <= {_pct(H6_TECTO)} da mensalidade, em >= {H6_AMOSTRA_MINIMA} conversas",
-        amostra_n=amostra,
+        amostra_n=conversas,
         resultado=(
             "NAO MEDIDO" if agregado is None
             else f"{_pct(agregado)} (LLM + Meta, sem STT), agregado de {len(meses)} meses-PME"
@@ -306,13 +334,18 @@ def h6(h6_export: dict[str, Any], exportacao: Exportacao, mensalidade_minor: int
         detalhe={
             "motivo": motivo,
             "regra": "14: LLM + voz + Meta; STT sem registo (KAM-036)",
+            "fx_aoa_per_usd": h6_export["fx_aoa_per_usd"],
             "racio_agregado": _pct(agregado),
             "p50_por_mes_pme": _pct(_percentil(racios, 50)),
             "p90_por_mes_pme": _pct(_percentil(racios, 90)),
             "llm_isolado_p50": _pct(_percentil(llm_isolado, 50)),
             "llm_isolado_p90": _pct(_percentil(llm_isolado, 90)),
-            "percentis_por_conversa_usd": h6_export.get("percentis_custo_total_usd"),
-            "por_pme_e_mes": por_pme_mes,
+            "percentis_por_conversa_usd_h6_export": h6_export.get("percentis_custo_total_usd"),
+            "por_pme_e_mes": [
+                {"pme": p.pme, "mes": i.strftime("%Y-%m"),
+                 "custo_aoa_minor": _minor(minor(llm + meta)), "racio": _pct(r)}
+                for (p, i, llm, meta), r in zip(meses, racios)
+            ],
             "cenarios": cenarios_h6(agregado, mensalidade_minor),
         },
     )
@@ -360,6 +393,8 @@ class Auditoria:
     correctos: int
     actualizacoes: int | None = None
     mudancas_declaradas: int | None = None
+    auditado_em: dt.date | None = None
+    fora_da_semana_4: bool = False
 
     @property
     def correcto(self) -> bool:
@@ -369,7 +404,7 @@ class Auditoria:
 def h8(exportacao: Exportacao, auditorias: Iterable[Auditoria]) -> Resultado:
     """Catalogos correctos, sobre a coorte. Sem auditoria e pendente."""
     por_pme = {a.pme: a for a in auditorias}
-    coorte = {p.pme for p in exportacao.coorte}
+    coorte = {p.pme for p in _coorte(exportacao)}
     alheias = sorted(set(por_pme) - coorte)
     if alheias:
         raise ValueError(f"auditoria de PME fora da coorte: {', '.join(alheias)}")
@@ -385,6 +420,7 @@ def h8(exportacao: Exportacao, auditorias: Iterable[Auditoria]) -> Resultado:
         detalhe={
             "correctos": correctos,
             "pendentes": [p for p in pendentes if p],
+            "fora_da_semana_4": sorted(a.pme for a in por_pme.values() if a.fora_da_semana_4),
             "vagas_na_coorte": max(0, COORTE - len(coorte)),
             "por_pme": {
                 a.pme: {
@@ -393,6 +429,8 @@ def h8(exportacao: Exportacao, auditorias: Iterable[Auditoria]) -> Resultado:
                     "catalogo_correcto": a.correcto,
                     "actualizacoes_no_sistema": a.actualizacoes,
                     "mudancas_reais_declaradas": a.mudancas_declaradas,
+                    "auditado_em": None if a.auditado_em is None else a.auditado_em.isoformat(),
+                    "fora_da_semana_4": a.fora_da_semana_4,
                 }
                 for a in sorted(por_pme.values(), key=lambda a: a.pme)
             },
@@ -404,9 +442,15 @@ def h8(exportacao: Exportacao, auditorias: Iterable[Auditoria]) -> Resultado:
 
 
 def h9(exportacao: Exportacao) -> Resultado:
-    """Activas ao dia 60, so sobre as PMEs com 60 dias de exposicao."""
+    """Activas ao dia 60, so sobre as PMEs com 60 dias de exposicao.
+
+    **Le-se a data do gate, e nao e final antes dela.** Ao contrario de H1 e H8,
+    uma H9 com 8 elegiveis pode mudar quando mais PMEs fazem 60 dias: o bloco
+    manda calcula-la sobre as PMEs com 60 dias **a data do gate**, e e sobre a
+    exportacao congelada dessa data que o KAM-110 a le.
+    """
     activadas = sorted(
-        (p for p in exportacao.coorte if p.activada_em is not None),
+        (p for p in _coorte(exportacao) if p.activada_em is not None),
         key=lambda p: (p.activada_em, p.pme),
     )
     elegiveis = [p for p in activadas if _dia(p, H9_DIA) <= exportacao.ultimo_dia]

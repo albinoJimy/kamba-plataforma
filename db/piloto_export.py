@@ -32,7 +32,7 @@ KAM-109 prepara-se **sem esquema novo**.
 | `actualizacoes_catalogo` | as do dono sobre `offer_terms` com `price.update` ou `stock.adjust` |
 | `handoffs` | os `handoffs` abertos no dia (`opened_at`) |
 | `custo_llm_usd`, `custo_meta_usd` | a `v_tenant_cost_daily` (KAM-081): a rubrica `llm`, e a soma das `meta_*` |
-| `ciclos_pagos` | os `billing_cycles` em `paga`, com o `pagamento_confirmado` aceite que os pagou: `facilitador` se autenticado (`hmac` ou `consulta`), `ops` se confirmado por ops com dupla aprovacao (`0055`) |
+| `ciclos_pagos` | os `billing_cycles` em `paga` (inicio e `fim` exclusivo do periodo), com o `pagamento_confirmado` aceite que os pagou e o dia em que chegou (`pago_em`, do `recebido_at`): `facilitador` se autenticado (`hmac` ou `consulta`), `ops` se confirmado por ops com dupla aprovacao (`0055`). Um ciclo pago depois do ultimo dia nao entra |
 
 ## Os limites, ditos
 
@@ -164,18 +164,21 @@ SQL_CUSTO: Final = """
 SQL_CICLOS_PAGOS: Final = """
   SELECT b.tenant_id::text,
          lower(b.periodo),
+         upper(b.periodo),
+         (min(e.recebido_at) AT TIME ZONE t.fuso_horario)::date,
          b.valor_minor,
          min(e.currency),
          bool_or(e.authn_method IN ('hmac', 'consulta')),
          bool_or(e.authn_method = 'manual' AND e.actor_kind = 'ops')
     FROM platform.billing_cycles b
+    JOIN platform.tenants t ON t.id = b.tenant_id
     JOIN platform.payment_events e
       ON e.billing_cycle_id = b.id AND e.tenant_id = b.tenant_id
    WHERE b.estado = 'paga'
      AND e.tipo_evento = 'pagamento_confirmado'
      AND e.decisao = 'aceite'
      AND b.tenant_id = ANY(%s::uuid[])
-   GROUP BY b.tenant_id, b.id, b.periodo, b.valor_minor
+   GROUP BY b.tenant_id, b.id, b.periodo, b.valor_minor, t.fuso_horario
 """
 
 #: O universo do sorteio de H8: o que a PME tem no catalogo, publicado ou
@@ -261,7 +264,7 @@ def montar(
     accoes: dict[tuple[str, dt.date], tuple[int, int]],
     handoffs: dict[tuple[str, dt.date], int],
     custo: dict[tuple[str, dt.date], tuple[Decimal, Decimal]],
-    ciclos: list[tuple[str, dt.date, int, str, bool, bool]],
+    ciclos: list[tuple[str, dt.date, dt.date, dt.date, int, str, bool, bool]],
 ) -> dict[str, Any]:
     """A exportacao inteira, sem tocar na base. E o que o ensaio sem base mede."""
     pmes = []
@@ -291,10 +294,11 @@ def montar(
                 dia(data)["custo_llm_usd"] = _texto(llm)
                 dia(data)["custo_meta_usd"] = _texto(meta)
         pagos = []
-        for t, inicio, valor, moeda, facilitador, ops in ciclos:
-            if t != tenant or inicio > ultimo_dia or not (facilitador or ops):
+        for t, inicio, fim, pago_em, valor, moeda, facilitador, ops in ciclos:
+            if t != tenant or pago_em > ultimo_dia or not (facilitador or ops):
                 continue
-            pagos.append({"inicio": inicio.isoformat(), "valor_minor": int(valor),
+            pagos.append({"inicio": inicio.isoformat(), "fim": fim.isoformat(),
+                          "pago_em": pago_em.isoformat(), "valor_minor": int(valor),
                           "moeda": moeda.strip(), "via": "facilitador" if facilitador else "ops"})
         activada = activacao.get(tenant)
         pmes.append(
@@ -366,8 +370,8 @@ def exportar(
     custo = {(t, d): (Decimal(l), Decimal(m)) for t, d, l, m in cursor.fetchall()}
     cursor.execute(SQL_CICLOS_PAGOS, (tenants,))
     ciclos = [
-        (t, inicio, int(v), str(moeda), bool(f), bool(o))
-        for t, inicio, v, moeda, f, o in cursor.fetchall()
+        (t, inicio, fim, pago_em, int(v), str(moeda), bool(f), bool(o))
+        for t, inicio, fim, pago_em, v, moeda, f, o in cursor.fetchall()
     ]
     return montar(
         coorte, sintetico, ultimo_dia, activacao, self_service, dpa,

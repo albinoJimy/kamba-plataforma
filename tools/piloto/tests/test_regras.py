@@ -14,8 +14,9 @@ from piloto import regras
 from piloto.tests import fabrica as f
 
 D = dt.timedelta(days=1)
-#: Um ultimo dia em que toda a coorte ja passou o dia 60 e o prazo da conversao.
-FIM = f.INICIO + 70 * D
+#: Um ultimo dia em que toda a coorte ja passou o dia 60 e a janela da conversao
+#: (dia 30 + 41 = dia 71).
+FIM = f.INICIO + 75 * D
 
 
 def _coorte_h1(pagantes: int, total: int = 10, ultimo_dia: dt.date = FIM):
@@ -47,21 +48,39 @@ class TestH1(unittest.TestCase):
         self.assertEqual(quatro.resultado, "4 de 10")
         self.assertEqual(quatro.amostra_n, 10)
 
-    def test_4_de_10_com_o_prazo_aberto_nao_e_refutada(self) -> None:
-        # Ultimo dia no dia 35: o prazo da conversao (dia 40) ainda esta aberto.
+    def test_4_de_10_com_a_janela_aberta_nao_e_refutada(self) -> None:
         resultado = regras.h1(_coorte_h1(4, ultimo_dia=f.INICIO + 35 * D), f.MENSALIDADE)
         self.assertEqual(resultado.estado, regras.INCONCLUSIVA)
         self.assertEqual(len(resultado.detalhe["pendentes"]), 6)
 
-    def test_o_prazo_fecha_no_dia_40_inclusive(self) -> None:
-        aberto = regras.h1(_coorte_h1(4, ultimo_dia=f.INICIO + 39 * D), f.MENSALIDADE)
-        fechado = regras.h1(_coorte_h1(4, ultimo_dia=f.INICIO + 40 * D), f.MENSALIDADE)
+    def test_a_janela_fecha_no_dia_71_inclusive(self) -> None:
+        aberto = regras.h1(_coorte_h1(4, ultimo_dia=f.INICIO + 70 * D), f.MENSALIDADE)
+        fechado = regras.h1(_coorte_h1(4, ultimo_dia=f.INICIO + 71 * D), f.MENSALIDADE)
         self.assertEqual(aberto.estado, regras.INCONCLUSIVA)
         self.assertEqual(fechado.estado, regras.REFUTADA)
 
-    def test_um_ciclo_antes_do_dia_30_nao_conta(self) -> None:
-        pmes = [f.pme(n, ciclos=[f.ciclo_pago(f.INICIO, dia=29)]) for n in range(1, 11)]
+    def test_o_ciclo_alinhado_pelo_periodo_dia_que_cobre_o_dia_30_conta(self) -> None:
+        # Os ciclos abrem no `periodo_dia` da subscricao, e nao na activacao: um
+        # que comeca no dia 22 e cobre o dia 30 conta (a revisao adversarial, A3).
+        pmes = [f.pme(1, ciclos=[f.ciclo_pago(f.INICIO, dia=22, pago_no_dia=31)])]
+        self.assertEqual(regras.h1(f.coorte(pmes, FIM), f.MENSALIDADE).detalhe["pagantes"], ["P01"])
+
+    def test_um_ciclo_que_so_cobre_o_periodo_gratuito_nao_conta(self) -> None:
+        pmes = [f.pme(n, ciclos=[f.ciclo_pago(f.INICIO, dia=0, dias_do_periodo=30)])
+                for n in range(1, 11)]
         self.assertEqual(regras.h1(f.coorte(pmes, FIM), f.MENSALIDADE).resultado, "0 de 10")
+
+    def test_um_pagamento_depois_da_janela_nao_desfaz_a_refutada(self) -> None:
+        # A revisao adversarial (A4): sem o dia do pagamento, uma `refutada` no
+        # dia 71 virava `confirmada` quando a P05 pagasse tarde o ciclo do dia 60.
+        pmes = [f.pme(n, ciclos=[f.ciclo_pago(f.INICIO)]) for n in range(1, 5)]
+        pmes.append(f.pme(5, ciclos=[f.ciclo_pago(f.INICIO, dia=60, pago_no_dia=72)]))
+        pmes += [f.pme(n) for n in range(6, 11)]
+        tarde = regras.h1(f.coorte(pmes, f.INICIO + 90 * D), f.MENSALIDADE)
+        self.assertEqual((tarde.estado, tarde.resultado), (regras.REFUTADA, "4 de 10"))
+        pmes[4] = f.pme(5, ciclos=[f.ciclo_pago(f.INICIO, dia=60, pago_no_dia=71)])
+        self.assertEqual(regras.h1(f.coorte(pmes, f.INICIO + 90 * D), f.MENSALIDADE).estado,
+                         regras.CONFIRMADA)
 
     def test_um_ciclo_a_outro_preco_nao_conta_e_sai_no_detalhe(self) -> None:
         pmes = [f.pme(1, ciclos=[f.ciclo_pago(f.INICIO, valor=f.MENSALIDADE - 1)])]
@@ -75,10 +94,17 @@ class TestH1(unittest.TestCase):
                          ["P01", "P02", "P03", "P04", "P05"])
 
     def test_uma_coorte_incompleta_deixa_vagas_pendentes(self) -> None:
-        # 4 pagantes em 6: as 4 vagas por preencher ainda podem dar a 5.a.
         resultado = regras.h1(_coorte_h1(4, total=6), f.MENSALIDADE)
         self.assertEqual(resultado.estado, regras.INCONCLUSIVA)
         self.assertEqual(resultado.detalhe["vagas_na_coorte"], 4)
+
+    def test_uma_coorte_de_mais_de_10_e_recusada(self) -> None:
+        # A revisao adversarial (A5): 5 de 12 nao e «5 de 10».
+        exportacao = _coorte_h1(5, total=12)
+        for regra in (lambda e: regras.h1(e, f.MENSALIDADE), regras.h9,
+                      lambda e: regras.h8(e, [])):
+            with self.subTest(), self.assertRaises(ValueError):
+                regra(exportacao)
 
     def test_as_substituidas_nao_contam_e_sao_reportadas(self) -> None:
         pmes = [f.pme(n, ciclos=[f.ciclo_pago(f.INICIO)]) for n in range(1, 5)]
@@ -129,6 +155,12 @@ class TestActiva(unittest.TestCase):
         # Dia 7 antes do fim ja e a segunda semana: a primeira fica vazia.
         self.assertFalse(regras.activa_em(self._pme({0: _dia(5, 1), 7: _dia(0, 0)}), self.FIM_JANELA))
         self.assertTrue(regras.activa_em(self._pme({0: _dia(5, 1), 7: _dia(0, 1)}), self.FIM_JANELA))
+
+    def test_o_corte_entre_as_semanas_e_no_dia_7_antes_do_fim(self) -> None:
+        # Os dias 6 e 0 antes do fim estao **os dois** na segunda semana: falta
+        # a primeira. A revisao adversarial (A6) mediu que esta mutacao vivia.
+        self.assertFalse(regras.activa_em(self._pme({0: _dia(5, 1), 6: _dia(0, 1)}), self.FIM_JANELA))
+        self.assertTrue(regras.activa_em(self._pme({0: _dia(5, 1), 13: _dia(0, 1)}), self.FIM_JANELA))
 
     def test_fora_da_janela_nao_conta(self) -> None:
         self.assertFalse(regras.activa_em(self._pme({0: _dia(4, 1), 13: _dia(0, 1), 14: _dia(9, 0)}),
@@ -196,66 +228,96 @@ class TestH8(unittest.TestCase):
         self.assertEqual(resultado.estado, regras.INCONCLUSIVA)
         self.assertEqual(resultado.detalhe["pendentes"], ["P10"])
 
+    def test_uma_coorte_incompleta_deixa_vagas_pendentes(self) -> None:
+        # 5 correctos em 6: as 4 vagas ainda podem dar o 6.o (A6).
+        exportacao = f.coorte([f.pme(n) for n in range(1, 7)], FIM)
+        resultado = regras.h8(exportacao, self._auditorias(5, total=6))
+        self.assertEqual(resultado.estado, regras.INCONCLUSIVA)
+        self.assertEqual(resultado.detalhe["vagas_na_coorte"], 4)
+
     def test_auditoria_de_fora_da_coorte_e_erro(self) -> None:
         exportacao = f.coorte([f.pme(1)], FIM)
         with self.assertRaises(ValueError):
             regras.h8(exportacao, [regras.Auditoria("P02", 20, 20)])
 
 
-class TestH6(unittest.TestCase):
-    def setUp(self) -> None:
-        self.exportacao = f.coorte([f.pme(n) for n in range(1, 11)], FIM)
+FEV = dt.date(2027, 2, 28)
 
-    def _h6(self, custo_por_mes: int, amostra: int = 500):
-        meses = [(f.tenant(n), "2027-02", custo_por_mes) for n in range(1, 11)]
-        return regras.h6(f.h6_export(meses, amostra), self.exportacao, f.MENSALIDADE)
+
+def _dia_h6(custo_llm: str, custo_meta: str = "0", conversas: int = 50) -> dict[str, object]:
+    return {"2027-02-01": {"conversas": conversas, "accoes_dono": 0, "actualizacoes_catalogo": 0,
+                           "handoffs": 0, "custo_llm_usd": custo_llm, "custo_meta_usd": custo_meta}}
+
+
+def _coorte_h6(custo_llm: str, custo_meta: str = "0", activada: dt.date = f.INICIO,
+               ultimo_dia: dt.date = FEV, conversas_p01: int = 50):
+    """10 PMEs com Fevereiro de 2027 inteiro, o custo todo no dia 1."""
+    return f.coorte(
+        [f.pme(n, activada=activada,
+               dias=_dia_h6(custo_llm, custo_meta, conversas_p01 if n == 1 else 50))
+         for n in range(1, 11)],
+        ultimo_dia,
+    )
+
+
+class TestH6(unittest.TestCase):
+    # Cambio de ensaio 1000: o racio e o custo do mes em USD a dividir por 30.
+
+    def _h6(self, exportacao):
+        return regras.h6(exportacao, f.MENSALIDADE, f.h6_export())
 
     def test_15_1_por_cento_refuta(self) -> None:
-        resultado = self._h6(453_000)
+        resultado = self._h6(_coorte_h6("4.53"))
         self.assertEqual(resultado.estado, regras.REFUTADA)
         self.assertEqual(resultado.detalhe["racio_agregado"], "15.10%")
+        self.assertEqual(resultado.amostra_n, 500)
         self.assertEqual(len(resultado.detalhe["cenarios"]), 3)
 
     def test_14_9_por_cento_nao_confirma_sem_stt(self) -> None:
-        resultado = self._h6(447_000)
+        resultado = self._h6(_coorte_h6("4.47"))
         self.assertEqual(resultado.estado, regras.INCONCLUSIVA)
         self.assertEqual(resultado.detalhe["motivo"], "stt_nao_medido")
         self.assertEqual(resultado.detalhe["cenarios"], [])
 
     def test_exactamente_15_por_cento_nao_e_acima(self) -> None:
-        self.assertEqual(self._h6(450_000).detalhe["motivo"], "stt_nao_medido")
+        self.assertEqual(self._h6(_coorte_h6("4.5")).detalhe["motivo"], "stt_nao_medido")
 
     def test_499_conversas_e_inconclusiva_mesmo_acima(self) -> None:
-        resultado = self._h6(453_000, amostra=499)
-        self.assertEqual((resultado.estado, resultado.detalhe["motivo"]),
-                         (regras.INCONCLUSIVA, "amostra_abaixo_de_500"))
+        resultado = self._h6(_coorte_h6("4.53", conversas_p01=49))
+        self.assertEqual((resultado.estado, resultado.detalhe["motivo"], resultado.amostra_n),
+                         (regras.INCONCLUSIVA, "amostra_abaixo_de_500", 499))
 
-    def test_o_mes_incompleto_e_os_tenants_fora_da_coorte_nao_contam(self) -> None:
-        bruto = f.h6_export([(f.tenant(1), "2027-02", 447_000), (f.tenant(99), "2027-02", 3_000_000)])
-        bruto["racio_por_tenant_e_mes"].append(
-            {**bruto["racio_por_tenant_e_mes"][0], "mes": "2027-03", "mes_completo": False,
-             "custo_aoa_minor": 3_000_000})
-        resultado = regras.h6(bruto, self.exportacao, f.MENSALIDADE)
-        self.assertEqual(resultado.detalhe["racio_agregado"], "14.90%")
+    def test_so_contam_meses_inteiros_depois_da_activacao(self) -> None:
+        # Activadas a 2 de Fevereiro: Fevereiro nao e um mes inteiro do Piloto.
+        tarde = self._h6(_coorte_h6("9", activada=dt.date(2027, 2, 2)))
+        self.assertEqual((tarde.resultado, tarde.amostra_n), ("NAO MEDIDO", 0))
+        # E um mes que ainda nao acabou tambem nao conta.
+        cedo = self._h6(_coorte_h6("9", ultimo_dia=dt.date(2027, 2, 27)))
+        self.assertEqual(cedo.resultado, "NAO MEDIDO")
+
+    def test_os_tenants_fora_da_coorte_nao_contam(self) -> None:
+        # A revisao adversarial (A2): a amostra do h6-export e da plataforma; a
+        # daqui e so da coorte. Uma substituida com custo enorme nao entra.
+        pmes = [f.pme(n, dias=_dia_h6("4.47")) for n in range(1, 11)]
+        pmes.append(f.pme(11, na_coorte=False, dias=_dia_h6("900", conversas=900)))
+        resultado = self._h6(f.coorte(pmes, FEV))
+        self.assertEqual((resultado.detalhe["racio_agregado"], resultado.amostra_n), ("14.90%", 500))
 
     def test_o_preco_minimo_do_cenario_arredonda_para_cima(self) -> None:
-        cenarios = self._h6(453_000).detalhe["cenarios"]
+        cenarios = self._h6(_coorte_h6("4.53")).detalhe["cenarios"]
         # 453 000 / 0,15 = 3 020 000 exactos.
         self.assertEqual(cenarios[0]["necessario"], "mensalidade >= 3020000 AOA minor")
 
     def test_outra_mensalidade_no_h6_export_e_erro(self) -> None:
-        bruto = f.h6_export([(f.tenant(1), "2027-02", 1)], mensalidade=f.MENSALIDADE + 1)
+        # O protocolo antigo passava o mesmo numero aos dois (A7): o h6-export
+        # multiplica por 100, e a recusa e o que o apanha.
         with self.assertRaises(ValueError):
-            regras.h6(bruto, self.exportacao, f.MENSALIDADE)
+            regras.h6(_coorte_h6("1"), f.MENSALIDADE, f.h6_export(mensalidade=f.MENSALIDADE * 100))
 
-    def test_o_llm_isolado_sai_da_exportacao(self) -> None:
-        activada = dt.date(2027, 2, 1)
-        dias = f.dias_activos(activada, dt.date(2027, 2, 28))  # 0,01 USD de LLM por dia
-        exportacao = f.coorte([f.pme(1, activada=activada, dias=dias)], dt.date(2027, 3, 31))
-        resultado = regras.h6(f.h6_export([(f.tenant(1), "2027-02", 447_000)]), exportacao,
-                              f.MENSALIDADE)
-        # 28 x 0,01 USD x 913 = 255,64 Kz = 25 564 minor; / 3 000 000 = 0,85%.
-        self.assertEqual(resultado.detalhe["llm_isolado_p50"], "0.85%")
+    def test_o_llm_isolado_sai_ao_lado(self) -> None:
+        resultado = self._h6(_coorte_h6("1.5", custo_meta="3.03"))
+        self.assertEqual(resultado.detalhe["racio_agregado"], "15.10%")
+        self.assertEqual(resultado.detalhe["llm_isolado_p50"], "5.00%")
 
 
 class TestPreCondicoes(unittest.TestCase):

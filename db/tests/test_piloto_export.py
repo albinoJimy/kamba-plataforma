@@ -36,7 +36,8 @@ from tests.base import ComBase  # noqa: E402
 
 LUANDA = dt.timezone(dt.timedelta(hours=1))
 DIA = dt.date(2027, 1, 10)
-T1 = "00000000-0000-4000-8000-000000000001"
+FIM_DO_CICLO = dt.date(2027, 2, 10)
+T1 ="00000000-0000-4000-8000-000000000001"
 
 
 class TestCoorte(unittest.TestCase):
@@ -83,17 +84,19 @@ class TestMontar(unittest.TestCase):
             coorte, True, DIA, {T1: DIA - dt.timedelta(days=3)}, {T1: True}, {T1},
             {(T1, DIA): 2, (T1, depois): 9}, {(T1, DIA): (3, 1)}, {(T1, DIA): 1},
             {(T1, DIA): (Decimal("0.5"), Decimal("0.004"))},
-            [(T1, DIA, 3_000_000, "AOA", True, False), (T1, DIA, 1, "AOA", False, False),
-             (T1, depois, 3_000_000, "AOA", False, True)],
+            [(T1, DIA, FIM_DO_CICLO, DIA, 3_000_000, "AOA", True, False),
+             (T1, DIA, FIM_DO_CICLO, DIA, 1, "AOA", False, False),
+             (T1, DIA, FIM_DO_CICLO, depois, 3_000_000, "AOA", False, True)],
         )
         pme = bruto["pmes"][0]
         self.assertEqual(list(pme["dias"]), [DIA.isoformat()])
         self.assertEqual(pme["dias"][DIA.isoformat()],
                          {"conversas": 2, "accoes_dono": 3, "actualizacoes_catalogo": 1,
                           "handoffs": 1, "custo_llm_usd": "0.5", "custo_meta_usd": "0.004"})
-        # O ciclo sem via conhecida e o de depois do ultimo dia ficam de fora.
+        # O ciclo sem via conhecida e o pago depois do ultimo dia ficam de fora.
         self.assertEqual(pme["ciclos_pagos"],
-                         [{"inicio": DIA.isoformat(), "valor_minor": 3_000_000,
+                         [{"inicio": DIA.isoformat(), "fim": FIM_DO_CICLO.isoformat(),
+                           "pago_em": DIA.isoformat(), "valor_minor": 3_000_000,
                            "moeda": "AOA", "via": "facilitador"}])
 
     def test_uma_activacao_depois_do_ultimo_dia_nao_aparece(self) -> None:

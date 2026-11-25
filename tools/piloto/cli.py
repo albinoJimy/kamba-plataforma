@@ -13,6 +13,7 @@ Seis subcomandos, e nenhum decide uma hipotese:
 
     piloto_export.json        a exportacao (`db/piloto_export.py exportar`)
     h6_export.json            a saida do `h6-export exportar` (KAM-081)
+    produtos_P01.csv ...      o catalogo de cada PME de onde o sorteio saiu (`piloto-export produtos`)
     auditoria_P01.csv ...     as folhas de H8 preenchidas, uma por PME
     piloto_congelado.json     o manifesto (`congelar`)
     piloto_resultados.json    a saida do `medir`, formato `kamba-piloto-resultados/1`
@@ -30,6 +31,7 @@ do manifesto com o mesmo `sha256`.
 from __future__ import annotations
 
 import argparse
+import dataclasses
 import datetime as dt
 import hashlib
 import json
@@ -91,6 +93,7 @@ def _analisador() -> argparse.ArgumentParser:
                    help="a mensalidade do protocolo, em AOA minor")
     m.add_argument("--h6-export", type=Path)
     m.add_argument("--auditorias", type=Path, help="pasta com auditoria_PNN.csv")
+    m.add_argument("--semente", help="a semente de H8 do protocolo; obrigatoria com --auditorias")
     m.add_argument("--saida", type=Path)
     return analisador
 
@@ -159,16 +162,30 @@ def _exigir_congelado(manifesto: Path, ficheiro: Path) -> None:
         )
 
 
-def _auditorias(pasta: Path, exportacao: modulo_exportacao.Exportacao,
-                manifesto: Path) -> list[regras.Auditoria]:
+def _auditorias(pasta: Path, exportacao: modulo_exportacao.Exportacao, manifesto: Path,
+                semente: str, fontes: dict[str, str]) -> list[regras.Auditoria]:
+    """As folhas de H8, cada uma conferida contra o sorteio que a gerou.
+
+    Para cada `auditoria_PNN.csv` tem de haver, na mesma pasta e no manifesto, o
+    `produtos_PNN.csv` de onde o sorteio saiu. O sorteio refaz-se com a semente
+    do protocolo, e a folha so conta se os produtos forem **exactamente** os
+    sorteados, pela mesma ordem: uma folha com um item escolhido a mao, ou com
+    menos itens do que a amostra, e recusada. Uma auditoria fora da 4.a semana
+    conta, e sai marcada no detalhe — e um desvio a registar, nao um erro.
+    """
     por_pme = {p.pme: p for p in exportacao.coorte}
     lidas = []
     for caminho in sorted(pasta.iterdir()):
         encontrado = _FOLHA.match(caminho.name)
         if not encontrado:
             continue
-        _exigir_congelado(manifesto, caminho)
         pme = encontrado.group(1)
+        lista = pasta / f"produtos_{pme}.csv"
+        for ficheiro in (caminho, lista):
+            _exigir_congelado(manifesto, ficheiro)
+            fontes[ficheiro.name] = _sha256(ficheiro)
+        sorteados = [p.produto_id for p in modulo_sorteio.sortear(
+            semente, pme, modulo_sorteio.ler_produtos(lista))]
         dados = por_pme.get(pme)
         actualizacoes = None
         if dados is not None and dados.activada_em is not None:
@@ -177,7 +194,18 @@ def _auditorias(pasta: Path, exportacao: modulo_exportacao.Exportacao,
                 dados.activada_em, dados.activada_em + dt.timedelta(days=27),
                 "actualizacoes_catalogo",
             )
-        lidas.append(modulo_sorteio.ler_folha(caminho.read_text(encoding="utf-8"), pme, actualizacoes))
+        folha = modulo_sorteio.ler_folha(caminho.read_text(encoding="utf-8"), pme, actualizacoes)
+        if list(folha.produtos) != sorteados:
+            raise modulo_sorteio.FolhaInvalida(
+                f"{caminho.name}: os produtos nao sao os do sorteio com esta semente "
+                f"({len(folha.produtos)} na folha, {len(sorteados)} sorteados)"
+            )
+        auditoria = folha.auditoria
+        if dados is not None and dados.activada_em is not None:
+            semana = (auditoria.auditado_em - dados.activada_em).days // 7 + 1
+            auditoria = dataclasses.replace(
+                auditoria, fora_da_semana_4=semana != regras.H8_SEMANA_DA_AUDITORIA)
+        lidas.append(auditoria)
     return lidas
 
 
@@ -197,12 +225,12 @@ def _medir(a: argparse.Namespace) -> int:
         _exigir_congelado(a.manifesto, a.h6_export)
         fontes[a.h6_export.name] = _sha256(a.h6_export)
         bruto = json.loads(a.h6_export.read_text(encoding="utf-8"))
-        h6 = regras.h6(bruto, exportacao, a.mensalidade_minor).como_dict()
-    auditorias = [] if a.auditorias is None else _auditorias(a.auditorias, exportacao, a.manifesto)
+        h6 = regras.h6(exportacao, a.mensalidade_minor, bruto).como_dict()
+    auditorias: list[regras.Auditoria] = []
     if a.auditorias is not None:
-        for caminho in sorted(a.auditorias.iterdir()):
-            if _FOLHA.match(caminho.name):
-                fontes[caminho.name] = _sha256(caminho)
+        if not a.semente:
+            raise ValueError("--auditorias exige a --semente do protocolo: e com ela que as folhas se conferem")
+        auditorias = _auditorias(a.auditorias, exportacao, a.manifesto, a.semente, fontes)
     h8 = regras.h8(exportacao, auditorias)
     h9 = regras.h9(exportacao)
     resultado = {

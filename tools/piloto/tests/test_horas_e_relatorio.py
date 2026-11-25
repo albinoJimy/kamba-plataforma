@@ -62,13 +62,35 @@ class TestRelatorio(unittest.TestCase):
 
     def test_o_canario_morde_na_entrada(self) -> None:
         telefone = "9" + "23" + "456" + "789"
-        for texto in (f.tenant(1), telefone, f"+244{telefone}", f"{telefone[:3]}-{telefone[3:6]}-{telefone[6:]}"):
+        for texto in (f.tenant(1), telefone, f"+244{telefone}", f"{telefone[:3]}-{telefone[3:6]}-{telefone[6:]}",
+                      f"00244{telefone}", f"tel{telefone}", "2" + "22" + "123" + "456"):
             with self.subTest(texto=texto), self.assertRaises(relatorio.RelatorioRecusado):
                 relatorio.verificar_sem_pii(f"| P01 | {texto} |")
 
-    def test_um_sha256_em_hex_nao_e_telefone(self) -> None:
-        relatorio.verificar_sem_pii("sha256 `" + "9" * 9 + "a" * 55 + "`")
-        relatorio.verificar_sem_pii("sha256 `" + "a" * 55 + "9" * 9 + "`")
+    def test_um_sha256_em_hex_passa_so_pelo_valor_exacto(self) -> None:
+        # Nove digitos seguidos num hex casam a forma do telefone: o `sha256` que
+        # o proprio gerador escreve passa por ser permitido, e so ele.
+        sha = "a" * 20 + "9" * 9 + "b" * 35
+        telefone = "9" + "23" + "456" + "789"
+        relatorio.verificar_sem_pii(f"sha256 `{sha}`", (sha,))
+        with self.assertRaises(relatorio.RelatorioRecusado):
+            relatorio.verificar_sem_pii(f"sha256 `{sha}`")
+        with self.assertRaises(relatorio.RelatorioRecusado):
+            relatorio.verificar_sem_pii(f"sha256 `{sha}` {telefone}", (sha,))
+
+    def test_o_relatorio_com_um_sha256_real_escreve_se(self) -> None:
+        sha = "1" * 10 + "9" * 9 + "c" * 45
+        texto = relatorio.gerar(self.exportacao, self.blocos, f.INICIO, 1, sha)
+        self.assertIn(sha, texto)
+
+    def test_as_horas_fora_da_coorte_nao_somem(self) -> None:
+        # A revisao adversarial (A10): a P04 saiu, mas as horas dela contam.
+        blocos = horas.ler(REGISTO + "2027-01-07,P04,40,t2\n2027-01-07,P77,5,incidente\n")
+        texto = relatorio.gerar(self.exportacao, blocos, f.INICIO, 1, "ab" * 32)
+        fora = next(l for l in texto.splitlines() if l.startswith("| Fora da coorte |"))
+        self.assertTrue(fora.endswith("| 1 | 0h45 |"), fora)
+        total = next(l for l in texto.splitlines() if l.startswith("| **Total** |"))
+        self.assertTrue(total.endswith("| 2 | 2h20 |"), total)
 
     def test_o_relatorio_sintetico_passa_a_guarda_e_nao_tem_os_tenants(self) -> None:
         texto = self._gerar()
@@ -100,7 +122,8 @@ class TestRelatorio(unittest.TestCase):
         # Se alguem trocasse o ordinal pelo tenant_id, a guarda apanhava-o.
         original = relatorio.verificar_sem_pii
         visto: list[str] = []
-        relatorio.verificar_sem_pii = lambda texto: visto.append(texto) or original(texto)
+        relatorio.verificar_sem_pii = lambda texto, permitidos=(): visto.append(texto) or original(
+            texto, permitidos)
         try:
             self._gerar()
         finally:

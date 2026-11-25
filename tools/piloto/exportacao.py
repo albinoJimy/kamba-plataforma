@@ -22,11 +22,15 @@ saida do `h6-export` (KAM-081), que e o instrumento que o bloco nomeia.
           "dias": {"AAAA-MM-DD": {"conversas": n, "accoes_dono": n,
                                    "actualizacoes_catalogo": n, "handoffs": n,
                                    "custo_llm_usd": "x", "custo_meta_usd": "y"}},
-          "ciclos_pagos": [{"inicio": "AAAA-MM-DD", "valor_minor": n,
+          "ciclos_pagos": [{"inicio": "AAAA-MM-DD", "fim": "AAAA-MM-DD",
+                             "pago_em": "AAAA-MM-DD", "valor_minor": n,
                              "moeda": "AOA", "via": "facilitador" | "ops"}]
         }
       ]
     }
+
+O `fim` de um ciclo e **exclusivo** (o `upper` do `daterange` da `0055`), e o
+`pago_em` e o dia do `pagamento_confirmado` aceite que o pagou.
 
 Um dia sem actividade **nao aparece** em `dias`, e conta como zero: a base so
 devolve dias com linhas, e preencher os outros era inventar a forma.
@@ -84,7 +88,7 @@ CAMPOS_DO_DIA: Final = frozenset(
         "custo_meta_usd",
     }
 )
-CAMPOS_DO_CICLO: Final = frozenset({"inicio", "valor_minor", "moeda", "via"})
+CAMPOS_DO_CICLO: Final = frozenset({"inicio", "fim", "pago_em", "valor_minor", "moeda", "via"})
 CAMPOS_DA_SAIDA: Final = frozenset({"dia", "motivo"})
 
 #: Os motivos de saida da coorte. Lista fechada: um motivo em texto livre era
@@ -120,6 +124,8 @@ VAZIO: Final = Dia()
 @dataclass(frozen=True)
 class Ciclo:
     inicio: dt.date
+    fim: dt.date  # exclusivo
+    pago_em: dt.date
     valor_minor: int
     moeda: str
     via: str
@@ -268,9 +274,15 @@ def _pme(indice: int, bruto: Any) -> Pme:
             raise ExportacaoInvalida(f"{local}: via fora da lista {sorted(VIAS_DE_PAGAMENTO)}")
         if ciclo["moeda"] != "AOA":
             raise ExportacaoInvalida(f"{local}: a mensalidade e em AOA")
+        inicio = _data(f"{local}.inicio", ciclo["inicio"])
+        fim = _data(f"{local}.fim", ciclo["fim"])
+        if fim <= inicio:
+            raise ExportacaoInvalida(f"{local}: o fim (exclusivo) tem de ser depois do inicio")
         ciclos.append(
             Ciclo(
-                _data(f"{local}.inicio", ciclo["inicio"]),
+                inicio,
+                fim,
+                _data(f"{local}.pago_em", ciclo["pago_em"]),
                 _inteiro(f"{local}.valor_minor", ciclo["valor_minor"]),
                 ciclo["moeda"],
                 ciclo["via"],

@@ -26,7 +26,7 @@ if str(_TOOLS) not in sys.path:
     sys.path.insert(0, str(_TOOLS))
 
 import piloto_export as pe  # noqa: E402
-from tests_pagamentos.test_subscricao_e_billing import INICIO, PRECO, ComBilling  # noqa: E402
+from tests_pagamentos.test_subscricao_e_billing import FIM, INICIO, PRECO, ComBilling  # noqa: E402
 
 
 class TestCiclosPagosNoPiloto(ComBilling):
@@ -36,10 +36,14 @@ class TestCiclosPagosNoPiloto(ComBilling):
         self.cobranca = self.cobranca_do_ciclo(self.ciclo)
         self.coorte = pe.ler_coorte(f"pme,tenant_id,saida_dia,motivo\nP01,{self.tenant},,\n")
 
-    def _exportar(self) -> list[dict]:
+    def _exportar(self, ate: dt.date | None = None) -> list[dict]:
         batch = self.cursor_papel("batch")
-        bruto = pe.exportar(batch, self.coorte, sintetico=True)
+        bruto = pe.exportar(batch, self.coorte, sintetico=True, ate=ate)
         return bruto["pmes"][0]["ciclos_pagos"]
+
+    def _hoje(self) -> dt.date:
+        self.semente.execute("SELECT (now() AT TIME ZONE 'Africa/Luanda')::date")
+        return self.semente.fetchone()[0]
 
     def test_emitido_e_nao_pago_nao_aparece(self) -> None:
         self.assertEqual(self._exportar(), [])
@@ -49,14 +53,18 @@ class TestCiclosPagosNoPiloto(ComBilling):
         self.appendar(pay, self.cobranca, self.conta, "pagamento_confirmado", p_valor_minor=PRECO)
         self.confirmar(pay, self.tenant)
         self.assertEqual(self.estado_do_ciclo(self.ciclo), "paga")
-        self.assertEqual(self._exportar(), [
-            {"inicio": INICIO, "valor_minor": PRECO, "moeda": "AOA", "via": "facilitador"},
+        hoje = self._hoje()
+        # Pago hoje: so aparece numa exportacao que inclua hoje.
+        self.assertEqual(self._exportar(), [])
+        self.assertEqual(self._exportar(ate=hoje), [
+            {"inicio": INICIO, "fim": FIM, "pago_em": hoje.isoformat(),
+             "valor_minor": PRECO, "moeda": "AOA", "via": "facilitador"},
         ])
 
     def test_pago_por_ops_com_dupla_aprovacao(self) -> None:
         self.aprovar(self.cobranca, str(uuid.uuid4()))
         self.aprovar(self.cobranca, str(uuid.uuid4()), "segunda leitura")
         self.assertEqual(self.estado_do_ciclo(self.ciclo), "paga")
-        ciclos = self._exportar()
+        ciclos = self._exportar(ate=self._hoje())
         self.assertEqual([c["via"] for c in ciclos], ["ops"])
-        self.assertEqual(ciclos[0]["inicio"], dt.date.fromisoformat(INICIO).isoformat())
+        self.assertEqual((ciclos[0]["inicio"], ciclos[0]["fim"]), (INICIO, FIM))

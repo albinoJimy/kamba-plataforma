@@ -14,17 +14,18 @@ partes, e a segunda existe porque a primeira e codigo que alguem pode alargar:
 1. **so le numeros**: a exportacao tem lista fechada de campos, e o relatorio
    so usa o ordinal da PME e contagens;
 2. **a saida passa por `verificar_sem_pii`** antes de ser escrita — recusa
-   qualquer `uuid` (um `tenant_id` ou um `contact_id`), qualquer coisa com
-   forma de telefone angolano, e o `+244`. Um relatorio recusado nao se escreve.
+   qualquer `uuid` (um `tenant_id` ou um `contact_id`) e qualquer forma de
+   telefone angolano, movel ou fixo (`guarda`). Um relatorio recusado nao se
+   escreve.
 """
 
 from __future__ import annotations
 
 import datetime as dt
-import re
 from decimal import Decimal
 from typing import Final
 
+from . import guarda
 from . import horas as modulo_horas
 from .exportacao import Exportacao
 from .regras import activa_em
@@ -41,28 +42,19 @@ COLUNAS: Final = (
     "Horas de operador",
 )
 
-_UUID: Final = re.compile(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")
-#: Nove digitos a comecar por 9, com ou sem separadores e indicativo. Os
-#: limites excluem letras e digitos, para um `sha256` em hex nao casar.
-_TELEFONE: Final = re.compile(
-    r"(?<![0-9A-Za-z])(?:\+?244[ .-]?)?9\d{2}[ .-]?\d{3}[ .-]?\d{3}(?![0-9A-Za-z])"
-)
-
-
 class RelatorioRecusado(Exception):
     """O texto do relatorio tem algo com forma de dado pessoal."""
 
 
-def verificar_sem_pii(texto: str) -> None:
-    achados = []
-    if _UUID.search(texto):
-        achados.append("uuid")
-    if _TELEFONE.search(texto):
-        achados.append("forma de telefone")
-    if "+244" in texto:
-        achados.append("indicativo +244")
-    if achados:
-        raise RelatorioRecusado("o relatorio tem " + ", ".join(achados) + ": nao se escreve")
+def verificar_sem_pii(texto: str, permitidos: tuple[str, ...] = ()) -> None:
+    """Recusa o texto com `uuid` ou forma de telefone (`guarda`).
+
+    `permitidos` sao valores exactos que o proprio gerador escreveu — o `sha256`
+    da exportacao —, e saem da procura so por esse valor.
+    """
+    encontrados = guarda.achados(texto, permitidos)
+    if encontrados:
+        raise RelatorioRecusado("o relatorio tem " + ", ".join(encontrados) + ": nao se escreve")
 
 
 def semana(inicio: dt.date, n: int) -> tuple[dt.date, dt.date]:
@@ -117,12 +109,19 @@ def gerar(
             [pme.pme, dias, activa, str(conversas), str(handoffs), str(pagos),
              f"{custo:.2f}", str(op["incidentes"]), _horas(op["minutos"])]
         )
-    fora = operador.get(modulo_horas.SEM_PME, {"minutos": 0, "incidentes": 0})
-    totais["minutos"] += fora["minutos"]
-    totais["incidentes"] += fora["incidentes"]
-    linhas.append(
-        ["Sem PME", "—", "—", "—", "—", "—", "—", str(fora["incidentes"]), _horas(fora["minutos"])]
-    )
+    # O trabalho que nao e de uma PME da coorte nao some: o sem PME, e o das
+    # substituidas ou de um ordinal que nao esta na coorte, numa linha cada.
+    na_coorte = {p.pme for p in exportacao.coorte}
+    restos = {
+        "Sem PME": [modulo_horas.SEM_PME],
+        "Fora da coorte": sorted(k for k in operador if k != modulo_horas.SEM_PME and k not in na_coorte),
+    }
+    for rotulo, chaves in restos.items():
+        minutos = sum(operador[k]["minutos"] for k in chaves if k in operador)
+        incidentes = sum(operador[k]["incidentes"] for k in chaves if k in operador)
+        totais["minutos"] += minutos
+        totais["incidentes"] += incidentes
+        linhas.append([rotulo, "—", "—", "—", "—", "—", "—", str(incidentes), _horas(minutos)])
     linhas.append(
         ["**Total**", "—", f"{totais['activas']} de {len(exportacao.coorte)}",
          str(totais["conversas"]), str(totais["handoffs"]), str(totais["pagamentos"]),
@@ -147,5 +146,5 @@ def gerar(
         "",
     ]
     texto = "\n".join(partes)
-    verificar_sem_pii(texto)
+    verificar_sem_pii(texto, (sha256_da_exportacao,))
     return texto

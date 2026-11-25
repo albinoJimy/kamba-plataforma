@@ -59,9 +59,9 @@ Conversas reais **não** treinam nem melhoram modelos.
 
 | Item | Regra | Estado |
 |---|---|---|
-| Tamanho | **10 PMEs**, da lista de canais do KAM-106 (`14` §3A, Regra 4) | fixado pela fonte |
+| Tamanho | **10 PMEs**, da lista de canais do KAM-106 (`14` §3A, Regra 4). O `medir` recusa uma coorte com mais de 10: «5 de 12» não é «5 de 10» | fixado pela fonte |
 | Entrada | *Self-service* (ADR-019); a % de activações sem intervenção humana reporta-se (§3) | fixado pela fonte |
-| Identificação fora da base | Só o **ordinal** `P01`…`P99`, pela ordem de entrada na coorte. O nome da PME, do dono e qualquer telefone **nunca** saem da base | *proposta* |
+| Identificação fora da base | Só o **ordinal** `P01`…`P99`, pela ordem de entrada na coorte. O nome da PME, do dono e qualquer telefone **nunca** saem da base nos relatórios, nas exportações nem nos resultados. **A única excepção é operacional**: a lista de produtos e a folha de auditoria de H8 levam os nomes dos produtos (dados do negócio, escritos pelo dono, que podem trazer o nome comercial), porque quem audita precisa deles para os encontrar. Ficam fora do repositório, com a exportação, e o `medir` só lê delas contagens | *proposta* |
 | Dia 0 | O dia (`Africa/Luanda`) da **primeira** entrada da PME no estado `ativo` (`tenant_state_log`, a mesma regra da `churn_dono_at` da `0063`) | *proposta* |
 | Dia 1 do Piloto | A data em que o relatório semanal começa a contar semanas. **Por preencher**: ________ | por preencher |
 | Gratuitidade | 30 dias gratuitos e, depois, pagamento ao preço real (Regra 4) — a leitura que o bloco do KAM-109 adopta para a inconsistência de `14` entre H1 e a Regra 4 | fixado pelo bloco |
@@ -115,9 +115,10 @@ chegaram a usar; excluí-las favorece-a. A escolha fica escrita para quem assina
 | Plano no `price_book` | **por preencher** |
 
 O bloco dá **30–60 mil Kz** como hipótese de referência (`../../09_Topologia_Operacao_Escala.md`
-§14.1), e **não** é o preço. O valor deste campo é o `--mensalidade-minor` do
-`medir` e o `--mensalidade-kz` do `h6-export`, os dois iguais: o `medir` recusa
-um `h6_export.json` corrido com outra mensalidade.
+§14.1), e **não** é o preço. O valor deste campo, em unidade menor, é o
+`--mensalidade-minor` do `medir`; o `--mensalidade-kz` do `h6-export` é o
+**mesmo valor a dividir por 100**, porque o `h6-export` multiplica por 100. O
+`medir` recusa um `h6_export.json` corrido com outra mensalidade.
 
 ---
 
@@ -128,8 +129,8 @@ um `h6_export.json` corrido com outra mensalidade.
 | **Conversa** | Mensagens do mesmo contacto, no mesmo tenant, sem pausa maior do que 24 h, na linha do tempo das mensagens de saída. Conta no dia em que **começa** | `outbound_messages`, pela regra do `h6-export` (KAM-081); as conversas de teste em produção (`conversations.is_test`, KAM-202) ficam de fora | fixado pelo KAM-081 |
 | **Acção do dono** | Uma linha do `audit_log` com `actor_type = 'owner'` — painel e canal do dono | `audit_log` | *proposta* — conta por baixo (§11) |
 | **Activa** | **≥ 1 acção do dono em cada uma das duas semanas** da janela de 14 dias que acaba no dia avaliado, **e ≥ 5 conversas** nessa janela | as duas acima | *proposta* do bloco; a leitura «em cada semana» é deste protocolo |
-| **Pagante** (H1) | Um ciclo de mensalidade em `paga` com valor **igual** à mensalidade do §4 e início **no dia 30 ou depois**, provado por `pagamento_confirmado` aceite **autenticado pelo facilitador** (`hmac` ou `consulta`) ou **confirmado por ops com dupla aprovação** (a conciliação do comprovativo bancário, `0055`). Um ciclo a outro preço não conta | `billing_cycles`, `payment_events` | *proposta* |
-| **Prazo da conversão** | O dia 30 mais **10 dias** — o último passo da régua de cobrança (KAM-058). Até lá, uma PME sem ciclo pago é **pendente**; depois, **não pagante** | — | *proposta* |
+| **Pagante** (H1) | Um ciclo de mensalidade em `paga` com valor **igual** à mensalidade do §4, que **cubra tempo depois do dia 30** (o fim do período, exclusivo, depois do dia 30) e **pago até ao fecho da janela da conversão**, provado por `pagamento_confirmado` aceite **autenticado pelo facilitador** (`hmac` ou `consulta`) ou **confirmado por ops com dupla aprovação** (a conciliação do comprovativo bancário, `0055`). Um ciclo a outro preço não conta. O critério é o período coberto, e não o início do ciclo, porque os ciclos **não** abrem na activação: abrem no `periodo_dia` da subscrição (1 a 28, `0055`) | `billing_cycles` (período), `payment_events` (via e `recebido_at`) | *proposta* |
+| **Janela da conversão** | Do dia 30 ao dia 30 + **41** — um período mensal (31 dias), porque o primeiro ciclo depois do dia 30 pode abrir até um mês depois, mais os **10 dias** da régua de cobrança (KAM-058). Com a janela aberta, uma PME sem pagamento é **pendente**; fechada, **não pagante**, e um pagamento que chegue depois **não conta** — é isso que torna final uma `refutada` | — | *proposta* |
 | **Catálogo correcto** (H8) | **≥ 90%** dos itens da amostra certos; item certo se o **preço e** a disponibilidade coincidem com a verdade apurada com o dono ou em visita | folha de auditoria (§8) | *proposta* do bloco |
 | **Disponível no sistema** | Oferta `publicado` e com stock (`stock_quantidade − stock_reservada > 0`) ou sem quantidade declarada | `offer_terms` | *proposta* |
 | **Exposição de N dias** | O último dia exportado é pelo menos o dia N | — | *proposta* |
@@ -146,15 +147,19 @@ com menos de 10 conta as vagas por preencher como pendentes.
 
 | H | Limiar | Amostra | Regra de estado | Pivô (`14` §6) |
 |---|---|---|---|---|
-| **H1** | ≥ 5 de 10 pagam após 30 dias | A coorte final | Contagem (acima), com «pendente» = prazo da conversão aberto | Voltar às entrevistas: segmento ou produto |
-| **H6** | Custo ≤ 15% da mensalidade | ≥ 500 conversas do `h6-export` | Abaixo de 500: `inconclusiva`. **Regra de contagem por omissão: a de `14` — LLM + voz + Meta.** Como não há registo de STT (KAM-036), LLM + Meta **acima** do tecto é `refutada` (o STT só soma) e **no tecto ou abaixo** é `inconclusiva` com o motivo `stt_nao_medido`. Estatística que decide: o **rácio agregado** — o custo de todos os meses-PME completos sobre as mensalidades desses meses (*proposta*); p50 e p90 por mês-PME e o LLM isolado reportam-se ao lado | Subir o preço, reduzir modelo ou voz, ou limitar volume por plano — com a tabela de cenários que o `medir` calcula |
-| **H8** | ≥ 60% de catálogos correctos (≥ 6 de 10) | As PMEs da coorte auditadas na 4.ª semana | Contagem (acima); uma PME sem folha é pendente. A razão actualizações no sistema / mudanças reais declaradas reporta-se e não decide | **Nenhum.** O gate propõe uma acção de produto (p. ex. lembretes de actualização e painel mínimo, KAM-099) e regista-a |
-| **H9** | ≥ 70% activas ao dia 60 | **Só** as PMEs com 60 dias de exposição | Com **< 8** elegíveis: `inconclusiva`, com a data de seguimento em que a 8.ª activação faz 60 dias. Com ≥ 8: `confirmada` se activas/elegíveis ≥ 70%, senão `refutada`. O indicador do dia 30 reporta-se à parte e **não** substitui o do dia 60 | **Nenhum.** Se `refutada`, aplica-se a regra de paragem total (§2.2) e o gate decide o pivô sobre retenção |
+| **H1** | ≥ 5 de 10 pagam após 30 dias | A coorte final | Contagem (acima), com «pendente» = janela da conversão aberta | Voltar às entrevistas: segmento ou produto |
+| **H6** | Custo ≤ 15% da mensalidade | ≥ 500 conversas **da coorte**, nos meses contados | **Os meses e as conversas são os da coorte**: os meses de calendário **inteiros** entre a activação de cada PME e o último dia exportado, com o custo diário da vista do custo (`v_tenant_cost_daily`, a mesma que o `h6-export` lê) na exportação do Piloto. A amostra do `h6-export` **não decide**: são as últimas N conversas da plataforma, sem filtro de tenant, e o rácio dele só leva os meses que essa amostra toca. Do `h6-export` vêm o câmbio, a mensalidade (conferida) e os percentis por conversa, reportados. Abaixo de 500 conversas: `inconclusiva`. **Regra de contagem por omissão: a de `14` — LLM + voz + Meta.** Como não há registo de STT (KAM-036), LLM + Meta **acima** do tecto é `refutada` (o STT só soma) e **no tecto ou abaixo** é `inconclusiva` com o motivo `stt_nao_medido`. Estatística que decide: o **rácio agregado** — o custo de todos os meses-PME contados sobre as mensalidades desses meses (*proposta*); p50 e p90 por mês-PME e o LLM isolado reportam-se ao lado | Subir o preço, reduzir modelo ou voz, ou limitar volume por plano — com a tabela de cenários que o `medir` calcula |
+| **H8** | ≥ 60% de catálogos correctos (≥ 6 de 10) | As PMEs da coorte auditadas na 4.ª semana | Contagem (acima); uma PME sem folha é pendente. **Uma folha só conta se os produtos forem exactamente os sorteados** com a semente do §8, pela mesma ordem: o `medir` refaz o sorteio e recusa a medição inteira se não forem. Uma auditoria fora da 4.ª semana conta e sai marcada (`fora_da_semana_4`), e é um desvio a registar (§12). A razão actualizações no sistema / mudanças reais declaradas reporta-se e não decide | **Nenhum.** O gate propõe uma acção de produto (p. ex. lembretes de actualização e painel mínimo, KAM-099) e regista-a |
+| **H9** | ≥ 70% activas ao dia 60 | **Só** as PMEs com 60 dias de exposição **à data do gate** | Com **< 8** elegíveis: `inconclusiva`, com a data de seguimento em que a 8.ª activação faz 60 dias. Com ≥ 8: `confirmada` se activas/elegíveis ≥ 70%, senão `refutada`. **Ao contrário de H1 e H8, não é final antes do gate:** com 8 elegíveis pode mudar quando mais PMEs fazem 60 dias, e por isso lê-se na exportação congelada da data do gate. O indicador do dia 30 reporta-se à parte e **não** substitui o do dia 60 | **Nenhum.** Se `refutada`, aplica-se a regra de paragem total (§2.2) e o gate decide o pivô sobre retenção |
 
-**Calendário de H9.** A Fase 1 vai da semana 7 à 12, e o dia 60 só é alcançável
-para PMEs activadas até cerca da semana 4 (`14` §2). É a razão da regra das 8
-elegíveis: com o calendário apertado, H9 sai `inconclusiva` com data, e não
-`refutada` por falta de tempo.
+**Calendário de H9.** O `14` §2 escreve o limiar como «≥ 70% activos ao dia 60
+(das PMEs activadas até à semana 4)», e o bloco do KAM-109 operacionaliza-o como
+«apenas sobre PMEs com 60 dias de exposição à data do gate». **Este protocolo
+segue o bloco**, que é a fonte mais específica: as duas coincidem quando o gate é
+na semana 12, e quando não coincidem é o bloco que diz o que se mede. A Fase 1
+vai da semana 7 à 12, e o dia 60 só é alcançável para PMEs activadas até cerca da
+semana 4. É a razão da regra das 8 elegíveis: com o calendário apertado, H9 sai
+`inconclusiva` com data, e não `refutada` por falta de tempo.
 
 ---
 
@@ -170,7 +175,7 @@ dos dados.
 | `H1_ALVO` | 5 | pagantes para confirmar H1 | `14` §2 |
 | `COORTE` | 10 | PMEs no Piloto | `14` §3A, Regra 4 |
 | `H1_DIA_DA_CONVERSAO` | 30 | dias gratuitos | Regra 4 |
-| `H1_PRAZO_DE_PAGAMENTO_DIAS` | 10 | prazo da conversão depois do dia 30 | *proposta* (régua do KAM-058) |
+| `H1_JANELA_DE_PAGAMENTO_DIAS` | 41 | janela da conversão depois do dia 30 | *proposta* (um período mensal e a régua do KAM-058) |
 | `H6_TECTO` | 15% | custo sobre a mensalidade | `14` §2 |
 | `H6_AMOSTRA_MINIMA` | 500 | conversas | bloco do KAM-109 |
 | `H8_ALVO` | 6 | catálogos correctos em 10 | `14` §2 (≥ 60%) |
@@ -193,18 +198,23 @@ dos dados.
 1. **A semente regista-se antes da auditoria**, aqui: ________ (um texto
    qualquer; quem audita não a escolhe depois de ver a amostra).
 2. Na 4.ª semana de cada PME (dias 21 a 27), o catálogo exporta-se com
-   `python db/piloto_export.py produtos --coorte coorte.csv --pme PNN`, e a
-   amostra sorteia-se com `python -m piloto sortear --semente <semente> --pme PNN
-   --produtos produtos_PNN.csv --saida auditoria_PNN.csv`.
+   `python db/piloto_export.py produtos --coorte coorte.csv --pme PNN --saida
+   produtos_PNN.csv`, e a amostra sorteia-se com `python -m piloto sortear
+   --semente <semente> --pme PNN --produtos produtos_PNN.csv --saida
+   auditoria_PNN.csv`. **Os dois ficheiros guardam-se juntos**: o `medir` exige a
+   lista de produtos no manifesto ao lado de cada folha.
 3. **O sorteio é reprodutível por qualquer um sem o nosso código:** cada produto
    recebe `sha256("<semente>:<PNN>:<sku>")`, e a amostra são os 20 de chave mais
-   baixa (todos, se houver menos).
+   baixa (todos, se houver menos). O `medir` refá-lo com a `--semente` e recusa
+   uma folha cujos produtos não sejam exactamente esses.
 4. Quem audita preenche, item a item, o preço e a disponibilidade **verdadeiros**
-   e a fonte (`dono` ou `visita`), e na última linha (`mudancas`) o número de
-   mudanças reais de preço ou de stock que o dono declara nas 4 semanas.
+   e a fonte (`dono` ou `visita`), e as duas linhas de controlo: `mudancas` (as
+   mudanças reais de preço ou de stock que o dono declara nas 4 semanas) e
+   `auditado_em` (o dia da auditoria). Uma folha sem elas está por preencher.
 5. **A folha não tem coluna de texto livre**, e o `sortear` recusa um nome de
-   produto com forma de telefone. O que precisar de nota vai para o registo de
-   desvios, sem dados pessoais.
+   produto com forma de telefone, móvel ou fixo, com ou sem indicativo e com
+   qualquer agrupamento. O que precisar de nota vai para o registo de desvios,
+   sem dados pessoais.
 
 ---
 
@@ -213,7 +223,8 @@ dos dados.
 `python -m piloto relatorio --exportacao piloto_export.json --horas horas.csv
 --inicio <dia 1 do Piloto> --semana N`, uma vez por semana do Piloto, sobre a
 exportação dessa semana. Modelo fixo, uma linha por PME da coorte, uma de
-trabalho sem PME e uma de total:
+trabalho sem PME, uma do trabalho com PMEs que saíram da coorte (para as horas não
+sumirem) e uma de total:
 
 | PME | Dias desde a activação | Activa | Conversas | Handoffs | Pagamentos | Custo LLM + Meta (USD) | Incidentes | Horas de operador |
 |---|---|---|---|---|---|---|---|---|
@@ -232,15 +243,17 @@ No fim do Piloto (e antes de qualquer leitura que alimente o KAM-110):
 
 ```text
 python db/piloto_export.py exportar --coorte coorte.csv --real --saida piloto_export.json
-python db/h6_export.py exportar --mensalidade-kz <§4> --saida h6_export.json
-python -m piloto congelar piloto_export.json h6_export.json auditoria_P*.csv --saida piloto_congelado.json
+python db/h6_export.py exportar --mensalidade-kz <§4 a dividir por 100> --saida h6_export.json
+python -m piloto congelar piloto_export.json h6_export.json auditoria_P*.csv produtos_P*.csv \
+    --saida piloto_congelado.json
 python -m piloto medir --exportacao piloto_export.json --manifesto piloto_congelado.json \
-    --mensalidade-minor <§4> --h6-export h6_export.json --auditorias . --saida piloto_resultados.json
+    --mensalidade-minor <§4> --h6-export h6_export.json --auditorias . --semente <§8> \
+    --saida piloto_resultados.json
 ```
 
 **O `medir` recusa** (código 2, sem escrever nada) qualquer entrada que não
-conste do manifesto com o mesmo `sha256`. Os nomes dos cinco ficheiros são
-contrato com o KAM-110. O `sha256` do manifesto entra na coluna `fonte` do
+conste do manifesto com o mesmo `sha256`. Os nomes dos ficheiros são contrato
+com o KAM-110. O `sha256` do manifesto entra na coluna `fonte` do
 Registo de Hipóteses, e o conjunto arquiva-se em armazenamento controlado, fora
 do repositório. A exportação não tem dados pessoais (lista fechada de campos),
 mas tem `tenant_id`: é dado do sistema e não se publica.
@@ -305,4 +318,4 @@ incidente é uma linha da categoria `incidente`.
 
 | Versão | Data | Descrição | Autor |
 |---|---|---|---|
-| 1.0 | 2026-11-25 | Emissão inicial, preparação do KAM-109 (lote 24), **por assinar**. Coorte, dia 0, substituição e paragem; cinco pré-condições; definições operacionais com fonte no sistema e estado; a regra de estado de H1, H6, H8 e H9; a tabela das dezoito constantes cruzada por ensaio com `tools/piloto/regras.py`; a auditoria de H8 com sorteio por `sha256` reprodutível sem o nosso código; o relatório semanal de modelo fixo com guarda de dados pessoais; a exportação congelada e os cinco nomes de ficheiro que o KAM-110 consome; o registo de horas sem notas. **Em branco, por serem do fundador:** o preço real, o dia 1 do Piloto, a semente de H8 e as assinaturas. Cinco limites devolvidos com credor. | Coordenação do lote 24 |
+| 1.0 | 2026-11-25 | Emissão inicial, preparação do KAM-109 (lote 24), **por assinar**. Coorte, dia 0, substituição e paragem; cinco pré-condições; definições operacionais com fonte no sistema e estado; a regra de estado de H1, H6, H8 e H9; a tabela das dezoito constantes cruzada por ensaio com `tools/piloto/regras.py`; a auditoria de H8 com sorteio por `sha256` reprodutível sem o nosso código; o relatório semanal de modelo fixo com guarda de dados pessoais; a exportação congelada e os nomes de ficheiro que o KAM-110 consome; o registo de horas sem notas. **Em branco, por serem do fundador:** o preço real, o dia 1 do Piloto, a semente de H8 e as assinaturas. Cinco limites devolvidos com credor. | Coordenação do lote 24 |

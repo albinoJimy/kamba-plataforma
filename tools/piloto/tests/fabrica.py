@@ -57,9 +57,14 @@ def pme(
 
 
 def ciclo_pago(activada: dt.date, dia: int = 30, valor: int = MENSALIDADE,
-               via: str = "facilitador") -> dict[str, Any]:
-    return {"inicio": (activada + dt.timedelta(days=dia)).isoformat(),
-            "valor_minor": valor, "moeda": "AOA", "via": via}
+               via: str = "facilitador", pago_no_dia: int | None = None,
+               dias_do_periodo: int = 31) -> dict[str, Any]:
+    """Um ciclo que comeca no dia `dia` e e pago no dia `pago_no_dia` (omissao: o mesmo)."""
+    inicio = activada + dt.timedelta(days=dia)
+    pago = activada + dt.timedelta(days=dia if pago_no_dia is None else pago_no_dia)
+    return {"inicio": inicio.isoformat(),
+            "fim": (inicio + dt.timedelta(days=dias_do_periodo)).isoformat(),
+            "pago_em": pago.isoformat(), "valor_minor": valor, "moeda": "AOA", "via": via}
 
 
 def bruto(pmes: list[dict[str, Any]], ultimo_dia: dt.date) -> dict[str, Any]:
@@ -71,20 +76,16 @@ def coorte(pmes: list[dict[str, Any]], ultimo_dia: dt.date) -> exportacao.Export
     return exportacao.de_objecto(json.loads(json.dumps(bruto(pmes, ultimo_dia))))
 
 
-def h6_export(meses: list[tuple[str, str, int]], amostra: int = 500,
-              mensalidade: int = MENSALIDADE) -> dict[str, Any]:
-    """A forma do `h6-export exportar`, so com os campos que o `piloto` le."""
+def h6_export(fx: str = "1000", mensalidade: int = MENSALIDADE) -> dict[str, Any]:
+    """A forma do `h6-export exportar`, so com os campos que o `piloto` le.
+
+    O cambio de ensaio e 1000, para as contas darem numeros redondos: 1 USD =
+    100 000 AOA minor. Nao e o cambio de ninguem.
+    """
     return {
-        "fx_aoa_per_usd": "913",
+        "fx_aoa_per_usd": fx,
         "mensalidade_aoa_minor": mensalidade,
-        "amostra": amostra,
+        "amostra": 500,
         "percentis_custo_total_usd": {"p50": "0.01", "p90": "0.02", "p99": "0.05"},
-        "racio_por_tenant_e_mes": [
-            {
-                "tenant_id": t, "mes": mes, "mes_completo": True, "conversas_na_amostra": 50,
-                "custo_usd": "0", "custo_aoa_minor": custo,
-                "racio_custo_mensalidade": format(custo / mensalidade, ".6f"),
-            }
-            for t, mes, custo in meses
-        ],
+        "racio_por_tenant_e_mes": [],
     }
