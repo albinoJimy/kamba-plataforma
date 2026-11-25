@@ -5,7 +5,7 @@
  * ```text
  * es_lista_espera_entradas{estado}          gauge    entradas por estado; «aguardando» é o tamanho da fila
  * es_lista_espera_espera_media_segundos     gauge    média de (vaga − entrada) dos concluídos na janela
- * es_lista_espera_convites_total{desfecho}  counter  convites enviados, aceites, recusados, expirados
+ * es_lista_espera_convites_total{desfecho}  counter  convites enviados, aceites, recusados, expirados, por entregar
  * es_vagas_concedidas_7d                    gauge    vagas dadas na janela de 7 dias (os «ES por semana»)
  * es_limite_7d{origem}                      gauge    o limite em vigor, com a origem
  * ```
@@ -15,8 +15,10 @@
  * `es_onboardings_7d` do KAM-016 conta outra coisa — as tentativas de ligação
  * na base do GWY, incluindo as abandonadas — e fica ao lado, não substituído.
  *
- * **As etiquetas são domínios fechados** (`estado` 5, `desfecho` 4, `origem`
- * 2), e nenhuma leva caso nem *tenant* (`OBS-I`). A `origem` está no limite de
+ * **As etiquetas são domínios fechados** (`estado` 5, `desfecho` 5, `origem`
+ * 2), e nenhuma leva caso nem *tenant* (`OBS-I`). O `por_entregar` (KAM-254) é
+ * o convite que saiu sem chegar ao dono — sem via, ou com a via a falhar —, e
+ * conta-se **em vez** do `enviado`: a soma dos dois é o total de convites. A `origem` está no limite de
  * propósito: um painel que mostre 200 tem de mostrar ao lado se é
  * `nao_verificado`.
  */
@@ -30,7 +32,7 @@ export const METRICA_VAGAS_7D = "es_vagas_concedidas_7d";
 export const METRICA_LIMITE_7D = "es_limite_7d";
 
 /** Os desfechos de um convite, para o contador. */
-export const DESFECHOS_DO_CONVITE = ["enviado", "aceite", "recusado", "expirado"] as const;
+export const DESFECHOS_DO_CONVITE = ["enviado", "aceite", "recusado", "expirado", "por_entregar"] as const;
 
 export type DesfechoDoConvite = (typeof DESFECHOS_DO_CONVITE)[number];
 

@@ -47,7 +47,7 @@ from isolamento.contexto import Contexto  # noqa: E402
 from isolamento.oraculo import Oraculo  # noqa: E402
 
 
-def _parametros_de_node() -> dict:
+def _parametros_de_node(com_lote: bool = False) -> dict:
     """Como e que o condutor de TypeScript liga a base do *gate*.
 
     Construidos aqui e nao em `db/ligacao.py`: esse ficheiro e de outro ticket
@@ -62,13 +62,21 @@ def _parametros_de_node() -> dict:
     """
     destino = ligacao.alvo()
     utilizador, senha = ligacao.credenciais("app")
-    return {
+    parametros = {
         "host": destino.host,
         "port": destino.porta,
         "user": utilizador,
         "password": senha,
         "database": destino.base,
     }
+    # KAM-254: o grupo `guia` monta tambem o processo de lote real, que corre
+    # como `kamba_batch` (a lista, os gates e a fila do guia). As rotas atacadas
+    # continuam no `kamba_app`; esta credencial so serve o lado do lote, e so
+    # vai para o ambiente desse grupo (achado 7 da revisao adversarial).
+    if com_lote:
+        lote, senha_do_lote = ligacao.credenciais("batch")
+        parametros["lote"] = {"user": lote, "password": senha_do_lote}
+    return parametros
 
 
 def _agr_importavel() -> bool:
@@ -237,7 +245,7 @@ class ComHarness(ComDoisTenants):
                 canarios=canarios,
                 tenant_a=self.a.id,
                 tenant_b=self.b.id,
-                pg=_parametros_de_node(),
+                pg=_parametros_de_node(com_lote=grupo == "guia"),
                 contactos=contactos,
                 raiz=RAIZ,
             )
