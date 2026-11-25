@@ -13,6 +13,7 @@ criar a chave de um *tenant* é idempotente. Medido contra a versão fixada: o
 
 from __future__ import annotations
 
+import hashlib
 import importlib.util
 import pathlib
 import unittest
@@ -35,17 +36,44 @@ TENANT = "11111111-1111-1111-1111-111111111111"
 AMBIENTE = {"KAMBA_LLM_MENSALIDADE_USD_BASICO": "10.00"}
 
 
+class _Cofre:
+    """Um duplo do cofre das chaves (KAM-250): um mapa, e a ordem das operações."""
+
+    def __init__(self, registo: list[str] | None = None) -> None:
+        self.segredos: dict[str, str] = {}
+        self.escritas = 0
+        self.registo = registo if registo is not None else []
+        self.falhar = False
+
+    def ler(self, ref: str) -> str | None:
+        return self.segredos.get(ref)
+
+    def gravar(self, ref: str, valor: str) -> None:
+        if self.falhar:
+            raise chaves.ErroDeProvisionamento("cofre inacessivel (provedor doppler): HTTP 503")
+        self.escritas += 1
+        self.registo.append(f"gravar:{ref}")
+        self.segredos[ref] = valor
+
+
 class _Proxy:
-    """Um duplo da API de administração que **grava** o que recebeu."""
+    """Um duplo da API de administração que **grava** o que recebeu.
+
+    Como a imagem medida no KAM-250: o `/key/generate` usa o `key` do corpo, e o
+    `token` que o `/key/list` devolve é o SHA-256 dele.
+    """
 
     def __init__(self, existentes: list[dict[str, Any]] | None = None) -> None:
         self.chaves = list(existentes or [])
         self.pedidos: list[tuple[str, str, dict[str, Any] | None]] = []
         #: O proxy responde 200 ao `/key/delete` e nao apaga nada.
         self.delete_finge = False
+        self.registo: list[str] = []
+        self.cofre = _Cofre(self.registo)
 
     def __call__(self, url: str, metodo: str, chave: str, corpo: dict | None):
         self.pedidos.append((url, metodo, corpo))
+        self.registo.append(url.rsplit("/", 1)[-1].split("?")[0])
         if "/key/list" in url:
             return 200, {"keys": self.chaves, "total_count": len(self.chaves)}
         if url.endswith("/key/generate"):
@@ -57,8 +85,14 @@ class _Proxy:
                         "type": "bad_request_error",
                     }
                 }
-            self.chaves.append({**corpo, "spend": 0.0, "key": "sk-nova"})
-            return 200, {**corpo, "spend": 0.0, "key": "sk-nova"}
+            valor = corpo.get("key")
+            if not isinstance(valor, str) or not valor.startswith("sk-"):
+                # A forma medida: ecoa quatro caracteres de cada ponta.
+                return 400, {"error": {"message": f"Invalid key format. Received: {str(valor)[:4]}****{str(valor)[-4:]}"}}
+            token = hashlib.sha256(valor.encode()).hexdigest()
+            guardada = {k: v for k, v in corpo.items() if k != "key"}
+            self.chaves.append({**guardada, "spend": 0.0, "token": token})
+            return 200, {**corpo, "spend": 0.0, "token": token}
         if url.endswith("/key/update"):
             for existente in self.chaves:
                 if existente.get("key_alias") == corpo["key_alias"]:
@@ -109,7 +143,7 @@ class TestAIdempotencia(unittest.TestCase):
     def test_a_primeira_corrida_gera(self) -> None:
         duplo = _Proxy()
         self.assertEqual(
-            chaves.provisionar(duplo.proxy(), TENANT, "basico", AMBIENTE), "criada"
+            chaves.provisionar(duplo.proxy(), TENANT, "basico", AMBIENTE, cofre=duplo.cofre), "criada"
         )
         self.assertIn("generate", duplo.rotas())
         self.assertNotIn("update", duplo.rotas())
@@ -117,10 +151,10 @@ class TestAIdempotencia(unittest.TestCase):
     def test_a_segunda_corrida_actualiza_e_nao_gera(self) -> None:
         """O canário: um `provisionar` que gerasse sempre devolvia 400 aqui."""
         duplo = _Proxy()
-        chaves.provisionar(duplo.proxy(), TENANT, "basico", AMBIENTE)
+        chaves.provisionar(duplo.proxy(), TENANT, "basico", AMBIENTE, cofre=duplo.cofre)
         duplo.pedidos.clear()
         self.assertEqual(
-            chaves.provisionar(duplo.proxy(), TENANT, "basico", AMBIENTE), "actualizada"
+            chaves.provisionar(duplo.proxy(), TENANT, "basico", AMBIENTE, cofre=duplo.cofre), "actualizada"
         )
         self.assertIn("update", duplo.rotas())
         self.assertNotIn("generate", duplo.rotas())
@@ -128,7 +162,7 @@ class TestAIdempotencia(unittest.TestCase):
     def test_tres_corridas_deixam_uma_chave_so(self) -> None:
         duplo = _Proxy()
         for _ in range(3):
-            chaves.provisionar(duplo.proxy(), TENANT, "basico", AMBIENTE)
+            chaves.provisionar(duplo.proxy(), TENANT, "basico", AMBIENTE, cofre=duplo.cofre)
         self.assertEqual(len(duplo.chaves), 1)
 
     def test_o_alias_e_o_do_131(self) -> None:
@@ -136,7 +170,7 @@ class TestAIdempotencia(unittest.TestCase):
 
     def test_os_metadados_levam_tenant_e_plano(self) -> None:
         duplo = _Proxy()
-        chaves.provisionar(duplo.proxy(), TENANT, "basico", AMBIENTE)
+        chaves.provisionar(duplo.proxy(), TENANT, "basico", AMBIENTE, cofre=duplo.cofre)
         corpo = [c for u, _, c in duplo.pedidos if u.endswith("/key/generate")][0]
         self.assertEqual(corpo["metadata"], {"tenant_id": TENANT, "plano": "basico"})
         self.assertEqual(corpo["max_budget"], 1.5)
@@ -145,7 +179,7 @@ class TestAIdempotencia(unittest.TestCase):
     def test_a_chave_so_pode_chamar_os_papeis_do_agr(self) -> None:
         """`vision` e `embed` correm no COM e no IDX, não num turno de conversa."""
         duplo = _Proxy()
-        chaves.provisionar(duplo.proxy(), TENANT, "basico", AMBIENTE)
+        chaves.provisionar(duplo.proxy(), TENANT, "basico", AMBIENTE, cofre=duplo.cofre)
         corpo = [c for u, _, c in duplo.pedidos if u.endswith("/key/generate")][0]
         self.assertNotIn("kamba-vision", corpo["models"])
         self.assertNotIn("kamba-embed", corpo["models"])
@@ -163,7 +197,7 @@ class TestAIdempotencia(unittest.TestCase):
         Python, **sem chave virtual**, pelo que nada o apanhava.
         """
         duplo = _Proxy()
-        chaves.provisionar(duplo.proxy(), TENANT, "basico", AMBIENTE)
+        chaves.provisionar(duplo.proxy(), TENANT, "basico", AMBIENTE, cofre=duplo.cofre)
         corpo = [c for u, _, c in duplo.pedidos if u.endswith("/key/generate")][0]
         self.assertIn("kamba-chat-fallback2", corpo["models"])
 
@@ -203,7 +237,7 @@ class TestAIdempotencia(unittest.TestCase):
     def test_um_plano_sem_mensalidade_nao_cria_chave_nenhuma(self) -> None:
         duplo = _Proxy()
         with self.assertRaises(chaves.ErroDeProvisionamento):
-            chaves.provisionar(duplo.proxy(), TENANT, "ouro", AMBIENTE)
+            chaves.provisionar(duplo.proxy(), TENANT, "ouro", AMBIENTE, cofre=duplo.cofre)
         self.assertEqual(duplo.chaves, [])
 
 
@@ -219,7 +253,7 @@ class TestAChaveDoScreening(unittest.TestCase):
 
     def test_so_alcanca_o_screening_nano(self) -> None:
         duplo = _Proxy()
-        chaves.provisionar_screening(duplo.proxy(), self.AMBIENTE)
+        chaves.provisionar_screening(duplo.proxy(), self.AMBIENTE, cofre=duplo.cofre)
         corpo = [c for u, _, c in duplo.pedidos if u.endswith("/key/generate")][0]
         self.assertEqual(corpo["models"], ["screening-nano"])
         self.assertEqual(corpo["key_alias"], "plataforma-screening")
@@ -228,8 +262,8 @@ class TestAChaveDoScreening(unittest.TestCase):
 
     def test_e_idempotente(self) -> None:
         duplo = _Proxy()
-        self.assertEqual(chaves.provisionar_screening(duplo.proxy(), self.AMBIENTE), "criada")
-        self.assertEqual(chaves.provisionar_screening(duplo.proxy(), self.AMBIENTE), "actualizada")
+        self.assertEqual(chaves.provisionar_screening(duplo.proxy(), self.AMBIENTE, cofre=duplo.cofre), "criada")
+        self.assertEqual(chaves.provisionar_screening(duplo.proxy(), self.AMBIENTE, cofre=duplo.cofre), "actualizada")
         self.assertEqual(len(duplo.chaves), 1)
 
     def test_sem_orcamento_nao_cria_chave_nenhuma(self) -> None:
@@ -240,7 +274,7 @@ class TestAChaveDoScreening(unittest.TestCase):
             with self.subTest(ambiente=ambiente):
                 duplo = _Proxy()
                 with self.assertRaises(chaves.ErroDeProvisionamento):
-                    chaves.provisionar_screening(duplo.proxy(), ambiente)
+                    chaves.provisionar_screening(duplo.proxy(), ambiente, cofre=duplo.cofre)
                 self.assertEqual(duplo.chaves, [])
 
     def test_o_grupo_e_o_que_o_gerador_produz_para_o_papel(self) -> None:
@@ -342,13 +376,14 @@ class TestOComandoNaoImprimeSegredos(unittest.TestCase):
             with contextlib.redirect_stdout(saida):
                 # O `main` monta o proxy do ambiente; aqui mede-se so o que sai
                 # da funcao, com o duplo.
-                chaves.provisionar(duplo.proxy(), TENANT, "basico", AMBIENTE)
+                chaves.provisionar(duplo.proxy(), TENANT, "basico", AMBIENTE, cofre=duplo.cofre)
                 print(f"chave virtual criada: {chaves.alias_do_tenant(TENANT)}")
         finally:
             os.environ.clear()
             os.environ.update(antes)
         texto = saida.getvalue()
-        self.assertNotIn("sk-nova", texto)
+        valor = duplo.cofre.segredos[chaves.ref_do_tenant(TENANT)]
+        self.assertNotIn(valor, texto)
         self.assertNotIn("sk-master", texto)
         self.assertIn("tenant-", texto)
 
@@ -400,6 +435,259 @@ class TestARevogacao(unittest.TestCase):
             chaves._proxy_do_ambiente = original
         self.assertIn("revogada", saida.getvalue())
         self.assertNotIn("hash-a", saida.getvalue())
+
+
+class TestOValorVaiParaOCofre(unittest.TestCase):
+    """KAM-250: o valor que o proxy usa chega ao cofre, e só ao cofre.
+
+    **Canário:** `test_a_segunda_corrida_nao_reemite_e_o_cofre_continua_a_autenticar`.
+    Um `_garantir` que gerasse valor novo a cada corrida passava todos os ensaios
+    de «grava no cofre» e partia o critério 3: a chave antiga deixava de valer a
+    cada provisionamento.
+    """
+
+    def ref(self) -> str:
+        return chaves.ref_do_tenant(TENANT)
+
+    def test_a_referencia_e_a_do_inventario(self) -> None:
+        self.assertEqual(self.ref(), f"litellm_virtual_key/{TENANT}")
+        self.assertEqual(chaves.REF_DA_CHAVE_DO_SCREENING, "litellm_screening_key")
+
+    def test_o_valor_do_generate_e_o_que_ficou_no_cofre(self) -> None:
+        duplo = _Proxy()
+        chaves.provisionar(duplo.proxy(), TENANT, "basico", AMBIENTE, cofre=duplo.cofre)
+        corpo = [c for u, _, c in duplo.pedidos if u.endswith("/key/generate")][0]
+        valor = duplo.cofre.segredos[self.ref()]
+        self.assertEqual(corpo["key"], valor)
+        self.assertTrue(valor.startswith("sk-"))
+        self.assertEqual(duplo.chaves[0]["token"], chaves.resumo_da_chave(valor))
+
+    def test_o_cofre_e_escrito_antes_do_proxy(self) -> None:
+        """Uma queda entre os dois deixa um valor sem chave, e nunca uma chave sem valor."""
+        duplo = _Proxy()
+        chaves.provisionar(duplo.proxy(), TENANT, "basico", AMBIENTE, cofre=duplo.cofre)
+        self.assertLess(
+            duplo.registo.index(f"gravar:{self.ref()}"), duplo.registo.index("generate")
+        )
+
+    def test_sem_cofre_nao_se_cria_chave_nenhuma(self) -> None:
+        duplo = _Proxy()
+        duplo.cofre.falhar = True
+        with self.assertRaises(chaves.ErroDeProvisionamento):
+            chaves.provisionar(duplo.proxy(), TENANT, "basico", AMBIENTE, cofre=duplo.cofre)
+        self.assertNotIn("generate", duplo.rotas())
+        self.assertEqual(duplo.chaves, [])
+
+    def test_a_segunda_corrida_nao_reemite_e_o_cofre_continua_a_autenticar(self) -> None:
+        duplo = _Proxy()
+        chaves.provisionar(duplo.proxy(), TENANT, "basico", AMBIENTE, cofre=duplo.cofre)
+        antes = duplo.cofre.segredos[self.ref()]
+        duplo.pedidos.clear()
+        for _ in range(2):
+            self.assertEqual(
+                chaves.provisionar(duplo.proxy(), TENANT, "basico", AMBIENTE, cofre=duplo.cofre),
+                "actualizada",
+            )
+        self.assertEqual(duplo.cofre.escritas, 1)
+        self.assertEqual(duplo.cofre.segredos[self.ref()], antes)
+        self.assertNotIn("generate", duplo.rotas())
+        self.assertNotIn("delete", duplo.rotas())
+        self.assertEqual(duplo.chaves[0]["token"], chaves.resumo_da_chave(antes))
+
+    def test_uma_queda_depois_do_cofre_retoma_com_o_valor_que_la_esta(self) -> None:
+        """O valor está no cofre e a chave não está no proxy: cria-se com ele, sem gravar outro."""
+        duplo = _Proxy()
+        duplo.cofre.segredos[self.ref()] = "sk-ja-no-cofre"
+        self.assertEqual(
+            chaves.provisionar(duplo.proxy(), TENANT, "basico", AMBIENTE, cofre=duplo.cofre),
+            "criada",
+        )
+        self.assertEqual(duplo.cofre.escritas, 0)
+        self.assertEqual(
+            duplo.chaves[0]["token"],
+            chaves.resumo_da_chave("sk-ja-no-cofre"),
+        )
+
+    def test_uma_chave_que_o_cofre_nao_autentica_e_reemitida(self) -> None:
+        """A chave anterior ao KAM-250: está no proxy, e o valor não está em lado nenhum."""
+        duplo = _Proxy([
+            {"key_alias": chaves.alias_do_tenant(TENANT), "token": "resumo-de-um-valor-perdido",
+             "spend": 0.0},
+        ])
+        self.assertEqual(
+            chaves.provisionar(duplo.proxy(), TENANT, "basico", AMBIENTE, cofre=duplo.cofre),
+            "reemitida",
+        )
+        apagados = [c for u, _, c in duplo.pedidos if u.endswith("/key/delete")]
+        self.assertEqual(apagados, [{"keys": ["resumo-de-um-valor-perdido"]}])
+        self.assertEqual(len(duplo.chaves), 1)
+        self.assertEqual(
+            duplo.chaves[0]["token"],
+            chaves.resumo_da_chave(duplo.cofre.segredos[self.ref()]),
+        )
+
+    def test_um_valor_no_cofre_que_nao_bate_reemite_com_esse_valor(self) -> None:
+        duplo = _Proxy([
+            {"key_alias": chaves.alias_do_tenant(TENANT), "token": "outro", "spend": 0.0},
+        ])
+        duplo.cofre.segredos[self.ref()] = "sk-o-do-cofre"
+        self.assertEqual(
+            chaves.provisionar(duplo.proxy(), TENANT, "basico", AMBIENTE, cofre=duplo.cofre),
+            "reemitida",
+        )
+        self.assertEqual(duplo.cofre.escritas, 0)
+        self.assertEqual(duplo.chaves[0]["token"], chaves.resumo_da_chave("sk-o-do-cofre"))
+
+    def test_a_corrida_concorrente_converge_para_o_valor_do_cofre(self) -> None:
+        """O 400 «already exists»: outra corrida criou a chave com outro valor no meio desta."""
+        duplo = _Proxy()
+        outra = "sk-da-outra-corrida"
+
+        def concorrente(url, metodo, chave, corpo):
+            if url.endswith("/key/generate") and not duplo.chaves:
+                # A outra corrida chega primeiro: cria a chave e reescreve o cofre.
+                duplo(url, metodo, chave, {**corpo, "key": outra})
+                duplo.cofre.segredos[self.ref()] = outra
+            return duplo(url, metodo, chave, corpo)
+
+        proxy = chaves.Proxy("http://litellm:4000", "sk-master", pedir=concorrente)
+        chaves.provisionar(proxy, TENANT, "basico", AMBIENTE, cofre=duplo.cofre)
+        self.assertEqual(len(duplo.chaves), 1)
+        self.assertEqual(
+            duplo.chaves[0]["token"],
+            chaves.resumo_da_chave(duplo.cofre.segredos[self.ref()]),
+        )
+
+    def test_o_screening_grava_na_referencia_dele(self) -> None:
+        duplo = _Proxy()
+        chaves.provisionar_screening(
+            duplo.proxy(), {"KAMBA_LLM_ORCAMENTO_USD_SCREENING": "5"}, cofre=duplo.cofre
+        )
+        self.assertEqual(list(duplo.cofre.segredos), ["litellm_screening_key"])
+        self.assertEqual(
+            duplo.chaves[0]["token"],
+            chaves.resumo_da_chave(duplo.cofre.segredos["litellm_screening_key"]),
+        )
+
+    def test_o_erro_do_generate_nao_cita_o_corpo(self) -> None:
+        """Medido: o 400 de uma chave mal formada ecoa oito caracteres dela."""
+        def mal(url, metodo, chave, corpo):
+            if url.endswith("/key/generate"):
+                valor = corpo["key"]
+                return 400, {"error": {"message": f"Received: {valor[:4]}****{valor[-4:]}"}}
+            return 200, {"keys": [], "total_count": 0}
+
+        proxy = chaves.Proxy("http://litellm:4000", "sk-master", pedir=mal)
+        cofre = _Cofre()
+        with self.assertRaises(chaves.ErroDeProvisionamento) as apanhado:
+            chaves.provisionar(proxy, TENANT, "basico", AMBIENTE, cofre=cofre)
+        valor = cofre.segredos[self.ref()]
+        self.assertNotIn(valor[:4] + "****", str(apanhado.exception))
+        self.assertNotIn(valor[-4:], str(apanhado.exception))
+
+
+class TestOComandoComOCofre(unittest.TestCase):
+    """O `main`: recusa sem cofre antes do proxy, e nada do valor no `stdout`/`stderr`."""
+
+    def correr(self, argv, ambiente, proxy=None, cofre=None):
+        import contextlib
+        import io
+        import os
+
+        saida, erros = io.StringIO(), io.StringIO()
+        antes = dict(os.environ)
+        originais = (chaves._proxy_do_ambiente, chaves._cofre_do_ambiente)
+        if proxy is not None:
+            chaves._proxy_do_ambiente = proxy
+        if cofre is not None:
+            chaves._cofre_do_ambiente = cofre
+        os.environ.clear()
+        os.environ.update(ambiente)
+        try:
+            with contextlib.redirect_stdout(saida), contextlib.redirect_stderr(erros):
+                codigo = chaves.main(argv)
+        finally:
+            os.environ.clear()
+            os.environ.update(antes)
+            chaves._proxy_do_ambiente, chaves._cofre_do_ambiente = originais
+        return codigo, saida.getvalue(), erros.getvalue()
+
+    def test_sem_token_de_escrita_recusa_antes_de_falar_com_o_proxy(self) -> None:
+        duplo = _Proxy()
+        codigo, _, erros = self.correr(
+            ["provisionar", TENANT, "basico"],
+            {"KAMBA_ENV": "prod", **AMBIENTE},
+            proxy=duplo.proxy,
+        )
+        self.assertEqual(codigo, 2)
+        self.assertIn("doppler_llm_chaves_escrita", erros)
+        self.assertEqual(duplo.pedidos, [])
+
+    def test_sem_ambiente_recusa(self) -> None:
+        duplo = _Proxy()
+        codigo, _, erros = self.correr(
+            ["provisionar-screening"], {"KAMBA_SECRET_DOPPLER_LLM_CHAVES_ESCRITA": "dp.st.x"},
+            proxy=duplo.proxy,
+        )
+        self.assertEqual(codigo, 2)
+        self.assertIn("KAMBA_ENV", erros)
+        self.assertEqual(duplo.pedidos, [])
+
+    def test_o_valor_nao_sai_em_stdout_nem_stderr(self) -> None:
+        duplo = _Proxy()
+        for argv in (["provisionar", TENANT, "basico"], ["provisionar", TENANT, "basico"],
+                     ["provisionar-screening"]):
+            codigo, saida, erros = self.correr(
+                argv,
+                {**AMBIENTE, "KAMBA_LLM_ORCAMENTO_USD_SCREENING": "5"},
+                proxy=duplo.proxy,
+                cofre=lambda: duplo.cofre,
+            )
+            self.assertEqual(codigo, 0, erros)
+            for valor in duplo.cofre.segredos.values():
+                self.assertNotIn(valor, saida + erros)
+                self.assertNotIn(chaves.resumo_da_chave(valor), saida + erros)
+        self.assertEqual(len(duplo.cofre.segredos), 2)
+
+    def test_o_cofre_doppler_le_e_grava_o_projecto_das_chaves(self) -> None:
+        """O `CofreDoppler` contra um transporte que lê o texto do pedido."""
+        import json
+
+        from kamba_core.secrets import RespostaHttp
+
+        pedidos: list[tuple[str, dict, bytes | None]] = []
+        guardado: dict[str, str] = {}
+
+        def ler(url, cabecalhos):
+            pedidos.append((url, dict(cabecalhos), None))
+            return RespostaHttp(200, json.dumps(guardado))
+
+        def escrever(url, cabecalhos, corpo):
+            pedidos.append((url, dict(cabecalhos), corpo))
+            guardado.update(json.loads(corpo)["secrets"])
+            return RespostaHttp(200, "{}")
+
+        originais = (chaves.transporte_http_de_leitura, chaves.transporte_http_de_escrita)
+        chaves.transporte_http_de_leitura, chaves.transporte_http_de_escrita = ler, escrever
+        ref = chaves.ref_do_tenant(TENANT)
+        try:
+            cofre = chaves.CofreDoppler("prod", "kamba-llm-chaves", "dp.st.escrita")
+            self.assertIsNone(cofre.ler(ref))
+            cofre.gravar(ref, "sk-valor-de-ensaio")
+            self.assertEqual(cofre.ler(ref), "sk-valor-de-ensaio")
+        finally:
+            chaves.transporte_http_de_leitura, chaves.transporte_http_de_escrita = originais
+        url_escrita, cab, corpo = pedidos[1]
+        self.assertTrue(url_escrita.endswith("/v3/configs/config/secrets"))
+        self.assertEqual(cab["authorization"], "Bearer dp.st.escrita")
+        enviado = json.loads(corpo)
+        self.assertEqual(enviado["project"], "kamba-llm-chaves")
+        self.assertEqual(enviado["config"], "prod")
+        self.assertEqual(
+            enviado["secrets"],
+            {"KAMBA_SECRET_LITELLM_VIRTUAL_KEY__" + TENANT.replace("-", "_"): "sk-valor-de-ensaio"},
+        )
+        self.assertIn("project=kamba-llm-chaves", pedidos[2][0])
 
 
 if __name__ == "__main__":

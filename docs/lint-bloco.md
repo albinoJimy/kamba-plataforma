@@ -191,7 +191,7 @@ ela não existia, tendo-a. Vinte e seis eram `| CA | Estado | Evidência |`, que
 79**, e fez aparecer um oitavo bloco com divergência.
 
 Dois pisos: `MINIMO_DE_BLOCOS` (150) apanha um `glob` que deixe de casar;
-`MINIMO_DE_BLOCOS_MEDIDOS` (**97**) apanha o modo de falha mais perigoso deste
+`MINIMO_DE_BLOCOS_MEDIDOS` (**99**) apanha o modo de falha mais perigoso deste
 *lint* — uma mudança na forma do cabeçalho põe o emparelhamento a zero e a saída
 continua a dizer «0 achados». Abaixo de qualquer um deles o comando sai com **2**.
 
@@ -208,14 +208,14 @@ continua a dizer «0 achados». Abaixo de qualquer um deles o comando sai com **
 > hoje **uma** vez, na frase «Dois pisos», na forma `` `NOME` (**N**) ``.
 >
 > Quem subir o piso mexe em **três** sítios: o `lint.py`, o `mutacao.py` e a
-> frase «Dois pisos». **E desde o KAM-257 um ensaio compara-os:** o
+> frase «Dois pisos». **E desde o KAM-258 um ensaio compara-os:** o
 > `test_mutacao.py` da suite do `lint_bloco`, que o gate 4 corre, fica vermelho
 > se o literal do `mutacao.py` ou o número da frase «Dois pisos» divergirem da
 > constante do `lint.py`, e se o `velho` de alguma mutação deixar de estar uma
-> vez, em código, no seu ficheiro. Até ao KAM-257 nenhum portão fazia esta
+> vez, em código, no seu ficheiro. Até ao KAM-258 nenhum portão fazia esta
 > comparação, e as duas cópias ficaram atrás muitas vezes: o literal do
 > `mutacao.py` pelo menos sete, e a frase «Dois pisos» dizia **50** com o
-> código em 97 (o §10 regista as vezes em que esta secção foi acertada).
+> código em 98 (o §10 regista as vezes em que esta secção foi acertada).
 
 ---
 
@@ -402,4 +402,7 @@ importações é mais longa do que parece.)
 | 1.12 | Novembro 2026 | **KAM-240: o piso sobe para 95, nas três superfícies.** Escrita como 1.10 e renumerada na integração, depois do KAM-243 e do KAM-245. Medido na árvore da integração com a `main` em `dbab7bca`: **190** emparelhados (189 na `main`, mais a secção de verificação do KAM-240), e `190 // 2` são 95. Número **provisório**: renumera-se na integração. | Equipa KAMBÁ |
 | 1.13 | Novembro 2026 | **KAM-239: o piso fica em 95, e as três superfícies dizem-no.** Medido na árvore da integração com a `main` em `a399191c`: **191** emparelhados (190 na `main`, mais a secção de verificação do KAM-239; o bloco do KAM-254 nasce sem ela), e `191 // 2` são 95 — o 94 → 95 já o pagou o KAM-240. O `lint.py` e o `mutacao.py` ganham a nota, e o §4 desta nota o número medido. O bloco seguinte a ganhar a verificação sobe-o para 96. | Equipa KAMBÁ |
 | 1.14 | Novembro 2026 | **KAM-246: o piso sobe para 97, e as três superfícies voltam a dizê-lo.** Escrita como 1.7 e renumerada na integração, depois do KAM-247 ao KAM-127 e do KAM-251. Medido na árvore da integração com a `main` em `fd5e5d1a`: **194** emparelhados (193 na `main`, com o KAM-251; mais a secção de verificação do KAM-246; os blocos do KAM-255 e do KAM-256 nascem sem ela), e `194 // 2` são 97. O 95 → 96 pagou-o o KAM-127 só no `lint.py`: o literal do `mutacao.py` e o §4 desta nota ficaram em 95, e a mutação do piso não se aplicava. Os três passam a 97 aqui. Serve até aos 195. | Equipa KAMBÁ |
-| 1.15 | Novembro 2026 | **KAM-257: um ensaio compara as três superfícies do piso.** O `tools/lint_bloco/tests/test_mutacao.py`, na suite que o gate 4 já corre, fica vermelho se o literal do `mutacao.py` ou a frase «Dois pisos» do §4 divergirem das constantes do `lint.py`, se o `velho` de uma mutação deixar de estar **uma** vez, e em código, no seu ficheiro, e se um piso novo do `lint.py` não tiver mutação. As cópias da varredura deixam esse ensaio de fora (`FORA_DAS_COPIAS`): com ele lá dentro, matava as vinte mutações por construção, e medido assim o M10 e o M11 apareciam como «morta». O §4 passa a dizer o piso **uma** vez, na forma que o ensaio lê, e a frase «Dois pisos» deixa os **50** que dizia com o código em 97. O piso fica em 97: com o bloco do KAM-257 são **195** emparelhados, e `195 // 2` são 97. Nenhum *job*, alvo do `Makefile` nem ficheiro do `.github/` muda: a suite do `lint_bloco` ganha um ensaio, como qualquer ticket que acrescenta ensaios à sua. | Equipa KAMBÁ |
+| 1.15 | Novembro 2026 | **KAM-249: o piso fica em 97, e as três superfícies dizem-no.** Medido na árvore da integração com a `main` em `e17b72d4`: **195** emparelhados (194 na `main`, depois do KAM-246, mais a secção de verificação do KAM-249; o bloco do KAM-257 nasce sem ela), e `195 // 2` são 97. O `lint.py` ganha a nota, e o §4 desta nota o número medido; o `mutacao.py` já dizia 97. O bloco seguinte a ganhar a verificação sobe-o para 98. | Equipa KAMBÁ |
+| 1.16 | Novembro 2026 | **KAM-250: o piso sobe para 98, nas três superfícies.** Escrita como 1.14 e renumerada na integração, depois do KAM-246 e do KAM-249. Medido na árvore da integração com a `main` em `41103bc0`: **196** emparelhados (195 na `main`, mais a secção de verificação do KAM-250), e `196 // 2` são 98. | Equipa KAMBÁ |
+| 1.17 | Novembro 2026 | **KAM-253: o piso fica em 98, e as três superfícies dizem-no.** Escrita como 1.14 e renumerada na integração, depois do KAM-246, do KAM-249 e do KAM-250. Medido na árvore da integração com a `main` em `e6a6ea97`: **197** emparelhados (196 na `main`, mais a secção de verificação do KAM-253), e `197 // 2` são 98 — o 97 → 98 já o pagou o KAM-250. O `lint.py` e o `mutacao.py` ganham a nota, e o §4 desta nota o número medido. O bloco seguinte a ganhar a verificação sobe-o para 99. | Equipa KAMBÁ |
+| 1.18 | Novembro 2026 | **KAM-258: um ensaio compara as três superfícies do piso, e o piso sobe para 99.** Escrita como 1.15 e renumerada na integração, depois do KAM-249, do KAM-250 e do KAM-253; o ticket abriu como KAM-257. O `tools/lint_bloco/tests/test_mutacao.py`, na suite que o gate 4 já corre, fica vermelho se o literal do `mutacao.py` ou a frase «Dois pisos» do §4 divergirem das constantes do `lint.py`, se o `velho` de uma mutação deixar de estar **uma** vez, e em código, no seu ficheiro, e se um piso novo do `lint.py` não tiver mutação. As cópias da varredura deixam esse ensaio de fora (`FORA_DAS_COPIAS`): com ele lá dentro, matava as vinte mutações por construção, e medido assim o M10 e o M11 apareciam como «morta». O §4 passa a dizer o piso **uma** vez, na forma que o ensaio lê, e a frase «Dois pisos» deixa os **50** que dizia com o código em 98. Medido na árvore da integração com a `main` em `944c4b5f`: **198** emparelhados (197 na `main`, depois do KAM-253, mais a secção de verificação do KAM-258), e `198 // 2` são 99. Sobe no `lint.py`, no literal do `mutacao.py` e na frase «Dois pisos», e serve até aos 199. Nenhum *job*, alvo do `Makefile` nem ficheiro do `.github/` muda: a suite do `lint_bloco` ganha um ensaio, como qualquer ticket que acrescenta ensaios à sua. | Equipa KAMBÁ |

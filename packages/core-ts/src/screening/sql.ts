@@ -39,6 +39,19 @@ WHERE tenant_id = $1 AND sujeito_tipo = $2 AND sujeito_ref = $3
 ORDER BY criado_at, id`;
 
 /**
+ * A categoria declarada do tenant: a da decisão de categoria mais recente.
+ * A mesma ordem do `SQL_POR_REANALISAR`.
+ *
+ * Mora aqui desde o KAM-253, e não no COM (KAM-222), porque a retirada da
+ * re-análise (`retirada.ts`) a lê na transacção do produto, como o `/internal/screen`
+ * do COM; o COM importa-a daqui.
+ */
+export const SQL_CATEGORIA_DO_TENANT = `
+SELECT sujeito_ref FROM platform.screening_decision
+WHERE tenant_id = $1 AND sujeito_tipo = 'categoria'
+ORDER BY criado_at DESC, id DESC LIMIT 1`;
+
+/**
  * Os produtos publicados sem decisão para a versão `$1` **e para o conteúdo
  * publicado**, até `$2`.
  *

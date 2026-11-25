@@ -1523,6 +1523,214 @@ def r_consumidores(dados: Dados) -> list[Achado]:
     return achados
 
 
+#: KAM-249. O servico da fila, a variavel que leva a credencial, e a forma com
+#: que o compose a exige: `${VAR:?mensagem}` recusa arrancar sem ela (medido no
+#: KAM-249: `docker compose config` sai 1). Um `:-` ou um valor literal nao
+#: recusam nada.
+FILA = "queue"
+VARIAVEL_DA_FILA = "KAMBA_SECRET_QUEUE_PASSWORD"
+EXIGIR_A_CREDENCIAL = re.compile(r"\$\{KAMBA_SECRET_QUEUE_PASSWORD:\?[^}]+\}")
+#: Um URL que aponta para a fila. `rediss` tambem (TLS nao e credencial), e
+#: `valkey(s)`, que o `opcoesDaUrl` aceita porque o `new URL` nao olha ao esquema.
+#: O anfitriao sem distinguir maiusculas (o DNS do Docker resolve `QUEUE`), com o
+#: ponto final de um FQDN, ou pelo nome do contentor (`<projecto>-queue-1`).
+#: Achado da revisao adversarial: as quatro formas passavam sem achado.
+URL_DA_FILA = re.compile(
+    r"(?:rediss?|valkeys?)://(?P<credencial>[^@\s/]*@)?"
+    r"(?:" + FILA + r"\.?|[\w.-]*-" + FILA + r"-\d+)(?=[:/\s]|$)",
+    re.IGNORECASE,
+)
+#: A unica credencial aceite num URL da fila: utilizador vazio e a senha pela
+#: variavel exigida. Um `redis://:literal@queue` passava a credencial **escrita
+#: no ficheiro**, que e o que o ADR-L002 proibe.
+CREDENCIAL_DO_URL = re.compile(r":" + EXIGIR_A_CREDENCIAL.pattern + r"@")
+#: A unica linha `requirepass` que o *here-doc* pode ter.
+LINHA_DO_REQUIREPASS = f'requirepass "$${{{VARIAVEL_DA_FILA}}}"'
+_EXEC_DA_FILA = re.compile(
+    r"^\s*exec\s+(?:/usr/local/bin/)?docker-entrypoint\.sh\s+(?P<primeiro>\S+)[^#]*?"
+    r"<<-?\s*['\"]?(?P<fim>\w+)['\"]?\s*$"
+)
+
+
+def _comando_da_fila(comando: str) -> list[str]:
+    """O que impede o servidor da fila de ler a credencial, lido da **forma** do comando.
+
+    Procurar o texto `requirepass` nao chegava (achado da revisao adversarial,
+    medido): sem o `-` o servidor nao le o stdin e arranca aberto, e uma linha
+    comentada, ou um `requirepass ""` a seguir, deixam o texto la e a fila sem
+    senha — com a sonda verde, porque o `valkey-cli` so avisa.
+    """
+    linhas = comando.splitlines()
+    for indice, linha in enumerate(linhas):
+        casou = _EXEC_DA_FILA.match(linha)
+        if casou:
+            break
+    else:
+        return [
+            "o `command` nao entrega a configuracao ao servidor pelo stdin "
+            "(`exec docker-entrypoint.sh - ... <<FIM`)"
+        ]
+    problemas: list[str] = []
+    if casou.group("primeiro") != "-":
+        problemas.append(
+            f"o primeiro argumento do `docker-entrypoint.sh` e "
+            f"`{casou.group('primeiro')}` e nao `-`: o servidor nao le o stdin e "
+            "arranca sem `requirepass`"
+        )
+    corpo: list[str] = []
+    for linha in linhas[indice + 1:]:
+        if linha.strip() == casou.group("fim"):
+            break
+        corpo.append(linha.strip())
+    else:
+        problemas.append("o *here-doc* do `command` nao fecha")
+    efectivas = [l for l in corpo if l and not l.startswith("#")]
+    da_senha = [l for l in efectivas if l.split()[0].lower() == "requirepass"]
+    if da_senha != [LINHA_DO_REQUIREPASS]:
+        problemas.append(
+            f"o *here-doc* tem de ter uma so linha `requirepass`, sem comentario e "
+            f"igual a `{LINHA_DO_REQUIREPASS}`; tem {da_senha or 'nenhuma'}"
+        )
+    return problemas
+
+
+def r_fila_com_credencial(dados: Dados) -> list[Achado]:
+    """KAM-249: a fila so aceita quem apresenta credencial, e todos a apresentam.
+
+    Tres achados, e cada um e uma forma medida de a fila voltar a abrir:
+
+    * `fila-sem-credencial` — o servidor arranca sem `requirepass`, ou a senha
+      nao vem da variavel exigida, ou a sonda nao a tem (e o contentor fica
+      `unhealthy`, o que derruba quem dele depende). Foi o estado do compose ate
+      ao KAM-249: qualquer membro de `data` lia e injectava trabalhos BullMQ.
+    * `fila-senha-em-argumento` — `--requirepass`, `-a` ou um URL com a senha na
+      linha de comando. Funciona, e deixa a senha no `cmdline` do PID 1 do
+      contentor, que o `ps` do *host* mostra (medido no KAM-249).
+    * `cliente-da-fila-sem-credencial` — um servico com um URL da fila que nao
+      leva `:${KAMBA_SECRET_QUEUE_PASSWORD:?...}@`. Recebia `NOAUTH`: um consumidor
+      parado, que na entrada de WhatsApp e mensagens que ninguem le.
+
+    Le producao **e** *staging*: o criterio 1 do KAM-249 pede os dois.
+    """
+    achados: list[Achado] = []
+    for relativo, ficheiro in ((PROD, dados.prod), (STAGING, dados.staging)):
+        if ficheiro is None:
+            continue
+        servicos = ficheiro.servicos
+        if FILA in servicos:
+            no, chaves = servicos[FILA]
+            env = _ambiente(ficheiro, chaves)
+            comando = "\n".join(_comando(ficheiro, chaves))
+            sonda = " ".join(_lista(ficheiro, _submapa(ficheiro, chaves, "healthcheck"), "test"))
+            problemas: list[str] = []
+            if not EXIGIR_A_CREDENCIAL.fullmatch(env.get(VARIAVEL_DA_FILA, "").strip()):
+                problemas.append(
+                    f"o `environment` nao exige `{VARIAVEL_DA_FILA}` com `${{...:?...}}`"
+                )
+            problemas += _comando_da_fila(comando)
+            if not EXIGIR_A_CREDENCIAL.fullmatch(env.get("REDISCLI_AUTH", "").strip()):
+                problemas.append(
+                    "a sonda nao recebe a credencial em `REDISCLI_AUTH`, e o contentor "
+                    "fica `unhealthy`"
+                )
+            for problema in problemas:
+                achados.append(
+                    Achado(
+                        "fila-sem-credencial", relativo, no.linha,
+                        f"{problema}. Sem credencial, qualquer membro de `data` le e "
+                        "injecta trabalhos BullMQ, a entrada e a saida de WhatsApp "
+                        "incluidas (KAM-249).",
+                    )
+                )
+            em_argumento = re.search(r"--requirepass\b", comando) or re.search(
+                # `-a` tambem colado ao valor (`-a$$X`): achado da revisao.
+                r"(?:^|\s)(?:-a|--pass\b|--askpass\b)|(?:^|\s)-u\s+\S*://", sonda
+            )
+            if em_argumento:
+                achados.append(
+                    Achado(
+                        "fila-senha-em-argumento", relativo, no.linha,
+                        f"`{em_argumento.group(0).strip()}` poe a senha da fila na "
+                        "linha de comando, legivel no `cmdline` que o `ps` do *host* "
+                        "mostra. O servidor le-a do stdin e a sonda de `REDISCLI_AUTH` "
+                        "(KAM-249).",
+                    )
+                )
+        for nome, (no, chaves) in sorted(servicos.items()):
+            if nome == FILA:
+                continue
+            for variavel, valor in sorted(_ambiente(ficheiro, chaves).items()):
+                for url in URL_DA_FILA.finditer(valor):
+                    credencial = url.group("credencial") or ""
+                    if CREDENCIAL_DO_URL.fullmatch(credencial):
+                        continue
+                    achados.append(
+                        Achado(
+                            "cliente-da-fila-sem-credencial", relativo, no.linha,
+                            f"`{nome}`: `{variavel}` liga a fila sem "
+                            f"`:${{{VARIAVEL_DA_FILA}:?...}}@`. A fila responde "
+                            "`NOAUTH`, e uma credencial escrita no ficheiro nao vem do "
+                            "cofre (ADR-L002).",
+                        )
+                    )
+    return achados
+
+
+#: KAM-249. O par com que o `StorageProvider` assina, e o nome que o SeaweedFS
+#: le para criar a identidade de administracao.
+ARMAZENAMENTO = "seaweedfs"
+IDENTIDADE_DO_S3 = {
+    "AWS_ACCESS_KEY_ID": re.compile(r"\$\{KAMBA_SECRET_STORAGE_ACCESS_KEY_ID:\?[^}]+\}"),
+    "AWS_SECRET_ACCESS_KEY": re.compile(r"\$\{KAMBA_SECRET_STORAGE_SECRET_ACCESS_KEY:\?[^}]+\}"),
+}
+#: O que tem de estar no `command` para que so o S3 se alcance pela rede.
+SO_O_S3_NA_REDE = ("-ip.bind=127.0.0.1", "-s3.ip.bind=0.0.0.0", "-s3.port.iceberg=0",
+                   "-s3.port.lance=0")
+
+
+def r_armazenamento_com_credencial(dados: Dados) -> list[Achado]:
+    """KAM-249: o S3 do `seaweedfs` exige assinatura, e o resto nao se alcanca.
+
+    * `armazenamento-anonimo` — sem `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY`
+      exigidos do cofre, a 4.48 aceita ListBuckets, PutObject e GetObject
+      anonimos de qualquer membro de `data` (medido no KAM-249).
+    * `armazenamento-exposto` — o *master*, o *volume* e o *filer* fora do
+      *loopback*, ou o Iceberg e o Lance ligados. O *filer* da 8888 aceita
+      `PUT` e `GET` anonimos em `/buckets/...` e contorna a assinatura do S3.
+
+    O que esta regra **nao** ve, porque nao ha *flag* que o feche: a 18333, o
+    gRPC do S3, que segue o `-s3.ip.bind` (anexo do KAM-249; credor KAM-257).
+    """
+    achados: list[Achado] = []
+    for relativo, ficheiro in ((PROD, dados.prod), (STAGING, dados.staging)):
+        if ficheiro is None or ARMAZENAMENTO not in ficheiro.servicos:
+            continue
+        no, chaves = ficheiro.servicos[ARMAZENAMENTO]
+        env = _ambiente(ficheiro, chaves)
+        for variavel, forma in sorted(IDENTIDADE_DO_S3.items()):
+            if not forma.fullmatch(env.get(variavel, "").strip()):
+                achados.append(
+                    Achado(
+                        "armazenamento-anonimo", relativo, no.linha,
+                        f"`{variavel}` nao vem do cofre com `${{...:?...}}`. Sem a "
+                        "identidade, o S3 aceita pedidos anonimos de qualquer membro "
+                        "de `data` (KAM-249).",
+                    )
+                )
+        comando = _comando(ficheiro, chaves)
+        for opcao in SO_O_S3_NA_REDE:
+            if opcao not in comando:
+                achados.append(
+                    Achado(
+                        "armazenamento-exposto", relativo, no.linha,
+                        f"o `command` nao tem `{opcao}`. O *filer* da 8888 aceita "
+                        "escrita e leitura anonimas e contorna a assinatura do S3; o "
+                        "Iceberg e o Lance sao superficie que ninguem usa (KAM-249).",
+                    )
+                )
+    return achados
+
+
 #: KAM-251: os processos da imagem do `onboarding-web` que servem `/metrics` em
 #: producao, com o `job` que os raspa e a variavel e o valor da porta. O
 #: consumidor `dono` correu em `prod` desde o KAM-241 sem `job` nenhum, e o
@@ -1632,6 +1840,8 @@ REGRAS = (
     r_flags_de_licenca,
     r_staging,
     r_consumidores,
+    r_fila_com_credencial,
+    r_armazenamento_com_credencial,
     r_alvos_do_onboarding,
 )
 

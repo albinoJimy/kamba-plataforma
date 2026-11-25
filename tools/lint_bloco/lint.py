@@ -577,7 +577,31 @@ REGRAS_OBRIGATORIAS = ("estado_contra_caixa",)
 #: `main`): o bloco do KAM-246 ganha a verificacao, e os do KAM-255 e do
 #: KAM-256 nascem sem ela. **194 medidos**, e `194 // 2` sao 97. Sobe para 97,
 #: que serve ate aos 195.
-MINIMO_DE_BLOCOS_MEDIDOS = 97
+#:
+#: **O 195.o e o do KAM-249**, medido na arvore da integracao com a
+#: `publico/main` em `e17b72d4` (o KAM-246 ja fundido, com **194 medidos** na
+#: `main`): o bloco do KAM-249 ganha a verificacao, e o do KAM-257 nasce sem
+#: ela. **195 medidos**, e `195 // 2` sao 97. O piso fica em 97, que serve ate
+#: aos 195: o bloco seguinte sobe-o para 98.
+#:
+#: **O 196.o e o do KAM-250**, medido na arvore da integracao com a
+#: `publico/main` em `41103bc0` (o KAM-249 ja fundido, com **195 medidos** na
+#: `main`): o bloco do KAM-250 ganha a verificacao. **196 medidos**, e
+#: `196 // 2` sao 98. Sobe para 98, que serve ate aos 197.
+#:
+#: **O 197.o e o do KAM-253**, medido na arvore da integracao com a
+#: `publico/main` em `e6a6ea97` (o KAM-250 ja fundido, com **196 medidos** na
+#: `main`): o bloco do KAM-253 ganha a verificacao. **197 medidos**, e
+#: `197 // 2` sao 98. O piso fica em 98, que serve ate aos 197: o bloco seguinte
+#: sobe-o para 99.
+#:
+#: **O 198.o e o do KAM-258**, medido na arvore da integracao com a
+#: `publico/main` em `944c4b5f` (o KAM-253 ja fundido, com **197 medidos** na
+#: `main`): o bloco do KAM-258 nasce com a verificacao. **198 medidos**, e
+#: `198 // 2` sao 99. Sobe para 99, que serve ate aos 199. Desde o KAM-258 o
+#: `tests/test_mutacao.py` fica vermelho se o literal do `mutacao.py` ou a frase
+#: «Dois pisos» do §4 de `docs/lint-bloco.md` nao disserem este numero.
+MINIMO_DE_BLOCOS_MEDIDOS = 99
 
 #: Quantos blocos existem, no minimo. O mesmo argumento, para a camada de baixo:
 #: se o `ler_blocos` deixar de ver a populacao, o piso de cima podia continuar a

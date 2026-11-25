@@ -54,6 +54,8 @@ static_resources:
                       domains:
                         - "api.anthropic.com"
                         - "api.anthropic.com:443"
+                        - "api.doppler.com"
+                        - "api.doppler.com:443"
                         - "api.openai.com"
                         - "api.openai.com:443"
                         - "generativelanguage.googleapis.com"
@@ -98,6 +100,8 @@ static_resources:
                         preresolve_hostnames:
                           - address: api.anthropic.com
                             port_value: 443
+                          - address: api.doppler.com
+                            port_value: 443
                           - address: api.openai.com
                             port_value: 443
                           - address: generativelanguage.googleapis.com
@@ -123,6 +127,8 @@ static_resources:
             dns_query_timeout: 5s
             preresolve_hostnames:
               - address: api.anthropic.com
+                port_value: 443
+              - address: api.doppler.com
                 port_value: 443
               - address: api.openai.com
                 port_value: 443

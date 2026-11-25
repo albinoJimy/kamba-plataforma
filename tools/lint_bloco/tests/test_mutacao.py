@@ -1,4 +1,4 @@
-"""O inventario do `mutacao.py` contra a arvore que ele muta — KAM-257.
+"""O inventario do `mutacao.py` contra a arvore que ele muta — KAM-258.
 
     TestMutacoesAplicam         cada `velho` esta uma vez no ficheiro alvo, e
                                 em codigo, nao num comentario nem num texto

@@ -14,9 +14,24 @@
  * milhares de produtos não pode virar uma rajada de chamadas ao classificador.
  *
  * **Sem suspensão.** Uma violação — a decisão nova é `bloqueada` — emite
- * `screening.violation_detected` e mais nada: quem decide o que fazer ao tenant
- * é o KAM-097, que consome o evento. Uma `condicional` não é violação: vai à
- * fila de revisão (KAM-089) como qualquer outra.
+ * `screening.violation_detected`: quem decide o que fazer ao tenant é o
+ * KAM-097, que consome o evento. Uma `condicional` não é violação: vai à fila
+ * de revisão (KAM-089) como qualquer outra.
+ *
+ * **Mas o produto sai do catálogo visível** (KAM-253, decisão A do fundador de
+ * 2026-11-24, que emenda o critério 4 do KAM-191 na metade «nem despublicar»).
+ * Na mesma transacção por produto, depois da decisão e **antes** da violação,
+ * a `retirada` tira-o de `publicado` para `rascunho` e emite o
+ * `catalog.product_changed`, como o `/internal/screen` do COM desde o KAM-245.
+ * Uma falha de qualquer dos quatro desfaz os quatro.
+ *
+ * **A ordem é a das trancas, e não é cosmética** (achado 1 da revisão
+ * adversarial do KAM-253). O `evt_emitir` tranca a linha da sequência do
+ * agregado (`evt_agregado_seq`, o par `product`/`sku`) até à confirmação, e o
+ * `/internal/screen` e o rascunho do dono trancam a oferta **antes** de
+ * emitir. Uma re-análise que emitisse a violação e só depois trancasse a
+ * oferta fazia a ordem contrária, e o PostgreSQL resolvia o impasse com
+ * `40P01`. A retirada tranca a oferta primeiro, como eles.
  */
 
 import { conteudoSha256, screen, type DependenciasDoScreen } from "./motor.ts";
@@ -49,6 +64,21 @@ export interface Violacao {
 
 export interface EmissorDeViolacoes {
   emitir(violacao: Violacao): Promise<void>;
+}
+
+/**
+ * Tira do catálogo visível o produto cuja decisão acabada de gravar o bloqueou
+ * (KAM-253). Corre na transacção do produto, depois da decisão e antes da
+ * violação (ver a nota do módulo).
+ *
+ * Devolve `true` se o tirou, e `false` se não havia nada a tirar: o produto já
+ * não está publicado com o conteúdo lido, ou o `assertPublishable` não diz
+ * `bloqueada` para a `politica` (uma `permitida` humana desta versão ganha). A
+ * `politica` é a do próprio `reanalisar`, para não haver duas versões. O
+ * adaptador de produção é o `RetiradaSql` de `retirada.ts`.
+ */
+export interface RetiradaDoCatalogo {
+  retirar(produto: ProdutoPublicado, politica: DependenciasDoScreen["politica"]): Promise<boolean>;
 }
 
 export interface Orcamento {
@@ -86,6 +116,8 @@ export async function reanalisar(
   dependencias: DependenciasDoScreen & {
     readonly catalogo: LeitorDoCatalogo;
     readonly emissor: EmissorDeViolacoes;
+    /** Obrigatória: sem ela, o publicado bloqueado ficava visível em silêncio. */
+    readonly retirada: RetiradaDoCatalogo;
     readonly porProduto?: PorProduto;
   },
   orcamento: Orcamento,
@@ -110,6 +142,7 @@ export async function reanalisar(
           dependencias,
         );
         if (resultado.decisao !== "bloqueada") return false;
+        await dependencias.retirada.retirar(produto, dependencias.politica);
         await dependencias.emissor.emitir({
           tenantId: produto.tenantId,
           sku: produto.sku,

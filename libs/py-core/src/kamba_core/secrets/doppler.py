@@ -98,6 +98,21 @@ def interpretar_descarga_plana(corpo: str) -> Mapping[str, str]:
     return {k: v for k, v in cru.items() if isinstance(k, str) and isinstance(v, str)}
 
 
+def _procurar(mapa: Mapping[str, str], nome: str) -> str:
+    """O valor de `nome`, ou o do mesmo nome em maiusculas, ou `""`.
+
+    O `nome_da_variavel` guarda a caixa da instancia (`..._KEY__1111aaaa_...`), e
+    o `DopplerGravador` escreve o nome **em maiusculas** (KAM-250): a regra de
+    nomes do Doppler e NAO VERIFICADO (`A_CONFIRMAR_ESCRITA["nomes"]`), e um nome
+    so de maiusculas, digitos e `_` e o que qualquer regra aceita. A leitura
+    aceita as duas formas, para que o que se grava se leia.
+    """
+    valor = mapa.get(nome, "")
+    if valor.strip() == "" and nome != nome.upper():
+        valor = mapa.get(nome.upper(), "")
+    return valor
+
+
 class DopplerSecretProvider:
     """Adaptador Doppler.
 
@@ -150,9 +165,18 @@ class DopplerSecretProvider:
     def health(self) -> None:
         self._descarregar()
 
+    def descartar_descarga(self) -> None:
+        """Esquece a descarga guardada: a leitura seguinte vai ao cofre (KAM-250).
+
+        Serve a quem sabe que o cofre mudou depois da ultima descarga — o leitor
+        das chaves virtuais do AGR, quando a chave de um tenant que acabou de
+        nascer ainda nao estava na descarga guardada.
+        """
+        self._cache = None
+
     def get(self, ref: SecretRef) -> str:
         mapa = self._descarregar()
-        valor = mapa.get(nome_da_variavel(ref), "")
+        valor = _procurar(mapa, nome_da_variavel(ref))
         if valor.strip() == "":
             raise SecretAusenteError(validar_ref(ref), self.nome)
         return valor
@@ -160,10 +184,10 @@ class DopplerSecretProvider:
     def get_ring(self, ref: SecretRef) -> tuple[str, str | None]:
         mapa = self._descarregar()
         nome = nome_da_variavel(ref)
-        actual = mapa.get(nome, "")
+        actual = _procurar(mapa, nome)
         if actual.strip() == "":
             raise SecretAusenteError(validar_ref(ref), self.nome)
-        anterior = mapa.get(nome + SUFIXO_ANTERIOR, "")
+        anterior = _procurar(mapa, nome + SUFIXO_ANTERIOR)
         return actual, (None if anterior.strip() == "" else anterior)
 
     def versions(self, ref: SecretRef) -> tuple[str, ...]:

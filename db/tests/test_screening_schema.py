@@ -30,6 +30,7 @@ import base64
 import hashlib
 import json
 import re
+import sys
 import unittest
 import uuid
 from pathlib import Path
@@ -53,8 +54,13 @@ TIPOS = RAIZ / "packages" / "core-ts" / "src" / "screening" / "tipos.ts"
 SQL_TS = RAIZ / "packages" / "core-ts" / "src" / "screening" / "sql.ts"
 
 EMISSOR_TS = RAIZ / "packages" / "core-ts" / "src" / "screening" / "emissor.ts"
-#: A operacao do `screen` do COM (KAM-222), que le a categoria declarada do tenant.
-SCREEN_DO_COM_TS = RAIZ / "services" / "com" / "src" / "screening" / "index.ts"
+#: A tranca e a saida de publicado do screening (KAM-245), que moram no `core-ts`
+#: desde o KAM-253: o `/internal/screen` do COM e a re-analise usam as mesmas.
+RETIRADA_TS = RAIZ / "packages" / "core-ts" / "src" / "screening" / "retirada.ts"
+
+if str(RAIZ / "libs" / "py-core" / "src") not in sys.path:
+    sys.path.insert(0, str(RAIZ / "libs" / "py-core" / "src"))
+from kamba_core.idx import consumidor  # noqa: E402
 #: A revisao do sujeito das condicoes (KAM-222). Por *glob* e nao pelo numero, e o
 #: `down_revision` le-se dela: muda na integracao, e o ensaio segue-o.
 REVISAO_DAS_CONDICOES = next(
@@ -386,7 +392,7 @@ class TestCategoriaDoTenantDoCom(ComBase):
         gravar(app, a, sujeito_tipo="produto", sujeito_ref="sku-depois")
         factories.contexto(app, b)
         gravar(app, b, sujeito_tipo="categoria", sujeito_ref="servicos")
-        q = ConsultaDoTypeScript("SQL_CATEGORIA_DO_TENANT", SCREEN_DO_COM_TS)
+        q = ConsultaDoTypeScript("SQL_CATEGORIA_DO_TENANT", SQL_TS)
         factories.contexto(app, a)
         app.execute(q.sql, q.args(a))
         self.assertEqual([tuple(l) for l in app.fetchall()], [("electronica",)])
@@ -425,8 +431,8 @@ class TestPublicadoDoScreenDoCom(ComBase):
             "UPDATE platform.offer_terms SET deleted_at = now() WHERE tenant_id = %s AND sku = 'apagado'",
             (tenant,),
         )
-        tranca = ConsultaDoTypeScript("SQL_PUBLICADO_SOB_TRANCA", SCREEN_DO_COM_TS)
-        saida = ConsultaDoTypeScript("SQL_DESPUBLICAR", SCREEN_DO_COM_TS)
+        tranca = ConsultaDoTypeScript("SQL_PUBLICADO_SOB_TRANCA", RETIRADA_TS)
+        saida = ConsultaDoTypeScript("SQL_DESPUBLICAR", RETIRADA_TS)
         admin.execute("SET LOCAL ROLE kamba_app")
         factories.contexto(admin, tenant)
         for sku, esperado in (("alvo", [("produto alvo",)]), ("rascunho", []), ("apagado", []), ("nada", [])):
@@ -461,6 +467,179 @@ class TestPublicadoDoScreenDoCom(ComBase):
                 (tenant, "vizinho", "publicado"),
             ],
         )
+
+
+class _ClienteDoCursor:
+    """O `ClienteSql` do KAM-006 sobre um cursor, na transaccao dele.
+
+    O efeito do IDX (`efeito_do_produto`) corre aqui pela **mesma** transaccao
+    do ensaio, que se desfaz no fim: assim nada fica confirmado na base — a
+    `screening_decision` e a `ts_sanction` sao *append-only*, e linhas delas
+    confirmadas poluiam as descidas das suites.
+    """
+
+    def __init__(self, cursor) -> None:
+        self.cursor = cursor
+
+    def executar(self, sql: str, parametros=()):
+        from kamba_core.eventos.consumo import Resultado
+
+        self.cursor.execute(sql, tuple(parametros))
+        linhas = ()
+        if self.cursor.description:
+            nomes = [d[0] for d in self.cursor.description]
+            linhas = tuple(dict(zip(nomes, linha)) for linha in self.cursor.fetchall())
+        contagem = self.cursor.rowcount
+        return Resultado(linhas=linhas, contagem=None if contagem < 0 else contagem)
+
+
+class TestRetiradaDaReanalise(ComBase):
+    """KAM-253: a re-analise que bloqueia um publicado tira-o, e o IDX esconde-o.
+
+    Corre, como `kamba_app` e na transaccao do produto, as instrucoes **do
+    modulo** pela ordem em que o `reanalisar` as manda (a ordem prova-se no
+    `screening.emissor.test.ts`): a decisao, a tranca, a releitura da categoria,
+    as decisoes do `assertPublishable`, a saida de publicado, o
+    `catalog.product_changed` e a violacao. Depois da ao `efeito_do_produto` do IDX o
+    envelope **que o *outbox* escreveu**, e mede o documento.
+    """
+
+    SKU = "bebida-01"
+    NOME = "Cerveja gelada 33cl"
+    VERSAO_NOVA = "1.1.0+m.2"
+
+    def _tenant_com_publicado(self, admin) -> str:
+        """Um tenant activo com o publicado, permitido na versao antiga."""
+        tenant = factories.tenant(admin)
+        factories.aceitar_contratos_vigentes(admin, tenant)
+        admin.execute("UPDATE platform.tenants SET estado = 'ativo' WHERE id = %s", (tenant,))
+        admin.execute(
+            "INSERT INTO platform.offer_terms "
+            "(tenant_id, sku, nome, preco_tipo, preco_minor, stock_modo, estado) "
+            "VALUES (%s, %s, %s, 'fixo', 100, 'garantido', 'publicado')",
+            (tenant, self.SKU, self.NOME),
+        )
+        gravar(admin, tenant, sujeito_tipo="categoria", sujeito_ref="moda")
+        gravar(admin, tenant, sujeito_ref=self.SKU, decisao="permitida",
+               conteudo_sha256=_conteudo("moda", self.NOME))
+        return tenant
+
+    def _documento(self, cursor, tenant: str) -> list[tuple]:
+        cursor.execute(
+            "SELECT product_ref, visivel FROM idx.search_doc WHERE tenant_id = %s",
+            (tenant,),
+        )
+        return [tuple(linha) for linha in cursor.fetchall()]
+
+    def _indexar(self, cursor, tenant: str) -> None:
+        factories.contexto(cursor, tenant)
+        consumidor.efeito_do_produto(
+            _ClienteDoCursor(cursor), {"tenant_id": tenant, "payload": {"sku": self.SKU}}
+        )
+
+    def test_a_bloqueada_por_versao_nova_tira_o_produto_e_o_indice_esconde_o(self) -> None:
+        admin = self.ligar("admin").cursor()
+        a = self._tenant_com_publicado(admin)
+        # Adversarial: o mesmo `sku` e o mesmo conteudo noutro tenant.
+        b = self._tenant_com_publicado(admin)
+        por_reanalisar = ConsultaDoTypeScript("SQL_POR_REANALISAR", SQL_TS)
+        admin.execute(por_reanalisar.sql, por_reanalisar.args(self.VERSAO_NOVA, 100))
+        self.assertEqual(
+            sorted(l[0] for l in admin.fetchall() if l[0] in (a, b)), sorted([a, b])
+        )
+
+        admin.execute("SET LOCAL ROLE kamba_app")
+        for tenant in (a, b):
+            self._indexar(admin, tenant)
+            self.assertEqual(self._documento(admin, tenant), [(self.SKU, True)])
+
+        # A transaccao do produto de A, pelas instrucoes do modulo.
+        sha = _conteudo("moda", self.NOME)
+        factories.contexto(admin, a)
+        gravar(admin, a, sujeito_ref=self.SKU, decisao="bloqueada", regras=["alcool"],
+               versao_politica=self.VERSAO_NOVA, conteudo_sha256=sha)
+        tranca = ConsultaDoTypeScript("SQL_PUBLICADO_SOB_TRANCA", RETIRADA_TS)
+        admin.execute(tranca.sql, tranca.args(a, self.SKU))
+        self.assertEqual([tuple(l) for l in admin.fetchall()], [(self.NOME,)])
+        categoria = ConsultaDoTypeScript("SQL_CATEGORIA_DO_TENANT", SQL_TS)
+        admin.execute(categoria.sql, categoria.args(a))
+        self.assertEqual([tuple(l) for l in admin.fetchall()], [("moda",)])
+        decisoes = ConsultaDoTypeScript("SQL_DECISOES", SQL_TS)
+        admin.execute(decisoes.sql, decisoes.args(a, "produto", self.SKU, self.VERSAO_NOVA, sha))
+        self.assertEqual([tuple(l) for l in admin.fetchall()], [("bloqueada", "regra")])
+        saida = ConsultaDoTypeScript("SQL_DESPUBLICAR", RETIRADA_TS)
+        admin.execute(saida.sql, saida.args(a, self.SKU))
+        self.assertEqual([tuple(l) for l in admin.fetchall()], [(self.SKU,)])
+        alterado = ConsultaDoTypeScript("SQL_EMITIR_PRODUTO_ALTERADO", RETIRADA_TS)
+        admin.execute(alterado.sql, alterado.args(
+            "catalog.product_changed", 1, a, "product", self.SKU,
+            json.dumps({"sku": self.SKU, "estado": "rascunho"}), "P0", ["transacao"],
+        ))
+        event_id = str(admin.fetchone()[0])
+        # A violacao por ultimo: a oferta tranca-se antes do primeiro `evt_emitir`,
+        # pela ordem das trancas do COM (achado 1 da revisao adversarial).
+        violacao = ConsultaDoTypeScript("SQL_EMITIR_VIOLACAO", EMISSOR_TS)
+        admin.execute(violacao.sql, violacao.args(
+            TIPO_VIOLACAO, 1, a, "product", self.SKU,
+            json.dumps({"sku": self.SKU, "regras": ["alcool"], "versao_politica": self.VERSAO_NOVA,
+                        "sha256": _base32(sha)}),
+            "P0", ["transacao"],
+        ))
+
+        # O IDX le o envelope que o *outbox* escreveu, e reescreve o documento
+        # a partir da oferta viva: invisivel.
+        admin.execute("SELECT envelope FROM platform.events_outbox WHERE event_id = %s", (event_id,))
+        envelope = admin.fetchone()[0]
+        envelope = envelope if isinstance(envelope, dict) else json.loads(envelope)
+        self.assertEqual(envelope["payload"], {"sku": self.SKU, "estado": "rascunho"})
+        consumidor.efeito_do_produto(_ClienteDoCursor(admin), envelope)
+        self.assertEqual(self._documento(admin, a), [(self.SKU, False)])
+
+        # O outro tenant: a oferta publicada e o documento visivel, intactos.
+        factories.contexto(admin, b)
+        self.assertEqual(self._documento(admin, b), [(self.SKU, True)])
+        admin.execute("RESET ROLE")
+        admin.execute(
+            "SELECT tenant_id::text, estado FROM platform.offer_terms WHERE tenant_id IN (%s, %s)",
+            (a, b),
+        )
+        self.assertEqual(dict(admin.fetchall()), {a: "rascunho", b: "publicado"})
+        # E a re-analise seguinte ja nao ve o de A, e continua a ver o de B.
+        admin.execute(por_reanalisar.sql, por_reanalisar.args(self.VERSAO_NOVA, 100))
+        self.assertEqual([l[0] for l in admin.fetchall() if l[0] in (a, b)], [b])
+
+    def test_a_saida_de_publicado_passa_com_limitacao_em_vigor(self) -> None:
+        """A decisao D2 do KAM-245 e a revisao `0067`: so a entrada em publicado pergunta.
+
+        Com uma `limitacao` de T&S em vigor, a saida de publicado da re-analise
+        passa. O controlo, na mesma transaccao: um produto novo e recusado com
+        `23514`, logo a limitacao esta mesmo em vigor.
+        """
+        admin = self.ligar("admin").cursor()
+        tenant = self._tenant_com_publicado(admin)
+        factories.contexto(admin, tenant)
+        for passo, motivo in (("aviso", "conduta_em_analise"), ("limitacao", "actividade_limitada")):
+            admin.execute(
+                "INSERT INTO platform.ts_sanction (tenant_id, chave, passo, origem, motivo_interno, "
+                "motivo_publico, autor, regra, sinais) VALUES (%s, %s, %s, 'automatica', 'ensaio', %s, "
+                "'sistema:1.0.0', 'risco_ts>=30', '[]'::jsonb)",
+                (tenant, f"auto:{passo}:{uuid.uuid4()}", passo, motivo),
+            )
+        admin.execute("SET LOCAL ROLE kamba_app")
+        factories.contexto(admin, tenant)
+        saida = ConsultaDoTypeScript("SQL_DESPUBLICAR", RETIRADA_TS)
+        admin.execute(saida.sql, saida.args(tenant, self.SKU))
+        self.assertEqual([tuple(l) for l in admin.fetchall()], [(self.SKU,)])
+        # O controlo corre como administrador: o *trigger* nao pergunta pelo papel.
+        admin.execute("RESET ROLE")
+        self.assertErroSql(
+            VIOLACAO_DE_CHECK, admin,
+            "INSERT INTO platform.offer_terms (tenant_id, sku, nome, preco_tipo, preco_minor, stock_modo) "
+            "VALUES (%s, 'novo', 'produto novo', 'fixo', 100, 'garantido')",
+            (tenant,),
+        )
+        admin.execute("SELECT estado FROM platform.offer_terms WHERE tenant_id = %s", (tenant,))
+        self.assertEqual([tuple(l) for l in admin.fetchall()], [("rascunho",)])
 
 
 class TestViolacao(ComBase):

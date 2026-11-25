@@ -49,6 +49,7 @@ export {
   type Caso,
   type ChaveDeLlm,
   type ClasseDeDivergencia,
+  type CofreDeChaves,
   type ClienteSql,
   type Divergencia,
   type Entitlements,
@@ -60,6 +61,7 @@ export {
   type LeitorDeCasos,
   type LinhaDePasso,
   type Passo,
+  type PedidoDeChave,
   type RecursoInventariado,
   type RefExterna,
   type RegistoDeCanalDeComercio,
@@ -86,7 +88,10 @@ export {
   SQL_GUARDAR_CHAVE_LLM,
   SQL_GUARDAR_CONTA_ATENDIMENTO,
   aliasDoTenant,
+  gerarValorDeChave,
   montarPassos,
+  refDaChaveDoTenant,
+  resumoDaChave,
   type DefinicaoDePasso,
 } from "./passos.ts";
 
