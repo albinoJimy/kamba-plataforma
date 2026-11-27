@@ -390,3 +390,22 @@ funcoes:
       depois; nenhuma outra funcao `SECURITY DEFINER` le o guia (ensaio).
       `EXECUTE` so para o `kamba_app`. `db/tests/test_guia_na_base_schema.py`
       mede as colunas devolvidas e o `42501` dos outros papeis.
+
+  - funcao: platform.breakglass_registar(p_accao text, p_actor text, p_host text, p_payload_hash bytea)
+    adr: ADR-015
+    razao: >-
+      A porta do portao do acesso de excepcao a um host (KAM-259, decisao do
+      fundador de 2026-11-25, opcao A): escreve `breakglass.open` ou
+      `breakglass.close` na cadeia de plataforma do `audit_log` (`tenant_id`
+      nulo), sempre com `actor_type = 'staff'` e `entity = 'host'`, e recusa
+      qualquer outra accao. O `kamba_breakglass`, o unico com `EXECUTE`, nao tem
+      `INSERT` em tabela nenhuma; com `SECURITY INVOKER` era preciso dar-lho, e
+      uma linha de plataforma so a escreve quem contorna a RLS — o
+      `kamba_batch`, que o `docs/tecnica/08` §3.3, regra (5), tira do acesso
+      humano a producao. O `DEFINER` sozinho nao atravessa o `FORCE`: a politica
+      `breakglass_registo` do `audit_log`, so de `INSERT`, so para o
+      `kamba_migrator`, so para as duas accoes sem tenant e so com a variavel
+      `app.registo_breakglass` que a funcao liga antes da escrita e desliga
+      depois. O encadeamento continua do trigger `audit_encadear`.
+      `db/tests/test_breakglass.py` mede as duas accoes, a recusa das outras e
+      o `42501` dos outros papeis.

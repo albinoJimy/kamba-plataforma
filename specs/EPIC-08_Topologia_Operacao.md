@@ -4,7 +4,7 @@
 |---|---|
 | Produto | KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para Angola |
 | Documento | Epic — Topologia e Operação |
-| Versão | 1.39 |
+| Versão | 1.40 |
 | Data | Novembro de 2026 |
 | Classificação | Documento de Referência — Interno |
 | Documento-fonte | `../docs/tecnica/09_Topologia_Operacao_Escala.md` |
@@ -2279,11 +2279,11 @@ Que cada abertura de acesso de excepção a um *host* de `staging` ou de `prod` 
 
 ### Critérios de Aceitação
 
-- [ ] O caminho de abertura do *break-glass* (o procedimento e o código que ele corre) escreve uma linha `breakglass.open` no `audit_log` antes de o acesso ficar utilizável, com o actor, o ambiente, o *host*, a razão e o prazo.
-- [ ] Vale em `staging` e em `prod`; o acesso da equipa em `staging` continua como a matriz de ambientes o define, e o acesso de quem não é da equipa (o revisor do KAM-074) passa pelo caminho auditado. Se isso mudar o `acesso.modo` de `staging`, a mudança fica em `../infra/envs/staging/env.yaml` e na matriz, com o `env_lint` verde.
-- [ ] Um ensaio prova que a abertura sem a linha no `audit_log` não completa (falha fechada), e outro que a linha fica encadeada como as outras do `audit_log`.
-- [ ] O fecho do acesso também fica registado, e o KAM-074 tem o comando que mostra as duas linhas do revisor.
-- [ ] Nenhum segredo, chave ou endereço de máquina em ficheiro versionado.
+- [x] O caminho de abertura do *break-glass* (o procedimento e o código que ele corre) escreve uma linha `breakglass.open` no `audit_log` antes de o acesso ficar utilizável, com o actor, o ambiente, o *host*, a razão e o prazo.
+- [x] Vale em `staging` e em `prod`; o acesso da equipa em `staging` continua como a matriz de ambientes o define, e o acesso de quem não é da equipa (o revisor do KAM-074) passa pelo caminho auditado. Se isso mudar o `acesso.modo` de `staging`, a mudança fica em `../infra/envs/staging/env.yaml` e na matriz, com o `env_lint` verde.
+- [x] Um ensaio prova que a abertura sem a linha no `audit_log` não completa (falha fechada), e outro que a linha fica encadeada como as outras do `audit_log`.
+- [x] O fecho do acesso também fica registado, e o KAM-074 tem o comando que mostra as duas linhas do revisor.
+- [x] Nenhum segredo, chave ou endereço de máquina em ficheiro versionado.
 
 ### Detalhes Técnicos
 
@@ -2298,8 +2298,41 @@ Que cada abertura de acesso de excepção a um *host* de `staging` ou de `prod` 
 
 ### Definition of Done
 
-- [ ] Critérios satisfeitos, com o comando de cada medição registado.
-- [ ] A matriz de ambientes e o `env_lint` coerentes com o que mudar.
+- [x] Critérios satisfeitos, com o comando de cada medição registado.
+- [x] A matriz de ambientes e o `env_lint` coerentes com o que mudar.
+
+### Decisões do fundador
+
+| Data | Autor | Pergunta | Decisão |
+|---|---|---|---|
+| 2026-11-25 | O fundador (respondida no chat da coordenação, e trazida por ela) | O caminho de abertura pede duas coisas que a letra não fixa: uma acção para o fecho (o critério 4), que é esquema novo, e quem escreve as linhas sem tenant do `audit_log` — até aqui o `kamba_batch`, que o `../docs/tecnica/08` §3.3, regra (5), tira do acesso humano a produção. Opções: **A** uma conta `breakglass` no `host-base` com `ForceCommand` do `sshd`, cuja sessão escreve `breakglass.open` e só depois abre a *shell*, e `breakglass.close` no fim; uma migração com a acção do fecho e um papel estreito `kamba_breakglass`, com `EXECUTE` só numa função `SECURITY DEFINER` que aceita as duas acções; prazo obrigatório com tecto de sete dias, sem notificação. **B** a mesma, com a escrita pelo `kamba_batch` e sem papel novo. **C** sem esquema, com o fecho só no prazo gravado | **A**, com a revisão **0093**. O prazo é obrigatório, com tecto de sete dias; a notificação fica com o KAM-080. **Recusadas:** a B (escrever com o `kamba_batch` contraria o §3.3, regra (5), do `../docs/tecnica/08`) e a C (sem o fecho, o critério 4 ficava por cumprir) |
+
+### Verificação dos Critérios de Aceitação
+
+Sete caixas — 5 critérios e 2 linhas de DoD —, **sete marcadas**. Medido no ramo
+`feature/KAM-259-breakglass-audit` sobre a base `b9beb18e`, a 2026-11-27, com o PostgreSQL 18.6 da
+imagem fixada levantado pelo `../db/gate_bd.py`.
+
+> **O que só um *host* mede.** O núcleo do portão e a escrita pelo `psql` do contentor da base — o
+> mesmo `docker exec` que o *host* corre — estão ensaiados contra a base. O `sshd`, o `sudo`, o
+> `systemd-run` e a conta, que só existem num *host*, renderizam-se pelo OpenTofu e **não foram
+> verificados**, porque nenhum *host* existe (`../infra/README.md` §5), como o resto do
+> `host-base`. O primeiro *host* de `staging` é o KAM-077.
+
+| # | Critério | Estado | Evidência | Credor |
+|---|---|---|---|---|
+| 1 | O caminho de abertura escreve `breakglass.open` antes de o acesso ficar utilizável, com o actor, o ambiente, o *host*, a razão e o prazo | **satisfeito** | O procedimento: a conta `breakglass` do [`../infra/modules/host-base/cloud-init.yaml.tftpl`](../infra/modules/host-base/cloud-init.yaml.tftpl), cuja *shell* de login e `ForceCommand` é o portão [`../infra/modules/host-base/kamba_breakglass.py`](../infra/modules/host-base/kamba_breakglass.py), que entra como root pelo único comando do `sudoers` da conta, sem argumentos variáveis. O código: o `sessao` só chama a *shell* depois de a escrita voltar sem erro; `test_a_linha_de_abertura_esta_confirmada_antes_da_shell` e `test_pelo_psql_do_contentor_a_linha_esta_antes_da_shell` (`../db/tests/test_breakglass.py`) leem, de dentro da *shell* e por uma ligação nova, a linha já confirmada. A linha leva o actor (a impressão digital da chave, `test_a_impressao_e_a_do_ssh_keygen`, contra o `ssh-keygen -lf`), o ambiente e o *host* em `entity_id`, e a razão e o prazo no `payload_hash` com o identificador da sessão (`test_o_resumo_muda_com_cada_campo`): **a razão entra por hash e não em claro**, pela regra do `audit_log` (só *hashes* e identificadores, `../docs/tecnica/08` §7.1); o portão responde com o identificador e o prazo, que ficam no `relatorio.md` §2 do KAM-074 | — |
+| 2 | Vale em `staging` e em `prod`; a equipa em `staging` fica como a matriz diz, e quem não é da equipa passa pelo caminho auditado | **satisfeito** | O `host-base` é o mesmo módulo nos dois ambientes, e os dois `main.tf` passam a referência da credencial (`staging/DB_BREAKGLASS_PASSWORD`, `prod/DB_BREAKGLASS_PASSWORD`); renderizado pelo OpenTofu 1.10.6 nos dois, com a conta, o `sshd_config.d`, o `sudoers` e o programa embutido igual byte a byte ao versionado. O `acesso.modo` de `staging` **não muda** (`equipa`): o modo descreve o acesso da equipa, e o de excepção é o mesmo nos dois, em [`../infra/ENVIRONMENTS.md`](../infra/ENVIRONMENTS.md) §2.0 (versão 1.1) e nos dois `env.yaml`. `python -m env_lint --root .. lint` → **0 achados**, 11 regras; `canario` → **25 de 25** casos a morder | — |
+| 3 | Um ensaio prova que a abertura sem a linha não completa, e outro que a linha fica encadeada | **satisfeito** | Falha fechada, contra a base: `test_sem_a_escrita_a_shell_nunca_abre` (o `EXECUTE` revogado), `test_pelo_psql_do_contentor_uma_recusa_da_base_fecha_a_porta` (o mesmo, pelo `psql` do contentor), `test_sem_base_a_shell_nunca_abre` e `test_um_pedido_invalido_nao_escreve_nem_abre` (oito pedidos) — saída 69 ou 64, a *shell* nunca chamada e nenhuma linha. O ensaio do `psql` morde: sem o `ON_ERROR_STOP` e sem o `check`, um de cada vez, fica vermelho (medido). Encadeamento: `test_as_duas_linhas_ficam_encadeadas_na_cadeia_de_plataforma` recalcula em Python o `row_hash` das duas linhas, confere o `prev_hash` da abertura contra a cabeça que havia e o do fecho contra a abertura, e a cabeça final. A porta, revisão [`../db/migrations/versions/0093_breakglass_auditado.py`](../db/migrations/versions/0093_breakglass_auditado.py): só as duas acções, só sem tenant, só o `kamba_breakglass` a executa, e ele não insere nem lê a tabela (`TestAPorta`, oito ensaios); a descida recusa com um fecho escrito e, sem ele, desce e volta (`TestDowngradeDoBreakglass`). **27** ensaios, `Ran 27 … OK` | — |
+| 4 | O fecho também fica registado, e o KAM-074 tem o comando que mostra as duas linhas do revisor | **satisfeito** | `breakglass.close` no domínio (vigésima segunda acção, emenda 1.152 do dicionário, §3.87), escrito num `finally` quando a *shell* fecha (`test_uma_shell_que_rebenta_ainda_regista_o_fecho`; um fecho que não se escreve muda o código de saída, `test_o_fecho_que_nao_se_escreve_muda_o_codigo`). O comando: `python db/auditoria.py breakglass --actor 'SHA256:<impressão>'`, em [`../docs/seguranca/revisao_independente/escopo.md`](../docs/seguranca/revisao_independente/escopo.md) §4 e em [`../docs/auditoria.md`](../docs/auditoria.md) §6; `test_o_comando_do_kam_074_mostra_as_duas_linhas_de_uma_chave` mostra as duas linhas de uma chave e nenhuma de outra | — |
+| 5 | Nenhum segredo, chave ou endereço de máquina em ficheiro versionado | **satisfeito** | A credencial do `kamba_breakglass` entra do cofre no arranque, para um ficheiro só de root, pela referência `<projecto>/DB_BREAKGLASS_PASSWORD` (`db_breakglass_password` no `../ops/secrets-inventory.yaml`); as chaves públicas e o nome do contentor são variáveis do módulo, vazias por omissão. A chave do ensaio é a pública de um par descartável, gerado para ele. `python -m scan_secrets --root .. tree` → **limpo**, depois do `git add` | — |
+
+#### Definition of Done
+
+| # | Linha | Estado | Evidência | Credor |
+|---|---|---|---|---|
+| 1 | Critérios satisfeitos, com o comando de cada medição | **satisfeito** | Os cinco acima. Os ensaios de base correm por `python db/gate_bd.py`, com a base descartável: a suite nova e as listas fechadas que o papel e a acção tocam (`test_auditoria`, `test_catalogo`, `test_privilegios`, `test_ligacao`, `test_rotacao_de_chaves`, `test_contacto_da_encomenda`, `test_canal_do_dono_schema`, `test_inventario`, `test_migracao`) e o X-05 e o X-03/X-04 do gate 6. O `tests` inteiro do gate 8 fica para o CI | — |
+| 2 | A matriz de ambientes e o `env_lint` coerentes com o que mudar | **satisfeito** | O `acesso.modo` não muda; a matriz ganha o §2.0 e a linha 1.1 do controlo de versões; `env_lint lint` → 0 achados | — |
 
 ### Handoff para Claude Code
 
@@ -2498,3 +2531,4 @@ Testes: o ensaio e o canário que prova que ele morde.
 | 1.37 | Novembro 2026 | **KAM-259 e KAM-260** acrescentados, credores do KAM-074, por decisão da coordenação do lote 24 a 2026-11-25 (reversível): o KAM-074 passa a depender dos dois, para que o revisor independente os encontre feitos. Só com dependências fechadas, para arrancarem já. O `Bloqueia` do KAM-075, do KAM-076 e do KAM-080 ganha a aresta recíproca. Números provisórios: renumeram-se na integração. | Equipa KAMBÁ |
 | 1.38 | Novembro 2026 | **KAM-077, preparação sem o mundo real (lote 24)**, e o ticket **não fecha**: secção «Preparação (sem o mundo real)» no bloco, nenhuma caixa marcada. Entregues a sonda de RTT e o relatório que recusa sair sem 24 h medidas (`../tools/borda/`), as regras `nftables` do `host-base` (classe 3 de `../infra/PORTABILIDADE.md`), o índice `../provas/alojamento/README.md`, os candidatos da D1 em `../infra/modules/README.md` e o registo da metade CDN/WAF da **D12** com a opção (b) como **proposta** sem dono nem data. **E um defeito da borda corrigido:** o Caddyfile encaminhava `/webhooks/*` e o GWY serve `/wa/webhook` — o GET de verificação dava 404, medido. Número **provisório**: renumera-se na integração. | Equipa KAMBÁ |
 | 1.39 | Novembro 2026 | **KAM-260 entregue.** O ensaio do `docker inspect` dos serviços de `prod` (`compose_prod inspeccao`, com canário e prova de entrega, no gate 6 pelo alvo `compose-prod-inspeccao`), e o endurecimento que o deixa verde: os segredos de `prod` passam do `environment:` para um ficheiro por serviço, montado só de leitura e carregado pelo `lancador.sh` (decisão do fundador de 2026-11-27, opção B, com emenda *proposta* ao `ADR-L002` §1 e §3 no §8 dele). Sete caixas, sete marcadas. | Equipa KAMBÁ |
+| 1.40 | Novembro 2026 | **KAM-259 entregue.** O acesso de excepção a um *host* de `staging` e de `prod` entra pela conta `breakglass` do `host-base`, cujo portão escreve `breakglass.open` no `audit_log` antes de abrir a *shell* e `breakglass.close` quando ela fecha; revisão `0093` com o fecho, o papel `kamba_breakglass` e a porta `breakglass_registar`, pela decisão do fundador de 2026-11-25 (opção A, registada no bloco). As sete caixas marcadas com evidência; o que só um *host* mede fica dito na verificação. | Equipa KAMBÁ |

@@ -136,7 +136,8 @@ class TestDowngradeDaRotacao(unittest.TestCase):
         # por cima dela, e a `0082` (KAM-206) tira o `order.contact_view`. Sem
         # esta exclusao o oraculo esperava vinte e a base tinha dezoito. E a
         # `0086` (KAM-233) tira o `privacy.telefones_exportados`.
-        posteriores = {"order.contact_view", "privacy.telefones_exportados"}
+        # E a `0093` (KAM-259) tira o `breakglass.close`.
+        posteriores = {"order.contact_view", "privacy.telefones_exportados", "breakglass.close"}
         esperadas = [a for a in ACCOES if not a.startswith("secret.") and a not in posteriores]
         for accao in esperadas:
             self.assertIn(f"'{accao}'", definicao)

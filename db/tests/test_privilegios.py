@@ -2122,6 +2122,16 @@ ESPERADO_POR_TABELA = {
     for tabela, por_papel in ESPERADO_POR_TABELA.items()
 }
 
+#: O `kamba_breakglass` (KAM-259) em **todas** as tabelas: nada. Escreve as duas
+#: accoes de *break-glass* pela porta `SECURITY DEFINER` da revisao `0093`, e o
+#: `EXECUTE` dela mede-se em `test_breakglass.py`, que afirma tambem que ele nao
+#: insere nem le o `audit_log` directamente. A forma e a do `kamba_pay`: uma
+#: compreensao no fim, porque o zero e a regra.
+ESPERADO_POR_TABELA = {
+    tabela: dict(por_papel, kamba_breakglass=set())
+    for tabela, por_papel in ESPERADO_POR_TABELA.items()
+}
+
 #: (papel, tabela, privilegio) -> colunas concedidas **por coluna** nas tabelas
 #: da revisao 0003. O que nao esta aqui nao tem privilegio de coluna nenhum.
 COLUNAS_POR_PAPEL = {

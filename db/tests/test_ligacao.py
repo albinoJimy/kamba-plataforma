@@ -92,6 +92,9 @@ class TestCredenciais(unittest.TestCase):
                 # KAM-197: o papel do consumidor do PAY, o nono. Id
                 # `db_pay_password` no inventario, pela mesma regra.
                 "KAMBA_SECRET_DB_PAY_PASSWORD",
+                # KAM-259: o papel do portao do acesso de excepcao a um host,
+                # o decimo da plataforma. Id `db_breakglass_password`.
+                "KAMBA_SECRET_DB_BREAKGLASS_PASSWORD",
             },
         )
 

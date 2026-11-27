@@ -2333,7 +2333,7 @@ class TestPapeis(ComBase):
         )
         return {linha[0]: linha[1:] for linha in linhas}
 
-    def test_existem_os_dez_e_so_os_dez(self) -> None:
+    def test_existem_os_onze_e_so_os_onze(self) -> None:
         """Os tres do KAM-003, o `kamba_resolver` do KAM-004, o `kamba_identity`
         do KAM-008, o `kamba_audit` do KAM-012, o `kamba_agr` do KAM-026 e o
         `kamba_pay_hooks` do KAM-053.
@@ -2370,12 +2370,18 @@ class TestPapeis(ComBase):
         do `test_privilegios`; entra aqui porque esta consulta le o cluster, e
         um papel `kamba_*` que ninguem declarou e o que ela existe para apanhar.
         O que ele alcanca mede-se em `test_papel_do_litellm.py`.
+
+        **O decimo primeiro e o `kamba_breakglass` do KAM-259**, por decisao do
+        fundador de 2026-11-25 (opcao A): o portao do acesso de excepcao a um
+        host. Nao tem privilegio em tabela nenhuma; tem `USAGE` no `platform` e
+        `EXECUTE` na porta que escreve as duas accoes de *break-glass*, e o que
+        isso alcanca mede-se em `test_breakglass.py`.
         """
         self.assertEqual(
             set(self.atributos()),
             {"kamba_migrator", "kamba_app", "kamba_batch", "kamba_resolver",
              "kamba_identity", "kamba_audit", "kamba_agr", "kamba_pay_hooks",
-             "kamba_pay", "kamba_litellm"},
+             "kamba_pay", "kamba_litellm", "kamba_breakglass"},
         )
 
     def test_nenhum_e_superutilizador_nem_cria_bases_ou_papeis(self) -> None:
@@ -2425,6 +2431,11 @@ class TestPapeis(ComBase):
                 # KAM-247: o proxy de LLM nao tem RLS a contornar na base dele,
                 # e na da plataforma nem entra.
                 "kamba_litellm": False,
+                # KAM-259: o portao do acesso de excepcao escreve a cadeia de
+                # plataforma pela porta `SECURITY DEFINER`, e e a politica
+                # `breakglass_registo` do dono que o deixa. Com `BYPASSRLS`
+                # alcancava tudo; assim alcanca duas accoes.
+                "kamba_breakglass": False,
             },
         )
 

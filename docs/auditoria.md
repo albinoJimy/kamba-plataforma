@@ -184,7 +184,12 @@ E quatro coisas que a execução da própria revisão apanhou:
 python db/auditoria.py verificar                 # a cadeia inteira
 python db/auditoria.py verificar --tenant <uuid> # só uma
 python db/auditoria.py ancorar                   # a âncora do dia
+python db/auditoria.py breakglass --actor 'SHA256:<impressão>'  # as sessões de uma chave
 ```
+
+O `breakglass` (KAM-259) lista as aberturas e os fechos de acesso de excepção de uma
+chave, por ordem, com a hora, o ambiente e o *host*, e o resumo que emparelha as duas
+linhas de uma sessão. Lê com o `kamba_batch`, porque as linhas não têm tenant.
 
 **O verificador reimplementa a fórmula em Python**, e não chama
 `platform.audit_row_hash`. Verificar uma cadeia com a função que a escreveu
@@ -226,6 +231,7 @@ mesma base no mesmo dia dava outra âncora. É em UTC, e há um teste que corre 
 | `kamba_batch` | `SELECT`, `INSERT` por coluna | `SELECT` |
 | `kamba_audit` | `SELECT` | `SELECT` |
 | `kamba_migrator` (dono) | tudo, e mesmo assim não altera nem apaga — o *trigger* recusa | idem |
+| `kamba_breakglass` | **nada** por tabela: só `EXECUTE` na `breakglass_registar`, que escreve `breakglass.open` e `breakglass.close` sem tenant (revisão `0093`, KAM-259) | **nada** |
 
 **Quem escreve não lê**, que é o critério 9 — e quem insere **não escolhe** a
 data nem os hashes, que é o que fecha o achado crítico. O `INSERT` por coluna
@@ -268,3 +274,4 @@ contra um prazo que ninguém confirmou apaga prova que a lei pode exigir.
 |---|---|---|---|
 | 1.0 | Outubro 2026 | Emissão (KAM-012): a revisão `0006`, a cadeia, o verificador e a âncora. As cinco medições contra o PostgreSQL 18.6 e os quatro desvios que elas obrigaram. | Equipa KAMBÁ |
 | 1.1 | Outubro 2026 | **O que a revisão adversarial mudou (KAM-012).** Deu REPROVADO, e o crítico era de desenho: com a cadeia dentro de uma função `SECURITY INVOKER`, o papel da aplicação forjava uma linha encadeada com a data à escolha. A cadeia passou para um *trigger* `BEFORE INSERT`; o `INSERT` é por coluna; o `criado_at` entrou no hash; o índice único passou a ser por tenant (era um oráculo que atravessava a RLS); as funções deixaram de ter `EXECUTE` para `PUBLIC`; as colunas de texto ganharam tecto; e o verificador passou a seguir o `prev_hash` em vez do `id` — que com mil inserções concorrentes não é a mesma ordem. | Equipa KAMBÁ |
+| 1.2 | Novembro 2026 | KAM-259: o comando `breakglass --actor` no §6 e o papel `kamba_breakglass` na tabela do §7 (revisão `0093`). | Equipa KAMBÁ |

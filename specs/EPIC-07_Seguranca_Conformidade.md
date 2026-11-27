@@ -1755,7 +1755,7 @@ Entrega: pacote, relatório, re-teste, decisão. PR com o template (§7).
 
 **O que esta preparação encontrou e não decide** — devolvido à coordenação:
 
-1. **O registo do acesso do revisor no `audit_log` não está previsto para `staging`**: o `infra/envs/staging/env.yaml` tem `acesso.modo: equipa`. O bloco pede-o; fica como pré-condição sem credor (`escopo.md` §6). **Credor desde 2026-11-25: KAM-259**, e o KAM-260 junta-se pela área 6 (decisão reversível da coordenação do lote 24; o KAM-074 depende dos dois). O que se mediu além disto foi entregue à coordenação fora do repositório.
+1. **O registo do acesso do revisor no `audit_log`**: o `infra/envs/staging/env.yaml` tem `acesso.modo: equipa`. O bloco pede-o; fica como pré-condição (`escopo.md` §6). **Credor desde 2026-11-25: KAM-259**, que leva o acesso de excepção de `staging` e `prod` pela conta `breakglass`, com o comando que mostra as linhas do revisor (`escopo.md` §4), e o KAM-260 junta-se pela área 6 (decisão reversível da coordenação do lote 24; o KAM-074 depende dos dois). O que se mediu além disto foi entregue à coordenação fora do repositório.
 2. **Onde ficam a identidade e as qualificações do revisor**, que são dados pessoais de um terceiro num repositório público: a proposta é uma referência (`R1`) aqui e a identidade com o fundador (`relatorio.md` §2).
 3. **A correspondência entre as quatro severidades do bloco e as classes P1–P4 do `../docs/tecnica/08` §10:** a letra só fixa P1 → crítico; as outras três ficam como proposta (`relatorio.md` §3).
 4. **A reprodução dos achados abertos fica fora do repositório público**, pela regra do KAM-073, cuja decisão continua aberta com o fundador; esta preparação não a toma.

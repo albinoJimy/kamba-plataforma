@@ -240,7 +240,7 @@ MUTACOES: tuple[tuple[str, str, str, str], ...] = (
     # do `lint.py` ou do §4 de `docs/lint-bloco.md`, e se o `velho` de qualquer
     # entrada deste inventario deixar de estar no seu ficheiro.
     ("o piso de emparelhados a zero", "lint.py",
-     "MINIMO_DE_BLOCOS_MEDIDOS = 100", "MINIMO_DE_BLOCOS_MEDIDOS = 0"),
+     "MINIMO_DE_BLOCOS_MEDIDOS = 101", "MINIMO_DE_BLOCOS_MEDIDOS = 0"),
 )
 
 

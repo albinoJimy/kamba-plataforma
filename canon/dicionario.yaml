@@ -12,7 +12,7 @@
 
 version: 1
 fonte: "specs/02_Dicionario_de_Dados_Canonico.md"
-versao_dicionario: "1.151"
+versao_dicionario: "1.152"
 entradas:
   - seccao: "3.1"
     conceito: "Contacto"
@@ -732,7 +732,7 @@ entradas:
     variantes_literais: []
   - seccao: "3.2"
     conceito: "Acções auditadas"
-    canonico: "action ∈ {price.update, stock.adjust, payment.manual_confirm, access.conversation, batch.run, breakglass.open, audit.read, privacy.dsar_recusado, privacy.dsar_rectificado, retention.hold_aplicado, retention.hold_levantado, order.refund_record, review.acesso, review.recusa, llm.orcamento_zerado, llm.orcamento_reposto, trust.tecto, secret.rotate, secret.revoke, order.contact_view, privacy.telefones_exportados}"
+    canonico: "action ∈ {price.update, stock.adjust, payment.manual_confirm, access.conversation, batch.run, breakglass.open, audit.read, privacy.dsar_recusado, privacy.dsar_rectificado, retention.hold_aplicado, retention.hold_levantado, order.refund_record, review.acesso, review.recusa, llm.orcamento_zerado, llm.orcamento_reposto, trust.tecto, secret.rotate, secret.revoke, order.contact_view, privacy.telefones_exportados, breakglass.close}"
     literais:
       - "action"
       - "price.update"
@@ -756,6 +756,7 @@ entradas:
       - "secret.revoke"
       - "order.contact_view"
       - "privacy.telefones_exportados"
+      - "breakglass.close"
     nomes:
       - "action"
       - "price.update"
@@ -779,11 +780,15 @@ entradas:
       - "secret.revoke"
       - "order.contact_view"
       - "privacy.telefones_exportados"
+      - "breakglass.close"
     nomes_nota:
-      - "kamba_identity"
-      - "contact_id"
+      - "breakglass.open"
+      - "platform.breakglass_registar"
+      - "actor_id"
       - "entity_id"
       - "payload_hash"
+      - "kamba_identity"
+      - "contact_id"
       - "order_id"
       - "entity"
       - "trust.tecto"
@@ -24431,6 +24436,82 @@ entradas:
       - "ENTITLEMENT_DENIED"
       - "PortaDeOrcamento"
     variantes_literais: []
+  - seccao: "3.87"
+    conceito: "Papel do portão do acesso de excepção"
+    canonico: "kamba_breakglass"
+    literais:
+      - "kamba_breakglass"
+    nomes:
+      - "kamba_breakglass"
+    nomes_nota:
+      - "NOBYPASSRLS"
+      - "platform"
+      - "KAMBA_SECRET_DB_BREAKGLASS_PASSWORD"
+      - "db_breakglass_password"
+    variantes_literais: []
+  - seccao: "3.87"
+    conceito: "Porta do acesso de excepção"
+    canonico: "platform.breakglass_registar(p_accao, p_actor, p_host, p_payload_hash)"
+    literais:
+      - "platform.breakglass_registar(p_accao, p_actor, p_host, p_payload_hash)"
+    nomes:
+      - "platform.breakglass_registar"
+      - "p_accao"
+      - "p_actor"
+      - "p_host"
+      - "p_payload_hash"
+    nomes_nota:
+      - "audit_log"
+      - "breakglass.open"
+      - "breakglass.close"
+      - "audit_encadear"
+    variantes_literais: []
+  - seccao: "3.87"
+    conceito: "Política do acesso de excepção"
+    canonico: "breakglass_registo em platform.audit_log, FOR INSERT TO kamba_migrator WITH CHECK (tenant_id IS NULL AND action IN ('breakglass.open', 'breakglass.close') AND current_setting('app.registo_breakglass', true) = 'on')"
+    literais:
+      - "breakglass_registo"
+      - "platform.audit_log"
+      - "FOR INSERT TO kamba_migrator WITH CHECK (tenant_id IS NULL AND action IN ('breakglass.open', 'breakglass.close') AND current_setting('app.registo_breakglass', true) = 'on')"
+    nomes:
+      - "breakglass_registo"
+      - "platform.audit_log"
+      - "FOR"
+      - "INSERT"
+      - "TO"
+      - "kamba_migrator"
+      - "WITH"
+      - "CHECK"
+      - "tenant_id"
+      - "IS"
+      - "NULL"
+      - "AND"
+      - "action"
+      - "IN"
+      - "breakglass.open"
+      - "breakglass.close"
+      - "current_setting"
+      - "app.registo_breakglass"
+      - "true"
+      - "on"
+    nomes_nota:
+      - "registo_busca"
+    variantes_literais: []
+  - seccao: "3.87"
+    conceito: "Fecho do acesso de excepção"
+    canonico: "breakglass.close no domínio de audit_log.action"
+    literais:
+      - "breakglass.close"
+      - "audit_log.action"
+    nomes:
+      - "breakglass.close"
+      - "audit_log.action"
+    nomes_nota:
+      - "breakglass.open"
+      - "entity_id"
+      - "payload_hash"
+      - "downgrade"
+    variantes_literais: []
 
 tabelas:
   - nome: "contacts"
@@ -26309,6 +26390,17 @@ tabelas:
     assinatura: "platform.v_h12_pagantes(tenant_id, plano, modulo, ciclos_pagos)"
     seccao: "3.86"
     conceito: "Pagantes da H12"
+  - nome: "breakglass_registar"
+    esquema: "platform"
+    colunas:
+      - "p_accao"
+      - "p_actor"
+      - "p_host"
+      - "p_payload_hash"
+    aberta: false
+    assinatura: "platform.breakglass_registar(p_accao, p_actor, p_host, p_payload_hash)"
+    seccao: "3.87"
+    conceito: "Porta do acesso de excepção"
 
 dominios:
   - coluna: "consent_event.purpose"
@@ -26394,6 +26486,7 @@ dominios:
       - "secret.revoke"
       - "order.contact_view"
       - "privacy.telefones_exportados"
+      - "breakglass.close"
     seccao: "3.2"
     conceito: "Acções auditadas"
     so_no_registo: false

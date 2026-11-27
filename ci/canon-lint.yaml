@@ -763,6 +763,20 @@ dominios_historicos:
       descida recusa-se se houver linhas privacy.telefones_exportados escritas,
       porque o audit_log e append-only e nenhum papel tem DELETE. Renumerar a
       revisao e mudar tambem o caminho desta entrada.
+  - revisao: "db/migrations/versions/0093_breakglass_auditado.py"
+    tabela: "audit_log"
+    coluna: "action"
+    ticket: "KAM-259"
+    data: "2026-11-27"
+    razao: >-
+      A 0093 (KAM-259, decisao do fundador de 2026-11-25, opcao A) acrescenta ao
+      dominio breakglass.close, o fecho de uma sessao de acesso de excepcao a um
+      host, e o dicionario §3.2 passa a declarar vinte e duas (emenda 1.152). O
+      upgrade escreve as vinte e duas; o downgrade repoe as vinte e uma da 0086,
+      e e essa declaracao que esta entrada cobre. O passo de descida recusa-se
+      se houver linhas breakglass.close escritas, porque o audit_log e
+      append-only e nenhum papel tem DELETE. Renumerar a revisao e mudar tambem
+      o caminho desta entrada.
   - revisao: "db/migrations/versions/0056_trust_e_sancoes.py"
     tabela: "ts_signal"
     coluna: "tipo"

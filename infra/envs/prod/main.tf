@@ -12,6 +12,9 @@ locals {
   env = yamldecode(file("${path.module}/env.yaml"))
 
   segredo_wireguard = "${local.env.segredos.projecto}/VPN_WIREGUARD_ADMIN"
+
+  # KAM-259: a credencial do portao do acesso de excepcao.
+  segredo_breakglass = "${local.env.segredos.projecto}/DB_BREAKGLASS_PASSWORD"
 }
 
 module "host_base" {
@@ -20,6 +23,7 @@ module "host_base" {
   ambiente                        = local.env.ambiente
   ponto_de_montagem_nvme          = "/var/lib/kamba"
   referencia_do_segredo_wireguard = local.segredo_wireguard
+  referencia_do_segredo_breakglass = local.segredo_breakglass
 
   # Vazia: nao ha host. Em `prod` esta lista nunca sera a via normal de acesso —
   # o `acesso.modo` e `break-glass-auditado`, e quem o audita e o KAM-080.

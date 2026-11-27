@@ -259,8 +259,12 @@ class TestDowngradeDoContacto(unittest.TestCase):
         alembic_ok("downgrade", abaixo)
         try:
             definicao = self._definicao()
-            # Descer a `0082` desce primeiro a `0086` (KAM-233), que tira a sua.
-            esperadas = [a for a in ACCOES if a not in {"order.contact_view", "privacy.telefones_exportados"}]
+            # Descer a `0082` desce primeiro a `0086` (KAM-233) e a `0093`
+            # (KAM-259), que tiram as suas.
+            esperadas = [
+                a for a in ACCOES
+                if a not in {"order.contact_view", "privacy.telefones_exportados", "breakglass.close"}
+            ]
             for accao in esperadas:
                 self.assertIn(f"'{accao}'", definicao)
             self.assertEqual(definicao.count("'::text"), len(esperadas))
