@@ -19,6 +19,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -32,6 +33,7 @@ SAIDA_ERRO = 2
 #: que ele tem de congelar para que H1, H6, H8 e H9 se possam ler.
 FORMATO_DO_MANIFESTO = "kamba-piloto-congelado/1"
 EXPORTACAO_DO_PILOTO = "piloto_export.json"
+_SHA256 = re.compile(r"[0-9a-f]{64}")
 
 
 def _manifesto_nao_serve(dados: object) -> str | None:
@@ -39,7 +41,22 @@ def _manifesto_nao_serve(dados: object) -> str | None:
     if not isinstance(dados, dict) or dados.get("formato") != FORMATO_DO_MANIFESTO:
         return f"não tem o formato {FORMATO_DO_MANIFESTO}"
     ficheiros = dados.get("ficheiros")
-    nomes = {f.get("nome") for f in ficheiros if isinstance(f, dict)} if isinstance(ficheiros, list) else set()
+    if not isinstance(ficheiros, list):
+        return f"não congela o {EXPORTACAO_DO_PILOTO}"
+    nomes = set()
+    for entrada in ficheiros:
+        # Um nome sem *hash* não congela nada: cada entrada tem as três chaves
+        # que o `congelar` do KAM-109 escreve.
+        if (
+            not isinstance(entrada, dict)
+            or not isinstance(entrada.get("nome"), str)
+            or not isinstance(entrada.get("sha256"), str)
+            or not _SHA256.fullmatch(entrada["sha256"])
+            or isinstance(entrada.get("bytes"), bool)
+            or not isinstance(entrada.get("bytes"), int)
+        ):
+            return f"tem uma entrada sem nome, bytes ou sha256: {entrada!r}"
+        nomes.add(entrada["nome"])
     if EXPORTACAO_DO_PILOTO not in nomes:
         return f"não congela o {EXPORTACAO_DO_PILOTO}"
     return None
@@ -114,7 +131,7 @@ def principal(argv: list[str] | None = None) -> int:
                 return SAIDA_ERRO
             conferido = True
     existe = regras.resolvedor(args.registo.resolve().parent, raiz)
-    estados = regras.estados(linhas, efectivo, existe)
+    estados = regras.estados(linhas, efectivo, existe, conferido)
     texto = pacote.escrever(
         linhas,
         estados,

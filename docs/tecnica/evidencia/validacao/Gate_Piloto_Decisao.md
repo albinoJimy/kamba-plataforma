@@ -33,7 +33,7 @@
 
 Uma ordem proposta:
 
-1. **Gerar o pacote** sobre o Registo actualizado e o resumo do piloto, com o manifesto congelado do KAM-109 (`piloto_congelado.json`) e o seu SHA-256 (o comando está no `tools/gate_piloto/README.md`).
+1. **Gerar o pacote** sobre o Registo actualizado e o resumo do piloto, com o manifesto congelado do KAM-109 (`piloto_congelado.json`) copiado para a árvore e o seu SHA-256 (o comando está no `tools/gate_piloto/README.md`). Sem o manifesto na árvore, H1, H6, H8 e H9 saem `inconclusiva`.
 2. **Ler o pacote inteiro**: o estado **efectivo** de H1–H9 (§1 do pacote), a Carta §5 item a item (§2), as linhas de `14` §6 accionadas e a paragem total (§3), a economia (§4).
 3. **Preencher o §3 deste memorando**, a economia e a pista (a pergunta de `14` §5).
 4. **Escrever o plano datado** de cada hipótese inconclusiva no §2.
@@ -239,4 +239,4 @@ Quem verifica é «pessoa distinta do autor» (Testes Requeridos do bloco).
 | Versão | Data | Alteração | Autor |
 |---|---|---|---|
 | 1.0 | Novembro 2026 | Emissão inicial (KAM-110, preparação): o memorando, **em branco**. Entrega a forma — a ordem de preenchimento, as regras de decisão transcritas de `14` §2 e §6 e do bloco, o plano datado das inconclusivas, a economia com a pista por preencher pelo fundador, a acção para H7, H8 e H9 quando falham, as três secções que cada decisão obriga (epics da Fase 2 e os gatilhos D2, D7, D8 e D11; pivô com plano de duas semanas e tickets; encerramento), os NÃO VERIFICADOS com dono, as quatro assinaturas e a verificação cruzada. Nenhum campo de decisão nem de pista preenchido. | Equipa KAMBÁ |
-| 1.1 | Novembro 2026 | KAM-110, interface com o KAM-109 fundido (#283): o pacote sustenta-se no manifesto congelado `piloto_congelado.json` e no SHA-256 dele, e não na exportação — é o manifesto que o protocolo do Piloto (§10) manda citar na coluna `fonte` do Registo. Três menções mudam (o aviso de cima, o passo 1 do §0 e a linha do §1); a decisão e as assinaturas continuam em branco. | Equipa KAMBÁ |
+| 1.1 | Novembro 2026 | KAM-110, interface com o KAM-109 fundido (#283): o pacote sustenta-se no manifesto congelado `piloto_congelado.json` e no SHA-256 dele, e não na exportação — é o manifesto que o protocolo do Piloto (§10) manda citar na coluna `fonte` do Registo. Três menções mudam (o aviso de cima, o passo 1 do §0, que passa a dizer que o manifesto se copia para a árvore, e a linha do §1); a decisão e as assinaturas continuam em branco. | Equipa KAMBÁ |

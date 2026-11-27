@@ -60,7 +60,10 @@ def _cita_o_manifesto(linha: Linha, manifesto_sha256: str | None) -> bool:
     O protocolo do Piloto (§10): «O `sha256` do manifesto entra na coluna
     `fonte` do Registo de Hipóteses, e o conjunto arquiva-se em armazenamento
     controlado, fora do repositório.» Só vale nas quatro do KAM-109, e só o
-    *hash* do manifesto que o resumo nomeia: outro *hash* não diz de que dados é.
+    *hash* do manifesto que o resumo nomeia **e que se conferiu contra o
+    ficheiro**: o resumo e o Registo escrevem-se à mão, e dois *hashes* iguais
+    escritos pela mesma pessoa não provam nada. Sem o manifesto conferido, a
+    `estado_efectivo` já põe a linha em `inconclusiva` por essa razão.
     """
     if linha.h not in DO_KAM_109 or manifesto_sha256 is None:
         return False
@@ -109,7 +112,10 @@ def _sem_resultado(resultado: str) -> bool:
 
 
 def estado_efectivo(
-    linha: Linha, manifesto_sha256: str | None, fonte_existe: Callable[[str], bool]
+    linha: Linha,
+    manifesto_sha256: str | None,
+    fonte_existe: Callable[[str], bool],
+    manifesto_conferido: bool = True,
 ) -> Estado:
     """`confirmada` e `refutada` só sobrevivem com dados; o resto é `inconclusiva`.
 
@@ -120,6 +126,10 @@ def estado_efectivo(
     razoes: list[str] = []
     if linha.h in DO_KAM_109 and manifesto_sha256 is None:
         razoes.append("sem o manifesto congelado do KAM-109 no resumo")
+    elif linha.h in DO_KAM_109 and not manifesto_conferido:
+        # O conjunto arquiva-se fora do repositório, mas o manifesto — nomes,
+        # tamanhos e *hashes* — versiona-se ao lado do pacote, e só aí se confere.
+        razoes.append("o manifesto não está na árvore: o SHA-256 não se conferiu")
     n = _amostra(linha.amostra)
     if not n:
         razoes.append("amostra n vazia ou zero")
@@ -146,10 +156,16 @@ def estado_efectivo(
 
 
 def estados(
-    linhas: dict[str, Linha], resumo: Resumo, fonte_existe: Callable[[str], bool]
+    linhas: dict[str, Linha],
+    resumo: Resumo,
+    fonte_existe: Callable[[str], bool],
+    manifesto_conferido: bool = True,
 ) -> dict[str, Estado]:
     sha = resumo.manifesto_sha256
-    return {h: estado_efectivo(linhas[h], sha, fonte_existe) for h in HIPOTESES}
+    return {
+        h: estado_efectivo(linhas[h], sha, fonte_existe, manifesto_conferido)
+        for h in HIPOTESES
+    }
 
 
 # --- a matriz de `14` §6 ---------------------------------------------------

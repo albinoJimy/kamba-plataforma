@@ -22,6 +22,17 @@ def _correr(argv: list[str]) -> tuple[int, str, str]:
     return codigo, saida.getvalue(), erro.getvalue()
 
 
+#: A forma que o `congelar` do KAM-109 escreve (`tools/piloto/exportacao.py`).
+MANIFESTO_BOM = {
+    "formato": "kamba-piloto-congelado/1",
+    "congelado_em": "2000-01-01T00:00:00+00:00",
+    "ficheiros": [
+        {"nome": "h6_export.json", "bytes": 2, "sha256": "ef" * 32},
+        {"nome": "piloto_export.json", "bytes": 2, "sha256": "ab" * 32},
+    ],
+}
+
+
 class TestPontaAPonta(unittest.TestCase):
     def setUp(self) -> None:
         self._tmp = TemporaryDirectory()
@@ -67,6 +78,7 @@ class TestPontaAPonta(unittest.TestCase):
         )
 
     def test_o_pacote_sintetico(self) -> None:
+        self._manifesto(json.dumps(MANIFESTO_BOM).encode("utf-8"))
         codigo, texto, _ = self._pacote()
         self.assertEqual(codigo, cli.SAIDA_CONFORME)
         self.assertIn("**SINTÉTICO — não é evidência.**", texto)
@@ -79,7 +91,7 @@ class TestPontaAPonta(unittest.TestCase):
         self.assertIn("**VERIFICADA**", texto)
         self.assertIn("61,05 USD", texto)
         self.assertIn("| Manifesto congelado do KAM-109 | `ev/piloto_congelado.json` |", texto)
-        self.assertIn("| SHA-256 conferido contra o ficheiro | **não**", texto)
+        self.assertIn("| SHA-256 conferido contra o ficheiro | sim |", texto)
         self.assertIn("| F1 |", texto)
         self.assertIn("| satisfeito | [`ev/f1.md`](../../../../ev/f1.md) |", texto)
         self.assertRegex(texto, r"\| P2 \|.*\| \*\*não satisfeito\*\* \|")
@@ -112,16 +124,22 @@ class TestPontaAPonta(unittest.TestCase):
         dados["manifesto_sha256"] = hashlib.sha256(conteudo).hexdigest()
         self.resumo.write_text(json.dumps(dados), encoding="utf-8")
 
+    def test_o_manifesto_fora_da_arvore_nao_sustenta_as_do_kam_109(self) -> None:
+        # O resumo e o Registo escrevem-se à mão: sem o ficheiro, o hash não se
+        # confere, e H1 — declarada refutada, com fonte que existe — não acciona nada.
+        codigo, texto, _ = self._pacote()
+        self.assertEqual(codigo, cli.SAIDA_CONFORME)
+        self.assertRegex(
+            texto,
+            r"\| H1 \|.*\| refutada \| \*\*inconclusiva\*\* \|.*o manifesto não está na árvore",
+        )
+        self.assertNotIn("| H1 | Voltar às entrevistas", texto)
+        self.assertIn("| SHA-256 conferido contra o ficheiro | **não** — o manifesto não está na árvore", texto)
+        # H7 não é do KAM-109 e não depende do manifesto.
+        self.assertRegex(texto, r"\| H7 \|.*\| confirmada \| \*\*confirmada\*\* \|")
+
     def test_o_manifesto_na_arvore_confere_se(self) -> None:
-        # A forma que o `congelar` do KAM-109 escreve (`tools/piloto/exportacao.py`).
-        bom = {
-            "formato": "kamba-piloto-congelado/1",
-            "congelado_em": "2000-01-01T00:00:00+00:00",
-            "ficheiros": [
-                {"nome": "h6_export.json", "bytes": 2, "sha256": "ef" * 32},
-                {"nome": "piloto_export.json", "bytes": 2, "sha256": "ab" * 32},
-            ],
-        }
+        bom = MANIFESTO_BOM
         # O hash do resumo («cd» * 32) não é o do ficheiro: sai com 2.
         (self.raiz / "ev/piloto_congelado.json").write_text(json.dumps(bom), encoding="utf-8")
         codigo, _, erro = self._pacote()
@@ -137,6 +155,17 @@ class TestPontaAPonta(unittest.TestCase):
             "não tem o formato": {**bom, "formato": "kamba-piloto-export/1"},
             "não congela o piloto_export.json": {**bom, "ficheiros": bom["ficheiros"][:1]},
             "não congela o piloto_export.json ": {**bom, "ficheiros": "piloto_export.json"},
+            "não congela o piloto_export.json  ": {**bom, "ficheiros": []},
+            # Um nome sem hash não congela nada.
+            "sem nome, bytes ou sha256": {**bom, "ficheiros": [{"nome": "piloto_export.json"}]},
+            "sem nome, bytes ou sha256 ": {**bom, "ficheiros": [
+                {"nome": "piloto_export.json", "bytes": 2, "sha256": "x"}]},
+            "sem nome, bytes ou sha256  ": {**bom, "ficheiros": [
+                {"nome": "piloto_export.json", "bytes": True, "sha256": "ab" * 32}]},
+            "sem nome, bytes ou sha256   ": {**bom, "ficheiros": [
+                {"nome": "piloto_export.json", "sha256": "ab" * 32}]},
+            "sem nome, bytes ou sha256    ": {**bom, "ficheiros": [
+                *bom["ficheiros"], {"bytes": 2, "sha256": "ab" * 32}]},
         }
         for esperado, mau in maus.items():
             with self.subTest(esperado=esperado):
@@ -161,9 +190,6 @@ class TestPontaAPonta(unittest.TestCase):
             _correr(["pacote", "--registo", str(self.registo)])[0], cli.SAIDA_ERRO
         )
 
-
-if __name__ == "__main__":
-    unittest.main()
 
 
 class TestContratoComOKam109(unittest.TestCase):
@@ -206,3 +232,7 @@ class TestContratoComOKam109(unittest.TestCase):
         self.assertEqual(codigo, cli.SAIDA_CONFORME, erro)
         self.assertIn("| SHA-256 conferido contra o ficheiro | sim |", texto)
         self.assertRegex(texto, r"\| H9 \|.*\| confirmada \| \*\*confirmada\*\* \|")
+
+
+if __name__ == "__main__":
+    unittest.main()

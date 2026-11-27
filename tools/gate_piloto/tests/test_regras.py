@@ -115,8 +115,9 @@ class TestEstadoEfectivo(unittest.TestCase):
                     errado.razoes,
                 )
                 # Um hash mais comprido que o contém não é o hash.
-                colado = _estados({h: ("600", "9", "confirmada", manifesto + "0")})[h]
-                self.assertEqual(colado.efectivo, "inconclusiva")
+                for colado in (manifesto + "0", "0" + manifesto):
+                    efectivo = _estados({h: ("600", "9", "confirmada", colado)})[h].efectivo
+                    self.assertEqual(efectivo, "inconclusiva", colado)
         # Fora das quatro do KAM-109 o hash não é fonte: essas medem-se noutro lado.
         h2 = _estados({"H2": ("600", "9", "confirmada", manifesto)})["H2"]
         self.assertEqual(h2.efectivo, "inconclusiva")
@@ -128,6 +129,21 @@ class TestEstadoEfectivo(unittest.TestCase):
             "a coluna fonte não nomeia um ficheiro que exista nem o SHA-256 do manifesto",
             sem.razoes,
         )
+
+    def test_o_hash_so_conta_com_o_manifesto_conferido(self) -> None:
+        # Resumo e Registo escrevem-se à mão: sem o ficheiro na árvore, dois
+        # hashes iguais não provam nada, e a fonte por ficheiro também não basta.
+        manifesto = "ab" * 32
+        for fonte in (manifesto, "x.md"):
+            for h in regras.DO_KAM_109:
+                linhas = registo.ler_texto(sintetico.registo({h: ("600", "9", "refutada", fonte)}))
+                e = regras.estados(linhas, CONGELADA, _existe, manifesto_conferido=False)[h]
+                with self.subTest(h=h, fonte=fonte):
+                    self.assertEqual(e.efectivo, "inconclusiva")
+                    self.assertIn("o manifesto não está na árvore: o SHA-256 não se conferiu", e.razoes)
+        linhas = registo.ler_texto(sintetico.registo({"H7": ("100", "70", "refutada", "x.md")}))
+        e = regras.estados(linhas, CONGELADA, _existe, manifesto_conferido=False)["H7"]
+        self.assertEqual(e.efectivo, "refutada")
 
     def test_amostra_minima_vale_tambem_para_refutada(self) -> None:
         self.assertEqual(_estados({"H9": ("5", "2", "refutada", "x.md")})["H9"].efectivo, "inconclusiva")

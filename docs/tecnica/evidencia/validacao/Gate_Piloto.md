@@ -31,7 +31,7 @@ O **estado efectivo** é o declarado no Registo **só** se a linha tiver dados:
 amostra n positiva, um resultado com número, uma coluna fonte que nomeie um
 ficheiro que exista na árvore — ou, em H1, H6, H8 e H9, o SHA-256 do manifesto
 congelado do KAM-109 —, a amostra mínima que um critério escreve (H6 e H9) e,
-nessas quatro, o manifesto nomeado no resumo. Sem isso é
+nessas quatro, o manifesto nomeado no resumo e conferido na árvore. Sem isso é
 `inconclusiva` — também quando o declarado é `refutada`, porque uma refutação
 sem dados accionava um pivô por nada.
 
@@ -139,4 +139,4 @@ memorando, pelo fundador, e nunca é estimada pelo executor (critério D).
 | Versão | Data | Descrição | Autor |
 |---|---|---|---|
 | 1.0 | Novembro de 2026 | Forma do pacote, KAM-110 (preparação): hipóteses com estado efectivo, Carta §5 item a item, matriz de `14` §6, paragem total, economia sem números de pista, e origem. O texto é do gerador `tools/gate_piloto`; uma alteração de forma é uma alteração do gerador e acrescenta linha aqui. | Equipa KAMBÁ |
-| 1.1 | Novembro de 2026 | KAM-110, interface com o KAM-109 fundido: o resumo nomeia o manifesto `piloto_congelado.json` em vez da exportação, e a coluna fonte de H1, H6, H8 e H9 aceita o SHA-256 dele, como manda o protocolo do Piloto (§10). | Equipa KAMBÁ |
+| 1.1 | Novembro de 2026 | KAM-110, interface com o KAM-109 fundido: o resumo nomeia o manifesto `piloto_congelado.json` em vez da exportação, e a coluna fonte de H1, H6, H8 e H9 aceita o SHA-256 dele, como manda o protocolo do Piloto (§10), só com o manifesto conferido na árvore; fora dela, essas quatro ficam `inconclusiva`. | Equipa KAMBÁ |
