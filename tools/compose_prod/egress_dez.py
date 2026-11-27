@@ -44,13 +44,16 @@ from __future__ import annotations
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
+import tempfile
 import time
 from pathlib import Path
 
 from kamba_yaml import YamlSubsetError, load_file
 
+from . import segredos
 from .lint import ALLOWLIST, PROD, ConfiguracaoInvalida
 
 #: A sonda corre na imagem oficial do Python, que o inventario ja fixa. Nao
@@ -207,6 +210,11 @@ print(json.dumps(saida))
 #: levanta **so** o `proxy-saida`; nenhum segredo verdadeiro entra aqui, e e por
 #: isso que sao visiveis e nao vem do cofre.
 MARCADORES = {
+    # KAM-260: a pasta dos ficheiros de segredos que o deploy escreve. O guiao
+    # troca-a por uma pasta temporaria com os ficheiros escritos a partir destes
+    # marcadores (`create_host_path: false`: sem o ficheiro, o `postgres` nao se
+    # cria).
+    "KAMBA_SEGREDOS_DIR": "/run/kamba/segredos",
     "KAMBA_COMMIT_SHA": "ensaio-egress-dez",
     "KAMBA_DATA_CLASS": "synthetic",
     "POSTGRES_USER": "marcador",
@@ -312,10 +320,15 @@ MARCADORES = {
 }
 
 
+#: O que o `correr` sobrepoe aos marcadores nesta execucao (a pasta temporaria).
+_DESTA_EXECUCAO: dict[str, str] = {}
+
+
 def _ambiente() -> dict[str, str]:
     ambiente = dict(os.environ)
     for nome, valor in MARCADORES.items():
         ambiente.setdefault(nome, valor)
+    ambiente.update(_DESTA_EXECUCAO)
     return ambiente
 
 
@@ -401,6 +414,9 @@ def correr(raiz: Path, manter: bool = False) -> int:
     nomes = [d["fqdn"] for d in DESTINOS]
     falhas: list[str] = []
     print(f"compose_prod egress-dez: a levantar `proxy-saida` de {PROD}")
+    pasta = Path(tempfile.mkdtemp(prefix="kamba-egress-segredos-"))
+    segredos.escrever(raiz, pasta, _ambiente(), modo=0o444, dono=False)
+    _DESTA_EXECUCAO["KAMBA_SEGREDOS_DIR"] = pasta.resolve().as_posix()
     try:
         # `create` **sem arrancar** o `postgres`: e so para que a rede `data`
         # exista. O Docker nao cria uma rede que nenhum contentor use (medido),
@@ -581,6 +597,8 @@ def correr(raiz: Path, manter: bool = False) -> int:
             )
         else:
             _compose(raiz, "down", "-v", "--remove-orphans", verificar=False)
+            shutil.rmtree(pasta, ignore_errors=True)
+        _DESTA_EXECUCAO.clear()
 
     print()
     if falhas:

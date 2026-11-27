@@ -10,10 +10,12 @@ cd tools && python -m compose_prod --root .. lint        # criterios 1, 2, 4, 5,
 cd tools && python -m compose_prod --root .. canario     # a prova de que morde
 cd tools && python -m compose_prod --root .. gerar       # a config do proxy de saida
 cd tools && python -m compose_prod --root .. egress-dez  # criterio 3, com Docker
+cd tools && python -m compose_prod --root .. inspeccao   # KAM-260, com Docker
+cd tools && python -m compose_prod --root .. inspeccao --canario
 ```
 
-Pelo `make`: `make compose-prod-lint` (gate 2) e `make compose-prod-egress`
-(gate 6).
+Pelo `make`: `make compose-prod-lint` (gate 2), `make compose-prod-egress` e
+`make compose-prod-inspeccao` (gate 6).
 
 ---
 
@@ -32,6 +34,7 @@ Pelo `make`: `make compose-prod-lint` (gate 2) e `make compose-prod-egress`
 | 8 — *flags* de licença | `lint` (Chatwoot, Langfuse) e `lint_arch medusa` (Medusa) | o Medusa já tinha *lint* próprio (KAM-042) |
 | KAM-249 — a fila exige credencial e todos a apresentam | `lint` (`r_fila_com_credencial`, em `prod` e `staging`) | a credencial é uma forma no ficheiro (`${KAMBA_SECRET_QUEUE_PASSWORD:?...}`); que a fila recuse sem ela mede-se em [`../../docs/evidencia/KAM-249.md`](../../docs/evidencia/KAM-249.md) §2 |
 | KAM-249 — o S3 do `seaweedfs` exige assinatura e só ele se alcança | `lint` (`r_armazenamento_com_credencial`) | a 18333, que a 4.48 não deixa fechar, **não** se lê no ficheiro: está no anexo, §3.4, com o credor KAM-257 |
+| KAM-260 — o `docker inspect` de `prod` não mostra valores de segredo, e os segredos chegam ao processo | `inspeccao` (o facto) e `tests/test_inspeccao.py` (a forma) | o que o Docker grava num contentor só se lê criando-o; o ficheiro de cada serviço escreve-o `segredos` (ADR-L002 §1, emenda *proposta*) |
 
 ---
 

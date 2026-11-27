@@ -4,6 +4,9 @@
     python -m compose_prod canario    [--root .]   prova que o lint morde
     python -m compose_prod gerar      [--root .]   gera a configuracao do proxy de saida
     python -m compose_prod egress-dez [--root .]   os dez destinos, com Docker
+    python -m compose_prod inspeccao  [--root .]   o `docker inspect` sem segredos, com Docker
+    python -m compose_prod inspeccao --canario     prova que o ensaio morde
+    python -m compose_prod segredos --destino DIR  os ficheiros de segredos, pelo deploy
 
 Codigo de saida 0 = limpo, 1 = achados, 2 = erro de utilizacao ou configuracao.
 
@@ -21,10 +24,11 @@ entra no gate 6, ao lado das suites que ja levantam contentores.
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 from pathlib import Path
 
-from . import canario, egress_dez, envoy, lint
+from . import canario, egress_dez, envoy, inspeccao, lint, segredos
 
 #: Quantos achados se imprimem antes de resumir.
 MAXIMO_IMPRESSO = 40
@@ -131,7 +135,28 @@ def main(argv: list[str] | None = None) -> int:
         help="nao derruba a pilha no fim (para inspeccionar os logs do proxy)",
     )
 
+    insp = sub.add_parser("inspeccao")
+    insp.add_argument("--canario", action="store_true", help="prova que o ensaio morde")
+    seg = sub.add_parser("segredos")
+    seg.add_argument("--destino", type=Path, required=True, help="pasta num tmpfs do anfitriao")
+
     argumentos = analisador.parse_args(argv)
+    if argumentos.comando == "inspeccao":
+        try:
+            if argumentos.canario:
+                return inspeccao.canario(_raiz(argumentos))
+            return inspeccao.correr(_raiz(argumentos))
+        except lint.ConfiguracaoInvalida as erro:
+            print(f"compose_prod inspeccao: {erro}", file=sys.stderr)
+            return 2
+    if argumentos.comando == "segredos":
+        try:
+            escritos = segredos.escrever(_raiz(argumentos), argumentos.destino, dict(os.environ))
+        except lint.ConfiguracaoInvalida as erro:
+            print(f"compose_prod segredos: {erro}", file=sys.stderr)
+            return 2
+        print(f"compose_prod segredos: {len(escritos)} ficheiros em {argumentos.destino}")
+        return 0
     if argumentos.comando == "lint":
         return _comando_lint(argumentos)
     if argumentos.comando == "canario":

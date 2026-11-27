@@ -44,6 +44,14 @@ from typing import Callable
 from . import lint
 
 
+#: O `entrypoint:` do lancador dos segredos num servico da imagem do Node
+#: (KAM-260), a linha que os casos dos consumidores mutam.
+LANCADOR_DO_NODE = (
+    r'^    entrypoint: \["/bin/sh", "/run/kamba/lancador\.sh", '
+    r'"/usr/local/bin/docker-entrypoint\.sh"\]$'
+)
+
+
 class NaoSeAplica(RuntimeError):
     """A mutacao ja nao encontra o texto que ia trocar."""
 
@@ -228,13 +236,23 @@ def _casos_da_fila() -> tuple[Caso, ...]:
             ),
         ),
         Caso(
+            "fila-sonda-sem-lancador",
+            frozenset({"fila-sem-credencial"}),
+            "a sonda da fila de producao deixa de passar pelo lancador e nao recebe a credencial (KAM-260)",
+            lambda c: c.trocar(
+                lint.PROD,
+                r'"/bin/sh /run/kamba/lancador\.sh \$\{KAMBA_QUEUE_CLI:-valkey-cli\} ping',
+                '"${KAMBA_QUEUE_CLI:-valkey-cli} ping',
+            ),
+        ),
+        Caso(
             "fila-sonda-com-a-colado",
             frozenset({"fila-senha-em-argumento"}),
             "a sonda da fila de producao passa a senha com `-a` colado ao valor",
             lambda c: c.trocar(
                 lint.PROD,
-                r'"\$\{KAMBA_QUEUE_CLI:-valkey-cli\} ping \| grep -q PONG"',
-                '"${KAMBA_QUEUE_CLI:-valkey-cli} -a$$REDISCLI_AUTH ping | grep -q PONG"',
+                r'"/bin/sh /run/kamba/lancador\.sh \$\{KAMBA_QUEUE_CLI:-valkey-cli\} ping \| grep -q PONG"',
+                '"/bin/sh /run/kamba/lancador.sh ${KAMBA_QUEUE_CLI:-valkey-cli} -a$$REDISCLI_AUTH ping | grep -q PONG"',
             ),
         ),
         Caso(
@@ -379,11 +397,18 @@ def _casos_dos_consumidores() -> tuple[Caso, ...]:
         Caso(
             "consumidor-com-entrypoint",
             frozenset({"consumidor-mal-ligado"}),
-            "o servico do `entrada.ts` ganha um `entrypoint:` que corre outra coisa",
+            "o servico do `entrada.ts` troca o `entrypoint:` do lancador por outra coisa",
+            # O primeiro `entrypoint:` do lancador no ficheiro e o do `entrada.ts`
+            # (KAM-260): e o unico `entrypoint:` que um consumidor pode ter.
+            lambda c: c.trocar(lint.PROD, LANCADOR_DO_NODE, '    entrypoint: ["true"]'),
+        ),
+        Caso(
+            "consumidor-com-lancador-e-comando",
+            frozenset({"consumidor-mal-ligado"}),
+            "o `entrypoint:` do lancador ganha um comando a seguir, que corre em vez do `command:`",
             lambda c: c.trocar(
-                lint.PROD, entrada_cmd,
-                '    entrypoint: ["true"]\n'
-                '    command: ["node", "services/worker-canal/src/entrada.ts"]',
+                lint.PROD, LANCADOR_DO_NODE,
+                '    entrypoint: ["/bin/sh", "/run/kamba/lancador.sh", "true"]',
             ),
         ),
         Caso(
