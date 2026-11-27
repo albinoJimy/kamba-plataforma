@@ -2472,18 +2472,18 @@ Testes: o ensaio e o canário que prova que ele morde.
 
 Credor do KAM-074, aberto pela coordenação do lote 25 a 2026-11-27, pela decisão do fundador da mesma data sobre a revisão adversarial do KAM-259. Corresponde à L-35 do espelho privado.
 
-O KAM-259 pôs o acesso de excepção a passar por um portão que escreve `breakglass.open` e `breakglass.close` no `audit_log`, com a impressão digital da chave autenticada. Este ticket endurece o portão, para que a identidade registada seja sempre a da sessão do `sshd` que o invocou. Verifica-o também num *host* real, que o KAM-259 não tinha.
+O KAM-259 pôs o acesso de excepção a passar por um portão que escreve `breakglass.open` e `breakglass.close` no `audit_log`, com a impressão digital da chave autenticada. Este ticket endurece o portão: o actor de cada par vem da autenticação da sessão do `sshd`, e o portão falha fechado quando não a consegue confirmar. Verifica-o também num *host* real, que o KAM-259 não tinha.
 
 ### Objectivo
 
-A impressão digital de cada par `breakglass.open`/`breakglass.close` tem de ser a da autenticação da sessão do `sshd` que invocou o portão. O portão recusa qualquer outra origem, e isso fica provado num *host* de `staging`.
+A impressão digital de cada par `breakglass.open`/`breakglass.close` vem da autenticação da sessão do `sshd`, confirmada pelo portão antes de escrever, e isso fica provado num *host* de `staging`.
 
 ### Critérios de Aceitação
 
 - [ ] Antes de escrever, o portão confirma que a identidade a registar vem da autenticação da sessão do `sshd` que o invocou. Se não o conseguir confirmar, sai sem escrever e sem *shell* (falha fechada).
-- [ ] Um ensaio no *host* de `staging` (KAM-077) prova a falha fechada para cada origem que o portão não aceita. O mesmo ensaio prova que a abertura normal continua a escrever as duas linhas.
+- [ ] Um ensaio no *host* de `staging` (KAM-077) repete os casos de falha fechada do ensaio local deste ticket. O mesmo ensaio prova que a abertura normal continua a escrever as duas linhas.
 - [ ] Fica escrito no bloco o que a confirmação lê do sistema, com o comando que o mediu no *host*. O que não se medir fica NÃO VERIFICADO, e a caixa fica por marcar.
-- [ ] As duas linhas do revisor do KAM-074 continuam a mostrar-se com o comando do `../docs/seguranca/revisao_independente/escopo.md` §4.
+- [ ] As duas linhas de uma chave de ensaio continuam a mostrar-se com o comando que o `../docs/seguranca/revisao_independente/escopo.md` §4 dá ao revisor do KAM-074.
 - [ ] Nenhum segredo, chave ou endereço de máquina em ficheiro versionado.
 
 ### Detalhes Técnicos
@@ -2494,7 +2494,7 @@ A impressão digital de cada par `breakglass.open`/`breakglass.close` tem de ser
 
 ### Testes Requeridos
 
-- O portão com cada origem recusada, num ensaio local que não precisa de *host*.
+- A falha fechada do portão quando não confirma a sessão, num ensaio local que não precisa de *host*.
 - O mesmo, e a abertura normal, num *host* de `staging`.
 
 ### Definition of Done
@@ -2507,9 +2507,9 @@ A impressão digital de cada par `breakglass.open`/`breakglass.close` tem de ser
 ```text
 És o executor do ticket KAM-261 da KAMBÁ (o portão do break-glass endurecido e verificado num host).
 Lê specs/EPIC-08_Topologia_Operacao.md (blocos KAM-259 e KAM-261), infra/ENVIRONMENTS.md §2.0 e infra/modules/host-base/.
-Objectivo: a identidade de cada registo de break-glass vem só da sessão do sshd que invocou o portão; falha fechada no resto.
+Objectivo: o actor de cada registo de break-glass vem da autenticação da sessão do sshd, confirmada pelo portão; falha fechada quando não a confirma.
 Regras: sem esquema novo; o que não se medir num host fica NÃO VERIFICADO; o texto público não descreve como contornar o portão.
-Testes: as origens recusadas, localmente e num host de staging.
+Testes: a falha fechada e a abertura normal, localmente e num host de staging.
 ```
 
 ---
@@ -2526,13 +2526,13 @@ Testes: as origens recusadas, localmente e num host de staging.
 | Dependências | KAM-259 |
 | Bloqueia | KAM-074 |
 | Responsável sugerido | Responsável de Segurança (decisão do fundador) |
-| Documentos de referência | o bloco do KAM-259, `../infra/ENVIRONMENTS.md` (§2.0), `../docs/seguranca/revisao_independente/escopo.md` (§3, área 6 e ensaio A5; §6), `../docs/tecnica/08_Seguranca_Conformidade.md` (§3.3) |
+| Documentos de referência | o bloco do KAM-259, `../infra/ENVIRONMENTS.md` (§2.0), `../docs/seguranca/revisao_independente/escopo.md` (§2, áreas 6 e 14; §4, acesso A5; §6), `../docs/seguranca/revisao_independente/relatorio.md` (ensaio E6), `../docs/tecnica/08_Seguranca_Conformidade.md` (§3.3) |
 
 ### Contexto
 
 Credor do KAM-074, aberto pela coordenação do lote 25 a 2026-11-27, pela decisão do fundador da mesma data: um ticket para desenhar já. Desenha e não implementa.
 
-O KAM-259 abre uma *shell* sem privilégios na conta `breakglass`. Não está decidido se a sessão pode, além disso, usar o `sudo`, o `docker` ou outra via para agir sobre os serviços do *host*. O revisor do KAM-074 precisa dessa resposta para a área 6.
+O KAM-259 abre uma *shell* sem privilégios na conta `breakglass`. Não está decidido se a sessão pode, além disso, usar o `sudo`, o `docker` ou outra via para agir sobre os serviços do *host*. O revisor do KAM-074 precisa dessa resposta para as áreas 6 e 14.
 
 ### Objectivo
 
@@ -2545,7 +2545,7 @@ Levar ao fundador as opções, com prós e contras, para que decida antes de o r
   - o que fica registado no `audit_log` e o que não fica;
   - o risco que acrescenta;
   - o custo de implementação;
-  - o que o revisor testa na área 6.
+  - o que o revisor testa nas áreas 6 e 14.
 - [ ] A recomendação da coordenação vem marcada como recomendação, com as perguntas que só o fundador responde. O executor não escolhe nenhuma opção.
 - [ ] A decisão do fundador fica registada na secção «Decisões do fundador» deste bloco, com data e autor.
 - [ ] Se a decisão pedir implementação, o credor abre-se como ticket, com dependências e arestas no KAM-074. Se não pedir, o `escopo.md` §6 diz o que ficou decidido.

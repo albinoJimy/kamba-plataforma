@@ -120,15 +120,15 @@ não corre enquanto houver um número real em `staging`.
 
 ## 6. O que tem de existir antes de a revisão começar
 
-Tudo isto é mundo real, e nada está feito.
+Nada disto está feito: é mundo real, ou uma decisão por tomar.
 
 | Pré-condição | Estado | Onde se acompanha |
 |---|---|---|
 | `staging` alojado e a correr as imagens de `prod` | não existe: há a definição em [`../../../infra/compose/docker-compose.staging.yml`](../../../infra/compose/docker-compose.staging.yml), não há máquina | KAM-077 |
 | Revisor independente, ou o risco aceite da substituição | não existe | [`relatorio.md`](relatorio.md) §2 e [`decisao.md`](decisao.md) §3 |
 | Registo no `audit_log` do acesso do revisor a `staging` | o caminho existe e está ensaiado contra PostgreSQL (§4); falta o *host*, e a chave do revisor na lista `chaves_ssh_de_breakglass` de `staging` | KAM-259, KAM-077 |
-| O portão do acesso de excepção endurecido e verificado num *host* | por fazer: precisa do *host* | KAM-261 |
-| O que a sessão de excepção pode fazer além da *shell* sem privilégios (área 6, ensaio A5) | por decidir: as opções vão ao fundador | KAM-262 |
+| O portão do acesso de excepção endurecido e verificado num *host* | por fazer; o ensaio no *host* precisa do KAM-077 | KAM-261 |
+| O que a sessão de excepção pode fazer além da *shell* sem privilégios (áreas 6 e 14; acesso A5 do §4) | por decidir: as opções vão ao fundador | KAM-262 |
 | Matriz, STRIDE e riscos residuais entregues ao revisor fora do repositório público | não feito | o fundador |
 | Medusa no *compose* (área 9) | pendente | KAM-042 |
 
