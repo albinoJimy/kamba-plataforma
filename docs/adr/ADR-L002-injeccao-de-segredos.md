@@ -106,7 +106,10 @@ cofre, não uma rotação.
 - O KAM-078 (deploy) tem de passar a receita do lançador aos serviços e garantir
   que `docker inspect` de um contentor de `prod` não mostra valores. É
   verificável: `grep` de `KAMBA_SECRET_` nos ficheiros de compose devolve nomes,
-  nunca valores — e o gate 9 do KAM-002 varre a imagem.
+  nunca valores — e o gate 9 do KAM-002 varre a imagem. Desde o §8 (KAM-260),
+  o limite mede-se criando os contentores, no gate 6
+  (`python -m compose_prod inspeccao`), e a receita do lançador é o ficheiro
+  por serviço que o §8 descreve.
 - O KAM-072 herda o reinício como parte do procedimento de rotação. Se isso se
   tornar inaceitável para algum serviço, a saída está escrita em §6.
 - O `EnvSecretProvider` deixa de ser «a implementação de `dev`» e passa a ser
@@ -199,3 +202,56 @@ em baixo e não uma chave apagada. A rotação das chaves virtuais continua fora
 (`A_CONFIRMAR_ESCRITA`, nos dois lados) e que um *service token* fica limitado ao
 projecto e à configuração para que foi emitido (`E4` §2.14, em resumo). A medição
 do KAM-250 usou um Doppler falso com essa forma (`docs/evidencia/KAM-250.md`).
+
+## §8 — Emenda *proposta* (KAM-260): o valor entra no contentor por um ficheiro, e chega ao processo pelo ambiente
+
+**Estado: proposta**, até o fundador a ratificar. A escolha já foi feita por ele,
+a 2026-11-27, no bloco do KAM-260 (`specs/EPIC-08_Topologia_Operacao.md`,
+«Decisões do fundador»): a opção B. Recusou a A (o CLI do Doppler em onze
+imagens, e saída para a rede `data`), a C (um `SecretProvider` por ficheiro, que
+reverte esta decisão sem nenhum gatilho do §6) e a D (manter o transporte e
+mudar o critério do ensaio).
+
+**O que muda nas regras 1 e 3.** O Docker grava no `Config.Env` do contentor
+tudo o que o `environment:` do compose declara, já interpolado, e o
+`docker inspect` mostra-o. Para que o limite das Consequências («o
+`docker inspect` de um contentor de `prod` não mostra valores») se cumpra por
+construção, e não por cuidado:
+
+1. **(regra 1, emendada)** O lançador do anfitrião (`doppler run --`) escreve,
+   num `tmpfs` do anfitrião, um ficheiro por serviço, com os segredos desse
+   serviço e mais nenhum: `python -m compose_prod segredos --destino <pasta>`
+   (`tools/compose_prod/segredos.py`), modo `0400`, com o UID do serviço como
+   dono. O compose monta-o só de leitura em `/run/kamba/segredos.env`, e o
+   `entrypoint:` do serviço passa por `infra/compose/lancador/lancador.sh`, que
+   o carrega para o ambiente do processo e faz `exec` do comando. Sem o
+   ficheiro, o contentor não se cria (`create_host_path: false`), e o lançador
+   não corre o comando: fecha, e não abre.
+2. **(regra 3, emendada)** O compose de `prod` declara os segredos de cada
+   serviço em `x-segredos:`, com a forma do `environment:`, e **nunca** no
+   `environment:`. O compose interpola o bloco, pelo que um `${…:?…}` em falta
+   continua a recusar o arranque, mas um campo `x-` não chega ao contentor.
+
+**O que fica igual.** O processo continua a ler os segredos do seu ambiente pela
+porta `SecretProvider` (regras 2 e 5), sem nenhuma alteração nos consumidores.
+Também não mudam os serviços, as imagens, os binários nem as saídas de rede.
+A rotação continua a ser por reinício. O §7 (as chaves virtuais do LiteLLM pela
+API) não muda.
+
+**O que muda na operação, e está nos *runbooks*** (`docs/runbooks/RB-K07-rotacao-de-segredos.md`
+§0). Rodar é reescrever o ficheiro e **reiniciar** o serviço: o lançador relê-o em cada
+arranque. Um `docker compose up -d` sozinho não basta, porque o bloco `x-segredos` não
+entra no *hash* da configuração do compose, e com só o ficheiro mudado o contentor não
+se recria. A pasta é a do `KAMBA_SEGREDOS_DIR`, que o deploy define para o compose e
+para o gravador: `/run/kamba/segredos` (*proposta*), num `tmpfs`. O gravador recusa
+um destino vazio ou dentro do repositório, uma forma de interpolação que não segue
+(`${A:+x}`, uma omissão com outra variável dentro) e correr sem `root`.
+
+**O que fica NÃO VERIFICADO.** O `0400` com o UID do serviço como dono só se
+aplica quando o gravador corre como `root` no anfitrião, e o anfitrião ainda não
+existe (D1). O ensaio corre sem `root` e escreve `0444`. A chamada ao gravador
+pelo deploy é do KAM-078, e com ela a ordem de arranque do anfitrião. O `tmpfs` esvazia-se
+num reinício do anfitrião, e sem o ficheiro um contentor não se cria nem arranca. Fecha,
+e não abre, mas os serviços só voltam depois de o gravador correr outra vez, antes do
+compose. Isto não está medido: falta um anfitrião (D1). O compose de `staging` não está
+no âmbito desta emenda.

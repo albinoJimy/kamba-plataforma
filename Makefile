@@ -92,7 +92,7 @@ export PYTHONPATH := $(PYTHONPATH_ALL)
         test-ts typecheck up \
         ci-3b ci-3c canon-lint chatwoot-spike dict-export supply-chain ruleset \
         log-lint money-lint env-lint x11 storage-contrato mermaid reuso \
-        compose-prod-lint compose-prod-egress \
+        compose-prod-lint compose-prod-egress compose-prod-inspeccao \
         obs-lint obs-promtool \
         bloco-lint \
         subprocessadores \
@@ -715,6 +715,19 @@ compose-prod-egress:
 	  exit 1; }
 	@$(PYTHON) -m compose_prod --root $(ROOT) egress-dez
 
+## compose-prod-inspeccao: o `docker inspect` de prod sem valores de segredo (KAM-260)
+compose-prod-inspeccao:
+	@echo "==> compose_prod: docker inspect dos servicos de prod, com segredos de teste"
+	@# Precisa de Docker: cria os contentores de **todos** os servicos do compose
+	@# de producao, com uma imagem substituta e valores de teste gerados na hora,
+	@# e falha se algum valor aparecer no `docker inspect` (ADR-L002) ou se algum
+	@# segredo declarado nao chegar ao processo pelo lancador. Depois o canario
+	@# planta valores onde o ADR-L002 nao os admite e exige que sejam apanhados.
+	@# A razao de cada escolha esta em `tools/compose_prod/inspeccao.py`.
+	@command -v docker >/dev/null 2>&1 || { 	  echo "    ERRO: o ensaio do docker inspect precisa do Docker." >&2; 	  exit 1; }
+	@$(PYTHON) -m compose_prod --root $(ROOT) inspeccao
+	@$(PYTHON) -m compose_prod --root $(ROOT) inspeccao --canario
+
 ## isolamento-a-seco: KAM-066 — enumeracao, cobertura de casos e lint do SET LOCAL
 #
 # O passo do *gate* 6 que **nao** precisa de base de dados, nem de `node`, nem
@@ -1307,6 +1320,9 @@ ci-6:
 	@# num *job* proprio pela mesma razao do X-11, logo acima: o gate 6 ja tem
 	@# Docker, e um *job* novo seria um contexto exigido novo no *ruleset*.
 	@$(MAKE) compose-prod-egress
+	@# E o `docker inspect` dos servicos de producao (KAM-260), pela mesma razao:
+	@# o gate 6 ja tem Docker, e um *job* novo seria um contexto exigido novo.
+	@$(MAKE) compose-prod-inspeccao
 
 ## ci-7: gate 7 — contratos de evento: compatibilidade, PII, exemplos (KAM-007)
 ci-7:

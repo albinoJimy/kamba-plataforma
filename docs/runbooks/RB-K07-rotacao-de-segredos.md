@@ -3,7 +3,7 @@
 | Campo | Valor |
 |---|---|
 | ID | **RB-K07** |
-| Versão | 1.2 |
+| Versão | 1.3 |
 | Cenário | Um segredo do inventário chega ao fim do seu período de rotação, ou há suspeita de fuga |
 | Severidade | **P3** (planeada); em incidente, **P1** pelo [RB-K10](RB-K10-incidente-de-seguranca.md) |
 | Alertas que o activam | **Nenhum, hoje.** O cálculo existe desde o KAM-072 — `secret_age_days{segredo}` e `secret_rotation_period_days{segredo}` em `packages/core-ts/src/keyring/idade.ts`, com a idade lida do registo de rotação e o estado `a_expirar` a 80% do prazo —, mas **nenhum processo o expõe** e a regra do Prometheus está por escrever (o `obs_lint` recusa uma regra sobre uma métrica que ninguém serve). Credor: **o fundador** — nenhum ticket do *backlog* liga o rotador a um processo (`ops/metricas/catalogo.yaml`, `regras_por_escrever`) |
@@ -45,6 +45,15 @@
   e **o ambiente de um processo não muda depois do arranque**: o laço de 60 s do GWY relê
   o anel, mas do mesmo ambiente. Um segredo novo só entra **recriando** o contentor — um
   `docker restart` (ou `docker compose restart`) **não** relê o ambiente.
+  **Em `prod`, desde o KAM-260, é ao contrário:** o valor entra no contentor pelo
+  ficheiro do serviço, que o lançador carrega em **cada** arranque (ADR-L002 §8,
+  *proposta*). Escreve-se primeiro o ficheiro, com o valor novo —
+  `cd tools && doppler run -- python -m compose_prod --root .. segredos --destino /run/kamba/segredos`
+  (a pasta é a do `KAMBA_SEGREDOS_DIR` do compose; o gravador recusa um destino vazio ou
+  dentro do repositório) —, e depois **reinicia-se** o serviço (`docker compose restart
+  <serviço>`, ou `up -d --force-recreate <serviço>`). Um `up -d` sozinho **não** chega: o
+  bloco `x-segredos` não entra no *hash* da configuração, e com só o ficheiro mudado o
+  compose deixa o contentor como está (medido pela revisão adversarial do KAM-260).
 - **O GWY do compose de produção não recebe os segredos da Meta** — o bloco `environment`
   não os passa (RB-K01 §0). A primeira rotação do `meta_app_secret` tem esse defeito por
   baixo.
@@ -88,7 +97,7 @@ docker exec kamba-prod-prometheus-1 \
 1. **O GWY primeiro, a Meta depois.** No cofre: o valor actual passa para
    `meta_app_secret` *anterior* (`KAMBA_SECRET_META_APP_SECRET_ANTERIOR`) e o novo para o
    actual (`KAMBA_SECRET_META_APP_SECRET`).
-2. Recriar o GWY com o ambiente novo:
+2. Reescrever os ficheiros dos serviços (§0, KAM-260) e recriar o GWY:
    `doppler run -- docker compose -f infra/compose/docker-compose.prod.yml up -d --force-recreate gwy`.
    `não verificado`: o lançador `doppler run` está no ADR-L002 e não tem conta (NÃO
    VERIFICADO), e o compose ainda não passa a variável ao serviço (§0).
@@ -259,6 +268,7 @@ RB-K01 ou o RB-K02, e comunica-se por esses.
 
 | Versão | Data | Alteração | Autor |
 |---|---|---|---|
+| 1.3 | Novembro 2026 | **KAM-260**: em `prod` o segredo entra no contentor pelo ficheiro do serviço que o lançador carrega (ADR-L002 §8, *proposta*); o §0 e o §3.1 passam a reescrever esse ficheiro antes de recriar. | Equipa KAMBÁ |
 | 1.2 | Novembro 2026 | **KAM-205**: o §3.7 deixa de proibir a rotação da `kek_token_cliente` e escreve a ordem — rodar, re-cifrar, confirmar, revogar. O `kid` vai dentro do valor da KEK (`<kid>:<base64>`) e o `EnvSecretProvider` lê-o de lá; o onboarding recusa cifrar com uma KEK sem `kid`; os criptogramas antigos, com `kid` `actual`, abrem pela versão sem `kid`; a re-cifra é o `recifrarTokensGuardados`, com o `kamba_batch`, e só se revoga com `falhados` vazio. O que falta para correr contra o cofre real continua com o KAM-072 (critérios 5 e 7) | KAM-205 |
 | 1.1 | Novembro 2026 | **KAM-072**: o §0 passa a nomear o `Rotador` do `packages/core-ts/src/keyring/` e o que lhe falta para correr contra o cofre real; o cabeçalho diz que a idade dos segredos já se calcula e que ninguém a expõe (credor: o fundador); o §3.5 ganha a ordem da rotação do *pepper* sobre o *job* do KAM-008; o §3.2 e o §0 deixam de dizer que o ProxyPay não tem adaptador (o KAM-056 fundiu) e citam o ensaio da rotação contra o servidor falso; o §3.7 novo manda **não** rodar a KEK dos *tokens* de cliente no Piloto, porque o `kid` do `EnvSecretProvider` é posicional e a rotação parte os *tokens* guardados (achado da revisão adversarial; credor o KAM-205); o credor da divergência do destino passa a ser o fundador; o §0 e o §4 dizem quando a rotação fica no `audit_log` (revisão `0066`) | KAM-072 |
 | 1.0 | Novembro 2026 | O *stub* do KAM-080 passa a runbook no modelo comum (**KAM-083**): os dois caminhos e a ordem de incidente, a janela por segredo (com os 7 dias da Meta no `meta_app_secret`), o «recriar e não reiniciar», o procedimento proposto da cópia offline da passphrase do backup, e as faltas medidas no §0 — sem acção de rotação no `audit_log`, sem data de última rotação no inventário | KAM-083 |

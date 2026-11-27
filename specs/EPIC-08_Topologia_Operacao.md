@@ -4,7 +4,7 @@
 |---|---|
 | Produto | KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para Angola |
 | Documento | Epic — Topologia e Operação |
-| Versão | 1.39 |
+| Versão | 1.40 |
 | Data | Novembro de 2026 |
 | Classificação | Documento de Referência — Interno |
 | Documento-fonte | `../docs/tecnica/09_Topologia_Operacao_Escala.md` |
@@ -2373,11 +2373,11 @@ Um ensaio que levanta os serviços do *compose* de `prod` com segredos de teste 
 
 ### Critérios de Aceitação
 
-- [ ] Um ensaio levanta o *compose* de `prod` com valores de teste (nunca de `staging` nem de `prod`), corre o `docker inspect` de cada serviço, e falha se algum valor de segredo do `../ops/secrets-inventory.yaml` aparecer na saída.
-- [ ] O ensaio morde: com um valor de teste posto de propósito onde o `ADR-L002` não o admite, fica vermelho.
-- [ ] O que o ensaio apanhar corrige-se aqui, mantendo o que o `ADR-L002` decidiu; se a correcção pedir mudar a decisão, pára-se e devolve-se ao fundador.
-- [ ] O ensaio fica ligado a um alvo que um *gate* existente já corre, sem *job* novo.
-- [ ] Nenhum valor real em ficheiro versionado; os valores de teste são gerados pelo ensaio.
+- [x] Um ensaio levanta o *compose* de `prod` com valores de teste (nunca de `staging` nem de `prod`), corre o `docker inspect` de cada serviço, e falha se algum valor de segredo do `../ops/secrets-inventory.yaml` aparecer na saída.
+- [x] O ensaio morde: com um valor de teste posto de propósito onde o `ADR-L002` não o admite, fica vermelho.
+- [x] O que o ensaio apanhar corrige-se aqui, mantendo o que o `ADR-L002` decidiu; se a correcção pedir mudar a decisão, pára-se e devolve-se ao fundador.
+- [x] O ensaio fica ligado a um alvo que um *gate* existente já corre, sem *job* novo.
+- [x] Nenhum valor real em ficheiro versionado; os valores de teste são gerados pelo ensaio.
 
 ### Detalhes Técnicos
 
@@ -2393,8 +2393,51 @@ Um ensaio que levanta os serviços do *compose* de `prod` com segredos de teste 
 
 ### Definition of Done
 
-- [ ] Critérios satisfeitos, com o comando de cada medição registado.
-- [ ] O `compose_prod lint` e o `supply_chain` verdes, se o *compose* mudar.
+- [x] Critérios satisfeitos, com o comando de cada medição registado.
+- [x] O `compose_prod lint` e o `supply_chain` verdes, se o *compose* mudar.
+
+### Decisões do fundador
+
+| Data | Autor | Pergunta | Decisão |
+|---|---|---|---|
+| 2026-11-27 | O fundador (respondida no chat da coordenação, e trazida por ela) | Critério 3. Para o `docker inspect` de um contentor de `prod` não mostrar valores, o valor tem de entrar no contentor depois de ele ser criado, e isso muda o transporte que o `ADR-L002` §1 e §3 fixam. Que transporte? | **B**: um ficheiro de ambiente por serviço, que o `doppler run` do anfitrião escreve num `tmpfs` com modo `0400`, montado só de leitura, e um *entrypoint* em `sh` que o carrega e faz `exec`. Não mudam os consumidores, os serviços, os binários nem as saídas de rede; a rotação continua por reinício. Fica uma emenda ao `ADR-L002` §1 e §3, *proposta* até ele a ratificar (§8 do ADR). **Recusadas:** a A (o lançador do Doppler dentro de cada contentor: o CLI em onze imagens e saída para a rede `data`), a C (um `SecretProvider` por ficheiro, que reverte o `ADR-L002` sem nenhum gatilho do §6) e a D (manter o transporte e mudar o critério 1). |
+
+### Verificação dos Critérios de Aceitação
+
+Sete caixas (5 critérios e 2 linhas de DoD), **sete marcadas**. Medido no ramo
+`feature/KAM-260-docker-inspect` sobre a base `b9beb18e`, a 2026-11-27, nesta máquina (Docker 29.7.2,
+Compose 5.5.0), e assente depois em `36f9eba3` (KAM-107, KAM-109, KAM-110 e KAM-077; só o EPIC-08 em comum, na tabela
+de versões), onde se repetiram os linters, os ensaios e a medição com Docker. Para que o ensaio fique verde por construção, os segredos de `prod` passam do
+`environment:` para o ficheiro do lançador, pela decisão do fundador de 2026-11-27 (acima, opção B).
+
+| # | Critério | Estado | Evidência | Credor |
+|---|---|---|---|---|
+| 1 | O ensaio levanta o *compose* de `prod` com valores de teste, corre o `docker inspect` e falha se um segredo do inventário aparecer | **satisfeito** | `cd tools && python -m compose_prod --root .. inspeccao` (`../tools/compose_prod/inspeccao.py`) → saída 0, «0 valores de segredo no `docker inspect`, e todos os segredos declarados chegam ao processo pelo lancador». Gera um valor em base32 por segredo do inventário, mais o `_ANTERIOR`, os segredos com instância que o *compose* nomeia e as cadeias `*_DB_URL` com a senha do papel. Nenhum vem de `staging` nem de `prod`: nascem em `secrets.token_bytes` em cada execução. Cria os contentores de **todos** os serviços, com todos os perfis, e arranca um contentor de cada serviço que recebe segredos (`docker compose run`, com o `user:`, as montagens e as redes do serviço). Inspecciona uns e outros e procura cada valor em toda a saída: `Config.Env`, `Cmd`, `Entrypoint`, `Labels`, `Path`, `Args`, montagens e *healthcheck*. A imagem de cada serviço é a sonda do `egress-dez`, já fixada: o ambiente que vem de uma **imagem** é do KAM-078 e do gate 9. Uma prova de entrega, por SHA-256, exige que cada segredo declarado chegue ao ambiente do processo pelo lançador com o valor certo. Foi ela que apanhou um `\r` que o gravador escrevia no Windows (`O_BINARY`, corrigido). | — |
+| 2 | O ensaio morde | **satisfeito** | `cd tools && python -m compose_prod --root .. inspeccao --canario` → saída 0, «4 de 4 casos apanhados, 0 valores que nao foram plantados». Os quatro casos (`CASOS_DO_CANARIO`) plantam um valor de teste no `environment:` de um serviço que já tem ficheiro, no `environment:` de um que não tem, numa etiqueta e num `command:`. O canário exige cada um no campo onde foi plantado, e recusa um segredo que não tenha sido plantado. | — |
+| 3 | A correcção mantém o que o `ADR-L002` decidiu, e o que pede mudar a decisão volta ao fundador | **satisfeito** | Parou-se e devolveu-se ao fundador, que decidiu a B (acima); a emenda é o §8 do [`ADR-L002`](../docs/adr/ADR-L002-injeccao-de-segredos.md), *proposta*. Cada serviço que recebe segredos declara-os em `x-segredos:` (o *compose* interpola-os, e um `:?` em falta continua a recusar o arranque; um campo `x-` não chega ao contentor). Também monta o seu ficheiro só de leitura (`create_host_path: false`) e o lançador ([`../infra/compose/lancador/lancador.sh`](../infra/compose/lancador/lancador.sh)), e tem `entrypoint: ["/bin/sh", "/run/kamba/lancador.sh", <entrypoint original da imagem>]`. Na `queue`, o `init: true` põe o `tini` do Docker como PID 1, porque a imagem alternativa da D12 não traz o da imagem. O ficheiro escreve-o `python -m compose_prod segredos --destino <tmpfs>` ([`../tools/compose_prod/segredos.py`](../tools/compose_prod/segredos.py)), modo `0400`, com o UID do serviço como dono quando corre como `root`. Que as imagens de terceiros têm `/bin/sh` mediu-se em cada uma (`docker run --entrypoint /bin/sh <imagem> -c 'echo sh-ok'`): as nove têm. A cadeia com as imagens reais mediu-se com o `postgres`, a `queue` e o `seaweedfs` levantados pelo próprio *compose* (`up --wait`): os três ficaram `healthy`. A fila responde `NOAUTH` sem credencial e `PONG` pelo lançador, e a senha não está no `docker inspect` do `postgres`. A sonda da `queue` passa pelo lançador, porque um `docker exec` não herda o ambiente do PID 1, e a regra `fila-sem-credencial` do `compose_prod` exige-o (caso de canário `fila-sonda-sem-lancador`). O gravador recusa um destino vazio ou dentro do repositório, uma forma de interpolação que não segue e correr sem `root`. | — |
+| 4 | Ligado a um alvo que um *gate* existente já corre, sem *job* novo | **satisfeito** | O alvo `compose-prod-inspeccao` do `../Makefile` corre o ensaio e o canário, e o `ci-6` chama-o depois do `compose-prod-egress`, pela mesma razão: o gate 6 já tem Docker, e um *job* novo seria um contexto exigido novo. `.github/` não muda. | — |
+| 5 | Nenhum valor real versionado; os valores de teste gerados pelo ensaio | **satisfeito** | O *compose* só tem `${…}` e o inventário só tem nomes. Os valores de teste nascem em cada execução, numa pasta temporária que se apaga no fim, e a pilha sai com `down -v` (medido: 0 contentores sobram). O `test_os_valores_nascem_em_cada_execucao` exige valores diferentes de uma execução para a outra. O `scan_secrets` do *pre-commit* deu «limpo» nos ficheiros do ramo. | — |
+
+#### Definition of Done
+
+| # | Linha | Estado | Evidência | Credor |
+|---|---|---|---|---|
+| 1 | Critérios satisfeitos, com o comando de cada medição | **satisfeito** | Os cinco acima, cada um com o comando. Os ensaios sem Docker estão em [`../tools/compose_prod/tests/test_inspeccao.py`](../tools/compose_prod/tests/test_inspeccao.py) e fixam a forma que o ensaio mede: nenhum `environment:` de `prod` leva um segredo, e quem tem `x-segredos` passa pelo lançador e monta o **seu** ficheiro. Fixam também o gravador (interpolação, aspas, sem `\r`, nada escrito se faltar um segredo). | — |
+| 2 | O `compose_prod lint` e o `supply_chain` verdes, se o *compose* mudar | **satisfeito** | `python -m compose_prod --root .. lint` → 0 achados. `canario` → 94 de 94 casos. Os três novos cobrem o `entrypoint:` do lançador, o único que a regra `consumidor-mal-ligado` aceita, trocado e com um comando a seguir; e a sonda da fila sem o lançador. `python -m supply_chain --root .. check` → `runtime` conforme (o `lancador.sh` lê-se no repositório). O único achado é o `cosign-sem-binario`, que é desta máquina e não do ramo. `python -m supply_chain --root .. canario` → 59 mutações, 59 vermelhas pela regra esperada, 0 sobreviventes; a suite do `supply_chain` → `Ran 262 tests`, `OK`. | — |
+
+**Revisão adversarial** (uma, em subagente independente). Oito achados, todos verificados contra a árvore e corrigidos aqui:
+- a regra da fila deixava de ver a sonda;
+- a fila perdia o `tini` como PID 1;
+- os *runbooks* de rotação mandavam um `up -d`, que não recria quando só o ficheiro muda: reescrever e reiniciar;
+- um `--destino` vazio escrevia no repositório;
+- sem `root`, o gravador saía com 0 com ficheiros que nenhum serviço lê;
+- formas de interpolação que o gravador não segue;
+- o reinício do anfitrião, registado no §8 do ADR;
+- as chaves do `docker inspect`, que não se percorriam.
+
+**Fora do âmbito, registado:**
+- O *compose* de `staging` fica fora deste ticket. O mesmo endurecimento pede um ticket próprio, que a coordenação abre.
+- A chamada ao gravador pelo deploy é do KAM-078, e com ela a ordem de arranque do anfitrião. O `tmpfs` esvazia-se num reinício, e os serviços só voltam depois de o gravador correr. O `0400` com o UID do serviço como dono fica NÃO VERIFICADO até haver anfitrião (D1).
 
 ### Handoff para Claude Code
 
@@ -2487,4 +2530,5 @@ Testes: o ensaio e o canário que prova que ele morde.
 | 1.36 | Novembro 2026 | **KAM-078, preparação do lote 24** (o ticket continua aberto): o bloco ganha a secção «Preparação (sem o mundo real)», com o que ficou feito em `../tools/release/` para os gates 14 a 18 sem o número de teste, o sandbox, um *host* ou um registo, a evidência de cada critério, e o que falta com o credor. Nenhuma caixa marcada, nenhum critério alterado. | Equipa KAMBÁ |
 | 1.37 | Novembro 2026 | **KAM-259 e KAM-260** acrescentados, credores do KAM-074, por decisão da coordenação do lote 24 a 2026-11-25 (reversível): o KAM-074 passa a depender dos dois, para que o revisor independente os encontre feitos. Só com dependências fechadas, para arrancarem já. O `Bloqueia` do KAM-075, do KAM-076 e do KAM-080 ganha a aresta recíproca. Números provisórios: renumeram-se na integração. | Equipa KAMBÁ |
 | 1.38 | Novembro 2026 | **KAM-077, preparação sem o mundo real (lote 24)**, e o ticket **não fecha**: secção «Preparação (sem o mundo real)» no bloco, nenhuma caixa marcada. Entregues a sonda de RTT e o relatório que recusa sair sem 24 h medidas (`../tools/borda/`), as regras `nftables` do `host-base` (classe 3 de `../infra/PORTABILIDADE.md`), o índice `../provas/alojamento/README.md`, os candidatos da D1 em `../infra/modules/README.md` e o registo da metade CDN/WAF da **D12** com a opção (b) como **proposta** sem dono nem data. **E um defeito da borda corrigido:** o Caddyfile encaminhava `/webhooks/*` e o GWY serve `/wa/webhook` — o GET de verificação dava 404, medido. Número **provisório**: renumera-se na integração. | Equipa KAMBÁ |
-| 1.39 | Novembro 2026 | **KAM-259 entregue.** O acesso de excepção a um *host* de `staging` e de `prod` entra pela conta `breakglass` do `host-base`, cujo portão escreve `breakglass.open` no `audit_log` antes de abrir a *shell* e `breakglass.close` quando ela fecha; revisão `0093` com o fecho, o papel `kamba_breakglass` e a porta `breakglass_registar`, pela decisão do fundador de 2026-11-25 (opção A, registada no bloco). As sete caixas marcadas com evidência; o que só um *host* mede fica dito na verificação. | Equipa KAMBÁ |
+| 1.39 | Novembro 2026 | **KAM-260 entregue.** O ensaio do `docker inspect` dos serviços de `prod` (`compose_prod inspeccao`, com canário e prova de entrega, no gate 6 pelo alvo `compose-prod-inspeccao`), e o endurecimento que o deixa verde: os segredos de `prod` passam do `environment:` para um ficheiro por serviço, montado só de leitura e carregado pelo `lancador.sh` (decisão do fundador de 2026-11-27, opção B, com emenda *proposta* ao `ADR-L002` §1 e §3 no §8 dele). Sete caixas, sete marcadas. | Equipa KAMBÁ |
+| 1.40 | Novembro 2026 | **KAM-259 entregue.** O acesso de excepção a um *host* de `staging` e de `prod` entra pela conta `breakglass` do `host-base`, cujo portão escreve `breakglass.open` no `audit_log` antes de abrir a *shell* e `breakglass.close` quando ela fecha; revisão `0093` com o fecho, o papel `kamba_breakglass` e a porta `breakglass_registar`, pela decisão do fundador de 2026-11-25 (opção A, registada no bloco). As sete caixas marcadas com evidência; o que só um *host* mede fica dito na verificação. | Equipa KAMBÁ |

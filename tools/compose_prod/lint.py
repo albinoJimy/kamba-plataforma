@@ -504,8 +504,19 @@ def _submapa(ficheiro: compose_mod.Compose, chaves: dict, chave: str) -> dict:
 
 
 def _ambiente(ficheiro: compose_mod.Compose, chaves: dict) -> dict[str, str]:
-    """`environment:` como mapa, em qualquer das duas formas do compose."""
-    no = chaves.get("environment")
+    """O ambiente do processo: `environment:` e, desde o KAM-260, `x-segredos:`.
+
+    Os segredos de `prod` chegam ao processo pelo ficheiro que o lancador carrega
+    (`segredos.py`), e nao pelo `environment:` do contentor; para quem pergunta
+    «que variaveis tem o processo», sao as duas.
+    """
+    resultado = _mapa_de_ambiente(ficheiro, chaves.get("environment"))
+    resultado.update(_mapa_de_ambiente(ficheiro, chaves.get("x-segredos")))
+    return resultado
+
+
+def _mapa_de_ambiente(ficheiro: compose_mod.Compose, no) -> dict[str, str]:
+    """Um mapa de ambiente do compose, em qualquer das duas formas."""
     if no is None:
         return {}
     documento = ficheiro.documento
@@ -1338,6 +1349,20 @@ def _replicas_em(ficheiro: compose_mod.Compose, chaves: dict) -> int:
     return 1
 
 
+#: O unico `entrypoint:` que um consumidor pode ter: o lancador dos segredos
+#: (KAM-260), que carrega o ficheiro e faz `exec` do `command:` — pela imagem
+#: base do Node, cujo `docker-entrypoint.sh` faz `exec` de um `node ...`. Nao
+#: passa por cima do comando: corre-o.
+ENTRYPOINTS_DO_LANCADOR = (
+    ["/bin/sh", "/run/kamba/lancador.sh"],
+    ["/bin/sh", "/run/kamba/lancador.sh", "/usr/local/bin/docker-entrypoint.sh"],
+)
+
+
+#: Como comeca uma sonda que precisa de um segredo do ficheiro (KAM-260).
+SONDA_PELO_LANCADOR = "CMD-SHELL /bin/sh /run/kamba/lancador.sh "
+
+
 def _ligacao(
     ficheiro: compose_mod.Compose, chaves: dict, processo: str, ambiente: str,
     replicas: int,
@@ -1345,7 +1370,7 @@ def _ligacao(
     """O que impede este servico de fazer o trabalho do processo que corre."""
     job, variavel_da_porta, porta, exigidas, maximo = PROCESSOS[processo]
     problemas: list[str] = []
-    if "entrypoint" in chaves:
+    if "entrypoint" in chaves and _lista(ficheiro, chaves, "entrypoint") not in ENTRYPOINTS_DO_LANCADOR:
         problemas.append("tem `entrypoint:`, que passa por cima do `command:`")
     env = _ambiente(ficheiro, chaves)
     if env.get(variavel_da_porta) != str(porta):
@@ -1632,6 +1657,17 @@ def r_fila_com_credencial(dados: Dados) -> list[Achado]:
                 problemas.append(
                     "a sonda nao recebe a credencial em `REDISCLI_AUTH`, e o contentor "
                     "fica `unhealthy`"
+                )
+            elif "REDISCLI_AUTH" in _mapa_de_ambiente(ficheiro, chaves.get("x-segredos")) and (
+                not sonda.startswith(SONDA_PELO_LANCADOR)
+            ):
+                # KAM-260: a sonda corre por `docker exec`, que herda o `Config.Env`
+                # do contentor e **nao** o ambiente que o lancador deu ao PID 1. Com
+                # a credencial no `x-segredos`, so a recebe passando pelo lancador.
+                problemas.append(
+                    "a credencial esta em `x-segredos` e a sonda nao passa por "
+                    f"`{SONDA_PELO_LANCADOR}`: um `docker exec` nao herda o ficheiro, e "
+                    "o contentor fica `unhealthy`"
                 )
             for problema in problemas:
                 achados.append(

@@ -115,6 +115,24 @@ x-node: &node
     KAMBA_COMMIT_SHA: ${KAMBA_COMMIT_SHA:?o deploy passa o SHA da release}
     KAMBA_DATA_CLASS: ${KAMBA_DATA_CLASS:-synthetic}
 
+# O lancador dos segredos (KAM-260; ADR-L002 §1, emenda *proposta*, decisao do
+# fundador de 2026-11-27). Um servico que recebe segredos declara-os em
+# `x-segredos:` e **nao** no `environment:`: o Docker grava o `environment:` no
+# `Config.Env` do contentor, e o `docker inspect` mostra-o. O deploy escreve,
+# num `tmpfs` do anfitriao, um ficheiro por servico (`python -m compose_prod
+# segredos`, modo `0400`, dono o UID do servico); o servico monta-o so de
+# leitura e o `entrypoint` passa pelo `lancador.sh`, que o carrega para o
+# ambiente do processo e faz `exec`. O processo le pela porta `SecretProvider`,
+# como antes. `create_host_path: false`: sem o ficheiro, o contentor nao se cria.
+# Mede-o `python -m compose_prod inspeccao` (gate 6).
+x-lancador: &lancador
+  type: bind
+  source: ./lancador/lancador.sh
+  target: /run/kamba/lancador.sh
+  read_only: true
+  bind:
+    create_host_path: false
+
 services:
   # ================================================================= borda
   proxy-tls:
@@ -317,6 +335,15 @@ services:
       # ou sem a KEK abaixo, o `Identidade.arrancar` recusa em `prod`.
       KAMBA_ENV: prod
       KAMBA_FASE: piloto
+      KAMBA_STORAGE_ENDPOINT: ${KAMBA_STORAGE_ENDPOINT:?o deploy diz onde e o armazenamento (D6 aberta)}
+      KAMBA_STORAGE_BUCKET: ${KAMBA_STORAGE_BUCKET:?o deploy nomeia o bucket}
+      KAMBA_STORAGE_REGION: ${KAMBA_STORAGE_REGION:?o deploy nomeia a regiao}
+      KAMBA_STORAGE_DESTINO_COUNTRY: ${KAMBA_STORAGE_DESTINO_COUNTRY:?o deploy diz o pais do armazenamento (ADR-008)}
+      KAMBA_STORAGE_DESTINO_PROVIDER: ${KAMBA_STORAGE_DESTINO_PROVIDER:?o deploy diz o fornecedor do armazenamento}
+      KAMBA_STORAGE_DESTINO_APD_REF: ${KAMBA_STORAGE_DESTINO_APD_REF:-}
+    # KAM-260: os segredos vao no ficheiro que o lancador carrega, e nao no
+    # `environment:` (ADR-L002 §1, emenda *proposta*).
+    x-segredos:
       KAMBA_QUEUE_URL: redis://:${KAMBA_SECRET_QUEUE_PASSWORD:?o cofre entrega a credencial da fila}@queue:6379
       # Tres papeis, tres ligacoes (cabecalho do `entrada.ts`): `kamba_app`,
       # `kamba_resolver` e `kamba_identity`.
@@ -335,14 +362,17 @@ services:
       # as duas do armazenamento assinam o `put` da foto.
       KAMBA_SECRET_KEK_TOKEN_CLIENTE: ${KAMBA_SECRET_KEK_TOKEN_CLIENTE:?o cofre entrega a KEK dos tokens de cliente}
       KAMBA_SECRET_KEK_TOKEN_CLIENTE_ANTERIOR: ${KAMBA_SECRET_KEK_TOKEN_CLIENTE_ANTERIOR:-}
-      KAMBA_STORAGE_ENDPOINT: ${KAMBA_STORAGE_ENDPOINT:?o deploy diz onde e o armazenamento (D6 aberta)}
-      KAMBA_STORAGE_BUCKET: ${KAMBA_STORAGE_BUCKET:?o deploy nomeia o bucket}
-      KAMBA_STORAGE_REGION: ${KAMBA_STORAGE_REGION:?o deploy nomeia a regiao}
-      KAMBA_STORAGE_DESTINO_COUNTRY: ${KAMBA_STORAGE_DESTINO_COUNTRY:?o deploy diz o pais do armazenamento (ADR-008)}
-      KAMBA_STORAGE_DESTINO_PROVIDER: ${KAMBA_STORAGE_DESTINO_PROVIDER:?o deploy diz o fornecedor do armazenamento}
-      KAMBA_STORAGE_DESTINO_APD_REF: ${KAMBA_STORAGE_DESTINO_APD_REF:-}
       KAMBA_SECRET_STORAGE_ACCESS_KEY_ID: ${KAMBA_SECRET_STORAGE_ACCESS_KEY_ID:?o cofre entrega a chave de acesso do armazenamento}
       KAMBA_SECRET_STORAGE_SECRET_ACCESS_KEY: ${KAMBA_SECRET_STORAGE_SECRET_ACCESS_KEY:?o cofre entrega o segredo do armazenamento}
+    entrypoint: ["/bin/sh", "/run/kamba/lancador.sh", "/usr/local/bin/docker-entrypoint.sh"]
+    volumes:
+      - *lancador
+      - type: bind
+        source: ${KAMBA_SEGREDOS_DIR:?o deploy escreve os ficheiros de segredos (KAM-260)}/worker-canal-entrada.env
+        target: /run/kamba/segredos.env
+        read_only: true
+        bind:
+          create_host_path: false
     # Escala com replicas (cabecalho do `entrada.ts`): o *worker* trata um *job*
     # de cada vez, e o KAM-084 mediu-o como o primeiro recurso saturado do
     # segmento de entrada, entre 200 e 400 *webhooks*/s.
@@ -386,11 +416,23 @@ services:
       # «Tem de coincidir com o compose» (`agr_shim.ts`): e esta.
       AGR_SHIM_PORT: "3025"
       KAMBA_ENV: prod
+      KAMBA_AGR_URL: http://agr:8000
+    # KAM-260: os segredos vao no ficheiro que o lancador carrega, e nao no
+    # `environment:` (ADR-L002 §1, emenda *proposta*).
+    x-segredos:
       # O shim le `KAMBA_REDIS_URL`, e nao `KAMBA_QUEUE_URL` como os outros
       # tres. E a mesma fila.
       KAMBA_REDIS_URL: redis://:${KAMBA_SECRET_QUEUE_PASSWORD:?o cofre entrega a credencial da fila}@queue:6379
-      KAMBA_AGR_URL: http://agr:8000
       KAMBA_SECRET_AGR_INTERNAL_TOKEN: ${KAMBA_SECRET_AGR_INTERNAL_TOKEN:?o cofre entrega a credencial da API interna do AGR}
+    entrypoint: ["/bin/sh", "/run/kamba/lancador.sh", "/usr/local/bin/docker-entrypoint.sh"]
+    volumes:
+      - *lancador
+      - type: bind
+        source: ${KAMBA_SEGREDOS_DIR:?o deploy escreve os ficheiros de segredos (KAM-260)}/worker-canal-agr-shim.env
+        target: /run/kamba/segredos.env
+        read_only: true
+        bind:
+          create_host_path: false
     # Escala com replicas; nao abre ligacao a base (cabecalho do `agr_shim.ts`).
     deploy:
       replicas: 2
@@ -428,8 +470,20 @@ services:
     environment:
       <<: *node-env
       PUBLICADOR_PORT: "3011"
+    # KAM-260: os segredos vao no ficheiro que o lancador carrega, e nao no
+    # `environment:` (ADR-L002 §1, emenda *proposta*).
+    x-segredos:
       KAMBA_QUEUE_URL: redis://:${KAMBA_SECRET_QUEUE_PASSWORD:?o cofre entrega a credencial da fila}@queue:6379
       KAMBA_PUBLICADOR_DB_URL: ${KAMBA_PUBLICADOR_DB_URL:?o deploy passa a cadeia de ligacao do kamba_batch}
+    entrypoint: ["/bin/sh", "/run/kamba/lancador.sh", "/usr/local/bin/docker-entrypoint.sh"]
+    volumes:
+      - *lancador
+      - type: bind
+        source: ${KAMBA_SEGREDOS_DIR:?o deploy escreve os ficheiros de segredos (KAM-260)}/worker-canal-publicador.env
+        target: /run/kamba/segredos.env
+        read_only: true
+        bind:
+          create_host_path: false
     # **Duas replicas, e so uma publica.** Quem ganha `pg_try_advisory_lock(7101)`
     # publica; a outra fica em espera e assume quando a primeira larga o lock.
     # Nao e escala de debito: e o tempo de recuperacao de uma avaria.
@@ -477,7 +531,6 @@ services:
       # no KAM-227, `node:24.21.0`: sem ela o pedido vai directo e expira; com
       # ela, vai ao proxy). Sem ela o `*saida` nao fazia nada.
       NODE_USE_ENV_PROXY: "1"
-      KAMBA_QUEUE_URL: redis://:${KAMBA_SECRET_QUEUE_PASSWORD:?o cofre entrega a credencial da fila}@queue:6379
       # KAM-227: o consumidor e o `outbound`, a resposta do AGR ao WhatsApp.
       # Tres papeis, tres ligacoes: `kamba_app` (o consumo e o `Saida`),
       # `kamba_batch` (o reconciliador) e `kamba_identity` (o destinatario, pelo
@@ -491,13 +544,6 @@ services:
       # (criterio 9 do KAM-008, emendado a 2026-11-20).
       KAMBA_CONSUMER: outbound
       KAMBA_ENV: prod
-      KAMBA_CONSUMIDOR_DB_URL: ${KAMBA_CONSUMIDOR_DB_URL:?o deploy passa a cadeia de ligacao do kamba_app}
-      KAMBA_CONSUMIDOR_OPS_DB_URL: ${KAMBA_CONSUMIDOR_OPS_DB_URL:?o deploy passa a cadeia de ligacao do kamba_batch}
-      KAMBA_CONSUMIDOR_IDENTITY_DB_URL: ${KAMBA_CONSUMIDOR_IDENTITY_DB_URL:?o deploy passa a cadeia de ligacao do kamba_identity}
-      KAMBA_SECRET_KEK_TOKEN_CLIENTE: ${KAMBA_SECRET_KEK_TOKEN_CLIENTE:?o cofre entrega a KEK dos tokens de cliente}
-      KAMBA_SECRET_KEK_TOKEN_CLIENTE_ANTERIOR: ${KAMBA_SECRET_KEK_TOKEN_CLIENTE_ANTERIOR:-}
-      KAMBA_SECRET_KEK_CONTACT_DEK: ${KAMBA_SECRET_KEK_CONTACT_DEK:?o cofre entrega a KEK das DEK de contacto}
-      KAMBA_SECRET_KEK_CONTACT_DEK_ANTERIOR: ${KAMBA_SECRET_KEK_CONTACT_DEK_ANTERIOR:-}
       # KAM-246: o consumidor le a arte do STO (`head` e `get`, classe `arte`)
       # para a carregar na Meta antes do texto. Em staging e prod nao arranca
       # sem o armazenamento (`portasDoOutbound`).
@@ -507,8 +553,28 @@ services:
       KAMBA_STORAGE_DESTINO_COUNTRY: ${KAMBA_STORAGE_DESTINO_COUNTRY:?o deploy diz o pais do armazenamento (ADR-008)}
       KAMBA_STORAGE_DESTINO_PROVIDER: ${KAMBA_STORAGE_DESTINO_PROVIDER:?o deploy diz o fornecedor do armazenamento}
       KAMBA_STORAGE_DESTINO_APD_REF: ${KAMBA_STORAGE_DESTINO_APD_REF:-}
+    # KAM-260: os segredos vao no ficheiro que o lancador carrega, e nao no
+    # `environment:` (ADR-L002 §1, emenda *proposta*).
+    x-segredos:
+      KAMBA_QUEUE_URL: redis://:${KAMBA_SECRET_QUEUE_PASSWORD:?o cofre entrega a credencial da fila}@queue:6379
+      KAMBA_CONSUMIDOR_DB_URL: ${KAMBA_CONSUMIDOR_DB_URL:?o deploy passa a cadeia de ligacao do kamba_app}
+      KAMBA_CONSUMIDOR_OPS_DB_URL: ${KAMBA_CONSUMIDOR_OPS_DB_URL:?o deploy passa a cadeia de ligacao do kamba_batch}
+      KAMBA_CONSUMIDOR_IDENTITY_DB_URL: ${KAMBA_CONSUMIDOR_IDENTITY_DB_URL:?o deploy passa a cadeia de ligacao do kamba_identity}
+      KAMBA_SECRET_KEK_TOKEN_CLIENTE: ${KAMBA_SECRET_KEK_TOKEN_CLIENTE:?o cofre entrega a KEK dos tokens de cliente}
+      KAMBA_SECRET_KEK_TOKEN_CLIENTE_ANTERIOR: ${KAMBA_SECRET_KEK_TOKEN_CLIENTE_ANTERIOR:-}
+      KAMBA_SECRET_KEK_CONTACT_DEK: ${KAMBA_SECRET_KEK_CONTACT_DEK:?o cofre entrega a KEK das DEK de contacto}
+      KAMBA_SECRET_KEK_CONTACT_DEK_ANTERIOR: ${KAMBA_SECRET_KEK_CONTACT_DEK_ANTERIOR:-}
       KAMBA_SECRET_STORAGE_ACCESS_KEY_ID: ${KAMBA_SECRET_STORAGE_ACCESS_KEY_ID:?o cofre entrega a chave de acesso do armazenamento}
       KAMBA_SECRET_STORAGE_SECRET_ACCESS_KEY: ${KAMBA_SECRET_STORAGE_SECRET_ACCESS_KEY:?o cofre entrega o segredo do armazenamento}
+    entrypoint: ["/bin/sh", "/run/kamba/lancador.sh", "/usr/local/bin/docker-entrypoint.sh"]
+    volumes:
+      - *lancador
+      - type: bind
+        source: ${KAMBA_SEGREDOS_DIR:?o deploy escreve os ficheiros de segredos (KAM-260)}/worker-canal-consumidor.env
+        target: /run/kamba/segredos.env
+        read_only: true
+        bind:
+          create_host_path: false
     # **Uma replica.** As dezasseis filas de particao garantem a ordem por
     # agregado com «concorrencia 1 por fila» (`docs/eventos.md` §4, *Fan-out*);
     # uma segunda replica punha dois *workers* na mesma particao.
@@ -552,13 +618,25 @@ services:
       <<: *node-env
       PONTE_PORT: "3194"
       KAMBA_ENV: prod
-      KAMBA_REDIS_URL: redis://:${KAMBA_SECRET_QUEUE_PASSWORD:?o cofre entrega a credencial da fila}@queue:6379
       KAMBA_PONTE_CONSUMERS: idx
       KAMBA_PONTE_ALVO: http://idx:8061
       # O **id** do segredo, e nao o valor: o `Secrets` le-o de
       # `KAMBA_SECRET_IDX_INTERNAL_TOKEN`, que e o que o `idx` verifica.
       KAMBA_PONTE_SEGREDO: idx_internal_token
+    # KAM-260: os segredos vao no ficheiro que o lancador carrega, e nao no
+    # `environment:` (ADR-L002 §1, emenda *proposta*).
+    x-segredos:
+      KAMBA_REDIS_URL: redis://:${KAMBA_SECRET_QUEUE_PASSWORD:?o cofre entrega a credencial da fila}@queue:6379
       KAMBA_SECRET_IDX_INTERNAL_TOKEN: ${KAMBA_SECRET_IDX_INTERNAL_TOKEN:?o cofre entrega a credencial da API interna do IDX}
+    entrypoint: ["/bin/sh", "/run/kamba/lancador.sh", "/usr/local/bin/docker-entrypoint.sh"]
+    volumes:
+      - *lancador
+      - type: bind
+        source: ${KAMBA_SEGREDOS_DIR:?o deploy escreve os ficheiros de segredos (KAM-260)}/worker-canal-ponte-idx.env
+        target: /run/kamba/segredos.env
+        read_only: true
+        bind:
+          create_host_path: false
     # **Uma replica**, pela razao do `consumidor.ts`: a ordem por agregado
     # assenta em concorrencia 1 por fila de particao, e uma segunda replica
     # punha dois *workers* na mesma particao.
@@ -601,11 +679,23 @@ services:
       <<: *node-env
       PONTE_PORT: "3194"
       KAMBA_ENV: prod
-      KAMBA_REDIS_URL: redis://:${KAMBA_SECRET_QUEUE_PASSWORD:?o cofre entrega a credencial da fila}@queue:6379
       KAMBA_PONTE_CONSUMERS: agr_vendedor,agr_servicos
       KAMBA_PONTE_ALVO: http://agr:8000
       KAMBA_PONTE_SEGREDO: agr_internal_token
+    # KAM-260: os segredos vao no ficheiro que o lancador carrega, e nao no
+    # `environment:` (ADR-L002 §1, emenda *proposta*).
+    x-segredos:
+      KAMBA_REDIS_URL: redis://:${KAMBA_SECRET_QUEUE_PASSWORD:?o cofre entrega a credencial da fila}@queue:6379
       KAMBA_SECRET_AGR_INTERNAL_TOKEN: ${KAMBA_SECRET_AGR_INTERNAL_TOKEN:?o cofre entrega a credencial da API interna do AGR}
+    entrypoint: ["/bin/sh", "/run/kamba/lancador.sh", "/usr/local/bin/docker-entrypoint.sh"]
+    volumes:
+      - *lancador
+      - type: bind
+        source: ${KAMBA_SEGREDOS_DIR:?o deploy escreve os ficheiros de segredos (KAM-260)}/worker-canal-ponte-agr.env
+        target: /run/kamba/segredos.env
+        read_only: true
+        bind:
+          create_host_path: false
     # Uma replica, pela mesma razao.
     networks:
       - app
@@ -649,9 +739,6 @@ services:
       PORT: "8000"
       KAMBA_COMMIT_SHA: ${KAMBA_COMMIT_SHA:?o deploy passa o SHA da release}
       KAMBA_DATA_CLASS: ${KAMBA_DATA_CLASS:-synthetic}
-      # KAM-178. O AGR apresenta a credencial da API interna do COM e o COM
-      # verifica-a: tem de ser o mesmo valor, e e obrigatoria ao arranque dos dois.
-      KAMBA_SECRET_COM_INTERNAL_TOKEN: ${KAMBA_SECRET_COM_INTERNAL_TOKEN:?o cofre entrega a credencial da API interna do COM}
       KAMBA_COM_URL: ${KAMBA_COM_URL:-http://com:3002}
       # KAM-231 (decisao do fundador de 2026-11-21, P4 opcao A). O ambiente
       # e o deste compose: sem ele o AGR lia `dev`, e nem a recusa de arranque
@@ -666,13 +753,20 @@ services:
       KAMBA_STORAGE_DESTINO_COUNTRY: ${KAMBA_STORAGE_DESTINO_COUNTRY:?o deploy diz o pais do armazenamento (ADR-008)}
       KAMBA_STORAGE_DESTINO_PROVIDER: ${KAMBA_STORAGE_DESTINO_PROVIDER:?o deploy diz o fornecedor do armazenamento}
       KAMBA_STORAGE_DESTINO_APD_REF: ${KAMBA_STORAGE_DESTINO_APD_REF:-}
-      KAMBA_SECRET_STORAGE_ACCESS_KEY_ID: ${KAMBA_SECRET_STORAGE_ACCESS_KEY_ID:?o cofre entrega a chave de acesso do armazenamento}
-      KAMBA_SECRET_STORAGE_SECRET_ACCESS_KEY: ${KAMBA_SECRET_STORAGE_SECRET_ACCESS_KEY:?o cofre entrega o segredo do armazenamento}
       # KAM-246 (decisao do fundador de 2026-11-23, A). O endpoint do STO com
       # que se assinam os URLs que o navegador abre, e so para isso. Fora de
       # `dev` tem de ser https; sem ele a pagina Social responde 503 e nunca
       # cai para o endpoint interno. Ter o STO com endpoint publico e da D6.
       KAMBA_STORAGE_ENDPOINT_PUBLICO: ${KAMBA_STORAGE_ENDPOINT_PUBLICO:-}
+      KAMBA_LLM_CHAVES_PROJECTO: ${KAMBA_LLM_CHAVES_PROJECTO:-kamba-llm-chaves}
+    # KAM-260: os segredos vao no ficheiro que o lancador carrega, e nao no
+    # `environment:` (ADR-L002 §1, emenda *proposta*).
+    x-segredos:
+      # KAM-178. O AGR apresenta a credencial da API interna do COM e o COM
+      # verifica-a: tem de ser o mesmo valor, e e obrigatoria ao arranque dos dois.
+      KAMBA_SECRET_COM_INTERNAL_TOKEN: ${KAMBA_SECRET_COM_INTERNAL_TOKEN:?o cofre entrega a credencial da API interna do COM}
+      KAMBA_SECRET_STORAGE_ACCESS_KEY_ID: ${KAMBA_SECRET_STORAGE_ACCESS_KEY_ID:?o cofre entrega a chave de acesso do armazenamento}
+      KAMBA_SECRET_STORAGE_SECRET_ACCESS_KEY: ${KAMBA_SECRET_STORAGE_SECRET_ACCESS_KEY:?o cofre entrega o segredo do armazenamento}
       # KAM-246 (Q3 = A). O AGR assina e abre a ligacao de descarga de 24 h da
       # pagina Social do painel. Anel: a anterior abre as ligacoes vivas numa
       # rotacao.
@@ -690,7 +784,16 @@ services:
       # falha, o turno degrada, o COM le `condicional` e as condicoes recusam.
       # Fecha, e nao abre (`services/agr/src/kamba_agr/llm/cofre_das_chaves.py`).
       KAMBA_SECRET_DOPPLER_LLM_CHAVES_LEITURA: ${KAMBA_SECRET_DOPPLER_LLM_CHAVES_LEITURA:-}
-      KAMBA_LLM_CHAVES_PROJECTO: ${KAMBA_LLM_CHAVES_PROJECTO:-kamba-llm-chaves}
+    entrypoint: ["/bin/sh", "/run/kamba/lancador.sh"]
+    command: ["python", "-m", "kamba_agr"]
+    volumes:
+      - *lancador
+      - type: bind
+        source: ${KAMBA_SEGREDOS_DIR:?o deploy escreve os ficheiros de segredos (KAM-260)}/agr.env
+        target: /run/kamba/segredos.env
+        read_only: true
+        bind:
+          create_host_path: false
     # Duas replicas, criterio 5.
     deploy:
       replicas: 2
@@ -742,17 +845,29 @@ services:
       KAMBA_COMMIT_SHA: ${KAMBA_COMMIT_SHA:?o deploy passa o SHA da release}
       KAMBA_DATA_CLASS: ${KAMBA_DATA_CLASS:-synthetic}
       KAMBA_ENV: prod
-      # A credencial que a ponte apresenta. **Nao** e o `agr_internal_token`:
-      # uma credencial por servico (`ops/secrets-inventory.yaml`).
-      KAMBA_SECRET_IDX_INTERNAL_TOKEN: ${KAMBA_SECRET_IDX_INTERNAL_TOKEN:?o cofre entrega a credencial da API interna do IDX}
       # Dois papeis (cabecalho do `kamba_core/idx/processo.py`): as entregas e
       # a reindexacao como `kamba_app`, e so a lista de *tenants* activos como
       # `kamba_batch`.
       KAMBA_DB_HOST: postgres
       KAMBA_DB_PORT: "5432"
       KAMBA_DB_NAME: ${KAMBA_DB_NAME:?o deploy nomeia a base da plataforma}
+    # KAM-260: os segredos vao no ficheiro que o lancador carrega, e nao no
+    # `environment:` (ADR-L002 §1, emenda *proposta*).
+    x-segredos:
+      # A credencial que a ponte apresenta. **Nao** e o `agr_internal_token`:
+      # uma credencial por servico (`ops/secrets-inventory.yaml`).
+      KAMBA_SECRET_IDX_INTERNAL_TOKEN: ${KAMBA_SECRET_IDX_INTERNAL_TOKEN:?o cofre entrega a credencial da API interna do IDX}
       KAMBA_SECRET_DB_APP_PASSWORD: ${KAMBA_SECRET_DB_APP_PASSWORD:?o cofre entrega a senha do kamba_app}
       KAMBA_SECRET_DB_BATCH_PASSWORD: ${KAMBA_SECRET_DB_BATCH_PASSWORD:?o cofre entrega a senha do kamba_batch}
+    entrypoint: ["/bin/sh", "/run/kamba/lancador.sh"]
+    volumes:
+      - *lancador
+      - type: bind
+        source: ${KAMBA_SEGREDOS_DIR:?o deploy escreve os ficheiros de segredos (KAM-260)}/idx.env
+        target: /run/kamba/segredos.env
+        read_only: true
+        bind:
+          create_host_path: false
     # **Uma replica.** O ciclo da reindexacao corre em cada processo; duas
     # replicas eram duas voltas sobre os mesmos documentos.
     networks:
@@ -813,10 +928,6 @@ services:
       KAMBA_DB_HOST: postgres
       KAMBA_DB_PORT: "5432"
       KAMBA_DB_NAME: ${KAMBA_DB_NAME:?o deploy nomeia a base da plataforma}
-      KAMBA_SECRET_DB_APP_PASSWORD: ${KAMBA_SECRET_DB_APP_PASSWORD:?o cofre entrega a senha do kamba_app}
-      KAMBA_SECRET_DB_BATCH_PASSWORD: ${KAMBA_SECRET_DB_BATCH_PASSWORD:?o cofre entrega a senha do kamba_batch}
-      KAMBA_SECRET_DB_IDENTITY_PASSWORD: ${KAMBA_SECRET_DB_IDENTITY_PASSWORD:?o cofre entrega a senha do kamba_identity}
-      KAMBA_SECRET_OFFBOARDING_CERTIFICATE_KEY: ${KAMBA_SECRET_OFFBOARDING_CERTIFICATE_KEY:?o cofre entrega a chave do certificado de eliminacao}
       KAMBA_STORAGE_ENDPOINT: ${KAMBA_STORAGE_ENDPOINT:?o deploy diz onde e o armazenamento (D6 aberta)}
       KAMBA_STORAGE_BUCKET: ${KAMBA_STORAGE_BUCKET:?o deploy nomeia o bucket}
       KAMBA_STORAGE_REGION: ${KAMBA_STORAGE_REGION:?o deploy nomeia a regiao}
@@ -824,8 +935,24 @@ services:
       KAMBA_STORAGE_DESTINO_PROVIDER: ${KAMBA_STORAGE_DESTINO_PROVIDER:?o deploy diz o fornecedor do armazenamento}
       KAMBA_STORAGE_DESTINO_APD_REF: ${KAMBA_STORAGE_DESTINO_APD_REF:-}
       KAMBA_DATA_CLASS: ${KAMBA_DATA_CLASS:-synthetic}
+    # KAM-260: os segredos vao no ficheiro que o lancador carrega, e nao no
+    # `environment:` (ADR-L002 §1, emenda *proposta*).
+    x-segredos:
+      KAMBA_SECRET_DB_APP_PASSWORD: ${KAMBA_SECRET_DB_APP_PASSWORD:?o cofre entrega a senha do kamba_app}
+      KAMBA_SECRET_DB_BATCH_PASSWORD: ${KAMBA_SECRET_DB_BATCH_PASSWORD:?o cofre entrega a senha do kamba_batch}
+      KAMBA_SECRET_DB_IDENTITY_PASSWORD: ${KAMBA_SECRET_DB_IDENTITY_PASSWORD:?o cofre entrega a senha do kamba_identity}
+      KAMBA_SECRET_OFFBOARDING_CERTIFICATE_KEY: ${KAMBA_SECRET_OFFBOARDING_CERTIFICATE_KEY:?o cofre entrega a chave do certificado de eliminacao}
       KAMBA_SECRET_STORAGE_ACCESS_KEY_ID: ${KAMBA_SECRET_STORAGE_ACCESS_KEY_ID:?o cofre entrega a chave de acesso do armazenamento}
       KAMBA_SECRET_STORAGE_SECRET_ACCESS_KEY: ${KAMBA_SECRET_STORAGE_SECRET_ACCESS_KEY:?o cofre entrega o segredo do armazenamento}
+    entrypoint: ["/bin/sh", "/run/kamba/lancador.sh"]
+    volumes:
+      - *lancador
+      - type: bind
+        source: ${KAMBA_SEGREDOS_DIR:?o deploy escreve os ficheiros de segredos (KAM-260)}/offboarding-dados.env
+        target: /run/kamba/segredos.env
+        read_only: true
+        bind:
+          create_host_path: false
     networks:
       - data
     # **Uma replica.** Duas eram duas voltas sobre as mesmas fases; a fase
@@ -869,15 +996,20 @@ services:
       # **nao** arranca o servico (KAM-010), e um `:-` aqui era um COM a servir
       # pedidos sem a credencial da API interna.
       KAMBA_ENV: prod
-      KAMBA_SECRET_COM_INTERNAL_TOKEN: ${KAMBA_SECRET_COM_INTERNAL_TOKEN:?o cofre entrega a credencial da API interna do COM}
-      KAMBA_SECRET_SEGREDO_INTENTS: ${KAMBA_SECRET_SEGREDO_INTENTS:?o cofre entrega o segredo das intencoes}
-      KAMBA_SECRET_SEGREDO_INTENTS_ANTERIOR: ${KAMBA_SECRET_SEGREDO_INTENTS_ANTERIOR:-}
-      KAMBA_COM_DB_URL: ${KAMBA_COM_DB_URL:?o deploy passa a cadeia de ligacao do kamba_app}
       # KAM-228. O classificador do `screen` (KAM-222): com o `KAMBA_AGR_URL`, o
       # COM apresenta a `agr_screening_token` ao AGR e exige-a no arranque. O
       # `agr` esta no `NO_PROXY`: a chamada fica na rede `app`.
       KAMBA_AGR_URL: http://agr:8000
+    # KAM-260: os segredos vao no ficheiro que o lancador carrega, e nao no
+    # `environment:` (ADR-L002 §1, emenda *proposta*).
+    x-segredos:
+      KAMBA_SECRET_COM_INTERNAL_TOKEN: ${KAMBA_SECRET_COM_INTERNAL_TOKEN:?o cofre entrega a credencial da API interna do COM}
+      KAMBA_SECRET_SEGREDO_INTENTS: ${KAMBA_SECRET_SEGREDO_INTENTS:?o cofre entrega o segredo das intencoes}
+      KAMBA_SECRET_SEGREDO_INTENTS_ANTERIOR: ${KAMBA_SECRET_SEGREDO_INTENTS_ANTERIOR:-}
+      KAMBA_COM_DB_URL: ${KAMBA_COM_DB_URL:?o deploy passa a cadeia de ligacao do kamba_app}
       KAMBA_SECRET_AGR_SCREENING_TOKEN: ${KAMBA_SECRET_AGR_SCREENING_TOKEN:?o cofre entrega a credencial da rota do classificador do AGR}
+      KAMBA_SECRET_KEK_CONTACT_DEK: ${KAMBA_SECRET_KEK_CONTACT_DEK:-}
+      KAMBA_SECRET_KEK_CONTACT_DEK_ANTERIOR: ${KAMBA_SECRET_KEK_CONTACT_DEK_ANTERIOR:-}
       # KAM-206: o contacto de uma encomenda ao dono, decifrado como
       # `kamba_identity` (decisao do fundador de 2026-11-20, opcao A). O deploy
       # passa a cadeia do papel; sem ela o contacto responde UPSTREAM_DOWN e o
@@ -887,8 +1019,16 @@ services:
       # Identidade.arrancar recusar, o COM arranca na mesma, com o contacto em
       # UPSTREAM_DOWN e uma linha de log.
       KAMBA_COM_IDENTITY_DB_URL: ${KAMBA_COM_IDENTITY_DB_URL:-}
-      KAMBA_SECRET_KEK_CONTACT_DEK: ${KAMBA_SECRET_KEK_CONTACT_DEK:-}
-      KAMBA_SECRET_KEK_CONTACT_DEK_ANTERIOR: ${KAMBA_SECRET_KEK_CONTACT_DEK_ANTERIOR:-}
+    entrypoint: ["/bin/sh", "/run/kamba/lancador.sh", "/usr/local/bin/docker-entrypoint.sh"]
+    command: ["node", "services/com/src/server.ts"]
+    volumes:
+      - *lancador
+      - type: bind
+        source: ${KAMBA_SEGREDOS_DIR:?o deploy escreve os ficheiros de segredos (KAM-260)}/com.env
+        target: /run/kamba/segredos.env
+        read_only: true
+        bind:
+          create_host_path: false
     networks:
       - app
       - data
@@ -929,7 +1069,6 @@ services:
       # 2026-11-21, D1-A), e o processo nao tem `kamba_batch` nem
       # `kamba_identity`. Sem a cadeia, o `server.ts` recusa o arranque.
       KAMBA_AMBIENTE: prod
-      ONBOARDING_APP_DB_URL: ${ONBOARDING_APP_DB_URL:?o deploy passa a cadeia de ligacao do kamba_app}
       # Um salto de confianca: o `proxy-tls` e a unica entrada, e o Caddy poe o
       # `X-Forwarded-For`. Com zero, todos os registos vinham do endereco do
       # proxy e partilhavam a quota de casos por prefixo de rede.
@@ -937,6 +1076,25 @@ services:
       # O painel do dono (KAM-099) e o `POST /painel/teste` (KAM-202): o COM
       # interno, na rede `app`, com a credencial dele.
       ONBOARDING_COM_INTERNO_URL: http://com:3002
+      # KAM-243 (pela forma da decisao do fundador de 2026-11-21, P4 opcao A): o
+      # STO da foto do dono pelo painel. O `server.ts` guarda-a pelo MED na
+      # classe `media_imagem` do tenant da sessao, e fora de `dev` nao arranca
+      # sem a configuracao e as duas chaves.
+      KAMBA_STORAGE_ENDPOINT: ${KAMBA_STORAGE_ENDPOINT:?o deploy diz onde e o armazenamento (D6 aberta)}
+      KAMBA_STORAGE_BUCKET: ${KAMBA_STORAGE_BUCKET:?o deploy nomeia o bucket}
+      KAMBA_STORAGE_REGION: ${KAMBA_STORAGE_REGION:?o deploy nomeia a regiao}
+      KAMBA_STORAGE_DESTINO_COUNTRY: ${KAMBA_STORAGE_DESTINO_COUNTRY:?o deploy diz o pais do armazenamento (ADR-008)}
+      KAMBA_STORAGE_DESTINO_PROVIDER: ${KAMBA_STORAGE_DESTINO_PROVIDER:?o deploy diz o fornecedor do armazenamento}
+      KAMBA_STORAGE_DESTINO_APD_REF: ${KAMBA_STORAGE_DESTINO_APD_REF:-}
+      # KAM-239: o guia do ES pela rota interna do processo de lote (decisao do
+      # fundador de 2026-11-22, A). A lista, os gates e a fila do guia correm la
+      # como `kamba_batch`; este processo continua sem essa ligacao. O nome so a
+      # rede `app` o resolve. Com a URL, a credencial e obrigatoria no arranque.
+      ONBOARDING_LOTE_INTERNO_URL: http://onboarding-lote-interno:3015
+    # KAM-260: os segredos vao no ficheiro que o lancador carrega, e nao no
+    # `environment:` (ADR-L002 §1, emenda *proposta*).
+    x-segredos:
+      ONBOARDING_APP_DB_URL: ${ONBOARDING_APP_DB_URL:?o deploy passa a cadeia de ligacao do kamba_app}
       KAMBA_SECRET_COM_INTERNAL_TOKEN: ${KAMBA_SECRET_COM_INTERNAL_TOKEN:?o cofre entrega a credencial da API interna do COM}
       KAMBA_SECRET_PEPPER_ONBOARDING_IDENT: ${KAMBA_SECRET_PEPPER_ONBOARDING_IDENT:?o cofre entrega o pepper dos identificadores do onboarding}
       KAMBA_SECRET_PEPPER_ONBOARDING_IDENT_ANTERIOR: ${KAMBA_SECRET_PEPPER_ONBOARDING_IDENT_ANTERIOR:-}
@@ -950,24 +1108,19 @@ services:
       KAMBA_SECRET_KEK_TELEFONE_DO_CASO_ANTERIOR: ${KAMBA_SECRET_KEK_TELEFONE_DO_CASO_ANTERIOR:-}
       KAMBA_SECRET_KEK_DADOS_DO_CASO: ${KAMBA_SECRET_KEK_DADOS_DO_CASO:?o cofre entrega a KEK do NIF e do e-mail do caso}
       KAMBA_SECRET_KEK_DADOS_DO_CASO_ANTERIOR: ${KAMBA_SECRET_KEK_DADOS_DO_CASO_ANTERIOR:-}
-      # KAM-243 (pela forma da decisao do fundador de 2026-11-21, P4 opcao A): o
-      # STO da foto do dono pelo painel. O `server.ts` guarda-a pelo MED na
-      # classe `media_imagem` do tenant da sessao, e fora de `dev` nao arranca
-      # sem a configuracao e as duas chaves.
-      KAMBA_STORAGE_ENDPOINT: ${KAMBA_STORAGE_ENDPOINT:?o deploy diz onde e o armazenamento (D6 aberta)}
-      KAMBA_STORAGE_BUCKET: ${KAMBA_STORAGE_BUCKET:?o deploy nomeia o bucket}
-      KAMBA_STORAGE_REGION: ${KAMBA_STORAGE_REGION:?o deploy nomeia a regiao}
-      KAMBA_STORAGE_DESTINO_COUNTRY: ${KAMBA_STORAGE_DESTINO_COUNTRY:?o deploy diz o pais do armazenamento (ADR-008)}
-      KAMBA_STORAGE_DESTINO_PROVIDER: ${KAMBA_STORAGE_DESTINO_PROVIDER:?o deploy diz o fornecedor do armazenamento}
-      KAMBA_STORAGE_DESTINO_APD_REF: ${KAMBA_STORAGE_DESTINO_APD_REF:-}
       KAMBA_SECRET_STORAGE_ACCESS_KEY_ID: ${KAMBA_SECRET_STORAGE_ACCESS_KEY_ID:?o cofre entrega a chave de acesso do armazenamento}
       KAMBA_SECRET_STORAGE_SECRET_ACCESS_KEY: ${KAMBA_SECRET_STORAGE_SECRET_ACCESS_KEY:?o cofre entrega o segredo do armazenamento}
-      # KAM-239: o guia do ES pela rota interna do processo de lote (decisao do
-      # fundador de 2026-11-22, A). A lista, os gates e a fila do guia correm la
-      # como `kamba_batch`; este processo continua sem essa ligacao. O nome so a
-      # rede `app` o resolve. Com a URL, a credencial e obrigatoria no arranque.
-      ONBOARDING_LOTE_INTERNO_URL: http://onboarding-lote-interno:3015
       KAMBA_SECRET_ONBOARDING_LOTE_TOKEN: ${KAMBA_SECRET_ONBOARDING_LOTE_TOKEN:?o cofre entrega a credencial da rota interna do lote}
+    entrypoint: ["/bin/sh", "/run/kamba/lancador.sh", "/usr/local/bin/docker-entrypoint.sh"]
+    command: ["node", "services/onboarding-web/src/server.ts"]
+    volumes:
+      - *lancador
+      - type: bind
+        source: ${KAMBA_SEGREDOS_DIR:?o deploy escreve os ficheiros de segredos (KAM-260)}/onboarding-web.env
+        target: /run/kamba/segredos.env
+        read_only: true
+        bind:
+          create_host_path: false
     # `data` para a base (KAM-236), `app` para o `proxy-tls`, o COM e o lote.
     networks:
       - app
@@ -1028,6 +1181,37 @@ services:
       NODE_USE_ENV_PROXY: "1"
       KAMBA_AMBIENTE: prod
       LOTE_PORT: "3014"
+      # KAM-233 (decisao do fundador de 2026-11-21, Q1 = A): a fase `revogacao`
+      # apaga a chave do tenant no LiteLLM pelo alias e suspende a conta dele no
+      # Chatwoot, os dois na rede `app` e fora do `proxy-saida` (o `NO_PROXY`
+      # do `*saida` ja os nomeia). As duas credenciais leem-se a cada chamada.
+      # Desde o KAM-247 o LiteLLM tem base (a `kamba_litellm`), e o `/key/list`
+      # que confirma a revogacao responde: medido em `docs/evidencia/KAM-247.md`.
+      KAMBA_LLM_PROXY_URL: http://litellm:4000
+      KAMBA_CHATWOOT_URL: http://chatwoot:3000
+      # KAM-233 (decisoes do fundador de 2026-11-21, Q2 = B, e 2026-11-22, Q2b = A):
+      # no fecho da fase `pendentes`, os telefones dos clientes decifrados como
+      # `kamba_identity` (so o `lerEndpoints`, auditado na transaccao da decifra)
+      # e gravados no STO do tenant, na classe `dsar`, com o destino ADR-008 do
+      # pacote, para a exportacao do `offboarding-dados` os ler. O `KAMBA_ENV` e o
+      # que o `Identidade.arrancar` confere contra o ambiente das chaves.
+      KAMBA_ENV: prod
+      KAMBA_STORAGE_ENDPOINT: ${KAMBA_STORAGE_ENDPOINT:?o deploy diz onde e o armazenamento (D6 aberta)}
+      KAMBA_STORAGE_BUCKET: ${KAMBA_STORAGE_BUCKET:?o deploy nomeia o bucket}
+      KAMBA_STORAGE_REGION: ${KAMBA_STORAGE_REGION:?o deploy nomeia a regiao}
+      KAMBA_STORAGE_DESTINO_COUNTRY: ${KAMBA_STORAGE_DESTINO_COUNTRY:?o deploy diz o pais do armazenamento (ADR-008)}
+      KAMBA_STORAGE_DESTINO_PROVIDER: ${KAMBA_STORAGE_DESTINO_PROVIDER:?o deploy diz o fornecedor do armazenamento}
+      KAMBA_STORAGE_DESTINO_APD_REF: ${KAMBA_STORAGE_DESTINO_APD_REF:-}
+      # KAM-239: a rota interna do guia (`/interno/guia/*`, oito operacoes), noutra
+      # porta que a das metricas e ligada ao nome `onboarding-lote-interno`, que
+      # so a rede `app` resolve: nao escuta na `data`. A credencial e a mesma que
+      # o `onboarding-web` apresenta, e e obrigatoria com a porta.
+      LOTE_INTERNO_PORT: "3015"
+      LOTE_INTERNO_HOST: onboarding-lote-interno
+      ONBOARDING_ORIGEM: ${ONBOARDING_ORIGEM:?o deploy passa a origem publica do onboarding-web, para o convite da lista}
+    # KAM-260: os segredos vao no ficheiro que o lancador carrega, e nao no
+    # `environment:` (ADR-L002 §1, emenda *proposta*).
+    x-segredos:
       # `kamba_batch` (a fila atravessa tenants, e as varreduras de T&S) e
       # `kamba_app` (a decisao humana de screening, dentro do `comTenant` do
       # tenant do caso, e o consumidor de T&S, KAM-200).
@@ -1040,42 +1224,23 @@ services:
       # lancador do cofre (ADR-L002). Sem a KEK a fase falha pelo nome.
       KAMBA_SECRET_KEK_TOKEN_CLIENTE: ${KAMBA_SECRET_KEK_TOKEN_CLIENTE:?o cofre entrega a KEK dos tokens de cliente}
       KAMBA_SECRET_KEK_TOKEN_CLIENTE_ANTERIOR: ${KAMBA_SECRET_KEK_TOKEN_CLIENTE_ANTERIOR:-}
-      # KAM-233 (decisao do fundador de 2026-11-21, Q1 = A): a fase `revogacao`
-      # apaga a chave do tenant no LiteLLM pelo alias e suspende a conta dele no
-      # Chatwoot, os dois na rede `app` e fora do `proxy-saida` (o `NO_PROXY`
-      # do `*saida` ja os nomeia). As duas credenciais leem-se a cada chamada.
-      # Desde o KAM-247 o LiteLLM tem base (a `kamba_litellm`), e o `/key/list`
-      # que confirma a revogacao responde: medido em `docs/evidencia/KAM-247.md`.
-      KAMBA_LLM_PROXY_URL: http://litellm:4000
-      KAMBA_CHATWOOT_URL: http://chatwoot:3000
       KAMBA_SECRET_LITELLM_MASTER_KEY: ${KAMBA_SECRET_LITELLM_MASTER_KEY:?do cofre (KAM-010)}
       KAMBA_SECRET_CHATWOOT_PLATFORM_TOKEN: ${KAMBA_SECRET_CHATWOOT_PLATFORM_TOKEN:?do cofre (KAM-010)}
-      # KAM-233 (decisoes do fundador de 2026-11-21, Q2 = B, e 2026-11-22, Q2b = A):
-      # no fecho da fase `pendentes`, os telefones dos clientes decifrados como
-      # `kamba_identity` (so o `lerEndpoints`, auditado na transaccao da decifra)
-      # e gravados no STO do tenant, na classe `dsar`, com o destino ADR-008 do
-      # pacote, para a exportacao do `offboarding-dados` os ler. O `KAMBA_ENV` e o
-      # que o `Identidade.arrancar` confere contra o ambiente das chaves.
-      KAMBA_ENV: prod
       KAMBA_LOTE_IDENTITY_DB_URL: ${KAMBA_LOTE_IDENTITY_DB_URL:?o deploy passa a cadeia de ligacao do kamba_identity}
       KAMBA_SECRET_KEK_CONTACT_DEK: ${KAMBA_SECRET_KEK_CONTACT_DEK:?do cofre (KAM-010)}
       KAMBA_SECRET_KEK_CONTACT_DEK_ANTERIOR: ${KAMBA_SECRET_KEK_CONTACT_DEK_ANTERIOR:-}
-      KAMBA_STORAGE_ENDPOINT: ${KAMBA_STORAGE_ENDPOINT:?o deploy diz onde e o armazenamento (D6 aberta)}
-      KAMBA_STORAGE_BUCKET: ${KAMBA_STORAGE_BUCKET:?o deploy nomeia o bucket}
-      KAMBA_STORAGE_REGION: ${KAMBA_STORAGE_REGION:?o deploy nomeia a regiao}
-      KAMBA_STORAGE_DESTINO_COUNTRY: ${KAMBA_STORAGE_DESTINO_COUNTRY:?o deploy diz o pais do armazenamento (ADR-008)}
-      KAMBA_STORAGE_DESTINO_PROVIDER: ${KAMBA_STORAGE_DESTINO_PROVIDER:?o deploy diz o fornecedor do armazenamento}
-      KAMBA_STORAGE_DESTINO_APD_REF: ${KAMBA_STORAGE_DESTINO_APD_REF:-}
       KAMBA_SECRET_STORAGE_ACCESS_KEY_ID: ${KAMBA_SECRET_STORAGE_ACCESS_KEY_ID:?o cofre entrega a chave de acesso do armazenamento}
       KAMBA_SECRET_STORAGE_SECRET_ACCESS_KEY: ${KAMBA_SECRET_STORAGE_SECRET_ACCESS_KEY:?o cofre entrega o segredo do armazenamento}
-      # KAM-239: a rota interna do guia (`/interno/guia/*`, oito operacoes), noutra
-      # porta que a das metricas e ligada ao nome `onboarding-lote-interno`, que
-      # so a rede `app` resolve: nao escuta na `data`. A credencial e a mesma que
-      # o `onboarding-web` apresenta, e e obrigatoria com a porta.
-      LOTE_INTERNO_PORT: "3015"
-      LOTE_INTERNO_HOST: onboarding-lote-interno
-      ONBOARDING_ORIGEM: ${ONBOARDING_ORIGEM:?o deploy passa a origem publica do onboarding-web, para o convite da lista}
       KAMBA_SECRET_ONBOARDING_LOTE_TOKEN: ${KAMBA_SECRET_ONBOARDING_LOTE_TOKEN:?o cofre entrega a credencial da rota interna do lote}
+    entrypoint: ["/bin/sh", "/run/kamba/lancador.sh", "/usr/local/bin/docker-entrypoint.sh"]
+    volumes:
+      - *lancador
+      - type: bind
+        source: ${KAMBA_SEGREDOS_DIR:?o deploy escreve os ficheiros de segredos (KAM-260)}/onboarding-lote.env
+        target: /run/kamba/segredos.env
+        read_only: true
+        bind:
+          create_host_path: false
     # Em mapa, e nao em lista, pelo `aliases`: o nome da rota interna so existe
     # na rede `app` (decisao da coordenacao do lote 19, 2026-11-22).
     networks:
@@ -1136,6 +1301,9 @@ services:
       KAMBA_ENV: prod
       NODE_OPTIONS: --max-semi-space-size=1 --max-old-space-size=24
       PROVISIONAMENTO_PORT: "3015"
+    # KAM-260: os segredos vao no ficheiro que o lancador carrega, e nao no
+    # `environment:` (ADR-L002 §1, emenda *proposta*).
+    x-segredos:
       KAMBA_QUEUE_URL: redis://:${KAMBA_SECRET_QUEUE_PASSWORD:?o cofre entrega a credencial da fila}@queue:6379
       KAMBA_PROVISIONAMENTO_APP_DB_URL: ${KAMBA_PROVISIONAMENTO_APP_DB_URL:?o deploy passa a cadeia de ligacao do kamba_app}
       KAMBA_PROVISIONAMENTO_IDENTITY_DB_URL: ${KAMBA_PROVISIONAMENTO_IDENTITY_DB_URL:?o deploy passa a cadeia de ligacao do kamba_identity}
@@ -1145,6 +1313,15 @@ services:
       KAMBA_SECRET_PEPPER_CONTACT_HMAC_ANTERIOR: ${KAMBA_SECRET_PEPPER_CONTACT_HMAC_ANTERIOR:-}
       KAMBA_SECRET_KEK_CONTACT_DEK: ${KAMBA_SECRET_KEK_CONTACT_DEK:?o cofre entrega a KEK das DEK de contacto}
       KAMBA_SECRET_KEK_CONTACT_DEK_ANTERIOR: ${KAMBA_SECRET_KEK_CONTACT_DEK_ANTERIOR:-}
+    entrypoint: ["/bin/sh", "/run/kamba/lancador.sh", "/usr/local/bin/docker-entrypoint.sh"]
+    volumes:
+      - *lancador
+      - type: bind
+        source: ${KAMBA_SEGREDOS_DIR:?o deploy escreve os ficheiros de segredos (KAM-260)}/onboarding-provisionamento.env
+        target: /run/kamba/segredos.env
+        read_only: true
+        bind:
+          create_host_path: false
     networks:
       - app
       - data
@@ -1201,10 +1378,22 @@ services:
       POSTGRES_HOST: postgres
       POSTGRES_DATABASE: ${CHATWOOT_DB:-kamba_chatwoot}
       POSTGRES_USERNAME: ${CHATWOOT_DB_USER:?do cofre (KAM-010)}
+      FRONTEND_URL: ${CHATWOOT_FRONTEND_URL:?o FQDN publico do painel}
+    # KAM-260: os segredos vao no ficheiro que o lancador carrega, e nao no
+    # `environment:` (ADR-L002 §1, emenda *proposta*).
+    x-segredos:
       POSTGRES_PASSWORD: ${CHATWOOT_DB_PASSWORD:?do cofre (KAM-010)}
       REDIS_URL: redis://:${KAMBA_SECRET_QUEUE_PASSWORD:?o cofre entrega a credencial da fila}@queue:6379/1
       SECRET_KEY_BASE: ${CHATWOOT_SECRET_KEY_BASE:?do cofre (KAM-010)}
-      FRONTEND_URL: ${CHATWOOT_FRONTEND_URL:?o FQDN publico do painel}
+    entrypoint: ["/bin/sh", "/run/kamba/lancador.sh"]
+    volumes:
+      - *lancador
+      - type: bind
+        source: ${KAMBA_SEGREDOS_DIR:?o deploy escreve os ficheiros de segredos (KAM-260)}/chatwoot.env
+        target: /run/kamba/segredos.env
+        read_only: true
+        bind:
+          create_host_path: false
     command: ["bundle", "exec", "rails", "server", "-b", "0.0.0.0", "-p", "3000"]
     networks:
       - app
@@ -1247,10 +1436,22 @@ services:
       POSTGRES_HOST: postgres
       POSTGRES_DATABASE: ${CHATWOOT_DB:-kamba_chatwoot}
       POSTGRES_USERNAME: ${CHATWOOT_DB_USER:?do cofre (KAM-010)}
+      FRONTEND_URL: ${CHATWOOT_FRONTEND_URL:?o FQDN publico do painel}
+    # KAM-260: os segredos vao no ficheiro que o lancador carrega, e nao no
+    # `environment:` (ADR-L002 §1, emenda *proposta*).
+    x-segredos:
       POSTGRES_PASSWORD: ${CHATWOOT_DB_PASSWORD:?do cofre (KAM-010)}
       REDIS_URL: redis://:${KAMBA_SECRET_QUEUE_PASSWORD:?o cofre entrega a credencial da fila}@queue:6379/1
       SECRET_KEY_BASE: ${CHATWOOT_SECRET_KEY_BASE:?do cofre (KAM-010)}
-      FRONTEND_URL: ${CHATWOOT_FRONTEND_URL:?o FQDN publico do painel}
+    entrypoint: ["/bin/sh", "/run/kamba/lancador.sh"]
+    volumes:
+      - *lancador
+      - type: bind
+        source: ${KAMBA_SEGREDOS_DIR:?o deploy escreve os ficheiros de segredos (KAM-260)}/chatwoot-worker.env
+        target: /run/kamba/segredos.env
+        read_only: true
+        bind:
+          create_host_path: false
     command: ["bundle", "exec", "sidekiq", "-C", "config/sidekiq.yml"]
     networks:
       - app
@@ -1311,6 +1512,13 @@ services:
       - /tmp:size=64m,mode=1777
     volumes:
       - ../../llm/litellm.config.yaml:/etc/litellm/config.yaml:ro
+      - *lancador
+      - type: bind
+        source: ${KAMBA_SEGREDOS_DIR:?o deploy escreve os ficheiros de segredos (KAM-260)}/litellm.env
+        target: /run/kamba/segredos.env
+        read_only: true
+        bind:
+          create_host_path: false
     command:
       - "--config"
       - "/etc/litellm/config.yaml"
@@ -1320,18 +1528,6 @@ services:
       - "1"
     environment:
       <<: *saida
-      # **Os nomes sao os que o `llm/litellm.config.yaml` **gerado** le**, e nao
-      # os do `docker-compose.llm.yml`: aquele ficheiro define
-      # `LITELLM_MASTER_KEY` e `LLM_KEY_P1..P3`, que o config gerado **nao**
-      # procura. Medido a 2026-11-03: com aqueles nomes o proxy recusa arrancar
-      # com `UnsafeMasterKeyError: no master key is set` e fica a 100% de CPU em
-      # ciclo de reinicio. Os quatro nomes certos saem de
-      # `grep -o 'os.environ/[A-Z_]*' llm/litellm.config.yaml` e estao no
-      # runbook `docs/runbooks/rotacao-de-chaves-de-llm.md`.
-      KAMBA_SECRET_LITELLM_MASTER_KEY: ${KAMBA_SECRET_LITELLM_MASTER_KEY:?do cofre (KAM-010)}
-      KAMBA_SECRET_LLM_PROVIDER_KEY__anthropic: ${KAMBA_SECRET_LLM_PROVIDER_KEY__anthropic:?do cofre (KAM-010)}
-      KAMBA_SECRET_LLM_PROVIDER_KEY__openai: ${KAMBA_SECRET_LLM_PROVIDER_KEY__openai:?do cofre (KAM-010)}
-      KAMBA_SECRET_LLM_PROVIDER_KEY__google: ${KAMBA_SECRET_LLM_PROVIDER_KEY__google:?do cofre (KAM-010)}
       # Sem isto o proxy sai para `raw.githubusercontent.com` no arranque, para
       # descarregar o mapa de precos — medido no KAM-030. Aquele FQDN **nao**
       # esta na allowlist do `proxy-saida` e nao vai estar: fecha-se desligando
@@ -1344,7 +1540,23 @@ services:
       DATABASE_HOST: postgres
       DATABASE_NAME: kamba_litellm
       DATABASE_USERNAME: kamba_litellm
+    # KAM-260: os segredos vao no ficheiro que o lancador carrega, e nao no
+    # `environment:` (ADR-L002 §1, emenda *proposta*).
+    x-segredos:
+      # **Os nomes sao os que o `llm/litellm.config.yaml` **gerado** le**, e nao
+      # os do `docker-compose.llm.yml`: aquele ficheiro define
+      # `LITELLM_MASTER_KEY` e `LLM_KEY_P1..P3`, que o config gerado **nao**
+      # procura. Medido a 2026-11-03: com aqueles nomes o proxy recusa arrancar
+      # com `UnsafeMasterKeyError: no master key is set` e fica a 100% de CPU em
+      # ciclo de reinicio. Os quatro nomes certos saem de
+      # `grep -o 'os.environ/[A-Z_]*' llm/litellm.config.yaml` e estao no
+      # runbook `docs/runbooks/rotacao-de-chaves-de-llm.md`.
+      KAMBA_SECRET_LITELLM_MASTER_KEY: ${KAMBA_SECRET_LITELLM_MASTER_KEY:?do cofre (KAM-010)}
+      KAMBA_SECRET_LLM_PROVIDER_KEY__anthropic: ${KAMBA_SECRET_LLM_PROVIDER_KEY__anthropic:?do cofre (KAM-010)}
+      KAMBA_SECRET_LLM_PROVIDER_KEY__openai: ${KAMBA_SECRET_LLM_PROVIDER_KEY__openai:?do cofre (KAM-010)}
+      KAMBA_SECRET_LLM_PROVIDER_KEY__google: ${KAMBA_SECRET_LLM_PROVIDER_KEY__google:?do cofre (KAM-010)}
       DATABASE_PASSWORD: ${KAMBA_SECRET_DB_LITELLM_PASSWORD:?do cofre (KAM-010); o db/bootstrap.py cria o papel com ela}
+    entrypoint: ["/bin/sh", "/run/kamba/lancador.sh", "/app/docker/prod_entrypoint.sh"]
     networks:
       - app
       - data
@@ -1386,10 +1598,14 @@ services:
       - /tmp:size=64m,mode=1777
     environment:
       POSTGRES_USER: ${POSTGRES_USER:?do cofre (KAM-010)}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?do cofre (KAM-010)}
       POSTGRES_DB: ${POSTGRES_DB:-kamba_platform}
       POSTGRES_HOST_AUTH_METHOD: scram-sha-256
       POSTGRES_INITDB_ARGS: "--auth-host=scram-sha-256"
+    # KAM-260: os segredos vao no ficheiro que o lancador carrega, e nao no
+    # `environment:` (ADR-L002 §1, emenda *proposta*).
+    x-segredos:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?do cofre (KAM-010)}
+    entrypoint: ["/bin/sh", "/run/kamba/lancador.sh", "/usr/local/bin/docker-entrypoint.sh"]
     # KAM-225 (decisao do fundador de 2026-11-21, opcao A). O registo do
     # servidor vai para ficheiros `jsonlog` num volume proprio, que o
     # `registo-pg` le so de leitura: e o unico sitio onde se ve a recusa `42501`
@@ -1455,6 +1671,13 @@ services:
       # registo-pg` num volume que ainda nao existe da-lhe o dono da imagem do
       # AGR, e o servidor deixa de conseguir escrever nele.
       - postgres-log:/var/log/postgresql
+      - *lancador
+      - type: bind
+        source: ${KAMBA_SEGREDOS_DIR:?o deploy escreve os ficheiros de segredos (KAM-260)}/postgres.env
+        target: /run/kamba/segredos.env
+        read_only: true
+        bind:
+          create_host_path: false
     # Sem `ports:`, e sem possibilidade de ter: `data` e `internal: true` e o
     # Docker nao publica portas de um contentor ligado so a uma rede interna.
     networks:
@@ -1514,7 +1737,9 @@ services:
         exec /usr/local/bin/docker-entrypoint.sh - --appendonly yes --appendfsync everysec --dir /data --save "" --maxmemory 600mb --maxmemory-policy noeviction <<FIM
         requirepass "$${KAMBA_SECRET_QUEUE_PASSWORD}"
         FIM
-    environment:
+    # KAM-260: os segredos vao no ficheiro que o lancador carrega, e nao no
+    # `environment:` (ADR-L002 §1, emenda *proposta*).
+    x-segredos:
       # Do cofre (ADR-L002), e o mesmo valor que os clientes levam no URL. A
       # forma e hexadecimal (`ops/secrets-inventory.yaml`, `queue_password`):
       # vai dentro de um URL e de uma linha de configuracao entre aspas, e nenhum
@@ -1523,15 +1748,30 @@ services:
       # A sonda: o `valkey-cli` e o `redis-cli` leem a credencial desta variavel,
       # e nao de um argumento (que, outra vez, ficava no `cmdline`).
       REDISCLI_AUTH: ${KAMBA_SECRET_QUEUE_PASSWORD:?o cofre entrega a credencial da fila}
+    # O `entrypoint` da imagem do Valkey e `tini -- docker-entrypoint.sh`, e o do
+    # Redis (a alternativa da D12) nao tem `tini`. O lancador passa a ser o
+    # `entrypoint` e o `init: true` poe o `tini` do Docker como PID 1 com as duas
+    # imagens: trocar continua a ser mudar duas variaveis (KAM-260).
+    init: true
+    entrypoint: ["/bin/sh", "/run/kamba/lancador.sh", "/usr/local/bin/docker-entrypoint.sh"]
     volumes:
       - queue-data:/data
+      - *lancador
+      - type: bind
+        source: ${KAMBA_SEGREDOS_DIR:?o deploy escreve os ficheiros de segredos (KAM-260)}/queue.env
+        target: /run/kamba/segredos.env
+        read_only: true
+        bind:
+          create_host_path: false
     networks:
       - data
     mem_limit: 768m
     memswap_limit: 768m
     cpus: 1.0
     healthcheck:
-      test: ["CMD-SHELL", "${KAMBA_QUEUE_CLI:-valkey-cli} ping | grep -q PONG"]
+      # A sonda corre por `docker exec`, que nao herda o ambiente do PID 1: a
+      # credencial da fila (`REDISCLI_AUTH`) chega-lhe pelo mesmo lancador.
+      test: ["CMD-SHELL", "/bin/sh /run/kamba/lancador.sh ${KAMBA_QUEUE_CLI:-valkey-cli} ping | grep -q PONG"]
       interval: 10s
       timeout: 5s
       retries: 20
@@ -1584,13 +1824,23 @@ services:
       - "-s3.ip.bind=0.0.0.0"
       - "-s3.port.iceberg=0"
       - "-s3.port.lance=0"
-    environment:
+    # KAM-260: os segredos vao no ficheiro que o lancador carrega, e nao no
+    # `environment:` (ADR-L002 §1, emenda *proposta*).
+    x-segredos:
       # O mesmo par com que o `StorageProvider` assina (ADR-L002): o servidor
       # passa a ser o outro lado da assinatura.
       AWS_ACCESS_KEY_ID: ${KAMBA_SECRET_STORAGE_ACCESS_KEY_ID:?o cofre entrega a chave de acesso do armazenamento}
       AWS_SECRET_ACCESS_KEY: ${KAMBA_SECRET_STORAGE_SECRET_ACCESS_KEY:?o cofre entrega o segredo do armazenamento}
+    entrypoint: ["/bin/sh", "/run/kamba/lancador.sh", "/entrypoint.sh"]
     volumes:
       - seaweedfs-data:/data
+      - *lancador
+      - type: bind
+        source: ${KAMBA_SEGREDOS_DIR:?o deploy escreve os ficheiros de segredos (KAM-260)}/seaweedfs.env
+        target: /run/kamba/segredos.env
+        read_only: true
+        bind:
+          create_host_path: false
     networks:
       - data
     mem_limit: 1024m
