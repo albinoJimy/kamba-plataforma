@@ -4,7 +4,7 @@
 |---|---|
 | Produto | KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para Angola |
 | Documento | Epic — Segurança e Conformidade |
-| Versão | 1.68 |
+| Versão | 1.69 |
 | Data | Outubro de 2026 |
 | Classificação | Documento de Referência — Interno |
 | Documento-fonte | `../docs/tecnica/08_Seguranca_Conformidade.md` |
@@ -52,7 +52,7 @@ Concretiza os ADRs **ADR-015** (isolamento), **ADR-008** (residência e transfer
 | KAM-071 | Retenção e purga por classe de dados | feature | M | P1 | KAM-026, KAM-011, KAM-020, KAM-070 |
 | KAM-072 | Rotação de chaves Meta, facilitador e HMAC | feature | M | P1 | KAM-010, KAM-013, KAM-056, KAM-008 |
 | KAM-073 | Red-team do AGR: injecção directa e indirecta, exfiltração | chore | M | P0 | KAM-033 |
-| KAM-074 | Revisão de segurança independente pré-Piloto | chore | M | P0 | KAM-066, KAM-073, KAM-065, KAM-259, KAM-260 |
+| KAM-074 | Revisão de segurança independente pré-Piloto | chore | M | P0 | KAM-066, KAM-073, KAM-065, KAM-259, KAM-260, KAM-261, KAM-262 |
 | KAM-112 | Minimização de PII antes do LLM | feature | M | P0 | KAM-030, KAM-008, KAM-068 |
 | KAM-113 | Resposta a incidentes e notificação de violação de dados | chore | S | P0 | KAM-065, KAM-068 |
 | KAM-149 | `docs/seguranca/validar.py` aborta com a contagem do canon fixada | fix | S | P1 | KAM-065 |
@@ -1685,7 +1685,7 @@ Uma revisão, por um subagente que não viu o raciocínio do autor, sobre `5e6a3
 | Tipo | chore |
 | Prioridade | P0 |
 | Estimativa | M |
-| Dependências | KAM-066, KAM-073, KAM-065, KAM-259, KAM-260 |
+| Dependências | KAM-066, KAM-073, KAM-065, KAM-259, KAM-260, KAM-261, KAM-262 |
 | Bloqueia | KAM-109, KAM-110 |
 | Responsável sugerido | Responsável de Segurança |
 | Documentos de referência | `../docs/tecnica/08_Seguranca_Conformidade.md` (§3, §4, §8.5 requisito 11, §10, §15), `../docs/tecnica/evidencia/E3_Regulatorio_Dados.md` (requisito 11), `../docs/tecnica/evidencia/E4_Stack_Licencas.md` (§5), `specs/01_Engineering_Standards_e_Handoff.md` (§3) |
@@ -2092,7 +2092,7 @@ O `../docs/seguranca/validar.py` é a **única verificação por máquina** dos 
 assert len(KAM) == 138 and len(ADR) == 20 and len(DEC) == 13, (len(KAM), len(ADR), len(DEC))
 ```
 
-O *backlog* tem 260 tickets, pelo que, da raiz do repositório, o `assert` aborta. A saída abaixo foi capturada quando ele ainda batia com a contagem da época — o primeiro elemento do tuplo **é** a contagem viva, pelo que cresce a cada entrada nova, e é por isso que o defeito é estrutural e não uma gralha:
+O *backlog* tem 262 tickets, pelo que, da raiz do repositório, o `assert` aborta. A saída abaixo foi capturada quando ele ainda batia com a contagem da época — o primeiro elemento do tuplo **é** a contagem viva, pelo que cresce a cada entrada nova, e é por isso que o defeito é estrutural e não uma gralha:
 
 ```text
 AssertionError: (143, 20, 13)
@@ -2559,3 +2559,4 @@ Testes: unitários, integração contra a base, privacidade.
 | 1.66 | Novembro 2026 | KAM-251 (EPIC-11), aberto no PR do KAM-241: a contagem viva do backlog na nota do `assert` passa a **251** (escrito como KAM-249 e renumerado na integração, depois do KAM-247, que trouxe o 249 e o 250). Nenhuma caixa deste epic muda. Número provisório: renumera-se na integração. | Equipa KAMBÁ |
 | 1.67 | Novembro 2026 | KAM-074, preparação sem o mundo real (lote 24): secção «Preparação (sem o mundo real)» no bloco e o pacote do revisor em `docs/seguranca/revisao_independente/` (âmbito, formato do relatório, do re-teste e da decisão, procedimento dos achados aos tickets `fix`). Nenhuma caixa muda e o ticket continua aberto. | Coordenação do lote 24 |
 | 1.68 | Novembro 2026 | **KAM-259 e KAM-260** (EPIC-08), credores do KAM-074, abertos por decisão da coordenação do lote 24 a 2026-11-25 (reversível): as `Dependências` do KAM-074 ganham os dois, aqui e no §4 do INDICE, e a contagem viva do backlog na nota do `assert` passa a **260**. Nenhuma caixa muda. Números provisórios: renumeram-se na integração. | Coordenação do lote 24 |
+| 1.69 | Novembro 2026 | **KAM-261 e KAM-262** (EPIC-08), credores do KAM-074, abertos pela coordenação do lote 25 pela decisão do fundador de 2026-11-27: as `Dependências` do KAM-074 ganham os dois, aqui e no §4 do INDICE, e a contagem viva do backlog na nota do `assert` passa a **262**. Nenhuma caixa muda. Números provisórios: renumeram-se na integração. | Coordenação do lote 25 |

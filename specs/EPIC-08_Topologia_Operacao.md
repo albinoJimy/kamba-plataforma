@@ -4,7 +4,7 @@
 |---|---|
 | Produto | KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para Angola |
 | Documento | Epic — Topologia e Operação |
-| Versão | 1.40 |
+| Versão | 1.41 |
 | Data | Novembro de 2026 |
 | Classificação | Documento de Referência — Interno |
 | Documento-fonte | `../docs/tecnica/09_Topologia_Operacao_Escala.md` |
@@ -58,6 +58,8 @@ O epic concretiza **ADR-008** (alojamento, *backups*, CDN e observabilidade são
 | KAM-257 | O gRPC do S3 do `seaweedfs` sem credencial: a 18333 reabre o S3 ao anónimo, fechada por mTLS ou pela D6 | fix | M | P2 | KAM-249 |
 | KAM-259 | O caminho de abertura do *break-glass* escreve `breakglass.open` no `audit_log`, em `staging` e `prod` | feature | M | P0 | KAM-012, KAM-075, KAM-080 |
 | KAM-260 | O `docker inspect` dos serviços de `prod` ensaiado: o que ele mostra do ambiente, e a correcção do que o ensaio apanhar | feature | M | P0 | KAM-010, KAM-076 |
+| KAM-261 | O portão do *break-glass* liga a identidade de cada registo à sessão do `sshd` que o invocou, verificado num *host* | feature | S | P0 | KAM-259, KAM-077 |
+| KAM-262 | O que uma sessão de *break-glass* pode fazer além da *shell*: opções para o fundador decidir antes da revisão independente | spike | S | P0 | KAM-259 |
 
 ---
 
@@ -293,7 +295,7 @@ estão em [`../docs/evidencia/KAM-076.md`](../docs/evidencia/KAM-076.md).
 | Prioridade | P0 |
 | Estimativa | M |
 | Dependências | KAM-075, ext:KAM-105 |
-| Bloqueia | KAM-188 |
+| Bloqueia | KAM-188, KAM-261 |
 | Responsável sugerido | Plataforma/SRE (com Responsável de Segurança) |
 | Documentos de referência | `../docs/tecnica/09_Topologia_Operacao_Escala.md` (§3.2, §5), `../docs/tecnica/08_Seguranca_Conformidade.md` (§8.3, §13 N1/N2, §15), `../docs/tecnica/evidencia/E3_Regulatorio_Dados.md` (§2, §7), `../docs/tecnica/evidencia/E1_Meta_WhatsApp.md` (§5), ADR-008, D1, D12 |
 
@@ -2263,7 +2265,7 @@ Testes: o PutIdentity antes e depois, o S3 assinado, e o canário da regra nova.
 | Prioridade | P0 |
 | Estimativa | M |
 | Dependências | KAM-012, KAM-075, KAM-080 |
-| Bloqueia | KAM-074 |
+| Bloqueia | KAM-074, KAM-261, KAM-262 |
 | Responsável sugerido | Plataforma/SRE |
 | Documentos de referência | `../infra/ENVIRONMENTS.md` (§2, linha «Acesso»), `../infra/envs/prod/env.yaml`, `../infra/envs/staging/env.yaml`, `../infra/modules/host-base/cloud-init.yaml.tftpl`, `../db/migrations/versions/0006_audit_log.py`, `../docs/seguranca/revisao_independente/escopo.md` (§4) |
 
@@ -2452,6 +2454,129 @@ Testes: o ensaio e o canário que prova que ele morde.
 
 ---
 
+## KAM-261 — O portão do *break-glass* liga a identidade de cada registo à sessão do `sshd` que o invocou, verificado num *host*
+
+| Campo | Valor |
+|---|---|
+| Epic | EPIC-08 — Topologia e Operação |
+| Fase | 1 |
+| Tipo | feature |
+| Prioridade | P0 |
+| Estimativa | S |
+| Dependências | KAM-259, KAM-077 |
+| Bloqueia | KAM-074 |
+| Responsável sugerido | Plataforma/SRE (com Responsável de Segurança) |
+| Documentos de referência | `../infra/modules/host-base/kamba_breakglass.py`, `../infra/modules/host-base/cloud-init.yaml.tftpl`, `../infra/ENVIRONMENTS.md` (§2.0), o bloco do KAM-259, `../docs/seguranca/revisao_independente/escopo.md` (§4, §6) |
+
+### Contexto
+
+Credor do KAM-074, aberto pela coordenação do lote 25 a 2026-11-27, pela decisão do fundador da mesma data sobre a revisão adversarial do KAM-259. Corresponde à L-35 do espelho privado.
+
+O KAM-259 pôs o acesso de excepção a passar por um portão que escreve `breakglass.open` e `breakglass.close` no `audit_log`, com a impressão digital da chave autenticada. Este ticket endurece o portão, para que a identidade registada seja sempre a da sessão do `sshd` que o invocou. Verifica-o também num *host* real, que o KAM-259 não tinha.
+
+### Objectivo
+
+A impressão digital de cada par `breakglass.open`/`breakglass.close` tem de ser a da autenticação da sessão do `sshd` que invocou o portão. O portão recusa qualquer outra origem, e isso fica provado num *host* de `staging`.
+
+### Critérios de Aceitação
+
+- [ ] Antes de escrever, o portão confirma que a identidade a registar vem da autenticação da sessão do `sshd` que o invocou. Se não o conseguir confirmar, sai sem escrever e sem *shell* (falha fechada).
+- [ ] Um ensaio no *host* de `staging` (KAM-077) prova a falha fechada para cada origem que o portão não aceita. O mesmo ensaio prova que a abertura normal continua a escrever as duas linhas.
+- [ ] Fica escrito no bloco o que a confirmação lê do sistema, com o comando que o mediu no *host*. O que não se medir fica NÃO VERIFICADO, e a caixa fica por marcar.
+- [ ] As duas linhas do revisor do KAM-074 continuam a mostrar-se com o comando do `../docs/seguranca/revisao_independente/escopo.md` §4.
+- [ ] Nenhum segredo, chave ou endereço de máquina em ficheiro versionado.
+
+### Detalhes Técnicos
+
+- **Componentes:** o portão e o `cloud-init` do `host-base`.
+- **Esquema:** nenhum.
+- **Fora do âmbito:** o que a sessão pode fazer além da *shell* sem privilégios (KAM-262).
+
+### Testes Requeridos
+
+- O portão com cada origem recusada, num ensaio local que não precisa de *host*.
+- O mesmo, e a abertura normal, num *host* de `staging`.
+
+### Definition of Done
+
+- [ ] Critérios satisfeitos, com o comando de cada medição registado.
+- [ ] O OpenTofu renderiza `staging` e `prod`, e o programa embutido é igual byte a byte ao versionado.
+
+### Handoff para Claude Code
+
+```text
+És o executor do ticket KAM-261 da KAMBÁ (o portão do break-glass endurecido e verificado num host).
+Lê specs/EPIC-08_Topologia_Operacao.md (blocos KAM-259 e KAM-261), infra/ENVIRONMENTS.md §2.0 e infra/modules/host-base/.
+Objectivo: a identidade de cada registo de break-glass vem só da sessão do sshd que invocou o portão; falha fechada no resto.
+Regras: sem esquema novo; o que não se medir num host fica NÃO VERIFICADO; o texto público não descreve como contornar o portão.
+Testes: as origens recusadas, localmente e num host de staging.
+```
+
+---
+
+## KAM-262 — O que uma sessão de *break-glass* pode fazer além da *shell*: opções para o fundador decidir antes da revisão independente
+
+| Campo | Valor |
+|---|---|
+| Epic | EPIC-08 — Topologia e Operação |
+| Fase | 1 |
+| Tipo | spike |
+| Prioridade | P0 |
+| Estimativa | S |
+| Dependências | KAM-259 |
+| Bloqueia | KAM-074 |
+| Responsável sugerido | Responsável de Segurança (decisão do fundador) |
+| Documentos de referência | o bloco do KAM-259, `../infra/ENVIRONMENTS.md` (§2.0), `../docs/seguranca/revisao_independente/escopo.md` (§3, área 6 e ensaio A5; §6), `../docs/tecnica/08_Seguranca_Conformidade.md` (§3.3) |
+
+### Contexto
+
+Credor do KAM-074, aberto pela coordenação do lote 25 a 2026-11-27, pela decisão do fundador da mesma data: um ticket para desenhar já. Desenha e não implementa.
+
+O KAM-259 abre uma *shell* sem privilégios na conta `breakglass`. Não está decidido se a sessão pode, além disso, usar o `sudo`, o `docker` ou outra via para agir sobre os serviços do *host*. O revisor do KAM-074 precisa dessa resposta para a área 6.
+
+### Objectivo
+
+Levar ao fundador as opções, com prós e contras, para que decida antes de o revisor começar.
+
+### Critérios de Aceitação
+
+- [ ] Ficam escritas pelo menos três opções, uma delas manter só a *shell* sem privilégios. Para cada uma:
+  - o que a sessão passa a poder fazer;
+  - o que fica registado no `audit_log` e o que não fica;
+  - o risco que acrescenta;
+  - o custo de implementação;
+  - o que o revisor testa na área 6.
+- [ ] A recomendação da coordenação vem marcada como recomendação, com as perguntas que só o fundador responde. O executor não escolhe nenhuma opção.
+- [ ] A decisão do fundador fica registada na secção «Decisões do fundador» deste bloco, com data e autor.
+- [ ] Se a decisão pedir implementação, o credor abre-se como ticket, com dependências e arestas no KAM-074. Se não pedir, o `escopo.md` §6 diz o que ficou decidido.
+- [ ] Nenhum texto público descreve como contornar o portão ou o `audit_log`.
+
+### Detalhes Técnicos
+
+- **Componentes:** nenhum de software. O artefacto é o texto das opções, neste bloco ou num documento de `../docs/seguranca/` que este bloco aponte.
+- **Fora do âmbito:** a implementação da opção escolhida, e o endurecimento do portão (KAM-261).
+
+### Testes Requeridos
+
+- Nenhum ensaio de código. A verificação é ler cada opção contra o `../infra/ENVIRONMENTS.md` §2.0 e o `../docs/tecnica/08` §3.3.
+
+### Definition of Done
+
+- [ ] Critérios satisfeitos, com a decisão do fundador registada.
+- [ ] O pacote do revisor (`../docs/seguranca/revisao_independente/escopo.md`) aponta a decisão.
+
+### Handoff para Claude Code
+
+```text
+És o executor do ticket KAM-262 da KAMBÁ (o que uma sessão de break-glass pode fazer além da shell).
+Lê specs/EPIC-08_Topologia_Operacao.md (blocos KAM-259 e KAM-262), infra/ENVIRONMENTS.md §2.0 e docs/seguranca/revisao_independente/escopo.md.
+Objectivo: opções com prós e contras para o fundador decidir; este ticket desenha e não implementa.
+Regras: não escolhes; a decisão é do fundador e chega pela coordenação; nada público descreve como contornar o portão.
+Testes: nenhum de código.
+```
+
+---
+
 ## Riscos do Epic e itens NÃO VERIFICADOS
 
 | Risco / item | Estado | Decisão | Tratamento no epic |
@@ -2532,3 +2657,4 @@ Testes: o ensaio e o canário que prova que ele morde.
 | 1.38 | Novembro 2026 | **KAM-077, preparação sem o mundo real (lote 24)**, e o ticket **não fecha**: secção «Preparação (sem o mundo real)» no bloco, nenhuma caixa marcada. Entregues a sonda de RTT e o relatório que recusa sair sem 24 h medidas (`../tools/borda/`), as regras `nftables` do `host-base` (classe 3 de `../infra/PORTABILIDADE.md`), o índice `../provas/alojamento/README.md`, os candidatos da D1 em `../infra/modules/README.md` e o registo da metade CDN/WAF da **D12** com a opção (b) como **proposta** sem dono nem data. **E um defeito da borda corrigido:** o Caddyfile encaminhava `/webhooks/*` e o GWY serve `/wa/webhook` — o GET de verificação dava 404, medido. Número **provisório**: renumera-se na integração. | Equipa KAMBÁ |
 | 1.39 | Novembro 2026 | **KAM-260 entregue.** O ensaio do `docker inspect` dos serviços de `prod` (`compose_prod inspeccao`, com canário e prova de entrega, no gate 6 pelo alvo `compose-prod-inspeccao`), e o endurecimento que o deixa verde: os segredos de `prod` passam do `environment:` para um ficheiro por serviço, montado só de leitura e carregado pelo `lancador.sh` (decisão do fundador de 2026-11-27, opção B, com emenda *proposta* ao `ADR-L002` §1 e §3 no §8 dele). Sete caixas, sete marcadas. | Equipa KAMBÁ |
 | 1.40 | Novembro 2026 | **KAM-259 entregue.** O acesso de excepção a um *host* de `staging` e de `prod` entra pela conta `breakglass` do `host-base`, cujo portão escreve `breakglass.open` no `audit_log` antes de abrir a *shell* e `breakglass.close` quando ela fecha; revisão `0093` com o fecho, o papel `kamba_breakglass` e a porta `breakglass_registar`, pela decisão do fundador de 2026-11-25 (opção A, registada no bloco). As sete caixas marcadas com evidência; o que só um *host* mede fica dito na verificação. | Equipa KAMBÁ |
+| 1.41 | Novembro 2026 | **KAM-261 e KAM-262** acrescentados, credores do KAM-074, abertos pela coordenação do lote 25 pela decisão do fundador de 2026-11-27 sobre a revisão adversarial do KAM-259. O primeiro endurece o portão do *break-glass* e verifica-o num *host*. O segundo desenha, para o fundador decidir, o que a sessão pode fazer além da *shell*. O `Bloqueia` do KAM-259 e do KAM-077 ganha as arestas recíprocas. Nenhuma caixa muda. Números provisórios: renumeram-se na integração. | Coordenação do lote 25 |
