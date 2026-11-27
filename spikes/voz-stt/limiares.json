@@ -1,0 +1,19 @@
+{
+  "registado_em": "2026-11-25",
+  "origem": "specs/EPIC-10_Spikes_Validacao_Gates.md, bloco KAM-107, critério 4; os quatro limiares estão no bloco desde a versão 1.0 (Outubro de 2026), como proposta",
+  "estado": "proposta",
+  "regras_normalizacao": "1",
+  "wer_global_max": "0.20",
+  "precisao_numerica_min": "0.95",
+  "latencia_p95_max_s": "3",
+  "confianca": {
+    "assinala_min": "0.70",
+    "wer_alto": "0.40",
+    "limiar": {
+      "groq": null,
+      "openai": null
+    },
+    "registado_em": null,
+    "nota": "O bloco não fixa abaixo de que valor a confiança 'assinala' um enunciado. Fixa-o o dono do spike, por fornecedor, ANTES da primeira medição, com a data em registado_em; sem ele o relatorio.py escreve 'por calcular' e não inventa um."
+  }
+}
