@@ -293,7 +293,7 @@ class TestSoAPortaMudaOPapel(ComDono):
         tenant = factories.tenant(self.cur)
         contacto = factories.contacto(self.cur, tenant)
         for papel in ("kamba_app", "kamba_agr", "kamba_batch", "kamba_resolver",
-                      "kamba_audit", "kamba_pay", "kamba_pay_hooks"):
+                      "kamba_audit", "kamba_pay", "kamba_pay_hooks", "kamba_breakglass"):
             with self.subTest(papel=papel):
                 self.recusa(PRIVILEGIO_INSUFICIENTE, tenant, contacto, papel=papel)
         self.assertEqual(self.donos(tenant), [])

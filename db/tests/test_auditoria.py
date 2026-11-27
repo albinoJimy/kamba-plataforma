@@ -126,6 +126,11 @@ ACCOES = (
     # 2026-11-21 e 2026-11-22), com o `contact_id` e nunca o telefone. A mesma
     # recusa no `downgrade` se houver linhas.
     "privacy.telefones_exportados",
+    # A vigesima segunda, da revisao `0093` (KAM-259): o fecho de uma sessao de
+    # acesso de excepcao a um host, par do `breakglass.open`. Escrita na cadeia
+    # de plataforma pela porta `breakglass_registar`, so pelo
+    # `kamba_breakglass`. A mesma recusa no `downgrade` se houver linhas.
+    "breakglass.close",
 )
 
 #: O dominio de `actor_type`.

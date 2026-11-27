@@ -54,6 +54,10 @@ O que cada papel pode, e a razao:
                     `order.refund_requested` e abre a `refund_cases` pela
                     porta `abrir_caso_de_reembolso`, de que e o unico com
                     `EXECUTE`. Nao contorna a RLS.
+    kamba_breakglass CONNECT. O portao do acesso de excepcao a um host
+                    (revisao 0093, KAM-259): `USAGE` no `platform` e `EXECUTE`
+                    na `breakglass_registar`, e nenhum privilegio de tabela.
+                    Nao contorna a RLS.
 
 Nenhum e superutilizador, nenhum cria bases nem papeis.
 
@@ -126,6 +130,12 @@ ATRIBUTOS = {
     # consumo trabalha um tenant de cada vez, com o `app.tenant_id` do
     # envelope. O que pode e concedido pela revisao `0051`.
     "kamba_pay": "LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS",
+    # O papel do portao do acesso de excepcao a um host (KAM-259, decisao do
+    # fundador de 2026-11-25, opcao A). Existe porque o `docs/tecnica/08` §3.3,
+    # regra (5), tira o `kamba_batch` do acesso humano a producao: a credencial
+    # que o portao le no host so pode escrever linhas de *break-glass*. O que
+    # pode e concedido pela revisao `0093`.
+    "kamba_breakglass": "LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS",
 }
 
 

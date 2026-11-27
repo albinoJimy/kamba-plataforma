@@ -13,5 +13,11 @@ locals {
     etiqueta_do_disco_nvme          = var.etiqueta_do_disco_nvme
     porta_wireguard                 = var.porta_wireguard
     referencia_do_segredo_wireguard = var.referencia_do_segredo_wireguard
+    # KAM-259: o acesso de excepcao auditado.
+    chaves_ssh_de_breakglass         = var.chaves_ssh_de_breakglass
+    referencia_do_segredo_breakglass = var.referencia_do_segredo_breakglass
+    programa_breakglass_b64          = filebase64("${path.module}/kamba_breakglass.py")
+    contentor_da_base                = coalesce(var.contentor_da_base, "kamba-${var.ambiente}-postgres-1")
+    base_da_plataforma               = var.base_da_plataforma
   })
 }

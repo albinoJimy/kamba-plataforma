@@ -93,3 +93,46 @@ variable "referencia_do_segredo_wireguard" {
   EOT
   type        = string
 }
+
+# --- KAM-259: o acesso de excepcao auditado ----------------------------------
+
+variable "chaves_ssh_de_breakglass" {
+  description = <<-EOT
+    Chaves PUBLICAS de quem pode pedir o acesso de excepcao pela conta
+    `breakglass`. Cada sessao dessas chaves passa pelo portao, que escreve
+    `breakglass.open` no `audit_log` antes de abrir a *shell* (KAM-259).
+
+    Vazia por omissao, como a de administracao: nao ha host. As chaves ficam
+    num ficheiro de root (`/etc/ssh/kamba-breakglass/authorized_keys`), e nao
+    na casa da conta. A correspondencia entre uma chave e uma pessoa vive fora
+    do repositorio; no `audit_log` o actor e a impressao digital da chave.
+  EOT
+  type        = list(string)
+  default     = []
+}
+
+variable "referencia_do_segredo_breakglass" {
+  description = <<-EOT
+    A REFERENCIA da palavra-passe do papel `kamba_breakglass`, nunca o valor,
+    na forma `<projecto_de_segredos>/DB_BREAKGLASS_PASSWORD` (o `id` e
+    `db_breakglass_password` no inventario do KAM-010). O `tools/env_lint`
+    verifica o projecto, como no WireGuard.
+  EOT
+  type        = string
+}
+
+variable "contentor_da_base" {
+  description = <<-EOT
+    O contentor do PostgreSQL onde o auxiliar do portao corre o `psql`. Por
+    omissao, o nome que o Compose da ao servico `postgres` do projecto
+    `kamba-<ambiente>` (`infra/compose/docker-compose.<ambiente>.yml`).
+  EOT
+  type        = string
+  default     = null
+}
+
+variable "base_da_plataforma" {
+  description = "A base da plataforma (a omissao do `POSTGRES_DB` do compose)."
+  type        = string
+  default     = "kamba_platform"
+}

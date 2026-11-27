@@ -548,6 +548,11 @@ class TestCatalogoReal(ComBase):
                 # KAM-223: a mensagem que entra no AGR, uma politica so.
                 ("agent_messages", "tenant_iso", "ALL", "{public}"),
                 ("agent_replies", "tenant_iso", "ALL", "{public}"),
+                # KAM-259: a do portao do acesso de excepcao, so de `INSERT`,
+                # so para o dono das tabelas, so para as duas accoes de
+                # *break-glass* sem tenant e so com a variavel que a porta
+                # `SECURITY DEFINER` da `0093` liga («b» < «t»).
+                ("audit_log", "breakglass_registo", "INSERT", "{kamba_migrator}"),
                 ("audit_log", "tenant_iso", "ALL", "{public}"),
                 # KAM-017: o estado de coexistencia, antes da de onboarding
                 # («channel_c» < «channel_o»).
@@ -1583,6 +1588,14 @@ class TestFicheirosDePolitica(unittest.TestCase):
     #: KAM-236: devolve so o caso e o tenant, e o `EXECUTE` e so do `kamba_app`.
     #: `../tests/test_guia_na_base_schema.py` mede as colunas e o `42501`.
     GUIA_NA_ALLOWLIST = "platform.guia_caso_por_phone_number_id(p_phone_number_id text)"
+    #: A porta do portao do acesso de excepcao a um host (KAM-259, decisao do
+    #: fundador de 2026-11-25, opcao A). So as duas accoes de *break-glass*, so
+    #: na cadeia de plataforma, e o `EXECUTE` e so do `kamba_breakglass`.
+    #: `../tests/test_breakglass.py` mede a recusa das outras e o `42501`.
+    BREAKGLASS_NA_ALLOWLIST = (
+        "platform.breakglass_registar("
+        "p_accao text, p_actor text, p_host text, p_payload_hash bytea)"
+    )
 
     def test_os_ficheiros_reais_leem_se_e_tem_o_que_esta_declarado(self) -> None:
         """Os dois nasceram vazios e deixaram de o estar no KAM-012.
@@ -1632,7 +1645,8 @@ class TestFicheirosDePolitica(unittest.TestCase):
             | set(self.MANUAIS_NA_ALLOWLIST)
             | set(self.REGISTO_NA_ALLOWLIST)
             | set(self.CORRELACAO_NA_ALLOWLIST)
-            | {self.GUIA_NA_ALLOWLIST},
+            | {self.GUIA_NA_ALLOWLIST}
+            | {self.BREAKGLASS_NA_ALLOWLIST},
         )
 
 

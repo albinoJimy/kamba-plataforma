@@ -87,12 +87,20 @@ Responsável de Segurança fixa os que o revisor recebe.
 | A5 | Uma *shell* num contentor sem privilégios, a simular o compromisso de um serviço | 6, E6 | só se o Responsável de Segurança a aprovar; os segredos de `staging` rodam-se no fim (*proposta*, [`decisao.md`](decisao.md) §5) |
 
 **Prazo e registo.** O acesso abre numa data e fecha noutra, as duas escritas em
-[`relatorio.md`](relatorio.md) §2. O bloco pede o registo no `audit_log`, e a matriz de
-ambientes não o prevê para `staging`: o
-[`../../../infra/envs/staging/env.yaml`](../../../infra/envs/staging/env.yaml) tem
-`acesso.modo: equipa`, e o modo auditado é o de `prod`
-([`../../../infra/ENVIRONMENTS.md`](../../../infra/ENVIRONMENTS.md) §2). É pré-condição em §6, e o
-KAM-259 é o credor.
+[`relatorio.md`](relatorio.md) §2. O acesso do revisor a um *host* de `staging` entra pela conta
+`breakglass` do *host*, como qualquer acesso de excepção em `staging` e em `prod`
+([`../../../infra/ENVIRONMENTS.md`](../../../infra/ENVIRONMENTS.md) §2.0, KAM-259): cada sessão
+pede um prazo de no máximo sete dias e uma razão, escreve `breakglass.open` no `audit_log` antes
+de a *shell* abrir e `breakglass.close` quando ela fecha, e responde com o identificador da
+sessão, que fica no [`relatorio.md`](relatorio.md) §2 com as datas. As duas linhas do revisor
+mostram-se com a impressão digital da chave dele:
+
+```
+python db/auditoria.py breakglass --actor 'SHA256:<impressão da chave do revisor>'
+```
+
+O comando lê com o `kamba_batch`, que é quem vê as linhas sem tenant; o `acesso.modo` de
+`staging` continua `equipa`, que é o acesso da equipa.
 
 **Dados em `staging`.** Só sintéticos (`dados.classe: synthetic`). A matriz de ambientes prevê
 números reais em `staging` durante o *spike* de coexistência, e regista a tensão sem a resolver
@@ -118,7 +126,7 @@ Tudo isto é mundo real, e nada está feito.
 |---|---|---|
 | `staging` alojado e a correr as imagens de `prod` | não existe: há a definição em [`../../../infra/compose/docker-compose.staging.yml`](../../../infra/compose/docker-compose.staging.yml), não há máquina | KAM-077 |
 | Revisor independente, ou o risco aceite da substituição | não existe | [`relatorio.md`](relatorio.md) §2 e [`decisao.md`](decisao.md) §3 |
-| Registo no `audit_log` do acesso do revisor a `staging` | não previsto na matriz de ambientes (§4) | KAM-259 |
+| Registo no `audit_log` do acesso do revisor a `staging` | o caminho existe e está ensaiado contra PostgreSQL (§4); falta o *host*, e a chave do revisor na lista `chaves_ssh_de_breakglass` de `staging` | KAM-259, KAM-077 |
 | Matriz, STRIDE e riscos residuais entregues ao revisor fora do repositório público | não feito | o fundador |
 | Medusa no *compose* (área 9) | pendente | KAM-042 |
 
@@ -144,3 +152,4 @@ Tudo isto é mundo real, e nada está feito.
 |---|---|---|---|
 | 0.1 | 2026-11-25 | Pacote preparado sem o mundo real (KAM-074, lote 24): regras, as catorze áreas com a evidência automatizada e o que os blocos donos declaram por medir, entradas, acesso mínimo sem credenciais, fora do âmbito e pré-condições. Nada acordado com um revisor. | Coordenação do lote 24 |
 | 0.2 | 2026-11-25 | Os credores do KAM-074 abertos pela coordenação do lote 24: o KAM-259 para o registo do acesso (§4 e §6) e o KAM-260 na área 6. | Coordenação do lote 24 |
+| 0.3 | 2026-11-27 | KAM-259: o acesso do revisor a `staging` entra pela conta `breakglass` e fica no `audit_log`, com o comando que mostra as duas linhas dele (§4); a pré-condição do §6 passa a depender só do *host*. | Equipa KAMBÁ |

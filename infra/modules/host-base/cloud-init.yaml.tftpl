@@ -6,11 +6,14 @@
 # conta, nao houve fornecedor, nao houve `apply` — ver `infra/README.md` §5. O
 # que esta aqui e o procedimento escrito, nao uma medicao.
 #
-# As quatro coisas que o criterio 2 nomeia, e nada mais:
+# As quatro coisas que o criterio 2 nomeia:
 #   1. Docker                     -> `packages` + `runcmd`
 #   2. Utilizador nao-root        -> `users`
 #   3. WireGuard                  -> `packages` + `write_files` + `runcmd`
 #   4. Disco NVMe                 -> `mounts` + `runcmd`
+#
+# E uma quinta, do KAM-259: a conta `breakglass`, o acesso de excepcao
+# auditado -> `users` + `write_files` + `runcmd`.
 #
 # NENHUM SEGREDO AQUI, e isso e verificado: o gate 9 varre a arvore versionada.
 # A chave privada do WireGuard entra do cofre no arranque, pela referencia
@@ -74,6 +77,27 @@ users:
 %{ for chave in chaves_ssh_de_administracao ~}
       - ${chave}
 %{ endfor ~}
+  # --- 5. Acesso de excepcao auditado (KAM-259) -----------------------------
+  #
+  # Decisao do fundador de 2026-11-25, opcao A. Quem entra aqui nao recebe uma
+  # *shell*: recebe o portao `kamba-breakglass`, que e a *shell* de login da
+  # conta e o `ForceCommand` do `sshd` (em `write_files`). O portao escreve
+  # `breakglass.open` no `audit_log` e so depois da escrita abre a *shell*; se
+  # a escrita falhar, a sessao acaba sem *shell*; quando a *shell* fecha,
+  # escreve `breakglass.close`. Vale igual em `staging` e em `prod`.
+  #
+  # A *shell* de login e o portao, e nao o bash: o `sshd` corre o
+  # `ForceCommand` pela *shell* da conta, e um bash de login le ficheiros da
+  # casa dela antes de correr o comando.
+  #
+  # Sem grupos: nem `sudo`, nem `docker` (que e root por outro nome). O unico
+  # `sudo` desta conta e o do proprio portao, sem argumentos variaveis (ver
+  # `write_files`). As chaves nao ficam na casa da conta: ficam num ficheiro
+  # de root, que o `sshd` le pelo `AuthorizedKeysFile` do bloco da conta. O que
+  # a sessao pode fazer alem da *shell* sem privilegios nao se decide aqui.
+  - name: breakglass
+    shell: /usr/local/sbin/kamba-breakglass
+    lock_passwd: true
 
 # --- 4. Disco NVMe ----------------------------------------------------------
 #
@@ -99,6 +123,70 @@ write_files:
       PostUp = sysctl -w net.ipv4.ip_forward=1
       SaveConfig = false
 
+  # --- 5. O portao do acesso de excepcao (KAM-259) -------------------------
+  #
+  # O programa vai em base64 porque e Python e nao modelo: dentro do
+  # `templatefile`, uma interpolacao ou uma directiva escrita no codigo seria
+  # lida pelo OpenTofu. A fonte e `infra/modules/host-base/kamba_breakglass.py`,
+  # ensaiada contra PostgreSQL em `db/tests/test_breakglass.py`.
+  - path: /usr/local/sbin/kamba-breakglass
+    permissions: "0755"
+    owner: root:root
+    encoding: b64
+    content: ${programa_breakglass_b64}
+
+  # O `sshd` corre sempre o portao para esta conta, e expoe-lhe a chave com
+  # que a sessao entrou (`ExposeAuthInfo`): e dela que sai o actor da linha.
+  # Sem reencaminhamentos de nenhum tipo: o acesso e a sessao, e mais nada.
+  # O `Match all` fecha o bloco, para que nada escrito depois neste ficheiro
+  # valha so para esta conta. NAO VERIFICADO num `sshd` real.
+  - path: /etc/ssh/sshd_config.d/50-kamba-breakglass.conf
+    permissions: "0644"
+    owner: root:root
+    content: |
+      Match User breakglass
+          AuthorizedKeysFile /etc/ssh/kamba-breakglass/authorized_keys
+          ForceCommand /usr/local/sbin/kamba-breakglass
+          ExposeAuthInfo yes
+          DisableForwarding yes
+          AllowTcpForwarding no
+          AllowStreamLocalForwarding no
+          AllowAgentForwarding no
+          X11Forwarding no
+          PermitTunnel no
+          PermitUserRC no
+      Match all
+
+  # As chaves de quem pode pedir o acesso de excepcao, num ficheiro de root.
+  - path: /etc/ssh/kamba-breakglass/authorized_keys
+    permissions: "0644"
+    owner: root:root
+    content: |
+%{ for chave in chaves_ssh_de_breakglass ~}
+      ${chave}
+%{ endfor ~}
+
+  # O unico `sudo` da conta: o portao, com o argumento `sessao` e nenhum outro.
+  # E ele que, como root, le a credencial, escreve a linha e abre a *shell*
+  # como a conta. Leva consigo as duas variaveis que o `sshd` lhe deu: a chave
+  # da sessao e o pedido.
+  - path: /etc/sudoers.d/kamba-breakglass
+    permissions: "0440"
+    owner: root:root
+    content: |
+      Cmnd_Alias KAMBA_BREAKGLASS = /usr/local/sbin/kamba-breakglass sessao
+      Defaults!KAMBA_BREAKGLASS env_keep += "SSH_USER_AUTH SSH_ORIGINAL_COMMAND"
+      breakglass ALL=(root) NOPASSWD: KAMBA_BREAKGLASS
+
+  # A configuracao do portao, so de root. A palavra-passe do
+  # `kamba_breakglass` NAO esta aqui: entra do cofre no arranque (`runcmd`).
+  - path: /etc/kamba/breakglass.env
+    permissions: "0600"
+    owner: root:root
+    content: |
+      KAMBA_BREAKGLASS_CONTENTOR=${contentor_da_base}
+      KAMBA_DB_NAME=${base_da_plataforma}
+
   # O que este host e, para quem chegar a ele as 3 da manha. O ficheiro e lido
   # pelo runbook RB-K08 e pela sonda.
   - path: /etc/kamba/ambiente
@@ -122,8 +210,14 @@ write_files:
       Acesso PREVISTO: pelo tunel WireGuard, no utilizador `admin`. O
       ${utilizador} corre os servicos e nao tem chave nem sudo.
 
+      Acesso de EXCEPCAO: pela conta `breakglass`, pedido assim:
+        ssh -t breakglass@<host> '<prazo ISO 8601 com fuso> <razao>'
+      Cada sessao fica no audit_log (breakglass.open e breakglass.close), e
+      sem a linha de abertura nao ha shell (KAM-259).
+
       O QUE ESTE HOST NAO FAZ, e convem saber antes de o tratar como fechado:
-      nada aqui fecha a porta 22 nem toca no sshd, e o utilizador por omissao
+      nada aqui fecha a porta 22 nem muda o sshd para alem do bloco da conta
+      breakglass, e o utilizador por omissao
       da imagem do fornecedor traz a chave que ele injecta. As regras de
       firewall (nftables) e o scan externo que prova que so 443 e a porta UDP
       do WireGuard estao abertas sao do KAM-077.
@@ -245,6 +339,37 @@ runcmd:
     printf 'PrivateKey = %s\n' "$chave" >> /etc/wireguard/wg0.conf
     unset chave
     systemctl enable --now wg-quick@wg0
+
+  # --- 5. A credencial do portao: do cofre, so para o root ----------------
+  #
+  # Como a chave do WireGuard: a referencia e ${referencia_do_segredo_breakglass},
+  # o valor so passa pela memoria deste passo e pelo ficheiro so de root. Sem
+  # a CLI do cofre, o passo para — e sem a credencial o portao nao escreve a
+  # linha, logo nao abre *shell*: a falha e fechada.
+  - |
+    set -euo pipefail
+    referencia='${referencia_do_segredo_breakglass}'
+    projecto="$${referencia%%/*}"
+    nome="$${referencia##*/}"
+    if ! command -v doppler >/dev/null 2>&1; then
+      echo "host-base: ERRO - a CLI do cofre (doppler) nao esta instalada." >&2
+      echo "host-base: o segredo $referencia nao se le, e o break-glass fica fechado." >&2
+      exit 1
+    fi
+    senha="$(doppler secrets get --project "$projecto" --config '${ambiente}' --plain "$nome")"
+    printf 'KAMBA_SECRET_DB_BREAKGLASS_PASSWORD=%s\n' "$senha" >> /etc/kamba/breakglass.env
+    unset senha
+    chmod 0600 /etc/kamba/breakglass.env
+    # A conta nao agenda nada que sobreviva a sessao: o *scope* do portao mata
+    # o que ela deixar a correr, e o cron e o at nao lhe correm comandos.
+    printf 'breakglass\n' >> /etc/cron.deny
+    printf 'breakglass\n' >> /etc/at.deny
+    grep -qx /usr/local/sbin/kamba-breakglass /etc/shells || echo /usr/local/sbin/kamba-breakglass >> /etc/shells
+    visudo -cf /etc/sudoers.d/kamba-breakglass
+    /usr/sbin/sshd -t
+    # O `write_files` corre antes de o `sshd` arrancar; se ja estiver a correr
+    # (ou for activado por *socket*), le a configuracao nova, e se nao, nada.
+    systemctl try-reload-or-restart ssh
 
   # O host fica a dizer que acabou. E o sinal que o cronometro dos 30 min para —
   # quando houver um cronometro (`infra/README.md` §5).

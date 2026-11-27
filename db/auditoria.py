@@ -3,6 +3,7 @@
     python db/auditoria.py verificar          # a cadeia inteira, por tenant
     python db/auditoria.py ancorar            # a ancora do dia, por tenant
     python db/auditoria.py verificar --tenant <uuid>
+    python db/auditoria.py breakglass --actor <SHA256:...>   # as sessoes de uma chave
 
 O `docs/tecnica/08` §6 pede, proporcional ao Piloto, «verificacao nocturna da
 cadeia e **ancora diaria** do ultimo `row_hash` exportada para o repo de
@@ -356,16 +357,46 @@ def ancorar(cursor, dia: datetime.date | None = None, destino: Path | None = Non
     return caminho
 
 
+#: As linhas de *break-glass* de um actor, na cadeia de plataforma (KAM-259).
+SQL_SESSOES_DE_BREAKGLASS = """
+  SELECT id, criado_at, action, entity_id, payload_hash
+    FROM platform.audit_log
+   WHERE tenant_id IS NULL
+     AND action IN ('breakglass.open', 'breakglass.close')
+     AND actor_id = %s
+   ORDER BY id
+"""
+
+
+def sessoes_de_breakglass(cursor, actor: str) -> list[tuple]:
+    """As aberturas e os fechos de acesso de excepcao de uma chave, por ordem.
+
+    O actor e a impressao digital da chave (`SHA256:...`), que e o que o portao
+    do host escreve. As duas linhas de uma sessao levam o mesmo `entity_id` e o
+    mesmo `payload_hash`. Le-se com o `kamba_batch`, que e quem ve a cadeia de
+    plataforma: o `kamba_audit` nao a ve (revisao `0006`).
+    """
+    cursor.execute(SQL_SESSOES_DE_BREAKGLASS, (actor,))
+    return [
+        (linha[0], iso_utc(linha[1]), linha[2], linha[3], bytes(linha[4]).hex())
+        for linha in cursor.fetchall()
+    ]
+
+
 def main(argv: list[str] | None = None) -> int:
     analisador = argparse.ArgumentParser(
         prog="auditoria", description=__doc__.split("\n")[0]
     )
-    analisador.add_argument("accao", choices=("verificar", "ancorar"))
+    analisador.add_argument("accao", choices=("verificar", "ancorar", "breakglass"))
     analisador.add_argument("--tenant", default=None, help="so esta cadeia")
     analisador.add_argument(
         "--ancora", default=None,
         help="ficheiro de ancora de um dia anterior; sem ele, uma cadeia que "
              "desapareca inteira passa despercebida",
+    )
+    analisador.add_argument(
+        "--actor", default=None,
+        help="com `breakglass`: a impressao digital da chave (SHA256:...)",
     )
     analisador.add_argument("--dia", default=None, help="AAAA-MM-DD; por omissao, hoje em UTC")
     analisador.add_argument("--destino", default=None, help="pasta da ancora")
@@ -381,6 +412,12 @@ def main(argv: list[str] | None = None) -> int:
         # verificador respondia «cadeia intacta» sobre nada. A primeira versao
         # prometia este `--papel` no docstring e nao o tinha no `argparse`.
         cursor.execute("SELECT set_config('app.tenant_id', %s, false)", (argumentos.tenant,))
+    if argumentos.accao == "breakglass":
+        if not argumentos.actor:
+            analisador.error("breakglass exige --actor")
+        for linha in sessoes_de_breakglass(cursor, argumentos.actor):
+            print("	".join(str(campo) for campo in linha))
+        return 0
     if argumentos.accao == "verificar":
         ancora = None
         if argumentos.ancora:

@@ -20,6 +20,9 @@ locals {
   # O `env_lint` nao confia nesta derivacao: calcula as tres referencias dos
   # tres ambientes e exige que sejam diferentes duas a duas.
   segredo_wireguard = "${local.env.segredos.projecto}/VPN_WIREGUARD_ADMIN"
+
+  # KAM-259: a credencial do portao do acesso de excepcao.
+  segredo_breakglass = "${local.env.segredos.projecto}/DB_BREAKGLASS_PASSWORD"
 }
 
 module "host_base" {
@@ -28,6 +31,7 @@ module "host_base" {
   ambiente                        = local.env.ambiente
   ponto_de_montagem_nvme          = "/var/lib/kamba"
   referencia_do_segredo_wireguard = local.segredo_wireguard
+  referencia_do_segredo_breakglass = local.segredo_breakglass
 
   # Vazia, e e o estado correcto: nao ha host e nao ha administrador com
   # acesso. Uma chave inventada aqui era pior do que nenhuma.

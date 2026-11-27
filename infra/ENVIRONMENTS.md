@@ -3,7 +3,7 @@
 | Campo | Valor |
 |---|---|
 | Documento | Infraestrutura — matriz de ambientes `dev` / `staging` / `prod` |
-| Versão | 1.0 |
+| Versão | 1.1 |
 | Data | Novembro de 2026 |
 | Classificação | Documento de Referência — Interno; **verificado por máquina** |
 | Ticket | KAM-075 (EPIC-08) |
@@ -50,6 +50,33 @@ compara byte a byte não pode depender de como alguém escreveu «não-root».
 **As sete chaves são as sete que o critério 1 do KAM-075 nomeia** — dados,
 compute, Meta, facilitador, LLM, segredos, acesso — e são as sete que o
 `env_lint` verifica contra `envs/*/env.yaml`.
+
+### 2.0 O acesso de excepção, em `staging` e em `prod` (KAM-259)
+
+A linha «Acesso» fica como está: a equipa entra em `staging` como em `dev`, e
+`prod` não tem acesso de equipa. **O acesso de excepção é o mesmo nos dois** — o
+de quem não é da equipa em `staging` (o revisor do KAM-074) e o de `prod`, onde a
+lista de chaves de administração fica vazia
+([`envs/prod/main.tf`](envs/prod/main.tf)) — e passa pela conta `breakglass` do
+[`modules/host-base/`](modules/host-base/), decisão do fundador de 2026-11-25
+(opção A, bloco do KAM-259):
+
+- o `sshd` corre sempre o portão
+  [`kamba_breakglass.py`](modules/host-base/kamba_breakglass.py) — é a *shell*
+  de login da conta e o `ForceCommand` —, que pede um prazo (no máximo sete
+  dias) e uma razão, e dá à sessão um identificador;
+- o portão, como root, escreve `breakglass.open` no `audit_log` — o actor (a
+  impressão digital da chave), o ambiente e o *host*, e o resumo da sessão, da
+  razão e do prazo — e **só depois de a linha estar escrita** abre a *shell*
+  como a conta, num *scope* do systemd; sem a linha, a sessão acaba sem
+  *shell*;
+- quando a *shell* fecha, por saída, por prazo ou por sinal, pára o *scope* e
+  escreve `breakglass.close`.
+
+Por isso o `acesso.modo` de `staging` não mudou: o modo descreve o acesso da
+equipa, e o de excepção é igual nos dois ambientes que têm *host*. Os ensaios
+estão em [`../db/tests/test_breakglass.py`](../db/tests/test_breakglass.py);
+nenhum correu num *host*, porque nenhum existe (§6).
 
 ### 2.1 Uma divergência de contagem, registada em vez de corrigida em silêncio
 
@@ -179,3 +206,4 @@ verificadas pelo `env_lint` como as outras.
 | Versão | Data | Alteração | Autor |
 |---|---|---|---|
 | 1.0 | Novembro de 2026 | Emissão inicial, KAM-075. As sete linhas nomeadas pelo critério 1, com chave por linha e token canónico por célula, comparadas com `envs/*/env.yaml` pelo `tools/env_lint` no gate 2. A oitava linha do doc 09 §6 (Factura AGT) registada em §3 fora do conjunto verificado, com a razão e a divergência de contagem do critério declarada em §2.1. O `kamba_data_class` e as duas referências que a passagem a `real` exige em §5; o que a matriz não diz, e a razão (D1), em §6. | Equipa KAMBÁ |
+| 1.1 | Novembro de 2026 | KAM-259: §2.0 nova, o acesso de excepção em `staging` e `prod` pela conta `breakglass` e o portão que escreve `breakglass.open` e `breakglass.close` no `audit_log`. As sete linhas não mudam, e o `acesso.modo` de `staging` continua `equipa`. | Equipa KAMBÁ |
