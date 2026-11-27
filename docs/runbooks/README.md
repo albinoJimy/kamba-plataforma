@@ -3,7 +3,7 @@
 | Campo | Valor |
 |---|---|
 | Ticket | **KAM-083** — Runbooks operacionais (`specs/EPIC-08_Topologia_Operacao.md`) |
-| Versão | 1.10 |
+| Versão | 1.11 |
 | Fontes | [`../tecnica/09_Topologia_Operacao_Escala.md`](../tecnica/09_Topologia_Operacao_Escala.md) §9.2 (alertas), §12 (degradação N0–N6), §13 (os dez runbooks), §16 (*on-call*) |
 | Ensaios | [`folha-de-ensaio.md`](folha-de-ensaio.md) — o roteiro de cada ensaio, a folha de tempos e o calendário do *game day* |
 | Evidência | [`../evidencia/KAM-083.md`](../evidencia/KAM-083.md) |
@@ -124,7 +124,12 @@ obrigava a pôr segredos na *shell* de quem está de serviço. O nome dos conten
 num projecto de ensaio com duas réplicas: `-1` e `-2`); em *staging* é `kamba-staging`.
 **Só recriar um serviço** (`up -d`, para ler um ambiente novo) passa pelo compose, e
 então pelo lançador do [ADR-L002](../adr/ADR-L002-injeccao-de-segredos.md)
-(`doppler run -- docker compose …`), que é `não verificado` porque não há conta.
+(`doppler run -- docker compose …`), que é `não verificado` porque não há conta. Em
+`prod`, desde o KAM-260, o valor de um segredo entra pelo ficheiro do serviço que o
+lançador carrega em cada arranque (ADR-L002 §8, *proposta*): escreve-se primeiro,
+com `doppler run -- python -m compose_prod segredos --destino /run/kamba/segredos`, e
+depois **reinicia-se** o serviço (`restart`, ou `up -d --force-recreate`). Um `up -d`
+sozinho não o recria quando só o ficheiro mudou ([RB-K07](RB-K07-rotacao-de-segredos.md) §0).
 
 **Segredos, pessoas e contactos.** Um segredo cita-se pelo **nome da entrada** em
 [`../../ops/secrets-inventory.yaml`](../../ops/secrets-inventory.yaml), nunca pelo
@@ -280,3 +285,4 @@ procedimento.
 | 1.8 | Novembro 2026 | **KAM-225**: as regras `confianca_tecto_recusado_no_registo` e `registo_pg_registo_parado` entram no `kamba-trust.yml` e na tabela do §5.1 (passam a dezassete), com o §6 e o §7 do [`trust-e-safety.md`](trust-e-safety.md). Nenhum runbook novo. | Equipa KAMBÁ |
 | 1.9 | Novembro 2026 | **KAM-247**: sai a linha «O LiteLLM do compose não tem base de dados». Tem a `kamba_litellm` desde a decisão do fundador de 2026-11-23 (opção A1), e o RB-K03 §0, ponto 3, diz o que mudou. | Equipa KAMBÁ |
 | 1.10 | Novembro 2026 | **KAM-078 (preparação do lote 24)**: entra o [`deploy-e-reversao.md`](deploy-e-reversao.md) na lista dos que ficam fora do §13 (passam a nove) e nos procedimentos sem alerta do §5 (passam a quatro), com a nota de que a reversão que falha devia ter alerta e não tem. | Equipa KAMBÁ |
+| 1.11 | Novembro 2026 | **KAM-260**: recriar um serviço de `prod` para ler um segredo novo passa a escrever primeiro o ficheiro do serviço que o lançador carrega (ADR-L002 §8, *proposta*). | Equipa KAMBÁ |

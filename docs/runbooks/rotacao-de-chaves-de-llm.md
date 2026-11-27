@@ -53,7 +53,11 @@ variável é derivado e não escrito:
 `KAMBA_SECRET_LLM_PROVIDER_KEY__anthropic`.
 
 1. Emitir a chave nova **na consola do fornecedor**, sem revogar a antiga.
-2. Escrever no cofre e reiniciar o proxy.
+2. Escrever no cofre e reiniciar o proxy. Em `prod`, antes de reiniciar, reescrever
+   o ficheiro de segredos dos serviços (KAM-260, ADR-L002 §8, *proposta*):
+   `cd tools && doppler run -- python -m compose_prod --root .. segredos --destino /run/kamba/segredos`,
+   e só depois `docker compose restart litellm`. Sem isso o proxy volta a arrancar
+   com a chave antiga, e o passo 4 põe os *aliases* a falhar.
 3. Fazer uma chamada de ensaio pelo alias afectado, em `staging`, com dados
    sintéticos.
 4. Revogar a antiga na consola do fornecedor.
