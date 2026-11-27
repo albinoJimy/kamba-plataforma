@@ -12,7 +12,7 @@
 
 version: 1
 fonte: "specs/02_Dicionario_de_Dados_Canonico.md"
-versao_dicionario: "1.150"
+versao_dicionario: "1.151"
 entradas:
   - seccao: "3.1"
     conceito: "Contacto"
@@ -19837,6 +19837,7 @@ entradas:
     nomes_nota:
       - "estado"
       - "aguardando"
+      - "por_entregar"
       - "desfecho"
       - "origem"
     variantes_literais: []
@@ -24078,7 +24079,7 @@ entradas:
     variantes_literais: []
   - seccao: "3.85"
     conceito: "A volta do guia no lote"
-    canonico: "CicloDoGuia, AvisoDaListaSemVia, es_popups_abandonados, lista_espera_convite_por_entregar, guia_interno_ligado, guia_interno_desligado, guia_interno_recusado, guia_interno_falhou"
+    canonico: "CicloDoGuia, AvisoDaListaSemVia, es_popups_abandonados, lista_espera_convite_por_entregar, guia_interno_ligado, guia_interno_desligado, guia_interno_recusado, guia_interno_falhou, reconciliarMetaEsNaBase, abrirRevisoesEmFaltaNaBase, guia_efeitos_reconciliados"
     literais:
       - "CicloDoGuia"
       - "AvisoDaListaSemVia"
@@ -24088,6 +24089,9 @@ entradas:
       - "guia_interno_desligado"
       - "guia_interno_recusado"
       - "guia_interno_falhou"
+      - "reconciliarMetaEsNaBase"
+      - "abrirRevisoesEmFaltaNaBase"
+      - "guia_efeitos_reconciliados"
     nomes:
       - "CicloDoGuia"
       - "AvisoDaListaSemVia"
@@ -24097,9 +24101,20 @@ entradas:
       - "guia_interno_desligado"
       - "guia_interno_recusado"
       - "guia_interno_falhou"
+      - "reconciliarMetaEsNaBase"
+      - "abrirRevisoesEmFaltaNaBase"
+      - "guia_efeitos_reconciliados"
     nomes_nota:
       - "onboarding"
       - "web"
+      - "por_entregar"
+      - "meta_es"
+      - "verificado"
+      - "pronto"
+      - "falhado"
+      - "desligado"
+      - "guia_nao_verificado"
+      - "es_falhado"
     variantes_literais: []
   - seccao: "3.86"
     conceito: "Decisão de um módulo de entrada"

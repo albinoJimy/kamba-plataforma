@@ -1,0 +1,221 @@
+id	tema	numeros	linguas	texto
+E001	preco	S	N	Bom dia, quanto custa o saco de arroz de vinte e cinco quilos? Ontem estava a doze mil e quinhentos kwanzas.
+E002	preco	S	N	A grade de cerveja está a 7.200 Kz, mas se levar duas faço por catorze mil, e a entrega é por minha conta.
+E003	preco	S	S	Mano, o kumbu não chega para tudo, quanto fica a botija de gás de doze quilos já com a entrega incluída?
+E004	preco	S	N	O óleo de cinco litros custa oito mil e novecentos kwanzas e o de um litro fica a dois mil.
+E005	preco	S	N	Queria saber o preço do frango inteiro congelado, na semana passada paguei 3.500 Kz por cada um.
+E006	preco	S	S	A zungueira disse que o balde de tomate está a mil e quinhentos, mas no mercado do Kikolo está mais barato.
+E007	preco	S	N	O carregador de telemóvel original custa seis mil Kz e a imitação fica por dois mil e quinhentos.
+E008	preco	S	N	Quanto é a caixa de água de seis garrafas de um litro e meio? Preciso de quatro caixas para sábado.
+E009	preco	S	S	Kota, a fuba de bombó está a quanto o quilo hoje? Na semana passada estava a novecentos kwanzas.
+E010	preco	S	N	O pacote de fraldas tamanho quatro custa 11.300 Kz, e se levar dois damos um desconto de dez por cento.
+E011	preco	S	N	Boa tarde, o preço do corte de cabelo é dois mil Kz e com a barba fica três mil e quinhentos.
+E012	preco	S	N	A mensalidade da explicação de matemática é quinze mil kwanzas, com aulas às terças e às quintas.
+E013	preco	S	S	Kota, o peixe carapau está a dois mil e oitocentos o quilo, e o mufete completo para duas pessoas fica a nove mil.
+E014	preco	S	N	Quanto custa mandar fazer um vestido com o pano que eu trago? A costureira pediu vinte e dois mil.
+E015	preco	S	N	O telemóvel usado está em bom estado e o dono pede 150.000 kwanzas, sem a capa e sem o carregador.
+E016	preco	S	S	A kitanda do bairro vende o molho de couve a quinhentos kwanzas e o jindungo a duzentos o saquinho.
+E017	preco	S	N	A recarga de mil e quinhentos dá para quantos dias de internet? Quero o pacote mais barato que houver.
+E018	preco	S	N	O sabão em barra custa trezentos e cinquenta a unidade e a caixa com vinte unidades fica a seis mil.
+E019	preco	S	N	Por favor, confirme o total: dois sacos de açúcar a 4.200 Kz cada, dá oito mil e quatrocentos.
+E020	preco	S	S	Muadiê, a muamba de galinha está a quanto o prato? Somos três pessoas e queremos também funje.
+E021	preco	S	N	O conserto do ecrã do telemóvel fica entre vinte e cinco e trinta mil, depende do modelo que tiver.
+E022	preco	S	N	A gasolina subiu e agora a corrida de táxi até ao Kilamba custa quatro mil kwanzas, ida e volta são oito.
+E023	quantidade	S	N	Preciso de três caixas de ovos de trinta unidades e dois litros de leite para entregar amanhã cedo.
+E024	quantidade	S	S	Para a festa do kandengue vou querer cinquenta salgados, vinte pastéis e um bolo grande de chocolate.
+E025	quantidade	S	N	Quantas latas de tinta são precisas para pintar dois quartos de quatro metros por cinco cada um?
+E026	quantidade	S	N	Mande-me quinze sacos de cimento e seis varões de ferro, que a obra começa na segunda-feira.
+E027	quantidade	S	N	Quero meia dúzia de pães, duzentos e cinquenta gramas de fiambre e um pacote de manteiga, por favor.
+E028	quantidade	S	S	A tia pediu dez quilos de kitaba e quatro garrafas de kissângua para o aniversário do kota.
+E029	quantidade	S	N	Tenho 120 camisolas em stock, oitenta pretas e quarenta brancas, em todos os tamanhos.
+E030	quantidade	S	N	Vou precisar de dois mil copos descartáveis e quinhentos pratos para o casamento do mês que vem.
+E031	quantidade	S	N	Ponha só metade da encomenda de ontem: cinco frangos, três quilos de batata e um saco de cebola.
+E032	quantidade	S	S	Para o mufete de domingo são precisos seis peixes grandes, banana-pão e bué de jindungo.
+E033	quantidade	S	N	Ainda tem doze cadeiras de plástico para alugar? Preciso também de três mesas compridas para a festa.
+E034	quantidade	S	N	A senhora levou setenta e cinco metros de tecido e ficou de vir buscar o resto na quinta.
+E035	quantidade	S	N	Quero 18 garrafas de sumo de laranja e 9 de ananás, todas bem geladas, por favor.
+E036	quantidade	S	S	Kamba, traz quatro sacos de carvão e dois de fuba, que hoje vamos fazer funje para a família toda.
+E037	quantidade	S	N	São precisos quarenta litros de água por dia para a lavandaria funcionar sem parar durante a semana.
+E038	quantidade	S	N	A loja recebeu trezentas e sessenta peças de roupa nova e vendeu um terço na primeira semana.
+E039	quantidade	S	N	Para a reunião de quinta-feira preciso de vinte e cinco cafés e vinte e cinco sandes de queijo.
+E040	quantidade	S	S	O kandengue partiu duas garrafas, por isso agora são só onze em vez de treze. Maka nenhuma.
+E041	quantidade	S	N	Encomendei 1.200 embalagens de plástico e só chegaram novecentas e cinquenta, faltam as outras.
+E042	quantidade	S	N	Quantos quilos de carne são precisos para um churrasco com trinta pessoas adultas e algumas crianças?
+E043	quantidade	S	N	Deixe ficar sete pacotes de bolachas e quatro de massa, e mande a conta para a minha mãe.
+E044	quantidade	S	S	Ngana, quero três pães com chouriço e dois cafés para o makezu da equipa de sábado de manhã.
+E045	hora	S	N	A loja abre às oito e meia e fecha às dezoito horas, de segunda a sábado, e ao domingo está fechada.
+E046	hora	S	N	Posso passar por aí às 14h30 para levantar a encomenda, ou é melhor vir depois das quatro da tarde?
+E047	hora	S	S	Kota, a reunião ficou para as dez horas, mas com o trânsito da manhã chego talvez às dez e um quarto.
+E048	hora	S	N	O autocarro sai do Cazenga às seis e quinze e chega à Baixa por volta das sete e meia.
+E049	hora	S	N	O jantar está marcado para as 19h00 no restaurante da Ilha, não se esqueçam de reservar a mesa.
+E050	hora	S	N	A entrega pode ser feita entre as nove e as onze da manhã, porque à tarde não estou em casa.
+E051	hora	S	S	Aqui na kitanda começamos às cinco da manhã, quando ainda está fresco por causa do cacimbo.
+E052	hora	S	N	O voo para Benguela sai às 13h45 e é preciso estar no aeroporto duas horas antes da partida.
+E053	hora	S	N	Quanto tempo demora a reparação? Preciso do computador de volta até às cinco da tarde de amanhã.
+E054	hora	S	N	A farmácia de serviço fica aberta vinte e quatro horas, mesmo aos domingos e feriados do ano.
+E055	hora	S	S	Mano, o candongueiro demorou quarenta minutos, por isso cheguei às nove e vinte. Desculpa a maka.
+E056	hora	S	N	O treino das crianças é às dezasseis horas e dura uma hora e meia, no campo da escola.
+E057	hora	S	N	Ligue-me depois do meio-dia, porque de manhã estou na fila do banco e não posso atender durante duas horas.
+E058	hora	S	N	A senhora pode vir às 10h15? A cliente das dez avisou que se vai atrasar um bocado.
+E059	hora	S	S	A missa acaba às onze e depois vamos todos comer muamba em casa da avó, até às três.
+E060	hora	S	N	O gerador liga automaticamente às dezanove horas, quando a luz da rede costuma ir abaixo.
+E061	hora	S	N	A consulta de rotina demora cerca de vinte minutos e o técnico atende a partir das oito.
+E062	hora	S	N	Se o pedido entrar antes das quinze horas, a entrega chega no mesmo dia; depois disso, só amanhã.
+E063	hora	S	S	Ngasakidila pela paciência, a encomenda vai sair daqui às duas e meia e chega antes das quatro.
+E064	hora	S	N	O mercado de domingo começa às seis da manhã e às dez já não há peixe fresco para ninguém.
+E065	hora	S	N	A aula de condução é às sete e quarenta, por isso tenho de acordar às seis em ponto.
+E066	hora	S	N	Espere só cinco minutos, o mecânico está a acabar o outro carro e já vai atender.
+E067	data	S	N	A festa vai ser no dia vinte e três de Dezembro, um sábado, a partir das duas da tarde.
+E068	data	S	N	O pagamento da renda vence no dia cinco de cada mês, e este mês já estou atrasado três dias.
+E069	data	S	S	A kota faz setenta anos no dia doze de Março e queremos fazer uma surpresa com toda a família.
+E070	data	S	N	A loja vai estar fechada de 24 a 26 de Dezembro e volta a abrir no dia vinte e sete.
+E071	data	S	N	Posso marcar para a próxima terça-feira, dia catorze, logo de manhã, se ainda houver vaga?
+E072	data	S	N	O contrato termina a trinta e um de Janeiro de dois mil e vinte e sete e depois temos de renovar.
+E073	data	N	S	No cacimbo, entre Junho e Agosto, vendemos mais casacos e cobertores do que no resto do ano.
+E074	data	S	N	A encomenda foi feita no dia 2, mas só chegou no dia 9, uma semana inteira de atraso.
+E075	data	S	N	As inscrições para o curso de costura vão até ao dia quinze e as aulas começam no dia vinte.
+E076	data	S	N	O meu filho nasceu a onze de Novembro, o mesmo dia da independência, por isso a festa é sempre grande.
+E077	data	S	S	Kamba, combinámos para sexta-feira dia oito, não te esqueças de levar o kumbu da quota.
+E078	data	S	N	A promoção de fim de ano começa no dia um de Dezembro e só dura duas semanas, não percam.
+E079	data	S	N	Vou viajar para o Lubango no dia 18 e volto a 22, por isso marque para depois disso.
+E080	data	S	N	Este mês tem quatro sábados e quero reservar o salão em todos eles para as festas da igreja.
+E081	data	S	S	O casamento do kandengue é no último sábado de Abril e a muamba vai ser feita pela tia, para cem convidados.
+E082	data	S	N	A primeira prestação paga-se já e as outras três nos dias quinze dos meses seguintes.
+E083	data	S	N	A obra deve ficar pronta em seis semanas, se a chuva de Março não atrasar os trabalhos.
+E084	data	S	N	Já passaram dez dias desde que deixei o relógio para arranjar e ainda não tive notícias nenhumas.
+E085	data	S	S	Muadiê, o kilapi do mês passado ainda está por pagar, combinamos para dia vinte e cinco?
+E086	data	S	N	A feira de artesanato acontece todos os primeiros domingos do mês, na marginal de Luanda, das 9h às 17h.
+E087	data	S	N	O seguro do carro vence daqui a duas semanas, no dia trinta, e quero renovar por um ano.
+E088	data	S	N	Na segunda quinzena de Janeiro a escola reabre e as três fardas têm de estar prontas antes.
+E089	morada	S	N	Moro no Rangel, na rua da escola primária, casa número quarenta e dois, a do portão azul.
+E090	morada	N	N	Fica em Talatona, perto do centro comercial, na rua que desce para o condomínio grande.
+E091	morada	N	S	A kitanda fica no Cazenga, atrás da igreja católica, ao lado da zungueira que vende peixe.
+E092	morada	S	N	O endereço é Maianga, rua 17, prédio amarelo, terceiro andar, porta da esquerda.
+E093	morada	N	N	Estou em Viana, depois da paragem dos candongueiros, a casa com o muro pintado de verde.
+E094	morada	S	N	É no Kilamba, bloco T, edifício doze, apartamento trinta e quatro, segundo andar.
+E095	morada	N	S	Pergunte pela kota da padaria, toda a gente no Sambizanga sabe onde é a casa dela.
+E096	morada	N	N	A oficina fica na estrada de Catete, logo a seguir à bomba de gasolina, do lado direito.
+E097	morada	S	N	Vivo na Ingombota, perto do largo, rua número oito, a casa de esquina com dois andares.
+E098	morada	N	N	Se vier pelo Cacuaco, vire à esquerda na rotunda e siga até ver a escola pintada de branco.
+E099	morada	N	S	O mambo é fácil de encontrar: Benfica, ao lado do mercado, a loja com a placa vermelha.
+E100	morada	S	N	A entrega é no Zango três, quadra quatro, casa número cento e dezanove, junto à cantina.
+E101	morada	N	N	Estamos na Mutamba, mesmo em frente ao banco, no primeiro andar do prédio antigo.
+E102	morada	N	S	Muadiê, a casa fica no Golfe, atrás do campo de futebol, onde os kandengues costumam jogar.
+E103	morada	S	N	O salão é em Alvalade, rua vinte e um, número 5, mesmo ao lado da farmácia.
+E104	morada	N	N	Fica no Prenda, perto da escola secundária, na rua que tem a mangueira grande à porta.
+E105	morada	N	N	Quando chegar à Samba, ligue-me, que eu vou buscá-lo à paragem principal com o meu carro.
+E106	morada	S	S	A tia mora na Palanca, depois da kitanda, casa sete, e lá tem sempre funje ao domingo.
+E107	morada	N	N	A minha loja fica no Camama, junto à estrada principal, com um toldo amarelo à entrada.
+E108	morada	N	N	Moro no Hoji ya Henda, perto do posto médico, na rua de terra batida, a casa de portão preto.
+E109	morada	S	N	O armazém fica em Viana, no polo industrial, pavilhão número seis, entrada pela traseira.
+E110	morada	N	S	Kamba, não é na Maianga, é no Marçal, ao lado da escola onde o kota dá aulas.
+E111	produto	N	N	Tem disponível o vestido azul de manga comprida que estava na montra da semana passada?
+E112	produto	S	N	Procuro um frigorífico de duas portas, com pelo menos trezentos litros, que gaste pouca energia.
+E113	produto	N	S	Ainda tem daquela kitaba picante que a minha mãe comprou? Ela diz que é a melhor do bairro.
+E114	produto	N	N	Queria ver os sapatos de couro castanho, de preferência com sola de borracha e sem atacadores.
+E115	produto	S	N	O ventilador de pé tem três velocidades? O meu avariou e com este calor não se aguenta.
+E116	produto	N	N	Vendem peças para motorizada? Preciso de travões novos e de um espelho do lado esquerdo.
+E117	produto	N	S	Gostava de encomendar uma dikanza e um quissange para oferecer ao meu sobrinho no Natal.
+E118	produto	S	N	As colunas de som aguentam uma festa de cem pessoas, ou é melhor alugar duas de uma vez?
+E119	produto	N	N	O champô para cabelo crespo que anunciaram ontem já chegou à loja, ou ainda está a caminho?
+E120	produto	S	N	Tem cadernos, canetas e mochilas para o regresso às aulas? Preciso de material para três crianças.
+E121	produto	N	S	Vende pano do Congo para fazer uma saia? A kota quer um padrão com cores bem fortes.
+E122	produto	S	N	O ferro de engomar a vapor tem garantia de um ano ou só de seis meses?
+E123	produto	N	N	Procuro um colchão firme de casal, que não aqueça muito durante as noites de calor.
+E124	produto	N	S	A muamba de peixe é feita com óleo de palma verdadeiro? O meu kota só come assim.
+E125	produto	S	N	A bateria do carro que me vendeu durou só dois meses, ainda está dentro da garantia?
+E126	produto	N	N	Queria um bolo de aniversário com cobertura de morango e o nome da menina escrito em cima.
+E127	produto	N	N	Têm painéis solares pequenos, para ligar umas lâmpadas e carregar os telemóveis em casa?
+E128	produto	N	S	O makezu de hoje tem pão com chouriço e chá de caxinde, ou só café com leite?
+E129	produto	S	N	Este perfume tem cem mililitros ou cinquenta? A embalagem não diz nada sobre o tamanho.
+E130	produto	N	N	Há protector solar para a pele das crianças, ou só vendem o dos adultos aqui na loja?
+E131	produto	S	N	Tem a camisola oficial da selecção nacional em tamanho de criança, para um menino de 8 anos?
+E132	produto	N	S	Ngana, o jindungo em conserva que vendem é muito forte? Quero levar para a família no Huambo.
+E133	regateio	S	N	Dez mil é muito caro, faça oito mil e levo já duas peças, pago na hora em dinheiro.
+E134	regateio	S	S	Kota, assim não dá, o kumbu está curto, deixa ficar a sete e quinhentos e fechamos o negócio.
+E135	regateio	S	N	Na loja do lado vendem o mesmo por menos dois mil, consegue igualar o preço deles?
+E136	regateio	S	N	Se eu levar dez caixas, quanto fica cada uma? Para revenda tem de ser mais barato do que isso.
+E137	regateio	S	S	Mano, faz um desconto, sou cliente da casa há três anos e nunca fiquei com kilapi.
+E138	regateio	N	N	Pago metade agora e a outra metade no fim do mês, pode ser assim ou não aceitam?
+E139	regateio	S	N	Quinze mil pelo par de sapatos? No mercado do São Paulo encontro o mesmo por dez.
+E140	regateio	S	S	A zungueira pediu dois mil pelo balde, eu ofereci mil e quinhentos e ela aceitou sem maka.
+E141	regateio	S	N	Faça o preço redondo: em vez de 23.400 Kz, fique por vinte e três mil e eu levo hoje.
+E142	regateio	N	N	Se não baixar o preço, vou ter de procurar noutro sítio, é pena porque gosto do vosso trabalho.
+E143	regateio	S	S	Muadiê, leva os três por cinco mil, é preço de amigo, não vais encontrar mais barato na kitanda.
+E144	regateio	S	N	O transporte está incluído nos doze mil, ou ainda tenho de pagar a entrega à parte?
+E145	regateio	S	N	Consegue fazer desconto de cinco por cento se eu pagar por transferência ainda hoje?
+E146	regateio	N	S	Ngana, o preço está bom, mas a qualidade do pano não é a mesma do mês passado.
+E147	regateio	S	N	Ofereço cento e vinte mil pela mota, com os documentos todos em ordem, nem mais um kwanza.
+E148	regateio	S	N	Já baixei de quarenta para trinta e cinco mil, mais do que isso eu perco dinheiro.
+E149	regateio	S	S	Kamba, pagas quatro mil hoje e o resto fica de kilapi até sexta, combinado assim?
+E150	regateio	S	N	Se juntar o carregador e a capa, fico com o telemóvel pelos oitenta e cinco mil.
+E151	regateio	N	N	Não consegue fazer um preço melhor? Somos um grupo grande e vamos voltar mais vezes.
+E152	regateio	S	N	O preço da tabela é seis mil, mas para si faço 5.500 Kz se levar hoje.
+E153	regateio	S	S	Kota, a fuba subiu outra vez, agora o saco grande fica a catorze mil, não há como baixar.
+E154	regateio	S	N	Duzentos e cinquenta mil pela máquina de costura usada ainda é muito, aceito duzentos.
+E155	marcacao	S	N	Queria marcar tranças para sábado de manhã, por volta das nove, se a cabeleireira estiver livre.
+E156	marcacao	S	N	Há vaga para cortar o cabelo hoje à tarde? Posso ir a qualquer hora depois das três.
+E157	marcacao	S	S	Kota, quero marcar a revisão do carro para segunda-feira, às oito, antes de ir para o serviço.
+E158	marcacao	N	N	Pode remarcar a minha vez no salão? Surgiu um imprevisto e não consigo ir na data combinada.
+E159	marcacao	S	N	Gostava de reservar uma mesa para seis pessoas na sexta à noite, por volta das vinte horas.
+E160	marcacao	S	N	A sessão de fotografias para o casamento pode ser no dia dez, às quatro da tarde?
+E161	marcacao	S	S	Ngana, marca-me para unhas e sobrancelhas na quinta-feira, às duas e meia, sem atraso.
+E162	marcacao	N	N	Queria cancelar a marcação de amanhã e pedir para passar para a semana que vem, se possível.
+E163	marcacao	S	N	Tem horário para aula experimental de natação no sábado, às 11h, para duas crianças?
+E164	marcacao	S	N	Quero agendar a limpeza da casa para dia vinte, das oito ao meio-dia, com duas pessoas.
+E165	marcacao	S	S	Kandengue, guarda-me a vez para as cinco, que eu saio do serviço e passo logo pela barbearia.
+E166	marcacao	N	N	Ainda dá para marcar a instalação do ar condicionado esta semana, ou já está tudo cheio?
+E167	marcacao	S	N	A explicação de inglês pode ser às terças e quintas, das seis às sete da tarde?
+E168	marcacao	N	N	Preciso de um electricista amanhã de manhã, a tomada da cozinha deixou de funcionar.
+E169	marcacao	S	S	Kamba, confirma a marcação de sábado: três cabeças para cortar e um kandengue para rapar.
+E170	marcacao	N	N	Gostava de saber se aceitam marcações por mensagem ou se tenho de passar aí pessoalmente.
+E171	marcacao	S	N	Marque-me o canalizador para quarta-feira, depois das duas, que de manhã não estou em casa.
+E172	marcacao	S	N	Para o baptizado precisamos do salão das dez às dezoito horas, é possível reservar?
+E173	marcacao	S	S	Muadiê, a lavagem completa do carro pode ficar para as 9h30? Antes disso não consigo.
+E174	marcacao	N	N	Queria saber se a costureira ainda aceita encomendas para o Natal ou se já está cheia.
+E175	marcacao	S	N	Marquei para as três, mas estou preso no trânsito da Samba, chego com meia hora de atraso.
+E176	marcacao	S	N	Pode reservar dois quartos para o fim-de-semana de dia catorze, com pequeno-almoço incluído?
+E177	entrega	S	N	A entrega custa mil e quinhentos dentro de Luanda e três mil para Viana ou Cacuaco.
+E178	entrega	N	S	A encomenda já saiu com o motoqueiro, a kota pode ficar descansada que chega hoje.
+E179	entrega	S	N	O motoqueiro chega em vinte minutos, tenha o dinheiro trocado, por favor, que ele não tem troco.
+E180	entrega	N	N	Prefiro levantar na loja em vez de pagar a entrega, ainda estão abertos ao fim da tarde?
+E181	entrega	S	S	Mano, o pacote chegou mas faltam duas camisolas, isso é maka, quero falar com o responsável.
+E182	entrega	S	N	A encomenda número trinta e sete foi entregue na morada errada, no bloco do lado.
+E183	entrega	N	N	Podem deixar a encomenda com o guarda do prédio, se eu não estiver em casa à hora combinada?
+E184	entrega	S	N	Paguei a entrega de 2.000 Kz e a encomenda ainda não chegou, já passaram três horas.
+E185	entrega	N	S	Ngana, deixa o saco na kitanda da esquina, a zungueira conhece-me e guarda até eu chegar.
+E186	entrega	S	N	A transportadora para Benguela demora quatro dias e cobra cinco mil por cada caixa.
+E187	entrega	N	N	O estafeta mandou mensagem a dizer que não encontra a casa, pode explicar-lhe o caminho?
+E188	entrega	N	N	Quero mandar este presente para a minha irmã no Lubango, quanto custa e quantos dias demora?
+E189	entrega	S	S	Kamba, a gasosa do motoqueiro não está incluída, dá-lhe quinhentos quando ele chegar.
+E190	entrega	N	N	A caixa chegou molhada e amassada, quero devolver e receber outra em bom estado.
+E191	entrega	S	N	As entregas ao domingo têm uma taxa extra de mil kwanzas, mas chegam no mesmo dia.
+E192	entrega	N	S	Kota, a encomenda vai pelo candongueiro e o motorista entrega-lhe na paragem do Cazenga.
+E193	entrega	S	N	Encomendei dez garrafões de água e só deixaram oito, falta pagar ou falta entregar?
+E194	entrega	N	N	Pode avisar quando o carro sair do armazém, para eu descer e abrir o portão a tempo?
+E195	entrega	S	N	O primeiro envio chega amanhã e o segundo na quinta-feira, os dois para a mesma morada.
+E196	entrega	N	S	O muadiê da loja disse que entrega o fogão hoje, mas até agora nada, que maka.
+E197	entrega	S	N	A entrega expressa em duas horas custa mais dois mil e quinhentos, quer pedir assim?
+E198	entrega	N	N	Prefiro receber durante a semana, porque ao sábado vou ao mercado logo de manhã.
+E199	atendimento	N	S	Wakolapo? Mando esta mensagem para saber se a loja ainda tem aquele modelo de sandálias.
+E200	atendimento	N	N	Boa tarde, quero falar com uma pessoa, o assistente não está a perceber o que eu peço.
+E201	atendimento	S	N	Fiz o pagamento por referência há duas horas e ainda não recebi a confirmação da encomenda.
+E202	atendimento	N	S	Ndapandula pela ajuda, kota, depois volto a mandar mensagem para fechar o pedido.
+E203	atendimento	N	N	Não percebi a resposta anterior, pode explicar outra vez, de forma mais simples?
+E204	atendimento	S	N	Quero trocar o tamanho das calças, comprei o quarenta e afinal preciso do quarenta e dois.
+E205	atendimento	N	S	Mano, desculpa a demora, estava na kitanda e não consegui ouvir as mensagens.
+E206	atendimento	N	N	A factura veio com o nome errado, pode corrigir e mandar outra vez por aqui?
+E207	atendimento	S	N	Tenho duas encomendas em aberto, a de ontem e a de hoje, pode juntar tudo numa entrega só?
+E208	atendimento	N	S	Ngana, o produto chegou estragado, isso não se faz, quero o meu kumbu de volta.
+E209	atendimento	N	N	Boa tarde, estão a funcionar normalmente hoje, ou fecham mais cedo por causa do feriado?
+E210	atendimento	S	N	Mandei três mensagens e ninguém respondeu, preciso de uma resposta até ao fim do dia.
+E211	atendimento	N	S	Kamba, estás bom? Diz ao patrão que passo aí amanhã para acertar o mambo da encomenda.
+E212	atendimento	N	N	Gostava de deixar uma sugestão: podiam ter mais variedade de produtos para crianças.
+E213	atendimento	S	N	O código promocional de dez por cento não está a funcionar, pode verificar o que se passa?
+E214	atendimento	N	S	Muadiê, ainda há funje com kizaka no menu de hoje ao almoço, ou já acabou tudo?
+E215	atendimento	N	N	Por favor, não me mandem mais promoções, só quero receber mensagens das minhas encomendas.
+E216	atendimento	S	N	A loja aceita pagamento em duas vezes, uma agora e outra quando levantar o produto?
+E217	atendimento	N	S	Kota, não é preciso mandar o motoqueiro, o kandengue passa aí para buscar a encomenda.
+E218	atendimento	N	N	Pode repetir o preço e a morada da loja? A mensagem chegou cortada no meu telemóvel.
+E219	atendimento	S	N	Já sou cliente há cinco anos e é a primeira vez que tenho um problema com uma encomenda.
+E220	atendimento	N	S	Ngasakidila, muadiê, gostei muito do atendimento, vou recomendar a loja aos meus amigos.

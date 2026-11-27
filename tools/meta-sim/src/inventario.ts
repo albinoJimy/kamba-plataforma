@@ -440,14 +440,15 @@ export const INVENTARIO: readonly Entrada[] = [
   },
   {
     ficheiro: "tools/isolamento/tests/condutor/rotas.ts",
-    ocorrencias: 3,
+    ocorrencias: 2,
     razao:
       "os dois destinos do grupo `inscricao` do condutor de isolamento (gate 6, " +
       "KAM-066): o do caso de B, que e o atacado, e o de quem ataca. O modulo da " +
       "inscricao so aceita +244, pelo que um numero ficticio era recusado antes " +
       "de o caso de B existir — e sem caso de B os dez ataques nao atacam nada. " +
       "Nacionais a comecar por zero, como os das outras entradas desta lista. " +
-      "O terceiro e o caso de A do grupo `guia` (KAM-093), da mesma forma",
+      "O grupo `guia` (KAM-093) teve um terceiro ate ao KAM-254, que o passou " +
+      "a telefones aleatorios por corrida, porque corre sobre a base",
   },
   // --- O passo guiado do Embedded Signup (KAM-093) ------------------------
   //

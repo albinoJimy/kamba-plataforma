@@ -6,6 +6,7 @@
 | [`pip_lock.py`](pip_lock.py) | Gera `requirements/*.txt` com `--hash=sha256:` a partir dos `.in`, e verifica que o fecho está completo | Apenas biblioteca padrão |
 | [`healthz_check.py`](healthz_check.py) | Sonda `/healthz` de cada serviço e valida contra o contrato | `jsonschema` (de `requirements/tools.txt`) |
 | [`supply_chain/`](supply_chain/) | Imagens por *digest*, instalação só do *lockfile*, lista de saídas por serviço, registo de licenças por versão, quarentena do Renovate — e o canário que prova que cada uma morde (KAM-067; [`docs/supply-chain.md`](../docs/supply-chain.md)) | Apenas biblioteca padrão |
+| [`release/`](release/) | O caminho de *release* dos gates 14 a 18: `release.lock`, imagem (14), guarda do *smoke* (15), aprovação (16), *rolling* e reversão (17), *tag* e *lint* do *pipeline* (18). Não ligado a portão nenhum (KAM-078; [`docs/runbooks/deploy-e-reversao.md`](../docs/runbooks/deploy-e-reversao.md)) | Apenas biblioteca padrão |
 | [`borda/`](borda/) | A borda do *host* (KAM-077): a sonda de RTT por *handshake* TCP, o relatório p50/p95 que **recusa** sair sem 24 h medidas e a verificação que o recalcula das amostras; e a leitura das regras `nftables` do `host-base` contra uma lista fechada. Não tem regra própria em nenhum *gate*; a suite dela corre no gate 4, como todas as de `tools/` | Apenas biblioteca padrão |
 | [`blocklist.yaml`](blocklist.yaml) | A lista de bloqueio, com ADR e evidência por entrada | — |
 | [`conventions.json`](conventions.json) | As convenções do §5 do Engineering Standards, numa só definição | — |

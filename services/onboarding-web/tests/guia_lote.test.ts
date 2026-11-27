@@ -27,6 +27,8 @@ import {
   PassoGuiado,
   RevisaoEmMemoria,
   SQL_ABANDONAR_VENCIDOS,
+  SQL_PRESOS_SEM_REVISAO,
+  SQL_RECONCILIAR_META_ES,
   type GateDoEs,
   type MotivoDeFalha,
 } from "@kamba/core-ts/guia";
@@ -422,26 +424,76 @@ test("KAM-239: a volta do guia abandona como lote os popups vencidos há 30 minu
       passos.push("medir");
     },
   };
+  const abertas: string[] = [];
+  const revisao = {
+    abrir: async (id: string) => {
+      abertas.push(id);
+    },
+  };
   const ciclo = new CicloDoGuia({
     lote: {
       query: async (sql: string, parametros?: readonly unknown[]) => {
         instrucoes.push({ sql, parametros: parametros ?? [] });
-        return { rows: [{ onboarding_id: CASO }] };
+        return { rows: sql === SQL_ABANDONAR_VENCIDOS ? [{ onboarding_id: CASO }] : [] };
       },
     },
     lista,
+    revisao,
     relogio: () => agora,
   });
-  assert.deepEqual(await ciclo.correr(), { abandonados: 1, falhou: [] });
+  assert.deepEqual(await ciclo.correr(), { abandonados: 1, gatesReconciliados: 0, revisoesAbertas: 0, falhou: [] });
   assert.equal(instrucoes[0]?.sql, SQL_ABANDONAR_VENCIDOS);
   assert.deepEqual(instrucoes[0]?.parametros, [new Date("2026-11-22T09:30:00.000Z")]);
+  assert.deepEqual(
+    instrucoes.slice(1).map((i) => i.sql),
+    [SQL_RECONCILIAR_META_ES, SQL_PRESOS_SEM_REVISAO],
+    "a reconciliação corre depois do abandono",
+  );
   assert.deepEqual(passos, ["expirar", "promover", "medir"]);
+  assert.deepEqual(abertas, []);
   const partido = new CicloDoGuia({
     lote: { query: async () => Promise.reject(new Error("base em baixo")) },
     lista,
+    revisao,
     relogio: () => agora,
   });
   passos.length = 0;
-  assert.deepEqual(await partido.correr(), { abandonados: 0, falhou: ["abandono"] });
+  assert.deepEqual(await partido.correr(), {
+    abandonados: 0,
+    gatesReconciliados: 0,
+    revisoesAbertas: 0,
+    falhou: ["abandono", "reconciliacao"],
+  });
   assert.deepEqual(passos, ["expirar", "promover", "medir"]);
+});
+
+test("KAM-254: a volta reconcilia o meta_es e abre o es_falhado dos presos sem caso; uma abertura que falha não pára as outras", async () => {
+  const OUTRO = "00000000-0000-4000-8000-0000000000b2";
+  const abertas: string[] = [];
+  const ciclo = new CicloDoGuia({
+    lote: {
+      query: async (sql: string) => {
+        if (sql === SQL_RECONCILIAR_META_ES) return { rows: [{ onboarding_id: CASO }, { onboarding_id: OUTRO }] };
+        if (sql === SQL_PRESOS_SEM_REVISAO) return { rows: [{ onboarding_id: OUTRO }, { onboarding_id: CASO }] };
+        return { rows: [] };
+      },
+    },
+    lista: { expirarVencidos: async () => 0, promover: async () => 0, medir: async () => {} },
+    revisao: {
+      abrir: async (id: string, tipo: string, motivo: string) => {
+        assert.equal(tipo, "es_falhado");
+        assert.equal(motivo, "numero_divergente");
+        if (id === OUTRO) throw new Error("a fila recusou");
+        abertas.push(id);
+      },
+    },
+    relogio: () => new Date("2026-11-24T10:00:00.000Z"),
+  });
+  assert.deepEqual(await ciclo.correr(), {
+    abandonados: 0,
+    gatesReconciliados: 2,
+    revisoesAbertas: 1,
+    falhou: ["reconciliacao"],
+  });
+  assert.deepEqual(abertas, [CASO], "o segundo abre-se mesmo com o primeiro a falhar");
 });

@@ -601,7 +601,12 @@ REGRAS_OBRIGATORIAS = ("estado_contra_caixa",)
 #: `198 // 2` sao 99. Sobe para 99, que serve ate aos 199. Desde o KAM-258 o
 #: `tests/test_mutacao.py` fica vermelho se o literal do `mutacao.py` ou a frase
 #: «Dois pisos» do §4 de `docs/lint-bloco.md` nao disserem este numero.
-MINIMO_DE_BLOCOS_MEDIDOS = 99
+#:
+#: **O 200.o e o do KAM-254**, medido na arvore da integracao com a
+#: `publico/main` em `ee545cc9` (o KAM-256 ja fundido, com **199 medidos** na
+#: `main`): o bloco do KAM-254 ganha a verificacao. **200 medidos**, e
+#: `200 // 2` sao 100. Sobe para 100, que serve ate aos 201.
+MINIMO_DE_BLOCOS_MEDIDOS = 100
 
 #: Quantos blocos existem, no minimo. O mesmo argumento, para a camada de baixo:
 #: se o `ler_blocos` deixar de ver a populacao, o piso de cima podia continuar a

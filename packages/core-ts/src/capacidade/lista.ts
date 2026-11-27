@@ -13,7 +13,8 @@
  *     validarConvite    o convite da ligação ainda vale? Só lê
  *     recusar           o convite, com a sessão do próprio caso
  *     expirarVencidos   convite vencido ⇒ fim da fila uma vez; à segunda,
- *                       `abandonado` (critério 5)
+ *                       `abandonado` (critério 5). Um convite **por entregar**
+ *                       vai para o fim sem gastar tentativa (KAM-254)
  *     desistir          liberta a posição de imediato (critério 7)
  *     posicao           a posição e a estimativa rotulada (critério 6)
  *
@@ -145,13 +146,23 @@ export class ListaDeEspera implements CapacityGate {
     return new Date(agora.getTime() - JANELA_DE_ONBOARDINGS_DIAS * DIA_MS);
   }
 
+  /** O aviso chega ao dono? Ver o `AvisoDaLista.entrega`. */
+  get #entrega(): boolean {
+    return this.#d.aviso.entrega !== false;
+  }
+
   /**
    * Um convite vencido ou recusado. À primeira, o caso vai para o **fim** da
    * fila; à `EXPIRACOES_ATE_ABANDONO`-ésima, a entrada fica `expirado` e o caso
    * `abandonado` (critério 5). Devolve o estado em que ficou.
+   *
+   * **Um convite que não chegou ao dono não gasta tentativa** (KAM-254, decisão
+   * do fundador de 2026-11-24, A): vence às mesmas 48 h e o caso vai para o fim
+   * da fila, como o aviso que falha a sair — e nunca é abandonado por ele. Quem
+   * chama diz se gasta: a recusa e a desistência são do dono, que viu o convite.
    */
-  async #expirar(op: OperacoesDaLista, e: Entrada, agora: Date): Promise<"aguardando" | "expirado"> {
-    const tentativas = e.tentativas + 1;
+  async #expirar(op: OperacoesDaLista, e: Entrada, agora: Date, gasta = true): Promise<"aguardando" | "expirado"> {
+    const tentativas = gasta ? e.tentativas + 1 : e.tentativas;
     if (tentativas >= EXPIRACOES_ATE_ABANDONO) {
       await op.transitar(e.onboardingId, "convidado", "expirado", {
         tentativas,
@@ -210,7 +221,7 @@ export class ListaDeEspera implements CapacityGate {
           }
           // A recusa lança-se **depois** do `COMMIT`: lançada aqui, desfazia a
           // expiração e o abandono que acabaram de se escrever.
-          if ((await this.#expirar(op, e, agora)) === "expirado") return "expirou";
+          if ((await this.#expirar(op, e, agora, this.#entrega)) === "expirado") return "expirou";
           break;
         case "desistiu":
           // **Novo pedido, sem refazer o KYC enquanto ele valer** (critério 7).
@@ -263,7 +274,8 @@ export class ListaDeEspera implements CapacityGate {
 
   /**
    * Convida a cabeça enquanto houver vaga. **O critério 4.** Devolve quantos
-   * convites saíram com aviso entregue.
+   * convites saíram com aviso entregue: com uma porta sem via, nenhum — o
+   * convite fica, e conta-se `por_entregar` (KAM-254).
    */
   async promover(): Promise<number> {
     const agora = this.#agora();
@@ -304,9 +316,14 @@ export class ListaDeEspera implements CapacityGate {
       const ligacao = `${this.#d.origem}/ligar?convite=${n.convite}`;
       try {
         await this.#d.aviso.convidar(n.onboardingId, ligacao, n.expiraEm);
-        this.#d.metricas?.convite("enviado");
-        avisados += 1;
+        if (this.#entrega) {
+          this.#d.metricas?.convite("enviado");
+          avisados += 1;
+        } else {
+          this.#d.metricas?.convite("por_entregar");
+        }
       } catch (erro) {
+        this.#d.metricas?.convite("por_entregar");
         // Ver a nota do módulo: o convite desfaz-se, o caso vai para o fim, e
         // não gasta tentativa.
         await this.#d.repositorio.emTransaccao(async (op) => {
@@ -379,7 +396,7 @@ export class ListaDeEspera implements CapacityGate {
       for (const id of await op.vencidos(agora)) {
         const e = await op.entrada(id);
         if (e === null || e.estado !== "convidado") continue;
-        await this.#expirar(op, e, agora);
+        await this.#expirar(op, e, agora, this.#entrega);
         feitos += 1;
       }
       return feitos;

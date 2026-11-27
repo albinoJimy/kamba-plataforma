@@ -4,7 +4,7 @@
 |---|---|
 | Produto | KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para Angola |
 | Documento | Epic — Onboarding e Governação |
-| Versão | 1.49 |
+| Versão | 1.50 |
 | Data | Outubro de 2026 |
 | Classificação | Documento de Referência — Interno |
 | Documento-fonte | `../docs/tecnica/10_Onboarding_Governanca.md`, `../docs/tecnica/00_Arquitectura_Solucao.md` (ADR-019) |
@@ -4978,14 +4978,19 @@ critério 3 espera o agregador de SMS do **KAM-116**; os três pontos abaixo sã
 **KAM-254**, aberto neste PR.
 - *As rotas do guia na bateria X-01 sobre os adaptadores SQL* (Testes Requeridos): o grupo `guia` do condutor
   continua sobre o `GuiaEmMemoria`. O isolamento do estado na base mede-se no ensaio de esquema e no ensaio
-  contra a base, e não no X-01. Credor: **KAM-254**.
+  contra a base, e não no X-01. Credor: **KAM-254**. **Revisto pelo KAM-254: feito.** O grupo `guia` monta as
+  doze rotas sobre a base e o lote real, e a evidência está na secção de verificação do KAM-254.
 - *Os efeitos remotos sem atomicidade* (achado 3 da revisão adversarial, plausível): o `PassoGuiado` grava a
   transição na base e só depois chama o lote para o *gate* e a fila. Com o lote em baixo nesse instante, um
   guia preso por número divergente fica sem `review_case`. É latente: os sinais da Meta não têm consumidor
-  ligado, e quem o ligar tem de repetir o sinal que falhar. Credor: **KAM-254**.
+  ligado, e quem o ligar tem de repetir o sinal que falhar. Credor: **KAM-254**. **Revisto pelo KAM-254: feito.**
+  O lote reconcilia a partir do estado do guia, a cada volta: o `meta_es` e o `es_falhado` chegam à base quando
+  o lote volta, e já não é preciso repetir o sinal.
 - *O convite da lista sem via* (achado 6): o lote convida, e o aviso não chega a ninguém (o SMS é do KAM-116,
   o canal do KAM-115). Um dono que não volte à página em duas janelas de 48 h perde o caso. Hoje não morde: o
-  `onboarding-web` recusa `prod` pelo SMS, e a fila de `prod` está vazia. Credor: **KAM-254**.
+  `onboarding-web` recusa `prod` pelo SMS, e a fila de `prod` está vazia. Credor: **KAM-254**. **Revisto pelo
+  KAM-254: feito.** Um convite por entregar vence às 48 h sem gastar tentativa e manda o caso para o fim da fila
+  (decisão do fundador de 2026-11-24, A), e conta-se `por_entregar`. O aviso continua sem via até ao KAM-116.
 
 **Medido nesta máquina:** o *typecheck* do `core-ts` (`tsconfig.json` e `tsconfig.tests.json`) e do
 `onboarding-web`; o `node --test` do guia e do lote no serviço (81) e do guia no `core-ts` (64); o *gate* 8
@@ -5458,13 +5463,13 @@ não saiu, e que as rotas do guia se meçam no X-01 sobre a base.
 
 ### Critérios de Aceitação
 
-- [ ] Uma transição do guia que pede ao lote um *gate* ou a abertura na fila de revisão chega à base mesmo
+- [x] Uma transição do guia que pede ao lote um *gate* ou a abertura na fila de revisão chega à base mesmo
   que o lote esteja em baixo no instante: o pedido repete-se, de forma idempotente, ou o lote reconcilia a
   partir do estado do guia. Há um ensaio com o lote em baixo.
-- [ ] Um convite da lista que não chegou ao dono, por não haver via ou por a via falhar, não conta para o
+- [x] Um convite da lista que não chegou ao dono, por não haver via ou por a via falhar, não conta para o
   abandono, e cada convite por entregar vê-se numa métrica. Se isto mudar a regra das 48 h do KAM-095, a
   mudança é decisão do fundador, registada no bloco com data e autor.
-- [ ] O grupo `guia` do condutor do X-01 monta as rotas do guia sobre os adaptadores SQL (`guiaNaBase`, e a
+- [x] O grupo `guia` do condutor do X-01 monta as rotas do guia sobre os adaptadores SQL (`guiaNaBase`, e a
   lista, os *gates* e a fila pelo lote), contra a base, com zero achados.
 
 ### Detalhes Técnicos
@@ -5474,6 +5479,26 @@ não saiu, e que as rotas do guia se meçam no X-01 sobre a base.
 - A rota interna do KAM-239 tem só as oito operações fechadas. Uma operação nova é uma alteração ao custo que
   o fundador aceitou, e leva-se à coordenação antes de a escrever.
 
+### Decisões do fundador
+
+**Data: 2026-11-24. Autor: o fundador** (respondida no chat da coordenação, e trazida por ela).
+
+| # | Pergunta | Escolha | Recusadas |
+|---|---|---|---|
+| D1 | O que faz um convite da lista que não chegou ao dono quando vence às 48 h | **A**: vence sem gastar tentativa, e o caso vai para o fim da fila, como o KAM-095 já faz ao aviso que falha a sair. As 48 h não mudam, e o «à segunda, `abandonado`» continua a valer para os convites entregues | B, vencer e ficar no mesmo lugar (sem via, uma cabeça que não volta à página prendia uma vaga para sempre); C, o convite por entregar não vencer (mudava a regra das 48 h) |
+
+### Decisões da coordenação
+
+**Data: 2026-11-24. Autor: a coordenação do lote 22.** Reversível, sem esquema nem canon novo.
+
+| # | Pergunta | Escolha | Recusadas |
+|---|---|---|---|
+| C1 | Onde vive a marca «por entregar» | **A**: no processo. A porta do aviso declara se entrega (`AvisoDaLista.entrega`; o `AvisoDaListaSemVia` não entrega), e a métrica é o desfecho novo `por_entregar` do `es_lista_espera_convites_total`. **O limite, à letra:** um convite emitido sem via que vença depois do *deploy* da via do KAM-116 conta como entregue; a janela é de 48 h depois desse *deploy* | B, uma coluna `convite_entregue_at` na `waitlist_entry` (exacta por convite, mas custa uma revisão e a emenda do esquema) |
+
+**E o critério 1, escolhido dentro da letra** (que dá as duas formas), sem objecção da coordenação: o lote
+**reconcilia a partir do estado do guia**, na volta do `CicloDoGuia`, sem operação nova na rota interna e
+sem esquema. O `meta_pagamento` fica fora: escreve-se antes de qualquer transição, e o dono repete o pedido.
+
 ### Testes Requeridos
 
 - Integração: contra a base, uma transição com o lote em baixo chega ao `review_case` e ao `onboarding_gate`
@@ -5482,7 +5507,56 @@ não saiu, e que as rotas do guia se meçam no X-01 sobre a base.
 
 ### Definition of Done
 
-- [ ] Critérios de Aceitação satisfeitos; os três pendentes do bloco do KAM-239 revistos com a evidência.
+- [x] Critérios de Aceitação satisfeitos; os três pendentes do bloco do KAM-239 revistos com a evidência.
+
+### Verificação dos Critérios de Aceitação
+
+Entregue neste ramo, sem esquema:
+- a reconciliação na volta do lote ([`../packages/core-ts/src/guia/sql.ts`](../packages/core-ts/src/guia/sql.ts):
+  `SQL_RECONCILIAR_META_ES`, `SQL_PRESOS_SEM_REVISAO`, e o `CicloDoGuia` de
+  [`../services/onboarding-web/src/lote/interno.ts`](../services/onboarding-web/src/lote/interno.ts));
+- o convite por entregar ([`../packages/core-ts/src/capacidade/lista.ts`](../packages/core-ts/src/capacidade/lista.ts),
+  a porta `AvisoDaLista.entrega` e o desfecho `por_entregar` das métricas da lista);
+- o grupo `guia` do condutor do X-01 sobre a base ([`../tools/isolamento/tests/condutor/rotas.ts`](../tools/isolamento/tests/condutor/rotas.ts)),
+  com a credencial do lote só para esse grupo;
+- a emenda 1.151 do dicionário.
+
+| Critério | Estado | Evidência |
+|---|---|---|
+| 1 — a transição que pede ao lote um *gate* ou a fila chega à base mesmo com o lote em baixo, com ensaio | **satisfeito** | **O lote reconcilia a partir do estado do guia**, a cada volta. O `meta_es` segue o estado: `verificado` e `pronto` verde, `falhado` com o motivo, `desligado` vermelho, e um verde fora desses dois estados passa a vermelho (`guia_nao_verificado`). O guia é trancado para partilha, e ficam fora os casos mortos e os tenants encerrados. Um guia preso por número divergente sem caso `es_falhado` do guia criado depois de o número ser ligado ganha-o pela mesma porta, que é idempotente. Contra a base, pelo `arrancar` real (`packages/core-ts/tests_bd/guia.bd.test.ts`, no `tests_lote`): com o lote em baixo, o número divergente, o desligado e o verificado deixam o guia na base e nada no gate nem na fila; quando o lote volta, uma volta põe os três gates certos e abre um `es_falhado`, e a segunda volta não abre nada (`…chega ao onboarding_gate e ao review_case quando o lote volta`). A transição por confirmar faz esperar a reconciliação, que escreve o gate do estado que ganhou (`…escreve o gate do estado que ganhou`). Um caso decidido não se reabre, o `es_falhado` do teste ponta a ponta não tapa a prisão, o verde velho passa a vermelho, e o caso cancelado, o tenant encerrado e o preso rejeitado ficam de fora (`…não toca nos mortos`). Unitário: `services/onboarding-web/tests/guia_lote.test.ts` |
+| 2 — um convite que não chegou ao dono não conta para o abandono, e vê-se numa métrica; a regra das 48 h, se mudar, é do fundador | **satisfeito** | A regra das 48 h **não muda** (decisão do fundador de 2026-11-24, D1-A, acima). Com uma porta que não entrega (o `AvisoDaListaSemVia`, `entrega: false`), o convite fica vivo e conta-se `por_entregar` em vez de `enviado`; ao vencer, o caso vai para o fim da fila **sem gastar tentativa**, pelos três caminhos da expiração (a volta, a reserva com o convite vencido e o `expirarVencidos`). A recusa e a desistência continuam a gastar, porque são do dono, que viu o convite. O aviso que falha a sair também se conta `por_entregar`. Unitário (`packages/core-ts/tests/capacidade.test.ts`): quatro voltas de 48 h sem nenhum caso abandonado nem tentativa gasta, a reserva com o convite vencido, a recusa que gasta e a contagem dos dois desfechos. Contra a base, com o lote real e o aviso sem via: o convite vence duas vezes, e o caso continua `aguarda_es` com zero tentativas (`…não abandona o caso nem gasta tentativa`). **O limite da decisão C1-A**, à letra: um convite emitido sem via que vença depois do *deploy* da via do KAM-116 conta como entregue, numa janela de 48 h |
+| 3 — o grupo `guia` do X-01 sobre os adaptadores SQL, contra a base, com zero achados | **satisfeito** | O grupo monta as doze rotas do guia com os casos (`casosNaBase`) e o guia (`guiaNaBase`) como `kamba_app`, e a lista, os *gates* e a fila pela rota interna do processo de lote **real** (`arrancar`), como `kamba_batch`: a montagem de `prod`. B tem estado na base (o pré-voo), o canário no nome do negócio, e fica **à espera na lista com posição**: o condutor enche as vagas com casos de ensaio antes de B pedir, porque a base do gate não tem o limite a zero da montagem em memória. Sem base, as doze saem com `executado: false`, e a bateria conta isso como achado. A credencial do lote só vai para o ambiente deste grupo. **O X-01/ts/guia e o X-01/ts/guia-interno correm verdes contra a base do *gate* 6, com zero achados** (o condutor do guia em 50 s; os dois casos, num corredor focado do `test_casos_cruzados` sobre uma base descartável). O *gate* 6 inteiro (`db/tests_isolamento`, **83** ensaios) também fica verde |
+
+### Verificação da Definition of Done
+
+| DoD | Estado | Evidência |
+|---|---|---|
+| Critérios satisfeitos; os três pendentes do bloco do KAM-239 revistos com a evidência | **satisfeito** | Três de três. As três linhas de «o que fica por fazer» do bloco do KAM-239 foram revistas com a evidência deste ticket |
+
+**A revisão adversarial** (um subagente que não viu o raciocínio desta entrega) levantou **oito** achados, e
+todos foram tratados:
+- **Seis confirmados e corrigidos, cada um com ensaio:**
+  - A reconciliação voltava a inserir na `onboarding_gate` o que a purga do encerramento apagou.
+  - Um verde perdido não voltava a vermelho se o guia seguisse antes da volta. Isto já é alcançável pela religação do KAM-207.
+  - O `es_falhado` do teste ponta a ponta (`smoke:…`) tapava a prisão.
+  - Um preso de um caso rejeitado falhava em todas as voltas e podia esfomear os outros.
+  - No X-01, B tinha deixado de estar à espera na lista.
+  - A credencial do lote ia para todos os grupos do condutor.
+- **Os ensaios fracos foram reforçados.** O nome do ensaio da tranca dizia a ordem ao contrário, e mutações sobreviviam no `NOT EXISTS` e nos filtros do preso.
+- **A prosa foi corrigida.** O caso «aberto» passou a «aberto ou decidido», e a taxa de aceites do dicionário passou a contar o `por_entregar`.
+- **Fica dito, e não corrigido, que a estimativa da posição fica optimista.** Com a porta sem via, um caso que nunca volta à página roda na fila, e o `estimar` continua a supor duas expirações por caso à frente. É consequência da decisão D1-A.
+
+**Medido nesta máquina:**
+- O *build* do `core-ts` e os dois *typecheck* (o `core-ts` com os ensaios, e o `onboarding-web`).
+- O `node --test` do `core-ts` inteiro antes dos achados da revisão: **3665**, nenhum a falhar; depois deles, os da lista e do guia (**94**).
+- O do `onboarding-web` inteiro, na árvore integrada com a `main` em `e17b72d4`: **320**, nenhum a falhar. Numa corrida anterior, um ensaio de arranque do KAM-243 (o STO em `staging`) esgotou os 120 s com a máquina carregada; sozinho, passa (13 de 13).
+- O `tests_lote` focado no guia (`guia.bd.test.ts`, os sete ensaios, com os quatro obrigatórios do KAM-254 pelo nome).
+- O *gate* 6 inteiro (`db/tests_isolamento`), por um corredor sem o limite de 900 s do `gate_bd.py`: pela via normal, o passo dos casos de Node não acabou nos 900 s com a máquina carregada. **83 ensaios, verdes**, com os onze grupos do condutor de Node.
+- O X-01 do guia focado: verde em 50 s. **Duas corridas antes desta passaram do tecto de 150 s da ponte**, com a máquina carregada; o grupo em si leva 1,6 s, e o resto é o arranque do Node sobre a montagem do Windows.
+- As suites de `tools/isolamento` (**121**) e do `lint_bloco`.
+- Os três comandos do *gate* 3b e os linters documentais.
+
+**Fica para o CI:** o *gate* 8 completo e as mutações. As mutações desta entrega não se correram aqui: o que mata cada uma é o ensaio nomeado acima, e só a corrida no CI o mede.
 
 ### Handoff para Claude Code
 
@@ -5586,3 +5660,4 @@ Regras: o onboarding-web não ganha kamba_batch (D2-A do KAM-236); a rota intern
 | 1.47 | Novembro 2026 | **KAM-240** (escrita como 1.42 e renumerada na integração, depois do KAM-225, do KAM-233, do KAM-208, do KAM-209 e do KAM-245): a idempotência do `PATCH /painel/produtos/:id` na base (revisão `0089`). A forma da tranca (a linha, sem prazo) e a **decisão da coordenação do lote 19** de 2026-11-22 sobre a retenção (C1-A: 24 h, purga a 25 h como lote) no bloco, e as duas secções de verificação. A alínea (c) do critério 1 do KAM-236 revista com a evidência; a caixa dele continua vazia pelas alíneas (a) e (b). Número **provisório**: renumera-se na integração. | Equipa KAMBÁ |
 | 1.48 | Novembro 2026 | **KAM-239** (escrita como 1.42 e renumerada na integração, depois do KAM-225, do KAM-233, do KAM-208, do KAM-209, do KAM-245 e do KAM-240): a decisão do fundador de 2026-11-22 registada no bloco (A: a rota interna `/interno/guia/*` no `onboarding-lote`, com a credencial `onboarding_lote_token`; recusadas a tabela de pedidos e o evento) e a da coordenação do lote 19 (C1-A: o *alias* `onboarding-lote-interno` só na rede `app`, com o linter do compose a ler as redes em mapa), e as duas secções de verificação: critérios 1 e 2 satisfeitos, o 3 parcial pelo SMS do KAM-116. A alínea (a) do critério 1 do KAM-236 revista. **KAM-254 acrescentado**, no mesmo PR, que o abre e não o implementa, pela decisão da coordenação do lote 19 de 2026-11-24 (cada parcial aponta para quem o fecha): os efeitos remotos sem atomicidade, o convite da lista sem via e o X-01 das rotas do guia sobre a base; o critério 3 aponta ao KAM-116. | Equipa KAMBÁ |
 | 1.49 | Novembro 2026 | **KAM-253 entregue: a re-análise que bloqueia um publicado tira-o do catálogo visível.** Número provisório: renumera-se na integração. Sem migração e sem contrato novo. A **decisão do fundador de 2026-11-24** (A: despublica, como o `screen`; recusadas B e C) fica no bloco, com as decisões do executor e as duas secções de verificação: três critérios de três e a caixa da DoD marcados. O critério 4 do KAM-191 e a linha 4 da verificação dele ficam emendados na metade «nem despublicar», com a mesma data e o mesmo autor. A tranca, a saída de publicado e a categoria do tenant mudam do COM para o `packages/core-ts/src/screening/`, e servem os dois caminhos. Emenda 1.150 do dicionário (§3.58); no EPIC-11, a assimetria do bloco do KAM-245 fica revista. | Equipa KAMBÁ |
+| 1.50 | Novembro 2026 | **KAM-254**: a decisão do fundador de 2026-11-24 registada no bloco (D1-A: um convite por entregar vence às 48 h sem gastar tentativa e manda o caso para o fim da fila; recusadas o mesmo lugar e o convite sem prazo) e a da coordenação do lote 22 do mesmo dia (C1-A: a marca «por entregar» é do processo, com o desfecho `por_entregar` na métrica, e o limite escrito à letra), e as duas secções de verificação: os três critérios satisfeitos. Os três pendentes do bloco do KAM-239 revistos com a evidência. Escrita como 1.49 e renumerada na integração, depois do KAM-253. | Equipa KAMBÁ |
