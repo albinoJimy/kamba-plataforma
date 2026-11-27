@@ -31,6 +31,40 @@ propriedade medida em vez de uma intenção — ver
 É também a razão pela qual `tofu init -backend=false` e `tofu validate` **correm
 sem rede** nesta árvore: sem bloco `provider` não há nada para descarregar.
 
+## Os candidatos da D1, e o que cada um teria de trazer
+
+A D1 escolhe entre os candidatos que o bloco do KAM-077 e o doc 09 §5.2 nomeiam.
+**Esta tabela não escolhe nem ordena**: diz o nome que o módulo teria e o que
+falta saber para o escrever. **Sem preços**, porque não há nenhum: o KAM-105
+pediu **0** cotações
+([`../../docs/tecnica/evidencia/validacao/Alojamento_Cotacoes.md`](../../docs/tecnica/evidencia/validacao/Alojamento_Cotacoes.md)).
+
+| Candidato | Região | Existência (doc 09 §5.2, com o estado de lá) | Módulo que nasceria | *Provider* OpenTofu, API ou só consola? |
+|---|---|---|---|---|
+| Raxio | Luanda | Tier III inaugurado 2025-10-02 — **CONFIRMADO** | `provider-raxio/` | **NÃO VERIFICADO** |
+| Paratus | Luanda | **INDÍCIO** | `provider-paratus/` | **NÃO VERIFICADO** |
+| Angola Cables | Luanda (Luanda-02) | **INDÍCIO** | `provider-angola-cables/` | **NÃO VERIFICADO** |
+| Cloud Nacional | Luanda (Camama) | 2026-04-28, dados do Estado, serviços a privados — **CONFIRMADO/INDÍCIO** | `provider-cloud-nacional/` | **NÃO VERIFICADO** |
+| Hiperescalador em JNB/CPT | Joanesburgo ou Cidade do Cabo | Maduro | `provider-<nome>/` | Existe para os hiperescaladores — **INDÍCIO**, por versão e *hash* a fixar no dia |
+
+O modelo de Luanda é *colocation* e IaaS, com Postgres e objectos geridos
+**NÃO VERIFICADO** (doc 09 §5.2); o de JNB/CPT é IaaS com serviços geridos.
+
+**A coluna do meio é a pergunta que mais custa se ficar para o fim.** Um
+fornecedor de Luanda sem API nem *provider* deixa a costura com um módulo que
+não cria nada — o *host* faz-se à mão na consola, e a portabilidade passa a
+ser do `host-base` (o cloud-init é o mesmo em qualquer *host*) e não do
+`apply`. Não deixa de ser portável; deixa de ser automático. Pergunta-se no
+pedido de cotação, e não depois do contrato.
+
+**O que qualquer `provider-<nome>` tem de trazer além das saídas da interface**
+(preparação do KAM-077): um grupo de segurança, se o fornecedor o tiver, com
+**só** 443/tcp e a porta UDP do WireGuard (`porta_wireguard` do `host-base`) —
+como **reforço** das regras `nftables` do `host-base`, nunca como a única
+barreira (`../PORTABILIDADE.md` classe 3). É também ele que fecha a janela do
+primeiro arranque, em que a porta 22 está como a imagem a deixou até o
+cloud-init chegar ao `runcmd`.
+
 ## Quando a D1 fechar
 
 1. Cria-se `infra/modules/provider-<nome>/` com as **mesmas** variáveis e as

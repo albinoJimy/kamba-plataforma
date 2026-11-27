@@ -3,7 +3,7 @@
 | Campo | Valor |
 |---|---|
 | Documento | Infraestrutura — checklist de portabilidade |
-| Versão | 1.0 |
+| Versão | 1.1 |
 | Data | Novembro de 2026 |
 | Classificação | Documento de Referência — Interno |
 | Ticket | KAM-075 (EPIC-08), critério 6 |
@@ -41,7 +41,7 @@ tiver a forma portátil.
 |---|---|---|---|---|---|
 | 1 | **Compute** | O *host* do Compose reduzido (doc 09 §4.4: 8 vCPU/32 GB em `prod`, 4/16 em `staging`) | VM ou *bare metal* com imagem Linux e cloud-init | Instalação manual pelo procedimento de `README.md` §5 (mais lenta, mesmo resultado) | **Não** |
 | 2 | **Disco de blocos** | O volume do Postgres e do WAL (NVMe ≥ 200 GB) | Disco anexo, montado por **etiqueta** de sistema de ficheiros e não por nome de dispositivo | Disco local do *host* | **Não** |
-| 3 | **Rede e firewall** | Só 443 e a porta UDP do WireGuard abertas (doc 09 §3.2 regra 5) | Regras de *firewall* do *host* (`nftables`), aplicadas pelo próprio *host* | `nftables` é o caminho por omissão; um grupo de segurança do fornecedor é um reforço, nunca a única barreira. **Não entregue aqui: é o KAM-077** — ver §3.1 | **Não** |
+| 3 | **Rede e firewall** | Só 443 e a porta UDP do WireGuard abertas (doc 09 §3.2 regra 5) | Regras de *firewall* do *host* (`nftables`), aplicadas pelo próprio *host* | `nftables` é o caminho por omissão; um grupo de segurança do fornecedor é um reforço, nunca a única barreira. **Escrita pela preparação do KAM-077 e nunca aplicada num *host*** — ver §3.1 | **Não** |
 | 4 | **DNS** | O passo «DNS» do orçamento de RTO, com TTL baixo (*proposta*: 300 s) | Zona com registos A/AAAA e TTL configurável — o que qualquer servidor de DNS faz | Qualquer operador de DNS; a zona é um ficheiro | **Não** |
 | 5 | **Identidade para o CI** | Autenticação sem chave estática (ADR-L007 §4a) | OIDC do GitHub trocado por credenciais de curta duração | **Nenhum equivalente portátil.** Ver §3.2 | **Não, mas ver §3.2** |
 | 6 | **Armazenamento de objectos** | Imagens de catálogo e anexos | API compatível com S3, atrás da porta `StorageProvider` | SeaweedFS no próprio *host* (`compose/docker-compose.storage.yml`) — já existe e já corre | **Não** |
@@ -52,24 +52,49 @@ tiver a forma portátil.
 de um serviço gerido de um fornecedor específico. Sete têm equivalente escrito;
 a oitava é de outro ticket.
 
-**E duas das sete têm o equivalente escrito e não entregue**, o que é diferente
-de o ter: a classe 3 (ver §3.1) e a classe 5 (ver §3.2).
+**E duas das sete não fecham**, por razões diferentes: a classe 3 tem a forma
+portátil escrita e **nunca medida num *host*** (ver §3.1), e a classe 5 não tem
+equivalente portátil nenhum (ver §3.2).
 
 ---
 
 ## 3. As linhas que não fecham
 
-### 3.1 A classe 3 tem forma portátil escrita e **não implementada**
+### 3.1 A classe 3 tem forma portátil escrita, e **nunca medida num *host***
 
-A coluna «forma portátil» da classe 3 diz `nftables` no próprio *host*. **Não há
-uma linha de `nftables` em `infra/`**, e nada neste ticket fecha a porta 22 nem
-toca no `sshd`. A revisão adversarial mediu-o:
-`grep -rniE "nftables|iptables|ufw|firewall|sshd|port 22" infra/` devolve **uma
-única** linha, que é a desta tabela.
+A coluna «forma portátil» da classe 3 diz `nftables` no próprio *host*.
 
-Isto não é um furo a tapar aqui: as regras de *firewall* e o ***scan* externo
-que as prova** são critérios do **KAM-077**, que é quem tem o *edge*. O que
-mudou com a revisão foi a honestidade do registo — o `/etc/kamba/LEIA-ME` que o
+**Desde a preparação do KAM-077 (2026-11-25) as regras existem**, no
+`modules/host-base/cloud-init.yaml.tftpl`: `/etc/kamba/firewall.nft`, uma
+tabela `inet kamba_host` com a cadeia `input` em `policy drop`, aberta ao mundo
+só na porta UDP do WireGuard (e às respostas DHCPv6 da ligação local), com o
+SSH só pelo `wg0` — carregada por um serviço próprio, `kamba-firewall`, no
+primeiro passo do `runcmd`, que pára o arranque se a tabela não ficar
+carregada. O 443 não está nelas: chega aos contentores pelo `forward`, que é do
+Docker, e a metade «só 443» é a regra `porta-publicada` do `compose_prod`. As
+propriedades verifica-as o `tools/borda/firewall.py` contra uma **lista
+fechada** das regras que aceitam (suite `tools/borda/tests`, com um caso por
+propriedade partida e os oito casos da revisão adversarial que a primeira
+versão deixava passar); a sintaxe aceitou-a o `nft -c` do `nftables` 1.1.3
+(Debian 13) e 1.0.9 (Ubuntu 24.04), em contentor, e duas cargas seguidas
+deixaram intacta uma tabela alheia — a forma das do Docker.
+
+**Continua a não fechar**, e por quatro razões que não são de escrita: (1) nunca
+correu num *host*, e o ***scan* externo que as prova** é critério do KAM-077
+depois da D1; (2) no **primeiro** arranque a porta 22 fica como a imagem a
+deixou até o cloud-init chegar ao `runcmd`, e fechar essa janela é do grupo de
+segurança do `provider-<nome>` (`modules/README.md`); (3) nada aqui toca no
+`sshd`; (4) **hoje o *host* fica sem SSH nenhum** — o SSH só entra pelo `wg0`,
+e o `wg0` desta árvore não tem nenhum `[Peer]` e não sobe sem a CLI do cofre
+(KAM-010), pelo que a única entrada é a consola do fornecedor. Antes destas
+regras respondia na 22 à chave que o fornecedor injecta, que é o que o critério
+4 do KAM-077 proíbe; quem abre o caminho certo são os pares e a CLI do cofre.
+
+**O registo de antes, que ficou verdadeiro até essa data:** «não há uma linha de
+`nftables` em `infra/`» — a revisão adversarial do KAM-075 mediu-o, com
+`grep -rniE "nftables|iptables|ufw|firewall|sshd|port 22" infra/` a devolver
+**uma única** linha, a desta tabela. O que
+mudou com essa revisão foi a honestidade do registo — o `/etc/kamba/LEIA-ME` que o
 *host* escreve dizia «Acesso: só por WireGuard», que era uma **afirmação sem
 mecanismo**, e passou a dizer o que o *host* não faz e de quem é. Vale notar a
 consequência que estava escondida: o `users: [default, …]` do cloud-init mantém
@@ -115,3 +140,4 @@ a D1 escolher.
 | Versão | Data | Alteração | Autor |
 |---|---|---|---|
 | 1.0 | Novembro de 2026 | Emissão inicial, KAM-075. Oito classes de recurso com forma portátil e equivalente documentado; contagem de recursos geridos proprietários a **0**, com a distinção escrita entre o zero de um conjunto vazio e o zero mantido pela regra verificada por máquina (§1). A linha 5 (identidade federada para o CI) fica **sem** equivalente portátil e é devolvida como critério de aceitação da D1 (§3.2). O que esta página não prova, com estado, em §4. **Depois da revisão adversarial:** a §3.1 passa a registar que a forma portátil da classe 3 (`nftables`) está escrita e **não implementada** — é do KAM-077 —, e que o `users: default` do cloud-init mantém o utilizador por omissão da imagem do fornecedor, com a chave que ele injecta. A afirmação «Acesso: só por WireGuard» que o *host* escrevia era afirmação sem mecanismo, e foi corrigida no próprio `LEIA-ME`. | Equipa KAMBÁ |
+| 1.1 | Novembro de 2026 | Preparação do KAM-077 (lote 24): a classe 3 passa de «escrita e não implementada» a «escrita e **nunca medida num *host***». As regras `nftables` vivem no cloud-init do `host-base`, verificadas pelo `tools/borda/firewall.py` e aceites pelo `nft -c`; a §3.1 diz o que continua a não fechar — o *scan* externo, a janela do primeiro arranque, o `sshd` e o SSH que hoje não existe — e guarda o registo de antes. Depois da revisão adversarial: a verificação passa a lista fechada, o passo da *firewall* falha fechado, o DHCPv4 sai e o DHCPv6 fica só na ligação local, e a §3.1 ganha a quarta razão — hoje o *host* fica sem SSH. A contagem de recursos geridos proprietários não muda: **0**. | Coordenação do lote 24 |
