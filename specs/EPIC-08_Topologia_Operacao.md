@@ -2565,6 +2565,222 @@ Levar ao fundador as opções, com prós e contras, para que decida antes de o r
 - [ ] Critérios satisfeitos, com a decisão do fundador registada.
 - [ ] O pacote do revisor (`../docs/seguranca/revisao_independente/escopo.md`) aponta a decisão.
 
+### Opções para o fundador
+
+Escritas a 2026-11-27 sobre a `publico/main` em `b81c439c`, para o fundador decidir. **Nenhuma
+está escolhida.** Descrevem propriedades a ter, não a forma de as pôr à prova. O que fica por
+endurecer no portão é do KAM-261 (a L-35 do espelho privado) e não entra aqui.
+
+**De onde se parte.** São factos lidos nos ficheiros. Nenhum foi medido num *host*, porque
+nenhum existe (o KAM-077 é o primeiro):
+
+- **A conta.** A conta `breakglass` não tem grupos, nem `sudo` nem `docker`. O único `sudo` dela
+  é o do próprio portão, sem argumentos variáveis
+  ([`../infra/modules/host-base/cloud-init.yaml.tftpl`](../infra/modules/host-base/cloud-init.yaml.tftpl),
+  secção 5). O mesmo ficheiro lembra que estar no grupo `docker` é ser root por outro nome.
+- **O acesso por ambiente.**
+  - Em `prod` a lista de chaves de administração está vazia
+    ([`../infra/envs/prod/main.tf`](../infra/envs/prod/main.tf)), e o *break-glass* é o único
+    acesso humano previsto.
+  - Em `staging` a equipa entra pela conta de administração.
+  - O acesso de excepção é **o mesmo nos dois** ([`../infra/ENVIRONMENTS.md`](../infra/ENVIRONMENTS.md)
+    §2.0). Foi essa igualdade que deixou o `acesso.modo` de `staging` como estava.
+- **O revisor.** O critério 2 do KAM-259, satisfeito, faz passar quem não é da equipa (o revisor
+  do KAM-074) pelo caminho auditado. Dar-lhe acesso por outra via reabre esse critério.
+- **O que fica escrito.**
+  - Cada sessão deixa hoje duas linhas no `audit_log`, `breakglass.open` e `breakglass.close`.
+  - Em claro vão o actor (a impressão digital da chave), o ambiente e o *host*. A sessão, a
+    razão e o prazo entram só pelo `payload_hash`, que é um resumo e não se lê sem o original.
+  - O que se faz dentro da sessão não fica registado em lado nenhum.
+- **A falha fechada.** A sessão só abre depois de a base aceitar a linha de abertura. Com a base
+  em baixo, nenhuma das opções abaixo abre sessão.
+- **O que o doc 08 pede.** O
+  [`../docs/tecnica/08_Seguranca_Conformidade.md`](../docs/tecnica/08_Seguranca_Conformidade.md)
+  §6 pede, para o *break-glass*, o registo de quem e do âmbito. O §3.3, regra (5), diz que o
+  acesso humano a produção é *break-glass* com registo e não usa o `kamba_batch`.
+- **O acesso A5.** O A5 do pacote do revisor é uma *shell* num contentor sem privilégios, a
+  simular o compromisso de um serviço. Serve a área 6 e o ensaio E6, e só vale com a aprovação
+  do Responsável de Segurança. A rotação dos segredos de `staging` no fim é *proposta*
+  ([`../docs/seguranca/revisao_independente/escopo.md`](../docs/seguranca/revisao_independente/escopo.md)
+  §4).
+- **As áreas do revisor.** Nenhuma das áreas do `escopo.md` §2 trata do próprio acesso
+  privilegiado. A área 6 é a dos segredos e a 14 a da rede de entrada. Os ensaios do portão
+  ficam abaixo como «fora das duas» (pergunta 5).
+
+**O que as opções 1 a 3 mantêm.**
+- A falha fechada.
+- O fecho registado.
+- O prazo obrigatório, de sete dias no máximo.
+- A entrada só pelo túnel.
+- O portão endurecido pelo KAM-261.
+- A conta fora do grupo `docker` e sem `sudo` livre.
+
+A opção 4 não mantém estas propriedades, e di-lo.
+
+#### Opção 1 — só a *shell* sem privilégios (o estado actual)
+
+- **O que a sessão pode fazer:** o que um utilizador sem grupos faz no *host*. Lê o que é
+  legível por todos e corre programas sem privilégio. Não vê os contentores, não lê os logs
+  deles e não reinicia nada.
+- **O que fica no `audit_log`:** a abertura e o fecho, como hoje. Não ficam os comandos. O
+  âmbito é um só, a *shell* sem privilégios, e é a própria conta que o fixa.
+- **Risco que acrescenta:** nenhum. Mas deixa duas lacunas:
+  - Em `prod`, um incidente que peça para agir sobre um serviço não tem caminho auditado. Resta
+    a consola do fornecedor, que não escreve no `audit_log` e fica fora do que a regra (5) do
+    doc 08 §3.3 descreve (pergunta 4).
+  - O revisor não faz o A5. O E6 corre sem uma *shell* num contentor, e o A5 fica `não testado`
+    com essa razão.
+- **Custo:** nenhum código. Só o `escopo.md` §6 a apontar a decisão, e o A5 do §4 reescrito.
+- **O que o revisor testa:**
+  - na área 6, que a sessão não lê nenhum segredo do *host* nem do ambiente de um serviço;
+  - na área 14, que a conta só entra pelo túnel e só pelo portão;
+  - fora das duas, a falha fechada e o fecho.
+
+#### Opção 2 — a *shell*, mais um conjunto fechado de acções de operação
+
+- **O que a sessão pode fazer:** além da *shell*, um conjunto fechado de acções, por um comando
+  fixo que o portão controla.
+  - **Leitura:** ver o estado dos serviços e ler os logs de um serviço.
+  - **Operação:** reiniciar um serviço.
+  - Pode ficar só a leitura (pergunta 2).
+  - O serviço escolhe-se de uma lista fechada, e nenhuma acção aceita argumentos livres.
+  - A lista fecha-se no ticket credor, com o Responsável de Segurança.
+- **O que fica no `audit_log`:** a abertura e o fecho. O registo das acções depende da pergunta 3:
+  - **(a)** Uma linha por acção, escrita antes de a acção correr, com falha fechada. A acção e
+    o serviço vão no resumo da linha, como a razão vai hoje.
+  - **(b)** Só o perfil da sessão, dentro do resumo da abertura, e as acções no diário do
+    *host*. No `audit_log` fica um resumo, que só se confere contra o original. O diário vive
+    no próprio *host* e não está encadeado.
+
+  O que a sessão faz na *shell*, fora das acções, continua sem registo.
+- **Risco que acrescenta:**
+  - Cada acção é código que corre como root, e o comando fixo é uma superfície nova do portão.
+  - Reiniciar um serviço de `prod` tem efeito no cliente. A leitura não tem.
+  - Ler os logs de `prod` é acesso a dados de operação. O lint dos logs cobre o código da
+    KAMBÁ, mas não os logs dos serviços de terceiros. Uma lista com algum deles pede essa
+    verificação à parte (área 12).
+  - Com (b), o que se fez numa sessão prova-se só pelo *host*.
+- **Custo:**
+  - Código no portão, no `sudoers` e no `cloud-init`, com ensaios: um ticket credor de tamanho
+    M, aberto na decisão.
+  - Com (a), uma acção nova no domínio do `audit_log`. É uma migração e uma emenda ao
+    dicionário, e o credor espera pela vaga de migração. Com (b), não há esquema.
+  - O que só existe num *host* fica NÃO VERIFICADO até ao KAM-077, como no KAM-259.
+- **O que o revisor testa:**
+  - na área 6, o que testa na opção 1, e que a saída de nenhuma acção traz segredos;
+  - na área 14, o que testa na opção 1;
+  - fora das duas, que nenhuma acção sai da lista fechada e, com (a), que uma acção sem a sua
+    linha não corre.
+
+#### Opção 3 — a opção 2, mais a entrada num contentor sem privilégios
+
+- **O que a sessão pode fazer:** o mesmo que na opção 2, e mais uma acção: abrir uma *shell*
+  dentro de um contentor da lista fechada.
+  - Entra como o utilizador sem privilégios do serviço.
+  - Não ganha privilégios nem montagens nem redes.
+  - A lista não inclui a base, pela regra (5) do doc 08 §3.3 e pelo A3 do pacote (na base, só o
+    papel da aplicação, sem superutilizador).
+  - O prazo e o fim da sessão valem também dentro do contentor. É propriedade a exigir, e fica
+    NÃO VERIFICADA até haver *host*.
+
+  É o A5 do pacote do revisor, feito pela própria sessão auditada.
+- **O que fica no `audit_log`:** o mesmo que na opção 2. A entrada no contentor regista-se como
+  as outras acções, mas o que se faz dentro dele não fica registado.
+- **Risco que acrescenta:**
+  - Dentro do contentor, a sessão vê o que o serviço vê, incluindo as credenciais e a rede dele.
+    É o que o A5 simula.
+  - Em `prod` daria a uma pessoa as credenciais de um serviço. É por isso que a pergunta 1
+    admite ligar esta acção só a algumas chaves.
+- **Custo:**
+  - O credor da opção 2, com mais uma acção e o ensaio de que a entrada não dá privilégio
+    acrescido. Continua M.
+  - Não pede esquema além do da pergunta 3.
+  - Precisa do *compose* de `staging` num *host* (KAM-077) para ser medido.
+- **O que o revisor testa:**
+  - na área 6, o E6 de dentro do contentor (o que um serviço comprometido extrai), e que a
+    entrada não dá mais do que o serviço tem;
+  - na área 14, o que testa na opção 1;
+  - fora das duas, que a entrada não chega à base nem a contentor fora da lista.
+
+#### Opção 4 — `sudo` amplo, com o registo da sessão
+
+- **O que a sessão pode fazer:** tudo o que o root do *host* faz.
+- **O que fica no `audit_log`:** a abertura. Os comandos ficariam numa gravação da sessão,
+  enviada para fora do *host*. Essa gravação não existe e a ferramenta está por escolher (NÃO
+  VERIFICADO).
+- **Risco que acrescenta:**
+  - Com root, a sessão tem sobre o *host* o poder do administrador, incluindo sobre o próprio
+    portão e sobre a base onde o `audit_log` vive.
+  - Deixam de estar garantidos o fecho registado, o prazo e o registo do que se faz a seguir.
+    A prova passa a depender só de registos fora do *host*, e nenhum existe hoje. O envio da
+    âncora do `audit_log` para fora do *host* é do KAM-079.
+  - Uma chave de *break-glass* comprometida passa a valer root. Um segundo factor, ou a
+    aprovação de uma segunda pessoa, reduziria isto (o doc 08 §5 pede MFA para acesso humano).
+- **Custo:**
+  - O `sudo`, a gravação da sessão e o envio para fora do *host*, com o segundo factor se o
+    fundador o quiser.
+  - Um ticket credor de tamanho L, que depende de haver um destino fora do *host* (KAM-079).
+  - Sem esquema, a não ser que se queira o âmbito em linha própria.
+- **O que o revisor testa:**
+  - na área 6, que a gravação não guarda segredos em claro;
+  - na área 14, o que testa na opção 1;
+  - fora das duas, que nenhuma sessão corre sem gravação;
+  - o caminho da gravação para fora do *host* é *egress* (área 10).
+
+#### Lado a lado
+
+| | 1 | 2 | 3 | 4 |
+|---|---|---|---|---|
+| Agir sobre um serviço | não | lista fechada | lista fechada, e entrar num contentor que não seja a base | tudo |
+| O A5 pela sessão auditada | não (`não testado`) | não (`não testado`) | sim | sim |
+| Acções no `audit_log` | — | (a) uma linha por acção, ou (b) o perfil, por resumo | como a 2 | não: gravação fora do *host* |
+| Esquema | nenhum | só com (a) | só com (a) | só com o âmbito em linha própria |
+| Credor | nenhum | M | M | L, depois do destino fora do *host* (KAM-079) |
+| Incidente em `prod`, com a base de pé | consola do fornecedor | as acções da lista | as acções da lista | tudo, se a gravação existir |
+| Incidente em `prod`, com a base em baixo | consola do fornecedor | consola do fornecedor | consola do fornecedor | consola do fornecedor |
+
+#### Recomendação da coordenação
+
+> **Recomendação** (não é decisão; o fundador escolhe): a **opção 3, com as acções por perfil de
+> chave**, e a resposta **(a)** à pergunta 3.
+>
+> - **O mecanismo é o mesmo nos dois ambientes**, como o §2.0 da matriz diz.
+> - **Cada chave da lista declara o seu perfil**, como a lista de chaves já é declarada por
+>   ambiente.
+>   - A chave do revisor, em `staging`, recebe só a entrada em contentor. É o mínimo para o A5,
+>     sem ler logs nem reiniciar.
+>   - As chaves de operação recebem as acções da opção 2, sem a entrada em contentor.
+> - **Assim:**
+>   - o revisor faz o A5 pela sessão auditada, como o critério 2 do KAM-259 pede;
+>   - um incidente em `prod` com a base de pé tem caminho auditado para as acções que se
+>     esperam, sem dar a uma pessoa as credenciais de um serviço e sem root;
+>   - a linha por acção cumpre o «âmbito» do doc 08 §6 dentro do próprio `audit_log`, com a
+>     mesma falha fechada da abertura.
+> - **Fica de fora a opção 4.** Tira ao portão o que lhe dá valor, e a prova dependeria de um
+>   registo fora do *host* que ainda não existe.
+> - **Custo.** Um ticket credor M, com uma vaga de migração, que bloqueia o KAM-074. O §2.0 da
+>   matriz ganha os perfis.
+> - **O que fica por rever.** O revisor nunca entra em `prod`, e por isso não exerce o perfil de
+>   operação. Revê o código, que é o mesmo nos dois ambientes.
+
+#### Perguntas que só o fundador responde
+
+1. **Que opção?** A 1, a 2, a 3 ou a 4. Se for a 3, a entrada em contentor fica ligada ao perfil
+   de cada chave, como a recomendação propõe, ou vale para todas as sessões?
+2. **Se for a 2 ou a 3, o que entra nas acções de operação?** Só a leitura (estado e logs), ou
+   também o reinício de um serviço?
+3. **Se for a 2 ou a 3, como se registam as acções?**
+   - **(a)** Uma linha por acção no `audit_log`, com falha fechada. Pede migração.
+   - **(b)** Só o perfil, dentro do resumo da abertura, e as acções no diário do *host*. Não
+     pede esquema.
+4. **E um incidente em `prod` que a opção escolhida não cubra?** É o caso da base em baixo, em
+   todas as opções, ou de um caso fora da lista. Aceita-se a consola do fornecedor como último
+   recurso, fora do `audit_log` e fora da regra (5) do doc 08 §3.3, com um registo escrito
+   depois fora do `audit_log`? Ou pede-se outra via?
+5. **O próprio portão entra no âmbito do revisor como área nova do `escopo.md` §2?** Nenhuma
+   das catorze áreas trata do acesso privilegiado. Sem área nova, os ensaios marcados acima
+   como «fora das duas» ficam com o KAM-261.
+
 ### Handoff para Claude Code
 
 ```text
