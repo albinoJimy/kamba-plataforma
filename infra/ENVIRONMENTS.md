@@ -73,6 +73,9 @@ lista de chaves de administração fica vazia
 - quando a *shell* fecha, por saída, por prazo ou por sinal, pára o *scope* e
   escreve `breakglass.close`.
 
+O portão não abre caminho de rede: o SSH até ele entra como o resto do SSH do
+*host*, só pelo `wg0` (as regras `nftables` da preparação do KAM-077).
+
 Por isso o `acesso.modo` de `staging` não mudou: o modo descreve o acesso da
 equipa, e o de excepção é igual nos dois ambientes que têm *host*. Os ensaios
 estão em [`../db/tests/test_breakglass.py`](../db/tests/test_breakglass.py);

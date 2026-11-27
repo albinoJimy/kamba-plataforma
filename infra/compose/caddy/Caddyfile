@@ -64,8 +64,18 @@
 #
 # O caminho da Meta. Vai **directo a origem**, sem CDN: e a opcao (b) da D12 em
 # `docs/tecnica/08` §15, que e a que vale por omissao de construcao ate parecer
-# em contrario. Um CDN aqui veria o corpo dos webhooks e seria subprocessador
-# com acesso a conteudo (ADR-008, N1).
+# em contrario — *proposta* registada em
+# `docs/tecnica/evidencia/validacao/D12_CDN_WAF.md`. Um CDN aqui veria o corpo
+# dos webhooks e seria subprocessador com acesso a conteudo (ADR-008, N1).
+#
+# **O CAMINHO E `/wa/webhook`, O DO GWY** (`services/gwy/src/webhook.ts`,
+# `CAMINHO`; `docs/tecnica/01`). A primeira versao deste ficheiro encaminhava
+# `/webhooks/*` — o literal do bloco do KAM-077 (criterio 3 e *handoff*); o
+# `docs/tecnica/08` §15 diz so «excluir o *path* de webhooks» —, que o GWY nao
+# serve: pela borda, o GET de verificacao e cada POST da Meta caiam no 404 do
+# fim do ficheiro. Corrigido na preparacao do KAM-077. Casa-se o caminho
+# exacto, e nao um prefixo: o GWY nao serve mais nada debaixo dele, e um
+# prefixo era uma porta aberta ao que lhe acrescentassem.
 :8443 {
 	log {
 		output stderr
@@ -74,7 +84,7 @@
 
 	# O GWY e o unico endpoint da Meta (ADR-001). Duas replicas: o Caddy
 	# reparte por elas pelo DNS do compose, que devolve os dois enderecos.
-	handle /webhooks/* {
+	handle /wa/webhook {
 		reverse_proxy gwy:3000 {
 			lb_policy round_robin
 			# A assinatura `X-Hub-Signature-256` e calculada sobre o **corpo

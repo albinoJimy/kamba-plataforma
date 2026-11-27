@@ -4,7 +4,7 @@
 |---|---|
 | Produto | KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para Angola |
 | Documento | Epic — Topologia e Operação |
-| Versão | 1.38 |
+| Versão | 1.39 |
 | Data | Novembro de 2026 |
 | Classificação | Documento de Referência — Interno |
 | Documento-fonte | `../docs/tecnica/09_Topologia_Operacao_Escala.md` |
@@ -341,6 +341,66 @@ Objectivo: configurar TLS, DNS, borda, VPN e egress no host decidido por D1, sem
 - Mantém prod em kamba_data_class=synthetic; nunca ligues dados reais.
 Não expandas escopo: pgBackRest é KAM-079, métricas KAM-080. Testes: verificação de webhook externa, scan de portas, egress. PR com o template da §7.
 ```
+
+### Preparação (sem o mundo real)
+
+**2026-11-25, coordenação do lote 24.** A D1 está em aberto — o KAM-105 pediu
+**0** cotações e a linha A1 do `../docs/tecnica/evidencia/validacao/GoLive_Gate.md`
+está em branco —, pelo que se seguiu o ramo do *handoff*: «prepara só o
+*staging* com o módulo provider substituível». **Este ticket não fecha**:
+**nenhuma das seis caixas de critério e nenhuma das cinco de DoD foi marcada**,
+porque todas dependem do *host* real, do TLS real, do *scan* externo ou da RTT
+medida. Não se escolheu fornecedor nem local; não se criou nenhum recurso; não
+entrou nenhum serviço no compose; nenhuma lista de saídas mudou.
+
+**O que ficou feito, com a evidência de cada um:**
+
+| # | O quê | Para que critério | Evidência |
+|---|---|---|---|
+| 1 | **Sonda de RTT e relatório que recusa sair sem números medidos** — `../tools/borda/` (`rtt-medir`, `rtt-relatorio`, `rtt-verificar`). Mede o *handshake* TCP para a porta 443, resolve o nome antes do cronómetro, guarda as falhas como amostras; o relatório recusa uma série que não cubra 24 h **com medições com sucesso**, que tenha entre duas delas uma lacuna > 600 s (*proposta*), ou um conjunto a que falte uma das duas medições do critério (um alvo `graph.facebook.com` e outro), e sai sem o endereço do *host*; o `rtt-verificar` recalcula a tabela das amostras cujo `sha256` o relatório declara **e volta a aplicar as recusas com as 24 h do critério**. **O que não prova:** que as amostras foram medidas — amostras inventadas com a forma certa passam; a garantia dessa metade é a cadeia de custódia no repositório de provas | 5, e o 3.º Teste Requerido | Suite `tools/borda/tests`: **57 testes**, cobertura de ramos **99%** do pacote, medida com `coverage run --branch`; o caso `test_um_numero_mexido_a_mao_nao_sobrevive` escreve o «52» do doc 09 §5.2 por cima de um p95 medido e o `rtt-verificar` recusa-o, e o `test_verificar_reaplica_a_janela_do_criterio` recusa um relatório feito com a janela baixada a 1 h |
+| 2 | **Regras `nftables` do *host*** no cloud-init do `host-base` (`/etc/kamba/firewall.nft` e o serviço `kamba-firewall`): `input` em `policy drop`, aberta ao mundo só na porta UDP do WireGuard e às respostas DHCPv6 da ligação local, SSH só pelo `wg0`, sem `flush ruleset` e sem cadeia no `forward` (o 443 é do Docker, e a metade «só 443» é a regra `porta-publicada` do `compose_prod`); o passo que as carrega é o primeiro do `runcmd` e **pára o arranque** se a tabela não ficar carregada. É a classe 3 de `../infra/PORTABILIDADE.md`, que o KAM-075 deixou a este ticket | 4 (a parte que não precisa de *host*) | `tools/borda/firewall.py` verifica as regras contra uma **lista fechada** das que aceitam, e a classe `TestMorde` tem um caso por propriedade partida e os oito que a primeira versão deixava passar; `nft -c -f` aceita as regras no `nftables` 1.1.3 (Debian 13) e 1.0.9 (Ubuntu 24.04), duas cargas seguidas funcionam e uma tabela alheia sobrevive às duas e ao `ExecStop` |
+| 3 | **O caminho do *webhook* na borda estava errado, e foi corrigido.** O `../infra/compose/caddy/Caddyfile` encaminhava `/webhooks/*`, que o GWY não serve — o caminho dele é `/wa/webhook` (`../services/gwy/src/webhook.ts`) | 2, e a opção (b) da D12 | Medido com o Caddy fixado no compose (2.10.2) à frente de um GWY simulado: com o Caddyfile da `main`, `GET /wa/webhook?hub.challenge=4242` dá **404**; com a correcção, **200** e o *challenge* entregue. `caddy validate` aceita o ficheiro |
+| 4 | **Registo da D12 (metade CDN/WAF), opção (b), como proposta sem dono nem data** — `../docs/tecnica/evidencia/validacao/D12_CDN_WAF.md`, e o apontador na Carta §4.2 **sem mudar o estado** | 3 (não se marca: pede dono e data) | O documento, §3 e §4. **A (b) está incompleta**: a limitação de débito na origem não existe — **0** módulos de limitação em `caddy list-modules` na imagem fixada, e o GWY não limita por origem |
+| 5 | **Índice de provas** — `../provas/alojamento/README.md`: dezassete provas em seis critérios, cada uma com o comando que a produz, todas **por provar**. Os documentos ficam no repositório de provas **privado** (o conjunto já o fixou: `../docs/runbooks/RB-K10-incidente-de-seguranca.md` passo 5); aqui só o índice, com `sha256` e data | 1 a 6 | O ficheiro |
+| 6 | **Os candidatos da D1 na costura** — `../infra/modules/README.md`: Raxio, Paratus, Angola Cables, Cloud Nacional e um hiperescalador em JNB/CPT, com o módulo que nasceria e a pergunta que mais custa tarde (há *provider* OpenTofu ou API?), **sem preços** | Detalhes Técnicos («este ticket não escolhe fornecedor») | O ficheiro |
+
+**O que ficou por fazer, e de quem é:**
+
+- **Tudo o que precisa do *host*** — o contrato e o SLA (critério 1), o TLS com
+  cadeia válida e a renovação (2), o *scan* externo, o MFA e o *break-glass*
+  (4), a RTT de 24 h (5) e o estado de `prod` com data (6): depois da **D1**.
+- **A limitação de débito na origem que a opção (b) pede.** Escolher onde vive
+  (módulo de terceiro no Caddy, com imagem e *digest* novos, ou limite no GWY) e
+  com que valores é desenho com valores por medir; devolvido à coordenação.
+- **A janela do primeiro arranque**, em que a porta 22 está como a imagem do
+  fornecedor a deixou até o cloud-init chegar ao `runcmd`: fecha-a o grupo de
+  segurança do `provider-<nome>`, depois da D1.
+- **O TLS com ACME** não se ligou: o `auto_https off` do Caddyfile fica, porque
+  ligá-lo pede um domínio (D1) e um destino novo na lista de saídas do
+  `proxy-tls`.
+- **Hoje as regras deixam o *host* sem SSH nenhum**: o SSH só entra pelo `wg0`,
+  e o `wg0` do `host-base` não tem nenhum `[Peer]` nem sobe sem a CLI do cofre
+  (KAM-010). A única entrada fica a consola do fornecedor. É a letra do critério
+  4 («SSH por chave só via VPN»), e quem abre o caminho certo são os pares do
+  WireGuard e a CLI do cofre — escolha devolvida à coordenação, com a
+  alternativa (deixar a 22 aberta até o túnel existir) por escrito.
+- **NÃO VERIFICADO, e pode morder:** com o `userland-proxy` do Docker, um
+  contentor que chame o FQDN público da própria pilha chega à 443 pela `input`
+  e é descartado. Mede-se no primeiro *host*.
+
+**O que a revisão adversarial mudou** (uma passagem, read-only, sem ver o
+raciocínio do autor: **dez achados** — sete confirmados, dos quais seis
+corrigidos e um, o SSH, registado e devolvido; dois plausíveis, um aplicado às
+regras e outro registado acima; um de âmbito, devolvido): o
+`rtt-verificar` dava verde a relatórios com 1 h, sem a série da Meta ou com um só
+sucesso em 1441 amostras; o verificador da *firewall* deixava passar oito formas
+de abrir o *host* e passou a lista fechada; o passo da *firewall* falhava aberto;
+o índice de provas tinha o caminho errado do *webhook* e um `nmap -sU` que não
+distingue a porta do WireGuard de uma porta descartada; o DHCPv4 aceitava de
+qualquer origem e saiu; o ICMPv6 passou a aceitar o MLD; e três afirmações dos
+documentos ficaram ao nível da evidência. **O de âmbito:** o apontador na Carta
+§4.2 (canon nível 1), com o precedente da emenda 1.4 do KAM-105 — devolvido à
+coordenação.
 
 ---
 ## KAM-078 — CI/CD completo: deploy rolling e smoke ponta a ponta com número de teste
@@ -2426,4 +2486,5 @@ Testes: o ensaio e o canário que prova que ele morde.
 | 1.35 | Novembro 2026 | **KAM-249 entregue.** A `queue` de `prod` e de `staging` exige credencial (`queue_password`, pelo cofre, lida pelo servidor do stdin e apresentada por todos os clientes no URL), e o S3 do `seaweedfs` mediu-se aceitando anónimos e fechou-se com identidades e com o *filer* no *loopback*. Duas regras novas no `compose_prod`, com canário. Os seis itens marcados com evidência; a 18333 do S3, que o reabre, fica como achado **CONFIRMADO** pela decisão do fundador de 2026-11-24 (opção A, registada no bloco). **KAM-257** acrescentado, o credor dela (mTLS no gRPC, ou a D6 a escolher S3 gerido): aberto com um número provisório e com o máximo da `main` + 1 na integração; aresta recíproca no `Bloqueia` do KAM-249, e uma linha nos riscos do epic. Anexo `../docs/evidencia/KAM-249.md`. | Equipa KAMBÁ |
 | 1.36 | Novembro 2026 | **KAM-078, preparação do lote 24** (o ticket continua aberto): o bloco ganha a secção «Preparação (sem o mundo real)», com o que ficou feito em `../tools/release/` para os gates 14 a 18 sem o número de teste, o sandbox, um *host* ou um registo, a evidência de cada critério, e o que falta com o credor. Nenhuma caixa marcada, nenhum critério alterado. | Equipa KAMBÁ |
 | 1.37 | Novembro 2026 | **KAM-259 e KAM-260** acrescentados, credores do KAM-074, por decisão da coordenação do lote 24 a 2026-11-25 (reversível): o KAM-074 passa a depender dos dois, para que o revisor independente os encontre feitos. Só com dependências fechadas, para arrancarem já. O `Bloqueia` do KAM-075, do KAM-076 e do KAM-080 ganha a aresta recíproca. Números provisórios: renumeram-se na integração. | Equipa KAMBÁ |
-| 1.38 | Novembro 2026 | **KAM-259 entregue.** O acesso de excepção a um *host* de `staging` e de `prod` entra pela conta `breakglass` do `host-base`, cujo portão escreve `breakglass.open` no `audit_log` antes de abrir a *shell* e `breakglass.close` quando ela fecha; revisão `0093` com o fecho, o papel `kamba_breakglass` e a porta `breakglass_registar`, pela decisão do fundador de 2026-11-25 (opção A, registada no bloco). As sete caixas marcadas com evidência; o que só um *host* mede fica dito na verificação. | Equipa KAMBÁ |
+| 1.38 | Novembro 2026 | **KAM-077, preparação sem o mundo real (lote 24)**, e o ticket **não fecha**: secção «Preparação (sem o mundo real)» no bloco, nenhuma caixa marcada. Entregues a sonda de RTT e o relatório que recusa sair sem 24 h medidas (`../tools/borda/`), as regras `nftables` do `host-base` (classe 3 de `../infra/PORTABILIDADE.md`), o índice `../provas/alojamento/README.md`, os candidatos da D1 em `../infra/modules/README.md` e o registo da metade CDN/WAF da **D12** com a opção (b) como **proposta** sem dono nem data. **E um defeito da borda corrigido:** o Caddyfile encaminhava `/webhooks/*` e o GWY serve `/wa/webhook` — o GET de verificação dava 404, medido. Número **provisório**: renumera-se na integração. | Equipa KAMBÁ |
+| 1.39 | Novembro 2026 | **KAM-259 entregue.** O acesso de excepção a um *host* de `staging` e de `prod` entra pela conta `breakglass` do `host-base`, cujo portão escreve `breakglass.open` no `audit_log` antes de abrir a *shell* e `breakglass.close` quando ela fecha; revisão `0093` com o fecho, o papel `kamba_breakglass` e a porta `breakglass_registar`, pela decisão do fundador de 2026-11-25 (opção A, registada no bloco). As sete caixas marcadas com evidência; o que só um *host* mede fica dito na verificação. | Equipa KAMBÁ |
