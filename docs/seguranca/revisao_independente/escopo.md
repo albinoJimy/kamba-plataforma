@@ -120,13 +120,15 @@ não corre enquanto houver um número real em `staging`.
 
 ## 6. O que tem de existir antes de a revisão começar
 
-Tudo isto é mundo real, e nada está feito.
+Nada disto está feito: é mundo real, ou uma decisão por tomar.
 
 | Pré-condição | Estado | Onde se acompanha |
 |---|---|---|
 | `staging` alojado e a correr as imagens de `prod` | não existe: há a definição em [`../../../infra/compose/docker-compose.staging.yml`](../../../infra/compose/docker-compose.staging.yml), não há máquina | KAM-077 |
 | Revisor independente, ou o risco aceite da substituição | não existe | [`relatorio.md`](relatorio.md) §2 e [`decisao.md`](decisao.md) §3 |
 | Registo no `audit_log` do acesso do revisor a `staging` | o caminho existe e está ensaiado contra PostgreSQL (§4); falta o *host*, e a chave do revisor na lista `chaves_ssh_de_breakglass` de `staging` | KAM-259, KAM-077 |
+| O portão do acesso de excepção endurecido e verificado num *host* | por fazer; o ensaio no *host* precisa do KAM-077 | KAM-261 |
+| O que a sessão de excepção pode fazer além da *shell* sem privilégios (áreas 6 e 14; acesso A5 do §4) | por decidir: as opções vão ao fundador | KAM-262 |
 | Matriz, STRIDE e riscos residuais entregues ao revisor fora do repositório público | não feito | o fundador |
 | Medusa no *compose* (área 9) | pendente | KAM-042 |
 
@@ -153,3 +155,4 @@ Tudo isto é mundo real, e nada está feito.
 | 0.1 | 2026-11-25 | Pacote preparado sem o mundo real (KAM-074, lote 24): regras, as catorze áreas com a evidência automatizada e o que os blocos donos declaram por medir, entradas, acesso mínimo sem credenciais, fora do âmbito e pré-condições. Nada acordado com um revisor. | Coordenação do lote 24 |
 | 0.2 | 2026-11-25 | Os credores do KAM-074 abertos pela coordenação do lote 24: o KAM-259 para o registo do acesso (§4 e §6) e o KAM-260 na área 6. | Coordenação do lote 24 |
 | 0.3 | 2026-11-27 | KAM-259: o acesso do revisor a `staging` entra pela conta `breakglass` e fica no `audit_log`, com o comando que mostra as duas linhas dele (§4); a pré-condição do §6 passa a depender só do *host*. | Equipa KAMBÁ |
+| 0.4 | 2026-11-27 | Os credores KAM-261 e KAM-262 abertos pela coordenação do lote 25 (§6). | Coordenação do lote 25 |
