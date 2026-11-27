@@ -1,9 +1,11 @@
 """O resumo do piloto: a interface declarada com o KAM-109 e o KAM-106.
 
-Os ficheiros de saída do KAM-109 ainda não existem na `main` quando este pacote
-se escreve, e por isso a interface **declara-se aqui**, no bloco KAM-110 e no
-`README.md` deste pacote, em vez de se adivinhar. É um JSON de **esquema
-fechado**, e a razão de ser fechado é dupla:
+Do KAM-109 o resumo leva **só o manifesto** `piloto_congelado.json` (formato
+`kamba-piloto-congelado/1`) e o seu SHA-256: é o manifesto que congela a
+exportação, o `h6_export.json` e as folhas de H8, e é o SHA-256 dele que o
+protocolo do Piloto (`Piloto_Protocolo.md` §10) manda escrever na coluna
+`fonte` do Registo. É um JSON de **esquema fechado**, e a razão de ser fechado
+é dupla:
 
 1. **Não há texto livre.** Só números, booleanos, `null`, caminhos e um *hash*.
    Um campo de texto livre é por onde entra o conteúdo de uma conversa ou um
@@ -41,8 +43,12 @@ _CAMINHO = re.compile(r"[A-Za-z0-9_][A-Za-z0-9_./-]*")
 _SHA256 = re.compile(r"[0-9a-f]{64}")
 _MOEDA = re.compile(r"[A-Z]{3}")
 
+#: O nome que o KAM-109 dá ao manifesto (`tools/piloto/cli.py`, «Os nomes dos
+#: ficheiros, que sao contrato com o KAM-110»).
+NOME_DO_MANIFESTO = "piloto_congelado.json"
+
 _CHAVES = {
-    "forma", "sintetico", "exportacao", "exportacao_sha256", "semana_do_gate",
+    "forma", "sintetico", "manifesto", "manifesto_sha256", "semana_do_gate",
     "pagantes_recorrentes",
     "canal_comercial_repetivel", "custo_por_pme_minor", "moeda", "carta5",
 }
@@ -61,8 +67,8 @@ class Item:
 @dataclass(frozen=True)
 class Resumo:
     sintetico: bool
-    exportacao: str | None = None
-    exportacao_sha256: str | None = None
+    manifesto: str | None = None
+    manifesto_sha256: str | None = None
     semana_do_gate: int | None = None
     pagantes_recorrentes: int | None = None
     canal_comercial_repetivel: bool | None = None
@@ -111,16 +117,21 @@ def validar(dados: object) -> Resumo:
     if not isinstance(sintetico, bool):
         raise EntradaInvalida("sintetico: obrigatório, e verdadeiro ou falso")
 
-    exportacao = dados.get("exportacao")
-    if exportacao is not None:
-        exportacao = _caminho(exportacao, "exportacao")
-    sha = dados.get("exportacao_sha256")
+    manifesto = dados.get("manifesto")
+    if manifesto is not None:
+        manifesto = _caminho(manifesto, "manifesto")
+        if manifesto.rsplit("/", 1)[-1] != NOME_DO_MANIFESTO:
+            raise EntradaInvalida(
+                f"manifesto: {manifesto!r} não é o {NOME_DO_MANIFESTO} do KAM-109 — "
+                "é ele, e não a exportação, que congela as entradas da medição"
+            )
+    sha = dados.get("manifesto_sha256")
     if sha is not None and (not isinstance(sha, str) or not _SHA256.fullmatch(sha)):
-        raise EntradaInvalida("exportacao_sha256: 64 caracteres hexadecimais minúsculos")
-    if (exportacao is None) != (sha is None):
+        raise EntradaInvalida("manifesto_sha256: 64 caracteres hexadecimais minúsculos")
+    if (manifesto is None) != (sha is None):
         raise EntradaInvalida(
-            "exportacao e exportacao_sha256 vêm juntos: uma exportação sem *hash* "
-            "não está congelada, e um *hash* sem ficheiro não diz de quê"
+            "manifesto e manifesto_sha256 vêm juntos: um manifesto sem *hash* "
+            "não congela nada, e um *hash* sem ficheiro não diz de quê"
         )
 
     canal = dados.get("canal_comercial_repetivel")
@@ -160,8 +171,8 @@ def validar(dados: object) -> Resumo:
 
     return Resumo(
         sintetico=sintetico,
-        exportacao=exportacao,
-        exportacao_sha256=sha,
+        manifesto=manifesto,
+        manifesto_sha256=sha,
         semana_do_gate=_inteiro(dados, "semana_do_gate"),
         pagantes_recorrentes=_inteiro(dados, "pagantes_recorrentes"),
         canal_comercial_repetivel=canal,

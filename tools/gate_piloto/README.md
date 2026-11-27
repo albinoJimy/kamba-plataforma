@@ -35,7 +35,7 @@ que está na árvore hoje, e reproduz-se com `--data "Novembro de 2026"` — sem
 |---|---|
 | `0` | escrito, ou `--check` conforme |
 | `1` | `--check`: o ficheiro já não é o que o gerador escreve |
-| `2` | o Registo ou o resumo não servem, ou o SHA-256 não confere |
+| `2` | o Registo, o resumo ou o manifesto não servem, ou o SHA-256 não confere |
 
 ---
 
@@ -43,10 +43,10 @@ que está na árvore hoje, e reproduz-se com `--data "Novembro de 2026"` — sem
 
 | Regra | O que faz | Fonte |
 |---|---|---|
-| Estado efectivo | `confirmada` e `refutada` só sobrevivem com amostra n positiva, um resultado com número (e sem «NÃO MEDIDO») e uma coluna fonte que nomeie um ficheiro que exista na árvore; sem isso, `inconclusiva` | Critério A: «uma hipótese sem dados é `inconclusiva`, nunca `confirmada`»; `Registo_Hipoteses.md` §2, regras 2 e 3 |
+| Estado efectivo | `confirmada` e `refutada` só sobrevivem com amostra n positiva, um resultado com número (e sem «NÃO MEDIDO», com ou sem til) e uma coluna fonte que nomeie um ficheiro que exista na árvore — ou, em H1, H6, H8 e H9, o SHA-256 do manifesto que o resumo nomeia e que se conferiu na árvore; sem isso, `inconclusiva` | Critério A: «uma hipótese sem dados é `inconclusiva`, nunca `confirmada`»; `Registo_Hipoteses.md` §2, regras 2 e 3 |
 | Amostras mínimas | H6 < 500 conversas e H9 < 8 PMEs com 60 dias dão `inconclusiva` | As duas amostras que um **critério** escreve: a Carta §5 e o KAM-109 (H6, «medido em ≥ 500 conversas reais»), e o KAM-109 (H9, «com < 8 PMEs nessa condição, H9 fica `inconclusiva`»). Os métodos de `14` §2 nomeiam tamanhos para H1, H2 e H7 que nenhum critério fixa como mínimo, e o gerador não os impõe |
 | Limiar | **não se confere**: o resultado é texto no Registo, com unidades que variam por hipótese. Confere-o a verificação cruzada do memorando (§9) | «Detalhes Técnicos»: «`confirmada` só com dados que cumpram o limiar» |
-| Exportação congelada | H1, H6, H8 e H9 ficam `inconclusiva` sem a exportação do KAM-109 nomeada no resumo, com *hash*. Se o ficheiro estiver na árvore, o *hash* confere-se, e um *hash* errado sai com 2; se não estiver, o pacote diz **«SHA-256 conferido: não»** e confere-se à mão | *Handoff* do KAM-109: «Não declares nenhuma hipótese confirmada sem dados exportados e congelados» |
+| Manifesto congelado | H1, H6, H8 e H9 ficam `inconclusiva` sem o manifesto `piloto_congelado.json` do KAM-109 nomeado no resumo, com *hash*. Se o manifesto estiver na árvore, confere-se o *hash*, a forma (`kamba-piloto-congelado/1`) e que congela o `piloto_export.json`, e qualquer falha sai com 2 — cada entrada do manifesto tem de ter `nome`, `bytes` e `sha256`; se não estiver, as quatro ficam `inconclusiva` («o manifesto não está na árvore») e o pacote diz **«SHA-256 conferido: não»**. O resumo e o Registo escrevem-se à mão, e dois *hashes* iguais não provam nada sem o ficheiro | *Handoff* do KAM-109: «Não declares nenhuma hipótese confirmada sem dados exportados e congelados»; `Piloto_Protocolo.md` §10 |
 | Matriz | cada `refutada` acciona a linha de `14` §6 que lhe cabe, palavra a palavra — o ensaio lê do `14` a coluna «Se acontecer…» ligada à «Então…»; H3 e H4 dão uma linha só; H7, H8 e H9 não têm linha e ficam «o gate decide e regista»; `canal_comercial_repetivel: false` acciona a linha da distribuição | `14` §6; critério C; KAM-106, «Se nenhum canal for repetível à semana 6: decisão escrita de resolver a distribuição» |
 | Paragem total | `verificada`, `não verificada` ou `não avaliável` — e nunca «não verificada» por falta de um dado | `14` §6, última frase |
 | Carta §5 | dezoito itens; P2, P3 e F3 derivam das hipóteses e não se declaram; os outros só ficam `satisfeito` com um ficheiro de evidência que exista na árvore | Carta §5; critério B |
@@ -54,10 +54,14 @@ que está na árvore hoje, e reproduz-se com `--data "Novembro de 2026"` — sem
 
 ---
 
-## A interface com o KAM-109 e o KAM-106 (declarada aqui, por proposta)
+## A interface com o KAM-109 e o KAM-106
 
-Os ficheiros de saída do KAM-109 não estavam na `main` quando este pacote se
-escreveu. A interface declara-se em vez de se adivinhar, e são **duas** peças:
+Declarou-se aqui antes de o KAM-109 fundir, e conferiu-se com ele depois (#283):
+os nomes e as formas são os do `tools/piloto` e do protocolo do Piloto
+(`docs/tecnica/evidencia/validacao/Piloto_Protocolo.md` §10). O ensaio
+`TestContratoComOKam109` falha se o KAM-109 mudar o nome do manifesto ou da
+exportação, ou a forma do manifesto. **Não cobre** a marca «NAO MEDIDO» nem o que
+`amostra_n` conta, que estão no código dele e se conferiram à mão. São **duas** peças:
 
 ### 1. O `Registo_Hipoteses.md`
 
@@ -69,7 +73,19 @@ gerador assume, e o KAM-109 tem de as respeitar:
 - **H9**: `amostra n` conta **PMEs com 60 dias de exposição** à data do gate, e não a coorte inteira.
 
 O número lê-se à cabeça da célula: `512 conversas` lê 512; `cerca de 600` não lê
-nada e dá `inconclusiva`.
+nada e dá `inconclusiva`. É o `amostra_n` que o `medir` do KAM-109 escreve no
+`piloto_resultados.json` para cada hipótese.
+
+Na coluna `fonte` de H1, H6, H8 e H9 o protocolo manda escrever **o SHA-256 do
+manifesto**, e não um caminho, porque o conjunto se arquiva fora do repositório.
+O gerador aceita-o se for o mesmo que o resumo nomeia **e** se o manifesto
+estiver na árvore e conferir; outro *hash*, o *hash* em qualquer outra hipótese,
+ou um manifesto que não está na árvore, não contam como fonte.
+
+**O conjunto fica fora do repositório; o manifesto não.** O
+`piloto_congelado.json` só tem nomes, tamanhos, *hashes* e o instante do
+congelamento, sem `tenant_id` nem dados de PME. No dia do gate copia-se para
+`docs/tecnica/evidencia/validacao/` e nomeia-se no resumo por esse caminho.
 
 ### 2. O resumo do piloto (JSON, `forma: 1`)
 
@@ -81,8 +97,8 @@ e `sintetico`; o que falta sai «por medir», e nunca como conclusão positiva.
 |---|---|---|
 | `forma` | `1` | — |
 | `sintetico` | booleano; `true` põe a marca «SINTÉTICO — não é evidência» no pacote | quem gera o resumo |
-| `exportacao` | caminho relativo à raiz | KAM-109 (exportação final congelada) |
-| `exportacao_sha256` | 64 hexadecimais minúsculos; vem sempre com `exportacao` | KAM-109 |
+| `manifesto` | caminho relativo à raiz que acaba em `piloto_congelado.json` | KAM-109 (`python -m piloto congelar`) |
+| `manifesto_sha256` | 64 hexadecimais minúsculos; vem sempre com `manifesto` | KAM-109 |
 | `semana_do_gate` | inteiro | KAM-109 |
 | `pagantes_recorrentes` | inteiro | KAM-109 |
 | `canal_comercial_repetivel` | booleano: há pelo menos um canal **repetível** na definição do KAM-106 («≥ 6 PMEs-alvo em ≥ 2 rondas», *proposta*). Serve à matriz e à paragem total | KAM-106 |
@@ -93,8 +109,8 @@ e `sintetico`; o que falta sai «por medir», e nunca como conclusão positiva.
 {
   "forma": 1,
   "sintetico": true,
-  "exportacao": "docs/exemplo/exportacao.csv",
-  "exportacao_sha256": "abababababababababababababababababababababababababababababababab",
+  "manifesto": "docs/exemplo/piloto_congelado.json",
+  "manifesto_sha256": "abababababababababababababababababababababababababababababababab",
   "semana_do_gate": 12,
   "pagantes_recorrentes": 4,
   "canal_comercial_repetivel": true,
@@ -104,9 +120,9 @@ e `sintetico`; o que falta sai «por medir», e nunca como conclusão positiva.
 }
 ```
 
-**Quando o KAM-109 fundir, os nomes conferem-se com os dele.** Se divergirem,
-muda-se este esquema — que é um ficheiro, `entradas.py`, e uma tabela aqui —, e
-não o dele.
+**Quem se adapta é este esquema, e não o do KAM-109.** Se ele mudar um nome ou a
+forma do manifesto, o `TestContratoComOKam109` falha, e muda-se o `entradas.py`,
+o `cli.py` e esta tabela.
 
 ---
 

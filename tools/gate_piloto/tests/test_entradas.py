@@ -22,8 +22,8 @@ class TestAceita(unittest.TestCase):
     def test_o_completo(self) -> None:
         r = entradas.validar(
             sintetico.resumo(
-                exportacao="docs/x/exportacao.csv",
-                exportacao_sha256=SHA,
+                manifesto="docs/x/piloto_congelado.json",
+                manifesto_sha256=SHA,
                 semana_do_gate=12,
                 pagantes_recorrentes=4,
                 canal_comercial_repetivel=True,
@@ -73,11 +73,19 @@ class TestRecusa(unittest.TestCase):
         self._recusa(sintetico.resumo(custo_por_pme_minor=51.5, moeda="USD"), "inteiro")
 
     def test_pares(self) -> None:
-        self._recusa(sintetico.resumo(exportacao="a.csv"), "juntos")
-        self._recusa(sintetico.resumo(exportacao_sha256=SHA), "juntos")
+        self._recusa(sintetico.resumo(manifesto="piloto_congelado.json"), "juntos")
+        self._recusa(sintetico.resumo(manifesto_sha256=SHA), "juntos")
         self._recusa(sintetico.resumo(custo_por_pme_minor=10), "juntos")
-        self._recusa(sintetico.resumo(exportacao="a.csv", exportacao_sha256="AB" * 32), "hexadecimais")
+        self._recusa(sintetico.resumo(manifesto="piloto_congelado.json", manifesto_sha256="AB" * 32), "hexadecimais")
         self._recusa(sintetico.resumo(custo_por_pme_minor=10, moeda="usd"), "ISO")
+
+    def test_o_manifesto_e_o_do_kam_109(self) -> None:
+        # O nome é contrato com o KAM-109 (`tools/piloto/cli.py`); a exportação
+        # sozinha não congela as folhas de H8 nem o h6_export.
+        for mau in ("piloto_export.json", "docs/x/manifesto.json", "piloto_congelado.json.bak"):
+            with self.subTest(manifesto=mau):
+                self._recusa(sintetico.resumo(manifesto=mau, manifesto_sha256=SHA), "piloto_congelado.json")
+        self._recusa(sintetico.resumo(exportacao="a.csv", exportacao_sha256=SHA), "fora do esquema")
 
     def test_caminhos(self) -> None:
         for mau in ("../fora.md", "a/../../b.md", "/abs.md", "C:/x.md", "-x.md", ""):
