@@ -54,6 +54,7 @@ A coluna «Gate» usa a numeração do [`../../ci.md`](../../ci.md).
 | 12 | Logs | `make x11` com [`../../../tools/log_policy/`](../../../tools/log_policy/); `make log-lint` | 6, 2 | KAM-068 | o bloco do KAM-068 devolve dois critérios ao Responsável de Segurança e não tem a amostragem semanal em `prod` |
 | 13 | Injecção e exfiltração pelo AGR (entrada, não área do primeiro critério) | o relatório do red-team, [`../redteam/relatorio.md`](../redteam/relatorio.md), e a bateria [`../../../services/agr/tests/test_redteam.py`](../../../services/agr/tests/test_redteam.py) | 4 | KAM-073, KAM-189 | o próprio relatório, §5: sem `staging`, sem a parte manual, sem assinatura |
 | 14 | Rede de entrada: o que está exposto no exterior, acesso administrativo por VPN, borda, TLS e WAF (o objectivo do bloco diz «rede»; o primeiro critério só nomeia o *egress*) | a do bloco do KAM-076 (critério 5: só 443 e a porta do WireGuard no exterior, admin do Medusa e Grafana só por VPN) | 2 | KAM-076, KAM-077 | o critério 5 do KAM-076 está parcial; o *scan* externo, a borda, o TLS e o WAF são do KAM-077, aberto |
+| 15 | Acesso de excepção: o portão do *break-glass*, o perfil de cada chave e o registo de cada sessão e de cada acção no `audit_log` (não é área do primeiro critério: entrou pela decisão do fundador de 2026-11-27, no bloco do KAM-262) | [`../../../db/tests/test_breakglass.py`](../../../db/tests/test_breakglass.py) (a falha fechada e o encadeamento, contra PostgreSQL); o portão em [`../../../infra/modules/host-base/kamba_breakglass.py`](../../../infra/modules/host-base/kamba_breakglass.py) | 8 | KAM-259, KAM-261, KAM-263 | o bloco do KAM-259 não verificou o `sshd`, o `sudo`, o `systemd-run` nem a conta num *host*; os perfis e as acções são do KAM-263, aberto |
 
 **Os seis testes de exploração** que o bloco exige no mínimo, e um sétimo de privacidade que a
 DoD pede, estão em [`relatorio.md`](relatorio.md) §4, cada um ligado a uma área desta tabela.
@@ -84,7 +85,7 @@ Responsável de Segurança fixa os que o revisor recebe.
 | A2 | Uma identidade autenticada num *tenant* sintético A, com um *tenant* sintético B ao lado, os dois semeados com canários pela semente do *harness* ([`../../../tools/isolamento/semente.py`](../../../tools/isolamento/semente.py)) | 1, 5, E1, E5 | nunca um *tenant* com dados reais |
 | A3 | Uma sessão na base com o papel da aplicação e o contexto de A, sem superutilizador | 2, E2 | só se o Responsável de Segurança a aprovar |
 | A4 | Um corpo de *callback* válido do *sandbox* do facilitador, entregue **sem** a chave | 3, E3 | o ensaio é forjar ou repetir sem a chave; a chave nunca se entrega |
-| A5 | Uma *shell* num contentor sem privilégios, a simular o compromisso de um serviço | 6, E6 | só se o Responsável de Segurança a aprovar; os segredos de `staging` rodam-se no fim (*proposta*, [`decisao.md`](decisao.md) §5) |
+| A5 | Uma *shell* num contentor sem privilégios, a simular o compromisso de um serviço | 6, 15, E6 | pela sessão auditada da conta `breakglass`, com a chave do revisor no perfil de revisão, que além da *shell* só tem a entrada num contentor, com a sua linha no `audit_log` (decisão do fundador de 2026-11-27, bloco do KAM-262; implementação no KAM-263); só se o Responsável de Segurança a aprovar; os segredos de `staging` rodam-se no fim (*proposta*, [`decisao.md`](decisao.md) §5) |
 
 **Prazo e registo.** O acesso abre numa data e fecha noutra, as duas escritas em
 [`relatorio.md`](relatorio.md) §2. O acesso do revisor a um *host* de `staging` entra pela conta
@@ -92,7 +93,8 @@ Responsável de Segurança fixa os que o revisor recebe.
 ([`../../../infra/ENVIRONMENTS.md`](../../../infra/ENVIRONMENTS.md) §2.0, KAM-259): cada sessão
 pede um prazo de no máximo sete dias e uma razão, escreve `breakglass.open` no `audit_log` antes
 de a *shell* abrir e `breakglass.close` quando ela fecha, e responde com o identificador da
-sessão, que fica no [`relatorio.md`](relatorio.md) §2 com as datas. As duas linhas do revisor
+sessão, que fica no [`relatorio.md`](relatorio.md) §2 com as datas. A chave do revisor tem o perfil
+de revisão: além da *shell*, só a entrada num contentor do A5 (KAM-263). As duas linhas do revisor
 mostram-se com a impressão digital da chave dele:
 
 ```
@@ -128,7 +130,7 @@ Nada disto está feito: é mundo real, ou uma decisão por tomar.
 | Revisor independente, ou o risco aceite da substituição | não existe | [`relatorio.md`](relatorio.md) §2 e [`decisao.md`](decisao.md) §3 |
 | Registo no `audit_log` do acesso do revisor a `staging` | o caminho existe e está ensaiado contra PostgreSQL (§4); falta o *host*, e a chave do revisor na lista `chaves_ssh_de_breakglass` de `staging` | KAM-259, KAM-077 |
 | O portão do acesso de excepção endurecido e verificado num *host* | por fazer; o ensaio no *host* precisa do KAM-077 | KAM-261 |
-| O que a sessão de excepção pode fazer além da *shell* sem privilégios (áreas 6 e 14; acesso A5 do §4) | por decidir: as opções vão ao fundador | KAM-262 |
+| O que a sessão de excepção pode fazer além da *shell* sem privilégios (áreas 6, 14 e 15; acesso A5 do §4) | decidido a 2026-11-27 (bloco do KAM-262): a opção 3, com as acções por perfil de chave e uma linha por acção no `audit_log`; por implementar | KAM-263 |
 | Matriz, STRIDE e riscos residuais entregues ao revisor fora do repositório público | não feito | o fundador |
 | Medusa no *compose* (área 9) | pendente | KAM-042 |
 
@@ -156,3 +158,4 @@ Nada disto está feito: é mundo real, ou uma decisão por tomar.
 | 0.2 | 2026-11-25 | Os credores do KAM-074 abertos pela coordenação do lote 24: o KAM-259 para o registo do acesso (§4 e §6) e o KAM-260 na área 6. | Coordenação do lote 24 |
 | 0.3 | 2026-11-27 | KAM-259: o acesso do revisor a `staging` entra pela conta `breakglass` e fica no `audit_log`, com o comando que mostra as duas linhas dele (§4); a pré-condição do §6 passa a depender só do *host*. | Equipa KAMBÁ |
 | 0.4 | 2026-11-27 | Os credores KAM-261 e KAM-262 abertos pela coordenação do lote 25 (§6). | Coordenação do lote 25 |
+| 0.5 | 2026-11-27 | KAM-262: a decisão do fundador sobre o que a sessão de excepção pode fazer. A área 15, o acesso de excepção, entra no §2; o A5 do §4 passa a ser feito pela sessão auditada, no perfil de revisão; o §6 aponta a decisão e o credor, o KAM-263. | Equipa KAMBÁ |

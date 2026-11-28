@@ -4,7 +4,7 @@
 |---|---|
 | Produto | KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para Angola |
 | Documento | Epic — Topologia e Operação |
-| Versão | 1.41 |
+| Versão | 1.42 |
 | Data | Novembro de 2026 |
 | Classificação | Documento de Referência — Interno |
 | Documento-fonte | `../docs/tecnica/09_Topologia_Operacao_Escala.md` |
@@ -60,6 +60,7 @@ O epic concretiza **ADR-008** (alojamento, *backups*, CDN e observabilidade são
 | KAM-260 | O `docker inspect` dos serviços de `prod` ensaiado: o que ele mostra do ambiente, e a correcção do que o ensaio apanhar | feature | M | P0 | KAM-010, KAM-076 |
 | KAM-261 | O portão do *break-glass* liga a identidade de cada registo à sessão do `sshd` que o invocou, verificado num *host* | feature | S | P0 | KAM-259, KAM-077 |
 | KAM-262 | O que uma sessão de *break-glass* pode fazer além da *shell*: opções para o fundador decidir antes da revisão independente | spike | S | P0 | KAM-259 |
+| KAM-263 | As acções da sessão de *break-glass* por perfil de chave: leitura, reinício e entrada num contentor, cada uma com a sua linha no `audit_log` | feature | M | P0 | KAM-259, KAM-262 |
 
 ---
 
@@ -2265,7 +2266,7 @@ Testes: o PutIdentity antes e depois, o S3 assinado, e o canário da regra nova.
 | Prioridade | P0 |
 | Estimativa | M |
 | Dependências | KAM-012, KAM-075, KAM-080 |
-| Bloqueia | KAM-074, KAM-261, KAM-262 |
+| Bloqueia | KAM-074, KAM-261, KAM-262, KAM-263 |
 | Responsável sugerido | Plataforma/SRE |
 | Documentos de referência | `../infra/ENVIRONMENTS.md` (§2, linha «Acesso»), `../infra/envs/prod/env.yaml`, `../infra/envs/staging/env.yaml`, `../infra/modules/host-base/cloud-init.yaml.tftpl`, `../db/migrations/versions/0006_audit_log.py`, `../docs/seguranca/revisao_independente/escopo.md` (§4) |
 
@@ -2524,7 +2525,7 @@ Testes: a falha fechada e a abertura normal, localmente e num host de staging.
 | Prioridade | P0 |
 | Estimativa | S |
 | Dependências | KAM-259 |
-| Bloqueia | KAM-074 |
+| Bloqueia | KAM-074, KAM-263 |
 | Responsável sugerido | Responsável de Segurança (decisão do fundador) |
 | Documentos de referência | o bloco do KAM-259, `../infra/ENVIRONMENTS.md` (§2.0), `../docs/seguranca/revisao_independente/escopo.md` (§2, áreas 6 e 14; §4, acesso A5; §6), `../docs/seguranca/revisao_independente/relatorio.md` (ensaio E6), `../docs/tecnica/08_Seguranca_Conformidade.md` (§3.3) |
 
@@ -2540,16 +2541,16 @@ Levar ao fundador as opções, com prós e contras, para que decida antes de o r
 
 ### Critérios de Aceitação
 
-- [ ] Ficam escritas pelo menos três opções, uma delas manter só a *shell* sem privilégios. Para cada uma:
+- [x] Ficam escritas pelo menos três opções, uma delas manter só a *shell* sem privilégios. Para cada uma:
   - o que a sessão passa a poder fazer;
   - o que fica registado no `audit_log` e o que não fica;
   - o risco que acrescenta;
   - o custo de implementação;
   - o que o revisor testa nas áreas 6 e 14.
-- [ ] A recomendação da coordenação vem marcada como recomendação, com as perguntas que só o fundador responde. O executor não escolhe nenhuma opção.
-- [ ] A decisão do fundador fica registada na secção «Decisões do fundador» deste bloco, com data e autor.
-- [ ] Se a decisão pedir implementação, o credor abre-se como ticket, com dependências e arestas no KAM-074. Se não pedir, o `escopo.md` §6 diz o que ficou decidido.
-- [ ] Nenhum texto público descreve como contornar o portão ou o `audit_log`.
+- [x] A recomendação da coordenação vem marcada como recomendação, com as perguntas que só o fundador responde. O executor não escolhe nenhuma opção.
+- [x] A decisão do fundador fica registada na secção «Decisões do fundador» deste bloco, com data e autor.
+- [x] Se a decisão pedir implementação, o credor abre-se como ticket, com dependências e arestas no KAM-074. Se não pedir, o `escopo.md` §6 diz o que ficou decidido.
+- [x] Nenhum texto público descreve como contornar o portão ou o `audit_log`.
 
 ### Detalhes Técnicos
 
@@ -2562,13 +2563,13 @@ Levar ao fundador as opções, com prós e contras, para que decida antes de o r
 
 ### Definition of Done
 
-- [ ] Critérios satisfeitos, com a decisão do fundador registada.
-- [ ] O pacote do revisor (`../docs/seguranca/revisao_independente/escopo.md`) aponta a decisão.
+- [x] Critérios satisfeitos, com a decisão do fundador registada.
+- [x] O pacote do revisor (`../docs/seguranca/revisao_independente/escopo.md`) aponta a decisão.
 
 ### Opções para o fundador
 
-Escritas a 2026-11-27 sobre a `publico/main` em `b81c439c`, para o fundador decidir. **Nenhuma
-está escolhida.** Descrevem propriedades a ter, não a forma de as pôr à prova. O que fica por
+Escritas a 2026-11-27 sobre a `publico/main` em `b81c439c`, para o fundador decidir. Foram escritas
+antes da decisão, que está em «Decisões do fundador», abaixo. Descrevem propriedades a ter, não a forma de as pôr à prova. O que fica por
 endurecer no portão é do KAM-261 (a L-35 do espelho privado) e não entra aqui.
 
 **De onde se parte.** São factos lidos nos ficheiros. Nenhum foi medido num *host*, porque
@@ -2781,6 +2782,37 @@ A opção 4 não mantém estas propriedades, e di-lo.
    das catorze áreas trata do acesso privilegiado. Sem área nova, os ensaios marcados acima
    como «fora das duas» ficam com o KAM-261.
 
+### Decisões do fundador
+
+| Data | Autor | Pergunta | Decisão |
+|---|---|---|---|
+| 2026-11-27 | O fundador (respondida no chat da coordenação, e trazida por ela) | 1. Que opção? E, se for a 3, a entrada num contentor fica ligada ao perfil de cada chave ou vale para todas as sessões? | **Opção 3, com perfil por chave**, como a recomendação. A chave do revisor, em `staging`, tem só a entrada num contentor. As chaves de operação têm as acções e não têm a entrada num contentor. **Recusadas:** a 1, a 2 sem a entrada num contentor e a 4 |
+| 2026-11-27 | O fundador (respondida no chat da coordenação, e trazida por ela) | 2. O que entra nas acções de operação? | A **leitura** (o estado dos serviços e os logs de um serviço) e o **reinício** de um serviço da lista |
+| 2026-11-27 | O fundador (respondida no chat da coordenação, e trazida por ela) | 3. Como se registam as acções? | **(a)**: uma linha por acção no `audit_log`, com falha fechada. A acção nova do domínio e a migração ficam com o credor, o KAM-263. Este ticket não tem esquema |
+| 2026-11-27 | O fundador (respondida no chat da coordenação, e trazida por ela) | 4. Um incidente em `prod` que a opção escolhida não cubra? | A consola do fornecedor **fica aceite como último recurso** quando nenhuma opção cobre o incidente. Fica fora do `audit_log` e da regra (5) do `../docs/tecnica/08_Seguranca_Conformidade.md` §3.3, com um registo escrito depois, também fora do `audit_log` |
+| 2026-11-27 | O fundador (respondida no chat da coordenação, e trazida por ela) | 5. O portão entra no âmbito do revisor como área nova? | **Sim:** a área 15 do `../docs/seguranca/revisao_independente/escopo.md` §2, o acesso de excepção |
+
+### Verificação dos Critérios de Aceitação
+
+Sete caixas (5 critérios e 2 linhas de DoD), **sete marcadas**. Medido no ramo
+`feature/KAM-262-breakglass-opcoes` sobre a base `b81c439c`, a 2026-11-27. É um *spike* que
+desenha e não implementa, pelo que nenhuma caixa pede ensaio de código.
+
+| # | Critério | Estado | Evidência | Credor |
+|---|---|---|---|---|
+| 1 | Pelo menos três opções, uma delas só a *shell* sem privilégios, cada uma com o que a sessão pode fazer, o que fica e não fica no `audit_log`, o risco, o custo e o que o revisor testa nas áreas 6 e 14 | **satisfeito** | A secção «Opções para o fundador», acima, tem quatro opções. A opção 1 é o estado actual. Cada uma tem os cinco campos, e a tabela «Lado a lado» resume-as. Cada opção foi lida contra o `../infra/ENVIRONMENTS.md` §2.0 e contra o `../docs/tecnica/08_Seguranca_Conformidade.md` §3.3, como os «Testes Requeridos» pedem. Uma revisão adversarial, num subagente independente, devolveu 17 achados. Os confirmados ficaram corrigidos no texto antes de ir ao fundador: a âncora fora do *host* é do KAM-079, a igualdade dos dois ambientes na matriz, o critério 2 do KAM-259, a sessão com a base em baixo, o resumo por *hash*, e a correspondência das áreas. Os dois plausíveis (o prazo dentro de um contentor e a exclusão da base) entraram como propriedades a exigir | — |
+| 2 | A recomendação marcada como tal, com as perguntas que só o fundador responde, sem o executor escolher | **satisfeito** | O bloco «Recomendação da coordenação» começa por «**Recomendação** (não é decisão; o fundador escolhe)». Seguem-se cinco perguntas. O texto que foi ao fundador está no *commit* `57698c23` e não escolhia nenhuma opção | — |
+| 3 | A decisão do fundador registada em «Decisões do fundador», com data e autor | **satisfeito** | A secção acima: cinco linhas de 2026-11-27, uma por pergunta, com o autor «o fundador (respondida no chat da coordenação, e trazida por ela)» e as opções recusadas | — |
+| 4 | Se a decisão pedir implementação, o credor abre-se como ticket, com dependências e arestas no KAM-074 | **satisfeito** | O **KAM-263**, abaixo, é o menor número livre. Foi medido a 2026-11-27 pelo §4 da `publico/main` em `b81c439c` (o maior era o 262), pelo `gh pr list` (nenhum PR aberto) e pelo `git ls-remote` (nenhum ramo com o 263). Depende do KAM-259 e do KAM-262 e bloqueia o KAM-074. As arestas recíprocas estão nas `Dependências` do KAM-074 (EPIC-07 e §4 do INDICE) e no `Bloqueia` do KAM-259 e deste bloco. Em `python -m lint_backlog --root .. check`, conforme, com 263 linhas no §4 | — |
+| 5 | Nenhum texto público descreve como contornar o portão ou o `audit_log` | **satisfeito** | As opções descrevem propriedades a ter, e não a forma de as pôr à prova. O que fica por endurecer no portão é citado só como «a L-35 do espelho privado». A revisão adversarial procurou esse defeito e não o encontrou. A correcção da âncora retirou a afirmação sem a trocar por uma descrição da fraqueza. A mesma leitura foi feita ao texto novo do KAM-263 e do `escopo.md` | — |
+
+#### Definition of Done
+
+| # | Linha | Estado | Evidência | Credor |
+|---|---|---|---|---|
+| 1 | Critérios satisfeitos, com a decisão do fundador registada | **satisfeito** | Os cinco acima, e as «Decisões do fundador» | — |
+| 2 | O pacote do revisor aponta a decisão | **satisfeito** | O [`../docs/seguranca/revisao_independente/escopo.md`](../docs/seguranca/revisao_independente/escopo.md) foi actualizado em três secções. O §2 ganha a área 15 (o acesso de excepção). O §4 reescreve o A5, que passa a ser feito pela sessão auditada, com o perfil de revisão. O §6 diz que a decisão está tomada e que a implementação é do KAM-263. É a versão 0.5 | — |
+
 ### Handoff para Claude Code
 
 ```text
@@ -2789,6 +2821,102 @@ Lê specs/EPIC-08_Topologia_Operacao.md (blocos KAM-259 e KAM-262), infra/ENVIRO
 Objectivo: opções com prós e contras para o fundador decidir; este ticket desenha e não implementa.
 Regras: não escolhes; a decisão é do fundador e chega pela coordenação; nada público descreve como contornar o portão.
 Testes: nenhum de código.
+```
+
+---
+
+## KAM-263 — As acções da sessão de *break-glass* por perfil de chave: leitura, reinício e entrada num contentor, cada uma com a sua linha no `audit_log`
+
+| Campo | Valor |
+|---|---|
+| Epic | EPIC-08 — Topologia e Operação |
+| Fase | 1 |
+| Tipo | feature |
+| Prioridade | P0 |
+| Estimativa | M |
+| Dependências | KAM-259, KAM-262 |
+| Bloqueia | KAM-074 |
+| Responsável sugerido | Plataforma/SRE (com Responsável de Segurança) |
+| Documentos de referência | o bloco do KAM-262 («Opções para o fundador» e «Decisões do fundador»), `../infra/modules/host-base/kamba_breakglass.py`, `../infra/modules/host-base/cloud-init.yaml.tftpl`, `../infra/ENVIRONMENTS.md` (§2.0), `../db/migrations/versions/0093_breakglass_auditado.py`, `../docs/seguranca/revisao_independente/escopo.md` (§2, área 15; §4, acesso A5) |
+
+### Contexto
+
+Credor do KAM-074, aberto no PR do KAM-262 pela decisão do fundador de 2026-11-27, registada no
+bloco do KAM-262. A decisão é a opção 3, com perfil por chave: acções de leitura e de reinício,
+uma linha por acção no `audit_log`.
+
+O KAM-259 abre uma *shell* sem privilégios na conta `breakglass`. Este ticket acrescenta-lhe as
+acções que o fundador decidiu. Cada chave tem um perfil, e cada acção deixa a sua linha antes
+de correr.
+
+### Objectivo
+
+Que cada chave de *break-glass* declare o seu perfil, e que a sessão dessa chave só possa fazer
+as acções do perfil, cada uma registada no `audit_log` antes de correr.
+
+### Critérios de Aceitação
+
+- [ ] **O perfil.** Cada chave da lista de *break-glass* de um ambiente declara o seu perfil,
+  de um conjunto fechado:
+  - o de **revisão**, só com a entrada num contentor;
+  - o de **operação**, com a leitura (o estado dos serviços e os logs de um serviço) e com o
+    reinício de um serviço.
+
+  Uma chave sem perfil válido não abre sessão (falha fechada; *proposta*, a confirmar com o
+  Responsável de Segurança).
+- [ ] **O comando.** As acções correm por um comando fixo que o portão controla, sobre serviços
+  de uma lista fechada e sem argumentos livres. A conta continua fora do grupo `docker` e sem
+  `sudo` livre, e a lista não inclui a base.
+- [ ] **O registo.** Cada acção escreve uma linha no `audit_log` antes de correr, com o
+  identificador da sessão, a acção e o serviço no resumo. Se a escrita falhar, a acção não corre
+  (falha fechada).
+  - A acção nova do domínio de `audit_log.action` entra numa migração própria, na vaga a
+    seguir à `0093`, com a emenda ao dicionário.
+  - O nome da acção propõe-se no dicionário antes de entrar no código.
+- [ ] **A entrada num contentor.** A sessão entra como o utilizador sem privilégios do serviço,
+  sem privilégios, montagens nem redes acrescidas. O prazo e o fim da sessão valem também dentro
+  do contentor.
+- [ ] **Os ensaios.** Provam, contra um PostgreSQL real, a falha fechada de cada acção, a recusa
+  de uma acção fora do perfil e a recusa de um contentor fora da lista. O que só um *host* mede
+  fica escrito como NÃO VERIFICADO até ao KAM-077, como no KAM-259.
+- [ ] **A matriz e o pacote do revisor.** O `../infra/ENVIRONMENTS.md` §2.0 ganha os perfis, com
+  o `env_lint` verde. O `../docs/seguranca/revisao_independente/escopo.md` §4 aponta o perfil de
+  revisão.
+- [ ] **Nada versionado.** Nenhum segredo, chave ou endereço de máquina em ficheiro versionado.
+
+### Detalhes Técnicos
+
+- **Componentes:** o portão, o `sudoers` e o `cloud-init` do `host-base`, o `audit_log` e a
+  matriz de ambientes.
+- **Esquema:** uma migração, com a acção nova do domínio. Toma a vaga seguinte à última
+  revisão da `main` no momento de escrever, com uma revisão por fundir de cada vez.
+- **Ao lado do KAM-261:** endurece o mesmo portão, mas este ticket não depende do resultado dele
+  e não espera pelo *host*. Os dois fundem um de cada vez, e quem funde em segundo integra.
+- **Fora do âmbito:**
+  - o endurecimento do portão (KAM-261);
+  - a consola do fornecedor como último recurso, que o fundador aceitou fora do `audit_log`
+    (bloco do KAM-262, pergunta 4).
+
+### Testes Requeridos
+
+- Cada acção com e sem a escrita da sua linha, contra um PostgreSQL real.
+- Uma chave sem perfil, e uma acção fora do perfil, recusadas.
+- A entrada num contentor sem privilégio acrescido, e um contentor fora da lista recusado.
+
+### Definition of Done
+
+- [ ] Critérios satisfeitos, com o comando de cada medição registado.
+- [ ] O OpenTofu renderiza `staging` e `prod`, e o programa embutido é igual byte a byte ao versionado.
+
+### Handoff para Claude Code
+
+```text
+És o executor do ticket KAM-263 da KAMBÁ (as acções da sessão de break-glass por perfil de chave).
+Lê specs/EPIC-08_Topologia_Operacao.md (blocos KAM-259, KAM-261, KAM-262 e KAM-263), infra/ENVIRONMENTS.md §2.0,
+infra/modules/host-base/ e db/migrations/versions/0093_breakglass_auditado.py.
+Objectivo: cada chave declara um perfil; a sessão só faz as acções dele, cada uma com a sua linha no audit_log antes de correr.
+Regras: falha fechada; uma migração, na vaga seguinte; a lista não inclui a base; o texto público não descreve como contornar o portão.
+Testes: cada acção com e sem a escrita, contra PostgreSQL real; recusas fora do perfil e fora da lista.
 ```
 
 ---
@@ -2874,3 +3002,4 @@ Testes: nenhum de código.
 | 1.39 | Novembro 2026 | **KAM-260 entregue.** O ensaio do `docker inspect` dos serviços de `prod` (`compose_prod inspeccao`, com canário e prova de entrega, no gate 6 pelo alvo `compose-prod-inspeccao`), e o endurecimento que o deixa verde: os segredos de `prod` passam do `environment:` para um ficheiro por serviço, montado só de leitura e carregado pelo `lancador.sh` (decisão do fundador de 2026-11-27, opção B, com emenda *proposta* ao `ADR-L002` §1 e §3 no §8 dele). Sete caixas, sete marcadas. | Equipa KAMBÁ |
 | 1.40 | Novembro 2026 | **KAM-259 entregue.** O acesso de excepção a um *host* de `staging` e de `prod` entra pela conta `breakglass` do `host-base`, cujo portão escreve `breakglass.open` no `audit_log` antes de abrir a *shell* e `breakglass.close` quando ela fecha; revisão `0093` com o fecho, o papel `kamba_breakglass` e a porta `breakglass_registar`, pela decisão do fundador de 2026-11-25 (opção A, registada no bloco). As sete caixas marcadas com evidência; o que só um *host* mede fica dito na verificação. | Equipa KAMBÁ |
 | 1.41 | Novembro 2026 | **KAM-261 e KAM-262** acrescentados, credores do KAM-074, abertos pela coordenação do lote 25 pela decisão do fundador de 2026-11-27 sobre a revisão adversarial do KAM-259. O primeiro endurece o portão do *break-glass* e verifica-o num *host*. O segundo desenha, para o fundador decidir, o que a sessão pode fazer além da *shell*. O `Bloqueia` do KAM-259 e do KAM-077 ganha as arestas recíprocas. Nenhuma caixa muda. Números provisórios: renumeram-se na integração. | Coordenação do lote 25 |
+| 1.42 | Novembro 2026 | **KAM-262 entregue.** O bloco tem as opções que foram ao fundador e a decisão dele de 2026-11-27: a opção 3, com as acções por perfil de chave (leitura e reinício para as chaves de operação, só a entrada num contentor para a do revisor) e uma linha por acção no `audit_log`. As sete caixas estão marcadas com evidência. **KAM-263** acrescentado, credor do KAM-074, com a implementação e a migração da acção nova. O `Bloqueia` do KAM-259 e do KAM-262 ganha a aresta recíproca. Número provisório: renumera-se na integração. | Equipa KAMBÁ |
